@@ -112,8 +112,9 @@ open name opts =
     withCString name  $ \cname ->
     withCOptions opts $ \copts ->
     alloca            $ \cerr  ->
-    liftM DB $
-        throwIfErr "open" cerr $ c_leveldb_open copts cname
+        liftM DB
+        $ throwIfErr "open" cerr
+        $ c_leveldb_open copts cname
 
 -- | Close the given leveldb database
 close :: DB -> IO ()
@@ -125,7 +126,8 @@ destroy name opts =
     withCString name  $ \cname ->
     withCOptions opts $ \copts ->
     alloca            $ \cerr ->
-    throwIfErr "destroy" cerr $ c_leveldb_destroy_db copts cname
+        throwIfErr "destroy" cerr
+        $ c_leveldb_destroy_db copts cname
 
 -- | Write a key/value pair
 put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
@@ -134,10 +136,10 @@ put (DB db) opts key value =
     UB.unsafeUseAsCStringLen value $ \(v,vl) ->
     withCWriteOptions opts         $ \copts  ->
     alloca                         $ \cerr   -> do
-    let klen = fromIntegral kl
-        vlen = fromIntegral vl
-    throwIfErr "put" cerr $
-        c_leveldb_put db copts k klen v vlen
+        throwIfErr "put" cerr
+        $ c_leveldb_put db copts
+                        k (fromIntegral kl)
+                        v (fromIntegral vl)
 
 -- | Read a value by key
 get :: DB -> ReadOptions -> ByteString -> IO (Maybe ByteString)
@@ -146,13 +148,13 @@ get (DB db) opts key =
     withCReadOptions opts        $ \copts  ->
     alloca                       $ \cerr   ->
     alloca                       $ \vl     -> do
-    v    <- throwIfErr "get" cerr $
-                c_leveldb_get db copts k (fromIntegral kl) vl
-    vlen <- peek vl
-    if v /= nullPtr
-        then liftM Just $
-                 SB.packCStringLen (v, fromInteger . toInteger $ vlen)
-        else return Nothing
+        v    <- throwIfErr "get" cerr
+                $ c_leveldb_get db copts k (fromIntegral kl) vl
+        vlen <- peek vl
+        if v /= nullPtr
+            then liftM Just
+                 $ SB.packCStringLen (v, fromInteger . toInteger $ vlen)
+            else return Nothing
 
 -- | Delete a key/value pair
 delete :: DB -> WriteOptions -> ByteString -> IO ()
@@ -160,8 +162,8 @@ delete (DB db) opts key =
     UB.unsafeUseAsCStringLen key $ \(k,kl) ->
     withCWriteOptions opts       $ \copts  ->
     alloca                       $ \cerr   ->
-    throwIfErr "delete" cerr $
-        c_leveldb_delete db copts k (fromIntegral kl)
+        throwIfErr "delete" cerr
+        $ c_leveldb_delete db copts k (fromIntegral kl)
 
 -- | Perform a batch mutation
 write :: DB -> WriteOptions -> WriteBatch -> IO ()
@@ -169,8 +171,8 @@ write (DB db) opts batch =
     withCWriteOptions opts $ \copts  ->
     withCWriteBatch batch  $ \cbatch ->
     alloca                 $ \cerr   ->
-    throwIfErr "write" cerr $
-        c_leveldb_write db copts cbatch
+        throwIfErr "write" cerr
+        $ c_leveldb_write db copts cbatch
 
     where
         withCWriteBatch b f = do
@@ -183,13 +185,13 @@ write (DB db) opts batch =
         batchAdd cbatch (Put key val) =
             UB.unsafeUseAsCStringLen key $ \(k,kl) ->
             UB.unsafeUseAsCStringLen val $ \(v,vl) ->
-            c_leveldb_writebatch_put cbatch
-                                     k (fromIntegral kl)
-                                     v (fromIntegral vl)
+                c_leveldb_writebatch_put cbatch
+                                         k (fromIntegral kl)
+                                         v (fromIntegral vl)
 
         batchAdd cbatch (Del key) =
             UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-            c_leveldb_writebatch_delete cbatch k (fromIntegral kl)
+                c_leveldb_writebatch_delete cbatch k (fromIntegral kl)
 
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
@@ -201,7 +203,7 @@ withIterator db opts = bracket (iterOpen db opts) iterClose
 iterOpen :: DB -> ReadOptions -> IO Iterator
 iterOpen (DB db) opts =
     withCReadOptions opts $ \copts ->
-    liftM Iterator
+        liftM Iterator
         $ throwErrnoIfNull "create_iterator"
         $ c_leveldb_create_iterator db copts
 
@@ -222,7 +224,7 @@ iterValid (Iterator iter) = do
 iterSeek :: Iterator -> ByteString -> IO ()
 iterSeek (Iterator iter) key =
     UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-    c_leveldb_iter_seek iter k (fromIntegral kl)
+        c_leveldb_iter_seek iter k (fromIntegral kl)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
@@ -249,20 +251,20 @@ iterPrev (Iterator iter) = c_leveldb_iter_prev iter
 iterKey :: Iterator -> IO ByteString
 iterKey (Iterator iter) =
     alloca $ \clen -> do
-    key  <- c_leveldb_iter_key iter clen
-    klen <- peek clen
-    if key /= nullPtr
-        then SB.packCStringLen (key, fromInteger . toInteger $ klen)
-        else ioError $ userError "null key"
+        key  <- c_leveldb_iter_key iter clen
+        klen <- peek clen
+        if key /= nullPtr
+            then SB.packCStringLen (key, fromInteger . toInteger $ klen)
+            else ioError $ userError "null key"
 
 -- | Return the value for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
 iterValue :: Iterator -> IO ByteString
 iterValue (Iterator iter) =
     alloca $ \clen -> do
-    val  <- c_leveldb_iter_value iter clen
-    vlen <- peek clen
-    SB.packCStringLen (val, fromInteger . toInteger $ vlen)
+        val  <- c_leveldb_iter_value iter clen
+        vlen <- peek clen
+        SB.packCStringLen (val, fromInteger . toInteger $ vlen)
 
 
 -- | Internal
