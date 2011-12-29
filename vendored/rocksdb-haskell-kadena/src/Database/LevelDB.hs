@@ -15,11 +15,14 @@ module Database.LevelDB (
   , withLevelDB
   , open
   , close
-  , destroy
   , put
   , delete
   , write
   , get
+
+  -- * Administrative Functions
+  , destroy
+  , repair
 
   -- * Iteration
   , Iterator
@@ -128,6 +131,15 @@ destroy name opts =
     alloca            $ \cerr ->
         throwIfErr "destroy" cerr
         $ c_leveldb_destroy_db copts cname
+
+-- | Repair the given leveldb database.
+repair :: String -> Options -> IO ()
+repair name opts =
+    withCString name  $ \cname ->
+    withCOptions opts $ \copts ->
+    alloca            $ \cerr  ->
+        throwIfErr "repair" cerr
+        $ c_leveldb_repair_db copts cname
 
 -- | Write a key/value pair
 put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
