@@ -10,6 +10,7 @@ module Database.LevelDB (
   , Compression(..)
   , WriteBatch
   , BatchOp(..)
+  , Comparator
 
   -- * Basic Database Manipulation
   , withLevelDB
@@ -64,6 +65,8 @@ newtype DB = DB { _ldb :: LevelDBPtr }
 -- | Iterator Handle
 newtype Iterator = Iterator { _iter :: IteratorPtr }
 
+type Comparator = ByteString -> ByteString -> Ordering
+
 data Compression = NoCompression
                  | Snappy
                  deriving (Eq, Show)
@@ -77,9 +80,9 @@ data Option = CreateIfMissing
             | BlockSize Int
             | BlockRestartInterval Int
             | UseCompression Compression
-            -- logger
-            -- comparator
-            deriving (Eq, Show)
+            | UseComparator String Comparator
+            -- | Uselogger Logger
+            -- deriving (Eq, Show)
 
 type WriteOptions = [WriteOption]
 data WriteOption  = Sync
@@ -95,6 +98,7 @@ type WriteBatch = [BatchOp]
 data BatchOp = Put ByteString ByteString
              | Del ByteString
              deriving (Show)
+
 
 -- | Default options acc. to util/options.cc
 defaultOptions :: Options
@@ -248,12 +252,12 @@ iterFirst (Iterator iter) = c_leveldb_iter_seek_to_first iter
 iterLast :: Iterator -> IO ()
 iterLast (Iterator iter) = c_leveldb_iter_seek_to_last iter
 
--- | Moves to the next entry in the source. After this call, /iterValid/ is
+-- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned the last entry in the source.
 iterNext :: Iterator -> IO ()
 iterNext (Iterator iter) = c_leveldb_iter_next iter
 
--- | Moves to the previous entry in the source. After this call, /iterValid/ is
+-- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
 iterPrev :: Iterator -> IO ()
 iterPrev (Iterator iter) = c_leveldb_iter_prev iter
@@ -309,6 +313,13 @@ withCOptions opts f = do
             c_leveldb_options_set_compression copts noCompression
         setopt copts (UseCompression Snappy) =
             c_leveldb_options_set_compression copts snappyCompression
+        setopt copts (UseComparator s cmp) =
+            withCString s $ \cs -> do
+                ccmpf <- mkCmp  $ comparator cmp
+                cdest <- mkDest $ \_ -> ()
+                cname <- mkName $ \_ -> cs
+                ccmp  <- c_leveldb_comparator_create nullPtr cdest ccmpf cname
+                c_leveldb_options_set_comparator copts ccmp
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
@@ -343,3 +354,15 @@ throwIfErr s cerr f = do
         err <- peekCString erra
         ioError $ userError $ s ++ ": " ++ err
     return res
+
+comparator :: Comparator -> CompareFun
+comparator cmp = cmp'
+    where
+        cmp' _ a alen b blen = do
+            a' <- SB.packCStringLen (a, fromInteger . toInteger $ alen)
+            b' <- SB.packCStringLen (b, fromInteger . toInteger $ blen)
+            return $
+                case (cmp a' b') of
+                    EQ -> 0
+                    GT -> 1
+                    LT -> -1

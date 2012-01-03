@@ -16,15 +16,13 @@ main = do
             get db ropts "foo" >>= print
 
         trace "write batch:" $ do
-            write db wopts [ Put "one" "one"
-                           , Put "two" "two"
-                           , Put "three" "three" ]
+            write db wopts [ Put "a" "one"
+                           , Put "b" "two"
+                           , Put "c" "three" ]
             dumpEntries db ropts
 
         trace "delete batch:" $ do
-            write db wopts [ Del "one"
-                           , Del "two"
-                           , Del "three" ]
+            write db wopts [ Del "a", Del "b", Del "c" ]
             dumpEntries db ropts
 
     trace "destroy database" $ destroy dbdir opts
@@ -32,7 +30,8 @@ main = do
     where
         dbdir = "/tmp/leveltest"
 
-        opts  = defaultOptions
+        opts  = [ CreateIfMissing
+                , UseComparator "lexicographic" compare ]
         wopts = defaultWriteOptions
         ropts = defaultReadOptions
 
