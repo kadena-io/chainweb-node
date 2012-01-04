@@ -1,19 +1,40 @@
-BIN = cabal-dev/bin
-LEVELDB = /Users/kim/src/vendor/c/leveldb
-
 VERBOSITY ?= 1
 
-all :
-		cabal-dev install \
---verbose=$(VERBOSITY) \
---extra-include-dirs=$(LEVELDB)/include \
---extra-lib-dirs=$(LEVELDB) \
---solver=modular \
---force-reinstalls
+BIN = cabal-dev/bin
 
-test :
+LEVELDBDIR = `pwd`/leveldb
+LIBLEVELDB = $(LEVELDBDIR)/libleveldb.a
+
+LIBHSLEVELDB = dist/build/libHSleveldb-haskell-*.a
+EXECUTABLES  = dist/test/test
+
+HADDOCK = dist/doc/html/leveldb-haskell/*.html
+HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
+
+.PHONY: all test doc clean
+
+all : $(LIBLEVELDB) $(LIBHSLEVELDB)
+
+test : $(EXECUTABLES)
 		$(BIN)/test
 
-doc :
-		runhaskell Setup.hs haddock
-		runhaskell Setup.hs haddock --hoogle --hyperlink-source
+doc : $(HADDOCK) $(HOOGLE)
+
+clean :
+		rm -r dist/
+
+$(LIBLEVELDB) :
+		(cd leveldb && make && cd -)
+
+$(HADDOCK) :
+		runhaskell Setup.hs haddock --hyperlink-source
+
+$(HOOGLE) :
+		runhaskell Setup.hs haddock --hoogle
+
+$(LIBHSLEVELDB) $(EXECUTABLES) :
+		cabal-dev install \
+--verbose=$(VERBOSITY) \
+--extra-lib-dirs=$(LEVELDBDIR) \
+--solver=modular \
+--force-reinstalls
