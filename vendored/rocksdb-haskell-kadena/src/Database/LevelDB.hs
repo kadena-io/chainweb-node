@@ -53,8 +53,6 @@ import Foreign.C.Error   (throwErrnoIfNull)
 import Foreign.C.String  (withCString, peekCString)
 
 import Database.LevelDB.Base
-import Database.LevelDB.Safe
-import Database.LevelDB.Unsafe
 
 import qualified Data.ByteString as SB
 import qualified Data.ByteString.Unsafe as UB
