@@ -15,8 +15,6 @@ library
   exposed-modules:  Database.LevelDB
   other-modules:    Database.LevelDB.Base
                   , Database.LevelDB.Comparators
-                  , Database.LevelDB.Safe
-                  , Database.LevelDB.Unsafe
   extensions:       CPP, ForeignFunctionInterface
   build-depends:    base >= 3 && < 5
                   , bytestring
