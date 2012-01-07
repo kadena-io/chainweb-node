@@ -14,15 +14,13 @@ cabal-version:       >=1.8
 library
   exposed-modules:  Database.LevelDB
   other-modules:    Database.LevelDB.Base
-                  , Database.LevelDB.Comparators
-  extensions:       CPP, ForeignFunctionInterface
+  extensions:       CPP
+                  , ForeignFunctionInterface
   build-depends:    base >= 3 && < 5
                   , bytestring
   ghc-options:      -Wall -O2 -static -optl-static -funbox-strict-fields
   ghc-prof-options: -prof -auto-all
   hs-source-dirs:   src
-  c-sources:        cbits/numcmp_comparator.c
-                  , cbits/strcmp_comparator.c
   includes:         leveldb/c.h
   extra-libraries:  leveldb, snappy, stdc++
   include-dirs:     leveldb/include

@@ -67,9 +67,7 @@ newtype Iterator = Iterator { _iter :: IteratorPtr }
 
 type Comparator = ByteString -> ByteString -> Ordering
 
-data Compression = NoCompression
-                 | Snappy
-                 deriving (Eq, Show)
+data Compression = NoCompression | Snappy deriving (Eq, Show)
 
 type Options = [Option]
 data Option = CreateIfMissing
@@ -81,12 +79,9 @@ data Option = CreateIfMissing
             | BlockRestartInterval Int
             | UseCompression Compression
             | UseComparator String Comparator
-            -- Uselogger Logger
-            -- deriving (Eq, Show)
 
 type WriteOptions = [WriteOption]
-data WriteOption  = Sync
-                  deriving (Show)
+data WriteOption  = Sync deriving (Show)
 
 type ReadOptions = [ReadOption]
 data ReadOption  = VerifyCheckSums
@@ -95,9 +90,7 @@ data ReadOption  = VerifyCheckSums
                  deriving (Eq, Show)
 
 type WriteBatch = [BatchOp]
-data BatchOp = Put ByteString ByteString
-             | Del ByteString
-             deriving (Show)
+data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
 
 
 -- | Default options acc. to util/options.cc
