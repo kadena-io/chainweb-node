@@ -2,9 +2,12 @@
 module Main where
 
 import Control.Monad
-import Database.LevelDB
 import Data.ByteString.Char8 hiding (take)
+
+import Database.LevelDB
+
 import Debug.Trace
+
 
 main :: IO ()
 main = do
