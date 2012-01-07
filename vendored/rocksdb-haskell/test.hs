@@ -34,9 +34,10 @@ main = do
         dbdir = "/tmp/leveltest"
 
         opts  = [ CreateIfMissing
-                , UseComparator "lexicographic" compare ]
-        wopts = defaultWriteOptions
-        ropts = defaultReadOptions
+                , UseCache 1024
+                , UseComparator $ mkComparator "lexicographic" compare ]
+        wopts = []
+        ropts = [ FillCache ]
 
         dumpEntries db ropts =
             withIterator db ropts $ \iter -> do
