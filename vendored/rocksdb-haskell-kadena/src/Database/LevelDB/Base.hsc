@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, ForeignFunctionInterface #-}
+{-# LANGUAGE CPP, ForeignFunctionInterface, EmptyDataDecls #-}
 
 module Database.LevelDB.Base where
 
@@ -8,24 +8,39 @@ import Foreign.C.String
 
 #include <leveldb/c.h>
 
-data LevelDB = LevelDB
-type LevelDBPtr = Ptr LevelDB
+data LevelDB
+data LCache
+data LComparator
+data LEnv
+data LIterator
+data LLogger
+data LOptions
+data LReadOptions
+data LSnapshot
+data LWriteBatch
+data LWriteOptions
 
--- exported types are just opaque pointers
-type CachePtr        = Ptr ()
-type ComparatorPtr   = Ptr ()
-type EnvPtr          = Ptr ()
-type FileLockPtr     = Ptr ()
-type IteratorPtr     = Ptr ()
-type LoggerPtr       = Ptr ()
-type OptionsPtr      = Ptr ()
-type RandomFilePtr   = Ptr ()
-type ReadOptionsPtr  = Ptr ()
-type SeqfilePtr      = Ptr ()
-type SnapshotPtr     = Ptr ()
-type WritableFilePtr = Ptr ()
-type WriteBatchPtr   = Ptr ()
-type WriteOptionsPtr = Ptr ()
+type LevelDBPtr      = Ptr LevelDB
+type CachePtr        = Ptr LCache
+type ComparatorPtr   = Ptr LComparator
+type EnvPtr          = Ptr LEnv
+type IteratorPtr     = Ptr LIterator
+type LoggerPtr       = Ptr LLogger
+type OptionsPtr      = Ptr LOptions
+type ReadOptionsPtr  = Ptr LReadOptions
+type SnapshotPtr     = Ptr LSnapshot
+type WriteBatchPtr   = Ptr LWriteBatch
+type WriteOptionsPtr = Ptr LWriteOptions
+
+-- exposed but not used
+data LFileLock
+data LRandomFile
+data LSeqfile
+data LWritableFile
+type FileLockPtr     = Ptr LFileLock
+type RandomFilePtr   = Ptr LRandomFile
+type WritableFilePtr = Ptr LWritableFile
+type SeqfilePtr      = Ptr LSeqfile
 
 type DBName = CString
 type ErrPtr = Ptr CString
@@ -144,8 +159,8 @@ foreign import ccall unsafe "leveldb/c.h leveldb_iter_get_error"
 foreign import ccall unsafe "leveldb/c.h leveldb_writebatch_create"
   c_leveldb_writebatch_create :: IO WriteBatchPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_writebatch_destroy"
-  c_leveldb_writebatch_destroy :: WriteBatchPtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_writebatch_destroy"
+  c_leveldb_writebatch_destroy :: FunPtr (WriteBatchPtr -> IO ())
 
 foreign import ccall unsafe "leveldb/c.h leveldb_writebatch_clear"
   c_leveldb_writebatch_clear :: WriteBatchPtr -> IO ()
@@ -171,8 +186,8 @@ foreign import ccall unsafe "leveldb/c.h leveldb_writebatch_iterate"
 foreign import ccall unsafe "leveldb/c.h leveldb_options_create"
   c_leveldb_options_create :: IO OptionsPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_options_destroy"
-  c_leveldb_options_destroy :: OptionsPtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_options_destroy"
+  c_leveldb_options_destroy :: FunPtr (OptionsPtr -> IO ())
 
 foreign import ccall safe "leveldb/c.h leveldb_options_set_comparator"
   c_leveldb_options_set_comparator :: OptionsPtr -> ComparatorPtr -> IO ()
@@ -207,8 +222,12 @@ foreign import ccall unsafe "leveldb/c.h leveldb_options_set_block_restart_inter
 foreign import ccall unsafe "leveldb/c.h leveldb_options_set_compression"
   c_leveldb_options_set_compression :: OptionsPtr -> CompressionOpt -> IO ()
 
--- ^ Comparator
+foreign import ccall safe "leveldb/c.h leveldb_options_set_cache"
+  c_leveldb_options_set_cache :: OptionsPtr -> CachePtr -> IO ()
 
+--
+-- Comparator
+--
 type StatePtr   = Ptr ()
 type Destructor = StatePtr -> ()
 type CompareFun = StatePtr -> CString -> CSize -> CString -> CSize -> IO CInt
@@ -230,7 +249,7 @@ foreign import ccall unsafe "leveldb/c.h leveldb_comparator_create"
                               -> FunPtr NameFun
                               -> IO ComparatorPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_comparator_destroy"
+foreign import ccall safe "leveldb/c.h leveldb_comparator_destroy"
   c_leveldb_comparator_destroy :: ComparatorPtr -> IO ()
 
 -- ^ Read options
@@ -238,8 +257,8 @@ foreign import ccall unsafe "leveldb/c.h leveldb_comparator_destroy"
 foreign import ccall unsafe "leveldb/c.h leveldb_readoptions_create"
   c_leveldb_readoptions_create :: IO ReadOptionsPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_readoptions_destroy"
-  c_leveldb_readoptions_destroy :: ReadOptionsPtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_readoptions_destroy"
+  c_leveldb_readoptions_destroy :: FunPtr (ReadOptionsPtr -> IO ())
 
 foreign import ccall unsafe "leveldb/c.h leveldb_readoptions_set_verify_checksums"
   c_leveldb_readoptions_set_verify_checksums :: ReadOptionsPtr -> CUChar -> IO ()
@@ -255,8 +274,8 @@ foreign import ccall unsafe "leveldb/c.h leveldb_readoptions_set_snapshot"
 foreign import ccall unsafe "leveldb/c.h leveldb_writeoptions_create"
   c_leveldb_writeoptions_create :: IO WriteOptionsPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_writeoptions_destroy"
-  c_leveldb_writeoptions_destroy :: WriteOptionsPtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_writeoptions_destroy"
+  c_leveldb_writeoptions_destroy :: FunPtr (WriteOptionsPtr -> IO ())
 
 foreign import ccall unsafe "leveldb/c.h leveldb_writeoptions_set_sync"
   c_leveldb_writeoptions_set_sync :: WriteOptionsPtr -> CUChar -> IO ()
@@ -266,13 +285,13 @@ foreign import ccall unsafe "leveldb/c.h leveldb_writeoptions_set_sync"
 foreign import ccall unsafe "leveldb/c.h leveldb_cache_create_lru"
   c_leveldb_cache_create_lru :: CSize -> IO CachePtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_cache_destroy"
-  c_leveldb_cache_destroy :: CachePtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_cache_destroy"
+  c_leveldb_cache_destroy :: FunPtr (CachePtr -> IO ())
 
 -- ^ Env
 
 foreign import ccall unsafe "leveldb/c.h leveldb_create_default_env"
   c_leveldb_create_default_env :: IO EnvPtr
 
-foreign import ccall unsafe "leveldb/c.h leveldb_env_destroy"
-  c_leveldb_env_destroy :: EnvPtr -> IO ()
+foreign import ccall unsafe "leveldb/c.h &leveldb_env_destroy"
+  c_leveldb_env_destroy :: FunPtr (EnvPtr -> IO ())
