@@ -11,7 +11,6 @@ import Foreign.C.String
 data LevelDB
 data LCache
 data LComparator
-data LEnv
 data LIterator
 data LLogger
 data LOptions
@@ -23,7 +22,6 @@ data LWriteOptions
 type LevelDBPtr      = Ptr LevelDB
 type CachePtr        = Ptr LCache
 type ComparatorPtr   = Ptr LComparator
-type EnvPtr          = Ptr LEnv
 type IteratorPtr     = Ptr LIterator
 type LoggerPtr       = Ptr LLogger
 type OptionsPtr      = Ptr LOptions
@@ -32,11 +30,13 @@ type SnapshotPtr     = Ptr LSnapshot
 type WriteBatchPtr   = Ptr LWriteBatch
 type WriteOptionsPtr = Ptr LWriteOptions
 
--- exposed but not used
+-- custom env from haskell doesn't make too much sense
+data LEnv
 data LFileLock
 data LRandomFile
 data LSeqfile
 data LWritableFile
+type EnvPtr          = Ptr LEnv
 type FileLockPtr     = Ptr LFileLock
 type RandomFilePtr   = Ptr LRandomFile
 type WritableFilePtr = Ptr LWritableFile
@@ -103,9 +103,10 @@ foreign import ccall unsafe "leveldb/c.h leveldb_release_snapshot"
 -- | Returns NULL if property name is unknown. Else returns a pointer to a
 -- malloc()-ed null-terminated value.
 foreign import ccall unsafe "leveldb/c.h leveldb_property_value"
-  c_leveldb_property_value :: LevelDBPtr -> CString -> IO (Ptr CString)
+  c_leveldb_property_value :: LevelDBPtr -> CString -> IO CString
 
-foreign import ccall unsafe "leveldb/c.h leveldb_approximate_sizes"
+-- not sure why this needs to be imported safe
+foreign import ccall safe "leveldb/c.h leveldb_approximate_sizes"
   c_leveldb_approximate_sizes :: LevelDBPtr
                               -> CInt                     -- ^ num ranges
                               -> Ptr CString -> Ptr CSize -- ^ range start keys (array)
