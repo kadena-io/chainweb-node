@@ -1,28 +1,31 @@
 module Database.LevelDB (
   -- * Basic Types
     DB
-  , Options
-  , Option(..)
-  , WriteOptions
-  , WriteOption(..)
-  , ReadOptions
-  , ReadOption(..)
-  , Compression(..)
-  , WriteBatch
   , BatchOp(..)
-  , Comparator
-  , mkComparator
+  , Comparator , mkComparator
+  , Compression(..)
+  , Option(..)
+  , Options
+  , ReadOption(..)
+  , ReadOptions
+  , Snapshot
+  , WriteBatch
+  , WriteOption(..)
+  , WriteOptions
 
   -- * Basic Database Manipulation
   , withLevelDB
+  , withSnapshot
   , put
   , delete
   , write
   , get
 
   -- * Administrative Functions
+  , Property(..), getProperty
   , destroy
   , repair
+  , approximateSize
 
   -- * Iteration
   , Iterator
@@ -59,6 +62,9 @@ newtype DB = DB LevelDBPtr
 -- | Iterator handle
 newtype Iterator = Iterator IteratorPtr
 
+-- | Snapshot handle
+newtype Snapshot = Snapshot SnapshotPtr
+
 -- | User-defined comparator
 data Comparator = Comparator (FunPtr CompareFun)
                              (FunPtr Destructor)
@@ -94,25 +100,26 @@ type WriteOptions = [WriteOption]
 data WriteOption  = Sync deriving (Show)
 
 type ReadOptions = [ReadOption]
-data ReadOption  = VerifyCheckSums | FillCache deriving (Eq, Show)
+data ReadOption  = VerifyCheckSums
+                 | FillCache
+                 | UseSnapshot Snapshot
 
 type WriteBatch = [BatchOp]
 data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
 
 
-withLevelDB :: String -> Options -> (DB -> IO a) -> IO a
-withLevelDB name opts = bracket open close
+withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
+withLevelDB path opts = bracket open close
     where
-        open = withCString name  $ \cname ->
+        open = withCString path  $ \cpath ->
                withCOptions opts $ \copts ->
                alloca            $ \cerr  ->
                    liftM DB
                    $ throwIfErr "open" cerr
-                   $ c_leveldb_open copts cname
+                   $ c_leveldb_open copts cpath
 
         close (DB db) = do
-            mapM_ freeComparator
-                  . map (\(UseComparator c) -> c)
+            mapM_ (freeComparator . (\(UseComparator c) -> c))
                   . filter isUseComparator
                   $ opts
             c_leveldb_close db
@@ -120,23 +127,68 @@ withLevelDB name opts = bracket open close
         isUseComparator (UseComparator _) = True
         isUseComparator _                 = False
 
+-- | Run an action with a snapshot of the database.
+withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
+withSnapshot (DB db) f = do
+    snap <- c_leveldb_create_snapshot db
+    res  <- f (Snapshot snap)
+    c_leveldb_release_snapshot db snap
+    return res
+
+--
+-- Properties
+--
+
+data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
+
+-- | Get a DB property
+getProperty :: DB -> Property -> IO (Maybe ByteString)
+getProperty (DB db) p =
+    withCString (prop p) $ \cprop -> do
+        val  <- c_leveldb_property_value db cprop
+        if val == nullPtr
+            then return Nothing
+            else liftM Just $ SB.packCString val
+
+    where
+        prop (NumFilesAtLevel i) = "leveldb.num-files-at-level" ++ show i
+        prop Stats    = "leveldb.stats"
+        prop SSTables = "leveldb.sstables"
+
 -- | Destroy the given leveldb database.
-destroy :: String -> Options -> IO ()
-destroy name opts =
-    withCString name  $ \cname ->
+destroy :: FilePath -> Options -> IO ()
+destroy path opts =
+    withCString path  $ \cpath ->
     withCOptions opts $ \copts ->
     alloca            $ \cerr ->
         throwIfErr "destroy" cerr
-        $ c_leveldb_destroy_db copts cname
+        $ c_leveldb_destroy_db copts cpath
 
 -- | Repair the given leveldb database.
-repair :: String -> Options -> IO ()
-repair name opts =
-    withCString name  $ \cname ->
+repair :: FilePath -> Options -> IO ()
+repair path opts =
+    withCString path  $ \cpath ->
     withCOptions opts $ \copts ->
     alloca            $ \cerr  ->
         throwIfErr "repair" cerr
-        $ c_leveldb_repair_db copts cname
+        $ c_leveldb_repair_db copts cpath
+
+-- TODO: support [Range], like C API does
+type Range  = (ByteString, ByteString)
+approximateSize :: DB -> Range -> IO Int64
+approximateSize (DB db) (from, to) =
+    UB.unsafeUseAsCStringLen from $ \(cfrom, flen) ->
+    UB.unsafeUseAsCStringLen to   $ \(cto, tlen)   ->
+    withArray [cfrom]             $ \cfroms        ->
+    withArray [fromIntegral flen] $ \cflens        ->
+    withArray [cto]               $ \ctos          ->
+    withArray [fromIntegral tlen] $ \ctlens        ->
+    allocaArray 1                 $ \csizes        -> do
+        c_leveldb_approximate_sizes db 1 cfroms cflens ctos ctlens csizes
+        liftM head $ peekArray 1 csizes >>= mapM toInt64
+
+    where
+        toInt64 = return . fromIntegral
 
 -- | Write a key/value pair
 put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
@@ -337,6 +389,8 @@ withCReadOptions opts f = do
             c_leveldb_readoptions_set_verify_checksums copts 1
         setopt copts FillCache =
             c_leveldb_readoptions_set_fill_cache copts 1
+        setopt copts (UseSnapshot (Snapshot snap)) =
+            c_leveldb_readoptions_set_snapshot copts snap
 
 throwIfErr :: String -> ErrPtr -> (ErrPtr -> IO a) -> IO a
 throwIfErr s cerr f = do
