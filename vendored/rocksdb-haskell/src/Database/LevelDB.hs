@@ -2,7 +2,7 @@ module Database.LevelDB (
   -- * Basic Types
     DB
   , BatchOp(..)
-  , Comparator , mkComparator
+  , Comparator(..)
   , Compression(..)
   , Option(..)
   , Options
@@ -66,20 +66,7 @@ newtype Iterator = Iterator IteratorPtr
 newtype Snapshot = Snapshot SnapshotPtr
 
 -- | User-defined comparator
-data Comparator = Comparator (FunPtr CompareFun)
-                             (FunPtr Destructor)
-                             (FunPtr NameFun)
-                             ComparatorPtr
-
--- | Construct a comparator from a name and a compare function
-mkComparator :: String -> (ByteString -> ByteString -> Ordering) -> IO Comparator
-mkComparator name f =
-    withCString name $ \cs -> do
-        ccmpfun <- mkCmp  $ mkCompareFun f
-        cdest   <- mkDest $ \_ -> ()
-        cname   <- mkName $ \_ -> cs
-        ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
-        return $ Comparator ccmpfun cdest cname ccmp
+newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
 
 -- | Compression setting
 data Compression = NoCompression | Snappy deriving (Eq, Show)
@@ -94,7 +81,7 @@ data Option = CreateIfMissing
             | BlockRestartInterval Int
             | UseCache Int
             | UseCompression Compression
-            | UseComparator (IO Comparator)
+            deriving (Eq, Show)
 
 type WriteOptions = [WriteOption]
 data WriteOption  = Sync deriving (Show)
@@ -107,25 +94,24 @@ data ReadOption  = VerifyCheckSums
 type WriteBatch = [BatchOp]
 data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
 
+data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
 
-withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
-withLevelDB path opts = bracket open close
+
+withLevelDB :: FilePath -> Comparator -> Options -> (DB -> IO a) -> IO a
+withLevelDB path cmp opts act =
+    withCString path    $ \cpath ->
+    withCOptions opts   $ \copts ->
+    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
+    alloca              $ \cerr  ->
+        bracket (open cpath copts ccmp cerr) close act
     where
-        open = withCString path  $ \cpath ->
-               withCOptions opts $ \copts ->
-               alloca            $ \cerr  ->
-                   liftM DB
-                   $ throwIfErr "open" cerr
-                   $ c_leveldb_open copts cpath
+        open cpath copts ccmp cerr = do
+            _ <- setComparator copts ccmp
+            p <- throwIfErr "open" cerr $ c_leveldb_open copts cpath
+            return . DB $ p
 
-        close (DB db) = do
-            mapM_ (freeComparator . (\(UseComparator c) -> c))
-                  . filter isUseComparator
-                  $ opts
-            c_leveldb_close db
+        close (DB db) = c_leveldb_close db
 
-        isUseComparator (UseComparator _) = True
-        isUseComparator _                 = False
 
 -- | Run an action with a snapshot of the database.
 withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
@@ -134,12 +120,6 @@ withSnapshot (DB db) f = do
     res  <- f (Snapshot snap)
     c_leveldb_release_snapshot db snap
     return res
-
---
--- Properties
---
-
-data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
 
 -- | Get a DB property
 getProperty :: DB -> Property -> IO (Maybe ByteString)
@@ -156,22 +136,24 @@ getProperty (DB db) p =
         prop SSTables = "leveldb.sstables"
 
 -- | Destroy the given leveldb database.
-destroy :: FilePath -> Options -> IO ()
-destroy path opts =
-    withCString path  $ \cpath ->
-    withCOptions opts $ \copts ->
-    alloca            $ \cerr ->
-        throwIfErr "destroy" cerr
-        $ c_leveldb_destroy_db copts cpath
+destroy :: FilePath -> Comparator -> Options -> IO ()
+destroy path cmp opts =
+    withCString path    $ \cpath ->
+    withCOptions opts   $ \copts ->
+    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
+    alloca              $ \cerr -> do
+        _ <- setComparator copts ccmp
+        throwIfErr "destroy" cerr $ c_leveldb_destroy_db copts cpath
 
 -- | Repair the given leveldb database.
-repair :: FilePath -> Options -> IO ()
-repair path opts =
-    withCString path  $ \cpath ->
-    withCOptions opts $ \copts ->
-    alloca            $ \cerr  ->
-        throwIfErr "repair" cerr
-        $ c_leveldb_repair_db copts cpath
+repair :: FilePath -> Comparator -> Options -> IO ()
+repair path cmp opts =
+    withCString path    $ \cpath ->
+    withCOptions opts   $ \copts ->
+    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
+    alloca              $ \cerr  -> do
+        _ <- setComparator copts ccmp
+        throwIfErr "repair" cerr $ c_leveldb_repair_db copts cpath
 
 -- TODO: support [Range], like C API does
 type Range  = (ByteString, ByteString)
@@ -361,9 +343,6 @@ withCOptions opts f = do
             c_leveldb_options_set_compression copts noCompression
         setopt copts (UseCompression Snappy) =
             c_leveldb_options_set_compression copts snappyCompression
-        setopt copts (UseComparator cmp) = do
-            (Comparator _ _ _ cmp') <- cmp
-            c_leveldb_options_set_comparator copts cmp'
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
@@ -412,10 +391,33 @@ mkCompareFun cmp = cmp'
                          GT ->  1
                          LT -> -1
 
-freeComparator :: IO Comparator -> IO ()
-freeComparator x = do
-    (Comparator ccmpfun cdest cname ccmp) <- x
+data Comparator' = Comparator' (FunPtr CompareFun)
+                               (FunPtr Destructor)
+                               (FunPtr NameFun)
+                               ComparatorPtr
+
+withCComparator :: Comparator -> (Comparator' -> IO a) -> IO a
+withCComparator (Comparator cmp) = bracket (mkComparator "TODO" cmp) freeComparator
+
+mkComparator :: String -> (ByteString -> ByteString -> Ordering) -> IO Comparator'
+mkComparator name f =
+    withCString name $ \cs -> do
+        ccmpfun <- mkCmp  $ mkCompareFun f
+        cdest   <- mkDest $ \_ -> ()
+        cname   <- mkName $ \_ -> cs
+        ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
+        return $ Comparator' ccmpfun cdest cname ccmp
+
+
+freeComparator :: Comparator' -> IO ()
+freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
     freeHaskellFunPtr ccmpfun
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
     c_leveldb_comparator_destroy ccmp
+
+
+setComparator :: OptionsPtr -> ComparatorPtr -> IO OptionsPtr
+setComparator copts ccmp =
+    c_leveldb_options_set_comparator copts ccmp >>
+    return copts
