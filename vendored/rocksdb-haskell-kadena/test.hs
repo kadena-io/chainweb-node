@@ -4,6 +4,7 @@ module Main where
 import Control.Monad
 import Data.ByteString.Char8 hiding (take)
 import Prelude hiding (putStrLn)
+import System.FilePath
 
 import Database.LevelDB
 
@@ -12,7 +13,7 @@ import Debug.Trace
 
 main :: IO ()
 main = do
-    withLevelDB dbdir opts $ \db -> do
+    withLevelDB dbdir comparator opts $ \db -> do
         trace "put / delete:" $ do
             trace ("put") put db wopts "foo" "bar"
             trace ("get") get db ropts "foo" >>= print
@@ -35,19 +36,19 @@ main = do
             getProperty db (NumFilesAtLevel 1) >>= printProperty
 
         trace "delete batch:" $ do
-            write db wopts [ Del "a", Del "b", Del "c" ]
-            dumpEntries db ropts
+            trace ("write") write db wopts [ Del "a", Del "b", Del "c" ]
+            trace ("dump") dumpEntries db ropts
 
-    --trace "destroy database" $ destroy dbdir opts
+    trace "destroy database" $ destroy dbdir comparator opts
 
     where
-        dbdir = "/tmp/leveltest"
+        dbdir = "/" </> "tmp" </> "leveltest"
 
-        opts  = [ CreateIfMissing
-                , UseCache 1024
-                , UseComparator $ mkComparator "lexicographic" compare ]
+        opts  = [ CreateIfMissing, UseCache 1024 ]
         wopts = []
         ropts = [ FillCache ]
+
+        comparator = Comparator compare
 
         dumpEntries db ropts =
             withIterator db ropts $ \iter -> do

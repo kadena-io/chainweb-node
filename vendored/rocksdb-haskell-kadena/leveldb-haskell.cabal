@@ -30,3 +30,4 @@ executable test
   build-depends:    base
                   , leveldb-haskell
                   , bytestring
+                  , filepath
