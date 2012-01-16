@@ -411,10 +411,10 @@ mkComparator name f =
 
 freeComparator :: Comparator' -> IO ()
 freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
+    c_leveldb_comparator_destroy ccmp
     freeHaskellFunPtr ccmpfun
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
-    c_leveldb_comparator_destroy ccmp
 
 
 setComparator :: OptionsPtr -> ComparatorPtr -> IO OptionsPtr
