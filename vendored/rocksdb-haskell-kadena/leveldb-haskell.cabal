@@ -18,7 +18,7 @@ library
                   , ForeignFunctionInterface
   build-depends:    base >= 3 && < 5
                   , bytestring
-  ghc-options:      -Wall -O2 -static -optl-static -funbox-strict-fields
+  ghc-options:      -Wall -O2 -static -optl-static -funbox-strict-fields -rtsopts
   ghc-prof-options: -prof -auto-all
   hs-source-dirs:   src
   includes:         leveldb/c.h
@@ -31,3 +31,4 @@ executable test
                   , leveldb-haskell
                   , bytestring
                   , filepath
+  ghc-options:      -rtsopts -debug
