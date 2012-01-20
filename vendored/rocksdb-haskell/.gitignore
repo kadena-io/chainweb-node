@@ -1,2 +1,6 @@
 cabal-dev
 dist
+tags
+*.o
+*.swp
+*.a

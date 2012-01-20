@@ -13,7 +13,7 @@ import Debug.Trace
 
 main :: IO ()
 main = do
-    withLevelDB dbdir comparator opts $ \db -> do
+    withLevelDB dbdir opts $ \db -> do
         trace "put / delete:" $ do
             trace ("put") put db wopts "foo" "bar"
             trace ("get") get db ropts "foo" >>= print
@@ -31,37 +31,37 @@ main = do
             approximateSize db ("a", "z") >>= print
 
         trace "inspect properties:" $ do
-            getProperty db SSTables >>= printProperty
-            getProperty db Stats    >>= printProperty
-            getProperty db (NumFilesAtLevel 1) >>= printProperty
+            getProperty db SSTables >>= printProperty "sstables"
+            getProperty db Stats    >>= printProperty "stats"
+            getProperty db (NumFilesAtLevel 1) >>= printProperty "num files at level"
 
         trace "delete batch:" $ do
             trace ("write") write db wopts [ Del "a", Del "b", Del "c" ]
             trace ("dump") dumpEntries db ropts
 
-    trace "destroy database" $ destroy dbdir comparator opts
+--    trace "destroy database" $ destroy dbdir comparator opts
 
     where
         dbdir = "/" </> "tmp" </> "leveltest"
 
-        opts  = [ CreateIfMissing, UseCache 1024 ]
+        opts  = [ CreateIfMissing ]
         wopts = []
-        ropts = [ FillCache ]
-
-        comparator = Comparator compare
+        ropts = []
 
         dumpEntries db ropts =
             withIterator db ropts $ \iter -> do
-                iterFirst iter
+                trace ("iterFirst") iterFirst iter
                 iterEntries iter print
 
         iterEntries iter f = do
-            valid <- iterValid iter
+            valid <- trace ("iterValid") iterValid iter
             when valid $ do
-                key <- iterKey iter
-                val <- iterValue iter
+                key <- trace ("iterKey") iterKey iter
+                val <- trace ("iterValue") iterValue iter
                 _   <- f (key, val)
-                _   <- iterNext iter
+                _   <- trace ("iterNext") iterNext iter
                 iterEntries iter f
 
-        printProperty = maybe (putStrLn "n/a") putStrLn
+        printProperty l p = do
+            putStrLn l
+            maybe (putStrLn "n/a") putStrLn $ p

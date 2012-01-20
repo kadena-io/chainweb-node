@@ -2,7 +2,6 @@ module Database.LevelDB (
   -- * Basic Types
     DB
   , BatchOp(..)
-  , Comparator(..)
   , Compression(..)
   , Option(..)
   , Options
@@ -65,9 +64,6 @@ newtype Iterator = Iterator IteratorPtr
 -- | Snapshot handle
 newtype Snapshot = Snapshot SnapshotPtr
 
--- | User-defined comparator
-newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
-
 -- | Compression setting
 data Compression = NoCompression | Snappy deriving (Eq, Show)
 
@@ -79,7 +75,6 @@ data Option = CreateIfMissing
             | MaxOpenFiles Int
             | BlockSize Int
             | BlockRestartInterval Int
-            | UseCache Int
             | UseCompression Compression
             deriving (Eq, Show)
 
@@ -97,16 +92,14 @@ data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
 data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
 
 
-withLevelDB :: FilePath -> Comparator -> Options -> (DB -> IO a) -> IO a
-withLevelDB path cmp opts act =
+withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
+withLevelDB path opts act =
     withCString path    $ \cpath ->
     withCOptions opts   $ \copts ->
-    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
     alloca              $ \cerr  ->
-        bracket (open cpath copts ccmp cerr) close act
+        bracket (open cpath copts cerr) close act
     where
-        open cpath copts ccmp cerr = do
-            _ <- setComparator copts ccmp
+        open cpath copts cerr = do
             p <- throwIfErr "open" cerr $ c_leveldb_open copts cpath
             return . DB $ p
 
@@ -128,7 +121,10 @@ getProperty (DB db) p =
         val  <- c_leveldb_property_value db cprop
         if val == nullPtr
             then return Nothing
-            else liftM Just $ SB.packCString val
+            else do
+              res <- liftM Just $ SB.packCString val
+              free val
+              return res
 
     where
         prop (NumFilesAtLevel i) = "leveldb.num-files-at-level" ++ show i
@@ -136,23 +132,19 @@ getProperty (DB db) p =
         prop SSTables = "leveldb.sstables"
 
 -- | Destroy the given leveldb database.
-destroy :: FilePath -> Comparator -> Options -> IO ()
-destroy path cmp opts =
+destroy :: FilePath -> Options -> IO ()
+destroy path opts =
     withCString path    $ \cpath ->
     withCOptions opts   $ \copts ->
-    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
     alloca              $ \cerr -> do
-        _ <- setComparator copts ccmp
         throwIfErr "destroy" cerr $ c_leveldb_destroy_db copts cpath
 
 -- | Repair the given leveldb database.
-repair :: FilePath -> Comparator -> Options -> IO ()
-repair path cmp opts =
+repair :: FilePath -> Options -> IO ()
+repair path opts =
     withCString path    $ \cpath ->
     withCOptions opts   $ \copts ->
-    withCComparator cmp $ \(Comparator' _ _ _ ccmp) ->
     alloca              $ \cerr  -> do
-        _ <- setComparator copts ccmp
         throwIfErr "repair" cerr $ c_leveldb_repair_db copts cpath
 
 -- TODO: support [Range], like C API does
@@ -195,8 +187,11 @@ get (DB db) opts key =
                 $ c_leveldb_get db copts k (fromIntegral kl) vl
         vlen <- peek vl
         if v /= nullPtr
-            then liftM Just
-                 $ SB.packCStringLen (v, fromInteger . toInteger $ vlen)
+            then do
+                res <- liftM Just
+                       $ SB.packCStringLen (v, fromInteger . toInteger $ vlen)
+                free v
+                return res
             else return Nothing
 
 -- | Delete a key/value pair
@@ -219,11 +214,11 @@ write (DB db) opts batch =
 
     where
         withCWriteBatch b f = do
-            fptr <- c_leveldb_writebatch_create >>=
-                    newForeignPtr c_leveldb_writebatch_destroy
-            withForeignPtr fptr $ \cbatch -> do
-                mapM_ (batchAdd cbatch) b
-                f cbatch
+            cbatch <- c_leveldb_writebatch_create
+            mapM_ (batchAdd cbatch) b
+            res <- f cbatch
+            c_leveldb_writebatch_destroy cbatch
+            return res
 
         batchAdd cbatch (Put key val) =
             UB.unsafeUseAsCStringLen key $ \(k,kl) ->
@@ -232,7 +227,7 @@ write (DB db) opts batch =
                                          k (fromIntegral kl)
                                          v (fromIntegral vl)
 
-        batchAdd cbatch (Del key) =
+        batchAdd cbatch (Del key) = do
             UB.unsafeUseAsCStringLen key $ \(k,kl) ->
                 c_leveldb_writebatch_delete cbatch k (fromIntegral kl)
 
@@ -307,18 +302,20 @@ iterValue (Iterator iter) =
     alloca $ \clen -> do
         val  <- c_leveldb_iter_value iter clen
         vlen <- peek clen
-        SB.packCStringLen (val, fromInteger . toInteger $ vlen)
+        if val /= nullPtr
+          then SB.packCStringLen (val, fromInteger . toInteger $ vlen)
+          else ioError $ userError "null value"
 
 
 -- | Internal
 
 withCOptions :: Options -> (OptionsPtr -> IO a) -> IO a
 withCOptions opts f = do
-    fptr <- c_leveldb_options_create >>=
-            newForeignPtr c_leveldb_options_destroy
-    withForeignPtr fptr $ \copts -> do
-        mapM_ (setopt copts) opts
-        f copts
+    copts <- c_leveldb_options_create
+    mapM_ (setopt copts) opts
+    res <- f copts
+    c_leveldb_options_destroy copts
+    return res
 
     where
         setopt copts CreateIfMissing =
@@ -335,10 +332,6 @@ withCOptions opts f = do
             c_leveldb_options_set_block_size copts $ fromIntegral s
         setopt copts (BlockRestartInterval i) =
             c_leveldb_options_set_block_restart_interval copts $ fromIntegral i
-        setopt copts (UseCache s) = do
-            fptr <- c_leveldb_cache_create_lru (fromIntegral s) >>=
-                    newForeignPtr c_leveldb_cache_destroy
-            withForeignPtr fptr $ c_leveldb_options_set_cache copts
         setopt copts (UseCompression NoCompression) =
             c_leveldb_options_set_compression copts noCompression
         setopt copts (UseCompression Snappy) =
@@ -346,22 +339,22 @@ withCOptions opts f = do
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
-    fptr <- c_leveldb_writeoptions_create >>=
-            newForeignPtr c_leveldb_writeoptions_destroy
-    withForeignPtr fptr $ \copts -> do
-        mapM_ (setopt copts) opts
-        f copts
+    copts <- c_leveldb_writeoptions_create
+    mapM_ (setopt copts) opts
+    res <- f copts
+    c_leveldb_writeoptions_destroy copts
+    return res
 
     where
         setopt copts Sync = c_leveldb_writeoptions_set_sync copts 1
 
 withCReadOptions :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
 withCReadOptions opts f = do
-    fptr <- c_leveldb_readoptions_create >>=
-            newForeignPtr c_leveldb_readoptions_destroy
-    withForeignPtr fptr $ \copts -> do
-        mapM_ (setopt copts) opts
-        f copts
+    copts <- c_leveldb_readoptions_create
+    mapM_ (setopt copts) opts
+    res <- f copts
+    c_leveldb_readoptions_destroy copts
+    return res
 
     where
         setopt copts VerifyCheckSums =
@@ -379,45 +372,3 @@ throwIfErr s cerr f = do
         err <- peekCString erra
         ioError $ userError $ s ++ ": " ++ err
     return res
-
-mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
-mkCompareFun cmp = cmp'
-    where
-        cmp' _ a alen b blen = do
-            a' <- SB.packCStringLen (a, fromInteger . toInteger $ alen)
-            b' <- SB.packCStringLen (b, fromInteger . toInteger $ blen)
-            return $ case cmp a' b' of
-                         EQ ->  0
-                         GT ->  1
-                         LT -> -1
-
-data Comparator' = Comparator' (FunPtr CompareFun)
-                               (FunPtr Destructor)
-                               (FunPtr NameFun)
-                               ComparatorPtr
-
-withCComparator :: Comparator -> (Comparator' -> IO a) -> IO a
-withCComparator (Comparator cmp) = bracket (mkComparator "TODO" cmp) freeComparator
-
-mkComparator :: String -> (ByteString -> ByteString -> Ordering) -> IO Comparator'
-mkComparator name f =
-    withCString name $ \cs -> do
-        ccmpfun <- mkCmp  $ mkCompareFun f
-        cdest   <- mkDest $ \_ -> ()
-        cname   <- mkName $ \_ -> cs
-        ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
-        return $ Comparator' ccmpfun cdest cname ccmp
-
-
-freeComparator :: Comparator' -> IO ()
-freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
-    c_leveldb_comparator_destroy ccmp
-    freeHaskellFunPtr ccmpfun
-    freeHaskellFunPtr cdest
-    freeHaskellFunPtr cname
-
-
-setComparator :: OptionsPtr -> ComparatorPtr -> IO OptionsPtr
-setComparator copts ccmp =
-    c_leveldb_options_set_comparator copts ccmp >>
-    return copts
