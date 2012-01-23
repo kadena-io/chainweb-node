@@ -44,6 +44,8 @@ module Database.LevelDB (
 import Control.Exception  (bracket)
 import Control.Monad      (liftM, when)
 import Data.ByteString    (ByteString)
+import Data.List          (find)
+import Data.Maybe
 import Foreign
 import Foreign.C.Error    (throwErrnoIfNull)
 import Foreign.C.String   (withCString, peekCString)
@@ -76,6 +78,7 @@ data Option = CreateIfMissing
             | BlockSize Int
             | BlockRestartInterval Int
             | UseCompression Compression
+            | CacheSize Int
             deriving (Eq, Show)
 
 type WriteOptions = [WriteOption]
@@ -311,13 +314,28 @@ iterValue (Iterator iter) =
 
 withCOptions :: Options -> (OptionsPtr -> IO a) -> IO a
 withCOptions opts f = do
-    copts <- c_leveldb_options_create
+    copts  <- c_leveldb_options_create
     mapM_ (setopt copts) opts
-    res <- f copts
-    c_leveldb_options_destroy copts
-    return res
+    if isJust $ maybeCacheSize opts
+        then withCache (fromJust $ maybeCacheSize opts) $ \ccache -> do
+            c_leveldb_options_set_cache copts ccache
+            res <- f copts
+            c_leveldb_options_destroy copts
+            return res
+        else do
+          res <- f copts
+          c_leveldb_options_destroy copts
+          return res
 
     where
+        maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
+
+        isCs (CacheSize _) = True
+        isCs _             = False
+
+        withCache s = bracket (c_leveldb_cache_create_lru $ fromIntegral s)
+                              c_leveldb_cache_destroy
+
         setopt copts CreateIfMissing =
             c_leveldb_options_set_create_if_missing copts 1
         setopt copts ErrorIfExists =
@@ -336,6 +354,7 @@ withCOptions opts f = do
             c_leveldb_options_set_compression copts noCompression
         setopt copts (UseCompression Snappy) =
             c_leveldb_options_set_compression copts snappyCompression
+        setopt _ (CacheSize _) = return ()
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
