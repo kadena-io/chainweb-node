@@ -12,20 +12,20 @@ import Debug.Trace
 
 
 main :: IO ()
-main = do
-    withLevelDB dbdir opts $ \db -> do
+main =
+    withLevelDB dbdir [ CreateIfMissing, CacheSize 2048 ] $ \db -> do
         trace "put / delete:" $ do
-            trace ("put") put db wopts "foo" "bar"
-            trace ("get") get db ropts "foo" >>= print
-            trace ("delete") delete db wopts "foo"
-            trace ("get") get db ropts "foo" >>= print
+            trace ("put") put db [] "foo" "bar"
+            trace ("get") get db [ FillCache ] "foo" >>= print
+            trace ("delete") delete db [] "foo"
+            trace ("get") get db [ FillCache ] "foo" >>= print
 
         trace "write batch:" $ withSnapshot db $ \snap -> do
             write db [ Sync ] [ Put "a" "one"
                               , Put "b" "two"
                               , Put "c" "three" ]
-            trace "snapshot read: " $ dumpEntries db [ UseSnapshot snap ]
-            trace "live read: "     $ dumpEntries db ropts
+            trace "snapshot read: " $ dumpEntries db [ UseSnapshot snap, FillCache ]
+            trace "live read: "     $ dumpEntries db [ FillCache ]
 
         trace "inspect sizes:" $
             approximateSize db ("a", "z") >>= print
@@ -36,20 +36,14 @@ main = do
             getProperty db (NumFilesAtLevel 1) >>= printProperty "num files at level"
 
         trace "delete batch:" $ do
-            trace ("write") write db wopts [ Del "a", Del "b", Del "c" ]
-            trace ("dump") dumpEntries db ropts
-
---    trace "destroy database" $ destroy dbdir comparator opts
+            trace ("write") write db [] [ Del "a", Del "b", Del "c" ]
+            trace ("dump") dumpEntries db [ FillCache ]
 
     where
         dbdir = "/" </> "tmp" </> "leveltest"
 
-        opts  = [ CreateIfMissing ]
-        wopts = []
-        ropts = []
-
-        dumpEntries db ropts =
-            withIterator db ropts $ \iter -> do
+        dumpEntries db opts =
+            withIterator db opts $ \iter -> do
                 trace ("iterFirst") iterFirst iter
                 iterEntries iter print
 
