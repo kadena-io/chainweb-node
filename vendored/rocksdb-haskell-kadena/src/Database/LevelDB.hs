@@ -137,7 +137,7 @@ destroy :: FilePath -> Options -> IO ()
 destroy path opts =
     withCString path    $ \path_ptr ->
     withCOptions opts   $ \opts_ptr ->
-    alloca              $ \err_ptr ->
+    alloca              $ \err_ptr  ->
         throwIfErr "destroy" err_ptr $ c_leveldb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given leveldb database.
@@ -155,9 +155,9 @@ approximateSize (DB db) (from, to) =
     UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
     UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
     withArray [from_ptr]          $ \from_ptrs        ->
-    withArray [i2s flen]     $ \flen_ptrs        ->
+    withArray [i2s flen]          $ \flen_ptrs        ->
     withArray [to_ptr]            $ \to_ptrs          ->
-    withArray [i2s tlen]     $ \tlen_ptrs        ->
+    withArray [i2s tlen]          $ \tlen_ptrs        ->
     allocaArray 1                 $ \size_ptrs        -> do
         c_leveldb_approximate_sizes db 1 from_ptrs flen_ptrs to_ptrs tlen_ptrs size_ptrs
         liftM head $ peekArray 1 size_ptrs >>= mapM toInt64
@@ -170,8 +170,8 @@ put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
 put (DB db) opts key value =
     UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
     UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
-    withCWriteOptions opts         $ \opts_ptr  ->
-    alloca                         $ \err_ptr   ->
+    withCWriteOptions opts         $ \opts_ptr        ->
+    alloca                         $ \err_ptr         ->
         throwIfErr "put" err_ptr
         $ c_leveldb_put db opts_ptr
                         key_ptr (i2s klen)
@@ -303,8 +303,8 @@ iterValue (Iterator iter) =
         val_ptr <- c_leveldb_iter_value iter len_ptr
         vlen <- peek len_ptr
         if val_ptr /= nullPtr
-          then SB.packCStringLen (val_ptr, s2i vlen)
-          else ioError $ userError "null value"
+            then SB.packCStringLen (val_ptr, s2i vlen)
+            else ioError $ userError "null value"
 
 
 -- | Internal
