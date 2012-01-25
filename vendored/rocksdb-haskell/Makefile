@@ -4,7 +4,7 @@ LEVELDBDIR = `pwd`/leveldb
 LIBLEVELDB = $(LEVELDBDIR)/libleveldb.a
 
 LIBHSLEVELDB = dist/build/*.a
-EXECUTABLES  = dist/build/test/test
+EXECUTABLES  = dist/build/hs-leveldb-example/hs-leveldb-example
 
 HADDOCK = dist/doc/html/leveldb-haskell/*.html
 HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
@@ -13,8 +13,8 @@ HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
 
 all : $(LIBHSLEVELDB)
 
-test : $(EXECUTABLES)
-		dist/build/test/test
+example : $(EXECUTABLES)
+		dist/build/hs-leveldb-example/hs-leveldb-example
 
 doc : $(HADDOCK) $(HOOGLE)
 

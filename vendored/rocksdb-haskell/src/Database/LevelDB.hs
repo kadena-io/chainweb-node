@@ -108,14 +108,12 @@ withLevelDB path opts act =
 
         close (DB db) = c_leveldb_close db
 
-
 -- | Run an action with a snapshot of the database.
 withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
-withSnapshot (DB db) f = do
-    snap <- c_leveldb_create_snapshot db
-    res  <- f (Snapshot snap)
-    c_leveldb_release_snapshot db snap
-    return res
+withSnapshot (DB db) = bracket (create db) (release db)
+    where
+        create  db_ptr = c_leveldb_create_snapshot db_ptr >>= return . Snapshot
+        release db_ptr (Snapshot snap) = c_leveldb_release_snapshot db_ptr snap
 
 -- | Get a DB property
 getProperty :: DB -> Property -> IO (Maybe ByteString)
