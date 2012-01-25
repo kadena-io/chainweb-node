@@ -49,6 +49,7 @@ import Data.Maybe
 import Foreign
 import Foreign.C.Error    (throwErrnoIfNull)
 import Foreign.C.String   (withCString, peekCString)
+import Foreign.C.Types    (CSize, CInt)
 
 import Database.LevelDB.Base
 
@@ -97,13 +98,13 @@ data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
 
 withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
 withLevelDB path opts act =
-    withCString path    $ \cpath ->
-    withCOptions opts   $ \copts ->
-    alloca              $ \cerr  ->
-        bracket (open cpath copts cerr) close act
+    withCString path    $ \path_ptr ->
+    withCOptions opts   $ \opts_ptr ->
+    alloca              $ \err_ptr  ->
+        bracket (open path_ptr opts_ptr err_ptr) close act
     where
-        open cpath copts cerr = do
-            p <- throwIfErr "open" cerr $ c_leveldb_open copts cpath
+        open path_ptr opts_ptr err_ptr = do
+            p <- throwIfErr "open" err_ptr $ c_leveldb_open opts_ptr path_ptr
             return . DB $ p
 
         close (DB db) = c_leveldb_close db
@@ -112,20 +113,19 @@ withLevelDB path opts act =
 withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
 withSnapshot (DB db) = bracket (create db) (release db)
     where
-        create  db_ptr = c_leveldb_create_snapshot db_ptr >>= return . Snapshot
+        create  db_ptr = liftM Snapshot $ c_leveldb_create_snapshot db_ptr
         release db_ptr (Snapshot snap) = c_leveldb_release_snapshot db_ptr snap
 
 -- | Get a DB property
 getProperty :: DB -> Property -> IO (Maybe ByteString)
 getProperty (DB db) p =
-    withCString (prop p) $ \cprop -> do
-        val  <- c_leveldb_property_value db cprop
-        if val == nullPtr
+    withCString (prop p) $ \prop_ptr -> do
+        val_ptr <- c_leveldb_property_value db prop_ptr
+        if val_ptr == nullPtr
             then return Nothing
-            else do
-              res <- liftM Just $ SB.packCString val
-              free val
-              return res
+            else do res <- liftM Just $ SB.packCString val_ptr
+                    free val_ptr
+                    return res
 
     where
         prop (NumFilesAtLevel i) = "leveldb.num-files-at-level" ++ show i
@@ -135,32 +135,32 @@ getProperty (DB db) p =
 -- | Destroy the given leveldb database.
 destroy :: FilePath -> Options -> IO ()
 destroy path opts =
-    withCString path    $ \cpath ->
-    withCOptions opts   $ \copts ->
-    alloca              $ \cerr -> do
-        throwIfErr "destroy" cerr $ c_leveldb_destroy_db copts cpath
+    withCString path    $ \path_ptr ->
+    withCOptions opts   $ \opts_ptr ->
+    alloca              $ \err_ptr ->
+        throwIfErr "destroy" err_ptr $ c_leveldb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given leveldb database.
 repair :: FilePath -> Options -> IO ()
 repair path opts =
-    withCString path    $ \cpath ->
-    withCOptions opts   $ \copts ->
-    alloca              $ \cerr  -> do
-        throwIfErr "repair" cerr $ c_leveldb_repair_db copts cpath
+    withCString path    $ \path_ptr ->
+    withCOptions opts   $ \opts_ptr ->
+    alloca              $ \err_ptr  ->
+        throwIfErr "repair" err_ptr $ c_leveldb_repair_db opts_ptr path_ptr
 
 -- TODO: support [Range], like C API does
 type Range  = (ByteString, ByteString)
 approximateSize :: DB -> Range -> IO Int64
 approximateSize (DB db) (from, to) =
-    UB.unsafeUseAsCStringLen from $ \(cfrom, flen) ->
-    UB.unsafeUseAsCStringLen to   $ \(cto, tlen)   ->
-    withArray [cfrom]             $ \cfroms        ->
-    withArray [fromIntegral flen] $ \cflens        ->
-    withArray [cto]               $ \ctos          ->
-    withArray [fromIntegral tlen] $ \ctlens        ->
-    allocaArray 1                 $ \csizes        -> do
-        c_leveldb_approximate_sizes db 1 cfroms cflens ctos ctlens csizes
-        liftM head $ peekArray 1 csizes >>= mapM toInt64
+    UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
+    UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
+    withArray [from_ptr]          $ \from_ptrs        ->
+    withArray [i2s flen]     $ \flen_ptrs        ->
+    withArray [to_ptr]            $ \to_ptrs          ->
+    withArray [i2s tlen]     $ \tlen_ptrs        ->
+    allocaArray 1                 $ \size_ptrs        -> do
+        c_leveldb_approximate_sizes db 1 from_ptrs flen_ptrs to_ptrs tlen_ptrs size_ptrs
+        liftM head $ peekArray 1 size_ptrs >>= mapM toInt64
 
     where
         toInt64 = return . fromIntegral
@@ -168,69 +168,68 @@ approximateSize (DB db) (from, to) =
 -- | Write a key/value pair
 put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
 put (DB db) opts key value =
-    UB.unsafeUseAsCStringLen key   $ \(k,kl) ->
-    UB.unsafeUseAsCStringLen value $ \(v,vl) ->
-    withCWriteOptions opts         $ \copts  ->
-    alloca                         $ \cerr   ->
-        throwIfErr "put" cerr
-        $ c_leveldb_put db copts
-                        k (fromIntegral kl)
-                        v (fromIntegral vl)
+    UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
+    UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
+    withCWriteOptions opts         $ \opts_ptr  ->
+    alloca                         $ \err_ptr   ->
+        throwIfErr "put" err_ptr
+        $ c_leveldb_put db opts_ptr
+                        key_ptr (i2s klen)
+                        val_ptr (i2s vlen)
 
 -- | Read a value by key
 get :: DB -> ReadOptions -> ByteString -> IO (Maybe ByteString)
 get (DB db) opts key =
-    UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-    withCReadOptions opts        $ \copts  ->
-    alloca                       $ \cerr   ->
-    alloca                       $ \vl     -> do
-        v    <- throwIfErr "get" cerr
-                $ c_leveldb_get db copts k (fromIntegral kl) vl
-        vlen <- peek vl
-        if v /= nullPtr
+    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+    withCReadOptions opts        $ \opts_ptr        ->
+    alloca                       $ \err_ptr         ->
+    alloca                       $ \vlen_ptr        -> do
+        val_ptr <- throwIfErr "get" err_ptr
+                   $ c_leveldb_get db opts_ptr key_ptr (i2s klen) vlen_ptr
+        vlen <- peek vlen_ptr
+        if val_ptr /= nullPtr
             then do
-                res <- liftM Just
-                       $ SB.packCStringLen (v, fromInteger . toInteger $ vlen)
-                free v
+                res <- liftM Just $ SB.packCStringLen (val_ptr, s2i vlen)
+                free val_ptr
                 return res
             else return Nothing
 
 -- | Delete a key/value pair
 delete :: DB -> WriteOptions -> ByteString -> IO ()
 delete (DB db) opts key =
-    UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-    withCWriteOptions opts       $ \copts  ->
-    alloca                       $ \cerr   ->
-        throwIfErr "delete" cerr
-        $ c_leveldb_delete db copts k (fromIntegral kl)
+    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+    withCWriteOptions opts       $ \opts_ptr        ->
+    alloca                       $ \err_ptr         ->
+        throwIfErr "delete" err_ptr
+        $ c_leveldb_delete db opts_ptr key_ptr (i2s klen)
 
 -- | Perform a batch mutation
 write :: DB -> WriteOptions -> WriteBatch -> IO ()
 write (DB db) opts batch =
-    withCWriteOptions opts $ \copts  ->
-    withCWriteBatch batch  $ \cbatch ->
-    alloca                 $ \cerr   ->
-        throwIfErr "write" cerr
-        $ c_leveldb_write db copts cbatch
+    withCWriteOptions opts $ \opts_ptr  ->
+    withCWriteBatch batch  $ \batch_ptr ->
+    alloca                 $ \err_ptr   ->
+        throwIfErr "write" err_ptr
+        $ c_leveldb_write db opts_ptr batch_ptr
 
     where
         withCWriteBatch b f = do
-            cbatch <- c_leveldb_writebatch_create
-            mapM_ (batchAdd cbatch) b
-            res <- f cbatch
-            c_leveldb_writebatch_destroy cbatch
+            batch_ptr <- c_leveldb_writebatch_create
+            mapM_ (batchAdd batch_ptr) b
+            res <- f batch_ptr
+            c_leveldb_writebatch_destroy batch_ptr
             return res
 
-        batchAdd cbatch (Put key val) =
-            UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-            UB.unsafeUseAsCStringLen val $ \(v,vl) ->
-                c_leveldb_writebatch_put cbatch
-                                         k (fromIntegral kl)
-                                         v (fromIntegral vl)
+        batchAdd batch_ptr (Put key val) =
+            UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+            UB.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
+                c_leveldb_writebatch_put batch_ptr
+                                         key_ptr (i2s klen)
+                                         val_ptr (i2s vlen)
 
-        batchAdd cbatch (Del key) = do
-            UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-                c_leveldb_writebatch_delete cbatch k (fromIntegral kl)
+        batchAdd batch_ptr (Del key) =
+            UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+                c_leveldb_writebatch_delete batch_ptr key_ptr (i2s klen)
 
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
@@ -241,10 +240,10 @@ withIterator db opts = bracket (iterOpen db opts) iterClose
 -- | Create an Iterator. Consider using withIterator.
 iterOpen :: DB -> ReadOptions -> IO Iterator
 iterOpen (DB db) opts =
-    withCReadOptions opts $ \copts ->
+    withCReadOptions opts $ \opts_ptr ->
         liftM Iterator
         $ throwErrnoIfNull "create_iterator"
-        $ c_leveldb_create_iterator db copts
+        $ c_leveldb_create_iterator db opts_ptr
 
 -- | Release an Iterator. Consider using withIterator.
 iterClose :: Iterator -> IO ()
@@ -262,8 +261,8 @@ iterValid (Iterator iter) = do
 -- comes at or past target.
 iterSeek :: Iterator -> ByteString -> IO ()
 iterSeek (Iterator iter) key =
-    UB.unsafeUseAsCStringLen key $ \(k,kl) ->
-        c_leveldb_iter_seek iter k (fromIntegral kl)
+    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+        c_leveldb_iter_seek iter key_ptr (i2s klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
@@ -289,22 +288,22 @@ iterPrev (Iterator iter) = c_leveldb_iter_prev iter
 -- returned slice is valid only until the next modification of the iterator.
 iterKey :: Iterator -> IO ByteString
 iterKey (Iterator iter) =
-    alloca $ \clen -> do
-        key  <- c_leveldb_iter_key iter clen
-        klen <- peek clen
-        if key /= nullPtr
-            then SB.packCStringLen (key, fromInteger . toInteger $ klen)
+    alloca $ \len_ptr -> do
+        key_ptr <- c_leveldb_iter_key iter len_ptr
+        klen <- peek len_ptr
+        if key_ptr /= nullPtr
+            then SB.packCStringLen (key_ptr, s2i klen)
             else ioError $ userError "null key"
 
 -- | Return the value for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
 iterValue :: Iterator -> IO ByteString
 iterValue (Iterator iter) =
-    alloca $ \clen -> do
-        val  <- c_leveldb_iter_value iter clen
-        vlen <- peek clen
-        if val /= nullPtr
-          then SB.packCStringLen (val, fromInteger . toInteger $ vlen)
+    alloca $ \len_ptr -> do
+        val_ptr <- c_leveldb_iter_value iter len_ptr
+        vlen <- peek len_ptr
+        if val_ptr /= nullPtr
+          then SB.packCStringLen (val_ptr, s2i vlen)
           else ioError $ userError "null value"
 
 
@@ -312,80 +311,89 @@ iterValue (Iterator iter) =
 
 withCOptions :: Options -> (OptionsPtr -> IO a) -> IO a
 withCOptions opts f = do
-    copts  <- c_leveldb_options_create
-    mapM_ (setopt copts) opts
+    opts_ptr <- c_leveldb_options_create
+    mapM_ (setopt opts_ptr) opts
     if isJust $ maybeCacheSize opts
-        then withCache (fromJust $ maybeCacheSize opts) $ \ccache -> do
-            c_leveldb_options_set_cache copts ccache
-            res <- f copts
-            c_leveldb_options_destroy copts
-            return res
-        else do
-          res <- f copts
-          c_leveldb_options_destroy copts
-          return res
+        then withCache (fromJust $ maybeCacheSize opts) $ \cache_ptr -> do
+                 c_leveldb_options_set_cache opts_ptr cache_ptr
+                 run opts_ptr
+        else run opts_ptr
 
     where
+        run opts_ptr = do
+            res <- f opts_ptr
+            c_leveldb_options_destroy opts_ptr
+            return res
+
         maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
 
         isCs (CacheSize _) = True
         isCs _             = False
 
-        withCache s = bracket (c_leveldb_cache_create_lru $ fromIntegral s)
+        withCache s = bracket (c_leveldb_cache_create_lru $ i2s s)
                               c_leveldb_cache_destroy
 
-        setopt copts CreateIfMissing =
-            c_leveldb_options_set_create_if_missing copts 1
-        setopt copts ErrorIfExists =
-            c_leveldb_options_set_error_if_exists copts 1
-        setopt copts ParanoidChecks =
-            c_leveldb_options_set_paranoid_checks copts 1
-        setopt copts (WriteBufferSize s) =
-            c_leveldb_options_set_write_buffer_size copts $ fromIntegral s
-        setopt copts (MaxOpenFiles n) =
-            c_leveldb_options_set_max_open_files copts $ fromIntegral n
-        setopt copts (BlockSize s) =
-            c_leveldb_options_set_block_size copts $ fromIntegral s
-        setopt copts (BlockRestartInterval i) =
-            c_leveldb_options_set_block_restart_interval copts $ fromIntegral i
-        setopt copts (UseCompression NoCompression) =
-            c_leveldb_options_set_compression copts noCompression
-        setopt copts (UseCompression Snappy) =
-            c_leveldb_options_set_compression copts snappyCompression
+        setopt opts_ptr CreateIfMissing =
+            c_leveldb_options_set_create_if_missing opts_ptr 1
+        setopt opts_ptr ErrorIfExists =
+            c_leveldb_options_set_error_if_exists opts_ptr 1
+        setopt opts_ptr ParanoidChecks =
+            c_leveldb_options_set_paranoid_checks opts_ptr 1
+        setopt opts_ptr (WriteBufferSize s) =
+            c_leveldb_options_set_write_buffer_size opts_ptr $ i2s s
+        setopt opts_ptr (MaxOpenFiles n) =
+            c_leveldb_options_set_max_open_files opts_ptr $ i2ci n
+        setopt opts_ptr (BlockSize s) =
+            c_leveldb_options_set_block_size opts_ptr $ i2s s
+        setopt opts_ptr (BlockRestartInterval i) =
+            c_leveldb_options_set_block_restart_interval opts_ptr $ i2ci i
+        setopt opts_ptr (UseCompression NoCompression) =
+            c_leveldb_options_set_compression opts_ptr noCompression
+        setopt opts_ptr (UseCompression Snappy) =
+            c_leveldb_options_set_compression opts_ptr snappyCompression
         setopt _ (CacheSize _) = return ()
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
-    copts <- c_leveldb_writeoptions_create
-    mapM_ (setopt copts) opts
-    res <- f copts
-    c_leveldb_writeoptions_destroy copts
+    opts_ptr <- c_leveldb_writeoptions_create
+    mapM_ (setopt opts_ptr) opts
+    res <- f opts_ptr
+    c_leveldb_writeoptions_destroy opts_ptr
     return res
 
     where
-        setopt copts Sync = c_leveldb_writeoptions_set_sync copts 1
+        setopt opts_ptr Sync = c_leveldb_writeoptions_set_sync opts_ptr 1
 
 withCReadOptions :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
 withCReadOptions opts f = do
-    copts <- c_leveldb_readoptions_create
-    mapM_ (setopt copts) opts
-    res <- f copts
-    c_leveldb_readoptions_destroy copts
+    opts_ptr <- c_leveldb_readoptions_create
+    mapM_ (setopt opts_ptr) opts
+    res <- f opts_ptr
+    c_leveldb_readoptions_destroy opts_ptr
     return res
 
     where
-        setopt copts VerifyCheckSums =
-            c_leveldb_readoptions_set_verify_checksums copts 1
-        setopt copts FillCache =
-            c_leveldb_readoptions_set_fill_cache copts 1
-        setopt copts (UseSnapshot (Snapshot snap)) =
-            c_leveldb_readoptions_set_snapshot copts snap
+        setopt opts_ptr VerifyCheckSums =
+            c_leveldb_readoptions_set_verify_checksums opts_ptr 1
+        setopt opts_ptr FillCache =
+            c_leveldb_readoptions_set_fill_cache opts_ptr 1
+        setopt opts_ptr (UseSnapshot (Snapshot snap)) =
+            c_leveldb_readoptions_set_snapshot opts_ptr snap
 
 throwIfErr :: String -> ErrPtr -> (ErrPtr -> IO a) -> IO a
-throwIfErr s cerr f = do
-    res  <- f cerr
-    erra <- peek cerr
+throwIfErr s err_ptr f = do
+    res  <- f err_ptr
+    erra <- peek err_ptr
     when (erra /= nullPtr) $ do
         err <- peekCString erra
         ioError $ userError $ s ++ ": " ++ err
     return res
+
+s2i :: CSize -> Int
+s2i = fromIntegral
+
+i2s :: Int -> CSize
+i2s = fromIntegral
+
+i2ci :: Int -> CInt
+i2ci = fromIntegral
