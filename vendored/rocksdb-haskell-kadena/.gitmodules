@@ -1,3 +1,0 @@
-[submodule "leveldb"]
-	path = leveldb
-	url = https://code.google.com/p/leveldb/

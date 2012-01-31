@@ -23,9 +23,9 @@ library
   hs-source-dirs:   src
   includes:         leveldb/c.h
   extra-libraries:  leveldb, snappy, stdc++
-  include-dirs:     leveldb/include
+  include-dirs:     cbits/leveldb/include
 
-executable hs-leveldb-example
+executable hsleveldb-example
   main-is:          Example.lhs
   build-depends:    base
                   , leveldb-haskell
