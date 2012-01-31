@@ -1,10 +1,10 @@
 VERBOSITY ?= 1
 
-LEVELDBDIR = `pwd`/leveldb
+LEVELDBDIR = `pwd`/cbits/leveldb
 LIBLEVELDB = $(LEVELDBDIR)/libleveldb.a
 
 LIBHSLEVELDB = dist/build/*.a
-EXECUTABLES  = dist/build/hs-leveldb-example/hs-leveldb-example
+EXECUTABLES  = dist/build/hsleveldb-example/hsleveldb-example
 
 HADDOCK = dist/doc/html/leveldb-haskell/*.html
 HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
@@ -14,16 +14,16 @@ HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
 all : $(LIBHSLEVELDB)
 
 example : $(EXECUTABLES)
-		dist/build/hs-leveldb-example/hs-leveldb-example
+		dist/build/hsleveldb-example/hsleveldb-example
 
 doc : $(HADDOCK) $(HOOGLE)
 
 clean :
 		rm -rf dist/
-		(cd leveldb && make clean)
+		(cd $(LEVELDBDIR) && make clean)
 
 $(LIBLEVELDB) :
-		(cd leveldb && make)
+		(cd $(LEVELDBDIR) && make)
 
 $(HADDOCK) :
 		runhaskell Setup.hs haddock --hyperlink-source
