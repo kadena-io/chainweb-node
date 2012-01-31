@@ -1,5 +1,5 @@
 module Database.LevelDB (
-  -- * Basic Types
+  -- * Exported Types
     DB
   , BatchOp(..)
   , Compression(..)
@@ -305,7 +305,6 @@ iterValue (Iterator iter) =
         if val_ptr /= nullPtr
             then SB.packCStringLen (val_ptr, s2i vlen)
             else ioError $ userError "null value"
-
 
 -- | Internal
 
