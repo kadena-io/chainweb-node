@@ -26,7 +26,7 @@ library
   include-dirs:     leveldb/include
 
 executable hs-leveldb-example
-  main-is:          example.hs
+  main-is:          Example.lhs
   build-depends:    base
                   , leveldb-haskell
                   , bytestring
