@@ -9,7 +9,7 @@ EXECUTABLES  = dist/build/hsleveldb-example/hsleveldb-example
 HADDOCK = dist/doc/html/leveldb-haskell/*.html
 HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
 
-.PHONY: all test doc clean
+.PHONY: all test doc clean prune
 
 all : $(LIBHSLEVELDB)
 
@@ -20,9 +20,11 @@ doc : $(HADDOCK) $(HOOGLE)
 
 clean :
 		rm -rf dist/
-		rm -rf cabal-dev/
 		rm *.buildinfo
 		(cd $(LEVELDBDIR) && make clean)
+
+prune : clean
+		rm -rf cabal-dev/
 
 $(LIBLEVELDB) :
 		(cd $(LEVELDBDIR) && make)
