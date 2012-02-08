@@ -1,3 +1,41 @@
+-- |
+-- LevelDB Haskell binding.
+--
+-- The API closely follows the C-API of LevelDB.
+-- For more information, see: <http://leveldb.googlecode.com>
+--
+--
+-- Basic example:
+--
+-- > withLevelDB "/tmp/leveldbtest" [CreateIfMissing, CacheSize 1024] $ \db -> do
+-- >     put db [] "foo" "bar"
+-- >     get db [] "foo" >>= print
+-- >     delete db [] "foo"
+-- >     get db [] "foo" >>= print
+--
+-- Batch write and iterating:
+--
+-- > withLevelDB "/tmp/leveldbtest" [CreateIfMissing, CacheSize 1024] $ \db -> do
+-- >     write db [Sync] [ Put "a" "one"
+-- >                     , Put "b" "two"
+-- >                     , Put "c" "three" ]
+-- >     dumpEntries db []
+-- >
+-- >     where
+-- >         dumpEntries db opts =
+-- >             withIterator db opts $ \iter -> do
+-- >                 iterFirst iter
+-- >                 iterEntries iter print
+-- >
+-- >         iterEntries iter f = do
+-- >             valid <- iterValid iter
+-- >             when valid $ do
+-- >                 key <- iterKey iter
+-- >                 val <- iterValue iter
+-- >                 _   <- f (key, val)
+-- >                 _   <- iterNext iter
+-- >                 iterEntries iter f
+
 module Database.LevelDB (
   -- * Exported Types
     DB
@@ -11,6 +49,7 @@ module Database.LevelDB (
   , WriteBatch
   , WriteOption(..)
   , WriteOptions
+  , Range
 
   -- * Basic Database Manipulation
   , withLevelDB
@@ -71,6 +110,7 @@ newtype Snapshot = Snapshot SnapshotPtr
 data Compression = NoCompression | Snappy deriving (Eq, Show)
 
 type Options = [Option]
+-- | Options when opening a database
 data Option = CreateIfMissing
             | ErrorIfExists
             | ParanoidChecks
@@ -83,19 +123,25 @@ data Option = CreateIfMissing
             deriving (Eq, Show)
 
 type WriteOptions = [WriteOption]
-data WriteOption  = Sync deriving (Show)
+-- | Options for write operations
+data WriteOption  = Sync -- ^ fsync the rows written immediately
+                  deriving (Show)
 
 type ReadOptions = [ReadOption]
+-- | Options for read operations
 data ReadOption  = VerifyCheckSums
                  | FillCache
                  | UseSnapshot Snapshot
 
 type WriteBatch = [BatchOp]
+-- | Batch operation
 data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
 
+-- | Properties exposed by LevelDB
 data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
 
 
+-- | Run an action on a database
 withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
 withLevelDB path opts act =
     withCString path    $ \path_ptr ->
@@ -150,6 +196,8 @@ repair path opts =
 
 -- TODO: support [Range], like C API does
 type Range  = (ByteString, ByteString)
+
+-- | Inspect the approximate sizes of the different levels
 approximateSize :: DB -> Range -> IO Int64
 approximateSize (DB db) (from, to) =
     UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
