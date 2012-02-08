@@ -1,0 +1,4 @@
+#!/bin/sh
+
+make --directory=cbits/leveldb libleveldb.a
+echo extra-lib-dirs: `pwd`/cbits/leveldb > leveldb-haskell.buildinfo

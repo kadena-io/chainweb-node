@@ -20,6 +20,8 @@ doc : $(HADDOCK) $(HOOGLE)
 
 clean :
 		rm -rf dist/
+		rm -rf cabal-dev/
+		rm *.buildinfo
 		(cd $(LEVELDBDIR) && make clean)
 
 $(LIBLEVELDB) :
@@ -34,6 +36,4 @@ $(HOOGLE) :
 $(LIBHSLEVELDB) $(EXECUTABLES) : $(LIBLEVELDB)
 		cabal-dev install \
 --verbose=$(VERBOSITY) \
---extra-lib-dirs=$(LEVELDBDIR) \
---solver=modular \
 --force-reinstalls
