@@ -10,23 +10,10 @@ category:            Database
 stability:           Experimental
 build-type:          Configure
 cabal-version:       >=1.8
+tested-with:         GHC == 7.2.2, GHC == 7.4.1
 
-extra-source-files:  cbits/leveldb/include/leveldb/*.h
-                     cbits/leveldb/db/*.h
-                     cbits/leveldb/db/*.cc
-                     cbits/leveldb/util/*.h
-                     cbits/leveldb/util/*.cc
-                     cbits/leveldb/Makefile
-                     cbits/leveldb/build_detect_platform
-                     cbits/leveldb/build_config.mk
-                     cbits/leveldb/LICENSE
-                     cbits/leveldb/port/*.h
-                     cbits/leveldb/port/*.cc
-                     cbits/leveldb/helpers/memenv/*.h
-                     cbits/leveldb/helpers/memenv/*.cc
-                     cbits/leveldb/table/*.h
-                     cbits/leveldb/table/*.cc
-                     configure
+extra-source-files:  Example.lhs
+                   , Readme.md
 
 source-repository head
   type:     git
@@ -39,7 +26,7 @@ library
                   , ForeignFunctionInterface
   build-depends:    base >= 3 && < 5
                   , bytestring
-  ghc-options:      -Wall -static -optl-static -rtsopts
+  ghc-options:      -Wall -O2 -static -optl-static -rtsopts
   ghc-prof-options: -prof -auto-all
   hs-source-dirs:   src
   includes:         leveldb/c.h
