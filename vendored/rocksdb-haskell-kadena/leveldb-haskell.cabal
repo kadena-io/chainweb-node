@@ -13,13 +13,14 @@ cabal-version:       >=1.8
 tested-with:         GHC == 7.2.2, GHC == 7.4.1
 description:
     From <http://leveldb.googlecode.com>:
-
+    .
     LevelDB is a fast key-value storage library written at Google that provides
     an ordered mapping from string keys to string values.
-
+    .
+    .
     This library provides a Haskell language binding to LeveldDB. It is in very
     early stage and has seen very limited testing.
-
+    .
     Note: the LevelDB source code is bundled with this package and built as
     part of the installation, assuming that a working C++ compiler is installed
     on the target system and the @make@ command can invoke it.
@@ -27,6 +28,7 @@ description:
 extra-source-files:  Example.lhs
                    , Readme.md
                    , configure
+                   , cbits/leveldb/include/leveldb/*.h
 
 source-repository head
   type:     git
