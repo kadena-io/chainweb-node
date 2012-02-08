@@ -26,6 +26,7 @@ description:
 
 extra-source-files:  Example.lhs
                    , Readme.md
+                   , configure
 
 source-repository head
   type:     git
