@@ -1,4 +1,12 @@
 {-# LANGUAGE CPP, ForeignFunctionInterface, EmptyDataDecls #-}
+-- |
+-- Module      : Database.LevelDB.Base
+-- Copyright   : (c) 2012 Kim Altintop
+-- License     : BSD3
+-- Maintainer  : kim.altintop@gmail.com
+-- Stability   : experimental
+-- Portability : non-portable
+--
 
 module Database.LevelDB.Base where
 

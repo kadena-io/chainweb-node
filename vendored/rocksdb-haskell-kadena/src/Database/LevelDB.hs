@@ -1,4 +1,11 @@
 -- |
+-- Module      : Database.LevelDB
+-- Copyright   : (c) 2012 Kim Altintop
+-- License     : BSD3
+-- Maintainer  : kim.altintop@gmail.com
+-- Stability   : experimental
+-- Portability : non-portable
+--
 -- LevelDB Haskell binding.
 --
 -- The API closely follows the C-API of LevelDB.
