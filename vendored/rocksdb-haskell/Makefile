@@ -1,10 +1,6 @@
 VERBOSITY ?= 1
 
-LEVELDBDIR = `pwd`/cbits/leveldb
-LIBLEVELDB = $(LEVELDBDIR)/libleveldb.a
-
 LIBHSLEVELDB = dist/build/*.a
-EXECUTABLES  = dist/build/hsleveldb-example/hsleveldb-example
 
 HADDOCK = dist/doc/html/leveldb-haskell/*.html
 HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
@@ -13,21 +9,17 @@ HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
 
 all : $(LIBHSLEVELDB)
 
-example : $(EXECUTABLES)
-		dist/build/hsleveldb-example/hsleveldb-example
-
 doc : $(HADDOCK) $(HOOGLE)
 
 clean :
 		rm -rf dist/
-		rm *.buildinfo
-		(cd $(LEVELDBDIR) && make clean)
+		rm -f *.buildinfo
+		rm -rf autom4te.cache/
+		rm -f config.log
+		rm -f config.status
 
 prune : clean
 		rm -rf cabal-dev/
-
-$(LIBLEVELDB) :
-		(cd $(LEVELDBDIR) && make)
 
 $(HADDOCK) :
 		runhaskell Setup.hs haddock --hyperlink-source
@@ -35,7 +27,8 @@ $(HADDOCK) :
 $(HOOGLE) :
 		runhaskell Setup.hs haddock --hoogle
 
-$(LIBHSLEVELDB) $(EXECUTABLES) : $(LIBLEVELDB)
-		cabal-dev install \
---verbose=$(VERBOSITY) \
---force-reinstalls
+configure :
+		autoconf
+
+$(LIBHSLEVELDB) : configure
+		cabal-dev install --verbose=$(VERBOSITY)
