@@ -2,14 +2,16 @@ name:                leveldb-haskell
 version:             0.0.1
 synopsis:            Haskell bindings to LevelDB
 homepage:            http://github.com/kim/leveldb-haskell
+bug-reports:         http://github.com/kim/leveldb-haskell/issues
 license:             BSD3
 license-file:        LICENSE
 author:              Kim Altintop
 maintainer:          kim.altintop@gmail.com
-category:            Database
+copyright:           Copyright (c) 2012 The leveldb-haskell Authors
+category:            Database, FFI
 stability:           Experimental
 build-type:          Configure
-cabal-version:       >=1.8
+cabal-version:       >=1.10
 tested-with:         GHC == 7.2.2, GHC == 7.4.1
 description:
     From <http://leveldb.googlecode.com>:
@@ -22,13 +24,23 @@ description:
     early stage and has seen very limited testing.
     .
     Note: the LevelDB source code is bundled with this package and built as
-    part of the installation, assuming that a working C++ compiler is installed
-    on the target system and the @make@ command can invoke it.
+    part of the installation. To enable compression, the snappy library needs to
+    be installed on the target system.
 
-extra-source-files:  Example.lhs
+extra-source-files:  AUTHORS
                    , Readme.md
                    , configure
+                   , configure.ac
+                   , leveldb-haskell.buildinfo.in
                    , cbits/leveldb/include/leveldb/*.h
+                   , cbits/leveldb/db/*.h
+                   , cbits/leveldb/db/*.cc
+                   , cbits/leveldb/table/*.h
+                   , cbits/leveldb/table/*.cc
+                   , cbits/leveldb/port/*.h
+                   , cbits/leveldb/port/*.cc
+                   , cbits/leveldb/util/*.h
+                   , cbits/leveldb/util/*.cc
 
 source-repository head
   type:     git
@@ -37,21 +49,67 @@ source-repository head
 library
   exposed-modules:  Database.LevelDB
   other-modules:    Database.LevelDB.Base
-  extensions:       CPP
+
+  default-language: Haskell2010
+  default-extensions:
+                    CPP
                   , ForeignFunctionInterface
+
   build-depends:    base >= 3 && < 5
                   , bytestring
+                  , filepath
   ghc-options:      -Wall -O2 -static -optl-static -rtsopts
   ghc-prof-options: -prof -auto-all
-  hs-source-dirs:   src
-  includes:         leveldb/c.h
-  extra-libraries:  leveldb, snappy, stdc++
-  include-dirs:     cbits/leveldb/include
 
-executable hsleveldb-example
-  main-is:          Example.lhs
-  build-depends:    base
-                  , leveldb-haskell
-                  , bytestring
-                  , filepath
-  ghc-options:      -rtsopts -threaded
+  hs-source-dirs:   src
+  extra-libraries:  stdc++
+  include-dirs:     cbits/leveldb
+                    cbits/leveldb/include
+
+  cc-options:       -fno-builtin-memcmp -DLEVELDB_PLATFORM_POSIX
+
+  if os(linux)
+    cc-options:     -DOS_LINUX
+  if os(darwin)
+    cc-options:     -DOS_MACOSX
+  if os(solaris)
+    cc-options:     -D_REENTRANT -DOS_SOLARIS
+  if os(freebsd)
+    cc-options:     -D_REENTRANT -DOS_FREEBSD
+
+  c-sources:        cbits/leveldb/db/builder.cc
+                    cbits/leveldb/db/c.cc
+                    cbits/leveldb/db/db_impl.cc
+                    cbits/leveldb/db/db_iter.cc
+                    cbits/leveldb/db/dbformat.cc
+                    cbits/leveldb/db/filename.cc
+                    cbits/leveldb/db/log_reader.cc
+                    cbits/leveldb/db/log_writer.cc
+                    cbits/leveldb/db/memtable.cc
+                    cbits/leveldb/db/repair.cc
+                    cbits/leveldb/db/table_cache.cc
+                    cbits/leveldb/db/version_edit.cc
+                    cbits/leveldb/db/version_set.cc
+                    cbits/leveldb/db/write_batch.cc
+                    cbits/leveldb/helpers/memenv/memenv.cc
+                    cbits/leveldb/port/port_posix.cc
+                    cbits/leveldb/table/block.cc
+                    cbits/leveldb/table/block_builder.cc
+                    cbits/leveldb/table/format.cc
+                    cbits/leveldb/table/iterator.cc
+                    cbits/leveldb/table/merger.cc
+                    cbits/leveldb/table/table.cc
+                    cbits/leveldb/table/table_builder.cc
+                    cbits/leveldb/table/two_level_iterator.cc
+                    cbits/leveldb/util/arena.cc
+                    cbits/leveldb/util/cache.cc
+                    cbits/leveldb/util/coding.cc
+                    cbits/leveldb/util/comparator.cc
+                    cbits/leveldb/util/crc32c.cc
+                    cbits/leveldb/util/env.cc
+                    cbits/leveldb/util/env_posix.cc
+                    cbits/leveldb/util/hash.cc
+                    cbits/leveldb/util/histogram.cc
+                    cbits/leveldb/util/logging.cc
+                    cbits/leveldb/util/options.cc
+                    cbits/leveldb/util/status.cc
