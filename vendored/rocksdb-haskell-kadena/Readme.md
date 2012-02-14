@@ -5,12 +5,24 @@ This library provides Haskell bindings to
 
 Prerequisites:
 
-* GHC 7.* (http://www.haskell.org/ghc)
-* Cabal (http://www.haskell.org/cabal)
-* `make` and a working C++ compiler
+* [GHC 7.*](http://www.haskell.org/ghc)
+* [Cabal](http://www.haskell.org/cabal)
+* Optional: [Snappy](http://code.google.com/p/snappy),
+  if compression support is desired
+* Optional: `autoconf`
 
-`cabal install` will build and install the package, including the bundled
-LevelDB sources.
+To install the latest version from hackage:
+
+```shell
+$ cabal install leveldb-haskell
+```
+
+To install from checked-out source:
+
+```shell
+$ autoconf
+$ cabal install
+```
 
 ## Notes
 
