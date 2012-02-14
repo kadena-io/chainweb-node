@@ -41,6 +41,7 @@ extra-source-files:  AUTHORS
                    , cbits/leveldb/port/*.cc
                    , cbits/leveldb/util/*.h
                    , cbits/leveldb/util/*.cc
+                   , examples/*.hs
 
 source-repository head
   type:     git
@@ -54,11 +55,15 @@ library
   default-extensions:
                     CPP
                   , ForeignFunctionInterface
+                  , EmptyDataDecls
 
   build-depends:    base >= 3 && < 5
                   , bytestring
                   , filepath
-  ghc-options:      -Wall -O2 -static -optl-static -rtsopts
+
+  ghc-options:      -Wall -O2
+                    -static -optl-static -rtsopts
+                    -funbox-strict-fields
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   src
