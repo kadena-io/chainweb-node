@@ -1,5 +1,5 @@
 name:                leveldb-haskell
-version:             0.0.1
+version:             0.0.2
 synopsis:            Haskell bindings to LevelDB
 homepage:            http://github.com/kim/leveldb-haskell
 bug-reports:         http://github.com/kim/leveldb-haskell/issues
@@ -41,6 +41,8 @@ extra-source-files:  AUTHORS
                    , cbits/leveldb/port/*.cc
                    , cbits/leveldb/util/*.h
                    , cbits/leveldb/util/*.cc
+                   , cbits/leveldb/helpers/memenv/*.h
+                   , cbits/leveldb/helpers/memenv/*.cc
                    , examples/*.hs
 
 source-repository head
