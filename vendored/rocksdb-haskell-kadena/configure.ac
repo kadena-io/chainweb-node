@@ -31,10 +31,10 @@ AC_MSG_CHECKING(whether compiler supports C++11 cstdatomic)
 
 OLD_CXXFLAGS="$CXXFLAGS"
 CXXFLAGS="$CXXFLAGS -std=c++0x"
-AC_COMPILE_IFELSE([
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 #include <cstdatomic>
 int main() {}
-], [
+])], [
      AC_MSG_RESULT(yes)
      has_cstdatomic=yes
    ],
