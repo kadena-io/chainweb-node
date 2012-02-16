@@ -153,11 +153,10 @@ withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
 withLevelDB path opts act =
     withCString path    $ \path_ptr ->
     withCOptions opts   $ \opts_ptr ->
-    alloca              $ \err_ptr  ->
-        bracket (open path_ptr opts_ptr err_ptr) close act
+        bracket (open path_ptr opts_ptr) close act
     where
-        open path_ptr opts_ptr err_ptr = do
-            p <- throwIfErr "open" err_ptr $ c_leveldb_open opts_ptr path_ptr
+        open path_ptr opts_ptr = do
+            p <- throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
             return . DB $ p
 
         close (DB db) = c_leveldb_close db
@@ -190,16 +189,14 @@ destroy :: FilePath -> Options -> IO ()
 destroy path opts =
     withCString path    $ \path_ptr ->
     withCOptions opts   $ \opts_ptr ->
-    alloca              $ \err_ptr  ->
-        throwIfErr "destroy" err_ptr $ c_leveldb_destroy_db opts_ptr path_ptr
+        throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given leveldb database.
 repair :: FilePath -> Options -> IO ()
 repair path opts =
     withCString path    $ \path_ptr ->
     withCOptions opts   $ \opts_ptr ->
-    alloca              $ \err_ptr  ->
-        throwIfErr "repair" err_ptr $ c_leveldb_repair_db opts_ptr path_ptr
+        throwIfErr "repair" $ c_leveldb_repair_db opts_ptr path_ptr
 
 -- TODO: support [Range], like C API does
 type Range  = (ByteString, ByteString)
@@ -226,20 +223,17 @@ put (DB db) opts key value =
     UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
     UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
     withCWriteOptions opts         $ \opts_ptr        ->
-    alloca                         $ \err_ptr         ->
-        throwIfErr "put" err_ptr
-        $ c_leveldb_put db opts_ptr
-                        key_ptr (i2s klen)
-                        val_ptr (i2s vlen)
+        throwIfErr "put" $ c_leveldb_put db opts_ptr
+                                         key_ptr (i2s klen)
+                                         val_ptr (i2s vlen)
 
 -- | Read a value by key
 get :: DB -> ReadOptions -> ByteString -> IO (Maybe ByteString)
 get (DB db) opts key =
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCReadOptions opts        $ \opts_ptr        ->
-    alloca                       $ \err_ptr         ->
     alloca                       $ \vlen_ptr        -> do
-        val_ptr <- throwIfErr "get" err_ptr
+        val_ptr <- throwIfErr "get"
                    $ c_leveldb_get db opts_ptr key_ptr (i2s klen) vlen_ptr
         vlen <- peek vlen_ptr
         if val_ptr /= nullPtr
@@ -254,17 +248,14 @@ delete :: DB -> WriteOptions -> ByteString -> IO ()
 delete (DB db) opts key =
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCWriteOptions opts       $ \opts_ptr        ->
-    alloca                       $ \err_ptr         ->
-        throwIfErr "delete" err_ptr
-        $ c_leveldb_delete db opts_ptr key_ptr (i2s klen)
+        throwIfErr "delete" $ c_leveldb_delete db opts_ptr key_ptr (i2s klen)
 
 -- | Perform a batch mutation
 write :: DB -> WriteOptions -> WriteBatch -> IO ()
 write (DB db) opts batch =
     withCWriteOptions opts $ \opts_ptr  ->
     withCWriteBatch batch  $ \batch_ptr ->
-    alloca                 $ \err_ptr   ->
-        throwIfErr "write" err_ptr
+        throwIfErr "write"
         $ c_leveldb_write db opts_ptr batch_ptr
 
     where
@@ -434,8 +425,9 @@ withCReadOptions opts f = do
         setopt opts_ptr (UseSnapshot (Snapshot snap)) =
             c_leveldb_readoptions_set_snapshot opts_ptr snap
 
-throwIfErr :: String -> ErrPtr -> (ErrPtr -> IO a) -> IO a
-throwIfErr s err_ptr f = do
+throwIfErr :: String -> (ErrPtr -> IO a) -> IO a
+throwIfErr s f = alloca $ \err_ptr -> do
+    poke err_ptr nullPtr
     res  <- f err_ptr
     erra <- peek err_ptr
     when (erra /= nullPtr) $ do
