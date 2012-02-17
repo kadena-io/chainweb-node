@@ -5,7 +5,9 @@ homepage:            http://github.com/kim/leveldb-haskell
 bug-reports:         http://github.com/kim/leveldb-haskell/issues
 license:             BSD3
 license-file:        LICENSE
-author:              Kim Altintop
+author:              Kim Altintop <kim.altintop@gmail.com>
+                   , Austin Seipp <mad.one@gmail.com>
+                   , Michael Lazarev <lazarev.michael@gmail.com>
 maintainer:          kim.altintop@gmail.com
 copyright:           Copyright (c) 2012 The leveldb-haskell Authors
 category:            Database, FFI
@@ -27,8 +29,7 @@ description:
     part of the installation. To enable compression, the snappy library needs to
     be installed on the target system.
 
-extra-source-files:  AUTHORS
-                   , Readme.md
+extra-source-files:  Readme.md
                    , configure
                    , configure.ac
                    , leveldb-haskell.buildinfo.in
