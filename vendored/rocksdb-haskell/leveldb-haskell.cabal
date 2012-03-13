@@ -8,6 +8,7 @@ license-file:        LICENSE
 author:              Kim Altintop <kim.altintop@gmail.com>
                    , Austin Seipp <mad.one@gmail.com>
                    , Michael Lazarev <lazarev.michael@gmail.com>
+                   , Will Moss <wbmoss@gmail.com>
 maintainer:          kim.altintop@gmail.com
 copyright:           Copyright (c) 2012 The leveldb-haskell Authors
 category:            Database, FFI
