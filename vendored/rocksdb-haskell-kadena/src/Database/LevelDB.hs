@@ -85,9 +85,14 @@ module Database.LevelDB (
   , iterPrev
   , iterKey
   , iterValue
+  , mapIter
+  , iterItems
+  , iterKeys
+  , iterValues
 ) where
 
 import Control.Exception  (bracket)
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad      (liftM, when)
 import Data.ByteString    (ByteString)
 import Data.List          (find)
@@ -351,6 +356,33 @@ iterValue (Iterator iter) =
         if val_ptr /= nullPtr
             then SB.packCStringLen (val_ptr, s2i vlen)
             else ioError $ userError "null value"
+
+-- | Map a function over an iterator, returning the value. The iterator
+-- should be put in the right position prior to calling this with the iterator.
+mapIter :: (Iterator -> IO a) -> Iterator -> IO [a]
+mapIter f iter = do
+    valid <- iterValid iter
+    case valid of
+        False -> return []
+        True -> do
+            val <- f iter
+            _ <- iterNext iter
+            fmap (val :) $ mapIter f iter
+
+-- | Return a list of key and value tuples from an iterator. The iterator
+-- should be put in the right position prior to calling this with the iterator.
+iterItems :: Iterator -> IO [(ByteString, ByteString)]
+iterItems = mapIter $ \iter -> (,) <$> iterKey iter <*> iterValue iter
+
+-- | Return a list of key from an iterator. The iterator should be put
+-- in the right position prior to calling this with the iterator.
+iterKeys :: Iterator -> IO [ByteString]
+iterKeys = mapIter iterKey
+
+-- | Return a list of values from an iterator. The iterator should be put
+-- in the right position prior to calling this with the iterator.
+iterValues :: Iterator -> IO [ByteString]
+iterValues = mapIter iterValue
 
 -- | Internal
 
