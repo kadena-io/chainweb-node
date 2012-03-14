@@ -40,16 +40,7 @@ main = withLevelDB dbdir [ CreateIfMissing, CacheSize 2048 ] $ \db -> do
          dumpEntries db opts =
              withIterator db opts $ \iter -> do
                  iterFirst iter
-                 iterEntries iter print
-
-         iterEntries iter f = do
-             valid <- iterValid iter
-             when valid $ do
-                 key <- iterKey iter
-                 val <- iterValue iter
-                 _   <- f (key, val)
-                 _   <- iterNext iter
-                 iterEntries iter f
+                 iterItems iter >>= print
 
          printProperty l p = do
              putStrLn l
