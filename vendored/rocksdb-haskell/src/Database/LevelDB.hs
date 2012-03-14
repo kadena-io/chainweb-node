@@ -32,16 +32,7 @@
 -- >         dumpEntries db opts =
 -- >             withIterator db opts $ \iter -> do
 -- >                 iterFirst iter
--- >                 iterEntries iter print
--- >
--- >         iterEntries iter f = do
--- >             valid <- iterValid iter
--- >             when valid $ do
--- >                 key <- iterKey iter
--- >                 val <- iterValue iter
--- >                 _   <- f (key, val)
--- >                 _   <- iterNext iter
--- >                 iterEntries iter f
+-- >                 iterItems iter >>= print
 
 module Database.LevelDB (
   -- * Exported Types
