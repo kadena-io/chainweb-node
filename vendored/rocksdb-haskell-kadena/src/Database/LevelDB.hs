@@ -82,16 +82,16 @@ module Database.LevelDB (
   , iterValues
 ) where
 
-import Control.Exception  (bracket)
-import Control.Applicative ((<$>), (<*>))
-import Control.Monad      (liftM, when)
-import Data.ByteString    (ByteString)
-import Data.List          (find)
+import Control.Exception         (bracket, throwIO)
+import Control.Applicative       ((<$>), (<*>))
+import Control.Monad             (liftM, when)
+import Data.ByteString           (ByteString)
+import Data.List                 (find)
 import Data.Maybe
 import Foreign
-import Foreign.C.Error    (throwErrnoIfNull)
-import Foreign.C.String   (withCString, peekCString)
-import Foreign.C.Types    (CSize, CInt)
+import Foreign.C.Error           (throwErrnoIfNull)
+import Foreign.C.String          (withCString, peekCString)
+import Foreign.C.Types           (CSize, CInt)
 
 import Database.LevelDB.Base
 
@@ -455,7 +455,7 @@ throwIfErr s f = alloca $ \err_ptr -> do
     erra <- peek err_ptr
     when (erra /= nullPtr) $ do
         err <- peekCString erra
-        ioError $ userError $ s ++ ": " ++ err
+        throwIO $ userError $ s ++ ": " ++ err
     return res
 
 s2i :: CSize -> Int
