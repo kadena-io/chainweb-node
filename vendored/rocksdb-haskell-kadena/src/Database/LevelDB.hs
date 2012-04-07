@@ -101,13 +101,13 @@ import qualified Data.ByteString.Unsafe as UB
 -- import Debug.Trace
 
 -- | Database handle
-newtype DB = DB LevelDBPtr
+newtype DB = DB LevelDBPtr deriving (Eq)
 
 -- | Iterator handle
-newtype Iterator = Iterator IteratorPtr
+newtype Iterator = Iterator IteratorPtr deriving (Eq)
 
 -- | Snapshot handle
-newtype Snapshot = Snapshot SnapshotPtr
+newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
 
 -- | Compression setting
 data Compression = NoCompression | Snappy deriving (Eq, Show)
@@ -128,20 +128,23 @@ data Option = CreateIfMissing
 type WriteOptions = [WriteOption]
 -- | Options for write operations
 data WriteOption  = Sync -- ^ fsync the rows written immediately
-                  deriving (Show)
+                  deriving (Eq, Show)
 
 type ReadOptions = [ReadOption]
 -- | Options for read operations
 data ReadOption  = VerifyCheckSums
                  | FillCache
                  | UseSnapshot Snapshot
+                 deriving (Eq)
 
 type WriteBatch = [BatchOp]
 -- | Batch operation
-data BatchOp = Put ByteString ByteString | Del ByteString deriving (Show)
+data BatchOp = Put ByteString ByteString | Del ByteString
+             deriving (Eq, Show)
 
 -- | Properties exposed by LevelDB
-data Property = NumFilesAtLevel Int | Stats | SSTables deriving (Eq, Show)
+data Property = NumFilesAtLevel Int | Stats | SSTables
+              deriving (Eq, Show)
 
 
 -- | Run an action on a database
