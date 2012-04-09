@@ -493,9 +493,12 @@ throwIfErr s f = alloca $ \err_ptr -> do
 
 s2i :: CSize -> Int
 s2i = fromIntegral
+{-# INLINE s2i #-}
 
 i2s :: Int -> CSize
 i2s = fromIntegral
+{-# INLINE i2s #-}
 
 i2ci :: Int -> CInt
 i2ci = fromIntegral
+{-# INLINE i2ci #-}
