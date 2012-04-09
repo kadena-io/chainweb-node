@@ -52,6 +52,8 @@ module Database.LevelDB (
   -- * Basic Database Manipulation
   , withLevelDB
   , withSnapshot
+  , open
+  , close
   , put
   , delete
   , write
@@ -82,12 +84,12 @@ module Database.LevelDB (
   , iterValues
 ) where
 
-import Control.Exception         (bracket, throwIO)
+import Control.Exception         (bracket, bracketOnError, throwIO)
 import Control.Applicative       ((<$>), (<*>))
 import Control.Monad             (liftM, when)
 import Data.ByteString           (ByteString)
+import Data.IORef                (IORef, newIORef, mkWeakIORef, atomicModifyIORef)
 import Data.List                 (find)
-import Data.Maybe
 import Foreign
 import Foreign.C.Error           (throwErrnoIfNull)
 import Foreign.C.String          (withCString, peekCString)
@@ -101,7 +103,11 @@ import qualified Data.ByteString.Unsafe as UB
 -- import Debug.Trace
 
 -- | Database handle
-newtype DB = DB LevelDBPtr deriving (Eq)
+data DB = DB
+    { _dbPtr  :: !LevelDBPtr
+    , _dbOpts :: !Options'
+    , _dbLive :: IORef Bool
+    } deriving (Eq)
 
 -- | Iterator handle
 newtype Iterator = Iterator IteratorPtr deriving (Eq)
@@ -124,6 +130,11 @@ data Option = CreateIfMissing
             | UseCompression Compression
             | CacheSize Int
             deriving (Eq, Show)
+
+data Options' = Options'
+    { _optsPtr  :: !OptionsPtr
+    , _cachePtr :: Maybe CachePtr
+    } deriving (Eq)
 
 type WriteOptions = [WriteOption]
 -- | Options for write operations
@@ -149,27 +160,39 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
 
 -- | Run an action on a database
 withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
-withLevelDB path opts act =
-    withCString path    $ \path_ptr ->
-    withCOptions opts   $ \opts_ptr ->
-        bracket (open path_ptr opts_ptr) close act
-    where
-        open path_ptr opts_ptr = do
-            p <- throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
-            return . DB $ p
+withLevelDB path opts = bracket (open path opts) close
 
-        close (DB db) = c_leveldb_close db
+-- | Open a database
+open :: FilePath -> Options -> IO DB
+open path opts = bracketOnError (mkOpts opts) freeOpts open'
+    where
+        open' opts'@(Options' opts_ptr _) =
+            withCString path $ \path_ptr -> do
+                live   <- newIORef True
+                db_ptr <- throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
+                let db = DB db_ptr opts' live
+                addFinalizer live (close db)
+                return db
+
+        addFinalizer r f = mkWeakIORef r f >> return ()
+
+-- | Close
+close :: DB -> IO ()
+close (DB db_ptr opts ref) = do
+    alive <- atomicModifyIORef ref (\b -> (False, b))
+    when alive $ do
+        c_leveldb_close db_ptr >> freeOpts opts
 
 -- | Run an action with a snapshot of the database.
 withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
-withSnapshot (DB db) = bracket (create db) (release db)
+withSnapshot (DB db _ _) = bracket (create db) (release db)
     where
         create  db_ptr = liftM Snapshot $ c_leveldb_create_snapshot db_ptr
         release db_ptr (Snapshot snap) = c_leveldb_release_snapshot db_ptr snap
 
 -- | Get a DB property
 getProperty :: DB -> Property -> IO (Maybe ByteString)
-getProperty (DB db) p =
+getProperty (DB db _ _) p =
     withCString (prop p) $ \prop_ptr -> do
         val_ptr <- c_leveldb_property_value db prop_ptr
         if val_ptr == nullPtr
@@ -185,24 +208,26 @@ getProperty (DB db) p =
 
 -- | Destroy the given leveldb database.
 destroy :: FilePath -> Options -> IO ()
-destroy path opts =
-    withCString path    $ \path_ptr ->
-    withCOptions opts   $ \opts_ptr ->
-        throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
+destroy path opts = bracket (mkOpts opts) freeOpts destroy'
+    where
+        destroy' (Options' opts_ptr _) =
+            withCString path $ \path_ptr ->
+                throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given leveldb database.
 repair :: FilePath -> Options -> IO ()
-repair path opts =
-    withCString path    $ \path_ptr ->
-    withCOptions opts   $ \opts_ptr ->
-        throwIfErr "repair" $ c_leveldb_repair_db opts_ptr path_ptr
+repair path opts = bracket (mkOpts opts) freeOpts repair'
+    where
+        repair' (Options' opts_ptr _) =
+            withCString path $ \path_ptr ->
+                throwIfErr "repair" $ c_leveldb_repair_db opts_ptr path_ptr
 
 -- TODO: support [Range], like C API does
 type Range  = (ByteString, ByteString)
 
 -- | Inspect the approximate sizes of the different levels
 approximateSize :: DB -> Range -> IO Int64
-approximateSize (DB db) (from, to) =
+approximateSize (DB db _ _) (from, to) =
     UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
     UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
     withArray [from_ptr]          $ \from_ptrs        ->
@@ -218,17 +243,16 @@ approximateSize (DB db) (from, to) =
 
 -- | Write a key/value pair
 put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
-put (DB db) opts key value =
+put (DB db _ _) opts key value =
     UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
     UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
     withCWriteOptions opts         $ \opts_ptr        ->
-        throwIfErr "put" $ c_leveldb_put db opts_ptr
-                                         key_ptr (i2s klen)
-                                         val_ptr (i2s vlen)
+        throwIfErr "put"
+        $ c_leveldb_put db opts_ptr key_ptr (i2s klen) val_ptr (i2s vlen)
 
 -- | Read a value by key
 get :: DB -> ReadOptions -> ByteString -> IO (Maybe ByteString)
-get (DB db) opts key =
+get (DB db _ _) opts key =
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCReadOptions opts        $ \opts_ptr        ->
     alloca                       $ \vlen_ptr        -> do
@@ -244,14 +268,14 @@ get (DB db) opts key =
 
 -- | Delete a key/value pair
 delete :: DB -> WriteOptions -> ByteString -> IO ()
-delete (DB db) opts key =
+delete (DB db _ _) opts key =
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCWriteOptions opts       $ \opts_ptr        ->
         throwIfErr "delete" $ c_leveldb_delete db opts_ptr key_ptr (i2s klen)
 
 -- | Perform a batch mutation
 write :: DB -> WriteOptions -> WriteBatch -> IO ()
-write (DB db) opts batch =
+write (DB db _ _) opts batch =
     withCWriteOptions opts $ \opts_ptr  ->
     withCWriteBatch batch  $ \batch_ptr ->
         throwIfErr "write"
@@ -284,7 +308,7 @@ withIterator db opts = bracket (iterOpen db opts) iterClose
 
 -- | Create an Iterator. Consider using withIterator.
 iterOpen :: DB -> ReadOptions -> IO Iterator
-iterOpen (DB db) opts =
+iterOpen (DB db _ _) opts =
     withCReadOptions opts $ \opts_ptr ->
         liftM Iterator
         $ throwErrnoIfNull "create_iterator"
@@ -378,32 +402,21 @@ iterKeys = mapIter iterKey
 iterValues :: Iterator -> IO [ByteString]
 iterValues = mapIter iterValue
 
--- | Internal
+--
+-- Internal
+--
 
-withCOptions :: Options -> (OptionsPtr -> IO a) -> IO a
-withCOptions opts f = do
+mkOpts :: Options -> IO Options'
+mkOpts opts = do
     opts_ptr <- c_leveldb_options_create
+    cache    <- maybe (return Nothing)
+                      (liftM Just . setcache opts_ptr)
+                      (maybeCacheSize opts)
     mapM_ (setopt opts_ptr) opts
-    if isJust $ maybeCacheSize opts
-        then withCache (fromJust $ maybeCacheSize opts) $ \cache_ptr -> do
-                 c_leveldb_options_set_cache opts_ptr cache_ptr
-                 run opts_ptr
-        else run opts_ptr
+
+    return (Options' opts_ptr cache)
 
     where
-        run opts_ptr = do
-            res <- f opts_ptr
-            c_leveldb_options_destroy opts_ptr
-            return res
-
-        maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
-
-        isCs (CacheSize _) = True
-        isCs _             = False
-
-        withCache s = bracket (c_leveldb_cache_create_lru $ i2s s)
-                              c_leveldb_cache_destroy
-
         setopt opts_ptr CreateIfMissing =
             c_leveldb_options_set_create_if_missing opts_ptr 1
         setopt opts_ptr ErrorIfExists =
@@ -423,6 +436,23 @@ withCOptions opts f = do
         setopt opts_ptr (UseCompression Snappy) =
             c_leveldb_options_set_compression opts_ptr snappyCompression
         setopt _ (CacheSize _) = return ()
+
+        maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
+
+        isCs (CacheSize _) = True
+        isCs _             = False
+
+        setcache :: OptionsPtr -> Int -> IO CachePtr
+        setcache opts_ptr s = do
+            cache_ptr <- c_leveldb_cache_create_lru $ i2s s
+            c_leveldb_options_set_cache opts_ptr cache_ptr
+            return cache_ptr
+
+freeOpts :: Options' -> IO ()
+freeOpts (Options' opts_ptr mcache_ptr) = do
+    c_leveldb_options_destroy opts_ptr
+    maybe (return ()) c_leveldb_cache_destroy mcache_ptr
+    return ()
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOptions opts f = do
