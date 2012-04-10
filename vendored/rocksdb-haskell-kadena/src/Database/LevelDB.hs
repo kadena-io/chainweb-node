@@ -84,8 +84,9 @@ module Database.LevelDB (
   , iterValues
 ) where
 
-import Control.Exception         (bracket, bracketOnError, throwIO)
 import Control.Applicative       ((<$>), (<*>))
+import Control.Concurrent        (MVar, withMVar, newMVar)
+import Control.Exception         (bracket, bracketOnError, throwIO)
 import Control.Monad             (liftM, when)
 import Data.ByteString           (ByteString)
 import Data.IORef                (IORef, newIORef, mkWeakIORef, atomicModifyIORef)
@@ -110,7 +111,10 @@ data DB = DB
     } deriving (Eq)
 
 -- | Iterator handle
-newtype Iterator = Iterator IteratorPtr deriving (Eq)
+data Iterator = Iterator
+    { _iterPtr  :: !IteratorPtr
+    , _iterLock :: !(MVar ())
+    } deriving (Eq)
 
 -- | Snapshot handle
 newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
@@ -308,20 +312,23 @@ withIterator db opts = bracket (iterOpen db opts) iterClose
 
 -- | Create an Iterator. Consider using withIterator.
 iterOpen :: DB -> ReadOptions -> IO Iterator
-iterOpen (DB db _ _) opts =
-    withCReadOptions opts $ \opts_ptr ->
-        liftM Iterator
-        $ throwErrnoIfNull "create_iterator"
-        $ c_leveldb_create_iterator db opts_ptr
+iterOpen (DB db _ _) opts = do
+    lock   <- newMVar ()
+    it_ptr <- withCReadOptions opts $ \opts_ptr ->
+                  throwErrnoIfNull "create_iterator"
+                  $ c_leveldb_create_iterator db opts_ptr
+    return $ Iterator it_ptr lock
 
 -- | Release an Iterator. Consider using withIterator.
 iterClose :: Iterator -> IO ()
-iterClose (Iterator iter) = c_leveldb_iter_destroy iter
+iterClose (Iterator iter lck) = withMVar lck go
+    where
+        go _ = c_leveldb_iter_destroy iter
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
 iterValid :: Iterator -> IO Bool
-iterValid (Iterator iter) = do
+iterValid (Iterator iter _) = do
     x <- c_leveldb_iter_valid iter
     return (x /= 0)
 
@@ -329,34 +336,43 @@ iterValid (Iterator iter) = do
 -- iterator is /valid/ after this call iff the source contains an entry that
 -- comes at or past target.
 iterSeek :: Iterator -> ByteString -> IO ()
-iterSeek (Iterator iter) key =
-    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-        c_leveldb_iter_seek iter key_ptr (i2s klen)
+iterSeek (Iterator iter lck) key = withMVar lck go
+    where
+        go _ = UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+                   c_leveldb_iter_seek iter key_ptr (i2s klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterFirst :: Iterator -> IO ()
-iterFirst (Iterator iter) = c_leveldb_iter_seek_to_first iter
+iterFirst (Iterator iter lck) = withMVar lck go
+    where
+        go _ = c_leveldb_iter_seek_to_first iter
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterLast :: Iterator -> IO ()
-iterLast (Iterator iter) = c_leveldb_iter_seek_to_last iter
+iterLast (Iterator iter lck) = withMVar lck go
+    where
+        go _ = c_leveldb_iter_seek_to_last iter
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned the last entry in the source.
 iterNext :: Iterator -> IO ()
-iterNext (Iterator iter) = c_leveldb_iter_next iter
+iterNext (Iterator iter lck) = withMVar lck go
+    where
+        go _ = c_leveldb_iter_next iter
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
 iterPrev :: Iterator -> IO ()
-iterPrev (Iterator iter) = c_leveldb_iter_prev iter
+iterPrev (Iterator iter lck) = withMVar lck go
+    where
+        go _ = c_leveldb_iter_prev iter
 
 -- | Return the key for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
 iterKey :: Iterator -> IO ByteString
-iterKey (Iterator iter) =
+iterKey (Iterator iter _) =
     alloca $ \len_ptr -> do
         key_ptr <- c_leveldb_iter_key iter len_ptr
         klen <- peek len_ptr
@@ -367,7 +383,7 @@ iterKey (Iterator iter) =
 -- | Return the value for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
 iterValue :: Iterator -> IO ByteString
-iterValue (Iterator iter) =
+iterValue (Iterator iter _) =
     alloca $ \len_ptr -> do
         val_ptr <- c_leveldb_iter_value iter len_ptr
         vlen <- peek len_ptr
