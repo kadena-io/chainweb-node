@@ -133,7 +133,7 @@ data Option = CreateIfMissing
 
 data Options' = Options'
     { _optsPtr  :: !OptionsPtr
-    , _cachePtr :: Maybe CachePtr
+    , _cachePtr :: !(Maybe CachePtr)
     } deriving (Eq)
 
 type WriteOptions = [WriteOption]
