@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 -- |
 -- Module      : Database.LevelDB
 -- Copyright   : (c) 2012 Kim Altintop
@@ -50,14 +51,15 @@ module Database.LevelDB (
   , Range
 
   -- * Basic Database Manipulation
-  , withLevelDB
-  , withSnapshot
+  --, withLevelDB
+  --, withSnapshot
   , open
-  , close
   , put
   , delete
   , write
   , get
+  , createSnapshot
+  , createSnapshot'
 
   -- * Administrative Functions
   , Property(..), getProperty
@@ -67,9 +69,9 @@ module Database.LevelDB (
 
   -- * Iteration
   , Iterator
-  , withIterator
+  --, withIterator
   , iterOpen
-  , iterClose
+  , iterOpen'
   , iterValid
   , iterSeek
   , iterFirst
@@ -82,19 +84,24 @@ module Database.LevelDB (
   , iterItems
   , iterKeys
   , iterValues
+
+  -- * Re-exports / aliases
+  , runLevelDB
+  , rel -- FIXME: need better name
 ) where
 
-import Control.Applicative       ((<$>), (<*>))
-import Control.Concurrent        (MVar, withMVar, newMVar)
-import Control.Exception         (bracket, bracketOnError, throwIO)
-import Control.Monad             (liftM, when)
-import Data.ByteString           (ByteString)
-import Data.IORef                (IORef, newIORef, mkWeakIORef, atomicModifyIORef)
-import Data.List                 (find)
+import Control.Applicative          ((<$>), (<*>))
+import Control.Concurrent           (MVar, withMVar, newMVar)
+import Control.Exception            (bracket, bracketOnError, throwIO)
+import Control.Monad                (liftM, when)
+import Control.Monad.IO.Class       (liftIO)
+import Control.Monad.Trans.Resource
+import Data.ByteString              (ByteString)
+import Data.List                    (find)
 import Foreign
-import Foreign.C.Error           (throwErrnoIfNull)
-import Foreign.C.String          (withCString, peekCString)
-import Foreign.C.Types           (CSize, CInt)
+import Foreign.C.Error              (throwErrnoIfNull)
+import Foreign.C.String             (withCString, peekCString)
+import Foreign.C.Types              (CSize, CInt)
 
 import Database.LevelDB.Base
 
@@ -104,11 +111,7 @@ import qualified Data.ByteString.Unsafe as UB
 -- import Debug.Trace
 
 -- | Database handle
-data DB = DB
-    { _dbPtr  :: !LevelDBPtr
-    , _dbOpts :: !Options'
-    , _dbLive :: IORef Bool
-    } deriving (Eq)
+newtype DB = DB LevelDBPtr deriving (Eq)
 
 -- | Iterator handle
 data Iterator = Iterator
@@ -163,42 +166,52 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
 
 
 -- | Run an action on a database
-withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
-withLevelDB path opts = bracket (open path opts) close
+--withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
+--withLevelDB path opts = bracket (open path opts) close
+
+runLevelDB :: MonadBaseControl IO m => ResourceT m a -> m a
+runLevelDB = runResourceT
+
+rel :: MonadResource m => ReleaseKey -> m ()
+rel = release
 
 -- | Open a database
-open :: FilePath -> Options -> IO DB
-open path opts = bracketOnError (mkOpts opts) freeOpts open'
+open :: MonadResource m => FilePath -> Options -> m DB
+open path opts = liftM snd $ open' path opts
+
+open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
+open' path opts = do
+    opts' <- liftM snd $ allocate (mkOpts opts) freeOpts
+    allocate (mkDB opts') freeDB
+
     where
-        open' opts'@(Options' opts_ptr _) =
-            withCString path $ \path_ptr -> do
-                live   <- newIORef True
-                db_ptr <- throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
-                let db = DB db_ptr opts' live
-                addFinalizer live (close db)
-                return db
+        mkDB (Options' opts_ptr _) =
+            withCString path $ \path_ptr ->
+                liftM DB $ throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
 
-        addFinalizer r f = mkWeakIORef r f >> return ()
-
--- | Close
-close :: DB -> IO ()
-close (DB db_ptr opts ref) = do
-    alive <- atomicModifyIORef ref (\b -> (False, b))
-    when alive $ do
-        c_leveldb_close db_ptr >> freeOpts opts
+        freeDB (DB db_ptr) = c_leveldb_close db_ptr
 
 -- | Run an action with a snapshot of the database.
-withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
-withSnapshot (DB db _ _) = bracket (create db) (release db)
+--withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
+--withSnapshot (DB db _ _) = bracket (create db) (release db)
+
+createSnapshot :: MonadResource m => DB -> m Snapshot
+createSnapshot db = liftM snd (createSnapshot' db)
+
+createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
+createSnapshot' db = allocate (mkSnap db) (freeSnap db)
     where
-        create  db_ptr = liftM Snapshot $ c_leveldb_create_snapshot db_ptr
-        release db_ptr (Snapshot snap) = c_leveldb_release_snapshot db_ptr snap
+        mkSnap (DB db_ptr) =
+            liftM Snapshot $ c_leveldb_create_snapshot db_ptr
+
+        freeSnap (DB db_ptr) (Snapshot snap) =
+            c_leveldb_release_snapshot db_ptr snap
 
 -- | Get a DB property
-getProperty :: DB -> Property -> IO (Maybe ByteString)
-getProperty (DB db _ _) p =
+getProperty :: MonadResource m => DB -> Property -> m (Maybe ByteString)
+getProperty (DB db_ptr) p = liftIO $
     withCString (prop p) $ \prop_ptr -> do
-        val_ptr <- c_leveldb_property_value db prop_ptr
+        val_ptr <- c_leveldb_property_value db_ptr prop_ptr
         if val_ptr == nullPtr
             then return Nothing
             else do res <- liftM Just $ SB.packCString val_ptr
@@ -211,16 +224,24 @@ getProperty (DB db _ _) p =
         prop SSTables = "leveldb.sstables"
 
 -- | Destroy the given leveldb database.
-destroy :: FilePath -> Options -> IO ()
-destroy path opts = bracket (mkOpts opts) freeOpts destroy'
+destroy :: MonadResource m => FilePath -> Options -> m ()
+destroy path opts = do
+    (rk, opts') <- allocate (mkOpts opts) freeOpts
+    liftIO $ destroy' opts'
+    release rk
+
     where
         destroy' (Options' opts_ptr _) =
             withCString path $ \path_ptr ->
                 throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given leveldb database.
-repair :: FilePath -> Options -> IO ()
-repair path opts = bracket (mkOpts opts) freeOpts repair'
+repair :: MonadResource m => FilePath -> Options -> m ()
+repair path opts = do
+    (rk, opts') <- allocate (mkOpts opts) freeOpts
+    liftIO $ repair' opts'
+    release rk
+
     where
         repair' (Options' opts_ptr _) =
             withCString path $ \path_ptr ->
@@ -230,8 +251,8 @@ repair path opts = bracket (mkOpts opts) freeOpts repair'
 type Range  = (ByteString, ByteString)
 
 -- | Inspect the approximate sizes of the different levels
-approximateSize :: DB -> Range -> IO Int64
-approximateSize (DB db _ _) (from, to) =
+approximateSize :: MonadResource m => DB -> Range -> m Int64
+approximateSize (DB db_ptr) (from, to) = liftIO $
     UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
     UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
     withArray [from_ptr]          $ \from_ptrs        ->
@@ -239,51 +260,55 @@ approximateSize (DB db _ _) (from, to) =
     withArray [to_ptr]            $ \to_ptrs          ->
     withArray [i2s tlen]          $ \tlen_ptrs        ->
     allocaArray 1                 $ \size_ptrs        -> do
-        c_leveldb_approximate_sizes db 1 from_ptrs flen_ptrs to_ptrs tlen_ptrs size_ptrs
+        c_leveldb_approximate_sizes db_ptr 1
+                                    from_ptrs flen_ptrs
+                                    to_ptrs tlen_ptrs
+                                    size_ptrs
         liftM head $ peekArray 1 size_ptrs >>= mapM toInt64
 
     where
         toInt64 = return . fromIntegral
 
 -- | Write a key/value pair
-put :: DB -> WriteOptions -> ByteString -> ByteString -> IO ()
-put (DB db _ _) opts key value =
+put :: MonadResource m => DB -> WriteOptions -> ByteString -> ByteString -> m ()
+put (DB db_ptr) opts key value = liftIO $
     UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
     UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
     withCWriteOptions opts         $ \opts_ptr        ->
-        throwIfErr "put"
-        $ c_leveldb_put db opts_ptr key_ptr (i2s klen) val_ptr (i2s vlen)
+        throwIfErr "put" $ c_leveldb_put db_ptr opts_ptr
+                                         key_ptr (i2s klen)
+                                         val_ptr (i2s vlen)
 
 -- | Read a value by key
-get :: DB -> ReadOptions -> ByteString -> IO (Maybe ByteString)
-get (DB db _ _) opts key =
+get :: MonadResource m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
+get (DB db_ptr) opts key = liftIO $
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCReadOptions opts        $ \opts_ptr        ->
     alloca                       $ \vlen_ptr        -> do
-        val_ptr <- throwIfErr "get"
-                   $ c_leveldb_get db opts_ptr key_ptr (i2s klen) vlen_ptr
+        val_ptr <- throwIfErr "get" $
+            c_leveldb_get db_ptr opts_ptr key_ptr (i2s klen) vlen_ptr
         vlen <- peek vlen_ptr
-        if val_ptr /= nullPtr
-            then do
+        if val_ptr == nullPtr
+            then return Nothing
+            else do
                 res <- liftM Just $ SB.packCStringLen (val_ptr, s2i vlen)
                 free val_ptr
                 return res
-            else return Nothing
 
 -- | Delete a key/value pair
-delete :: DB -> WriteOptions -> ByteString -> IO ()
-delete (DB db _ _) opts key =
+delete :: MonadResource m => DB -> WriteOptions -> ByteString -> m ()
+delete (DB db_ptr) opts key = liftIO $
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCWriteOptions opts       $ \opts_ptr        ->
-        throwIfErr "delete" $ c_leveldb_delete db opts_ptr key_ptr (i2s klen)
+        throwIfErr "delete" $ c_leveldb_delete db_ptr opts_ptr key_ptr (i2s klen)
 
 -- | Perform a batch mutation
-write :: DB -> WriteOptions -> WriteBatch -> IO ()
-write (DB db _ _) opts batch =
+write :: MonadResource m => DB -> WriteOptions -> WriteBatch -> m ()
+write (DB db_ptr) opts batch = liftIO $
     withCWriteOptions opts $ \opts_ptr  ->
     withCWriteBatch batch  $ \batch_ptr ->
         throwIfErr "write"
-        $ c_leveldb_write db opts_ptr batch_ptr
+        $ c_leveldb_write db_ptr opts_ptr batch_ptr
 
     where
         withCWriteBatch b f = do
@@ -307,115 +332,117 @@ write (DB db _ _) opts batch =
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
 -- after this function terminates.
-withIterator :: DB -> ReadOptions -> (Iterator -> IO a) -> IO a
-withIterator db opts = bracket (iterOpen db opts) iterClose
+-- withIterator :: DB -> ReadOptions -> (Iterator -> IO a) -> IO a
+-- withIterator db opts = bracket (iterOpen db opts) iterClose
 
 -- | Create an Iterator. Consider using withIterator.
-iterOpen :: DB -> ReadOptions -> IO Iterator
-iterOpen (DB db _ _) opts = do
-    lock   <- newMVar ()
-    it_ptr <- withCReadOptions opts $ \opts_ptr ->
-                  throwErrnoIfNull "create_iterator"
-                  $ c_leveldb_create_iterator db opts_ptr
-    return $ Iterator it_ptr lock
+iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
+iterOpen db opts = liftM snd (iterOpen' db opts)
 
--- | Release an Iterator. Consider using withIterator.
-iterClose :: Iterator -> IO ()
-iterClose (Iterator iter lck) = withMVar lck go
+iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
+iterOpen' db opts = allocate (mkIter db opts) freeIter
     where
-        go _ = c_leveldb_iter_destroy iter
+        mkIter (DB db_ptr) opts' = do
+            lock   <- liftIO $ newMVar ()
+            it_ptr <- liftIO $ withCReadOptions opts' $ \opts_ptr ->
+                          throwErrnoIfNull "create_iterator"
+                          $ c_leveldb_create_iterator db_ptr opts_ptr
+            return $ Iterator it_ptr lock
+
+        freeIter (Iterator iter lck) =
+            withMVar lck (\_ -> c_leveldb_iter_destroy iter)
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
-iterValid :: Iterator -> IO Bool
+iterValid :: MonadResource m => Iterator -> m Bool
 iterValid (Iterator iter _) = do
-    x <- c_leveldb_iter_valid iter
+    x <- liftIO $ c_leveldb_iter_valid iter
     return (x /= 0)
 
 -- | Position at the first key in the source that is at or past target. The
 -- iterator is /valid/ after this call iff the source contains an entry that
 -- comes at or past target.
-iterSeek :: Iterator -> ByteString -> IO ()
-iterSeek (Iterator iter lck) key = withMVar lck go
+iterSeek :: MonadResource m => Iterator -> ByteString -> m ()
+iterSeek (Iterator iter lck) key = liftIO $ withMVar lck go
     where
         go _ = UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
                    c_leveldb_iter_seek iter key_ptr (i2s klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterFirst :: Iterator -> IO ()
-iterFirst (Iterator iter lck) = withMVar lck go
+iterFirst :: MonadResource m => Iterator -> m ()
+iterFirst (Iterator iter lck) = liftIO $ withMVar lck go
     where
         go _ = c_leveldb_iter_seek_to_first iter
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterLast :: Iterator -> IO ()
-iterLast (Iterator iter lck) = withMVar lck go
+iterLast :: MonadResource m => Iterator -> m ()
+iterLast (Iterator iter lck) = liftIO $ withMVar lck go
     where
         go _ = c_leveldb_iter_seek_to_last iter
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned the last entry in the source.
-iterNext :: Iterator -> IO ()
-iterNext (Iterator iter lck) = withMVar lck go
+iterNext :: MonadResource m => Iterator -> m ()
+iterNext (Iterator iter lck) = liftIO $ withMVar lck go
     where
         go _ = c_leveldb_iter_next iter
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
-iterPrev :: Iterator -> IO ()
-iterPrev (Iterator iter lck) = withMVar lck go
+iterPrev :: MonadResource m => Iterator -> m ()
+iterPrev (Iterator iter lck) = liftIO $ withMVar lck go
     where
         go _ = c_leveldb_iter_prev iter
 
 -- | Return the key for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
-iterKey :: Iterator -> IO ByteString
-iterKey (Iterator iter _) =
+iterKey :: MonadResource m => Iterator -> m ByteString
+iterKey (Iterator iter _) = liftIO $
     alloca $ \len_ptr -> do
         key_ptr <- c_leveldb_iter_key iter len_ptr
         klen <- peek len_ptr
         if key_ptr /= nullPtr
             then SB.packCStringLen (key_ptr, s2i klen)
-            else ioError $ userError "null key"
+            else throwIO $ userError "null key"
 
 -- | Return the value for the current entry. The underlying storage for the
 -- returned slice is valid only until the next modification of the iterator.
-iterValue :: Iterator -> IO ByteString
-iterValue (Iterator iter _) =
+iterValue :: MonadResource m => Iterator -> m ByteString
+iterValue (Iterator iter _) = liftIO $
     alloca $ \len_ptr -> do
         val_ptr <- c_leveldb_iter_value iter len_ptr
         vlen <- peek len_ptr
         if val_ptr /= nullPtr
             then SB.packCStringLen (val_ptr, s2i vlen)
-            else ioError $ userError "null value"
+            else throwIO $ userError "null value"
 
 -- | Map a function over an iterator, returning the value. The iterator
 -- should be put in the right position prior to calling this with the iterator.
-mapIter :: (Iterator -> IO a) -> Iterator -> IO [a]
+mapIter :: MonadResource m => (Iterator -> m a) -> Iterator -> m [a]
 mapIter f iter = do
     valid <- iterValid iter
-    case valid of
-        False -> return []
-        True -> do
+    if not valid
+        then return []
+        else do
             val <- f iter
-            _ <- iterNext iter
+            _   <- iterNext iter
             fmap (val :) $ mapIter f iter
 
 -- | Return a list of key and value tuples from an iterator. The iterator
 -- should be put in the right position prior to calling this with the iterator.
-iterItems :: Iterator -> IO [(ByteString, ByteString)]
+iterItems :: MonadResource m => Iterator -> m [(ByteString, ByteString)]
 iterItems = mapIter $ \iter -> (,) <$> iterKey iter <*> iterValue iter
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
-iterKeys :: Iterator -> IO [ByteString]
+iterKeys :: MonadResource m => Iterator -> m [ByteString]
 iterKeys = mapIter iterKey
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
-iterValues :: Iterator -> IO [ByteString]
+iterValues :: MonadResource m => Iterator -> m [ByteString]
 iterValues = mapIter iterValue
 
 --
