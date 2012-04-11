@@ -45,10 +45,13 @@ library
                     CPP
                   , ForeignFunctionInterface
                   , EmptyDataDecls
+                  , FlexibleContexts
 
   build-depends:    base >= 3 && < 5
                   , bytestring
                   , filepath
+                  , resourcet
+                  , transformers
 
   ghc-options:      -Wall -O2
                     -static -optl-static -rtsopts
