@@ -13,10 +13,6 @@ doc : $(HADDOCK) $(HOOGLE)
 
 clean :
 		rm -rf dist/
-		rm -f *.buildinfo
-		rm -rf autom4te.cache/
-		rm -f config.log
-		rm -f config.status
 
 prune : clean
 		rm -rf cabal-dev/
@@ -27,8 +23,5 @@ $(HADDOCK) :
 $(HOOGLE) :
 		runhaskell Setup.hs haddock --hoogle
 
-configure :
-		autoconf
-
-$(LIBHSLEVELDB) : configure
+$(LIBHSLEVELDB) :
 		cabal-dev install --verbose=$(VERBOSITY)
