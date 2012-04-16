@@ -11,29 +11,6 @@
 --
 -- The API closely follows the C-API of LevelDB.
 -- For more information, see: <http://leveldb.googlecode.com>
---
---
--- Basic example:
---
--- > withLevelDB "/tmp/leveldbtest" [CreateIfMissing, CacheSize 1024] $ \db -> do
--- >     put db [] "foo" "bar"
--- >     get db [] "foo" >>= print
--- >     delete db [] "foo"
--- >     get db [] "foo" >>= print
---
--- Batch write and iterating:
---
--- > withLevelDB "/tmp/leveldbtest" [CreateIfMissing, CacheSize 1024] $ \db -> do
--- >     write db [Sync] [ Put "a" "one"
--- >                     , Put "b" "two"
--- >                     , Put "c" "three" ]
--- >     dumpEntries db []
--- >
--- >     where
--- >         dumpEntries db opts =
--- >             withIterator db opts $ \iter -> do
--- >                 iterFirst iter
--- >                 iterItems iter >>= print
 
 module Database.LevelDB (
   -- * Exported Types
@@ -51,8 +28,7 @@ module Database.LevelDB (
   , Range
 
   -- * Basic Database Manipulation
-  --, withLevelDB
-  --, withSnapshot
+  , withSnapshot
   , open
   , put
   , delete
@@ -69,7 +45,7 @@ module Database.LevelDB (
 
   -- * Iteration
   , Iterator
-  --, withIterator
+  , withIterator
   , iterOpen
   , iterOpen'
   , iterValid
@@ -87,15 +63,19 @@ module Database.LevelDB (
 
   -- * Re-exports / aliases
   , runLevelDB
-  , rel -- FIXME: need better name
+  , release
 ) where
 
 import Control.Applicative          ((<$>), (<*>))
 import Control.Concurrent           (MVar, withMVar, newMVar)
-import Control.Exception            (bracket, bracketOnError, throwIO)
+import Control.Exception            (throwIO)
 import Control.Monad                (liftM, when)
 import Control.Monad.IO.Class       (liftIO)
-import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Resource ( MonadBaseControl
+                                    , MonadResource
+                                    , ResourceT
+                                    , ReleaseKey
+                                    )
 import Data.ByteString              (ByteString)
 import Data.List                    (find)
 import Foreign
@@ -105,6 +85,7 @@ import Foreign.C.Types              (CSize, CInt)
 
 import Database.LevelDB.Base
 
+import qualified Control.Monad.Trans.Resource as R
 import qualified Data.ByteString as SB
 import qualified Data.ByteString.Unsafe as UB
 
@@ -165,15 +146,11 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
               deriving (Eq, Show)
 
 
--- | Run an action on a database
---withLevelDB :: FilePath -> Options -> (DB -> IO a) -> IO a
---withLevelDB path opts = bracket (open path opts) close
-
 runLevelDB :: MonadBaseControl IO m => ResourceT m a -> m a
-runLevelDB = runResourceT
+runLevelDB = R.runResourceT
 
-rel :: MonadResource m => ReleaseKey -> m ()
-rel = release
+release :: MonadResource m => ReleaseKey -> m ()
+release = R.release
 
 -- | Open a database
 open :: MonadResource m => FilePath -> Options -> m DB
@@ -181,8 +158,8 @@ open path opts = liftM snd $ open' path opts
 
 open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
 open' path opts = do
-    opts' <- liftM snd $ allocate (mkOpts opts) freeOpts
-    allocate (mkDB opts') freeDB
+    opts' <- liftM snd $ R.allocate (mkOpts opts) freeOpts
+    R.allocate (mkDB opts') freeDB
 
     where
         mkDB (Options' opts_ptr _) =
@@ -192,14 +169,18 @@ open' path opts = do
         freeDB (DB db_ptr) = c_leveldb_close db_ptr
 
 -- | Run an action with a snapshot of the database.
---withSnapshot :: DB -> (Snapshot -> IO a) -> IO a
---withSnapshot (DB db _ _) = bracket (create db) (release db)
+withSnapshot :: MonadResource m => DB -> (Snapshot -> m a) -> m a
+withSnapshot db f = do
+    (rk, snap) <- createSnapshot' db
+    res <- f snap
+    R.release rk
+    return res
 
 createSnapshot :: MonadResource m => DB -> m Snapshot
 createSnapshot db = liftM snd (createSnapshot' db)
 
 createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
-createSnapshot' db = allocate (mkSnap db) (freeSnap db)
+createSnapshot' db = R.allocate (mkSnap db) (freeSnap db)
     where
         mkSnap (DB db_ptr) =
             liftM Snapshot $ c_leveldb_create_snapshot db_ptr
@@ -226,9 +207,9 @@ getProperty (DB db_ptr) p = liftIO $
 -- | Destroy the given leveldb database.
 destroy :: MonadResource m => FilePath -> Options -> m ()
 destroy path opts = do
-    (rk, opts') <- allocate (mkOpts opts) freeOpts
+    (rk, opts') <- R.allocate (mkOpts opts) freeOpts
     liftIO $ destroy' opts'
-    release rk
+    R.release rk
 
     where
         destroy' (Options' opts_ptr _) =
@@ -238,9 +219,9 @@ destroy path opts = do
 -- | Repair the given leveldb database.
 repair :: MonadResource m => FilePath -> Options -> m ()
 repair path opts = do
-    (rk, opts') <- allocate (mkOpts opts) freeOpts
+    (rk, opts') <- R.allocate (mkOpts opts) freeOpts
     liftIO $ repair' opts'
-    release rk
+    R.release rk
 
     where
         repair' (Options' opts_ptr _) =
@@ -332,15 +313,19 @@ write (DB db_ptr) opts batch = liftIO $
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
 -- after this function terminates.
--- withIterator :: DB -> ReadOptions -> (Iterator -> IO a) -> IO a
--- withIterator db opts = bracket (iterOpen db opts) iterClose
+withIterator :: MonadResource m => DB -> ReadOptions -> (Iterator -> m a) -> m a
+withIterator db opts f = do
+    (rk, iter) <- iterOpen' db opts
+    res <- f iter
+    R.release rk
+    return res
 
 -- | Create an Iterator. Consider using withIterator.
 iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
 iterOpen db opts = liftM snd (iterOpen' db opts)
 
 iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
-iterOpen' db opts = allocate (mkIter db opts) freeIter
+iterOpen' db opts = R.allocate (mkIter db opts) freeIter
     where
         mkIter (DB db_ptr) opts' = do
             lock   <- liftIO $ newMVar ()
