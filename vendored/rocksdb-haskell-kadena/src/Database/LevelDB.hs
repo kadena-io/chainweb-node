@@ -141,6 +141,9 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
 
 
 -- | Open a database
+--
+-- The returned handle will automatically be released when the enclosing
+-- @runResourceT@ terminates.
 open :: MonadResource m => FilePath -> Options -> m DB
 open path opts = liftM snd $ open' path opts
 
@@ -152,11 +155,19 @@ open' path opts = do
     where
         mkDB (Options' opts_ptr _) =
             withCString path $ \path_ptr ->
-                liftM DB $ throwIfErr "open" $ c_leveldb_open opts_ptr path_ptr
+                liftM DB
+                $ throwIfErr "open"
+                $ c_leveldb_open opts_ptr path_ptr
 
         freeDB (DB db_ptr) = c_leveldb_close db_ptr
+{-# INLINE open' #-}
 
 -- | Run an action with a snapshot of the database.
+--
+-- The snapshot will be released when the action terminates or throws an
+-- exception. Note that this function is provided for convenience and does not
+-- prevent the @Snapshot@ handle to escape. It will, however, be invalid after
+-- this function returns and should not be used anymore.
 withSnapshot :: MonadResource m => DB -> (Snapshot -> m a) -> m a
 withSnapshot db f = do
     (rk, snap) <- createSnapshot' db
@@ -164,9 +175,15 @@ withSnapshot db f = do
     release rk
     return res
 
+-- | Create a snapshot of the database.
+--
+-- The returned @Snapshot@ will be released automatically when the enclosing
+-- @runResourceT@ terminates. It is recommended to use @createSnapshot'@ instead
+-- and release the resource manually as soon as possible.
 createSnapshot :: MonadResource m => DB -> m Snapshot
 createSnapshot db = liftM snd (createSnapshot' db)
 
+-- | Create a snapshot of the database which can (and should) be released early.
 createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
 createSnapshot' db = allocate (mkSnap db) (freeSnap db)
     where
@@ -308,10 +325,14 @@ withIterator db opts f = do
     release rk
     return res
 
--- | Create an Iterator. Consider using withIterator.
+-- | Create an Iterator.
+--
+-- The iterator will be released when the enclosing @runResourceT@ terminates.
+-- You may consider using @iterOpen'@ and manually release the iterator early.
 iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
 iterOpen db opts = liftM snd (iterOpen' db opts)
 
+-- | Create an Iterator which can be released early.
 iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
 iterOpen' db opts = allocate (mkIter db opts) freeIter
     where
