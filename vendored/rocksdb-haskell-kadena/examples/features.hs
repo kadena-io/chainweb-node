@@ -14,7 +14,7 @@ import Database.LevelDB
 
 
 main :: IO ()
-main = runLevelDB $ do
+main = runResourceT $ do
     db <- open dbdir [CreateIfMissing, CacheSize 2048]
     put db [] "foo" "bar"
     get db [FillCache] "foo" >>= liftIO . print
@@ -35,7 +35,7 @@ main = runLevelDB $ do
 
     -- here, we keep the iterator around for later reuse.
     -- Note that we don't explicitly release it (and thus don't keep the release
-    -- key). The iterator will be released when runLevelDB terminates.
+    -- key). The iterator will be released when runResourceT terminates.
     iter <- iterOpen db [FillCache]
     dumpEntries iter
 
