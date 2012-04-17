@@ -11,6 +11,11 @@
 --
 -- The API closely follows the C-API of LevelDB.
 -- For more information, see: <http://leveldb.googlecode.com>
+--
+-- Note that this module re-exports a /modified/ version of the
+-- 'Control.Monad.Trans.Resource' module from the @resourcet@ package, which
+-- deallocates resources in LIFO order as required for this package. Only use
+-- the re-exported functions in conjunction with @leveldb-haskell@
 
 module Database.LevelDB (
   -- * Exported Types
@@ -143,7 +148,7 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
 -- | Open a database
 --
 -- The returned handle will automatically be released when the enclosing
--- @runResourceT@ terminates.
+-- 'runResourceT' terminates.
 open :: MonadResource m => FilePath -> Options -> m DB
 open path opts = liftM snd $ open' path opts
 
@@ -166,7 +171,7 @@ open' path opts = do
 --
 -- The snapshot will be released when the action terminates or throws an
 -- exception. Note that this function is provided for convenience and does not
--- prevent the @Snapshot@ handle to escape. It will, however, be invalid after
+-- prevent the 'Snapshot' handle to escape. It will, however, be invalid after
 -- this function returns and should not be used anymore.
 withSnapshot :: MonadResource m => DB -> (Snapshot -> m a) -> m a
 withSnapshot db f = do
@@ -177,8 +182,8 @@ withSnapshot db f = do
 
 -- | Create a snapshot of the database.
 --
--- The returned @Snapshot@ will be released automatically when the enclosing
--- @runResourceT@ terminates. It is recommended to use @createSnapshot'@ instead
+-- The returned 'Snapshot' will be released automatically when the enclosing
+-- 'runResourceT' terminates. It is recommended to use 'createSnapshot'' instead
 -- and release the resource manually as soon as possible.
 createSnapshot :: MonadResource m => DB -> m Snapshot
 createSnapshot db = liftM snd (createSnapshot' db)
@@ -327,8 +332,8 @@ withIterator db opts f = do
 
 -- | Create an Iterator.
 --
--- The iterator will be released when the enclosing @runResourceT@ terminates.
--- You may consider using @iterOpen'@ and manually release the iterator early.
+-- The iterator will be released when the enclosing 'runResourceT' terminates.
+-- You may consider using 'iterOpen'' and manually release the iterator early.
 iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
 iterOpen db opts = liftM snd (iterOpen' db opts)
 
