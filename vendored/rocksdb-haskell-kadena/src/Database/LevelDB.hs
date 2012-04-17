@@ -61,9 +61,8 @@ module Database.LevelDB (
   , iterKeys
   , iterValues
 
-  -- * Re-exports / aliases
-  , runLevelDB
-  , release
+  -- * Re-exports
+  , module Control.Monad.Trans.Resource
 ) where
 
 import Control.Applicative          ((<$>), (<*>))
@@ -71,11 +70,7 @@ import Control.Concurrent           (MVar, withMVar, newMVar)
 import Control.Exception            (throwIO)
 import Control.Monad                (liftM, when)
 import Control.Monad.IO.Class       (liftIO)
-import Control.Monad.Trans.Resource ( MonadBaseControl
-                                    , MonadResource
-                                    , ResourceT
-                                    , ReleaseKey
-                                    )
+import Control.Monad.Trans.Resource
 import Data.ByteString              (ByteString)
 import Data.List                    (find)
 import Foreign
@@ -85,7 +80,6 @@ import Foreign.C.Types              (CSize, CInt)
 
 import Database.LevelDB.Base
 
-import qualified Control.Monad.Trans.Resource as R
 import qualified Data.ByteString as SB
 import qualified Data.ByteString.Unsafe as UB
 
@@ -146,20 +140,14 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
               deriving (Eq, Show)
 
 
-runLevelDB :: MonadBaseControl IO m => ResourceT m a -> m a
-runLevelDB = R.runResourceT
-
-release :: MonadResource m => ReleaseKey -> m ()
-release = R.release
-
 -- | Open a database
 open :: MonadResource m => FilePath -> Options -> m DB
 open path opts = liftM snd $ open' path opts
 
 open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
 open' path opts = do
-    opts' <- liftM snd $ R.allocate (mkOpts opts) freeOpts
-    R.allocate (mkDB opts') freeDB
+    opts' <- liftM snd $ allocate (mkOpts opts) freeOpts
+    allocate (mkDB opts') freeDB
 
     where
         mkDB (Options' opts_ptr _) =
@@ -173,14 +161,14 @@ withSnapshot :: MonadResource m => DB -> (Snapshot -> m a) -> m a
 withSnapshot db f = do
     (rk, snap) <- createSnapshot' db
     res <- f snap
-    R.release rk
+    release rk
     return res
 
 createSnapshot :: MonadResource m => DB -> m Snapshot
 createSnapshot db = liftM snd (createSnapshot' db)
 
 createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
-createSnapshot' db = R.allocate (mkSnap db) (freeSnap db)
+createSnapshot' db = allocate (mkSnap db) (freeSnap db)
     where
         mkSnap (DB db_ptr) =
             liftM Snapshot $ c_leveldb_create_snapshot db_ptr
@@ -207,9 +195,9 @@ getProperty (DB db_ptr) p = liftIO $
 -- | Destroy the given leveldb database.
 destroy :: MonadResource m => FilePath -> Options -> m ()
 destroy path opts = do
-    (rk, opts') <- R.allocate (mkOpts opts) freeOpts
+    (rk, opts') <- allocate (mkOpts opts) freeOpts
     liftIO $ destroy' opts'
-    R.release rk
+    release rk
 
     where
         destroy' (Options' opts_ptr _) =
@@ -219,9 +207,9 @@ destroy path opts = do
 -- | Repair the given leveldb database.
 repair :: MonadResource m => FilePath -> Options -> m ()
 repair path opts = do
-    (rk, opts') <- R.allocate (mkOpts opts) freeOpts
+    (rk, opts') <- allocate (mkOpts opts) freeOpts
     liftIO $ repair' opts'
-    R.release rk
+    release rk
 
     where
         repair' (Options' opts_ptr _) =
@@ -317,7 +305,7 @@ withIterator :: MonadResource m => DB -> ReadOptions -> (Iterator -> m a) -> m a
 withIterator db opts f = do
     (rk, iter) <- iterOpen' db opts
     res <- f iter
-    R.release rk
+    release rk
     return res
 
 -- | Create an Iterator. Consider using withIterator.
@@ -325,7 +313,7 @@ iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
 iterOpen db opts = liftM snd (iterOpen' db opts)
 
 iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
-iterOpen' db opts = R.allocate (mkIter db opts) freeIter
+iterOpen' db opts = allocate (mkIter db opts) freeIter
     where
         mkIter (DB db_ptr) opts' = do
             lock   <- liftIO $ newMVar ()
