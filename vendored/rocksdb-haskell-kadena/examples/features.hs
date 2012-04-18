@@ -14,7 +14,7 @@ import Database.LevelDB
 
 
 main :: IO ()
-main = runResourceT $ do
+main = runLevelDB $ do
     db <- open dbdir [CreateIfMissing, CacheSize 2048]
     put db [] "foo" "bar"
     get db [FillCache] "foo" >>= liftIO . print

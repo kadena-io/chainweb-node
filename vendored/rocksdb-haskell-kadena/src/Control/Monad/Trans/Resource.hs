@@ -18,14 +18,15 @@
 -- transformed.
 
 {-
- - NOTE: this is a monkey-patched version of the original resourcet package with
- - the only change being that the allocated resources are released in LIFO
- - instead of FIFO order.
+ - Note: this is a modified version of the original module from the @resourcet@
+ - package. It adds some exports to be able to implement resource deallocation
+ - in LIFO order, as needed for leveldb.
  -}
 module Control.Monad.Trans.Resource
     ( -- * Data types
-      ResourceT
+      ResourceT (..)
     , ReleaseKey
+    , ReleaseMap (..)
       -- * Unwrap
     , runResourceT
       -- * Special actions
@@ -281,7 +282,7 @@ stateCleanup istate = E.mask_ $ do
             ReleaseMapClosed -> throw $ InvalidAccess "stateCleanup"
     case mm of
         Just m ->
-            mapM_ (\x -> try x >> return ()) $ reverse . IntMap.elems $ m
+            mapM_ (\x -> try x >> return ()) $ IntMap.elems $ m
         Nothing -> return ()
   where
     try :: IO a -> IO (Either SomeException a)
