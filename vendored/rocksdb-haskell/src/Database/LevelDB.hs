@@ -32,6 +32,9 @@ module Database.LevelDB (
   , WriteOptions
   , Range
 
+  -- * leveldb-flavored runResourceT
+  , runLevelDB
+
   -- * Basic Database Manipulation
   , withSnapshot
   , open
@@ -67,16 +70,19 @@ module Database.LevelDB (
   , iterValues
 
   -- * Re-exports
-  , module Control.Monad.Trans.Resource
+  , MonadResource(..)
 ) where
 
 import Control.Applicative          ((<$>), (<*>))
 import Control.Concurrent           (MVar, withMVar, newMVar)
 import Control.Exception            (throwIO)
 import Control.Monad                (liftM, when)
+import Control.Monad.Base           (liftBase)
 import Control.Monad.IO.Class       (liftIO)
+import Control.Monad.Trans.Control  (control)
 import Control.Monad.Trans.Resource
 import Data.ByteString              (ByteString)
+import Data.IORef                   (IORef, newIORef, atomicModifyIORef)
 import Data.List                    (find)
 import Foreign
 import Foreign.C.Error              (throwErrnoIfNull)
@@ -85,8 +91,10 @@ import Foreign.C.Types              (CSize, CInt)
 
 import Database.LevelDB.Base
 
+import qualified Control.Exception as E
 import qualified Data.ByteString as SB
 import qualified Data.ByteString.Unsafe as UB
+import qualified Data.IntMap as IntMap
 
 -- import Debug.Trace
 
@@ -144,6 +152,44 @@ data BatchOp = Put ByteString ByteString | Del ByteString
 data Property = NumFilesAtLevel Int | Stats | SSTables
               deriving (Eq, Show)
 
+
+runLevelDB :: MonadBaseControl IO m => ResourceT m a -> m a
+runLevelDB (ResourceT r) = do
+    istate <- liftBase $ newIORef
+        $ ReleaseMap minBound minBound IntMap.empty
+    bracket_ (stateAlloc istate)
+             (stateCleanup istate)
+             (r istate)
+
+bracket_ :: MonadBaseControl IO m => IO () -> IO () -> m a -> m a
+bracket_ alloc cleanup inside =
+    control $ \run -> E.bracket_ alloc cleanup (run inside)
+
+stateAlloc :: IORef ReleaseMap -> IO ()
+stateAlloc istate = do
+    atomicModifyIORef istate $ \rm ->
+        case rm of
+            ReleaseMap nk rf m ->
+                (ReleaseMap nk (rf + 1) m, ())
+            ReleaseMapClosed -> E.throw $ InvalidAccess "stateAlloc"
+
+stateCleanup :: IORef ReleaseMap -> IO ()
+stateCleanup istate = E.mask_ $ do
+    mm <- atomicModifyIORef istate $ \rm ->
+        case rm of
+            ReleaseMap nk rf m ->
+                let rf' = rf - 1
+                 in if rf' == minBound
+                        then (ReleaseMapClosed, Just m)
+                        else (ReleaseMap nk rf' m, Nothing)
+            ReleaseMapClosed -> E.throw $ InvalidAccess "stateCleanup"
+    case mm of
+        Just m ->
+            mapM_ (\x -> try x >> return ()) $ reverse . IntMap.elems $ m
+        Nothing -> return ()
+  where
+    try :: IO a -> IO (Either E.SomeException a)
+    try = E.try
 
 -- | Open a database
 --
