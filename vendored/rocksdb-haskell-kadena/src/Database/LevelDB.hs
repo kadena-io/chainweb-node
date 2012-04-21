@@ -21,6 +21,7 @@ module Database.LevelDB (
   -- * Exported Types
     DB
   , BatchOp(..)
+  , Comparator(..)
   , Compression(..)
   , Option(..)
   , Options
@@ -107,6 +108,14 @@ newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
 -- | Compression setting
 data Compression = NoCompression | Snappy deriving (Eq, Show)
 
+-- | User-defined comparator
+newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
+
+data Comparator' = Comparator' (FunPtr CompareFun)
+                               (FunPtr Destructor)
+                               (FunPtr NameFun)
+                               ComparatorPtr
+
 type Options = [Option]
 -- | Options when opening a database
 data Option = CreateIfMissing
@@ -118,12 +127,14 @@ data Option = CreateIfMissing
             | BlockRestartInterval Int
             | UseCompression Compression
             | CacheSize Int
-            deriving (Eq, Show)
+            | UseComparator Comparator
+            --deriving (Eq, Show)
 
 data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
-    } deriving (Eq)
+    , _comp     :: !(Maybe Comparator')
+    } -- deriving (Eq)
 
 type WriteOptions = [WriteOption]
 -- | Options for write operations
@@ -160,7 +171,7 @@ open' path opts = do
     allocate (mkDB opts') freeDB
 
     where
-        mkDB (Options' opts_ptr _) =
+        mkDB (Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 liftM DB
                 $ throwIfErr "open"
@@ -224,7 +235,7 @@ destroy path opts = do
     release rk
 
     where
-        destroy' (Options' opts_ptr _) =
+        destroy' (Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
 
@@ -236,7 +247,7 @@ repair path opts = do
     release rk
 
     where
-        repair' (Options' opts_ptr _) =
+        repair' (Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "repair" $ c_leveldb_repair_db opts_ptr path_ptr
 
@@ -456,9 +467,13 @@ mkOpts opts = do
     cache    <- maybe (return Nothing)
                       (liftM Just . setcache opts_ptr)
                       (maybeCacheSize opts)
+    cmp      <- maybe (return Nothing)
+                      (liftM Just . setcmp opts_ptr)
+                      (maybeCmp opts)
+
     mapM_ (setopt opts_ptr) opts
 
-    return (Options' opts_ptr cache)
+    return (Options' opts_ptr cache cmp)
 
     where
         setopt opts_ptr CreateIfMissing =
@@ -480,6 +495,7 @@ mkOpts opts = do
         setopt opts_ptr (UseCompression Snappy) =
             c_leveldb_options_set_compression opts_ptr snappyCompression
         setopt _ (CacheSize _) = return ()
+        setopt _ (UseComparator _) = return ()
 
         maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
 
@@ -492,10 +508,22 @@ mkOpts opts = do
             c_leveldb_options_set_cache opts_ptr cache_ptr
             return cache_ptr
 
+        maybeCmp os = find isCmp os >>= \(UseComparator cmp) -> return cmp
+
+        isCmp (UseComparator _) = True
+        isCmp _                 = False
+
+        setcmp :: OptionsPtr -> Comparator -> IO Comparator'
+        setcmp opts_ptr (Comparator cmp) = do
+            cmp'@(Comparator' _ _ _ cmp_ptr) <- mkComparator "user-defined" cmp
+            c_leveldb_options_set_comparator opts_ptr cmp_ptr
+            return cmp'
+
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr) = do
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) = do
     c_leveldb_options_destroy opts_ptr
     maybe (return ()) c_leveldb_cache_destroy mcache_ptr
+    maybe (return ()) freeComparator mcmp_ptr
     return ()
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
@@ -546,3 +574,31 @@ i2s = fromIntegral
 i2ci :: Int -> CInt
 i2ci = fromIntegral
 {-# INLINE i2ci #-}
+
+mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
+mkCompareFun cmp = cmp'
+    where
+        cmp' _ a alen b blen = do
+            a' <- SB.packCStringLen (a, fromInteger . toInteger $ alen)
+            b' <- SB.packCStringLen (b, fromInteger . toInteger $ blen)
+            return $ case cmp a' b' of
+                         EQ ->  0
+                         GT ->  1
+                         LT -> -1
+
+mkComparator :: String -> (ByteString -> ByteString -> Ordering) -> IO Comparator'
+mkComparator name f =
+    withCString name $ \cs -> do
+        ccmpfun <- mkCmp  $ mkCompareFun f
+        cdest   <- mkDest $ \_ -> ()
+        cname   <- mkName $ \_ -> cs
+        ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
+        return $ Comparator' ccmpfun cdest cname ccmp
+
+
+freeComparator :: Comparator' -> IO ()
+freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
+    c_leveldb_comparator_destroy ccmp
+    freeHaskellFunPtr ccmpfun
+    freeHaskellFunPtr cdest
+    freeHaskellFunPtr cname
