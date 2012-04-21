@@ -56,7 +56,6 @@ library
 
   ghc-options:      -Wall -O2 -rtsopts
                     -funbox-strict-fields
-                    -debug
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   src
