@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module      : Database.LevelDB
 -- Copyright   : (c) 2012 Kim Altintop
@@ -23,15 +23,17 @@ module Database.LevelDB (
   , BatchOp(..)
   , Comparator(..)
   , Compression(..)
-  , Option(..)
-  , Options
-  , ReadOption(..)
-  , ReadOptions
+  , Options(..)
+  , ReadOptions(..)
   , Snapshot
   , WriteBatch
-  , WriteOption(..)
-  , WriteOptions
+  , WriteOptions(..)
   , Range
+
+  -- * Defaults
+  , defaultOptions
+  , defaultWriteOptions
+  , defaultReadOptions
 
   -- * Basic Database Manipulation
   , withSnapshot
@@ -80,7 +82,7 @@ import Control.Monad                (liftM, when)
 import Control.Monad.IO.Class       (liftIO)
 import Control.Monad.Trans.Resource
 import Data.ByteString              (ByteString)
-import Data.List                    (find)
+import Data.Default
 import Foreign
 import Foreign.C.Error              (throwErrnoIfNull)
 import Foreign.C.String             (withCString, peekCString)
@@ -116,37 +118,70 @@ data Comparator' = Comparator' (FunPtr CompareFun)
                                (FunPtr NameFun)
                                ComparatorPtr
 
-type Options = [Option]
 -- | Options when opening a database
-data Option = CreateIfMissing
-            | ErrorIfExists
-            | ParanoidChecks
-            | WriteBufferSize Int
-            | MaxOpenFiles Int
-            | BlockSize Int
-            | BlockRestartInterval Int
-            | UseCompression Compression
-            | CacheSize Int
-            | UseComparator Comparator
-            --deriving (Eq, Show)
+data Options = Options
+    { blockRestartInterval :: !Int
+    , blockSize            :: !Int
+    , cacheSize            :: !Int
+    , comparator           :: !(Maybe Comparator)
+    , compression          :: !Compression
+    , createIfMissing      :: !Bool
+    , errorIfExists        :: !Bool
+    , maxOpenFiles         :: !Int
+    , paranoidChecks       :: !Bool
+    , writeBufferSize      :: !Int
+    }
+
+defaultOptions :: Options
+defaultOptions = Options
+    { blockRestartInterval = 16
+    , blockSize            = 4096
+    , cacheSize            = 0
+    , comparator           = Nothing
+    , compression          = Snappy
+    , createIfMissing      = False
+    , errorIfExists        = False
+    , maxOpenFiles         = 1000
+    , paranoidChecks       = False
+    , writeBufferSize      = 4 `shift` 20
+    }
+
+instance Default Options where
+    def = defaultOptions
 
 data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
-    } -- deriving (Eq)
+    }
 
-type WriteOptions = [WriteOption]
 -- | Options for write operations
-data WriteOption  = Sync -- ^ fsync the rows written immediately
-                  deriving (Eq, Show)
+data WriteOptions = WriteOptions
+    { sync :: !Bool
+    } deriving (Eq, Show)
 
-type ReadOptions = [ReadOption]
+defaultWriteOptions :: WriteOptions
+defaultWriteOptions = WriteOptions { sync = False }
+
+instance Default WriteOptions where
+    def = defaultWriteOptions
+
 -- | Options for read operations
-data ReadOption  = VerifyCheckSums
-                 | FillCache
-                 | UseSnapshot Snapshot
-                 deriving (Eq)
+data ReadOptions = ReadOptions
+    { verifyCheckSums :: !Bool
+    , fillCache       :: !Bool
+    , useSnapshot     :: !(Maybe Snapshot)
+    } deriving (Eq)
+
+defaultReadOptions :: ReadOptions
+defaultReadOptions = ReadOptions
+    { verifyCheckSums = False
+    , fillCache       = True
+    , useSnapshot     = Nothing
+    }
+
+instance Default ReadOptions where
+    def = defaultReadOptions
 
 type WriteBatch = [BatchOp]
 -- | Batch operation
@@ -260,9 +295,9 @@ approximateSize (DB db_ptr) (from, to) = liftIO $
     UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
     UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
     withArray [from_ptr]          $ \from_ptrs        ->
-    withArray [i2s flen]          $ \flen_ptrs        ->
+    withArray [intToCSize flen]          $ \flen_ptrs        ->
     withArray [to_ptr]            $ \to_ptrs          ->
-    withArray [i2s tlen]          $ \tlen_ptrs        ->
+    withArray [intToCSize tlen]          $ \tlen_ptrs        ->
     allocaArray 1                 $ \size_ptrs        -> do
         c_leveldb_approximate_sizes db_ptr 1
                                     from_ptrs flen_ptrs
@@ -280,8 +315,8 @@ put (DB db_ptr) opts key value = liftIO $
     UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
     withCWriteOptions opts         $ \opts_ptr        ->
         throwIfErr "put" $ c_leveldb_put db_ptr opts_ptr
-                                         key_ptr (i2s klen)
-                                         val_ptr (i2s vlen)
+                                         key_ptr (intToCSize klen)
+                                         val_ptr (intToCSize vlen)
 
 -- | Read a value by key
 get :: MonadResource m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
@@ -290,12 +325,12 @@ get (DB db_ptr) opts key = liftIO $
     withCReadOptions opts        $ \opts_ptr        ->
     alloca                       $ \vlen_ptr        -> do
         val_ptr <- throwIfErr "get" $
-            c_leveldb_get db_ptr opts_ptr key_ptr (i2s klen) vlen_ptr
+            c_leveldb_get db_ptr opts_ptr key_ptr (intToCSize klen) vlen_ptr
         vlen <- peek vlen_ptr
         if val_ptr == nullPtr
             then return Nothing
             else do
-                res <- liftM Just $ SB.packCStringLen (val_ptr, s2i vlen)
+                res <- liftM Just $ SB.packCStringLen (val_ptr, cSizeToInt vlen)
                 free val_ptr
                 return res
 
@@ -304,7 +339,7 @@ delete :: MonadResource m => DB -> WriteOptions -> ByteString -> m ()
 delete (DB db_ptr) opts key = liftIO $
     UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     withCWriteOptions opts       $ \opts_ptr        ->
-        throwIfErr "delete" $ c_leveldb_delete db_ptr opts_ptr key_ptr (i2s klen)
+        throwIfErr "delete" $ c_leveldb_delete db_ptr opts_ptr key_ptr (intToCSize klen)
 
 -- | Perform a batch mutation
 write :: MonadResource m => DB -> WriteOptions -> WriteBatch -> m ()
@@ -326,12 +361,12 @@ write (DB db_ptr) opts batch = liftIO $
             UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
             UB.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
                 c_leveldb_writebatch_put batch_ptr
-                                         key_ptr (i2s klen)
-                                         val_ptr (i2s vlen)
+                                         key_ptr (intToCSize klen)
+                                         val_ptr (intToCSize vlen)
 
         batchAdd batch_ptr (Del key) =
             UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-                c_leveldb_writebatch_delete batch_ptr key_ptr (i2s klen)
+                c_leveldb_writebatch_delete batch_ptr key_ptr (intToCSize klen)
 
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
@@ -378,7 +413,7 @@ iterSeek :: MonadResource m => Iterator -> ByteString -> m ()
 iterSeek (Iterator iter lck) key = liftIO $ withMVar lck go
     where
         go _ = UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-                   c_leveldb_iter_seek iter key_ptr (i2s klen)
+                   c_leveldb_iter_seek iter key_ptr (intToCSize klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
@@ -416,7 +451,7 @@ iterKey (Iterator iter _) = liftIO $
         key_ptr <- c_leveldb_iter_key iter len_ptr
         klen <- peek len_ptr
         if key_ptr /= nullPtr
-            then SB.packCStringLen (key_ptr, s2i klen)
+            then SB.packCStringLen (key_ptr, cSizeToInt klen)
             else throwIO $ userError "null key"
 
 -- | Return the value for the current entry. The underlying storage for the
@@ -427,7 +462,7 @@ iterValue (Iterator iter _) = liftIO $
         val_ptr <- c_leveldb_iter_value iter len_ptr
         vlen <- peek len_ptr
         if val_ptr /= nullPtr
-            then SB.packCStringLen (val_ptr, s2i vlen)
+            then SB.packCStringLen (val_ptr, cSizeToInt vlen)
             else throwIO $ userError "null value"
 
 -- | Map a function over an iterator, returning the value. The iterator
@@ -462,56 +497,47 @@ iterValues = mapIter iterValue
 --
 
 mkOpts :: Options -> IO Options'
-mkOpts opts = do
+mkOpts Options{..} = do
     opts_ptr <- c_leveldb_options_create
-    cache    <- maybe (return Nothing)
-                      (liftM Just . setcache opts_ptr)
-                      (maybeCacheSize opts)
-    cmp      <- maybe (return Nothing)
-                      (liftM Just . setcmp opts_ptr)
-                      (maybeCmp opts)
 
-    mapM_ (setopt opts_ptr) opts
+    c_leveldb_options_set_block_restart_interval opts_ptr
+        $ intToCInt blockRestartInterval
+    c_leveldb_options_set_block_size opts_ptr
+        $ intToCSize blockSize
+    c_leveldb_options_set_compression opts_ptr
+        $ ccompression compression
+    c_leveldb_options_set_create_if_missing opts_ptr
+        $ boolToNum createIfMissing
+    c_leveldb_options_set_error_if_exists opts_ptr
+        $ boolToNum errorIfExists
+    c_leveldb_options_set_max_open_files opts_ptr
+        $ intToCInt maxOpenFiles
+    c_leveldb_options_set_paranoid_checks opts_ptr
+        $ boolToNum paranoidChecks
+    c_leveldb_options_set_write_buffer_size opts_ptr
+        $ intToCSize writeBufferSize
+
+    cache <- maybeSetCache opts_ptr cacheSize
+    cmp   <- maybeSetCmp opts_ptr comparator
 
     return (Options' opts_ptr cache cmp)
 
     where
-        setopt opts_ptr CreateIfMissing =
-            c_leveldb_options_set_create_if_missing opts_ptr 1
-        setopt opts_ptr ErrorIfExists =
-            c_leveldb_options_set_error_if_exists opts_ptr 1
-        setopt opts_ptr ParanoidChecks =
-            c_leveldb_options_set_paranoid_checks opts_ptr 1
-        setopt opts_ptr (WriteBufferSize s) =
-            c_leveldb_options_set_write_buffer_size opts_ptr $ i2s s
-        setopt opts_ptr (MaxOpenFiles n) =
-            c_leveldb_options_set_max_open_files opts_ptr $ i2ci n
-        setopt opts_ptr (BlockSize s) =
-            c_leveldb_options_set_block_size opts_ptr $ i2s s
-        setopt opts_ptr (BlockRestartInterval i) =
-            c_leveldb_options_set_block_restart_interval opts_ptr $ i2ci i
-        setopt opts_ptr (UseCompression NoCompression) =
-            c_leveldb_options_set_compression opts_ptr noCompression
-        setopt opts_ptr (UseCompression Snappy) =
-            c_leveldb_options_set_compression opts_ptr snappyCompression
-        setopt _ (CacheSize _) = return ()
-        setopt _ (UseComparator _) = return ()
+        ccompression NoCompression = noCompression
+        ccompression Snappy        = snappyCompression
 
-        maybeCacheSize os = find isCs os >>= \(CacheSize s) -> return s
+        maybeSetCache :: OptionsPtr -> Int -> IO (Maybe CachePtr)
+        maybeSetCache opts_ptr size = do
+            if size <= 0
+                then return Nothing
+                else do
+                    cache_ptr <- c_leveldb_cache_create_lru $ intToCSize size
+                    c_leveldb_options_set_cache opts_ptr cache_ptr
+                    return . Just $ cache_ptr
 
-        isCs (CacheSize _) = True
-        isCs _             = False
-
-        setcache :: OptionsPtr -> Int -> IO CachePtr
-        setcache opts_ptr s = do
-            cache_ptr <- c_leveldb_cache_create_lru $ i2s s
-            c_leveldb_options_set_cache opts_ptr cache_ptr
-            return cache_ptr
-
-        maybeCmp os = find isCmp os >>= \(UseComparator cmp) -> return cmp
-
-        isCmp (UseComparator _) = True
-        isCmp _                 = False
+        maybeSetCmp :: OptionsPtr -> Maybe Comparator -> IO (Maybe Comparator')
+        maybeSetCmp opts_ptr (Just mcmp) = liftM Just $ setcmp opts_ptr mcmp
+        maybeSetCmp _ Nothing = return Nothing
 
         setcmp :: OptionsPtr -> Comparator -> IO Comparator'
         setcmp opts_ptr (Comparator cmp) = do
@@ -527,31 +553,37 @@ freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) = do
     return ()
 
 withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
-withCWriteOptions opts f = do
+withCWriteOptions WriteOptions{..} f = do
     opts_ptr <- c_leveldb_writeoptions_create
-    mapM_ (setopt opts_ptr) opts
+
+    c_leveldb_writeoptions_set_sync opts_ptr
+        $ boolToNum sync
+
     res <- f opts_ptr
     c_leveldb_writeoptions_destroy opts_ptr
-    return res
 
-    where
-        setopt opts_ptr Sync = c_leveldb_writeoptions_set_sync opts_ptr 1
+    return res
 
 withCReadOptions :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
-withCReadOptions opts f = do
+withCReadOptions ReadOptions{..} f = do
     opts_ptr <- c_leveldb_readoptions_create
-    mapM_ (setopt opts_ptr) opts
+
+    c_leveldb_readoptions_set_verify_checksums opts_ptr
+        $ boolToNum verifyCheckSums
+    c_leveldb_readoptions_set_verify_checksums opts_ptr
+        $ boolToNum fillCache
+    maybeSetSnapshot opts_ptr useSnapshot
+
     res <- f opts_ptr
     c_leveldb_readoptions_destroy opts_ptr
+
     return res
 
     where
-        setopt opts_ptr VerifyCheckSums =
-            c_leveldb_readoptions_set_verify_checksums opts_ptr 1
-        setopt opts_ptr FillCache =
-            c_leveldb_readoptions_set_fill_cache opts_ptr 1
-        setopt opts_ptr (UseSnapshot (Snapshot snap)) =
+        maybeSetSnapshot opts_ptr (Just (Snapshot snap)) =
             c_leveldb_readoptions_set_snapshot opts_ptr snap
+
+        maybeSetSnapshot _ Nothing = return ()
 
 throwIfErr :: String -> (ErrPtr -> IO a) -> IO a
 throwIfErr s f = alloca $ \err_ptr -> do
@@ -563,17 +595,22 @@ throwIfErr s f = alloca $ \err_ptr -> do
         throwIO $ userError $ s ++ ": " ++ err
     return res
 
-s2i :: CSize -> Int
-s2i = fromIntegral
-{-# INLINE s2i #-}
+cSizeToInt :: CSize -> Int
+cSizeToInt = fromIntegral
+{-# INLINE cSizeToInt #-}
 
-i2s :: Int -> CSize
-i2s = fromIntegral
-{-# INLINE i2s #-}
+intToCSize :: Int -> CSize
+intToCSize = fromIntegral
+{-# INLINE intToCSize #-}
 
-i2ci :: Int -> CInt
-i2ci = fromIntegral
-{-# INLINE i2ci #-}
+intToCInt :: Int -> CInt
+intToCInt = fromIntegral
+{-# INLINE intToCInt #-}
+
+boolToNum :: Num b => Bool -> b
+boolToNum True  = fromIntegral (1 :: Int)
+boolToNum False = fromIntegral (0 :: Int)
+{-# INLINE boolToNum #-}
 
 mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
 mkCompareFun cmp = cmp'

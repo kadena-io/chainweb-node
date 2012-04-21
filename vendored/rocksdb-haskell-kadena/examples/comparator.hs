@@ -6,22 +6,26 @@ module Main where
 
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Char8  (take)
+import Data.Default
 
 import Database.LevelDB
 
 
-comparator :: Comparator
-comparator = Comparator compare
+customComparator :: Comparator
+customComparator = Comparator compare
 
 main :: IO ()
 main = runResourceT $ do
-    db <- open "/tmp/lvlcmptest" [CreateIfMissing, UseComparator comparator]
+    db <- open "/tmp/lvlcmptest"
+               defaultOptions{ createIfMissing = True
+                             , comparator = Just customComparator
+                             }
 
-    put db [] "zzz" ""
-    put db [] "yyy" ""
-    put db [] "xxx" ""
+    put db def "zzz" ""
+    put db def "yyy" ""
+    put db def "xxx" ""
 
-    withIterator db [] $ \iter -> do
+    withIterator db def $ \iter -> do
         iterFirst iter
         iterItems iter >>= liftIO . print
 

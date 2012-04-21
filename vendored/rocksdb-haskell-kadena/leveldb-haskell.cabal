@@ -45,13 +45,14 @@ library
                     CPP
                   , ForeignFunctionInterface
                   , EmptyDataDecls
-                  , FlexibleContexts
+                  , RecordWildCards
 
   build-depends:    base >= 3 && < 5
                   , bytestring
                   , filepath
                   , transformers
                   , resourcet > 0.3.2
+                  , data-default
 
   ghc-options:      -Wall -O2
                     -static -optl-static -rtsopts
