@@ -83,6 +83,7 @@ import Control.Monad.IO.Class       (liftIO)
 import Control.Monad.Trans.Resource
 import Data.ByteString              (ByteString)
 import Data.Default
+import Data.Maybe                   (catMaybes)
 import Foreign
 import Foreign.C.Error              (throwErrnoIfNull)
 import Foreign.C.String             (withCString, peekCString)
@@ -198,11 +199,11 @@ data Property = NumFilesAtLevel Int | Stats | SSTables
 -- The returned handle will automatically be released when the enclosing
 -- 'runResourceT' terminates.
 open :: MonadResource m => FilePath -> Options -> m DB
-open path opts = liftM snd $ open' path opts
+open path opts = snd <$> open' path opts
 
 open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
 open' path opts = do
-    opts' <- liftM snd $ allocate (mkOpts opts) freeOpts
+    opts' <- snd <$> allocate (mkOpts opts) freeOpts
     allocate (mkDB opts') freeDB
 
     where
@@ -234,14 +235,14 @@ withSnapshot db f = do
 -- 'runResourceT' terminates. It is recommended to use 'createSnapshot'' instead
 -- and release the resource manually as soon as possible.
 createSnapshot :: MonadResource m => DB -> m Snapshot
-createSnapshot db = liftM snd (createSnapshot' db)
+createSnapshot db = snd <$> createSnapshot' db
 
 -- | Create a snapshot of the database which can (and should) be released early.
 createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
 createSnapshot' db = allocate (mkSnap db) (freeSnap db)
     where
         mkSnap (DB db_ptr) =
-            liftM Snapshot $ c_leveldb_create_snapshot db_ptr
+            Snapshot <$> c_leveldb_create_snapshot db_ptr
 
         freeSnap (DB db_ptr) (Snapshot snap) =
             c_leveldb_release_snapshot db_ptr snap
@@ -253,7 +254,7 @@ getProperty (DB db_ptr) p = liftIO $
         val_ptr <- c_leveldb_property_value db_ptr prop_ptr
         if val_ptr == nullPtr
             then return Nothing
-            else do res <- liftM Just $ SB.packCString val_ptr
+            else do res <- Just <$> SB.packCString val_ptr
                     free val_ptr
                     return res
 
@@ -330,7 +331,7 @@ get (DB db_ptr) opts key = liftIO $
         if val_ptr == nullPtr
             then return Nothing
             else do
-                res <- liftM Just $ SB.packCStringLen (val_ptr, cSizeToInt vlen)
+                res <- Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
                 free val_ptr
                 return res
 
@@ -378,14 +379,19 @@ withIterator db opts f = do
     release rk
     return res
 
--- | Create an Iterator.
+-- | Create an 'Iterator'.
 --
 -- The iterator will be released when the enclosing 'runResourceT' terminates.
--- You may consider using 'iterOpen'' and manually release the iterator early.
+-- You may consider to use 'iterOpen'' instead and manually release the iterator
+-- as soon as it is no longer needed (alternatively, use 'withIterator').
+--
+-- Note that an 'Iterator' creates a snapshot of the database implicitly, so
+-- updates written after the iterator was created are not visible. You may,
+-- however, specify an older 'Snapshot' in the 'ReadOptions'.
 iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
-iterOpen db opts = liftM snd (iterOpen' db opts)
+iterOpen db opts = snd <$> iterOpen' db opts
 
--- | Create an Iterator which can be released early.
+-- | Create an 'Iterator' which can be released early.
 iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
 iterOpen' db opts = allocate (mkIter db opts) freeIter
     where
@@ -430,40 +436,70 @@ iterLast (Iterator iter lck) = liftIO $ withMVar lck go
         go _ = c_leveldb_iter_seek_to_last iter
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
--- /true/ iff the iterator was not positioned the last entry in the source.
+-- /true/ iff the iterator was not positioned at the last entry in the source.
+--
+-- If the iterator is not valid, this function does nothing. Note that this is a
+-- shortcoming of the C API: an 'iterPrev' might still be possible, but we can't
+-- determine if we're at the last or first entry.
 iterNext :: MonadResource m => Iterator -> m ()
-iterNext (Iterator iter lck) = liftIO $ withMVar lck go
+iterNext iter@(Iterator iter_ptr lck) = do
+    valid <- iterValid iter
+    when valid $ liftIO $ withMVar lck go
+
     where
-        go _ = c_leveldb_iter_next iter
+        go _ = c_leveldb_iter_next iter_ptr
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
+--
+-- If the iterator is not valid, this function does nothing. Note that this is a
+-- shortcoming of the C API: an 'iterNext' might still be possible, but we can't
+-- determine if we're at the last or first entry.
 iterPrev :: MonadResource m => Iterator -> m ()
-iterPrev (Iterator iter lck) = liftIO $ withMVar lck go
+iterPrev iter@(Iterator iter_ptr lck) = do
+    valid <- iterValid iter
+    when valid $ liftIO $ withMVar lck go
+
     where
-        go _ = c_leveldb_iter_prev iter
+        go _ = c_leveldb_iter_prev iter_ptr
 
--- | Return the key for the current entry. The underlying storage for the
--- returned slice is valid only until the next modification of the iterator.
-iterKey :: MonadResource m => Iterator -> m ByteString
-iterKey (Iterator iter _) = liftIO $
-    alloca $ \len_ptr -> do
-        key_ptr <- c_leveldb_iter_key iter len_ptr
-        klen <- peek len_ptr
-        if key_ptr /= nullPtr
-            then SB.packCStringLen (key_ptr, cSizeToInt klen)
-            else throwIO $ userError "null key"
+-- | Return the key for the current entry if the iterator is currently
+-- positioned at an entry, ie. 'iterValid'.
+iterKey :: MonadResource m => Iterator -> m (Maybe ByteString)
+iterKey iter = do
+    valid <- iterValid iter
+    if not valid
+        then return Nothing
+        else iterKey' iter
 
--- | Return the value for the current entry. The underlying storage for the
--- returned slice is valid only until the next modification of the iterator.
-iterValue :: MonadResource m => Iterator -> m ByteString
-iterValue (Iterator iter _) = liftIO $
-    alloca $ \len_ptr -> do
-        val_ptr <- c_leveldb_iter_value iter len_ptr
-        vlen <- peek len_ptr
-        if val_ptr /= nullPtr
-            then SB.packCStringLen (val_ptr, cSizeToInt vlen)
-            else throwIO $ userError "null value"
+    where
+        iterKey' (Iterator iter_ptr _) = liftIO $
+            alloca $ \len_ptr -> do
+                key_ptr <- c_leveldb_iter_key iter_ptr len_ptr
+                if key_ptr == nullPtr
+                    then return Nothing
+                    else do
+                        klen <- peek len_ptr
+                        Just <$> SB.packCStringLen (key_ptr, cSizeToInt klen)
+
+-- | Return the value for the current entry if the iterator is currently
+-- positioned at an entry, ie. 'iterValid'.
+iterValue :: MonadResource m => Iterator -> m (Maybe ByteString)
+iterValue iter = do
+    valid <- iterValid iter
+    if not valid
+        then return Nothing
+        else iterValue' iter
+
+    where
+        iterValue' (Iterator iter_ptr _) = liftIO $
+            alloca $ \len_ptr -> do
+                val_ptr <- c_leveldb_iter_value iter_ptr len_ptr
+                if val_ptr == nullPtr
+                    then return Nothing
+                    else do
+                        vlen <- peek len_ptr
+                        Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
 
 -- | Map a function over an iterator, returning the value. The iterator
 -- should be put in the right position prior to calling this with the iterator.
@@ -480,17 +516,23 @@ mapIter f iter = do
 -- | Return a list of key and value tuples from an iterator. The iterator
 -- should be put in the right position prior to calling this with the iterator.
 iterItems :: MonadResource m => Iterator -> m [(ByteString, ByteString)]
-iterItems = mapIter $ \iter -> (,) <$> iterKey iter <*> iterValue iter
+iterItems iter = catMaybes <$> mapIter iterItems' iter
+
+    where
+        iterItems' iter' = do
+            mkey <- iterKey iter'
+            mval <- iterValue iter'
+            return $ (,) <$> mkey <*> mval
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 iterKeys :: MonadResource m => Iterator -> m [ByteString]
-iterKeys = mapIter iterKey
+iterKeys iter = catMaybes <$> mapIter iterKey iter
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 iterValues :: MonadResource m => Iterator -> m [ByteString]
-iterValues = mapIter iterValue
+iterValues iter = catMaybes <$> mapIter iterValue iter
 
 --
 -- Internal
@@ -527,7 +569,7 @@ mkOpts Options{..} = do
         ccompression Snappy        = snappyCompression
 
         maybeSetCache :: OptionsPtr -> Int -> IO (Maybe CachePtr)
-        maybeSetCache opts_ptr size = do
+        maybeSetCache opts_ptr size =
             if size <= 0
                 then return Nothing
                 else do
@@ -536,7 +578,7 @@ mkOpts Options{..} = do
                     return . Just $ cache_ptr
 
         maybeSetCmp :: OptionsPtr -> Maybe Comparator -> IO (Maybe Comparator')
-        maybeSetCmp opts_ptr (Just mcmp) = liftM Just $ setcmp opts_ptr mcmp
+        maybeSetCmp opts_ptr (Just mcmp) = Just <$> setcmp opts_ptr mcmp
         maybeSetCmp _ Nothing = return Nothing
 
         setcmp :: OptionsPtr -> Comparator -> IO Comparator'
@@ -580,8 +622,8 @@ withCReadOptions ReadOptions{..} f = do
     return res
 
     where
-        maybeSetSnapshot opts_ptr (Just (Snapshot snap)) =
-            c_leveldb_readoptions_set_snapshot opts_ptr snap
+        maybeSetSnapshot opts_ptr (Just (Snapshot snap_ptr)) =
+            c_leveldb_readoptions_set_snapshot opts_ptr snap_ptr
 
         maybeSetSnapshot _ Nothing = return ()
 
