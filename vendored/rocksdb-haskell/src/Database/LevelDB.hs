@@ -311,53 +311,68 @@ approximateSize (DB db_ptr) (from, to) = liftIO $
 
 -- | Write a key/value pair
 put :: MonadResource m => DB -> WriteOptions -> ByteString -> ByteString -> m ()
-put (DB db_ptr) opts key value = liftIO $
-    UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
-    UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
-    withCWriteOptions opts         $ \opts_ptr        ->
-        throwIfErr "put" $ c_leveldb_put db_ptr opts_ptr
-                                         key_ptr (intToCSize klen)
-                                         val_ptr (intToCSize vlen)
+put (DB db_ptr) opts key value =  do
+    (rk, opts_ptr) <- mkCWriteOpts opts
+
+    liftIO $
+        UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
+        UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
+            throwIfErr "put"
+                $ c_leveldb_put db_ptr opts_ptr
+                                key_ptr (intToCSize klen)
+                                val_ptr (intToCSize vlen)
+
+    release rk
 
 -- | Read a value by key
 get :: MonadResource m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
-get (DB db_ptr) opts key = liftIO $
-    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-    withCReadOptions opts        $ \opts_ptr        ->
-    alloca                       $ \vlen_ptr        -> do
-        val_ptr <- throwIfErr "get" $
-            c_leveldb_get db_ptr opts_ptr key_ptr (intToCSize klen) vlen_ptr
-        vlen <- peek vlen_ptr
-        if val_ptr == nullPtr
-            then return Nothing
-            else do
-                res <- Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
-                free val_ptr
-                return res
+get (DB db_ptr) opts key = do
+    (rk, opts_ptr) <- mkCReadOptions opts
+
+    res <- liftIO $
+        UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+        alloca                       $ \vlen_ptr        -> do
+            val_ptr <- throwIfErr "get" $
+                c_leveldb_get db_ptr opts_ptr key_ptr (intToCSize klen) vlen_ptr
+            vlen <- peek vlen_ptr
+            if val_ptr == nullPtr
+                then return Nothing
+                else do
+                    res' <- Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
+                    free val_ptr
+                    return res'
+
+    release rk
+    return res
 
 -- | Delete a key/value pair
 delete :: MonadResource m => DB -> WriteOptions -> ByteString -> m ()
-delete (DB db_ptr) opts key = liftIO $
-    UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-    withCWriteOptions opts       $ \opts_ptr        ->
-        throwIfErr "delete" $ c_leveldb_delete db_ptr opts_ptr key_ptr (intToCSize klen)
+delete (DB db_ptr) opts key = do
+    (rk, opts_ptr) <- mkCWriteOpts opts
+
+    liftIO $ UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+        throwIfErr "delete"
+            $ c_leveldb_delete db_ptr opts_ptr key_ptr (intToCSize klen)
+
+    release rk
 
 -- | Perform a batch mutation
 write :: MonadResource m => DB -> WriteOptions -> WriteBatch -> m ()
-write (DB db_ptr) opts batch = liftIO $
-    withCWriteOptions opts $ \opts_ptr  ->
-    withCWriteBatch batch  $ \batch_ptr ->
-        throwIfErr "write"
+write (DB db_ptr) opts batch = do
+    (rk_opts, opts_ptr)   <- mkCWriteOpts opts
+    (rk_batch, batch_ptr) <- allocate c_leveldb_writebatch_create
+                                      c_leveldb_writebatch_destroy
+
+    mapM_ (liftIO . batchAdd batch_ptr) batch
+
+    liftIO
+        $ throwIfErr "write"
         $ c_leveldb_write db_ptr opts_ptr batch_ptr
 
-    where
-        withCWriteBatch b f = do
-            batch_ptr <- c_leveldb_writebatch_create
-            mapM_ (batchAdd batch_ptr) b
-            res <- f batch_ptr
-            c_leveldb_writebatch_destroy batch_ptr
-            return res
+    release rk_opts
+    release rk_batch
 
+    where
         batchAdd batch_ptr (Put key val) =
             UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
             UB.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
@@ -393,12 +408,18 @@ iterOpen db opts = snd <$> iterOpen' db opts
 
 -- | Create an 'Iterator' which can be released early.
 iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
-iterOpen' db opts = allocate (mkIter db opts) freeIter
+iterOpen' db opts = do
+    (rk, opts_ptr) <- mkCReadOptions opts
+    iter <- allocate (mkIter db opts_ptr) freeIter
+
+    release rk
+    return iter
+
     where
-        mkIter (DB db_ptr) opts' = do
+        mkIter (DB db_ptr) opts_ptr = do
             lock   <- liftIO $ newMVar ()
-            it_ptr <- liftIO $ withCReadOptions opts' $ \opts_ptr ->
-                          throwErrnoIfNull "create_iterator"
+            it_ptr <- liftIO
+                          $ throwErrnoIfNull "create_iterator"
                           $ c_leveldb_create_iterator db_ptr opts_ptr
             return $ Iterator it_ptr lock
 
@@ -594,36 +615,37 @@ freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) = do
     maybe (return ()) freeComparator mcmp_ptr
     return ()
 
-withCWriteOptions :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
-withCWriteOptions WriteOptions{..} f = do
-    opts_ptr <- c_leveldb_writeoptions_create
+mkCWriteOpts :: MonadResource m => WriteOptions -> m (ReleaseKey, WriteOptionsPtr)
+mkCWriteOpts WriteOptions{..} = do
+    (rk, opts_ptr) <- allocate c_leveldb_writeoptions_create
+                               c_leveldb_writeoptions_destroy
 
-    c_leveldb_writeoptions_set_sync opts_ptr
+    liftIO
+        $ c_leveldb_writeoptions_set_sync opts_ptr
         $ boolToNum sync
 
-    res <- f opts_ptr
-    c_leveldb_writeoptions_destroy opts_ptr
+    return (rk, opts_ptr)
 
-    return res
+mkCReadOptions:: MonadResource m => ReadOptions -> m (ReleaseKey, ReadOptionsPtr)
+mkCReadOptions ReadOptions{..} = do
+    (rk, opts_ptr) <- allocate c_leveldb_readoptions_create
+                               c_leveldb_readoptions_destroy
 
-withCReadOptions :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
-withCReadOptions ReadOptions{..} f = do
-    opts_ptr <- c_leveldb_readoptions_create
-
-    c_leveldb_readoptions_set_verify_checksums opts_ptr
+    liftIO
+        $ c_leveldb_readoptions_set_verify_checksums opts_ptr
         $ boolToNum verifyCheckSums
-    c_leveldb_readoptions_set_verify_checksums opts_ptr
+
+    liftIO
+        $ c_leveldb_readoptions_set_verify_checksums opts_ptr
         $ boolToNum fillCache
+
     maybeSetSnapshot opts_ptr useSnapshot
 
-    res <- f opts_ptr
-    c_leveldb_readoptions_destroy opts_ptr
-
-    return res
+    return (rk, opts_ptr)
 
     where
         maybeSetSnapshot opts_ptr (Just (Snapshot snap_ptr)) =
-            c_leveldb_readoptions_set_snapshot opts_ptr snap_ptr
+            liftIO $ c_leveldb_readoptions_set_snapshot opts_ptr snap_ptr
 
         maybeSetSnapshot _ Nothing = return ()
 
