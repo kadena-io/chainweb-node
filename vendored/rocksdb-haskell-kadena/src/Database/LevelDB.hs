@@ -11,11 +11,6 @@
 --
 -- The API closely follows the C-API of LevelDB.
 -- For more information, see: <http://leveldb.googlecode.com>
---
--- Note that this module re-exports a /modified/ version of the
--- 'Control.Monad.Trans.Resource' module from the @resourcet@ package, which
--- deallocates resources in LIFO order as required for this package. Only use
--- the re-exported functions in conjunction with @leveldb-haskell@
 
 module Database.LevelDB (
   -- * Exported Types
@@ -125,14 +120,18 @@ data Comparator' = Comparator' (FunPtr CompareFun)
 data Options = Options
     { blockRestartInterval :: !Int
       -- ^ Number of keys between restart points for delta encoding of keys.
+      --
       -- This parameter can be changed dynamically. Most clients should leave
       -- this parameter alone.
       --
       -- Default: 16
     , blockSize            :: !Int
-      -- ^ Approximate size of user data packed per block. Note that the block
-      -- size specified here corresponds to uncompressed data. The actual size
-      -- of the unit read from disk may be smaller if compression is enabled.
+      -- ^ Approximate size of user data packed per block.
+      --
+      -- Note that the block size specified here corresponds to uncompressed
+      -- data. The actual size of the unit read from disk may be smaller if
+      -- compression is enabled.
+      --
       -- This parameter can be changed dynamically.
       --
       -- Default: 4k
@@ -146,6 +145,7 @@ data Options = Options
       -- Default: 0
     , comparator           :: !(Maybe Comparator)
       -- ^ Comparator used to defined the order of keys in the table.
+      --
       -- If 'Nothing', the default comparator is used, which uses lexicographic
       -- bytes-wise ordering.
       --
@@ -155,8 +155,9 @@ data Options = Options
       --
       -- Default: Nothing
     , compression          :: !Compression
-      -- ^ Compress blocks using the specified compression algorithm. This
-      -- parameter can be changed dynamically.
+      -- ^ Compress blocks using the specified compression algorithm.
+      --
+      -- This parameter can be changed dynamically.
       --
       -- Default: 'Snappy'
     , createIfMissing      :: !Bool
@@ -168,17 +169,19 @@ data Options = Options
       --
       -- Default: False
     , maxOpenFiles         :: !Int
-      -- ^ Number of open files that can be used by the DB. You may need to
-      -- increase this if your database has a large working set (budget one open
-      -- file per 2MB of working set).
+      -- ^ Number of open files that can be used by the DB.
+      --
+      -- You may need to increase this if your database has a large working set
+      -- (budget one open file per 2MB of working set).
       --
       -- Default: 1000
     , paranoidChecks       :: !Bool
       -- ^ If true, the implementation will do aggressive checking of the data
-      -- it is processing and will stop early if it detects any errors. This may
-      -- have unforeseen ramifications: for example, a corruptio of one DB entry
-      -- may cause a large number of entries to become unreadable or for the
-      -- entire DB to become unopenable.
+      -- it is processing and will stop early if it detects any errors.
+      --
+      -- This may have unforeseen ramifications: for example, a corruption of
+      -- one DB entry may cause a large number of entries to become unreadable
+      -- or for the entire DB to become unopenable.
       --
       -- Default: False
     , writeBufferSize      :: !Int
@@ -254,7 +257,7 @@ data ReadOptions = ReadOptions
       --
       -- Default: True
     , useSnapshot     :: !(Maybe Snapshot)
-      -- ^ If 'Just', read as of the supploed snapshot (which must belong to the
+      -- ^ If 'Just', read as of the supplied snapshot (which must belong to the
       -- DB that is being read and which must not have been released). If
       -- 'Nothing', use an implicit snapshot of the state at the beginning of
       -- this read operation.
@@ -625,8 +628,14 @@ iterGetError (Iterator iter_ptr _) = liftIO $
                 err <- peekCString erra
                 return . Just . BC.pack $ err
 
--- | Map a function over an iterator, returning the value. The iterator
--- should be put in the right position prior to calling this with the iterator.
+-- | Map a function over an iterator, advancing the iterator forward and
+-- returning the value. The iterator should be put in the right position prior
+-- to calling the function.
+--
+-- Note that this function accumulates the result strictly, ie. it reads all
+-- values into memory until the iterator is exhausted. This is most likely not
+-- what you want for large ranges. You may consider using conduits instead, for
+-- an example see: <https://gist.github.com/adc8ec348f03483446a5>
 mapIter :: MonadResource m => (Iterator -> m a) -> Iterator -> m [a]
 mapIter = go []
 
@@ -642,6 +651,8 @@ mapIter = go []
 
 -- | Return a list of key and value tuples from an iterator. The iterator
 -- should be put in the right position prior to calling this with the iterator.
+--
+-- See strictness remarks on 'mapIter'.
 iterItems :: MonadResource m => Iterator -> m [(ByteString, ByteString)]
 iterItems iter = catMaybes <$> mapIter iterItems' iter
 
@@ -653,11 +664,15 @@ iterItems iter = catMaybes <$> mapIter iterItems' iter
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
+--
+-- See strictness remarks on 'mapIter'
 iterKeys :: MonadResource m => Iterator -> m [ByteString]
 iterKeys iter = catMaybes <$> mapIter iterKey iter
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
+--
+-- See strictness remarks on 'mapIter'
 iterValues :: MonadResource m => Iterator -> m [ByteString]
 iterValues iter = catMaybes <$> mapIter iterValue iter
 
