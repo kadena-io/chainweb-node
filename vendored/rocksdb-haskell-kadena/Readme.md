@@ -1,12 +1,28 @@
 This library provides Haskell bindings to
 [LevelDB](http://leveldb.googlecode.com)
 
+## History
+
+Version 0.1.0:
+
+* memory (foreign pointers) is managed through
+  [ResourceT](http://hackage.haskell.org/package/resourcet). Note that this
+  requires to lift monadic actions inside the `MonadResource` monad, see the
+  examples.
+* links against shared library (LevelDB v1.3 or higher)
+* LevelDB 1.3 API fully supported (including custom comparators, excluding
+  custom environments)
+
+Version 0.0.x:
+
+* experimental releases
+
 ## Installation
 
 Prerequisites:
 
 * [GHC 7.*](http://www.haskell.org/ghc)
-* [Cabal](http://www.haskell.org/cabal)
+* [Cabal](http://www.haskell.org/cabal), version 1.3 or higher
 * [LevelDB](http://code.google.com/p/leveldb)
 * Optional: [Snappy](http://code.google.com/p/snappy),
   if compression support is desired
