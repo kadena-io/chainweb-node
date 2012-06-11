@@ -71,25 +71,25 @@ module Database.LevelDB (
   , resourceForkIO
 ) where
 
-import Control.Applicative          ((<$>), (<*>))
-import Control.Concurrent           (MVar, withMVar, newMVar)
-import Control.Exception            (throwIO)
-import Control.Monad                (liftM, when)
-import Control.Monad.IO.Class       (liftIO)
+import Control.Applicative                ((<$>), (<*>))
+import Control.Concurrent                 (MVar, withMVar, newMVar)
+import Control.Exception                  (throwIO)
+import Control.Monad                      (liftM, when)
+import Control.Monad.IO.Class             (liftIO)
 import Control.Monad.Trans.Resource
-import Data.ByteString              (ByteString)
+import Data.ByteString                    (ByteString)
 import Data.Default
-import Data.Maybe                   (catMaybes)
+import Data.Maybe                         (catMaybes)
 import Foreign
-import Foreign.C.Error              (throwErrnoIfNull)
-import Foreign.C.String             (withCString, peekCString)
-import Foreign.C.Types              (CSize, CInt)
+import Foreign.C.Error                    (throwErrnoIfNull)
+import Foreign.C.String                   (withCString, peekCString)
+import Foreign.C.Types                    (CSize, CInt)
 
 import Database.LevelDB.Base
 
-import qualified Data.ByteString        as SB
-import qualified Data.ByteString.Char8  as BC
-import qualified Data.ByteString.Unsafe as UB
+import qualified Data.ByteString          as BS
+import qualified Data.ByteString.Char8    as BC
+import qualified Data.ByteString.Unsafe   as BU
 
 -- import Debug.Trace
 
@@ -345,7 +345,7 @@ getProperty (DB db_ptr) p = liftIO $
         val_ptr <- c_leveldb_property_value db_ptr prop_ptr
         if val_ptr == nullPtr
             then return Nothing
-            else do res <- Just <$> SB.packCString val_ptr
+            else do res <- Just <$> BS.packCString val_ptr
                     free val_ptr
                     return res
 
@@ -384,12 +384,12 @@ type Range  = (ByteString, ByteString)
 -- | Inspect the approximate sizes of the different levels
 approximateSize :: MonadResource m => DB -> Range -> m Int64
 approximateSize (DB db_ptr) (from, to) = liftIO $
-    UB.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
-    UB.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
+    BU.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
+    BU.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
     withArray [from_ptr]          $ \from_ptrs        ->
-    withArray [intToCSize flen]          $ \flen_ptrs        ->
+    withArray [intToCSize flen]   $ \flen_ptrs        ->
     withArray [to_ptr]            $ \to_ptrs          ->
-    withArray [intToCSize tlen]          $ \tlen_ptrs        ->
+    withArray [intToCSize tlen]   $ \tlen_ptrs        ->
     allocaArray 1                 $ \size_ptrs        -> do
         c_leveldb_approximate_sizes db_ptr 1
                                     from_ptrs flen_ptrs
@@ -406,8 +406,8 @@ put (DB db_ptr) opts key value =  do
     (rk, opts_ptr) <- mkCWriteOpts opts
 
     liftIO $
-        UB.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
-        UB.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
+        BU.unsafeUseAsCStringLen key   $ \(key_ptr, klen) ->
+        BU.unsafeUseAsCStringLen value $ \(val_ptr, vlen) ->
             throwIfErr "put"
                 $ c_leveldb_put db_ptr opts_ptr
                                 key_ptr (intToCSize klen)
@@ -421,7 +421,7 @@ get (DB db_ptr) opts key = do
     (rk, opts_ptr) <- mkCReadOptions opts
 
     res <- liftIO $
-        UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+        BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
         alloca                       $ \vlen_ptr        -> do
             val_ptr <- throwIfErr "get" $
                 c_leveldb_get db_ptr opts_ptr key_ptr (intToCSize klen) vlen_ptr
@@ -429,7 +429,7 @@ get (DB db_ptr) opts key = do
             if val_ptr == nullPtr
                 then return Nothing
                 else do
-                    res' <- Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
+                    res' <- Just <$> BS.packCStringLen (val_ptr, cSizeToInt vlen)
                     free val_ptr
                     return res'
 
@@ -441,7 +441,7 @@ delete :: MonadResource m => DB -> WriteOptions -> ByteString -> m ()
 delete (DB db_ptr) opts key = do
     (rk, opts_ptr) <- mkCWriteOpts opts
 
-    liftIO $ UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+    liftIO $ BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
         throwIfErr "delete"
             $ c_leveldb_delete db_ptr opts_ptr key_ptr (intToCSize klen)
 
@@ -465,14 +465,14 @@ write (DB db_ptr) opts batch = do
 
     where
         batchAdd batch_ptr (Put key val) =
-            UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-            UB.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
+            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+            BU.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
                 c_leveldb_writebatch_put batch_ptr
                                          key_ptr (intToCSize klen)
                                          val_ptr (intToCSize vlen)
 
         batchAdd batch_ptr (Del key) =
-            UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
                 c_leveldb_writebatch_delete batch_ptr key_ptr (intToCSize klen)
 
 -- | Run an action with an Iterator. The iterator will be closed after the
@@ -530,7 +530,7 @@ iterValid (Iterator iter _) = do
 iterSeek :: MonadResource m => Iterator -> ByteString -> m ()
 iterSeek (Iterator iter lck) key = liftIO $ withMVar lck go
     where
-        go _ = UB.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+        go _ = BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
                    c_leveldb_iter_seek iter key_ptr (intToCSize klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
@@ -592,7 +592,7 @@ iterKey iter = do
                     then return Nothing
                     else do
                         klen <- peek len_ptr
-                        Just <$> SB.packCStringLen (key_ptr, cSizeToInt klen)
+                        Just <$> BS.packCStringLen (key_ptr, cSizeToInt klen)
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
@@ -611,7 +611,7 @@ iterValue iter = do
                     then return Nothing
                     else do
                         vlen <- peek len_ptr
-                        Just <$> SB.packCStringLen (val_ptr, cSizeToInt vlen)
+                        Just <$> BS.packCStringLen (val_ptr, cSizeToInt vlen)
 
 -- | Check for errors
 --
@@ -801,8 +801,8 @@ mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
 mkCompareFun cmp = cmp'
     where
         cmp' _ a alen b blen = do
-            a' <- SB.packCStringLen (a, fromInteger . toInteger $ alen)
-            b' <- SB.packCStringLen (b, fromInteger . toInteger $ blen)
+            a' <- BS.packCStringLen (a, fromInteger . toInteger $ alen)
+            b' <- BS.packCStringLen (b, fromInteger . toInteger $ blen)
             return $ case cmp a' b' of
                          EQ ->  0
                          GT ->  1
