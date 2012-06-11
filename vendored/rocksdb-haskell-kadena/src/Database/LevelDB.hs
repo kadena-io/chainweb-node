@@ -465,14 +465,14 @@ write (DB db_ptr) opts batch = do
 
     where
         batchAdd batch_ptr (Put key val) =
-            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-            BU.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
+            BS.useAsCStringLen key $ \(key_ptr, klen) ->
+            BS.useAsCStringLen val $ \(val_ptr, vlen) ->
                 c_leveldb_writebatch_put batch_ptr
                                          key_ptr (intToCSize klen)
                                          val_ptr (intToCSize vlen)
 
         batchAdd batch_ptr (Del key) =
-            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+            BS.useAsCStringLen key $ \(key_ptr, klen) ->
                 c_leveldb_writebatch_delete batch_ptr key_ptr (intToCSize klen)
 
 -- | Run an action with an Iterator. The iterator will be closed after the
