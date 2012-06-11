@@ -1,5 +1,5 @@
 name:                leveldb-haskell
-version:             0.1.0
+version:             0.1.1
 synopsis:            Haskell bindings to LevelDB
 homepage:            http://github.com/kim/leveldb-haskell
 bug-reports:         http://github.com/kim/leveldb-haskell/issues
