@@ -3,6 +3,14 @@ This library provides Haskell bindings to
 
 ## History
 
+Version 0.2.0:
+
+* requires LevelDB v1.7
+* support for filter policy (LevelDB v1.5), either custom or using the built-in
+  bloom filter implementation
+* write batch values no longer require a `memcpy` to be early-finalizer-safe
+  (introduced in 0.1.1)
+
 Version 0.1.0:
 
 * memory (foreign pointers) is managed through
