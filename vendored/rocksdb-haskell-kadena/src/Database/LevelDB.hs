@@ -78,6 +78,7 @@ import Control.Monad                      (liftM, when)
 import Control.Monad.IO.Class             (liftIO)
 import Control.Monad.Trans.Resource
 import Data.ByteString                    (ByteString)
+import Data.ByteString.Internal           (ByteString(..))
 import Data.Default
 import Data.Maybe                         (catMaybes)
 import Foreign
@@ -460,20 +461,30 @@ write (DB db_ptr) opts batch = do
         $ throwIfErr "write"
         $ c_leveldb_write db_ptr opts_ptr batch_ptr
 
+    -- ensure @ByteString@s (and respective shared @CStringLen@s) aren't GC'ed
+    -- until here
+    mapM_ (liftIO . touch) batch
+
     release rk_opts
     release rk_batch
 
     where
         batchAdd batch_ptr (Put key val) =
-            BS.useAsCStringLen key $ \(key_ptr, klen) ->
-            BS.useAsCStringLen val $ \(val_ptr, vlen) ->
+            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+            BU.unsafeUseAsCStringLen val $ \(val_ptr, vlen) ->
                 c_leveldb_writebatch_put batch_ptr
                                          key_ptr (intToCSize klen)
                                          val_ptr (intToCSize vlen)
 
         batchAdd batch_ptr (Del key) =
-            BS.useAsCStringLen key $ \(key_ptr, klen) ->
+            BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
                 c_leveldb_writebatch_delete batch_ptr key_ptr (intToCSize klen)
+
+        touch (Put (PS p _ _) (PS p' _ _)) = do
+            touchForeignPtr p
+            touchForeignPtr p'
+
+        touch (Del (PS p _ _)) = touchForeignPtr p
 
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
