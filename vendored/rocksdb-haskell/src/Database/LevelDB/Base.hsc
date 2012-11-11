@@ -332,6 +332,7 @@ foreign import ccall safe "leveldb/c.h leveldb_writeoptions_destroy"
 foreign import ccall safe "leveldb/c.h leveldb_writeoptions_set_sync"
   c_leveldb_writeoptions_set_sync :: WriteOptionsPtr -> CUChar -> IO ()
 
+
 --
 -- Cache
 --
@@ -341,3 +342,14 @@ foreign import ccall safe "leveldb/c.h leveldb_cache_create_lru"
 
 foreign import ccall safe "leveldb/c.h leveldb_cache_destroy"
   c_leveldb_cache_destroy :: CachePtr -> IO ()
+
+
+--
+-- Version
+--
+
+foreign import ccall unsafe "leveldb/c.h leveldb_major_version"
+  c_leveldb_major_version :: IO CInt
+
+foreign import ccall unsafe "leveldb/c.h leveldb_minor_version"
+  c_leveldb_minor_version :: IO CInt

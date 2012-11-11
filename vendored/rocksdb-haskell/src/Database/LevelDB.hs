@@ -49,6 +49,7 @@ module Database.LevelDB (
   , destroy
   , repair
   , approximateSize
+  , version
 
   -- * Iteration
   , Iterator
@@ -718,6 +719,16 @@ iterKeys iter = catMaybes <$> mapIter iterKey iter
 iterValues :: MonadResource m => Iterator -> m [ByteString]
 iterValues iter = catMaybes <$> mapIter iterValue iter
 
+
+-- | Return the runtime version of the underlying LevelDB library as a (major,
+-- minor) pair.
+version :: MonadResource m => m (Int, Int)
+version = do
+    major <- liftIO c_leveldb_major_version
+    minor <- liftIO c_leveldb_minor_version
+
+    return (cIntToInt major, cIntToInt minor)
+
 --
 -- Internal
 --
@@ -850,6 +861,10 @@ intToCSize = fromIntegral
 intToCInt :: Int -> CInt
 intToCInt = fromIntegral
 {-# INLINE intToCInt #-}
+
+cIntToInt :: CInt -> Int
+cIntToInt = fromIntegral
+{-# INLINE cIntToInt #-}
 
 boolToNum :: Num b => Bool -> b
 boolToNum True  = fromIntegral (1 :: Int)
