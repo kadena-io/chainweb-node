@@ -16,6 +16,8 @@ import Database.LevelDB
 
 main :: IO ()
 main = runResourceT $ do
+    printVersion
+
     db <- open "/tmp/leveltest"
                defaultOptions{ createIfMissing = True
                              , cacheSize= 2048
@@ -65,3 +67,14 @@ main = runResourceT $ do
         printProperty l p = liftIO $ do
             putStrLn l
             maybe (putStrLn "n/a") putStrLn $ p
+
+        printVersion = do
+            v <- versionBS
+            liftIO . putStrLn $ "LevelDB Version: " `append` v
+
+        versionBS = do
+            (major, minor) <- version
+            return $ intToBs major `append` "." `append` intToBs minor
+
+        intToBs :: Int -> ByteString
+        intToBs = pack . show
