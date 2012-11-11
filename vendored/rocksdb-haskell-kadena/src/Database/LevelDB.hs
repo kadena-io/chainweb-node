@@ -40,6 +40,10 @@ module Database.LevelDB (
   , createSnapshot
   , createSnapshot'
 
+  -- * Filter Policy / Bloom Filter
+  , FilterPolicy(..)
+  , bloomFilter
+
   -- * Administrative Functions
   , Property(..), getProperty
   , destroy
@@ -116,6 +120,30 @@ data Comparator' = Comparator' (FunPtr CompareFun)
                                (FunPtr Destructor)
                                (FunPtr NameFun)
                                ComparatorPtr
+
+-- | User-defined filter policy
+data FilterPolicy = FilterPolicy
+    { fpName       :: String
+    , createFilter :: [ByteString] -> ByteString
+    , keyMayMatch  :: ByteString -> ByteString -> Bool
+    }
+
+data FilterPolicy' = FilterPolicy' (FunPtr CreateFilterFun)
+                                   (FunPtr KeyMayMatchFun)
+                                   (FunPtr Destructor)
+                                   (FunPtr NameFun)
+                                   FilterPolicyPtr
+
+-- | Represents the built-in Bloom Filter
+newtype BloomFilter = BloomFilter FilterPolicyPtr
+
+bloomFilter :: MonadResource m => Int -> m BloomFilter
+bloomFilter i = do
+    let i' = fromInteger . toInteger $ i
+    fp_ptr <- snd <$> allocate (c_leveldb_filterpolicy_create_bloom i')
+                               (c_leveldb_filterpolicy_destroy)
+    return . BloomFilter $ fp_ptr
+
 
 -- | Options when opening a database
 data Options = Options
@@ -196,6 +224,7 @@ data Options = Options
       -- database is opened.
       --
       -- Default: 4MB
+    , filterPolicy         :: !(Maybe (Either BloomFilter FilterPolicy))
     }
 
 defaultOptions :: Options
@@ -210,6 +239,7 @@ defaultOptions = Options
     , maxOpenFiles         = 1000
     , paranoidChecks       = False
     , writeBufferSize      = 4 `shift` 20
+    , filterPolicy         = Nothing
     }
 
 instance Default Options where
@@ -219,6 +249,7 @@ data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
+    , _fpPtr    :: !(Maybe (Either FilterPolicyPtr FilterPolicy'))
     }
 
 -- | Options for write operations
@@ -299,7 +330,7 @@ open' path opts = do
     allocate (mkDB opts') freeDB
 
     where
-        mkDB (Options' opts_ptr _ _) =
+        mkDB (Options' opts_ptr _ _ _) =
             withCString path $ \path_ptr ->
                 liftM DB
                 $ throwIfErr "open"
@@ -363,7 +394,7 @@ destroy path opts = do
     release rk
 
     where
-        destroy' (Options' opts_ptr _ _) =
+        destroy' (Options' opts_ptr _ _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "destroy" $ c_leveldb_destroy_db opts_ptr path_ptr
 
@@ -375,7 +406,7 @@ repair path opts = do
     release rk
 
     where
-        repair' (Options' opts_ptr _ _) =
+        repair' (Options' opts_ptr _ _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "repair" $ c_leveldb_repair_db opts_ptr path_ptr
 
@@ -714,8 +745,9 @@ mkOpts Options{..} = do
 
     cache <- maybeSetCache opts_ptr cacheSize
     cmp   <- maybeSetCmp opts_ptr comparator
+    fp    <- maybeSetFilterPolicy opts_ptr filterPolicy
 
-    return (Options' opts_ptr cache cmp)
+    return (Options' opts_ptr cache cmp fp)
 
     where
         ccompression NoCompression = noCompression
@@ -740,11 +772,27 @@ mkOpts Options{..} = do
             c_leveldb_options_set_comparator opts_ptr cmp_ptr
             return cmp'
 
+        maybeSetFilterPolicy :: OptionsPtr
+                             -> Maybe (Either BloomFilter FilterPolicy)
+                             -> IO (Maybe (Either FilterPolicyPtr FilterPolicy'))
+        maybeSetFilterPolicy _ Nothing = return Nothing
+        maybeSetFilterPolicy opts_ptr (Just (Left (BloomFilter bloom_ptr))) = do
+            c_leveldb_options_set_filter_policy opts_ptr bloom_ptr
+            return Nothing -- bloom filter is freed automatically
+        maybeSetFilterPolicy opts_ptr (Just (Right fp)) = do
+            fp'@(FilterPolicy' _ _ _ _ fp_ptr) <- mkFilterPolicy fp
+            c_leveldb_options_set_filter_policy opts_ptr fp_ptr
+            return . Just . Right $ fp'
+
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) = do
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr mfp) = do
     c_leveldb_options_destroy opts_ptr
     maybe (return ()) c_leveldb_cache_destroy mcache_ptr
     maybe (return ()) freeComparator mcmp_ptr
+    maybe (return ())
+          (either c_leveldb_filterpolicy_destroy freeFilterPolicy)
+          mfp
+
     return ()
 
 mkCWriteOpts :: MonadResource m => WriteOptions -> m (ReleaseKey, WriteOptionsPtr)
@@ -810,6 +858,7 @@ boolToNum False = fromIntegral (0 :: Int)
 
 mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
 mkCompareFun cmp = cmp'
+
     where
         cmp' _ a alen b blen = do
             a' <- BS.packCStringLen (a, fromInteger . toInteger $ alen)
@@ -822,7 +871,7 @@ mkCompareFun cmp = cmp'
 mkComparator :: String -> (ByteString -> ByteString -> Ordering) -> IO Comparator'
 mkComparator name f =
     withCString name $ \cs -> do
-        ccmpfun <- mkCmp  $ mkCompareFun f
+        ccmpfun <- mkCmp . mkCompareFun $ f
         cdest   <- mkDest $ \_ -> ()
         cname   <- mkName $ \_ -> cs
         ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
@@ -833,5 +882,49 @@ freeComparator :: Comparator' -> IO ()
 freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
     c_leveldb_comparator_destroy ccmp
     freeHaskellFunPtr ccmpfun
+    freeHaskellFunPtr cdest
+    freeHaskellFunPtr cname
+
+mkCreateFilterFun :: ([ByteString] -> ByteString) -> CreateFilterFun
+mkCreateFilterFun f = f'
+
+    where
+        f' _ ks ks_lens n_ks flen = do
+            let n_ks' = fromInteger . toInteger $ n_ks
+            ks'      <- peekArray n_ks' ks
+            ks_lens' <- peekArray n_ks' ks_lens
+            keys     <- mapM bstr (zip ks' ks_lens')
+            let res = f keys
+            poke flen (fromIntegral . BS.length $ res)
+            BS.useAsCString res $ \cstr -> return cstr
+
+        bstr (x,len) = BS.packCStringLen (x, fromInteger . toInteger $ len)
+
+mkKeyMayMatchFun :: (ByteString -> ByteString -> Bool) -> KeyMayMatchFun
+mkKeyMayMatchFun g = g'
+
+    where
+        g' _ k klen f flen = do
+            k' <- BS.packCStringLen (k, fromInteger . toInteger $ klen)
+            f' <- BS.packCStringLen (f, fromInteger . toInteger $ flen)
+            return . boolToNum $ g k' f'
+
+
+mkFilterPolicy :: FilterPolicy -> IO FilterPolicy'
+mkFilterPolicy FilterPolicy{..} =
+    withCString fpName $ \cs -> do
+        cname  <- mkName $ \_ -> cs
+        cdest  <- mkDest $ \_ -> ()
+        ccffun <- mkCF . mkCreateFilterFun $ createFilter
+        ckmfun <- mkKMM . mkKeyMayMatchFun $ keyMayMatch
+        cfp    <- c_leveldb_filterpolicy_create nullPtr cdest ccffun ckmfun cname
+
+        return $ FilterPolicy' ccffun ckmfun cdest cname cfp
+
+freeFilterPolicy :: FilterPolicy' -> IO ()
+freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
+    c_leveldb_filterpolicy_destroy cfp
+    freeHaskellFunPtr ccffun
+    freeHaskellFunPtr ckmfun
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
