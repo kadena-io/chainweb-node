@@ -26,6 +26,7 @@ data LReadOptions
 data LSnapshot
 data LWriteBatch
 data LWriteOptions
+data LFilterPolicy
 
 type LevelDBPtr      = Ptr LevelDB
 type CachePtr        = Ptr LCache
@@ -37,18 +38,7 @@ type ReadOptionsPtr  = Ptr LReadOptions
 type SnapshotPtr     = Ptr LSnapshot
 type WriteBatchPtr   = Ptr LWriteBatch
 type WriteOptionsPtr = Ptr LWriteOptions
-
--- custom env from haskell doesn't make too much sense
-data LEnv
-data LFileLock
-data LRandomFile
-data LSeqfile
-data LWritableFile
-type EnvPtr          = Ptr LEnv
-type FileLockPtr     = Ptr LFileLock
-type RandomFilePtr   = Ptr LRandomFile
-type WritableFilePtr = Ptr LWritableFile
-type SeqfilePtr      = Ptr LSeqfile
+type FilterPolicyPtr = Ptr LFilterPolicy
 
 type DBName = CString
 type ErrPtr = Ptr CString
@@ -113,7 +103,6 @@ foreign import ccall safe "leveldb/c.h leveldb_release_snapshot"
 foreign import ccall safe "leveldb/c.h leveldb_property_value"
   c_leveldb_property_value :: LevelDBPtr -> CString -> IO CString
 
--- not sure why this needs to be imported safe
 foreign import ccall safe "leveldb/c.h leveldb_approximate_sizes"
   c_leveldb_approximate_sizes :: LevelDBPtr
                               -> CInt                     -- ^ num ranges
@@ -128,7 +117,10 @@ foreign import ccall safe "leveldb/c.h leveldb_destroy_db"
 foreign import ccall safe "leveldb/c.h leveldb_repair_db"
   c_leveldb_repair_db :: OptionsPtr -> DBName -> ErrPtr -> IO ()
 
--- ^ Iterator
+
+--
+-- Iterator
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_create_iterator"
   c_leveldb_create_iterator :: LevelDBPtr -> ReadOptionsPtr -> IO IteratorPtr
@@ -163,7 +155,10 @@ foreign import ccall safe "leveldb/c.h leveldb_iter_value"
 foreign import ccall safe "leveldb/c.h leveldb_iter_get_error"
   c_leveldb_iter_get_error :: IteratorPtr -> ErrPtr -> IO ()
 
--- ^ Write batch
+
+--
+-- Write batch
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_writebatch_create"
   c_leveldb_writebatch_create :: IO WriteBatchPtr
@@ -190,7 +185,10 @@ foreign import ccall safe "leveldb/c.h leveldb_writebatch_iterate"
                                -> FunPtr (Ptr () -> Key -> CSize)     -- ^ delete
                                -> IO ()
 
--- ^ Options
+
+--
+-- Options
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_options_create"
   c_leveldb_options_create :: IO OptionsPtr
@@ -201,6 +199,9 @@ foreign import ccall safe "leveldb/c.h leveldb_options_destroy"
 foreign import ccall safe "leveldb/c.h leveldb_options_set_comparator"
   c_leveldb_options_set_comparator :: OptionsPtr -> ComparatorPtr -> IO ()
 
+foreign import ccall safe "leveldb/c.h leveldb_options_set_filter_policy"
+  c_leveldb_options_set_filter_policy :: OptionsPtr -> FilterPolicyPtr -> IO ()
+
 foreign import ccall safe "leveldb/c.h leveldb_options_set_create_if_missing"
   c_leveldb_options_set_create_if_missing :: OptionsPtr -> CUChar -> IO ()
 
@@ -209,9 +210,6 @@ foreign import ccall safe "leveldb/c.h leveldb_options_set_error_if_exists"
 
 foreign import ccall safe "leveldb/c.h leveldb_options_set_paranoid_checks"
   c_leveldb_options_set_paranoid_checks :: OptionsPtr -> CUChar -> IO ()
-
-foreign import ccall safe "leveldb/c.h leveldb_options_set_env"
-  c_leveldb_options_set_env :: OptionsPtr -> EnvPtr -> IO ()
 
 foreign import ccall safe "leveldb/c.h leveldb_options_set_info_log"
   c_leveldb_options_set_info_log :: OptionsPtr -> LoggerPtr -> IO ()
@@ -234,9 +232,11 @@ foreign import ccall safe "leveldb/c.h leveldb_options_set_compression"
 foreign import ccall safe "leveldb/c.h leveldb_options_set_cache"
   c_leveldb_options_set_cache :: OptionsPtr -> CachePtr -> IO ()
 
+
 --
 -- Comparator
 --
+
 type StatePtr   = Ptr ()
 type Destructor = StatePtr -> ()
 type CompareFun = StatePtr -> CString -> CSize -> CString -> CSize -> IO CInt
@@ -261,7 +261,47 @@ foreign import ccall safe "leveldb/c.h leveldb_comparator_create"
 foreign import ccall safe "leveldb/c.h leveldb_comparator_destroy"
   c_leveldb_comparator_destroy :: ComparatorPtr -> IO ()
 
--- ^ Read options
+
+--
+-- Filter Policy
+--
+
+type CreateFilterFun = StatePtr
+                     -> Ptr CString -- ^ key array
+                     -> Ptr CSize   -- ^ key length array
+                     -> CInt        -- ^ num keys
+                     -> Ptr CSize   -- ^ filter length
+                     -> IO CString  -- ^ the filter
+type KeyMayMatchFun  = StatePtr
+                     -> CString     -- ^ key
+                     -> CSize       -- ^ key length
+                     -> CString     -- ^ filter
+                     -> CSize       -- ^ filter length
+                     -> IO CUChar   -- ^ whether key is in filter
+
+-- | Make a FunPtr to a user-defined create_filter function
+foreign import ccall "wrapper" mkCF :: CreateFilterFun -> IO (FunPtr CreateFilterFun)
+
+-- | Make a FunPtr to a user-defined key_may_match function
+foreign import ccall "wrapper" mkKMM :: KeyMayMatchFun -> IO (FunPtr KeyMayMatchFun)
+
+foreign import ccall safe "leveldb/c.h leveldb_filterpolicy_create"
+  c_leveldb_filterpolicy_create :: StatePtr
+                                -> FunPtr Destructor
+                                -> FunPtr CreateFilterFun
+                                -> FunPtr KeyMayMatchFun
+                                -> FunPtr NameFun
+                                -> IO FilterPolicyPtr
+
+foreign import ccall safe "leveldb/c.h leveldb_filterpolicy_destroy"
+  c_leveldb_filterpolicy_destroy :: FilterPolicyPtr -> IO ()
+
+foreign import ccall safe "leveldb/c.h leveldb_filterpolicy_create_bloom"
+  c_leveldb_filterpolicy_create_bloom :: CInt -> IO FilterPolicyPtr
+
+--
+-- Read options
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_readoptions_create"
   c_leveldb_readoptions_create :: IO ReadOptionsPtr
@@ -278,7 +318,10 @@ foreign import ccall safe "leveldb/c.h leveldb_readoptions_set_fill_cache"
 foreign import ccall safe "leveldb/c.h leveldb_readoptions_set_snapshot"
   c_leveldb_readoptions_set_snapshot :: ReadOptionsPtr -> SnapshotPtr -> IO ()
 
--- ^ Write options
+
+--
+-- Write options
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_writeoptions_create"
   c_leveldb_writeoptions_create :: IO WriteOptionsPtr
@@ -289,18 +332,12 @@ foreign import ccall safe "leveldb/c.h leveldb_writeoptions_destroy"
 foreign import ccall safe "leveldb/c.h leveldb_writeoptions_set_sync"
   c_leveldb_writeoptions_set_sync :: WriteOptionsPtr -> CUChar -> IO ()
 
--- ^ Cache
+--
+-- Cache
+--
 
 foreign import ccall safe "leveldb/c.h leveldb_cache_create_lru"
   c_leveldb_cache_create_lru :: CSize -> IO CachePtr
 
 foreign import ccall safe "leveldb/c.h leveldb_cache_destroy"
   c_leveldb_cache_destroy :: CachePtr -> IO ()
-
--- ^ Env
-
-foreign import ccall safe "leveldb/c.h leveldb_create_default_env"
-  c_leveldb_create_default_env :: IO EnvPtr
-
-foreign import ccall safe "leveldb/c.h leveldb_env_destroy"
-  c_leveldb_env_destroy :: EnvPtr -> IO ()
