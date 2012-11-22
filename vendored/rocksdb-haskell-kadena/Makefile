@@ -32,7 +32,7 @@ $(LIBHSLEVELDB) :
 
 $(LIBLEVELDB) :
 		(cd /tmp; \
-			git clone ttps://code.google.com/p/leveldb/; \
+			git clone https://code.google.com/p/leveldb/; \
 			cd leveldb; \
 			make; \
 			sudo mv ./libleveldb* /usr/local/lib;)
