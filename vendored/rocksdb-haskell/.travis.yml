@@ -1,4 +1,5 @@
 language: haskell
+install: "make travis"
 script: "make travis"
 notifications:
   email:
