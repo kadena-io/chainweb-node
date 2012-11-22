@@ -1,6 +1,8 @@
 This library provides Haskell bindings to
 [LevelDB](http://leveldb.googlecode.com)
 
+[![Build Status](https://secure.travis-ci.org/kim/leveldb-haskell.png)](http://travis-ci.org/kim/leveldb-haskell)
+
 ## History
 
 Version 0.2.0:
