@@ -1,0 +1,4 @@
+script: "make travis"
+notifications:
+  email:
+    - kim.altintop@gmail.com
