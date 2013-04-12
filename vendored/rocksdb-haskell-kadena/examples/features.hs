@@ -6,6 +6,7 @@ module Main where
 
 import Control.Monad
 import Control.Monad.IO.Class       (liftIO)
+import Control.Monad.Trans.Resource (release)
 import Data.ByteString.Char8 hiding (take)
 import Data.Default
 import Prelude               hiding (putStrLn)
