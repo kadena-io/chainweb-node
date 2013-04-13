@@ -38,6 +38,7 @@ source-repository head
 
 library
   exposed-modules:  Database.LevelDB
+                  , Database.LevelDB.Base
   other-modules:    Database.LevelDB.C
 
   default-language: Haskell2010
