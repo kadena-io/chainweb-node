@@ -36,6 +36,11 @@ source-repository head
   type:     git
   location: git://github.com/kim/leveldb-haskell.git
 
+Flag Examples
+  description:      Build examples
+  default:          False
+  manual:           True
+
 library
   exposed-modules:  Database.LevelDB
   other-modules:    Database.LevelDB.Base
@@ -61,3 +66,70 @@ library
   hs-source-dirs:   src
 
   extra-libraries:  leveldb
+
+executable comparator
+  main-is:          comparator.hs
+
+  default-language: Haskell2010
+
+  build-depends:    base >= 3 && < 5
+                  , bytestring
+                  , transformers
+                  , data-default
+                  , leveldb-haskell
+
+  ghc-options:      -Wall -O2 -rtsopts
+                    -funbox-strict-fields
+  ghc-prof-options: -prof -auto-all
+
+  hs-source-dirs:   examples
+
+  if flag(Examples)
+    buildable:      True
+  else
+    buildable:      False
+
+executable features
+  main-is:          features.hs
+
+  default-language: Haskell2010
+
+  build-depends:    base >= 3 && < 5
+                  , bytestring
+                  , filepath
+                  , transformers
+                  , resourcet > 0.3.2
+                  , data-default
+                  , leveldb-haskell
+
+  ghc-options:      -Wall -O2 -rtsopts
+                    -funbox-strict-fields
+  ghc-prof-options: -prof -auto-all
+
+  hs-source-dirs:   examples
+
+  if flag(Examples)
+    buildable:      True
+  else
+    buildable:      False
+
+executable filterpolicy
+  main-is:          filterpolicy.hs
+
+  default-language: Haskell2010
+
+  build-depends:    base >= 3 && < 5
+                  , transformers
+                  , data-default
+                  , leveldb-haskell
+
+  ghc-options:      -Wall -O2 -rtsopts
+                    -funbox-strict-fields
+  ghc-prof-options: -prof -auto-all
+
+  hs-source-dirs:   examples
+
+  if flag(Examples)
+    buildable:      True
+  else
+    buildable:      False
