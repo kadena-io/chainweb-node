@@ -82,7 +82,7 @@ import Data.Default
 import Data.Maybe                         (catMaybes)
 import Foreign
 import Foreign.C.Error                    (throwErrnoIfNull)
-import Foreign.C.String                   (withCString, peekCString)
+import Foreign.C.String                   (CString, withCString, peekCString)
 import Foreign.C.Types                    (CSize, CInt)
 
 import Database.LevelDB.C
@@ -543,41 +543,30 @@ iterPrev iter@(Iterator iter_ptr _ lck) = do
     when valid $ liftIO $ withMVar lck $ \() ->
         c_leveldb_iter_prev iter_ptr
 
--- | Return the key for the current entry if the iterator is currently
--- positioned at an entry, ie. 'iterValid'.
-iterKey :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterKey iter@(Iterator iter_ptr _ _) = do
+iterString :: MonadIO m => (IteratorPtr -> Ptr CSize -> IO CString) -> Iterator -> m (Maybe ByteString)
+iterString f iter@(Iterator iter_ptr _ _) = do
     -- TODO Shouldn't this take the lock?
     valid <- iterValid iter
     if not valid
         then return Nothing
         else liftIO $
             alloca $ \len_ptr -> do
-                key_ptr <- c_leveldb_iter_key iter_ptr len_ptr
-                if key_ptr == nullPtr
+                ptr <- f iter_ptr len_ptr
+                if ptr == nullPtr
                     then return Nothing
                     else do
-                        klen <- peek len_ptr
-                        Just <$> BS.packCStringLen (key_ptr, cSizeToInt klen)
+                        len <- peek len_ptr
+                        Just <$> BS.packCStringLen (ptr, cSizeToInt len)
 
--- TODO Refactor iterKey and iterValue
+-- | Return the key for the current entry if the iterator is currently
+-- positioned at an entry, ie. 'iterValid'.
+iterKey :: MonadIO m => Iterator -> m (Maybe ByteString)
+iterKey = iterString c_leveldb_iter_key
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
 iterValue :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterValue iter@(Iterator iter_ptr _ _) = do
-    -- TODO Shouldn't this take the lock?
-    valid <- iterValid iter
-    if not valid
-        then return Nothing
-        else liftIO $
-            alloca $ \len_ptr -> do
-                val_ptr <- c_leveldb_iter_value iter_ptr len_ptr
-                if val_ptr == nullPtr
-                    then return Nothing
-                    else do
-                        vlen <- peek len_ptr
-                        Just <$> BS.packCStringLen (val_ptr, cSizeToInt vlen)
+iterValue = iterString c_leveldb_iter_value
 
 -- | Check for errors
 --
