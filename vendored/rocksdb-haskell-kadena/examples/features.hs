@@ -10,7 +10,6 @@ import Control.Monad.Trans.Resource (release)
 import Data.ByteString.Char8 hiding (take)
 import Data.Default
 import Prelude               hiding (putStrLn)
-import System.FilePath
 
 import Database.LevelDB
 

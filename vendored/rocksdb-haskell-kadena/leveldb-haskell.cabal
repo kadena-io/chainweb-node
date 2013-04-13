@@ -73,7 +73,6 @@ executable comparator
   default-language: Haskell2010
 
   build-depends:    base >= 3 && < 5
-                  , bytestring
                   , transformers
                   , data-default
                   , leveldb-haskell
@@ -96,7 +95,6 @@ executable features
 
   build-depends:    base >= 3 && < 5
                   , bytestring
-                  , filepath
                   , transformers
                   , resourcet > 0.3.2
                   , data-default
