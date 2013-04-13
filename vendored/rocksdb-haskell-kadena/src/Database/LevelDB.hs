@@ -827,7 +827,7 @@ mkCReadOptions ReadOptions{..} = do
         $ boolToNum verifyCheckSums
 
     liftIO
-        $ c_leveldb_readoptions_set_verify_checksums opts_ptr
+        $ c_leveldb_readoptions_set_fill_cache opts_ptr
         $ boolToNum fillCache
 
     maybeSetSnapshot opts_ptr useSnapshot
