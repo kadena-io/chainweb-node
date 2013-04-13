@@ -5,7 +5,6 @@
 module Main where
 
 import Control.Monad.IO.Class (liftIO)
-import Data.ByteString.Char8  (take)
 import Data.Default
 
 import Database.LevelDB

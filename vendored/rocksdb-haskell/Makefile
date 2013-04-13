@@ -19,7 +19,7 @@ prune : clean
 		rm -rf cabal-dev/
 
 travis : $(LIBLEVELDB)
-		cabal install
+		cabal install -f examples
 
 $(HADDOCK) :
 		runhaskell Setup.hs haddock --hyperlink-source
