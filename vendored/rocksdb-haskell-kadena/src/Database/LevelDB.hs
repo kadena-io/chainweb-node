@@ -91,7 +91,7 @@ import Foreign.C.Error                    (throwErrnoIfNull)
 import Foreign.C.String                   (withCString, peekCString)
 import Foreign.C.Types                    (CSize, CInt)
 
-import Database.LevelDB.Base
+import Database.LevelDB.C
 
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Char8    as BC

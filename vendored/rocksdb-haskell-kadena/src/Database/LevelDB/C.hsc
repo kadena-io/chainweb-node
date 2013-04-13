@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP, ForeignFunctionInterface, EmptyDataDecls #-}
 -- |
--- Module      : Database.LevelDB.Base
+-- Module      : Database.LevelDB.C
 -- Copyright   : (c) 2012 Kim Altintop
 -- License     : BSD3
 -- Maintainer  : kim.altintop@gmail.com
@@ -8,7 +8,7 @@
 -- Portability : non-portable
 --
 
-module Database.LevelDB.Base where
+module Database.LevelDB.C where
 
 import Foreign
 import Foreign.C.Types
