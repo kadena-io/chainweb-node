@@ -75,16 +75,20 @@ module Database.LevelDB (
   , resourceForkIO
 ) where
 
-import Control.Applicative                ((<$>))
-import Control.Monad.Trans.Resource
-import Data.Int                           (Int64)
-import Data.ByteString                    (ByteString)
+import           Control.Applicative          ((<$>))
+import           Control.Monad.Trans.Resource
+import           Data.ByteString              (ByteString)
+import           Data.Int                     (Int64)
 
-import Database.LevelDB.Base              (BatchOp, BloomFilter, Comparator, Compression,
-                                           DB, FilterPolicy, Iterator, Options, Property, Range,
-                                           ReadOptions, Snapshot, WriteBatch, WriteOptions,
-                                           defaultOptions, defaultReadOptions, defaultWriteOptions)
-import qualified Database.LevelDB.Base    as Base
+import           Database.LevelDB.Base        (BatchOp, BloomFilter, Comparator,
+                                               Compression, DB, FilterPolicy,
+                                               Iterator, Options, Property,
+                                               Range, ReadOptions, Snapshot,
+                                               WriteBatch, WriteOptions,
+                                               defaultOptions,
+                                               defaultReadOptions,
+                                               defaultWriteOptions)
+import qualified Database.LevelDB.Base        as Base
 
 bloomFilter :: MonadResource m => Int -> m BloomFilter
 bloomFilter i =

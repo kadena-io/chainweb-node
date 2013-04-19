@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module      : Database.LevelDB.Base
 -- Copyright   : (c) 2012 Kim Altintop, (c) 2013 Nicolas Trangez
@@ -71,21 +72,22 @@ module Database.LevelDB.Base (
   , iterValues
 ) where
 
-import Control.Applicative                ((<$>), (<*>))
-import Control.Concurrent                 (MVar, withMVar, newMVar)
-import Control.Exception                  (bracket, bracketOnError, finally, onException, throwIO)
-import Control.Monad                      (liftM, when)
-import Control.Monad.IO.Class             (MonadIO(liftIO))
-import Data.ByteString                    (ByteString)
-import Data.ByteString.Internal           (ByteString(..))
-import Data.Default
-import Data.Maybe                         (catMaybes)
-import Foreign
-import Foreign.C.Error                    (throwErrnoIfNull)
-import Foreign.C.String                   (CString, withCString, peekCString)
-import Foreign.C.Types                    (CSize, CInt)
+import           Control.Applicative      ((<$>), (<*>))
+import           Control.Concurrent       (MVar, newMVar, withMVar)
+import           Control.Exception        (bracket, bracketOnError, finally,
+                                           onException, throwIO)
+import           Control.Monad            (liftM, when)
+import           Control.Monad.IO.Class   (MonadIO (liftIO))
+import           Data.ByteString          (ByteString)
+import           Data.ByteString.Internal (ByteString (..))
+import           Data.Default
+import           Data.Maybe               (catMaybes)
+import           Foreign
+import           Foreign.C.Error          (throwErrnoIfNull)
+import           Foreign.C.String         (CString, peekCString, withCString)
+import           Foreign.C.Types          (CInt, CSize)
 
-import Database.LevelDB.C
+import           Database.LevelDB.C
 
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Char8    as BC
