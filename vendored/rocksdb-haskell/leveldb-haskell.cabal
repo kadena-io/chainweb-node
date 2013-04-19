@@ -43,7 +43,8 @@ Flag Examples
 
 library
   exposed-modules:  Database.LevelDB
-  other-modules:    Database.LevelDB.Base
+                  , Database.LevelDB.Base
+  other-modules:    Database.LevelDB.C
 
   default-language: Haskell2010
   default-extensions:
