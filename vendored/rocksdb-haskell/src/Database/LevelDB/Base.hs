@@ -98,11 +98,7 @@ instance Eq DB where
     (DB pt1 _) == (DB pt2 _) = pt1 == pt2
 
 -- | Iterator handle
-data Iterator = Iterator
-    { _iterPtr  :: !IteratorPtr
-    , _iterOptsPtr :: !ReadOptionsPtr
-    , _iterLock :: !(MVar ())
-    } deriving (Eq)
+data Iterator = Iterator !IteratorPtr !ReadOptionsPtr !(MVar ()) deriving (Eq)
 
 -- | Snapshot handle
 newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
