@@ -330,7 +330,7 @@ open path opts = liftIO $ bracketOnError (mkOpts opts) freeOpts mkDB
 -- longer be used.
 close :: MonadIO m => DB -> m ()
 close (DB db_ptr opts_ptr) = liftIO $
-    freeOpts opts_ptr `finally` c_leveldb_close db_ptr
+    c_leveldb_close db_ptr `finally` freeOpts opts_ptr
 
 
 -- | Create a snapshot of the database.
@@ -486,7 +486,7 @@ createIter (DB db_ptr _) opts = liftIO $ do
 -- longer be used.
 releaseIter :: MonadIO m => Iterator -> m ()
 releaseIter (Iterator iter opts lck) = liftIO $ withMVar lck $ \() ->
-    freeCReadOpts opts `finally` c_leveldb_iter_destroy iter
+    c_leveldb_iter_destroy iter `finally` freeCReadOpts opts
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
