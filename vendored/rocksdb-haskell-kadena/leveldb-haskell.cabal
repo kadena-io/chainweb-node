@@ -59,8 +59,7 @@ library
                   , resourcet > 0.3.2
                   , data-default
 
-  ghc-options:      -Wall -O2 -rtsopts
-                    -funbox-strict-fields
+  ghc-options:      -Wall -O -rtsopts -funbox-strict-fields
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   src
@@ -77,8 +76,7 @@ executable leveldb-example-comparator
                   , data-default
                   , leveldb-haskell
 
-  ghc-options:      -Wall -O2 -rtsopts
-                    -funbox-strict-fields
+  ghc-options:      -Wall -Werror -O -rtsopts
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   examples
@@ -100,8 +98,7 @@ executable leveldb-example-features
                   , data-default
                   , leveldb-haskell
 
-  ghc-options:      -Wall -O2 -rtsopts
-                    -funbox-strict-fields
+  ghc-options:      -Wall -Werror -O -rtsopts
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   examples
@@ -121,8 +118,7 @@ executable leveldb-example-filterpolicy
                   , data-default
                   , leveldb-haskell
 
-  ghc-options:      -Wall -O2 -rtsopts
-                    -funbox-strict-fields
+  ghc-options:      -Wall -Werror -O -rtsopts
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   examples
