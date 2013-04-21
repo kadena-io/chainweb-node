@@ -5,12 +5,9 @@ homepage:            http://github.com/kim/leveldb-haskell
 bug-reports:         http://github.com/kim/leveldb-haskell/issues
 license:             BSD3
 license-file:        LICENSE
-author:              Kim Altintop <kim.altintop@gmail.com>
-                   , Austin Seipp <mad.one@gmail.com>
-                   , Michael Lazarev <lazarev.michael@gmail.com>
-                   , Will Moss <wbmoss@gmail.com>
+author:              Kim Altintop et.al. (see AUTHORS file)
 maintainer:          kim.altintop@gmail.com
-copyright:           Copyright (c) 2012 The leveldb-haskell Authors
+copyright:           Copyright (c) 2012-2013 The leveldb-haskell Authors
 category:            Database, FFI
 stability:           Experimental
 build-type:          Simple
@@ -30,7 +27,7 @@ description:
     v0.1.0 of this library, LevelDB is no longer bundled and must be installed
     on the target system (version 1.7 or greater is required).
 
-extra-source-files:  Readme.md, examples/*.hs
+extra-source-files:  Readme.md, AUTHORS, examples/*.hs
 
 source-repository head
   type:     git
@@ -44,7 +41,10 @@ Flag Examples
 library
   exposed-modules:  Database.LevelDB
                   , Database.LevelDB.Base
-  other-modules:    Database.LevelDB.C
+                  , Database.LevelDB.C
+                  , Database.LevelDB.Internal
+                  , Database.LevelDB.Iterator
+                  , Database.LevelDB.Types
 
   default-language: Haskell2010
   other-extensions: CPP

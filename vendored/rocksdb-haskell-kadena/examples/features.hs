@@ -66,7 +66,7 @@ main = runResourceT $ do
 
     printProperty l p = liftIO $ do
         putStrLn l
-        maybe (putStrLn "n/a") putStrLn $ p
+        maybe (putStrLn "n/a") putStrLn p
 
     printVersion = do
         v <- versionBS
