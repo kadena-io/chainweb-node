@@ -305,13 +305,14 @@ instance Default ReadOptions where
     def = defaultReadOptions
 
 type WriteBatch = [BatchOp]
+
 -- | Batch operation
 data BatchOp = Put ByteString ByteString | Del ByteString
-             deriving (Eq, Show)
+    deriving (Eq, Show)
 
 -- | Properties exposed by LevelDB
 data Property = NumFilesAtLevel Int | Stats | SSTables
-              deriving (Eq, Show)
+    deriving (Eq, Show)
 
 
 -- | Open a database.
@@ -339,14 +340,16 @@ close (DB db_ptr opts_ptr) = liftIO $
 --
 -- The returned 'Snapshot' should be released with 'releaseSnapshot'.
 createSnapshot :: MonadIO m => DB -> m Snapshot
-createSnapshot (DB db_ptr _) = liftIO $ Snapshot <$> c_leveldb_create_snapshot db_ptr
+createSnapshot (DB db_ptr _) = liftIO $
+    Snapshot <$> c_leveldb_create_snapshot db_ptr
 
 -- | Release a snapshot.
 --
 -- The handle will be invalid after calling this action and should no
 -- longer be used.
 releaseSnapshot :: MonadIO m => DB -> Snapshot -> m ()
-releaseSnapshot (DB db_ptr _) (Snapshot snap) = liftIO $ c_leveldb_release_snapshot db_ptr snap
+releaseSnapshot (DB db_ptr _) (Snapshot snap) = liftIO $
+    c_leveldb_release_snapshot db_ptr snap
 
 -- | Get a DB property.
 getProperty :: MonadIO m => DB -> Property -> m (Maybe ByteString)
@@ -360,7 +363,7 @@ getProperty (DB db_ptr _) p = liftIO $
                     return res
     where
         prop (NumFilesAtLevel i) = "leveldb.num-files-at-level" ++ show i
-        prop Stats = "leveldb.stats"
+        prop Stats    = "leveldb.stats"
         prop SSTables = "leveldb.sstables"
 
 -- | Destroy the given LevelDB database.
@@ -478,7 +481,8 @@ createIter :: MonadIO m => DB -> ReadOptions -> m Iterator
 createIter (DB db_ptr _) opts = liftIO $ do
     opts_ptr <- mkCReadOpts opts
     flip onException (freeCReadOpts opts_ptr) $ do
-        it_ptr <- throwErrnoIfNull "create_iterator" $ c_leveldb_create_iterator db_ptr opts_ptr
+        it_ptr <- throwErrnoIfNull "create_iterator" $
+                      c_leveldb_create_iterator db_ptr opts_ptr
         lock   <- newMVar ()
         return $ Iterator it_ptr opts_ptr lock
 
