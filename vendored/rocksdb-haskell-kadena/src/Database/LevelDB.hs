@@ -256,7 +256,7 @@ iterGetError = Base.iterGetError
 -- values into memory until the iterator is exhausted. This is most likely not
 -- what you want for large ranges. You may consider using conduits instead, for
 -- an example see: <https://gist.github.com/adc8ec348f03483446a5>
-mapIter :: MonadResource m => (Iterator -> m a) -> Iterator -> m [a]
+mapIter :: MonadResource m => (Iterator -> IO a) -> Iterator -> m [a]
 mapIter = Base.mapIter
 
 -- | Return a list of key and value tuples from an iterator. The iterator
