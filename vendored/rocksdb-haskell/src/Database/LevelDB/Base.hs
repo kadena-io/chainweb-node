@@ -491,35 +491,33 @@ createIter (DB db_ptr _) opts = liftIO $ do
 -- The handle will be invalid after calling this action and should no
 -- longer be used.
 releaseIter :: MonadIO m => Iterator -> m ()
-releaseIter (Iterator iter opts lck) = liftIO $ withMVar lck $ \() ->
-    c_leveldb_iter_destroy iter `finally` freeCReadOpts opts
+releaseIter iter@(Iterator _ opts _) = iterSync iter $ \iter_ptr ->
+    c_leveldb_iter_destroy iter_ptr `finally` freeCReadOpts opts
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
 iterValid :: MonadIO m => Iterator -> m Bool
-iterValid (Iterator iter _ _) = liftIO $ do
-    x <- c_leveldb_iter_valid iter
+iterValid iter = iterSync iter $ \iter_ptr -> do
+    x <- c_leveldb_iter_valid iter_ptr
     return (x /= 0)
 
 -- | Position at the first key in the source that is at or past target. The
 -- iterator is /valid/ after this call iff the source contains an entry that
 -- comes at or past target.
 iterSeek :: MonadIO m => Iterator -> ByteString -> m ()
-iterSeek (Iterator iter _ lck) key = liftIO $ withMVar lck $ \() ->
+iterSeek iter key = iterSync iter $ \iter_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-        c_leveldb_iter_seek iter key_ptr (intToCSize klen)
+        c_leveldb_iter_seek iter_ptr key_ptr (intToCSize klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterFirst :: MonadIO m => Iterator -> m ()
-iterFirst (Iterator iter _ lck) = liftIO $ withMVar lck $ \() ->
-    c_leveldb_iter_seek_to_first iter
+iterFirst iter = iterSync iter c_leveldb_iter_seek_to_first
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterLast :: MonadIO m => Iterator -> m ()
-iterLast (Iterator iter _ lck) = liftIO $ withMVar lck $ \() ->
-    c_leveldb_iter_seek_to_last iter
+iterLast iter = iterSync iter c_leveldb_iter_seek_to_last
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the last entry in the source.
@@ -528,10 +526,9 @@ iterLast (Iterator iter _ lck) = liftIO $ withMVar lck $ \() ->
 -- shortcoming of the C API: an 'iterPrev' might still be possible, but we can't
 -- determine if we're at the last or first entry.
 iterNext :: MonadIO m => Iterator -> m ()
-iterNext iter@(Iterator iter_ptr _ lck) = do
-    valid <- iterValid iter
-    when valid $ liftIO $ withMVar lck $ \() ->
-        c_leveldb_iter_next iter_ptr
+iterNext iter = iterSync iter $ \iter_ptr -> do
+    valid <- c_leveldb_iter_valid iter_ptr
+    when (valid /= 0) $ c_leveldb_iter_next iter_ptr
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
@@ -540,42 +537,41 @@ iterNext iter@(Iterator iter_ptr _ lck) = do
 -- shortcoming of the C API: an 'iterNext' might still be possible, but we can't
 -- determine if we're at the last or first entry.
 iterPrev :: MonadIO m => Iterator -> m ()
-iterPrev iter@(Iterator iter_ptr _ lck) = do
-    valid <- iterValid iter
-    when valid $ liftIO $ withMVar lck $ \() ->
-        c_leveldb_iter_prev iter_ptr
+iterPrev iter = iterSync iter $ \iter_ptr -> do
+    valid <- c_leveldb_iter_valid iter_ptr
+    when (valid /= 0) $ c_leveldb_iter_prev iter_ptr
 
-iterString :: MonadIO m => (IteratorPtr -> Ptr CSize -> IO CString) -> Iterator -> m (Maybe ByteString)
-iterString f iter@(Iterator iter_ptr _ _) = do
-    -- TODO Shouldn't this take the lock?
-    valid <- iterValid iter
-    if not valid
+iterString :: MonadIO m
+           => Iterator
+           -> (IteratorPtr -> Ptr CSize -> IO CString)
+           -> m (Maybe ByteString)
+iterString iter f = iterSync iter $ \iter_ptr -> do
+    valid <- c_leveldb_iter_valid iter_ptr
+    if (valid == 0)
         then return Nothing
-        else liftIO $
-            alloca $ \len_ptr -> do
-                ptr <- f iter_ptr len_ptr
-                if ptr == nullPtr
-                    then return Nothing
-                    else do
-                        len <- peek len_ptr
-                        Just <$> BS.packCStringLen (ptr, cSizeToInt len)
+        else alloca $ \len_ptr -> do
+                 ptr <- f iter_ptr len_ptr
+                 if ptr == nullPtr
+                     then return Nothing
+                     else do
+                         len <- peek len_ptr
+                         Just <$> BS.packCStringLen (ptr, cSizeToInt len)
 
 -- | Return the key for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
 iterKey :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterKey = iterString c_leveldb_iter_key
+iterKey = flip iterString c_leveldb_iter_key
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
 iterValue :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterValue = iterString c_leveldb_iter_value
+iterValue = flip iterString c_leveldb_iter_value
 
 -- | Check for errors
 --
 -- Note that this captures somewhat severe errors such as a corrupted database.
 iterGetError :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterGetError (Iterator iter_ptr _ _) = liftIO $
-    -- TODO Shouldn't this take the lock?
+iterGetError iter = iterSync iter $ \iter_ptr ->
     alloca $ \err_ptr -> do
         poke err_ptr nullPtr
         c_leveldb_iter_get_error iter_ptr err_ptr
@@ -594,24 +590,24 @@ iterGetError (Iterator iter_ptr _ _) = liftIO $
 -- values into memory until the iterator is exhausted. This is most likely not
 -- what you want for large ranges. You may consider using conduits instead, for
 -- an example see: <https://gist.github.com/adc8ec348f03483446a5>
-mapIter :: MonadIO m => (Iterator -> m a) -> Iterator -> m [a]
-mapIter f = go []
+mapIter :: MonadIO m => (Iterator -> IO a) -> Iterator -> m [a]
+mapIter f iter = iterSync iter $ go []
     where
-        go acc iter = do
-            valid <- iterValid iter
-            if not valid
+        go acc iter_ptr = do
+            valid <- c_leveldb_iter_valid iter_ptr
+            if (valid == 0)
                 then return acc
                 else do
                     val <- f iter
-                    () <- iterNext iter
-                    go (val : acc) iter
+                    ()  <- c_leveldb_iter_next iter_ptr
+                    go (val : acc) iter_ptr
 
 -- | Return a list of key and value tuples from an iterator. The iterator
 -- should be put in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'.
 iterItems :: (Functor m, MonadIO m) => Iterator -> m [(ByteString, ByteString)]
-iterItems iter = liftM catMaybes $ mapIter iterItems' iter
+iterItems iter = catMaybes <$> mapIter iterItems' iter
     where
         iterItems' iter' = do
             mkey <- iterKey iter'
@@ -622,15 +618,15 @@ iterItems iter = liftM catMaybes $ mapIter iterItems' iter
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterKeys :: MonadIO m => Iterator -> m [ByteString]
-iterKeys iter = liftM catMaybes $ mapIter iterKey iter
+iterKeys :: (Functor m, MonadIO m) => Iterator -> m [ByteString]
+iterKeys iter = catMaybes <$> mapIter iterKey iter
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterValues :: MonadIO m => Iterator -> m [ByteString]
-iterValues iter = liftM catMaybes $ mapIter iterValue iter
+iterValues :: (Functor m, MonadIO m) => Iterator -> m [ByteString]
+iterValues iter = catMaybes <$> mapIter iterValue iter
 
 
 -- | Return the runtime version of the underlying LevelDB library as a (major,
@@ -854,3 +850,8 @@ freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
     freeHaskellFunPtr ckmfun
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
+
+iterSync :: MonadIO m => Iterator -> (IteratorPtr -> IO a) -> m a
+iterSync (Iterator iter_ptr _ lck) act =
+    liftIO . withMVar lck $ \() -> act iter_ptr
+{-# INLINE iterSync #-}
