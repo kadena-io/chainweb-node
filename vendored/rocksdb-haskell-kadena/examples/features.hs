@@ -33,8 +33,7 @@ main = runResourceT $ do
                               , Put "c" "three"
                               ]
 
-    withIterator db def{useSnapshot = Just snap} $ \iter ->
-      dumpEntries iter
+    withIterator db def{useSnapshot = Just snap} $ \iter -> dumpEntries iter
 
     -- early release snapshot
     release releaseSnap
@@ -59,22 +58,23 @@ main = runResourceT $ do
 
     return ()
 
-    where
-        dumpEntries iter = do
-            iterFirst iter
-            iterItems iter >>= liftIO . print
+  where
 
-        printProperty l p = liftIO $ do
-            putStrLn l
-            maybe (putStrLn "n/a") putStrLn $ p
+    dumpEntries iter = do
+        iterFirst iter
+        iterItems iter >>= liftIO . print
 
-        printVersion = do
-            v <- versionBS
-            liftIO . putStrLn $ "LevelDB Version: " `append` v
+    printProperty l p = liftIO $ do
+        putStrLn l
+        maybe (putStrLn "n/a") putStrLn $ p
 
-        versionBS = do
-            (major, minor) <- version
-            return $ intToBs major `append` "." `append` intToBs minor
+    printVersion = do
+        v <- versionBS
+        liftIO . putStrLn $ "LevelDB Version: " `append` v
 
-        intToBs :: Int -> ByteString
-        intToBs = pack . show
+    versionBS = do
+        (major, minor) <- version
+        return $ intToBs major `append` "." `append` intToBs minor
+
+    intToBs :: Int -> ByteString
+    intToBs = pack . show
