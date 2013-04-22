@@ -36,6 +36,7 @@ module Database.LevelDB.Base (
   , delete
   , write
   , get
+  , withSnapshot
   , createSnapshot
   , releaseSnapshot
 
@@ -94,6 +95,11 @@ close :: MonadIO m => DB -> m ()
 close (DB db_ptr opts_ptr) = liftIO $
     c_leveldb_close db_ptr `finally` freeOpts opts_ptr
 
+
+-- | Run an action with a 'Snapshot' of the database.
+withSnapshot :: MonadIO m => DB -> (Snapshot -> IO a) -> m a
+withSnapshot db act = liftIO $
+    bracket (createSnapshot db) (releaseSnapshot db) act
 
 -- | Create a snapshot of the database.
 --
