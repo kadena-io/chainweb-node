@@ -44,6 +44,7 @@ library
                   , Database.LevelDB.C
                   , Database.LevelDB.Internal
                   , Database.LevelDB.Iterator
+                  , Database.LevelDB.MonadResource
                   , Database.LevelDB.Types
 
   default-language: Haskell2010
@@ -54,10 +55,10 @@ library
 
   build-depends:    base >= 3 && < 5
                   , bytestring
-                  , filepath
-                  , transformers
-                  , resourcet > 0.3.2
                   , data-default
+                  , filepath
+                  , resourcet > 0.3.2
+                  , transformers
 
   ghc-options:      -Wall -O -rtsopts -funbox-strict-fields
   ghc-prof-options: -prof -auto-all
