@@ -49,6 +49,10 @@ import qualified Data.ByteString.Char8     as BC
 import qualified Data.ByteString.Unsafe    as BU
 
 -- | Iterator handle
+--
+-- Note that an 'Iterator' requires external synchronization if it is shared
+-- between multiple threads which mutate it's state. See
+-- @examples/iterforkio.hs@ for a simple example of how to do that.
 data Iterator = Iterator !IteratorPtr !ReadOptionsPtr deriving (Eq)
 
 -- | Create an 'Iterator'.
