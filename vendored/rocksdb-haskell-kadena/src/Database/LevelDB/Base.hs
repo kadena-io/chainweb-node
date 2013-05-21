@@ -251,4 +251,3 @@ createBloomFilter i = do
 
 releaseBloomFilter :: MonadIO m => BloomFilter -> m ()
 releaseBloomFilter (BloomFilter fp) = liftIO $ c_leveldb_filterpolicy_destroy fp
-
