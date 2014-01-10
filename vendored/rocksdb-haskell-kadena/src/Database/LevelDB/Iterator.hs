@@ -9,26 +9,27 @@
 -- Iterating over key ranges.
 --
 
-module Database.LevelDB.Iterator (
-    Iterator
-  , createIter
-  , iterEntry
-  , iterFirst
-  , iterGetError
-  , iterItems
-  , iterKey
-  , iterKeys
-  , iterLast
-  , iterNext
-  , iterPrev
-  , iterSeek
-  , iterValid
-  , iterValue
-  , iterValues
-  , mapIter
-  , releaseIter
-  , withIter
-  ) where
+module Database.LevelDB.Iterator
+    ( Iterator
+    , createIter
+    , iterEntry
+    , iterFirst
+    , iterGetError
+    , iterItems
+    , iterKey
+    , iterKeys
+    , iterLast
+    , iterNext
+    , iterPrev
+    , iterSeek
+    , iterValid
+    , iterValue
+    , iterValues
+    , mapIter
+    , releaseIter
+    , withIter
+    )
+where
 
 import           Control.Applicative       ((<$>), (<*>))
 import           Control.Exception         (bracket, finally, onException)
