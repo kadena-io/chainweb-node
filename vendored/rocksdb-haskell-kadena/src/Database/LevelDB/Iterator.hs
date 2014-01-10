@@ -27,10 +27,11 @@ module Database.LevelDB.Iterator (
   , iterValues
   , mapIter
   , releaseIter
+  , withIter
   ) where
 
 import           Control.Applicative       ((<$>), (<*>))
-import           Control.Exception         (finally, onException)
+import           Control.Exception         (bracket, finally, onException)
 import           Control.Monad             (when)
 import           Control.Monad.IO.Class    (MonadIO (liftIO))
 import           Data.ByteString           (ByteString)
@@ -78,6 +79,10 @@ createIter (DB db_ptr _) opts = liftIO $ do
 releaseIter :: MonadIO m => Iterator -> m ()
 releaseIter (Iterator iter_ptr opts) = liftIO $
     c_leveldb_iter_destroy iter_ptr `finally` freeCReadOpts opts
+
+-- | Run an action with an 'Iterator'
+withIter :: MonadIO m => DB -> ReadOptions -> (Iterator -> IO a) -> m a
+withIter db opts = liftIO . bracket (createIter db opts) releaseIter
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
