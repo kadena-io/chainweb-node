@@ -7,23 +7,24 @@
 -- Portability : non-portable
 --
 
-module Database.LevelDB.Types (
-    BatchOp (..)
-  , BloomFilter (..)
-  , Comparator (..)
-  , Compression (..)
-  , FilterPolicy (..)
-  , Options (..)
-  , Property (..)
-  , ReadOptions (..)
-  , Snapshot (..)
-  , WriteBatch
-  , WriteOptions (..)
+module Database.LevelDB.Types
+    ( BatchOp (..)
+    , BloomFilter (..)
+    , Comparator (..)
+    , Compression (..)
+    , FilterPolicy (..)
+    , Options (..)
+    , Property (..)
+    , ReadOptions (..)
+    , Snapshot (..)
+    , WriteBatch
+    , WriteOptions (..)
 
-  , defaultOptions
-  , defaultReadOptions
-  , defaultWriteOptions
-  ) where
+    , defaultOptions
+    , defaultReadOptions
+    , defaultWriteOptions
+    )
+where
 
 import           Data.ByteString    (ByteString)
 import           Data.Default

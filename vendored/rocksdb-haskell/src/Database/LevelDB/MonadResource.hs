@@ -7,69 +7,70 @@
 -- Portability : non-portable
 --
 
-module Database.LevelDB.MonadResource (
-  -- * Exported Types
-    DB
-  , BatchOp(..)
-  , Comparator(..)
-  , Compression(..)
-  , Options(..)
-  , ReadOptions(..)
-  , Snapshot
-  , WriteBatch
-  , WriteOptions(..)
-  , Range
+module Database.LevelDB.MonadResource
+    ( -- * Exported Types
+      DB
+    , BatchOp(..)
+    , Comparator(..)
+    , Compression(..)
+    , Options(..)
+    , ReadOptions(..)
+    , Snapshot
+    , WriteBatch
+    , WriteOptions(..)
+    , Range
 
-  -- * Defaults
-  , defaultOptions
-  , defaultWriteOptions
-  , defaultReadOptions
+    -- * Defaults
+    , defaultOptions
+    , defaultWriteOptions
+    , defaultReadOptions
 
-  -- * Basic Database Manipulation
-  , withSnapshot
-  , open
-  , put
-  , delete
-  , write
-  , get
-  , createSnapshot
-  , createSnapshot'
+    -- * Basic Database Manipulation
+    , withSnapshot
+    , open
+    , put
+    , delete
+    , write
+    , get
+    , createSnapshot
+    , createSnapshot'
 
-  -- * Filter Policy / Bloom Filter
-  , FilterPolicy(..)
-  , bloomFilter
+    -- * Filter Policy / Bloom Filter
+    , FilterPolicy(..)
+    , bloomFilter
 
-  -- * Administrative Functions
-  , Property(..), getProperty
-  , destroy
-  , repair
-  , approximateSize
-  , version
+    -- * Administrative Functions
+    , Property(..), getProperty
+    , destroy
+    , repair
+    , approximateSize
+    , version
 
-  -- * Iteration
-  , Iterator
-  , withIterator
-  , iterOpen
-  , iterOpen'
-  , iterValid
-  , iterSeek
-  , iterFirst
-  , iterLast
-  , iterNext
-  , iterPrev
-  , iterKey
-  , iterValue
-  , iterGetError
-  , mapIter
-  , iterItems
-  , iterKeys
-  , iterValues
+    -- * Iteration
+    , Iterator
+    , withIterator
+    , iterOpen
+    , iterOpen'
+    , iterValid
+    , iterSeek
+    , iterFirst
+    , iterLast
+    , iterNext
+    , iterPrev
+    , iterKey
+    , iterValue
+    , iterGetError
+    , mapIter
+    , iterItems
+    , iterKeys
+    , iterValues
 
-  -- * Re-exports
-  , MonadResource(..)
-  , runResourceT
-  , resourceForkIO
-) where
+    -- * Re-exports
+    , MonadResource (..)
+    , runResourceT
+    , resourceForkIO
+    )
+where
 
 import           Control.Applicative          ((<$>))
 import           Control.Monad.Trans.Resource
