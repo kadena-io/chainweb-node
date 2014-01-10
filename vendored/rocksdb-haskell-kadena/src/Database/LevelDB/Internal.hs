@@ -8,38 +8,39 @@
 -- Portability : non-portable
 --
 
-module Database.LevelDB.Internal (
-  -- * Types
-    DB (..)
-  , Comparator'
-  , FilterPolicy'
-  , Options' (..)
+module Database.LevelDB.Internal
+    ( -- * Types
+      DB (..)
+    , Comparator'
+    , FilterPolicy'
+    , Options' (..)
 
-  -- * "Smart" constructors and deconstructors
-  , freeCReadOpts
-  , freeComparator
-  , freeFilterPolicy
-  , freeOpts
-  , mkCReadOpts
-  , mkComparator
-  , mkCompareFun
-  , mkCreateFilterFun
-  , mkFilterPolicy
-  , mkKeyMayMatchFun
-  , mkOpts
+    -- * "Smart" constructors and deconstructors
+    , freeCReadOpts
+    , freeComparator
+    , freeFilterPolicy
+    , freeOpts
+    , mkCReadOpts
+    , mkComparator
+    , mkCompareFun
+    , mkCreateFilterFun
+    , mkFilterPolicy
+    , mkKeyMayMatchFun
+    , mkOpts
 
-  -- * combinators
-  , withCWriteOpts
-  , withCReadOpts
+    -- * combinators
+    , withCWriteOpts
+    , withCReadOpts
 
-  -- * Utilities
-  , throwIfErr
-  , cSizeToInt
-  , intToCSize
-  , intToCInt
-  , cIntToInt
-  , boolToNum
-  ) where
+    -- * Utilities
+    , throwIfErr
+    , cSizeToInt
+    , intToCSize
+    , intToCInt
+    , cIntToInt
+    , boolToNum
+    )
+where
 
 import           Control.Applicative    ((<$>))
 import           Control.Exception      (bracket, onException, throwIO)

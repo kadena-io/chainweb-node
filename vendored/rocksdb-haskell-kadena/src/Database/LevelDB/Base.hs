@@ -11,51 +11,52 @@
 -- The API closely follows the C-API of LevelDB.
 -- For more information, see: <http://leveldb.googlecode.com>
 
-module Database.LevelDB.Base (
-  -- * Exported Types
-    DB
-  , BatchOp (..)
-  , Comparator (..)
-  , Compression (..)
-  , Options (..)
-  , ReadOptions (..)
-  , Snapshot
-  , WriteBatch
-  , WriteOptions (..)
-  , Range
+module Database.LevelDB.Base
+    ( -- * Exported Types
+      DB
+    , BatchOp (..)
+    , Comparator (..)
+    , Compression (..)
+    , Options (..)
+    , ReadOptions (..)
+    , Snapshot
+    , WriteBatch
+    , WriteOptions (..)
+    , Range
 
-  -- * Defaults
-  , defaultOptions
-  , defaultReadOptions
-  , defaultWriteOptions
+    -- * Defaults
+    , defaultOptions
+    , defaultReadOptions
+    , defaultWriteOptions
 
-  -- * Basic Database Manipulations
-  , open
-  , close
-  , put
-  , delete
-  , write
-  , get
-  , withSnapshot
-  , createSnapshot
-  , releaseSnapshot
+    -- * Basic Database Manipulations
+    , open
+    , close
+    , put
+    , delete
+    , write
+    , get
+    , withSnapshot
+    , createSnapshot
+    , releaseSnapshot
 
-  -- * Filter Policy / Bloom Filter
-  , FilterPolicy (..)
-  , BloomFilter
-  , createBloomFilter
-  , releaseBloomFilter
+    -- * Filter Policy / Bloom Filter
+    , FilterPolicy (..)
+    , BloomFilter
+    , createBloomFilter
+    , releaseBloomFilter
 
-  -- * Administrative Functions
-  , Property(..), getProperty
-  , destroy
-  , repair
-  , approximateSize
-  , version
+    -- * Administrative Functions
+    , Property (..), getProperty
+    , destroy
+    , repair
+    , approximateSize
+    , version
 
-  -- * Iteration
-  , module Database.LevelDB.Iterator
-  ) where
+    -- * Iteration
+    , module Database.LevelDB.Iterator
+    )
+where
 
 import           Control.Applicative      ((<$>))
 import           Control.Exception        (bracket, bracketOnError, finally)
