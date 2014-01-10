@@ -5,6 +5,10 @@ This library provides Haskell bindings to
 
 ## History
 
+Version 0.3.0:
+
+* ResourceT is no longer compulsory
+
 Version 0.2.0:
 
 * requires LevelDB v1.7
