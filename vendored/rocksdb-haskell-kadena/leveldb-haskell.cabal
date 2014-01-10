@@ -1,5 +1,5 @@
 name:                leveldb-haskell
-version:             0.2.0
+version:             0.3.0
 synopsis:            Haskell bindings to LevelDB
 homepage:            http://github.com/kim/leveldb-haskell
 bug-reports:         http://github.com/kim/leveldb-haskell/issues
@@ -7,7 +7,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Kim Altintop et.al. (see AUTHORS file)
 maintainer:          kim.altintop@gmail.com
-copyright:           Copyright (c) 2012-2013 The leveldb-haskell Authors
+copyright:           Copyright (c) 2012-2014 The leveldb-haskell Authors
 category:            Database, FFI
 stability:           Experimental
 build-type:          Simple
@@ -27,7 +27,7 @@ description:
     v0.1.0 of this library, LevelDB is no longer bundled and must be installed
     on the target system (version 1.7 or greater is required).
 
-extra-source-files:  Readme.md, AUTHORS, examples/*.hs
+extra-source-files:  Readme.md, AUTHORS, CHANGELOG examples/*.hs
 
 source-repository head
   type:     git
@@ -60,7 +60,7 @@ library
                   , resourcet > 0.3.2
                   , transformers
 
-  ghc-options:      -Wall -O -rtsopts -funbox-strict-fields
+  ghc-options:      -Wall -rtsopts -funbox-strict-fields
   ghc-prof-options: -prof -auto-all
 
   hs-source-dirs:   src
