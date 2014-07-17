@@ -53,3 +53,20 @@ library
   hs-source-dirs:   src
 
   extra-libraries:  rocksdb
+
+test-suite rocksdb-tests
+  ghc-options: -Wall
+  main-is: tests.hs
+  type: exitcode-stdio-1.0
+  hs-source-dirs: tests
+  build-depends:       base >= 3 && < 5
+                     , rocksdb
+                     , hspec >= 1.8
+                     , process >= 1.1.0.2
+                     , bytestring >= 0.10.4.0
+                     , data-default
+                     , resourcet
+                     , transformers
+                     , hspec-expectations
+                     , QuickCheck
+  default-language:    Haskell2010
