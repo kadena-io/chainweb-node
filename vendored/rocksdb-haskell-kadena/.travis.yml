@@ -1,6 +1,7 @@
 language: haskell
+ghc:
+    - 7.4
+    - 7.6
+    - 7.8
 install: "make travis"
 script: "make travis"
-notifications:
-  email:
-    - kim.altintop@gmail.com

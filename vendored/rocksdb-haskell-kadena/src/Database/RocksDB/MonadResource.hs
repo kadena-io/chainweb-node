@@ -1,13 +1,14 @@
 -- |
--- Module      : Database.LevelDB.MonadResource
+-- Module      : Database.RocksDB.MonadResource
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
+--               (c) 2014 The rocksdb-haskell Authors
 -- License     : BSD3
--- Maintainer  : kim.altintop@gmail.com
+-- Maintainer  : mail@agrafix.net
 -- Stability   : experimental
 -- Portability : non-portable
 --
 
-module Database.LevelDB.MonadResource
+module Database.RocksDB.MonadResource
     ( -- * Exported Types
       DB
     , BatchOp(..)
@@ -44,7 +45,6 @@ module Database.LevelDB.MonadResource
     , destroy
     , repair
     , approximateSize
-    , version
 
     -- * Iteration
     , Iterator
@@ -77,7 +77,7 @@ import           Control.Monad.Trans.Resource
 import           Data.ByteString              (ByteString)
 import           Data.Int                     (Int64)
 
-import           Database.LevelDB.Base        (BatchOp, BloomFilter, Comparator,
+import           Database.RocksDB.Base        (BatchOp, BloomFilter, Comparator,
                                                Compression, DB, FilterPolicy,
                                                Iterator, Options, Property,
                                                Range, ReadOptions, Snapshot,
@@ -85,7 +85,7 @@ import           Database.LevelDB.Base        (BatchOp, BloomFilter, Comparator,
                                                defaultOptions,
                                                defaultReadOptions,
                                                defaultWriteOptions)
-import qualified Database.LevelDB.Base        as Base
+import qualified Database.RocksDB.Base        as Base
 
 
 -- | Create a 'BloomFilter'
@@ -134,11 +134,11 @@ createSnapshot' db = allocate (Base.createSnapshot db) (Base.releaseSnapshot db)
 getProperty :: MonadResource m => DB -> Property -> m (Maybe ByteString)
 getProperty = Base.getProperty
 
--- | Destroy the given leveldb database.
+-- | Destroy the given rocksdb database.
 destroy :: MonadResource m => FilePath -> Options -> m ()
 destroy = Base.destroy
 
--- | Repair the given leveldb database.
+-- | Repair the given rocksdb database.
 repair :: MonadResource m => FilePath -> Options -> m ()
 repair = Base.repair
 
@@ -277,9 +277,3 @@ iterKeys = Base.iterKeys
 -- See strictness remarks on 'mapIter'
 iterValues :: MonadResource m => Iterator -> m [ByteString]
 iterValues = Base.iterValues
-
-
--- | Return the runtime version of the underlying LevelDB library as a (major,
--- minor) pair.
-version :: MonadResource m => m (Int, Int)
-version = Base.version

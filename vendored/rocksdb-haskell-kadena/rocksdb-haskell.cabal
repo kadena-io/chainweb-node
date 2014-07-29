@@ -1,0 +1,55 @@
+name:                rocksdb-haskell
+version:             0.1.0
+synopsis:            Haskell bindings to RocksDB
+homepage:            http://github.com/agrafix/rocksdb-haskell
+bug-reports:         http://github.com/agrafix/rocksdb-haskell/issues
+license:             BSD3
+license-file:        LICENSE
+author:              Kim Altintop, Alexander Thiemann et.al. (see AUTHORS file)
+maintainer:          mail@agrafix.net
+copyright:           Copyright (c) 2012-2014 The leveldb-haskell Authors, Copyright (c) 2014 The rocksdb-haskell Authors
+category:            Database, FFI
+stability:           Experimental
+build-type:          Simple
+cabal-version:       >=1.10
+tested-with:         GHC == 7.2.2, GHC == 7.4.1
+description:
+    From <http://rocksdb.org>:
+    .
+    RocksDB is an embeddable persistent key-value store for fast storage. RocksDB can also be the foundation for a client-server database but our current focus is on embedded workloads.
+    .
+    RocksDB builds on LevelDB to be scalable to run on servers with many CPU cores, to efficiently use fast storage, to support IO-bound, in-memory and write-once workloads, and to be flexible to allow for innovation.
+extra-source-files:  Readme.md, AUTHORS
+
+source-repository head
+  type:     git
+  location: git://github.com/agrafix/rocksdb-haskell.git
+
+library
+  exposed-modules:  Database.RocksDB
+                  , Database.RocksDB.Base
+                  , Database.RocksDB.C
+                  , Database.RocksDB.Internal
+                  , Database.RocksDB.Iterator
+                  , Database.RocksDB.MonadResource
+                  , Database.RocksDB.Types
+
+  default-language: Haskell2010
+  other-extensions: CPP
+                  , ForeignFunctionInterface
+                  , EmptyDataDecls
+                  , RecordWildCards
+
+  build-depends:    base >= 3 && < 5
+                  , bytestring
+                  , data-default
+                  , filepath
+                  , resourcet > 0.3.2
+                  , transformers
+
+  ghc-options:      -Wall -rtsopts -funbox-strict-fields
+  ghc-prof-options: -prof -auto-all
+
+  hs-source-dirs:   src
+
+  extra-libraries:  rocksdb

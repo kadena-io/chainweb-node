@@ -1,7 +1,8 @@
 # The following people, listed in alphabetical order, contributed to the
-# leveldb-haskell library:
+# rocksdb-haskell library:
 
 Austin Seipp
+Alexander Thiemann
 Kim Altintop
 Michael Lazarev
 Nicolas Trangez
