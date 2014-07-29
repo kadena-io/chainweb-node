@@ -1,14 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
 -- |
--- Module      : Database.LevelDB.Internal
+-- Module      : Database.RocksDB.Internal
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
+--               (c) 2014 The rocksdb-haskell Authors
 -- License     : BSD3
--- Maintainer  : kim.altintop@gmail.com
+-- Maintainer  : mail@agrafix.net
 -- Stability   : experimental
 -- Portability : non-portable
 --
 
-module Database.LevelDB.Internal
+module Database.RocksDB.Internal
     ( -- * Types
       DB (..)
     , Comparator'
@@ -50,14 +51,14 @@ import           Foreign
 import           Foreign.C.String       (peekCString, withCString)
 import           Foreign.C.Types        (CInt, CSize)
 
-import           Database.LevelDB.C
-import           Database.LevelDB.Types
+import           Database.RocksDB.C
+import           Database.RocksDB.Types
 
 import qualified Data.ByteString        as BS
 
 
 -- | Database handle
-data DB = DB LevelDBPtr Options'
+data DB = DB RocksDBPtr Options'
 
 instance Eq DB where
     (DB pt1 _) == (DB pt2 _) = pt1 == pt2
@@ -86,23 +87,23 @@ data Options' = Options'
 
 mkOpts :: Options -> IO Options'
 mkOpts Options{..} = do
-    opts_ptr <- c_leveldb_options_create
+    opts_ptr <- c_rocksdb_options_create
 
-    c_leveldb_options_set_block_restart_interval opts_ptr
+    c_rocksdb_options_set_block_restart_interval opts_ptr
         $ intToCInt blockRestartInterval
-    c_leveldb_options_set_block_size opts_ptr
+    c_rocksdb_options_set_block_size opts_ptr
         $ intToCSize blockSize
-    c_leveldb_options_set_compression opts_ptr
+    c_rocksdb_options_set_compression opts_ptr
         $ ccompression compression
-    c_leveldb_options_set_create_if_missing opts_ptr
+    c_rocksdb_options_set_create_if_missing opts_ptr
         $ boolToNum createIfMissing
-    c_leveldb_options_set_error_if_exists opts_ptr
+    c_rocksdb_options_set_error_if_exists opts_ptr
         $ boolToNum errorIfExists
-    c_leveldb_options_set_max_open_files opts_ptr
+    c_rocksdb_options_set_max_open_files opts_ptr
         $ intToCInt maxOpenFiles
-    c_leveldb_options_set_paranoid_checks opts_ptr
+    c_rocksdb_options_set_paranoid_checks opts_ptr
         $ boolToNum paranoidChecks
-    c_leveldb_options_set_write_buffer_size opts_ptr
+    c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
 
     cache <- maybeSetCache opts_ptr cacheSize
@@ -112,16 +113,18 @@ mkOpts Options{..} = do
     return (Options' opts_ptr cache cmp fp)
 
   where
-    ccompression NoCompression = noCompression
-    ccompression Snappy        = snappyCompression
+    ccompression NoCompression =
+        noCompression
+    ccompression EnableCompression =
+        enableCompression
 
     maybeSetCache :: OptionsPtr -> Int -> IO (Maybe CachePtr)
     maybeSetCache opts_ptr size =
         if size <= 0
             then return Nothing
             else do
-                cache_ptr <- c_leveldb_cache_create_lru $ intToCSize size
-                c_leveldb_options_set_cache opts_ptr cache_ptr
+                cache_ptr <- c_rocksdb_cache_create_lru $ intToCSize size
+                c_rocksdb_options_set_cache opts_ptr cache_ptr
                 return . Just $ cache_ptr
 
     maybeSetCmp :: OptionsPtr -> Maybe Comparator -> IO (Maybe Comparator')
@@ -131,7 +134,7 @@ mkOpts Options{..} = do
     setcmp :: OptionsPtr -> Comparator -> IO Comparator'
     setcmp opts_ptr (Comparator cmp) = do
         cmp'@(Comparator' _ _ _ cmp_ptr) <- mkComparator "user-defined" cmp
-        c_leveldb_options_set_comparator opts_ptr cmp_ptr
+        c_rocksdb_options_set_comparator opts_ptr cmp_ptr
         return cmp'
 
     maybeSetFilterPolicy :: OptionsPtr
@@ -140,20 +143,20 @@ mkOpts Options{..} = do
     maybeSetFilterPolicy _ Nothing =
         return Nothing
     maybeSetFilterPolicy opts_ptr (Just (Left (BloomFilter bloom_ptr))) = do
-        c_leveldb_options_set_filter_policy opts_ptr bloom_ptr
+        c_rocksdb_options_set_filter_policy opts_ptr bloom_ptr
         return Nothing -- bloom filter is freed automatically
     maybeSetFilterPolicy opts_ptr (Just (Right fp)) = do
         fp'@(FilterPolicy' _ _ _ _ fp_ptr) <- mkFilterPolicy fp
-        c_leveldb_options_set_filter_policy opts_ptr fp_ptr
+        c_rocksdb_options_set_filter_policy opts_ptr fp_ptr
         return . Just . Right $ fp'
 
 freeOpts :: Options' -> IO ()
 freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr mfp) = do
-    c_leveldb_options_destroy opts_ptr
-    maybe (return ()) c_leveldb_cache_destroy mcache_ptr
+    c_rocksdb_options_destroy opts_ptr
+    maybe (return ()) c_rocksdb_cache_destroy mcache_ptr
     maybe (return ()) freeComparator mcmp_ptr
     maybe (return ())
-          (either c_leveldb_filterpolicy_destroy freeFilterPolicy)
+          (either c_rocksdb_filterpolicy_destroy freeFilterPolicy)
           mfp
 
     return ()
@@ -162,13 +165,13 @@ withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
   where
     mkCWriteOpts = do
-        opts_ptr <- c_leveldb_writeoptions_create
+        opts_ptr <- c_rocksdb_writeoptions_create
         onException
-            (c_leveldb_writeoptions_set_sync opts_ptr $ boolToNum sync)
-            (c_leveldb_writeoptions_destroy opts_ptr)
+            (c_rocksdb_writeoptions_set_sync opts_ptr $ boolToNum sync)
+            (c_rocksdb_writeoptions_destroy opts_ptr)
         return opts_ptr
 
-    freeCWriteOpts = c_leveldb_writeoptions_destroy
+    freeCWriteOpts = c_rocksdb_writeoptions_destroy
 
 mkCompareFun :: (ByteString -> ByteString -> Ordering) -> CompareFun
 mkCompareFun cmp = cmp'
@@ -187,13 +190,13 @@ mkComparator name f =
         ccmpfun <- mkCmp . mkCompareFun $ f
         cdest   <- mkDest $ const ()
         cname   <- mkName $ const cs
-        ccmp    <- c_leveldb_comparator_create nullPtr cdest ccmpfun cname
+        ccmp    <- c_rocksdb_comparator_create nullPtr cdest ccmpfun cname
         return $ Comparator' ccmpfun cdest cname ccmp
 
 
 freeComparator :: Comparator' -> IO ()
 freeComparator (Comparator' ccmpfun cdest cname ccmp) = do
-    c_leveldb_comparator_destroy ccmp
+    c_rocksdb_comparator_destroy ccmp
     freeHaskellFunPtr ccmpfun
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
@@ -228,13 +231,13 @@ mkFilterPolicy FilterPolicy{..} =
         cdest  <- mkDest $ const ()
         ccffun <- mkCF . mkCreateFilterFun $ createFilter
         ckmfun <- mkKMM . mkKeyMayMatchFun $ keyMayMatch
-        cfp    <- c_leveldb_filterpolicy_create nullPtr cdest ccffun ckmfun cname
+        cfp    <- c_rocksdb_filterpolicy_create nullPtr cdest ccffun ckmfun cname
 
         return $ FilterPolicy' ccffun ckmfun cdest cname cfp
 
 freeFilterPolicy :: FilterPolicy' -> IO ()
 freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
-    c_leveldb_filterpolicy_destroy cfp
+    c_rocksdb_filterpolicy_destroy cfp
     freeHaskellFunPtr ccffun
     freeHaskellFunPtr ckmfun
     freeHaskellFunPtr cdest
@@ -242,19 +245,19 @@ freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
 
 mkCReadOpts :: ReadOptions -> IO ReadOptionsPtr
 mkCReadOpts ReadOptions{..} = do
-    opts_ptr <- c_leveldb_readoptions_create
-    flip onException (c_leveldb_readoptions_destroy opts_ptr) $ do
-        c_leveldb_readoptions_set_verify_checksums opts_ptr $ boolToNum verifyCheckSums
-        c_leveldb_readoptions_set_fill_cache opts_ptr $ boolToNum fillCache
+    opts_ptr <- c_rocksdb_readoptions_create
+    flip onException (c_rocksdb_readoptions_destroy opts_ptr) $ do
+        c_rocksdb_readoptions_set_verify_checksums opts_ptr $ boolToNum verifyCheckSums
+        c_rocksdb_readoptions_set_fill_cache opts_ptr $ boolToNum fillCache
 
         case useSnapshot of
-            Just (Snapshot snap_ptr) -> c_leveldb_readoptions_set_snapshot opts_ptr snap_ptr
+            Just (Snapshot snap_ptr) -> c_rocksdb_readoptions_set_snapshot opts_ptr snap_ptr
             Nothing -> return ()
 
     return opts_ptr
 
 freeCReadOpts :: ReadOptionsPtr -> IO ()
-freeCReadOpts = c_leveldb_readoptions_destroy
+freeCReadOpts = c_rocksdb_readoptions_destroy
 
 withCReadOpts :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
 withCReadOpts opts = bracket (mkCReadOpts opts) freeCReadOpts

@@ -1,15 +1,16 @@
 -- |
--- Module      : Database.LevelDB.Iterator
+-- Module      : Database.RocksDB.Iterator
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
+--               (c) 2014 The rocksdb-haskell Authors
 -- License     : BSD3
--- Maintainer  : kim.altintop@gmail.com
+-- Maintainer  : mail@agrafix.net
 -- Stability   : experimental
 -- Portability : non-portable
 --
 -- Iterating over key ranges.
 --
 
-module Database.LevelDB.Iterator
+module Database.RocksDB.Iterator
     ( Iterator
     , createIter
     , iterEntry
@@ -42,9 +43,9 @@ import           Foreign.C.Error           (throwErrnoIfNull)
 import           Foreign.C.String          (CString, peekCString)
 import           Foreign.C.Types           (CSize)
 
-import           Database.LevelDB.C
-import           Database.LevelDB.Internal
-import           Database.LevelDB.Types
+import           Database.RocksDB.C
+import           Database.RocksDB.Internal
+import           Database.RocksDB.Types
 
 import qualified Data.ByteString           as BS
 import qualified Data.ByteString.Char8     as BC
@@ -69,7 +70,7 @@ createIter (DB db_ptr _) opts = liftIO $ do
     opts_ptr <- mkCReadOpts opts
     flip onException (freeCReadOpts opts_ptr) $ do
         iter_ptr <- throwErrnoIfNull "create_iterator" $
-                        c_leveldb_create_iterator db_ptr opts_ptr
+                        c_rocksdb_create_iterator db_ptr opts_ptr
         return $ Iterator iter_ptr opts_ptr
 
 -- | Release an 'Iterator'.
@@ -79,7 +80,7 @@ createIter (DB db_ptr _) opts = liftIO $ do
 -- will cause a double-free error!
 releaseIter :: MonadIO m => Iterator -> m ()
 releaseIter (Iterator iter_ptr opts) = liftIO $
-    c_leveldb_iter_destroy iter_ptr `finally` freeCReadOpts opts
+    c_rocksdb_iter_destroy iter_ptr `finally` freeCReadOpts opts
 
 -- | Run an action with an 'Iterator'
 withIter :: MonadIO m => DB -> ReadOptions -> (Iterator -> IO a) -> m a
@@ -89,7 +90,7 @@ withIter db opts = liftIO . bracket (createIter db opts) releaseIter
 -- function returns /true/ iff the iterator is valid.
 iterValid :: MonadIO m => Iterator -> m Bool
 iterValid (Iterator iter_ptr _) = liftIO $ do
-    x <- c_leveldb_iter_valid iter_ptr
+    x <- c_rocksdb_iter_valid iter_ptr
     return (x /= 0)
 
 -- | Position at the first key in the source that is at or past target. The
@@ -98,17 +99,17 @@ iterValid (Iterator iter_ptr _) = liftIO $ do
 iterSeek :: MonadIO m => Iterator -> ByteString -> m ()
 iterSeek (Iterator iter_ptr _) key = liftIO $
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
-        c_leveldb_iter_seek iter_ptr key_ptr (intToCSize klen)
+        c_rocksdb_iter_seek iter_ptr key_ptr (intToCSize klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterFirst :: MonadIO m => Iterator -> m ()
-iterFirst (Iterator iter_ptr _) = liftIO $ c_leveldb_iter_seek_to_first iter_ptr
+iterFirst (Iterator iter_ptr _) = liftIO $ c_rocksdb_iter_seek_to_first iter_ptr
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
 iterLast :: MonadIO m => Iterator -> m ()
-iterLast (Iterator iter_ptr _) = liftIO $ c_leveldb_iter_seek_to_last iter_ptr
+iterLast (Iterator iter_ptr _) = liftIO $ c_rocksdb_iter_seek_to_last iter_ptr
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the last entry in the source.
@@ -118,8 +119,8 @@ iterLast (Iterator iter_ptr _) = liftIO $ c_leveldb_iter_seek_to_last iter_ptr
 -- determine if we're at the last or first entry.
 iterNext :: MonadIO m => Iterator -> m ()
 iterNext (Iterator iter_ptr _) = liftIO $ do
-    valid <- c_leveldb_iter_valid iter_ptr
-    when (valid /= 0) $ c_leveldb_iter_next iter_ptr
+    valid <- c_rocksdb_iter_valid iter_ptr
+    when (valid /= 0) $ c_rocksdb_iter_next iter_ptr
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the first entry in the source.
@@ -129,18 +130,18 @@ iterNext (Iterator iter_ptr _) = liftIO $ do
 -- determine if we're at the last or first entry.
 iterPrev :: MonadIO m => Iterator -> m ()
 iterPrev (Iterator iter_ptr _) = liftIO $ do
-    valid <- c_leveldb_iter_valid iter_ptr
-    when (valid /= 0) $ c_leveldb_iter_prev iter_ptr
+    valid <- c_rocksdb_iter_valid iter_ptr
+    when (valid /= 0) $ c_rocksdb_iter_prev iter_ptr
 
 -- | Return the key for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
 iterKey :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterKey = liftIO . flip iterString c_leveldb_iter_key
+iterKey = liftIO . flip iterString c_rocksdb_iter_key
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
 iterValue :: MonadIO m => Iterator -> m (Maybe ByteString)
-iterValue = liftIO . flip iterString c_leveldb_iter_value
+iterValue = liftIO . flip iterString c_rocksdb_iter_value
 
 -- | Return the current entry as a pair, if the iterator is currently positioned
 -- at an entry, ie. 'iterValid'.
@@ -157,7 +158,7 @@ iterGetError :: MonadIO m => Iterator -> m (Maybe ByteString)
 iterGetError (Iterator iter_ptr _) = liftIO $
     alloca $ \err_ptr -> do
         poke err_ptr nullPtr
-        c_leveldb_iter_get_error iter_ptr err_ptr
+        c_rocksdb_iter_get_error iter_ptr err_ptr
         erra <- peek err_ptr
         if erra == nullPtr
             then return Nothing
@@ -177,12 +178,12 @@ mapIter :: MonadIO m => (Iterator -> m a) -> Iterator -> m [a]
 mapIter f iter@(Iterator iter_ptr _) = go []
   where
     go acc = do
-        valid <- liftIO $ c_leveldb_iter_valid iter_ptr
+        valid <- liftIO $ c_rocksdb_iter_valid iter_ptr
         if valid == 0
             then return acc
             else do
                 val <- f iter
-                ()  <- liftIO $ c_leveldb_iter_next iter_ptr
+                ()  <- liftIO $ c_rocksdb_iter_next iter_ptr
                 go (val : acc)
 
 -- | Return a list of key and value tuples from an iterator. The iterator
@@ -215,7 +216,7 @@ iterString :: Iterator
            -> (IteratorPtr -> Ptr CSize -> IO CString)
            -> IO (Maybe ByteString)
 iterString (Iterator iter_ptr _) f = do
-    valid <- c_leveldb_iter_valid iter_ptr
+    valid <- c_rocksdb_iter_valid iter_ptr
     if valid == 0
         then return Nothing
         else alloca $ \len_ptr -> do

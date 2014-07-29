@@ -1,14 +1,14 @@
 VERBOSITY ?= 1
 
-LIBHSLEVELDB = dist/build/*.a
-LIBLEVELDB   = /usr/local/lib/libleveldb*
+LIBHSROCKSDB = dist/build/*.a
+LIBROCKSDB   = /usr/local/lib/librocksdb*
 
-HADDOCK = dist/doc/html/leveldb-haskell/*.html
-HOOGLE  = dist/doc/html/leveldb-haskell/leveldb-haskell.txt
+HADDOCK = dist/doc/html/rocksdb-haskell/*.html
+HOOGLE  = dist/doc/html/rocksdb-haskell/rocksdb-haskell.txt
 
 .PHONY: all test doc clean prune travis
 
-all : $(LIBHSLEVELDB)
+all : $(LIBHSROCKSDB)
 
 doc : $(HADDOCK) $(HOOGLE)
 
@@ -18,8 +18,8 @@ clean :
 prune : clean
 		rm -rf cabal-dev/
 
-travis : $(LIBLEVELDB)
-		cabal install -f examples
+travis : $(LIBROCKSDB)
+		echo "All good!"
 
 $(HADDOCK) :
 		runhaskell Setup.hs haddock --hyperlink-source
@@ -27,13 +27,13 @@ $(HADDOCK) :
 $(HOOGLE) :
 		runhaskell Setup.hs haddock --hoogle
 
-$(LIBHSLEVELDB) :
+$(LIBHSROCKSDB) :
 		cabal-dev install --verbose=$(VERBOSITY)
 
-$(LIBLEVELDB) :
+$(LIBROCKSDB) :
 		(cd /tmp; \
-			git clone https://code.google.com/p/leveldb/; \
-			cd leveldb; \
-			make; \
-			sudo mv ./libleveldb* /usr/local/lib; \
-			sudo cp -a ./include/leveldb /usr/local/include)
+			git clone https://github.com/facebook/rocksdb.git; \
+			cd rocksdb; \
+			make clean; make; \
+			sudo mv ./librocksdb.a /usr/local/lib; \
+			sudo cp -R include/ /usr/local/include/)
