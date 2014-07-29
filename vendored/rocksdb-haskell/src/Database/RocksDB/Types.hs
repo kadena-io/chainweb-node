@@ -1,13 +1,14 @@
 -- |
--- Module      : Database.LevelDB.Types
+-- Module      : Database.RocksDB.Types
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
+--               (c) 2014 The rocksdb-haskell Authors
 -- License     : BSD3
--- Maintainer  : kim.altintop@gmail.com
+-- Maintainer  : mail@agrafix.net
 -- Stability   : experimental
 -- Portability : non-portable
 --
 
-module Database.LevelDB.Types
+module Database.RocksDB.Types
     ( BatchOp (..)
     , BloomFilter (..)
     , Comparator (..)
@@ -30,13 +31,13 @@ import           Data.ByteString    (ByteString)
 import           Data.Default
 import           Foreign
 
-import           Database.LevelDB.C
+import           Database.RocksDB.C
 
 -- | Snapshot handle
 newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
 
 -- | Compression setting
-data Compression = NoCompression | Snappy deriving (Eq, Show)
+data Compression = NoCompression | EnableCompression deriving (Eq, Show)
 
 -- | User-defined comparator
 newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
@@ -74,7 +75,7 @@ data Options = Options
       -- ^ Control over blocks (user data is stored in a set of blocks, and a
       -- block is the unit of reading from disk).
       --
-      -- If > 0, use the specified cache (in bytes) for blocks. If 0, leveldb
+      -- If > 0, use the specified cache (in bytes) for blocks. If 0, rocksdb
       -- will automatically create and use an 8MB internal cache.
       --
       -- Default: 0
@@ -94,7 +95,7 @@ data Options = Options
       --
       -- This parameter can be changed dynamically.
       --
-      -- Default: 'Snappy'
+      -- Default: 'EnableCompression'
     , createIfMissing      :: !Bool
       -- ^ If true, the database will be created if it is missing.
       --
@@ -139,7 +140,7 @@ defaultOptions = Options
     , blockSize            = 4096
     , cacheSize            = 0
     , comparator           = Nothing
-    , compression          = Snappy
+    , compression          = EnableCompression
     , createIfMissing      = False
     , errorIfExists        = False
     , maxOpenFiles         = 1000
@@ -212,6 +213,6 @@ type WriteBatch = [BatchOp]
 data BatchOp = Put ByteString ByteString | Del ByteString
     deriving (Eq, Show)
 
--- | Properties exposed by LevelDB
+-- | Properties exposed by RocksDB
 data Property = NumFilesAtLevel Int | Stats | SSTables
     deriving (Eq, Show)
