@@ -1,11 +1,11 @@
 This library provides Haskell bindings to
 [RocksDB](http://rocksdb.org)
 
-[![Build Status](https://secure.travis-ci.org/agrafix/rocksdb-haskell.png)](http://travis-ci.org/agrafix/rocksdb-haskell)
+[![Build Status](https://drone.io/github.com/agrafix/rocksdb-haskell/status.png)](https://drone.io/github.com/agrafix/rocksdb-haskell/latest)
 
 ## History
 
-Version 0.0.x:
+Version 0.1.x:
 
 * initial fork of leveldb-haskell
 
