@@ -199,8 +199,8 @@ foreign import ccall safe "rocksdb/c.h rocksdb_options_destroy"
 foreign import ccall safe "rocksdb/c.h rocksdb_options_set_comparator"
   c_rocksdb_options_set_comparator :: OptionsPtr -> ComparatorPtr -> IO ()
 
-foreign import ccall safe "rocksdb/c.h rocksdb_options_set_filter_policy"
-  c_rocksdb_options_set_filter_policy :: OptionsPtr -> FilterPolicyPtr -> IO ()
+-- foreign import ccall safe "rocksdb/c.h rocksdb_options_set_filter_policy"
+--   c_rocksdb_options_set_filter_policy :: OptionsPtr -> FilterPolicyPtr -> IO ()
 
 foreign import ccall safe "rocksdb/c.h rocksdb_options_set_create_if_missing"
   c_rocksdb_options_set_create_if_missing :: OptionsPtr -> CUChar -> IO ()
@@ -220,17 +220,17 @@ foreign import ccall safe "rocksdb/c.h rocksdb_options_set_write_buffer_size"
 foreign import ccall safe "rocksdb/c.h rocksdb_options_set_max_open_files"
   c_rocksdb_options_set_max_open_files :: OptionsPtr -> CInt -> IO ()
 
-foreign import ccall safe "rocksdb/c.h rocksdb_options_set_block_size"
-  c_rocksdb_options_set_block_size :: OptionsPtr -> CSize -> IO ()
+-- foreign import ccall safe "rocksdb/c.h rocksdb_options_set_block_size"
+--   c_rocksdb_options_set_block_size :: OptionsPtr -> CSize -> IO ()
 
-foreign import ccall safe "rocksdb/c.h rocksdb_options_set_block_restart_interval"
-  c_rocksdb_options_set_block_restart_interval :: OptionsPtr -> CInt -> IO ()
+-- foreign import ccall safe "rocksdb/c.h rocksdb_options_set_block_restart_interval"
+  -- c_rocksdb_options_set_block_restart_interval :: OptionsPtr -> CInt -> IO ()
 
 foreign import ccall safe "rocksdb/c.h rocksdb_options_set_compression"
   c_rocksdb_options_set_compression :: OptionsPtr -> CompressionOpt -> IO ()
 
-foreign import ccall safe "rocksdb/c.h rocksdb_options_set_cache"
-  c_rocksdb_options_set_cache :: OptionsPtr -> CachePtr -> IO ()
+-- foreign import ccall safe "rocksdb/c.h rocksdb_options_set_cache"
+--   c_rocksdb_options_set_cache :: OptionsPtr -> CachePtr -> IO ()
 
 
 --
