@@ -32,14 +32,14 @@ module Database.RocksDB.Base
 
     -- * Basic Database Manipulations
     , open
-    , open'
+    , openBracket
     , close
     , put
     , delete
     , write
     , get
     , withSnapshot
-    , withSnapshot'
+    , withSnapshotBracket
     , createSnapshot
     , releaseSnapshot
 
@@ -90,9 +90,9 @@ bloomFilter i =
 --
 -- The returned handle will automatically be released when the enclosing
 -- 'runResourceT' terminates.
-open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
-open' path opts = allocate (open path opts) close
-{-# INLINE open' #-}
+openBracket :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
+openBracket path opts = allocate (open path opts) close
+{-# INLINE openBracket #-}
 
 -- | Run an action with a snapshot of the database.
 --
@@ -100,9 +100,9 @@ open' path opts = allocate (open path opts) close
 -- exception. Note that this function is provided for convenience and does not
 -- prevent the 'Snapshot' handle to escape. It will, however, be invalid after
 -- this function returns and should not be used anymore.
-withSnapshot' :: MonadResource m => DB -> (Snapshot -> m a) -> m a
-withSnapshot' db f = do
-    (rk, snap) <- createSnapshot' db
+withSnapshotBracket :: MonadResource m => DB -> (Snapshot -> m a) -> m a
+withSnapshotBracket db f = do
+    (rk, snap) <- createSnapshotBracket db
     res <- f snap
     release rk
     return res
@@ -113,8 +113,8 @@ withSnapshot' db f = do
 -- 'runResourceT' terminates. It is recommended to use 'createSnapshot'' instead
 -- and release the resource manually as soon as possible.
 -- Can be released early.
-createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
-createSnapshot' db = allocate (createSnapshot db) (releaseSnapshot db)
+createSnapshotBracket :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
+createSnapshotBracket db = allocate (createSnapshot db) (releaseSnapshot db)
 
 -- | Open a database.
 --
