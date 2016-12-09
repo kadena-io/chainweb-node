@@ -190,23 +190,22 @@ mapIter f iter@(Iterator iter_ptr _) = go []
 -- should be put in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'.
-iterItems :: (Functor m, MonadIO m) => Iterator -> m [(ByteString, ByteString)]
+iterItems :: MonadIO m => Iterator -> m [(ByteString, ByteString)]
 iterItems iter = catMaybes <$> mapIter iterEntry iter
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterKeys :: (Functor m, MonadIO m) => Iterator -> m [ByteString]
+iterKeys :: MonadIO m => Iterator -> m [ByteString]
 iterKeys iter = catMaybes <$> mapIter iterKey iter
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterValues :: (Functor m, MonadIO m) => Iterator -> m [ByteString]
+iterValues :: MonadIO m => Iterator -> m [ByteString]
 iterValues iter = catMaybes <$> mapIter iterValue iter
-
 
 --
 -- Internal
