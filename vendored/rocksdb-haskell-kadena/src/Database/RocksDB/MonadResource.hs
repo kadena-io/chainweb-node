@@ -73,20 +73,19 @@ module Database.RocksDB.MonadResource
 where
 
 import           Control.Applicative          ((<$>))
-import           Control.Monad.Trans.Resource
+import           Control.Monad.IO.Class       (MonadIO)
+import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
+                                               release, resourceForkIO, runResourceT)
 import           Data.ByteString              (ByteString)
 import           Data.Int                     (Int64)
 
 import           Database.RocksDB.Base        (BatchOp, BloomFilter, Comparator,
-                                               Compression, DB, FilterPolicy,
-                                               Iterator, Options, Property,
-                                               Range, ReadOptions, Snapshot,
-                                               WriteBatch, WriteOptions,
-                                               defaultOptions,
-                                               defaultReadOptions,
+                                               Compression, DB, FilterPolicy, Iterator,
+                                               Options, Property, Range, ReadOptions,
+                                               Snapshot, WriteBatch, WriteOptions,
+                                               defaultOptions, defaultReadOptions,
                                                defaultWriteOptions)
 import qualified Database.RocksDB.Base        as Base
-
 
 -- | Create a 'BloomFilter'
 bloomFilter :: MonadResource m => Int -> m BloomFilter
@@ -131,38 +130,37 @@ createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
 createSnapshot' db = allocate (Base.createSnapshot db) (Base.releaseSnapshot db)
 
 -- | Get a DB property
-getProperty :: MonadResource m => DB -> Property -> m (Maybe ByteString)
+getProperty :: MonadIO m => DB -> Property -> m (Maybe ByteString)
 getProperty = Base.getProperty
 
 -- | Destroy the given rocksdb database.
-destroy :: MonadResource m => FilePath -> Options -> m ()
+destroy :: MonadIO m => FilePath -> Options -> m ()
 destroy = Base.destroy
 
 -- | Repair the given rocksdb database.
-repair :: MonadResource m => FilePath -> Options -> m ()
+repair :: MonadIO m => FilePath -> Options -> m ()
 repair = Base.repair
 
 
 -- | Inspect the approximate sizes of the different levels
-approximateSize :: MonadResource m => DB -> Range -> m Int64
+approximateSize :: MonadIO m => DB -> Range -> m Int64
 approximateSize = Base.approximateSize
 
 -- | Write a key/value pair
-put :: MonadResource m => DB -> WriteOptions -> ByteString -> ByteString -> m ()
+put :: MonadIO m => DB -> WriteOptions -> ByteString -> ByteString -> m ()
 put = Base.put
 
 -- | Read a value by key
-get :: MonadResource m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
+get :: MonadIO m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
 get = Base.get
 
 -- | Delete a key/value pair
-delete :: MonadResource m => DB -> WriteOptions -> ByteString -> m ()
+delete :: MonadIO m => DB -> WriteOptions -> ByteString -> m ()
 delete = Base.delete
 
 -- | Perform a batch mutation
-write :: MonadResource m => DB -> WriteOptions -> WriteBatch -> m ()
+write :: MonadIO m => DB -> WriteOptions -> WriteBatch -> m ()
 write = Base.write
-
 
 -- | Run an action with an Iterator. The iterator will be closed after the
 -- action returns or an error is thrown. Thus, the iterator will /not/ be valid
@@ -192,23 +190,23 @@ iterOpen' db opts = allocate (Base.createIter db opts) Base.releaseIter
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
-iterValid :: MonadResource m => Iterator -> m Bool
+iterValid :: MonadIO m => Iterator -> m Bool
 iterValid = Base.iterValid
 
 -- | Position at the first key in the source that is at or past target. The
 -- iterator is /valid/ after this call iff the source contains an entry that
 -- comes at or past target.
-iterSeek :: MonadResource m => Iterator -> ByteString -> m ()
+iterSeek :: MonadIO m => Iterator -> ByteString -> m ()
 iterSeek = Base.iterSeek
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterFirst :: MonadResource m => Iterator -> m ()
+iterFirst :: MonadIO m => Iterator -> m ()
 iterFirst = Base.iterFirst
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterLast :: MonadResource m => Iterator -> m ()
+iterLast :: MonadIO m => Iterator -> m ()
 iterLast = Base.iterLast
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
@@ -217,7 +215,7 @@ iterLast = Base.iterLast
 -- If the iterator is not valid, this function does nothing. Note that this is a
 -- shortcoming of the C API: an 'iterPrev' might still be possible, but we can't
 -- determine if we're at the last or first entry.
-iterNext :: MonadResource m => Iterator -> m ()
+iterNext :: MonadIO m => Iterator -> m ()
 iterNext = Base.iterNext
 
 -- | Moves to the previous entry in the source. After this call, 'iterValid' is
@@ -226,23 +224,23 @@ iterNext = Base.iterNext
 -- If the iterator is not valid, this function does nothing. Note that this is a
 -- shortcoming of the C API: an 'iterNext' might still be possible, but we can't
 -- determine if we're at the last or first entry.
-iterPrev :: MonadResource m => Iterator -> m ()
+iterPrev :: MonadIO m => Iterator -> m ()
 iterPrev = Base.iterPrev
 
 -- | Return the key for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
-iterKey :: MonadResource m => Iterator -> m (Maybe ByteString)
+iterKey :: MonadIO m => Iterator -> m (Maybe ByteString)
 iterKey = Base.iterKey
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
-iterValue :: MonadResource m => Iterator -> m (Maybe ByteString)
+iterValue :: MonadIO m => Iterator -> m (Maybe ByteString)
 iterValue = Base.iterValue
 
 -- | Check for errors
 --
 -- Note that this captures somewhat severe errors such as a corrupted database.
-iterGetError :: MonadResource m => Iterator -> m (Maybe ByteString)
+iterGetError :: MonadIO m => Iterator -> m (Maybe ByteString)
 iterGetError = Base.iterGetError
 
 
@@ -254,26 +252,26 @@ iterGetError = Base.iterGetError
 -- values into memory until the iterator is exhausted. This is most likely not
 -- what you want for large ranges. You may consider using conduits instead, for
 -- an example see: <https://gist.github.com/adc8ec348f03483446a5>
-mapIter :: MonadResource m => (Iterator -> m a) -> Iterator -> m [a]
+mapIter :: MonadIO m => (Iterator -> m a) -> Iterator -> m [a]
 mapIter = Base.mapIter
 
 -- | Return a list of key and value tuples from an iterator. The iterator
 -- should be put in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'.
-iterItems :: MonadResource m => Iterator -> m [(ByteString, ByteString)]
+iterItems :: MonadIO m => Iterator -> m [(ByteString, ByteString)]
 iterItems = Base.iterItems
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterKeys :: MonadResource m => Iterator -> m [ByteString]
+iterKeys :: MonadIO m => Iterator -> m [ByteString]
 iterKeys = Base.iterKeys
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterValues :: MonadResource m => Iterator -> m [ByteString]
+iterValues :: MonadIO m => Iterator -> m [ByteString]
 iterValues = Base.iterValues
