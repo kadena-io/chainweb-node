@@ -30,7 +30,7 @@ module Database.RocksDB.Iterator
     , releaseIter
     , withIter
     , withIterator
-    , iterOpen'
+    , iterOpenBracket
     , iterOpen
     ) where
 
@@ -39,7 +39,7 @@ import           Control.Exception            (bracket, finally, onException)
 import           Control.Monad                (when)
 import           Control.Monad.IO.Class       (MonadIO (liftIO))
 import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
-                                               release, resourceForkIO, runResourceT)
+                                               release)
 import           Data.ByteString              (ByteString)
 import           Data.Maybe                   (catMaybes)
 import           Foreign
@@ -67,7 +67,7 @@ data Iterator = Iterator !IteratorPtr !ReadOptionsPtr deriving (Eq)
 -- after this function terminates.
 withIterator :: MonadResource m => DB -> ReadOptions -> (Iterator -> m a) -> m a
 withIterator db opts f = do
-    (rk, iter) <- iterOpen' db opts
+    (rk, iter) <- iterOpenBracket db opts
     res <- f iter
     release rk
     return res
@@ -82,11 +82,11 @@ withIterator db opts f = do
 -- updates written after the iterator was created are not visible. You may,
 -- however, specify an older 'Snapshot' in the 'ReadOptions'.
 iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
-iterOpen db opts = snd <$> iterOpen' db opts
+iterOpen db opts = snd <$> iterOpenBracket db opts
 
 -- | Create an 'Iterator' which can be released early.
-iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
-iterOpen' db opts = allocate (createIter db opts) releaseIter
+iterOpenBracket :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
+iterOpenBracket db opts = allocate (createIter db opts) releaseIter
 
 -- | Create an 'Iterator'.
 --
