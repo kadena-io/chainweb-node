@@ -29,27 +29,31 @@ module Database.RocksDB.Iterator
     , mapIter
     , releaseIter
     , withIter
-    )
-where
+    , withIterator
+    , iterOpen'
+    , iterOpen
+    ) where
 
-import           Control.Applicative       ((<$>), (<*>))
-import           Control.Exception         (bracket, finally, onException)
-import           Control.Monad             (when)
-import           Control.Monad.IO.Class    (MonadIO (liftIO))
-import           Data.ByteString           (ByteString)
-import           Data.Maybe                (catMaybes)
+import           Control.Applicative          ((<$>), (<*>))
+import           Control.Exception            (bracket, finally, onException)
+import           Control.Monad                (when)
+import           Control.Monad.IO.Class       (MonadIO (liftIO))
+import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
+                                               release, resourceForkIO, runResourceT)
+import           Data.ByteString              (ByteString)
+import           Data.Maybe                   (catMaybes)
 import           Foreign
-import           Foreign.C.Error           (throwErrnoIfNull)
-import           Foreign.C.String          (CString, peekCString)
-import           Foreign.C.Types           (CSize)
+import           Foreign.C.Error              (throwErrnoIfNull)
+import           Foreign.C.String             (CString, peekCString)
+import           Foreign.C.Types              (CSize)
 
 import           Database.RocksDB.C
 import           Database.RocksDB.Internal
 import           Database.RocksDB.Types
 
-import qualified Data.ByteString           as BS
-import qualified Data.ByteString.Char8     as BC
-import qualified Data.ByteString.Unsafe    as BU
+import qualified Data.ByteString              as BS
+import qualified Data.ByteString.Char8        as BC
+import qualified Data.ByteString.Unsafe       as BU
 
 -- | Iterator handle
 --
@@ -57,6 +61,32 @@ import qualified Data.ByteString.Unsafe    as BU
 -- between multiple threads which mutate it's state. See
 -- @examples/iterforkio.hs@ for a simple example of how to do that.
 data Iterator = Iterator !IteratorPtr !ReadOptionsPtr deriving (Eq)
+
+-- | Run an action with an Iterator. The iterator will be closed after the
+-- action returns or an error is thrown. Thus, the iterator will /not/ be valid
+-- after this function terminates.
+withIterator :: MonadResource m => DB -> ReadOptions -> (Iterator -> m a) -> m a
+withIterator db opts f = do
+    (rk, iter) <- iterOpen' db opts
+    res <- f iter
+    release rk
+    return res
+
+-- | Create an 'Iterator'.
+--
+-- The iterator will be released when the enclosing 'runResourceT' terminates.
+-- You may consider to use 'iterOpen'' instead and manually release the iterator
+-- as soon as it is no longer needed (alternatively, use 'withIterator').
+--
+-- Note that an 'Iterator' creates a snapshot of the database implicitly, so
+-- updates written after the iterator was created are not visible. You may,
+-- however, specify an older 'Snapshot' in the 'ReadOptions'.
+iterOpen :: MonadResource m => DB -> ReadOptions -> m Iterator
+iterOpen db opts = snd <$> iterOpen' db opts
+
+-- | Create an 'Iterator' which can be released early.
+iterOpen' :: MonadResource m => DB -> ReadOptions -> m (ReleaseKey, Iterator)
+iterOpen' db opts = allocate (createIter db opts) releaseIter
 
 -- | Create an 'Iterator'.
 --

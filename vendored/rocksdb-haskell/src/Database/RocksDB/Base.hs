@@ -32,12 +32,14 @@ module Database.RocksDB.Base
 
     -- * Basic Database Manipulations
     , open
+    , open'
     , close
     , put
     , delete
     , write
     , get
     , withSnapshot
+    , withSnapshot'
     , createSnapshot
     , releaseSnapshot
 
@@ -46,6 +48,7 @@ module Database.RocksDB.Base
     , BloomFilter
     , createBloomFilter
     , releaseBloomFilter
+    , bloomFilter
 
     -- * Administrative Functions
     , Property (..), getProperty
@@ -55,26 +58,63 @@ module Database.RocksDB.Base
 
     -- * Iteration
     , module Database.RocksDB.Iterator
-    )
-where
+    ) where
 
-import           Control.Applicative      ((<$>))
-import           Control.Exception        (bracket, bracketOnError, finally)
-import           Control.Monad            (liftM)
-import           Control.Monad.IO.Class   (MonadIO (liftIO))
-import           Data.ByteString          (ByteString)
-import           Data.ByteString.Internal (ByteString (..))
+import           Control.Applicative          ((<$>))
+import           Control.Exception            (bracket, bracketOnError, finally)
+import           Control.Monad                (liftM)
+
+import           Control.Monad.IO.Class       (MonadIO (liftIO))
+import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
+                                               release)
+import           Data.ByteString              (ByteString)
+import           Data.ByteString.Internal     (ByteString (..))
 import           Foreign
-import           Foreign.C.String         (withCString)
+import           Foreign.C.String             (withCString)
 
 import           Database.RocksDB.C
 import           Database.RocksDB.Internal
 import           Database.RocksDB.Iterator
 import           Database.RocksDB.Types
 
-import qualified Data.ByteString          as BS
-import qualified Data.ByteString.Unsafe   as BU
+import qualified Data.ByteString              as BS
+import qualified Data.ByteString.Unsafe       as BU
 
+-- | Create a 'BloomFilter'
+bloomFilter :: MonadResource m => Int -> m BloomFilter
+bloomFilter i =
+    snd <$> allocate (createBloomFilter i)
+                      releaseBloomFilter
+
+-- | Open a database
+--
+-- The returned handle will automatically be released when the enclosing
+-- 'runResourceT' terminates.
+open' :: MonadResource m => FilePath -> Options -> m (ReleaseKey, DB)
+open' path opts = allocate (open path opts) close
+{-# INLINE open' #-}
+
+-- | Run an action with a snapshot of the database.
+--
+-- The snapshot will be released when the action terminates or throws an
+-- exception. Note that this function is provided for convenience and does not
+-- prevent the 'Snapshot' handle to escape. It will, however, be invalid after
+-- this function returns and should not be used anymore.
+withSnapshot' :: MonadResource m => DB -> (Snapshot -> m a) -> m a
+withSnapshot' db f = do
+    (rk, snap) <- createSnapshot' db
+    res <- f snap
+    release rk
+    return res
+
+-- | Create a snapshot of the database.
+--
+-- The returned 'Snapshot' will be released automatically when the enclosing
+-- 'runResourceT' terminates. It is recommended to use 'createSnapshot'' instead
+-- and release the resource manually as soon as possible.
+-- Can be released early.
+createSnapshot' :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
+createSnapshot' db = allocate (createSnapshot db) (releaseSnapshot db)
 
 -- | Open a database.
 --
@@ -129,8 +169,8 @@ getProperty (DB db_ptr _) p = liftIO $
                     return res
     where
         prop (NumFilesAtLevel i) = "rocksdb.num-files-at-level" ++ show i
-        prop Stats    = "rocksdb.stats"
-        prop SSTables = "rocksdb.sstables"
+        prop Stats               = "rocksdb.stats"
+        prop SSTables            = "rocksdb.sstables"
 
 -- | Destroy the given RocksDB database.
 destroy :: MonadIO m => FilePath -> Options -> m ()

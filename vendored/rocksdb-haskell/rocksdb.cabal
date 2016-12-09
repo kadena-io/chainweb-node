@@ -31,7 +31,6 @@ library
                   , Database.RocksDB.C
                   , Database.RocksDB.Internal
                   , Database.RocksDB.Iterator
-                  , Database.RocksDB.MonadResource
                   , Database.RocksDB.Types
 
   default-language: Haskell2010

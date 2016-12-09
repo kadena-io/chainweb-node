@@ -12,6 +12,6 @@
 -- The API closely follows the C-API of RocksDB.
 -- For more information, see: <http://rocksdb.org>
 
-module Database.RocksDB (module R) where
+module Database.RocksDB (module Base) where
 
-import Database.RocksDB.MonadResource as R
+import Database.RocksDB.Base as Base
