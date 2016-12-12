@@ -35,9 +35,13 @@ module Database.RocksDB.Base
     , openBracket
     , close
     , put
+    , putBinaryVal
+    , putBinary
     , delete
     , write
     , get
+    , getBinary
+    , getBinaryVal
     , withSnapshot
     , withSnapshotBracket
     , createSnapshot
@@ -67,8 +71,11 @@ import           Control.Monad                (liftM)
 import           Control.Monad.IO.Class       (MonadIO (liftIO))
 import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
                                                release)
+import           Data.Binary                  (Binary)
+import qualified Data.Binary                  as Binary
 import           Data.ByteString              (ByteString)
 import           Data.ByteString.Internal     (ByteString (..))
+import qualified Data.ByteString.Lazy         as BSL
 import           Foreign
 import           Foreign.C.String             (withCString)
 
@@ -211,6 +218,11 @@ approximateSize (DB db_ptr _) (from, to) = liftIO $
     where
         toInt64 = return . fromIntegral
 
+putBinaryVal :: (MonadIO m, Binary v) => DB -> WriteOptions -> ByteString -> v -> m ()
+putBinaryVal db wopts key val = put db wopts key (binaryToBS val)
+
+putBinary :: (MonadIO m, Binary k, Binary v) => DB -> WriteOptions -> k -> v -> m ()
+putBinary db wopts key val = put db wopts (binaryToBS key) (binaryToBS val)
 
 -- | Write a key/value pair.
 put :: MonadIO m => DB -> WriteOptions -> ByteString -> ByteString -> m ()
@@ -221,6 +233,12 @@ put (DB db_ptr _) opts key value = liftIO $ withCWriteOpts opts $ \opts_ptr ->
             $ c_rocksdb_put db_ptr opts_ptr
                             key_ptr (intToCSize klen)
                             val_ptr (intToCSize vlen)
+
+getBinaryVal :: (Binary v, MonadIO m) => DB -> ReadOptions -> ByteString -> m (Maybe v)
+getBinaryVal db ropts key  = fmap bsToBinary <$> get db ropts key
+
+getBinary :: (MonadIO m, Binary k, Binary v) => DB -> ReadOptions -> k -> m (Maybe v)
+getBinary db ropts key = fmap bsToBinary <$> get db ropts (binaryToBS key)
 
 -- | Read a value by key.
 get :: MonadIO m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
@@ -283,3 +301,9 @@ createBloomFilter i = do
 
 releaseBloomFilter :: MonadIO m => BloomFilter -> m ()
 releaseBloomFilter (BloomFilter fp) = liftIO $ c_rocksdb_filterpolicy_destroy fp
+
+binaryToBS :: Binary v => v -> ByteString
+binaryToBS x = BSL.toStrict (Binary.encode x)
+
+bsToBinary :: Binary v => ByteString -> v
+bsToBinary x = Binary.decode (BSL.fromStrict x)
