@@ -1,8 +1,6 @@
 This library provides Haskell bindings to
 [RocksDB](http://rocksdb.org)
 
-[![Build Status](https://drone.io/github.com/agrafix/rocksdb-haskell/status.png)](https://drone.io/github.com/agrafix/rocksdb-haskell/latest)
-
 ## History
 
 Version 0.1.x:
