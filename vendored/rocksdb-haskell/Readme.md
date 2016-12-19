@@ -1,6 +1,9 @@
 This library provides Haskell bindings to
 [RocksDB](http://rocksdb.org)
 
+[![Build Status](https://travis-ci.org/serokell/rocksdb-haskell.svg?branch=master)](https://travis-ci.org/serokell/rocksdb-haskell)
+[![Windows build status](https://ci.appveyor.com/api/projects/status/github/serokell/rocksdb-haskell?branch=master&svg=true)](https://ci.appveyor.com/project/domenkozar/rocksdb-haskell)
+
 ## History
 
 Version 0.1.x:
