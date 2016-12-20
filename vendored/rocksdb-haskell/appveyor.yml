@@ -16,16 +16,12 @@ before_test:
 - curl -sS -ostack.zip -L --insecure http://www.stackage.org/stack/windows-x86_64
 - 7z x stack.zip stack.exe
 
-# Install openssl
-- ps: Start-FileDownload 'http://slproweb.com/download/Win64OpenSSL-1_0_2j.exe' 
-- ps: Start-Process "Win64OpenSSL-1_0_2j.exe" -ArgumentList "/silent /verysilent /sp- /suppressmsgboxes" -Wait
-
 # Install rocksdb
 - git clone https://github.com/facebook/rocksdb.git
 - mkdir rocksdb\build
 - cd rocksdb\build
 - cmake -G "Visual Studio 14 2015 Win64" -DOPTDBG=1 -DXPRESS=1 ..
-- msbuild rocksdb.sln /p:Configuration=Release /m:4
+- msbuild rocksdb.sln /p:Configuration=Release /m
 - cd ..\..
 
 test_script:
