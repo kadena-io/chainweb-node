@@ -47,8 +47,8 @@ library
                   , resourcet > 0.3.2
                   , transformers
 
-  ghc-options:      -Wall -rtsopts -funbox-strict-fields
-  ghc-prof-options: -prof -auto-all
+  ghc-options:      -Wall -funbox-strict-fields
+  ghc-prof-options: -auto-all
 
   hs-source-dirs:   src
 
