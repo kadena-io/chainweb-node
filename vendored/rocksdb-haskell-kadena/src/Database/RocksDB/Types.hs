@@ -37,7 +37,11 @@ import           Database.RocksDB.C
 newtype Snapshot = Snapshot SnapshotPtr deriving (Eq)
 
 -- | Compression setting
-data Compression = NoCompression | EnableCompression deriving (Eq, Show)
+data Compression
+    = NoCompression
+    | SnappyCompression
+    | ZlibCompression
+    deriving (Eq, Show)
 
 -- | User-defined comparator
 newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
@@ -54,32 +58,7 @@ newtype BloomFilter = BloomFilter FilterPolicyPtr
 
 -- | Options when opening a database
 data Options = Options
-    { blockRestartInterval :: !Int
-      -- ^ Number of keys between restart points for delta encoding of keys.
-      --
-      -- This parameter can be changed dynamically. Most clients should leave
-      -- this parameter alone.
-      --
-      -- Default: 16
-    , blockSize            :: !Int
-      -- ^ Approximate size of user data packed per block.
-      --
-      -- Note that the block size specified here corresponds to uncompressed
-      -- data. The actual size of the unit read from disk may be smaller if
-      -- compression is enabled.
-      --
-      -- This parameter can be changed dynamically.
-      --
-      -- Default: 4k
-    , cacheSize            :: !Int
-      -- ^ Control over blocks (user data is stored in a set of blocks, and a
-      -- block is the unit of reading from disk).
-      --
-      -- If > 0, use the specified cache (in bytes) for blocks. If 0, rocksdb
-      -- will automatically create and use an 8MB internal cache.
-      --
-      -- Default: 0
-    , comparator           :: !(Maybe Comparator)
+    { comparator      :: !(Maybe Comparator)
       -- ^ Comparator used to defined the order of keys in the table.
       --
       -- If 'Nothing', the default comparator is used, which uses lexicographic
@@ -90,28 +69,28 @@ data Options = Options
       -- to previous open calls on the same DB.
       --
       -- Default: Nothing
-    , compression          :: !Compression
+    , compression     :: !Compression
       -- ^ Compress blocks using the specified compression algorithm.
       --
       -- This parameter can be changed dynamically.
       --
       -- Default: 'EnableCompression'
-    , createIfMissing      :: !Bool
+    , createIfMissing :: !Bool
       -- ^ If true, the database will be created if it is missing.
       --
       -- Default: False
-    , errorIfExists        :: !Bool
+    , errorIfExists   :: !Bool
       -- ^ It true, an error is raised if the database already exists.
       --
       -- Default: False
-    , maxOpenFiles         :: !Int
+    , maxOpenFiles    :: !Int
       -- ^ Number of open files that can be used by the DB.
       --
       -- You may need to increase this if your database has a large working set
       -- (budget one open file per 2MB of working set).
       --
       -- Default: 1000
-    , paranoidChecks       :: !Bool
+    , paranoidChecks  :: !Bool
       -- ^ If true, the implementation will do aggressive checking of the data
       -- it is processing and will stop early if it detects any errors.
       --
@@ -120,7 +99,7 @@ data Options = Options
       -- or for the entire DB to become unopenable.
       --
       -- Default: False
-    , writeBufferSize      :: !Int
+    , writeBufferSize :: !Int
       -- ^ Amount of data to build up in memory (backed by an unsorted log on
       -- disk) before converting to a sorted on-disk file.
       --
@@ -131,22 +110,17 @@ data Options = Options
       -- database is opened.
       --
       -- Default: 4MB
-    , filterPolicy         :: !(Maybe (Either BloomFilter FilterPolicy))
     }
 
 defaultOptions :: Options
 defaultOptions = Options
-    { blockRestartInterval = 16
-    , blockSize            = 4096
-    , cacheSize            = 0
-    , comparator           = Nothing
-    , compression          = EnableCompression
+    { comparator           = Nothing
+    , compression          = SnappyCompression
     , createIfMissing      = False
     , errorIfExists        = False
     , maxOpenFiles         = 1000
     , paranoidChecks       = False
     , writeBufferSize      = 4 `shift` 20
-    , filterPolicy         = Nothing
     }
 
 instance Default Options where

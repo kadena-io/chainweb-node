@@ -129,7 +129,7 @@ createSnapshotBracket db = allocate (createSnapshot db) (releaseSnapshot db)
 open :: MonadIO m => FilePath -> Options -> m DB
 open path opts = liftIO $ bracketOnError (mkOpts opts) freeOpts mkDB
     where
-        mkDB opts'@(Options' opts_ptr _ _ _) =
+        mkDB opts'@(Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 liftM (`DB` opts')
                 $ throwIfErr "open"
@@ -183,7 +183,7 @@ getProperty (DB db_ptr _) p = liftIO $
 destroy :: MonadIO m => FilePath -> Options -> m ()
 destroy path opts = liftIO $ bracket (mkOpts opts) freeOpts destroy'
     where
-        destroy' (Options' opts_ptr _ _ _) =
+        destroy' (Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "destroy" $ c_rocksdb_destroy_db opts_ptr path_ptr
 
@@ -191,7 +191,7 @@ destroy path opts = liftIO $ bracket (mkOpts opts) freeOpts destroy'
 repair :: MonadIO m => FilePath -> Options -> m ()
 repair path opts = liftIO $ bracket (mkOpts opts) freeOpts repair'
     where
-        repair' (Options' opts_ptr _ _ _) =
+        repair' (Options' opts_ptr _ _) =
             withCString path $ \path_ptr ->
                 throwIfErr "repair" $ c_rocksdb_repair_db opts_ptr path_ptr
 

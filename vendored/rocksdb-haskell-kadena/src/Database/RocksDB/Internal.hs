@@ -81,7 +81,6 @@ data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
-    , _fpPtr    :: !(Maybe (Either FilterPolicyPtr FilterPolicy'))
     }
 
 
@@ -89,43 +88,30 @@ mkOpts :: Options -> IO Options'
 mkOpts Options{..} = do
     opts_ptr <- c_rocksdb_options_create
 
-    -- c_rocksdb_options_set_block_restart_interval opts_ptr
-    --     $ intToCInt blockRestartInterval
-    -- c_rocksdb_options_set_block_size opts_ptr
-    --     $ intToCSize blockSize
-    -- c_rocksdb_options_set_compression opts_ptr
-    --     $ ccompression compression
+    c_rocksdb_options_set_compression opts_ptr
+        $ ccompression compression
     c_rocksdb_options_set_create_if_missing opts_ptr
         $ boolToNum createIfMissing
-    -- c_rocksdb_options_set_error_if_exists opts_ptr
-    --     $ boolToNum errorIfExists
-    -- c_rocksdb_options_set_max_open_files opts_ptr
-    --     $ intToCInt maxOpenFiles
-    -- c_rocksdb_options_set_paranoid_checks opts_ptr
-    --     $ boolToNum paranoidChecks
-    -- c_rocksdb_options_set_write_buffer_size opts_ptr
-    --     $ intToCSize writeBufferSize
+    c_rocksdb_options_set_error_if_exists opts_ptr
+        $ boolToNum errorIfExists
+    c_rocksdb_options_set_max_open_files opts_ptr
+        $ intToCInt maxOpenFiles
+    c_rocksdb_options_set_paranoid_checks opts_ptr
+        $ boolToNum paranoidChecks
+    c_rocksdb_options_set_write_buffer_size opts_ptr
+        $ intToCSize writeBufferSize
 
-    cache <- maybeSetCache opts_ptr cacheSize
     cmp   <- maybeSetCmp opts_ptr comparator
-    fp    <- maybeSetFilterPolicy opts_ptr filterPolicy
 
-    return (Options' opts_ptr cache cmp fp)
+    return (Options' opts_ptr Nothing cmp)
 
   where
     ccompression NoCompression =
         noCompression
-    ccompression EnableCompression =
-        enableCompression
-
-    maybeSetCache :: OptionsPtr -> Int -> IO (Maybe CachePtr)
-    maybeSetCache opts_ptr size = return Nothing
-        -- if size <= 0
-        --     then return Nothing
-        --     else do
-        --         cache_ptr <- c_rocksdb_cache_create_lru $ intToCSize size
-        --         c_rocksdb_options_set_cache opts_ptr cache_ptr
-        --         return . Just $ cache_ptr
+    ccompression SnappyCompression =
+        snappyCompression
+    ccompression ZlibCompression =
+        zlibCompression
 
     maybeSetCmp :: OptionsPtr -> Maybe Comparator -> IO (Maybe Comparator')
     maybeSetCmp opts_ptr (Just mcmp) = Just <$> setcmp opts_ptr mcmp
@@ -137,30 +123,11 @@ mkOpts Options{..} = do
         c_rocksdb_options_set_comparator opts_ptr cmp_ptr
         return cmp'
 
-    maybeSetFilterPolicy :: OptionsPtr
-                         -> Maybe (Either BloomFilter FilterPolicy)
-                         -> IO (Maybe (Either FilterPolicyPtr FilterPolicy'))
-    maybeSetFilterPolicy _ Nothing =
-        return Nothing
-    maybeSetFilterPolicy opts_ptr (Just (Left (BloomFilter bloom_ptr))) = do
-        -- c_rocksdb_options_set_filter_policy opts_ptr bloom_ptr
-        return Nothing -- bloom filter is freed automatically
-    maybeSetFilterPolicy opts_ptr (Just (Right fp)) = do
-        -- fp'@(FilterPolicy' _ _ _ _ fp_ptr) <- mkFilterPolicy fp
-        -- c_rocksdb_options_set_filter_policy opts_ptr fp_ptr
-        -- return . Just . Right $ fp'
-        return Nothing
-
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr mfp) = do
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr ) = do
     c_rocksdb_options_destroy opts_ptr
     maybe (return ()) c_rocksdb_cache_destroy mcache_ptr
     maybe (return ()) freeComparator mcmp_ptr
-    maybe (return ())
-          (either c_rocksdb_filterpolicy_destroy freeFilterPolicy)
-          mfp
-
-    return ()
 
 withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
