@@ -172,7 +172,7 @@ getProperty (DB db_ptr _) p = liftIO $
         if val_ptr == nullPtr
             then return Nothing
             else do res <- Just <$> BS.packCString val_ptr
-                    free val_ptr
+                    freeCString val_ptr
                     return res
     where
         prop (NumFilesAtLevel i) = "rocksdb.num-files-at-level" ++ show i
@@ -252,7 +252,7 @@ get (DB db_ptr _) opts key = liftIO $ withCReadOpts opts $ \opts_ptr ->
             then return Nothing
             else do
                 res' <- Just <$> BS.packCStringLen (val_ptr, cSizeToInt vlen)
-                free val_ptr
+                freeCString val_ptr
                 return res'
 
 -- | Delete a key/value pair.
