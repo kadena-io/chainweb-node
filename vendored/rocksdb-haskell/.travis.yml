@@ -3,7 +3,7 @@ os:
   - linux
 language: nix
 env:
-  - NIX_PATH=nixpkgs=https://github.com/NixOS/nixpkgs/archive/5e5df0fea29323a1a75b8a16911e22955525ed82.tar.gz
+  - NIX_PATH=nixpkgs=https://github.com/NixOS/nixpkgs/archive/d535b2df06e0d1e8cd38143a2000deb07fc074f9.tar.gz
 cache:
   directories:
   - "$HOME/.stack"
