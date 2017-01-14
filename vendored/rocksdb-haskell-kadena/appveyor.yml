@@ -17,7 +17,7 @@ before_test:
 - 7z x stack.zip stack.exe
 
 # Install rocksdb
-- git clone https://github.com/facebook/rocksdb.git
+- git clone https://github.com/facebook/rocksdb.git --branch v4.13.5
 - mkdir rocksdb\build
 - cd rocksdb\build
 - cmake -G "Visual Studio 14 2015 Win64" -DOPTDBG=1 -DXPRESS=1 ..
