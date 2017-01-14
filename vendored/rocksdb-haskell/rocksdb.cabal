@@ -67,6 +67,7 @@ test-suite rocksdb-tests
                      , data-default
                      , resourcet
                      , transformers
+                     , temporary
                      , hspec-expectations
                      , QuickCheck
   default-language:    Haskell2010
