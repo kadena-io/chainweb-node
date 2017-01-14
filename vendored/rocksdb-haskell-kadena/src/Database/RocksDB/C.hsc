@@ -338,3 +338,10 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_cache_create_lru"
 
 foreign import ccall safe "rocksdb\\c.h rocksdb_cache_destroy"
   c_rocksdb_cache_destroy :: CachePtr -> IO ()
+
+----------------------------------------------------------------------------
+-- Free
+----------------------------------------------------------------------------
+
+foreign import ccall safe "rocksdb\\c.h rocksdb_free"
+  c_rocksdb_free :: CString -> IO ()

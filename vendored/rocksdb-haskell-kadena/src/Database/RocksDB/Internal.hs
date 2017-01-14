@@ -21,6 +21,7 @@ module Database.RocksDB.Internal
     , freeComparator
     , freeFilterPolicy
     , freeOpts
+    , freeCString
     , mkCReadOpts
     , mkComparator
     , mkCompareFun
@@ -48,7 +49,7 @@ import           Control.Exception      (bracket, onException, throwIO)
 import           Control.Monad          (when)
 import           Data.ByteString        (ByteString)
 import           Foreign
-import           Foreign.C.String       (peekCString, withCString)
+import           Foreign.C.String       (CString, peekCString, withCString)
 import           Foreign.C.Types        (CInt, CSize)
 
 import           Database.RocksDB.C
@@ -226,6 +227,9 @@ mkCReadOpts ReadOptions{..} = do
 
 freeCReadOpts :: ReadOptionsPtr -> IO ()
 freeCReadOpts = c_rocksdb_readoptions_destroy
+
+freeCString :: CString -> IO ()
+freeCString = c_rocksdb_free
 
 withCReadOpts :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
 withCReadOpts opts = bracket (mkCReadOpts opts) freeCReadOpts
