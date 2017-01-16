@@ -3,10 +3,6 @@ image: Visual Studio 2015
 
 build: off
 
-cache:
-  - "c:\\sr"
-  - '.stack-work'
-
 environment:
   global:
     STACK_ROOT: "c:\\sr"
