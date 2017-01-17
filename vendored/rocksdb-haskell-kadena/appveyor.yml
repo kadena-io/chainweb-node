@@ -19,7 +19,7 @@ before_test:
 - cmake -G "Visual Studio 14 2015 Win64" -DOPTDBG=1 -DXPRESS=1 ..
 - msbuild rocksdb.sln /p:Configuration=Release /m
 - cd ..\..
-
+- xcopy rocksdb\build\Release\rocksdb.dll .
 test_script:
   - stack setup
   # No parallelization due to https://github.com/haskell/cabal/issues/4005   
