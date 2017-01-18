@@ -24,3 +24,11 @@ test_script:
   - stack setup
   # No parallelization due to https://github.com/haskell/cabal/issues/4005   
   - stack --no-terminal build --test --haddock --no-haddock-deps --bench  --extra-include-dirs="C:\OpenSSL-Win64\include" --extra-lib-dirs="C:\OpenSSL-Win64" --extra-lib-dirs="C:\projects\rocksdb-haskell\rocksdb\build\Release" --extra-include-dirs="C:\projects\rocksdb-haskell\rocksdb\include"
+
+artifacts:
+  - path: rocksdb\build\Release
+    name: Rocksdb
+    type: zip
+
+  - path: rocksdb\build\Release\rocksdb.dll
+    name: rocksdb.dll
