@@ -48,7 +48,6 @@ library
                   , transformers
 
   ghc-options:      -Wall -funbox-strict-fields
-  ghc-prof-options: -auto-all
 
   hs-source-dirs:   src
 
