@@ -1,4 +1,4 @@
-name:                rocksdb
+name:                rocksdb-haskell
 version:             0.1.0.1
 synopsis:            Haskell bindings to RocksDB
 homepage:            http://github.com/serokell/rocksdb-haskell
@@ -60,7 +60,7 @@ test-suite rocksdb-tests
   type: exitcode-stdio-1.0
   hs-source-dirs: tests
   build-depends:       base >= 3 && < 5
-                     , rocksdb
+                     , rocksdb-haskell
                      , hspec >= 1.8
                      , process >= 1.1.0.2
                      , bytestring >= 0.10.4.0
