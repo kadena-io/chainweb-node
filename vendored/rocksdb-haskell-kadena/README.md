@@ -6,16 +6,15 @@ This library provides Haskell bindings to
 
 ## History
 
-Version 0.1.x:
+Version 0.1.0:
 
-* windows support and fixes
-* initial fork of leveldb-haskell
+* initial release of this fork.
 
 ## Installation
 
 Prerequisites:
 
-* [GHC 7.*](http://www.haskell.org/ghc)
+* [GHC 8.*](http://www.haskell.org/ghc)
 * [Cabal](http://www.haskell.org/cabal), version 1.3 or higher
 * [RocksDB](http://rocksdb.org)
 * Optional: [Snappy](http://code.google.com/p/snappy),
@@ -40,9 +39,8 @@ and contributions are welcome.
 
 ## Bugs and Contributing
 
-Please report issues via http://github.com/agrafix/rocksdb-haskell/issues.<br />
-Patches are best submitted as pull requests, or via email
-(mail@agrafix.net).
+Please report issues via http://github.com/serokell/rocksdb-haskell/issues.<br />
+Patches are best submitted as pull requests.
 
 ## License
 
