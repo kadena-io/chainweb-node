@@ -1,5 +1,5 @@
 name:                rocksdb-haskell
-version:             0.1.0.1
+version:             0.1.0
 synopsis:            Haskell bindings to RocksDB
 homepage:            http://github.com/serokell/rocksdb-haskell
 bug-reports:         http://github.com/serokell/rocksdb-haskell/issues
