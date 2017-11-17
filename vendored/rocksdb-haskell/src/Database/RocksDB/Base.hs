@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- |
 -- Module      : Database.RocksDB.Base
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
@@ -66,7 +68,7 @@ module Database.RocksDB.Base
 
 import           Control.Applicative          ((<$>))
 import           Control.Exception            (bracket, bracketOnError, finally)
-import           Control.Monad                (liftM)
+import           Control.Monad                (liftM, when)
 
 import           Control.Monad.IO.Class       (MonadIO (liftIO))
 import           Control.Monad.Trans.Resource (MonadResource (..), ReleaseKey, allocate,
@@ -77,7 +79,8 @@ import           Data.ByteString              (ByteString)
 import           Data.ByteString.Internal     (ByteString (..))
 import qualified Data.ByteString.Lazy         as BSL
 import           Foreign
-import           Foreign.C.String             (withCString)
+import           Foreign.C.String             (CString, withCString)
+import           System.Directory             (createDirectoryIfMissing)
 
 import           Database.RocksDB.C
 import           Database.RocksDB.Internal
@@ -86,6 +89,11 @@ import           Database.RocksDB.Types
 
 import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Unsafe       as BU
+
+#ifndef mingw32_HOST_OS
+import qualified GHC.Foreign                  as GHC
+import qualified GHC.IO.Encoding              as GHC
+#endif
 
 -- | Create a 'BloomFilter'
 bloomFilter :: MonadResource m => Int -> m BloomFilter
@@ -127,10 +135,34 @@ createSnapshotBracket db = allocate (createSnapshot db) (releaseSnapshot db)
 --
 -- The returned handle should be released with 'close'.
 open :: MonadIO m => FilePath -> Options -> m DB
-open path opts = liftIO $ bracketOnError (mkOpts opts) freeOpts mkDB
+open path opts = liftIO $ bracketOnError initialize finalize mkDB
     where
-        mkDB opts'@(Options' opts_ptr _ _) =
-            withCString path $ \path_ptr ->
+# ifdef mingw32_HOST_OS
+        initialize =
+            (, ()) <$> mkOpts opts
+        finalize (opts', ()) =
+            freeOpts opts'
+# else
+        initialize = do
+            opts' <- mkOpts opts
+            -- With LC_ALL=C, two things happen:
+            --   * rocksdb can't open a database with unicode in path;
+            --   * rocksdb can't create a folder properly.
+            -- So, we create the folder by ourselves, and for thart we
+            -- need to set the encoding we're going to use. On Linux
+            -- it's almost always UTC-8.
+            oldenc <- GHC.getFileSystemEncoding
+            when (createIfMissing opts) $
+                GHC.setFileSystemEncoding GHC.utf8
+            pure (opts', oldenc)
+        finalize (opts', oldenc) = do
+            freeOpts opts'
+            GHC.setFileSystemEncoding oldenc
+# endif
+        mkDB (opts'@(Options' opts_ptr _ _), _) = do
+            when (createIfMissing opts) $
+                createDirectoryIfMissing True path
+            withFilePath path $ \path_ptr ->
                 liftM (`DB` opts')
                 $ throwIfErr "open"
                 $ c_rocksdb_open opts_ptr path_ptr
@@ -184,7 +216,7 @@ destroy :: MonadIO m => FilePath -> Options -> m ()
 destroy path opts = liftIO $ bracket (mkOpts opts) freeOpts destroy'
     where
         destroy' (Options' opts_ptr _ _) =
-            withCString path $ \path_ptr ->
+            withFilePath path $ \path_ptr ->
                 throwIfErr "destroy" $ c_rocksdb_destroy_db opts_ptr path_ptr
 
 -- | Repair the given RocksDB database.
@@ -192,7 +224,7 @@ repair :: MonadIO m => FilePath -> Options -> m ()
 repair path opts = liftIO $ bracket (mkOpts opts) freeOpts repair'
     where
         repair' (Options' opts_ptr _ _) =
-            withCString path $ \path_ptr ->
+            withFilePath path $ \path_ptr ->
                 throwIfErr "repair" $ c_rocksdb_repair_db opts_ptr path_ptr
 
 
@@ -307,3 +339,10 @@ binaryToBS x = BSL.toStrict (Binary.encode x)
 
 bsToBinary :: Binary v => ByteString -> v
 bsToBinary x = Binary.decode (BSL.fromStrict x)
+
+withFilePath :: FilePath -> (CString -> IO a) -> IO a
+# ifdef mingw32_HOST_OS
+withFilePath = withCString
+# else
+withFilePath = GHC.withCString GHC.utf8
+# endif

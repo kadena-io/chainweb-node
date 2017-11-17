@@ -43,6 +43,7 @@ library
                   , binary
                   , bytestring
                   , data-default
+                  , directory
                   , filepath
                   , resourcet > 0.3.2
                   , transformers
