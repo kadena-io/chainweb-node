@@ -1,4 +1,5 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP           #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module      : Database.RocksDB.Base
@@ -90,10 +91,8 @@ import           Database.RocksDB.Types
 import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Unsafe       as BU
 
-#ifndef mingw32_HOST_OS
 import qualified GHC.Foreign                  as GHC
 import qualified GHC.IO.Encoding              as GHC
-#endif
 
 -- | Create a 'BloomFilter'
 bloomFilter :: MonadResource m => Int -> m BloomFilter
@@ -340,9 +339,11 @@ binaryToBS x = BSL.toStrict (Binary.encode x)
 bsToBinary :: Binary v => ByteString -> v
 bsToBinary x = Binary.decode (BSL.fromStrict x)
 
+-- | Marshal a 'FilePath' (Haskell string) into a `NUL` terminated C string using
+-- temporary storage.
+-- On Linux, UTF-8 is almost always the encoding used.
+-- When on Windows, UTF-8 can also be used, although the default for those devices is
+-- UTF-16. For a more detailed explanation, please refer to
+-- https://msdn.microsoft.com/en-us/library/windows/desktop/dd374081(v=vs.85).aspx.
 withFilePath :: FilePath -> (CString -> IO a) -> IO a
-# ifdef mingw32_HOST_OS
-withFilePath = withCString
-# else
 withFilePath = GHC.withCString GHC.utf8
-# endif
