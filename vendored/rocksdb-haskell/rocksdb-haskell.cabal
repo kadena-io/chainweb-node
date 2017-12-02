@@ -1,5 +1,5 @@
 name:                rocksdb-haskell
-version:             1.0.0
+version:             1.0.1
 synopsis:            Haskell bindings to RocksDB
 homepage:            http://github.com/serokell/rocksdb-haskell
 bug-reports:         http://github.com/serokell/rocksdb-haskell/issues
@@ -43,6 +43,7 @@ library
                   , binary
                   , bytestring
                   , data-default
+                  , directory
                   , filepath
                   , resourcet > 0.3.2
                   , transformers
