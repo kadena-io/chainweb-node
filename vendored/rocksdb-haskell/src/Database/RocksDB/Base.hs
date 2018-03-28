@@ -63,6 +63,10 @@ module Database.RocksDB.Base
     , repair
     , approximateSize
 
+    -- * Utility functions to help perform mass writes
+    , binaryToBS
+    , bsToBinary
+
     -- * Iteration
     , module Database.RocksDB.Iterator
     ) where
