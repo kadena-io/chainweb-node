@@ -44,11 +44,24 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.ChainDB.Entry
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import qualified Chainweb.ChainDB as DB
+import Chainweb.ChainId
+import Chainweb.Graph
+import Chainweb.NodeId
+import Chainweb.Version
+
+import Data.Graph
 
 -- -------------------------------------------------------------------------- --
 -- Main
+
+exampleChainId ∷ ChainId
+exampleChainId = testChainId 0
+
+graph ∷ ChainGraph
+graph = toChainGraph (const exampleChainId) singleton
 
 -- | Setup a logger and run the example
 --
@@ -65,9 +78,11 @@ main = withHandleBackend (_logConfigBackend config)
 --
 example ∷ Logger T.Text → IO ()
 example logger = do
-    db ← DB.initChainDb $ DB.Configuration { DB._configRoot = root }
+    db ← DB.initChainDb DB.Configuration
+        { DB._configRoot = genesisBlockHeader Test graph exampleChainId
+        }
     withAsync (observer logger db) $ \o → do
-        mapConcurrently_ (miner logger db) [0..5]
+        mapConcurrently_ (miner logger db) $ NodeId exampleChainId <$> [0..5]
         wait o
     return ()
 
@@ -76,11 +91,11 @@ example logger = do
 
 -- | A miner creates new entries with successive natural numbers as payload.
 --
-miner ∷ Logger T.Text → DB.ChainDb → Int → IO ()
+miner ∷ Logger T.Text → DB.ChainDb → NodeId → IO ()
 miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' → do
     let logg = loggerFunIO logger'
     logg Info "Started Miner"
-    go logg 1
+    go logg (1 ∷ Int)
   where
     go logg i = do
         -- get db snapshot
@@ -92,7 +107,8 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' →
             mapM (`DB.getEntryIO` s) (HS.toList bs)
 
         -- create entry
-        let e = DB.entry $ entry (DB.dbEntry p) i
+        -- let e = DB.entry $ entry (DB.dbEntry p) i
+        let e = DB.entry $ testBlockHeader mid adjs (Nonce 0) (DB.dbEntry p)
 
         -- Add entry to database
         s' ← DB.insert e s
@@ -103,6 +119,8 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' →
         d ← randomRIO (0, 1000000)
         threadDelay d
         go logg (i + 1)
+
+    adjs = BlockHashRecord mempty
 
 -- -------------------------------------------------------------------------- --
 -- Observer
@@ -130,7 +148,12 @@ observer logger db = withLoggerLabel ("observer", "") logger $ \logger' → do
 
         e ← DB.getEntryIO n s
         logg Info $ "observed new entry: " ⊕ sshow e
-        logg Info $ "serialized Entry: " ⊕ T.decodeUtf8 (B64.encode (DB.encodeEntry e))
+
+        let encoded = DB.encodeEntry e
+        logg Debug $ "serialized Entry: " ⊕ T.decodeUtf8 (B64.encode encoded)
+
+        decoded ← DB.decodeEntry encoded
+        logg Debug $ "deserialized Entry: " ⊕ sshow (decoded ∷ DB.Entry 'DB.Unchecked)
 
         let bs = DB.branches s
         logg Info $ "branch count: " ⊕ sshow (length bs)

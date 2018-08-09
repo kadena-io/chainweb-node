@@ -2,14 +2,22 @@
 
 ## Building from Source
 
+Requirements:
+
+*   Cabal >=2.0
+*   GHC >=8.2
+
 For productions builds just run
 
 ```
-cabal install --enable-tests
+cabal install --enable-tests -j1
 ```
 
 This will build the chainweb library, the chainweb-node executable, and the main
 test suite.
+
+(Use `-j1` or `--jobs=1` if `jobs:` is configured in the cabal config file.
+Backback doesn't support parallel compilation.)
 
 For development builds that include additional examples and tests you have to
 pass the `-fdev` flag to cabal:
@@ -18,9 +26,6 @@ pass the `-fdev` flag to cabal:
 cabal configure -fdev --enable-tests
 cabal build --jobs=1
 ```
-
-(Use `--jobs=1` if `jobs:` is configured in the cabal config file. Backback doesn't
-support parallel compilation.)
 
 To just check that all production components comply with their respective
 interface specifications run
@@ -37,12 +42,25 @@ The production components are:
 *   chainweb library: That provides the implementation for the different
     components of a chainweb-node.
 
-*   chainweb-node: An application that runs a chainweb node. It maintains copies
-    of a number of chains from a given chainweb instance. It provides interfaces
+*   chainweb-node: An application that runs a Chainweb node. It maintains copies
+    of a number of chains from a given Chainweb instance. It provides interfaces
     (command-line and RPC) for directly interacting with the chainweb or for
     implementing applications such as miners and transaction management tools.
 
 *   chainweb-tests: A test suite for the chainweb library and chainweb-node.
+
+The production components depend on the following internal libraries
+
+*   chainweb-types library: defines and implements all basic Chainweb types.
+    It doesn't depend on any interfaces.
+
+*   chaindb-hashmap-indef: an implementation of the ChainDB signatures that uses
+    an in-memory hashmap for storing block headers. It is parameterized over the
+    entry type. Currently the chainweb library uses this implementation. In the
+    future it will be replaced and moved to the test library.
+
+*   chainweb-test: a library for modules that are shared between different test,
+    simulation, and example components.
 
 In addition there are a few development components that provide examples for
 using the production components and for advanced testing and simulation.
@@ -59,7 +77,10 @@ Currently, these include
     production implementations in the chainweb library comply with their
     respective API specification.
 
-*  chaindb-example: Example for how to use the ChainDB API of chainweb.
+*   chaindb-example: Example for how to use the ChainDB API of chainweb.
+
+*   chaindb-example-int: Example for how to use ChainDB API with a mock
+    implementation for `Chainweb.ChainDB.Entry`.
 
 ## Source Code Layout
 

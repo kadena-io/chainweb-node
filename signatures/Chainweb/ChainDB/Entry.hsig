@@ -65,7 +65,7 @@ encodeEntry ∷ Entry → B.ByteString
 
 -- | Deserialize an 'Entry'. The deserialized values is 'Unchecked'.
 --
--- Raises an some exception if the decoding fails.
+-- Raises some exception if the decoding fails.
 --
 decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m Entry
 
