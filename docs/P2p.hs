@@ -147,7 +147,12 @@ data P2pConnection m = P2pConnection
 -- -------------------------------------------------------------------------- --
 -- P2P Session
 
-type P2pSession = ∀ m . MonadIO m ⇒ MonadThrow m ⇒ P2pConnection m → m ()
+type P2pSession = ∀ m
+    . MonadIO m
+    ⇒ MonadThrow m
+    ⇒ MonadCatch m
+    ⇒ P2pConnection m
+    → m ()
 
 -- -------------------------------------------------------------------------- --
 -- P2P Node
