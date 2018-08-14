@@ -205,3 +205,92 @@ executable chaindb-example
 
     if flag(dev) { buildable: True } else { buildable: False }
 
+-- -------------------------------------------------------------------------- --
+-- P2P library
+-- -------------------------------------------------------------------------- --
+
+library p2p
+    default-language: Haskell2010
+    hs-source-dirs: p2p/src
+    exposed-modules:
+        P2P.Connection
+    build-depends:
+          base >=4.10 && <5.0
+        , bytestring >=0.10
+        , exceptions >=0.10
+
+-- -------------------------------------------------------------------------- --
+-- P2P Development Components
+
+library p2p-connection
+    default-language: Haskell2010
+    hs-source-dirs: p2p/src
+    exposed-modules:
+        P2P.Connection
+    build-depends:
+          base >=4.10 && <5.0
+        , bytestring >= 0.10
+        , exceptions >=0.10
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
+-- Indefinite version of P2P library (for testing)
+--
+library p2p-indefinite
+    default-language: Haskell2010
+    hs-source-dirs: p2p/signatures
+    signatures: P2P.Node
+    reexported-modules: P2P.Connection as P2P.Connection
+    build-depends:
+          p2p-connection
+        , base >=4.10
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
+-- In process implementation of P2P API
+--
+library p2p-node-inprocess
+    default-language: Haskell2010
+    hs-source-dirs: p2p/inprocess
+    exposed-modules:
+          P2P.Node.InProcess
+    build-depends:
+        -- internal
+          p2p-connection
+
+        -- external
+        , base >=4.10 && <5.0
+        , async >=2.2
+        , base-unicode-symbols >=0.2
+        , bytestring >=0.10
+        , exceptions >=0.10
+        , random >=1.1
+        , stm >=2.4
+        , text >=1.2
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
+executable p2p-example-inprocess
+    default-language: Haskell2010
+    hs-source-dirs: p2p/example
+    main-is: InProcessP2p.hs
+    ghc-options: -Wall -threaded
+    mixins:
+        p2p-node-inprocess (P2P.Node.InProcess as P2P.Node)
+    build-depends:
+        -- internal
+          p2p-node-inprocess
+        , p2p-indefinite
+
+        -- external
+        , async >=2.2
+        , base >=4.10 && < 5.0
+        , base-unicode-symbols >=0.2
+        , exceptions >=0.10
+        , lens >=4.16
+        , random >=1.1
+        , text >=1.2
+        , yet-another-logger >=0.3
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
