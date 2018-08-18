@@ -42,8 +42,8 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.ChainDB.Entry.Int
-import qualified Chainweb.ChainDB.HashMap as DB
+import Chainweb.ChainDB.Entry
+import qualified Chainweb.ChainDB as DB
 
 -- -------------------------------------------------------------------------- --
 -- Main
