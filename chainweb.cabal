@@ -11,7 +11,7 @@ maintainer: lars@kadena.io
 copyright: Copyright (C) 2018 Kadena LLC
 category: Blockchain, Currency, Bitcoin
 build-type: Simple
-cabal-version: >= 2.0
+cabal-version: 2.0
 tested-with:
       GHC == 8.4.3
     , GHC == 8.2.2
