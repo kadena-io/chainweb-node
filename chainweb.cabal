@@ -1,5 +1,6 @@
 -- -------------------------------------------------------------------------- --
 -- Common Definitions
+-- -------------------------------------------------------------------------- --
 
 name: chainweb
 version: 0.1.0.0
@@ -18,7 +19,6 @@ cabal-version: 2.0
 tested-with:
       GHC == 8.4.3
     , GHC == 8.2.2
-    , GHC ==8.0.2
 
 extra-source-files:
     CHANGELOG.md
@@ -48,7 +48,7 @@ library
     other-modules:
     build-depends:
         -- external
-          base >=4.9 && < 5.0
+          base >=4.10 && <5.0
 
 executable chainweb-node
     default-language: Haskell2010
@@ -59,7 +59,7 @@ executable chainweb-node
         -- internal
           chainweb
         -- external
-        , base >=4.9 && < 5.0
+        , base >=4.10 && <5.0
 
 test-suite chainweb-tests
     type: exitcode-stdio-1.0
@@ -72,7 +72,7 @@ test-suite chainweb-tests
         -- internal
           chainweb
         -- external
-        , base >=4.9 && < 5.0
+        , base >=4.10 && <5.0
 
 -- -------------------------------------------------------------------------- --
 -- Testing and Dev
@@ -93,7 +93,7 @@ library signatures
     signatures:
     build-depends:
         -- external
-          base >=4.9 && < 5.0
+          base >=4.10 && <5.0
 
     if flag(dev) { buildable: True } else { buildable: False }
 
@@ -137,6 +137,7 @@ library chainweb-indefinite
           signatures
 
         -- external
-        , base >=4.9 && < 5.0
+        , base >=4.10 && <5.0
 
     if flag(dev) { buildable: True } else { buildable: False }
+
