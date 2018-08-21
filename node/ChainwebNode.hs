@@ -1,10 +1,9 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 -- |
--- Module: ChainwebNode
+-- Module: Main
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: AllRightsReserved
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,7 +11,7 @@
 --
 -- TODO
 --
-module ChainwebNode
+module Main
 ( main
 ) where
 
