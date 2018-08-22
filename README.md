@@ -72,3 +72,25 @@ Currently, these include
 
 *   `docs`: contains documentation files
 
+# P2P Network
+
+The P2P Network layer is developed as an independent library with the chainweb
+package. Once its API has stabilized it will be moved into a cabal package on
+its own.
+
+## Source Code Layout
+
+All code and resources for the P2P library live in the `p2p` directory.
+
+*   `p2p/src`: contains source code of the P2P library modules.
+*   `p2p/test`: contains the source code for the test suites for the P2P
+    library.
+
+In addition to these public production components, the are the following
+development components:
+
+*   `p2p/signatures`: contains all signatures files.
+*   `p2p/inprocess`: contains an simple in-process implementation of the P2P
+    library API that can be used for testing and simulation purposes.
+*   `p2p/example`: contains example code for using the P2P library API.
+
