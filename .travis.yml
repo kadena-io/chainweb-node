@@ -74,8 +74,8 @@ install:
       (cd "." && autoreconf -i);
     fi
   - rm -f cabal.project.freeze
-  - cabal new-build -w ${HC} ${DEV} ${TEST} ${BENCH} --project-file="cabal.project" --dep -j2 all
-  - cabal new-build -w ${HC} ${DEV} --disable-tests --disable-benchmarks --project-file="cabal.project" --dep -j2 all
+  - cabal new-build -w ${HC} ${DEV} ${TEST} ${BENCH} --project-file="cabal.project" -j1 all
+  - cabal new-build -w ${HC} ${DEV} --disable-tests --disable-benchmarks --project-file="cabal.project" -j1 all
   - rm -rf .ghc.environment.* "."/dist
   - DISTDIR=$(mktemp -d /tmp/dist-test.XXXX)
 
