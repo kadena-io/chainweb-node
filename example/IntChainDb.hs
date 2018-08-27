@@ -28,12 +28,14 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.STM
 
+import qualified Data.ByteString.Base64 as B64
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
 import Data.Monoid.Unicode
 import Data.String
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Prelude.Unicode
 
@@ -128,6 +130,7 @@ observer logger db = withLoggerLabel ("observer", "") logger $ \logger' → do
 
         e ← DB.getEntryIO n s
         logg Info $ "observed new entry: " ⊕ sshow e
+        logg Info $ "serialized Entry: " ⊕ T.decodeUtf8 (B64.encode (DB.encodeEntry e))
 
         let bs = DB.branches s
         logg Info $ "branch count: " ⊕ sshow (length bs)
