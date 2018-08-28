@@ -1,0 +1,40 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnicodeSyntax #-}
+
+-- |
+-- Signature: Chainweb.ChainDB.SyncSession
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Lars Kuhtz <lars@kadena.io>
+-- Stability: experimental
+--
+-- TODO
+--
+signature Chainweb.ChainDB.SyncSession
+( syncSession
+) where
+
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+
+import qualified Data.Text as T
+
+import System.Logger.LogLevel
+
+-- internal modules
+
+import Chainweb.ChainDB
+
+import P2P.Connection
+
+syncSession
+    ∷ ∀ m
+    . MonadMask m
+    ⇒ MonadAsync m
+    ⇒ MonadIO m
+    ⇒ (LogLevel → T.Text → m ())
+    → ChainDb
+    → P2pConnection m
+    → m ()

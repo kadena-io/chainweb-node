@@ -1,0 +1,37 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnicodeSyntax #-}
+
+-- |
+-- Signature: System.Logger.LogLevel
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Lars Kuhtz <lars@kadena.io>
+-- Stability: experimental
+--
+-- TODO
+--
+signature System.Logger.LogLevel
+( LogLevel(..)
+) where
+
+import Control.DeepSeq
+
+import GHC.Generics
+
+data LogLevel
+    = Quiet
+    | Error
+    | Warn
+    | Info
+    | Debug
+
+instance Show LogLevel
+instance Read LogLevel
+instance Eq LogLevel
+instance Ord LogLevel
+instance Enum LogLevel
+instance Bounded LogLevel
+instance Generic LogLevel
+instance NFData LogLevel

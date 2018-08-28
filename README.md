@@ -22,7 +22,7 @@ Backback doesn't support parallel compilation.)
 For development builds that include additional examples and tests you have to
 pass the `-fdev` flag to cabal:
 
-```
+```bash
 cabal configure -fdev --enable-tests
 cabal build --jobs=1
 ```
@@ -30,16 +30,29 @@ cabal build --jobs=1
 To just check that all production components comply with their respective
 interface specifications run
 
-```
+```bash
 cabal configure -fdev
 cabal build --jobs=1 lib:check-signatures
 ```
+
+## Running the Examples
+
+A simple end-to-end example for mining and synchronizing nodes for a single
+chain is provided in `chaindb-sync-trivial-example`. It demonstrates the
+feasibility of the architecture and the APIs by integrating simple prototype
+implementations of the P2P, sync, and ChainDB components on top of the
+datastructures in the chainweb-types library.
+
+```bash
+cabal run --jobs=1 chaindb-trivial-sync-example
+```
+
 
 ## Component Structure
 
 The production components are:
 
-*   chainweb library: That provides the implementation for the different
+*   chainweb library: It provides the implementation for the different
     components of a chainweb-node.
 
 *   chainweb-node: An application that runs a Chainweb node. It maintains copies
@@ -59,6 +72,13 @@ The production components depend on the following internal libraries
     entry type. Currently the chainweb library uses this implementation. In the
     future it will be replaced and moved to the test library.
 
+*   chaindb-sync-trivial-indef: a prototype implementation of the component
+    for synchronizing the blockheaders of a single chain between two nodes.
+    It implements a `P2pSession` that can be used with the P2P Api. It works
+    with any implementation of the `ChainDB` Api. This is a prototype
+    implementation that will be replaced with a production implementation in the
+    future.
+
 *   chainweb-test: a library for modules that are shared between different test,
     simulation, and example components.
 
@@ -76,6 +96,11 @@ Currently, these include
 *   check-signatures: An internal library that when build tests that all
     production implementations in the chainweb library comply with their
     respective API specification.
+
+*   chaindb-trivial-sync-example: An simple end-to-end scenario for mining
+    and synchronizing nodes for a single chain. It demonstrates the feasibility
+    of the `ChainDB` and `P2P` APIs by integrating prototype implementations
+    of these APIs on top of the data-structures in `chainweb-types`.
 
 *   chaindb-example: Example for how to use the ChainDB API of chainweb.
 
