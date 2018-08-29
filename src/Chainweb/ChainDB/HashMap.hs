@@ -94,7 +94,7 @@ import Prelude.Unicode
 
 -- internal imports
 
-import qualified Chainweb.ChainDB.Entry.Int as E
+import qualified Chainweb.ChainDB.Entry as E
 
 -- -------------------------------------------------------------------------- --
 -- Internal DB Representation

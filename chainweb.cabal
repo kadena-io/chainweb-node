@@ -40,27 +40,145 @@ flag dev
 -- Production Components
 -- -------------------------------------------------------------------------- --
 
-library
+-- -------------------------------------------------------------------------- --
+-- Basic Chainweb Types
+--
+-- Doesn't depend on any signatures
+
+library chainweb-types
     default-language: Haskell2010
     hs-source-dirs: src
     ghc-options: -Wall
     exposed-modules:
-        Chainweb.ChainDB.Entry.Int
-        Chainweb.ChainDB.HashMap
+          Chainweb.BlockHash
+        , Chainweb.BlockHeader
+        , Chainweb.ChainDB.Entry.BlockHeader
+        , Chainweb.ChainId
+        , Chainweb.Difficulty
+        , Chainweb.Graph
+        , Chainweb.NodeId
+        , Chainweb.Time
+        , Chainweb.Utils
+        , Chainweb.Version
+
+        , Data.Graph
+        , Data.Word.Encoding
+
+        , Numeric.Cast
+        , Numeric.Additive
+        , Numeric.AffineSpace
+
+        -- Not yet ported
+        -- , Chainweb.Braiding
+        -- , Chainweb.Chain
+        -- , Chainweb.Children
+        -- , Chainweb.Graph.Gexf
+        -- , Chainweb.WebBranch
+        -- , Chainweb.WebChain
+        -- , Chainweb.WebChildren
+
+        -- , Data.Graph.TypeLevel
+        -- , Data.Graph.TypeLevel.HoffmanSingleton
+        -- , Data.Lattice
+        -- , Data.List.TypeLevel
+        -- , Data.TypeLevel
+        -- , Data.Vinyl.Utils
+        -- , Numeric.Multiplicative
+
+        -- obsolete
+        -- , Data.HList
+        -- , Chainweb.Simulation
+        -- , Chainweb.Simulation.Chainweb
+        -- , Chainweb.Simulation.ChainwebSlice
+        -- , Chainweb.Simulation.Configuration
+        -- , Chainweb.Simulation.Mine
+        -- , Chainweb.Simulation.Miner
+        -- , Chainweb.Simulation.Node
+        -- , Chainweb.Simulation.Utils
+        -- , Chainweb.Simulation.WebNode
+        -- , Chainweb.Pid
+
     other-modules:
     build-depends:
+        -- internal
         -- external
           base >=4.10 && <5.0
+        , aeson >=1.3
         , base-unicode-symbols >=0.2
+        , base64-bytestring >=1.0
         , bytes >=0.15
         , bytestring >=0.10
+        , cereal >=0.5
         , containers >=0.5
-        , exceptions >= 0.10
+        , cryptohash-sha512 >=0.11
+        , exceptions >=0.10
+        , hashable >=1.2
+        , largeword >=1.2
+        , lens >=4.16
+        , random-bytestring >=0.1
+        , reflection >=2.1
+        , stm >=2.4
+        , streaming >=0.2
+        , text >=1.2
+        , time >=1.8
+        , transformers >=0.5
+        , unordered-containers >=0.2
+        , xmlgen >=0.6
+
+-- -------------------------------------------------------------------------- --
+-- ChainDB
+
+library chaindb-hashmap-indef
+    default-language: Haskell2010
+    hs-source-dirs: signatures, src
+    ghc-options: -Wall
+    exposed-modules:
+          Chainweb.ChainDB.HashMap
+    signatures:
+          Chainweb.ChainDB.Entry
+    build-depends:
+          base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , bytestring >=0.10
+        , containers >=0.5
+        , exceptions >=0.10
         , hashable >=1.2
         , lens >=4.16
         , stm >=2.4
-        , text >=1.2
         , unordered-containers >=0.2
+
+-- -------------------------------------------------------------------------- --
+-- Public chainweb libary
+
+library
+    default-language: Haskell2010
+    ghc-options: -Wall
+    reexported-modules:
+          Chainweb.BlockHash
+        , Chainweb.BlockHeader
+        , Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
+        , Chainweb.ChainDB.HashMap as Chainweb.ChainDB
+        , Chainweb.ChainId
+        , Chainweb.Difficulty
+        , Chainweb.Graph
+        , Chainweb.NodeId
+        , Chainweb.Time
+        , Chainweb.Utils
+        , Chainweb.Version
+
+        , Data.Graph
+        , Data.Word.Encoding
+
+        , Numeric.Cast
+        , Numeric.Additive
+        , Numeric.AffineSpace
+
+    build-depends:
+          chainweb-types
+        , chaindb-hashmap-indef
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Node
 
 executable chainweb-node
     default-language: Haskell2010
@@ -74,6 +192,30 @@ executable chainweb-node
         -- external
         , base >=4.10 && <5.0
 
+-- -------------------------------------------------------------------------- --
+-- Test Library
+
+library chainweb-test
+    default-language: Haskell2010
+    hs-source-dirs: test/chainweb
+    ghc-options: -Wall
+    exposed-modules:
+          Chainweb.ChainDB.Entry.Int
+    build-depends:
+        -- internal
+          chainweb
+        -- external
+        , base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , bytes >=0.15
+        , bytestring >=0.10
+        , exceptions >=0.10
+        , hashable >=1.2
+        , text >=1.2
+
+-- -------------------------------------------------------------------------- --
+-- Test suite
+
 test-suite chainweb-tests
     type: exitcode-stdio-1.0
     default-language: Haskell2010
@@ -86,12 +228,13 @@ test-suite chainweb-tests
           chainweb
         -- external
         , base >=4.10 && <5.0
+        , base16-bytestring >=0.1
+        , bytestring >=0.10
+        , QuickCheck >=2.11
+--         , quickcheck-instances >=0.3
 
 -- -------------------------------------------------------------------------- --
 -- Testing and Dev
---
--- NOTE: nothing of the following must be referenced by a component that is
--- defined above.
 -- -------------------------------------------------------------------------- --
 
 -- -------------------------------------------------------------------------- --
@@ -118,86 +261,82 @@ library signatures
 
     if flag(dev) { buildable: True } else { buildable: False }
 
--- Building this checks that all implementations comply with their
+-- Building this checks that all production implementations comply with their
 -- respective signatures
 --
 library check-signatures
     default-language: Haskell2010
     ghc-options: -Wall
     mixins:
-        chainweb
-            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB
-            , Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry
-            )
+          chaindb-hashmap-indef
+            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
+        , chainweb-types
+            (Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry)
     build-depends:
         -- internal
-          chainweb
+          chainweb-types
+        , chaindb-hashmap-indef
         , signatures
 
     if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
--- Indefinite version of chainweb (components with signatures can be mocked)
-
--- This provides the chainweb library as an indefinite library that can
--- be used to instantiate the various APIs with alternative implementations
---
--- All modules that implement a signatures are renamed to the name of their
--- respective signature.
---
-library chainweb-indefinite
-    default-language: Haskell2010
-    hs-source-dirs: src
-    ghc-options: -Wall
-    cpp-options:
-        -DINDEFINITE
-        -DChainweb.ChainDB.HashMap=Chainweb.ChainDB
-        -DChainweb.ChainDB.HashMap.Entry.Int=Chainweb.ChainDB.Entry
-
-    exposed-modules:
-        -- Add all chainweb modules that don't implement signatures.
-        -- So far the are no non-interface modules in chainweb.
-    other-modules:
-    build-depends:
-        -- internal
-          signatures
-
-        -- external
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , hashable >=1.2
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-
-    if flag(dev) { buildable: True } else { buildable: False }
-
--- -------------------------------------------------------------------------- --
--- Example for ChainDB usage
+-- Examples for ChainDB usage
 
 executable chaindb-example
     default-language: Haskell2010
     hs-source-dirs: example
-    main-is: IntChainDb.hs
-    ghc-options: -Wall -threaded -main-is IntChainDb
-    other-modules:
+    main-is: BlockHeaderChainDb.hs
+    ghc-options: -Wall -threaded
     mixins:
-        chainweb
-            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB
-            , Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry
-            )
+          containers (Data.Graph as Data.Graph.Containers)
     build-depends:
         -- internal
           chainweb
-        , chainweb-indefinite
 
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
         , base-unicode-symbols >=0.2
         , base64-bytestring >=1.0
-        , chainweb >=0.1
+        , containers >=0.5
+        , lens >=4.16
+        , random >=1.1
+        , stm >=2.4
+        , text >=1.2
+        , unordered-containers >=0.2
+        , yet-another-logger >=0.3
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
+-- this is also an example how chainweb-indefinite can be used to plugin
+-- mock implementations.
+executable chaindb-example-int
+    default-language: Haskell2010
+    hs-source-dirs: example
+    main-is: IntChainDb.hs
+    ghc-options: -Wall -threaded
+    mixins:
+          chainweb-test
+            (Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry)
+        , chaindb-hashmap-indef
+            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
+    build-depends:
+        -- internal
+          chainweb-types
+        , chaindb-hashmap-indef
+        , chainweb-test
+            -- provides Chainweb.ChainDB.Entry.Int
+
+        -- external
+        , async >=2.2
+        , base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , base64-bytestring >=1.0
+        , bytes >=0.15
+        , bytestring >=0.10
+        , exceptions >=0.10
+        , hashable >=1.2
         , lens >=4.16
         , random >=1.1
         , stm >=2.4
@@ -211,18 +350,8 @@ executable chaindb-example
 -- P2P library
 -- -------------------------------------------------------------------------- --
 
-library p2p
-    default-language: Haskell2010
-    hs-source-dirs: p2p/src
-    exposed-modules:
-        P2P.Connection
-    build-depends:
-          base >=4.10 && <5.0
-        , bytestring >=0.10
-        , exceptions >=0.10
-
 -- -------------------------------------------------------------------------- --
--- P2P Development Components
+-- P2P Connection
 
 library p2p-connection
     default-language: Haskell2010
@@ -234,10 +363,9 @@ library p2p-connection
         , bytestring >= 0.10
         , exceptions >=0.10
 
-    if flag(dev) { buildable: True } else { buildable: False }
+-- -------------------------------------------------------------------------- --
+-- P2P Node
 
--- Indefinite version of P2P library (for testing)
---
 library p2p-indefinite
     default-language: Haskell2010
     hs-source-dirs: p2p/signatures
@@ -246,8 +374,6 @@ library p2p-indefinite
     build-depends:
           p2p-connection
         , base >=4.10
-
-    if flag(dev) { buildable: True } else { buildable: False }
 
 -- In process implementation of P2P API
 --
@@ -270,7 +396,8 @@ library p2p-node-inprocess
         , stm >=2.4
         , text >=1.2
 
-    if flag(dev) { buildable: True } else { buildable: False }
+-- -------------------------------------------------------------------------- --
+-- P2P example
 
 executable p2p-example-inprocess
     default-language: Haskell2010
