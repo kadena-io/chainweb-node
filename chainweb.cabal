@@ -360,8 +360,11 @@ library p2p-connection
         P2P.Connection
     build-depends:
           base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
         , bytestring >= 0.10
         , exceptions >=0.10
+        , stm >=2.4
+        , transformers >=0.5
 
 -- -------------------------------------------------------------------------- --
 -- P2P Node

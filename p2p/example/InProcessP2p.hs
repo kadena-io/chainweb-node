@@ -37,7 +37,7 @@ import System.Random
 
 -- internal modules
 
-import P2P.Connection
+import P2P.Connection hiding (async)
 import P2P.Node
 
 -- | Initialize Logger and call example
