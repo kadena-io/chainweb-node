@@ -26,6 +26,7 @@ module Chainweb.NodeId
 , encodeNodeId
 , decodeNodeId
 , decodeNodeIdCheckedChain
+, prettyNodeId
 ) where
 
 import Control.Lens
@@ -36,6 +37,8 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
 import Data.Kind
+import Data.Monoid.Unicode
+import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics
@@ -57,12 +60,15 @@ makeLenses ''NodeId
 
 instance HasChainId NodeId where
     _chainId = _nodeIdChain
+    {-# INLINE _chainId #-}
 
 encodeNodeId ∷ MonadPut m ⇒ NodeId → m ()
 encodeNodeId (NodeId cid i) = encodeChainId cid >> putWord64le i
+{-# INLINE encodeNodeId #-}
 
 decodeNodeId ∷ MonadGet m ⇒ m NodeId
 decodeNodeId = NodeId <$> decodeChainId <*> getWord64le
+{-# INLINE decodeNodeId #-}
 
 decodeNodeIdCheckedChain
     ∷ MonadThrow m
@@ -71,4 +77,9 @@ decodeNodeIdCheckedChain
     ⇒ Expected p
     → m NodeId
 decodeNodeIdCheckedChain p = NodeId <$> decodeChainIdChecked p <*> getWord64le
+{-# INLINE decodeNodeIdCheckedChain #-}
+
+prettyNodeId ∷ NodeId → T.Text
+prettyNodeId (NodeId c i) = sshow i ⊕ "/" ⊕ prettyChainId c
+{-# INLINE prettyNodeId #-}
 
