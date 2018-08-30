@@ -148,6 +148,35 @@ library chaindb-hashmap-indef
         , unordered-containers >=0.2
 
 -- -------------------------------------------------------------------------- --
+-- Sync
+
+library chaindb-sync-trivial-indef
+    default-language: Haskell2010
+    hs-source-dirs: signatures, src
+    ghc-options: -Wall
+    exposed-modules:
+          Chainweb.ChainDB.Sync.Trivial
+    signatures:
+          Chainweb.ChainDB
+    build-depends:
+        -- internal
+          p2p-connection
+
+        -- external
+        , async >=2.2
+        , base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , bytestring >=0.10
+        , deepseq >=1.4
+        , exceptions >=0.10
+        , hashable >=1.2
+        , lifted-async >= 0.10
+        , loglevel >= 0.1
+        , stm >=2.4
+        , text >=1.2
+        , unordered-containers >=0.2
+
+-- -------------------------------------------------------------------------- --
 -- Public chainweb libary
 
 library
@@ -158,6 +187,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
         , Chainweb.ChainDB.HashMap as Chainweb.ChainDB
+        , Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId
         , Chainweb.Difficulty
         , Chainweb.Graph
@@ -174,8 +204,10 @@ library
         , Numeric.AffineSpace
 
     build-depends:
+        -- internal
           chainweb-types
         , chaindb-hashmap-indef
+        , chaindb-sync-trivial-indef
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
@@ -249,12 +281,18 @@ library signatures
     signatures:
         Chainweb.ChainDB
         Chainweb.ChainDB.Entry
+        Chainweb.ChainDB.SyncSession
     build-depends:
+        -- internal
+          p2p-connection
+
         -- external
-          base >=4.10 && <5.0
+        , base >=4.10 && <5.0
         , bytestring >=0.10
+        , deepseq >=1.4
         , exceptions >=0.10
         , hashable >=1.2
+        , loglevel >=0.1
         , stm >=2.4
         , text >=1.2
         , unordered-containers >=0.2
@@ -272,10 +310,13 @@ library check-signatures
             (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
         , chainweb-types
             (Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry)
+        , chaindb-sync-trivial-indef
+            (Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession)
     build-depends:
         -- internal
           chainweb-types
         , chaindb-hashmap-indef
+        , chaindb-sync-trivial-indef
         , signatures
 
     if flag(dev) { buildable: True } else { buildable: False }
@@ -287,7 +328,7 @@ executable chaindb-example
     default-language: Haskell2010
     hs-source-dirs: example
     main-is: BlockHeaderChainDb.hs
-    ghc-options: -Wall -threaded
+    ghc-options: -Wall -threaded -with-rtsopts=-N
     mixins:
           containers (Data.Graph as Data.Graph.Containers)
     build-depends:
@@ -309,13 +350,13 @@ executable chaindb-example
 
     if flag(dev) { buildable: True } else { buildable: False }
 
--- this is also an example how chainweb-indefinite can be used to plugin
+-- this is also an example how chainweb-indefinite can be used to plug in
 -- mock implementations.
 executable chaindb-example-int
     default-language: Haskell2010
     hs-source-dirs: example
     main-is: IntChainDb.hs
-    ghc-options: -Wall -threaded
+    ghc-options: -Wall -threaded -with-rtsopts=-N
     mixins:
           chainweb-test
             (Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry)
@@ -346,6 +387,39 @@ executable chaindb-example-int
 
     if flag(dev) { buildable: True } else { buildable: False }
 
+
+executable chaindb-trivial-sync-example
+    default-language: Haskell2010
+    hs-source-dirs: example
+    main-is: TrivialSync.hs
+    ghc-options: -Wall -threaded -with-rtsopts=-N
+    mixins:
+          containers (Data.Graph as Data.Graph.Containers)
+        , p2p-node-inprocess (P2P.Node.InProcess as P2P.Node)
+    build-depends:
+        -- internal
+          chainweb
+        , p2p-connection
+        , p2p-node-inprocess
+
+        -- external
+        , async >=2.2
+        , base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , base64-bytestring >=1.0
+        , containers >=0.5
+        , exceptions >=0.10
+        , lens >=4.16
+        , loglevel >=0.1
+        , mwc-random >=0.13
+        , random >=1.1
+        , stm >=2.4
+        , text >=1.2
+        , unordered-containers >=0.2
+        , yet-another-logger >=0.3
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
 -- -------------------------------------------------------------------------- --
 -- P2P library
 -- -------------------------------------------------------------------------- --
@@ -360,8 +434,11 @@ library p2p-connection
         P2P.Connection
     build-depends:
           base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
         , bytestring >= 0.10
         , exceptions >=0.10
+        , stm >=2.4
+        , transformers >=0.5
 
 -- -------------------------------------------------------------------------- --
 -- P2P Node
@@ -382,6 +459,7 @@ library p2p-node-inprocess
     hs-source-dirs: p2p/inprocess
     exposed-modules:
           P2P.Node.InProcess
+
     build-depends:
         -- internal
           p2p-connection
@@ -392,6 +470,7 @@ library p2p-node-inprocess
         , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , exceptions >=0.10
+        , loglevel >=0.1
         , random >=1.1
         , stm >=2.4
         , text >=1.2
@@ -417,6 +496,7 @@ executable p2p-example-inprocess
         , base-unicode-symbols >=0.2
         , exceptions >=0.10
         , lens >=4.16
+        , loglevel >= 0.1
         , random >=1.1
         , text >=1.2
         , yet-another-logger >=0.3

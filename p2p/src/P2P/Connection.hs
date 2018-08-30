@@ -13,8 +13,11 @@
 --
 module P2P.Connection
 (
+-- * MonadAsync
+  MonadAsync(..)
+
 -- * P2P Connection
-  P2pPeer(..)
+, P2pPeer(..)
 , P2pConnectionException(..)
 , P2pMessage
 , P2pConnection(..)
@@ -23,12 +26,40 @@ module P2P.Connection
 , P2pSession
 ) where
 
+import Control.Concurrent
+import Control.Concurrent.STM.TMVar
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.STM
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Identity
+import Control.Monad.Trans.Reader
 
 import qualified Data.ByteString as B
 
 import GHC.Generics (Generic)
+
+import Prelude.Unicode
+
+-- -------------------------------------------------------------------------- --
+-- Monad Async
+
+-- | Monads that support asynchronous computations.
+--
+class Monad m ⇒ MonadAsync m where
+    async ∷ m a → m (TMVar (Either SomeException a), ThreadId)
+
+instance MonadAsync IO where
+    async action = do
+        var ← newEmptyTMVarIO
+        t ← action `forkFinally` (atomically ∘ putTMVar var)
+        return (var,t)
+
+instance MonadAsync m ⇒ MonadAsync (ReaderT r m) where
+    async a = ask >>= lift ∘ async ∘ runReaderT a
+
+instance MonadAsync m ⇒ MonadAsync (IdentityT m) where
+    async = lift ∘ async ∘ runIdentityT
 
 -- -------------------------------------------------------------------------- --
 -- P2P Connection
@@ -145,7 +176,8 @@ data P2pConnection m = P2pConnection
 
 type P2pSession = ∀ m
     . MonadIO m
-    ⇒ MonadThrow m
-    ⇒ MonadCatch m
-    ⇒ P2pConnection m → m ()
+    ⇒ MonadMask m
+    ⇒ MonadAsync m
+    ⇒ P2pConnection m
+    → m ()
 

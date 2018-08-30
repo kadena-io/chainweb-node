@@ -20,6 +20,7 @@ module Chainweb.ChainId
 , ChainId
 , HasChainId(..)
 , checkChainId
+, prettyChainId
 
 -- * Serialization
 
@@ -103,12 +104,15 @@ class HasChainId a where
 
 instance HasChainId ChainId where
     _chainId = id
+    {-# INLINE _chainId #-}
 
 instance HasChainId a ⇒ HasChainId (Expected a) where
     _chainId = _chainId ∘ getExpected
+    {-# INLINE _chainId #-}
 
 instance HasChainId a ⇒ HasChainId (Actual a) where
     _chainId = _chainId ∘ getActual
+    {-# INLINE _chainId #-}
 
 checkChainId
     ∷ MonadThrow m
@@ -120,6 +124,10 @@ checkChainId
 checkChainId expected actual = _chainId
     <$> check ChainIdMissmatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
+
+prettyChainId ∷ ChainId → T.Text
+prettyChainId (ChainId i) = sshow i
+{-# INLINE prettyChainId #-}
 
 -- -------------------------------------------------------------------------- --
 -- $Serialization
@@ -147,9 +155,9 @@ decodeChainIdChecked p = checkChainId p ∘ Actual =<< decodeChainId
 -- -------------------------------------------------------------------------- --
 -- Testing
 
-
 -- | Generally, the 'ChainId' is determined by the genesis block of a chain for
 -- a given 'Chainweb.Version'. This constructor is only for testing.
 --
 testChainId ∷ Int32 → ChainId
 testChainId = ChainId
+{-# INLINE testChainId #-}

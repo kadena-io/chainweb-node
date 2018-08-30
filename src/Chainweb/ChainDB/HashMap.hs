@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
@@ -78,7 +80,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString as B
-import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -111,24 +112,23 @@ makeLenses ''Db
 
 -- | Unchecked addition
 --
+-- ASSUMES that
+--
+-- * Item is not yet in database
+--
 -- Guarantees that
 --
 -- * each item without children is included in branches and
 -- * each item is included in children
 --
 dbAdd ∷ E.Entry → Db → Db
-dbAdd e db
-    | isMember = db
-    | otherwise = db
-        & dbEntries %~ HM.insert (E.key e) e
-        & dbBranches %~ dbAddBranch e
-        & dbChildren %~ dbAddChildren e
-  where
-    k = E.key e
-    isMember = HM.member k (_dbEntries db)
+dbAdd e db = db
+    & dbEntries %~ HM.insert (E.key e) e
+    & dbBranches %~ dbAddBranch e
+    & dbChildren %~ dbAddChildren e
 
-dbAddChecked ∷ MonadThrow m ⇒ E.Entry → Db → m Db
-dbAddChecked e db = case E.parent e of
+dbAddCheckedInternal ∷ MonadThrow m ⇒ E.Entry → Db → m Db
+dbAddCheckedInternal e db = case E.parent e of
     Nothing → return $ dbAdd e db
     Just p → case HM.lookup p (_dbEntries db) of
         Nothing → throwM $ ParentMissing (UncheckedEntry e)
@@ -136,6 +136,17 @@ dbAddChecked e db = case E.parent e of
             unless (E.rank e ≡ E.rank pe + 1)
                 $ throwM $ InvalidRank (UncheckedEntry e)
             return $ dbAdd e db
+
+dbAddChecked_ ∷ MonadThrow m ⇒ E.Entry → Db → m (Db, Maybe E.Key)
+dbAddChecked_ e db
+    | isMember = return (db, Nothing)
+    | otherwise = (, Just k) <$> dbAddCheckedInternal e db
+  where
+    k = E.key e
+    isMember = HM.member k (_dbEntries db)
+
+dbAddChecked ∷ MonadThrow m ⇒ E.Entry → Db → m Db
+dbAddChecked e db = fst <$> dbAddChecked_ e db
 
 dbAddBranch ∷ E.Entry → HS.HashSet E.Key → HS.HashSet E.Key
 dbAddBranch e bs = HS.insert (E.key e)
@@ -306,14 +317,25 @@ syncSnapshot ∷ Snapshot → IO Snapshot
 syncSnapshot s
     | HM.null (_snapshotAdditions s) = snapshot db
     | otherwise = do
-        modifyMVar_ (_getDb db) $ \x → foldM (flip dbAddChecked) x rankedAdditions
+
+        -- insert entries to db and collect new keys
+        --
+        news ← modifyMVar (_getDb db)
+            $ \x → foldM
+                (\(d, ns) e → fmap (maybe ns (ns |>)) <$> dbAddChecked_ e d)
+                (x, mempty)
+                rankedAdditions
+
+        -- publish new keys to updates enumeration
+        --
         atomically $ modifyTVar' (_dbEnumeration db)
-            $ \x → foldl' (|>) x rankedAdditionKeys
+            $ \x → x ⊕ (CheckedKey <$> news)
+
+        -- return fresh snapshot
         snapshot db
   where
     db = view snapshotChainDb s
     rankedAdditions = L.sortOn E.rank $ HM.elems $ _snapshotAdditions s
-    rankedAdditionKeys = CheckedKey ∘ E.key <$> rankedAdditions
 
 -- -------------------------------------------------------------------------- --
 -- Queries
@@ -344,8 +366,11 @@ getEntryIO k s = case getEntry k s of
 -- Insertion
 
 insert ∷ MonadThrow m ⇒ Entry s → Snapshot → m Snapshot
-insert e = snapshotDb (dbAddChecked dbe)
-    ∘ (snapshotAdditions %~ HM.insert (E.key dbe) dbe)
+insert e s
+    | (E.key dbe) `HM.member` (_dbEntries $ _snapshotDb s) = return s
+    | otherwise = s
+        & (snapshotAdditions %~ HM.insert (E.key dbe) dbe)
+        & snapshotDb (dbAddChecked dbe)
   where
     dbe = dbEntry e
 

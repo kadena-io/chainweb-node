@@ -41,6 +41,7 @@ import Numeric.Natural
 import Prelude.Unicode
 
 import System.IO.Unsafe
+import System.LogLevel
 import System.Random
 
 -- Internal imports
@@ -65,8 +66,7 @@ data P2pConfiguration = P2pConfiguration
 
     , _p2pConfigMessageBufferSize ∷ !Natural
 
-    , _p2pLogFunction ∷ T.Text → IO ()
-        -- ^ TODO add log levels and add argument for NodeId
+    , _p2pLogFunction ∷ LogLevel → T.Text → IO ()
     }
 
 -- -------------------------------------------------------------------------- --
@@ -300,7 +300,7 @@ p2pNode conf session = bracket createNode deleteNode runNode
         nid ← newNodeId
         node ← newNode conf session nid
         atomically $ addNode node
-        logg $ "created node " ⊕ sshow nid
+        logg Info $ "created node"
         return node
 
     -- Delete node on exit
@@ -310,7 +310,7 @@ p2pNode conf session = bracket createNode deleteNode runNode
             removeNode node
             readTVar (_nodeSessions node)
         mapM_ uninterruptibleCancel sessions
-        logg $ "deleted node " ⊕ sshow (_nodeId node)
+        logg Info $ "deleted node"
 
     -- Run node
     --
@@ -329,10 +329,10 @@ p2pNode conf session = bracket createNode deleteNode runNode
         -- logging
         successes ← readTVarIO (_nodeSuccessConnectionCount node)
         failures ← readTVarIO (_nodeFailedConnectionCount node)
-        logg
+        logg Info
             $ "closed session " ⊕ sshow (_nodeId node) ⊕ ":" ⊕ sshow (asyncThreadId ses)
             ⊕ if result then " (success)" else " (failure)"
-        logg
+        logg Info
             $ "successes: " ⊕ sshow successes ⊕ ", "
             ⊕ "failures: " ⊕ sshow failures
 
@@ -351,7 +351,7 @@ p2pNode conf session = bracket createNode deleteNode runNode
         -- We don't take a lock on fromNode and toNode, so there may be
         -- a race here. We just don't care if we have a few more connections.
         (fromSession, toSession) ← connectNodes fromNode toNode
-        logg $ "connected"
+        logg Info $ "connected"
             ⊕ " from session " ⊕ sshow fromNode ⊕ ":" ⊕ sshow (asyncThreadId fromSession)
             ⊕ " to session " ⊕ sshow toNode ⊕ ":" ⊕ sshow (asyncThreadId toSession)
 
