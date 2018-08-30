@@ -158,7 +158,6 @@ library chaindb-sync-trivial-indef
           Chainweb.ChainDB.Sync.Trivial
     signatures:
           Chainweb.ChainDB
-        , System.Logger.LogLevel
     build-depends:
         -- internal
           p2p-connection
@@ -172,6 +171,7 @@ library chaindb-sync-trivial-indef
         , exceptions >=0.10
         , hashable >=1.2
         , lifted-async >= 0.10
+        , loglevel >= 0.1
         , stm >=2.4
         , text >=1.2
         , unordered-containers >=0.2
@@ -203,16 +203,11 @@ library
         , Numeric.Additive
         , Numeric.AffineSpace
 
-        , System.Logger.Types as System.Logger.LogLevel
-
     build-depends:
         -- internal
           chainweb-types
         , chaindb-hashmap-indef
         , chaindb-sync-trivial-indef
-
-        -- external
-        , yet-another-logger >=0.3
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
@@ -287,9 +282,6 @@ library signatures
         Chainweb.ChainDB
         Chainweb.ChainDB.Entry
         Chainweb.ChainDB.SyncSession
-
-        System.Logger.LogLevel
-
     build-depends:
         -- internal
           p2p-connection
@@ -300,6 +292,7 @@ library signatures
         , deepseq >=1.4
         , exceptions >=0.10
         , hashable >=1.2
+        , loglevel >=0.1
         , stm >=2.4
         , text >=1.2
         , unordered-containers >=0.2
@@ -357,7 +350,7 @@ executable chaindb-example
 
     if flag(dev) { buildable: True } else { buildable: False }
 
--- this is also an example how chainweb-indefinite can be used to plugin
+-- this is also an example how chainweb-indefinite can be used to plug in
 -- mock implementations.
 executable chaindb-example-int
     default-language: Haskell2010
@@ -417,6 +410,7 @@ executable chaindb-trivial-sync-example
         , containers >=0.5
         , exceptions >=0.10
         , lens >=4.16
+        , loglevel >=0.1
         , mwc-random >=0.13
         , random >=1.1
         , stm >=2.4
@@ -465,6 +459,7 @@ library p2p-node-inprocess
     hs-source-dirs: p2p/inprocess
     exposed-modules:
           P2P.Node.InProcess
+
     build-depends:
         -- internal
           p2p-connection
@@ -475,6 +470,7 @@ library p2p-node-inprocess
         , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , exceptions >=0.10
+        , loglevel >=0.1
         , random >=1.1
         , stm >=2.4
         , text >=1.2
@@ -500,6 +496,7 @@ executable p2p-example-inprocess
         , base-unicode-symbols >=0.2
         , exceptions >=0.10
         , lens >=4.16
+        , loglevel >= 0.1
         , random >=1.1
         , text >=1.2
         , yet-another-logger >=0.3

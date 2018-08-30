@@ -39,6 +39,7 @@ import Numeric.Natural
 import Prelude.Unicode
 
 import System.Logger hiding (logg)
+import qualified System.LogLevel as L
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
 
@@ -114,12 +115,11 @@ example
 example logger = do
 
     -- P2P node configuration
-    let logfun level = liftIO ∘ loggerFunIO logger level
     let p2pConfig = P2pConfiguration
             { _p2pConfigSessionCount = targetSessionCount
             , _p2pConfigMaxSessionCount = maxSessionCount
             , _p2pConfigMessageBufferSize = msgBufferSize
-            , _p2pLogFunction = (logfun Debug)
+            , _p2pLogFunction = \l → liftIO ∘ loggerFunIO logger (l2l l)
             }
 
     -- run nodes concurrently
@@ -188,7 +188,9 @@ miner logger nid db = withLoggerLabel ("component", "miner") logger $ \logger' �
 syncer ∷ Logger T.Text → P2pConfiguration → DB.ChainDb → IO ()
 syncer logger p2pConfig db = do
     p2pConfig' ← withLoggerLabel ("component", "syncer/p2p") logger $ \logger' →
-        return $ p2pConfig { _p2pLogFunction = liftIO ∘ loggerFunIO logger' Debug }
+        return p2pConfig
+            { _p2pLogFunction = \l → liftIO ∘ loggerFunIO logger' (l2l l)
+            }
 
     withLoggerLabel ("component", "syncer") logger $ \logger' → do
         let logfun level = liftIO ∘ loggerFunIO logger' level
@@ -206,7 +208,7 @@ syncer logger p2pConfig db = do
     session p =
         withLoggerLabel ("component", "syncer/session") logger $ \logger' → do
             timer p
-            syncSession (\level → liftIO ∘ loggerFunIO logger' level) db p
+            syncSession (\l → liftIO ∘ loggerFunIO logger' (l2l l)) db p
 
     timer p = void $ async $ do
         liftIO $ do
@@ -269,4 +271,12 @@ monitor logger db =
 
 sshow ∷ Show a ⇒ IsString b ⇒ a → b
 sshow = fromString ∘ show
+
+l2l ∷ L.LogLevel → LogLevel
+l2l L.Quiet = Quiet
+l2l L.Error = Error
+l2l L.Warn = Warn
+l2l L.Info = Info
+l2l L.Debug = Debug
+l2l (L.Other _) = Debug
 

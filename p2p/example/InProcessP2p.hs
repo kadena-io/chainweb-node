@@ -33,6 +33,7 @@ import Numeric.Natural
 import Prelude.Unicode
 
 import System.Logger hiding (logg)
+import qualified System.LogLevel as L
 import System.Random
 
 -- internal modules
@@ -71,8 +72,8 @@ p2pNetwork sessionCount maxSessionCount msgBufferSize logger = bracket
     -- the log function that is given to the p2pNode implementation uses log-level Debug
     --
     runNode nid = withLoggerLabel ("instance", sshow nid) logger $ \logger' → do
-        let logfun level = liftIO ∘ loggerFunIO logger' level
-        let config = P2pConfiguration sessionCount maxSessionCount msgBufferSize (logfun Debug)
+        let logfun level = liftIO ∘ loggerFunIO logger' (l2l level)
+        let config = P2pConfiguration sessionCount maxSessionCount msgBufferSize logfun
         async $ p2pNode config (session logfun nid)
 
 -- | Example Session
@@ -80,23 +81,23 @@ p2pNetwork sessionCount maxSessionCount msgBufferSize logger = bracket
 session
     ∷ MonadCatch m
     ⇒ MonadIO m
-    ⇒ (LogLevel → T.Text → m ())
+    ⇒ (L.LogLevel → T.Text → m ())
     → Int
     → P2pConnection m
     → m ()
 session logg (nid ∷ Int) c = go
     `catch` \case
-        e@P2pConnectionClosed{} → logg Warn (sshow e) >> p2pClose c
-        e@P2pConnectionFailed{} → logg Error (sshow e) >> p2pClose c
+        e@P2pConnectionClosed{} → logg L.Warn (sshow e) >> p2pClose c
+        e@P2pConnectionFailed{} → logg L.Error (sshow e) >> p2pClose c
   where
     go = do
         let sendMsg = ["a", "b", "c"]
         p2pSend c $ "from " ⊕ sshow nid ⊕ ": " : sendMsg
-        logg Info $ "sent: " ⊕ sshow (mconcat sendMsg)
+        logg L.Debug $ "sent: " ⊕ sshow (mconcat sendMsg)
         d ← liftIO $ randomRIO (0,5000000)
         liftIO $ threadDelay d
         msg ← p2pReceive c
-        logg Info $ "received: " ⊕ sshow (mconcat msg)
+        logg L.Debug $ "received: " ⊕ sshow (mconcat msg)
         p2pClose c
 
 -- -------------------------------------------------------------------------- --
@@ -104,4 +105,12 @@ session logg (nid ∷ Int) c = go
 
 sshow ∷ Show a ⇒ IsString b ⇒ a → b
 sshow = fromString ∘ show
+
+l2l ∷ L.LogLevel → LogLevel
+l2l L.Quiet = Quiet
+l2l L.Error = Error
+l2l L.Warn = Warn
+l2l L.Info = Info
+l2l L.Debug = Debug
+l2l (L.Other _) = Debug
 

@@ -32,7 +32,7 @@ import qualified Data.Text as T
 
 import Prelude.Unicode
 
-import System.Logger.LogLevel
+import System.LogLevel
 
 -- internal modules
 

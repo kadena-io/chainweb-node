@@ -21,7 +21,7 @@ import Control.Monad.IO.Class
 
 import qualified Data.Text as T
 
-import System.Logger.LogLevel
+import System.LogLevel
 
 -- internal modules
 
