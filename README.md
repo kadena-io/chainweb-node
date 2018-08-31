@@ -151,6 +151,22 @@ This defines the interface of the P2P layer. It consists of two main components.
 1.  A *P2P Session* is a callback that is given a *P2P.Connection* structure
     that allows the local session to communicate with a remote session.
 
+    ```haskell
+    data P2pConnection m = P2pConnection
+        { p2pSend ∷ P2pMessage → m ()
+        , p2pReceive ∷ m P2pMessage
+        , p2pTryReceive ∷ m (Maybe P2pMessage)
+        , p2pClose ∷ m ()
+        }
+
+    type P2pSession = ∀ m
+        . MonadIO m
+        ⇒ MonadMask m
+        ⇒ MonadAsync m
+        ⇒ P2pConnection m
+        → m ()
+    ```
+
     The session callback doesn't expose any anything about the identity of the
     remote endpoint or about how and when a connection is established.
 
@@ -175,6 +191,13 @@ This defines the interface of the P2P layer. It consists of two main components.
     connection. At any time it tries to maintain a configurable number of active
     sessions. It also implements the topological invaraints and other
     requirements of the P2P network.
+
+    ```haskell
+    p2pNode
+        ∷ P2pConfiguration
+        → P2pSession
+        → IO ()
+    ```
 
     The interface of a *P2P Node* is defined in `p2p/signatures/P2P/Node.hsig`.
     An prototype (that runs all nodes in a single process) is implemented in
