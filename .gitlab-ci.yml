@@ -4,4 +4,4 @@ chainweb-cabal-ghc82:
 
 chainweb-cabal-ghc84:
   script:
-    - nix-shell -p haskell.compiler.ghc841 cabal-install --run "cabal new-build"
+    - nix-shell -p haskell.compiler.ghc843 cabal-install --run "cabal new-build"
