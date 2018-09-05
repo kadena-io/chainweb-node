@@ -201,8 +201,7 @@ library
     reexported-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
-        , Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
-        , Chainweb.ChainDB.HashMap as Chainweb.ChainDB
+        , Chainweb.ChainDB
         , Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId
         , Chainweb.Difficulty
@@ -222,8 +221,11 @@ library
     build-depends:
         -- internal
           chainweb-types
-        , chaindb-hashmap-indef
+        , chaindb-hashmap
         , chaindb-sync-trivial-indef
+
+        -- external
+        , base >=4.10 && <5.0
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
