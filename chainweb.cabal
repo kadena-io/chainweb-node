@@ -317,6 +317,40 @@ test-suite check-signatures
     if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
+-- Single Chain End-To-End Example
+-- -------------------------------------------------------------------------- --
+
+executable chaindb-trivial-sync-example
+    default-language: Haskell2010
+    hs-source-dirs: example
+    main-is: TrivialSync.hs
+    ghc-options: -Wall -threaded -with-rtsopts=-N
+    mixins:
+          containers (Data.Graph as Data.Graph.Containers)
+    build-depends:
+        -- internal
+          chainweb
+        , p2p
+
+        -- external
+        , async >=2.2
+        , base >=4.10 && <5.0
+        , base-unicode-symbols >=0.2
+        , base64-bytestring >=1.0
+        , containers >=0.5
+        , exceptions >=0.10
+        , lens >=4.16
+        , loglevel >=0.1
+        , mwc-random >=0.13
+        , random >=1.1
+        , stm >=2.4
+        , text >=1.2
+        , unordered-containers >=0.2
+        , yet-another-logger >=0.3
+
+    if flag(dev) { buildable: True } else { buildable: False }
+
+-- -------------------------------------------------------------------------- --
 -- ChainDB Library
 -- -------------------------------------------------------------------------- --
 
@@ -494,7 +528,7 @@ library chaindb-sync-trivial-indef
 
 executable chaindb-example
     default-language: Haskell2010
-    hs-source-dirs: example
+    hs-source-dirs: chaindb/example
     main-is: BlockHeaderChainDb.hs
     ghc-options: -Wall -threaded -with-rtsopts=-N
     mixins:
@@ -522,7 +556,7 @@ executable chaindb-example
 -- mock implementations.
 executable chaindb-example-int
     default-language: Haskell2010
-    hs-source-dirs: example
+    hs-source-dirs: chaindb/example
     main-is: IntChainDb.hs
     ghc-options: -Wall -threaded -with-rtsopts=-N
     mixins:
@@ -554,36 +588,6 @@ executable chaindb-example-int
 
     if flag(dev) { buildable: True } else { buildable: False }
 
-
-executable chaindb-trivial-sync-example
-    default-language: Haskell2010
-    hs-source-dirs: example
-    main-is: TrivialSync.hs
-    ghc-options: -Wall -threaded -with-rtsopts=-N
-    mixins:
-          containers (Data.Graph as Data.Graph.Containers)
-    build-depends:
-        -- internal
-          chainweb
-        , p2p
-
-        -- external
-        , async >=2.2
-        , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
-        , base64-bytestring >=1.0
-        , containers >=0.5
-        , exceptions >=0.10
-        , lens >=4.16
-        , loglevel >=0.1
-        , mwc-random >=0.13
-        , random >=1.1
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-        , yet-another-logger >=0.3
-
-    if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- P2P Library
