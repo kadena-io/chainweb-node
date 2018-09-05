@@ -147,6 +147,22 @@ library chaindb-hashmap-indef
         , stm >=2.4
         , unordered-containers >=0.2
 
+library chaindb-hashmap
+    default-language: Haskell2010
+    hs-source-dirs: src
+    ghc-options: -Wall
+    mixins:
+          chaindb-hashmap-indef
+            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
+          requires
+            (Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.BlockHeader)
+    reexported-modules:
+        Chainweb.ChainDB
+    build-depends:
+          chaindb-hashmap-indef
+        , chainweb-types
+        , base >=4.10 && <5.0
+
 -- -------------------------------------------------------------------------- --
 -- Sync
 
@@ -185,8 +201,7 @@ library
     reexported-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
-        , Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
-        , Chainweb.ChainDB.HashMap as Chainweb.ChainDB
+        , Chainweb.ChainDB
         , Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId
         , Chainweb.Difficulty
@@ -206,8 +221,11 @@ library
     build-depends:
         -- internal
           chainweb-types
-        , chaindb-hashmap-indef
+        , chaindb-hashmap
         , chaindb-sync-trivial-indef
+
+        -- external
+        , base >=4.10 && <5.0
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
@@ -302,22 +320,46 @@ library signatures
 -- Building this checks that all production implementations comply with their
 -- respective signatures
 --
-library check-signatures
+test-suite check-signatures
+    type: exitcode-stdio-1.0
     default-language: Haskell2010
     ghc-options: -Wall
+    main-is: test/chainweb/CheckSignatures.hs
     mixins:
           chaindb-hashmap-indef
-            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
-        , chainweb-types
-            (Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry)
+          requires
+            (Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.BlockHeader
+            )
+        , chaindb-hashmap-indef
+            (Chainweb.ChainDB.HashMap as ChainDB.ChainDB.HashMapInt)
+          requires
+            (Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.Int
+            )
+        , signatures
+          requires
+            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
+            ,Chainweb.ChainDB.SyncSession as Chainweb.ChainDB.Sync.Trivial
+            ,Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.Int
+            )
+        , signatures
+          requires
+            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
+            ,Chainweb.ChainDB.SyncSession as Chainweb.ChainDB.Sync.Trivial
+            ,Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.BlockHeader
+            )
         , chaindb-sync-trivial-indef
-            (Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession)
+          requires
+            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
+            )
     build-depends:
         -- internal
           chainweb-types
         , chaindb-hashmap-indef
         , chaindb-sync-trivial-indef
         , signatures
+        , chainweb-test
+        -- external
+        , base >=4.10 && <5.0
 
     if flag(dev) { buildable: True } else { buildable: False }
 
