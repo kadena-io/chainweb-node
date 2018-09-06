@@ -272,10 +272,10 @@ The interface also provides functions for binary encoding and decoding tree
 nodes.
 
 The `ChainDB` interface is defined in the file
-`signatures/Chainweb/ChainDB.hsig`. A prototype that is based on an in-memory
-`HashMap` is implemented in the file `src/Chainweb/ChainDB/HashMap.hs`. An
+`chaindb/signatures/Chainweb/ChainDB.hsig`. A prototype that is based on an in-memory
+`HashMap` is implemented in the file `chaindb/src/Chainweb/ChainDB/HashMap.hs`. An
 instantiation of tree entries with the `Chainweb.BlockHeader` type is provided
-in the file `src/Chainweb/ChainDB/Entry/BlockHeader.hs`. This separation allows
+in the file `chaindb/src/Chainweb/ChainDB/Entry/BlockHeader.hs`. This separation allows
 changing the `BlockHeader` type without affecting components that rely on the
 `ChainDB` interface. Once the definition chainweb data-types has stabilized this
 level of indirection may be removed.
@@ -306,8 +306,9 @@ establish connections to other nodes in the P2P network and run the session
 which will synchronize the data bases.
 
 The `syncSession` function is defined in the file
-`signatures/Chainweb/ChainDB/SyncSession.hsig`. A prototype for a sync session
-is implemented in the file `src/Chainweb/ChainDB/Sync/Trivial.hs`.
+`chaindb/signatures/Chainweb/ChainDB/SyncSession.hsig`. A prototype for a sync
+session is implemented in the file
+`chaindb/src/Chainweb/ChainDB/Sync/Trivial.hs`.
 
 ## Chainweb Types
 
