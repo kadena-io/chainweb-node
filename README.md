@@ -182,8 +182,7 @@ development components:
 
 # Architecture Overview
 
-There are currently three main APIs that formalize the results of the
-architecture meetings from my last visit in NY.
+![Architecture Overview](docs/Overview.png)
 
 ## P2P Network API
 
@@ -342,7 +341,7 @@ implementations for these APIs and related components.
 The example can be executed via
 
 ```bash
-cabal run -j1 chaindb-trivial-sync-example
+cabal run chaindb-trivial-sync-example
 ```
 
 It requires GHC >= 8.2 and cabal >= 2.0. It has been tested on Mac OS X
