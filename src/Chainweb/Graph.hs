@@ -64,7 +64,7 @@ import GHC.Generics
 import Chainweb.Utils
 import Chainweb.ChainId
 
-import Data.Graph
+import Data.DiGraph
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

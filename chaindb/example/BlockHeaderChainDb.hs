@@ -52,7 +52,7 @@ import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Version
 
-import Data.Graph
+import Data.DiGraph
 
 -- -------------------------------------------------------------------------- --
 -- Main
