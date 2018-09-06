@@ -1,0 +1,10 @@
+before_script:
+  - cabal update
+
+chainweb-cabal-ghc82:
+  script:
+    - nix-shell -p haskell.compiler.ghc822 cabal-install --run "cabal new-test -f-dev && cabal new-test -f+dev"
+
+chainweb-cabal-ghc84:
+  script:
+    - nix-shell -p haskell.compiler.ghc843 cabal-install --run "cabal new-test -f-dev && cabal new-test -f+dev"
