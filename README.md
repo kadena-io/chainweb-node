@@ -133,8 +133,27 @@ implementations without modifying the source code:
 
 # Chainweb Types Library
 
-This internal library contains all basic chainweb types. The source code lives
-in the `src` directory.
+This internal library provides the basic data types of a chainweb block chain
+along with supporting types and functions. The source code lives in the `src`
+directory.
+
+The top-most data types are
+
+*   Chainweb.BlockHeader (defined in `src/Chainweb/BlockHeader.hs`), and
+*   Chainweb.Chain (defined in `src/Chainweb/Chain.hs`).
+
+The latter `Chainweb.Chain` module is not yet integrated in an example scenario
+and still subject to change.
+
+Other components that are currently work in progress are
+
+*   Chainweb.Braiding, which defines the braiding structure of chainweb,
+*   Chainweb.WebChain, which defines a collection of chains in a chainweb, and
+*   Chainweb.WebBranch, which defines the notion of a chainweb branch/cut.
+
+The notion of a *web branch* or *cut* provides the basis for defining mining
+strategies for chainweb miners. The latter three modules are in the process
+of being ported from the haskell-chainweb-simulation repository.
 
 # ChainDB Library
 
@@ -180,158 +199,7 @@ development components:
     library API that can be used for testing and simulation purposes.
 *   `p2p/example`: contains example code for using the P2P library API.
 
-# Architecture Overview
-
-There are currently three main APIs that formalize the results of the
-architecture meetings from my last visit in NY.
-
-## P2P Network API
-
-This defines the interface of the P2P layer. It consists of two main components.
-
-1.  A *P2P Session* is a callback that is given a *P2P.Connection* structure
-    that allows the local session to communicate with a remote session.
-
-    ```haskell
-    data P2pConnection m = P2pConnection
-        { p2pSend ∷ P2pMessage → m ()
-        , p2pReceive ∷ m P2pMessage
-        , p2pTryReceive ∷ m (Maybe P2pMessage)
-        , p2pClose ∷ m ()
-        }
-
-    type P2pSession = ∀ m
-        . MonadIO m
-        ⇒ MonadMask m
-        ⇒ MonadAsync m
-        ⇒ P2pConnection m
-        → m ()
-    ```
-
-    The session callback doesn't expose any anything about the identity of the
-    remote endpoint or about how and when a connection is established.
-
-    Sessions have access to IO and can thus manage and persist local state
-    across sessions and fork concurrent threads. However, for a forked thread to
-    use communication primitives, it must be forked using `async` primitive of
-    the  `MonadAsync` class. The reason for this is to support better testing
-    and simulation.
-
-    If a session needs to identify remote endpoints it has to do this within the
-    session itself. For instance, a session may implement a protocol that makes
-    use of vector clocks that include sharing an identifier among all sessions
-    of a node. This identifier would be different from the host-identifiers used
-    by the underlying P2P network.
-
-    The `P2pSession` and `Connection` types are defined in
-    `p2p/src/P2P/Node/Connection.hs`.
-
-2.  A *P2P Node* is an heavy-weight stateful component that serves *P2P
-    sessions*. It listens for incoming connections and makes outgoing requests
-    for connections. When a connection is established it runs a session on that
-    connection. At any time it tries to maintain a configurable number of active
-    sessions. It also implements the topological invaraints and other
-    requirements of the P2P network.
-
-    ```haskell
-    p2pNode
-        ∷ P2pConfiguration
-        → P2pSession
-        → IO ()
-    ```
-
-    The interface of a *P2P Node* is defined in `p2p/signatures/P2P/Node.hsig`.
-    An prototype (that runs all nodes in a single process) is implemented in
-    `p2p/inprocess/P2P/Node/InProcess.hs`.
-
-There is one instance of a `P2P.Node` per single chain. All P2P instances of a
-for all chains of a chainweb node share the underlying connection pool layer.
-
-## Single Chain Database API
-
-The single chain database API defines the interface to query and update all
-block headers for a local copy of single block chain. It uses a data model
-where the block headers are organized in a content addressed, monotonically
-increasing, rooted, and ranked tree.
-
-The interface provides
-
-*   the list of branches of the tree represented by the keys of the leave
-    nodes,
-*   a rank function that returns for each node in the tree its distance from
-    the root,
-*   a parent relation that allows to traverse the tree from the leaves to
-    the root,
-*   a children relation that allows to traverse the tree in the direction
-    from the root to the leaves,
-*   an methods to add new children to a node in the tree, and
-*   an infinite updates stream, that allows to traverse the tree in an arbitrary
-    but deterministic order that is compatible with the rank of the tree nodes
-    and that can be used to await newly added tree nodes.
-
-The interface also provides functions for binary encoding and decoding tree
-nodes.
-
-The `ChainDB` interface is defined in the file
-`signatures/Chainweb/ChainDB.hsig`. A prototype that is based on an in-memory
-`HashMap` is implemented in the file `src/Chainweb/ChainDB/HashMap.hs`. An
-instantiation of tree entries with the `Chainweb.BlockHeader` type is provided
-in the file `src/Chainweb/ChainDB/Entry/BlockHeader.hs`. This separation allows
-changing the `BlockHeader` type without affecting components that rely on the
-`ChainDB` interface. Once the definition chainweb data-types has stabilized this
-level of indirection may be removed.
-
-## Single Chain Block Header Synchronization API
-
-The single chain synchronization API defines the interface for components that
-synchronize the local copy of a single chain block header database over a
-P2P network with the copies of the block header database of remote chain nodes.
-
-An implementation of this API provides `syncSession` function that, given a logging
-function, and a `ChainDB` handle, returns a `P2PSession`:
-
-```haskell
-syncSession
-    ∷ ∀ m
-    . MonadMask m
-    ⇒ MonadAsync m
-    ⇒ MonadIO m
-    ⇒ (LogLevel → T.Text → m ())
-    → ChainDb
-    → P2pConnection m
-    → m ()
-```
-
-The `P2PSession` can then be given to an instance of a `P2P.Node` which will
-establish connections to other nodes in the P2P network and run the session
-which will synchronize the data bases.
-
-The `syncSession` function is defined in the file
-`signatures/Chainweb/ChainDB/SyncSession.hsig`. A prototype for a sync session
-is implemented in the file `src/Chainweb/ChainDB/Sync/Trivial.hs`.
-
-## Chainweb Types
-
-This API defines the basic data types of a chainweb block chain along with
-supporting types and functions. The top-most data types are
-
-*   Chainweb.BlockHeader (defined in `src/Chainweb/BlockHeader.hs`), and
-*   Chainweb.Chain (defined in `src/Chainweb/Chain.hs`).
-
-The latter `Chainweb.Chain` module is not yet integrated in an example scenario
-and still subject to change.
-
-Other components that are currently work in progress are
-
-*   Chainweb.Braiding, which defines the braiding structure of chainweb,
-*   Chainweb.WebChain, which defines a collection of chains in a chainweb, and
-*   Chainweb.WebBranch, which defines the notion of a chainweb branch/cut.
-
-The notion of a *web branch* or *cut* provides the basis for defining mining
-strategies for chainweb miners. The latter three modules are in the process
-of being ported from the haskell-chainweb-simulation repository.
-
-## Single Chain End-To-End Scenario
+# Single Chain End-To-End Scenario
 
 The file `example/TrivialSync.hs` provides an end-to-end scenario the integrates
 the prototype implementations for the P2P network, single chain database, and
@@ -342,9 +210,15 @@ implementations for these APIs and related components.
 The example can be executed via
 
 ```bash
-cabal run -j1 chaindb-trivial-sync-example
+cabal run chaindb-trivial-sync-example
 ```
 
 It requires GHC >= 8.2 and cabal >= 2.0. It has been tested on Mac OS X
 and Ubuntu/Linux.
+
+# Architecture Overview
+
+[Description of architecture in more detail](docs/Architecture.md)
+
+![Architecture Overview](docs/Overview.png)
 
