@@ -59,7 +59,7 @@ library
         , Chainweb.Utils
         , Chainweb.Version
 
-        , Data.Graph
+        , Data.DiGraph
         , Data.Word.Encoding
 
         , Numeric.Cast
@@ -101,7 +101,7 @@ library chainweb-types
         , Chainweb.Utils
         , Chainweb.Version
 
-        , Data.Graph
+        , Data.DiGraph
         , Data.Word.Encoding
 
         , Numeric.Cast
@@ -325,8 +325,6 @@ executable chaindb-trivial-sync-example
     hs-source-dirs: example
     main-is: TrivialSync.hs
     ghc-options: -Wall -threaded -with-rtsopts=-N
-    mixins:
-          containers (Data.Graph as Data.Graph.Containers)
     build-depends:
         -- internal
           chainweb
@@ -531,8 +529,6 @@ executable chaindb-example
     hs-source-dirs: chaindb/example
     main-is: BlockHeaderChainDb.hs
     ghc-options: -Wall -threaded -with-rtsopts=-N
-    mixins:
-          containers (Data.Graph as Data.Graph.Containers)
     build-depends:
         -- internal
           chainweb

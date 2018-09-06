@@ -56,7 +56,7 @@ import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Version
 
-import Data.Graph
+import Data.DiGraph
 
 import Chainweb.ChainDB.SyncSession
 import P2P.Connection

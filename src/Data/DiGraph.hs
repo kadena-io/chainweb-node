@@ -5,7 +5,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
 -- |
--- Module: Graph
+-- Module: DiGraph
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -13,8 +13,9 @@
 --
 -- TODO
 --
-module Data.Graph
+module Data.DiGraph
 ( DiGraph
+, DiEdge
 , vertices
 , edges
 , adjacents
