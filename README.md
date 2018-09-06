@@ -10,29 +10,26 @@ Requirements:
 For productions builds just run
 
 ```
-cabal install --enable-tests -j1
+cabal install --enable-tests
 ```
 
 This will build the chainweb library, the chainweb-node executable, and the main
 test suite.
-
-(Use `-j1` or `--jobs=1` if `jobs:` is configured in the cabal config file.
-Backback doesn't support parallel compilation.)
 
 For development builds that include additional examples and tests you have to
 pass the `-fdev` flag to cabal:
 
 ```bash
 cabal configure -fdev --enable-tests
-cabal build --jobs=1
+cabal build
 ```
 
 To just check that all production components comply with their respective
 interface specifications run
 
 ```bash
-cabal configure -fdev
-cabal build --jobs=1 lib:check-signatures
+cabal configure -fdev --enable-tests
+cabal test check-signatures
 ```
 
 ## Running the Examples
@@ -44,7 +41,7 @@ implementations of the P2P, sync, and ChainDB components on top of the
 datastructures in the chainweb-types library.
 
 ```bash
-cabal run --jobs=1 chaindb-trivial-sync-example
+cabal run chaindb-trivial-sync-example
 ```
 
 ## Component Structure
@@ -66,17 +63,19 @@ The production components depend on the following internal libraries
 *   chainweb-types library: defines and implements all basic Chainweb types.
     It doesn't depend on any interfaces.
 
-*   chaindb-hashmap-indef: an implementation of the ChainDB signatures that uses
-    an in-memory hashmap for storing block headers. It is parameterized over the
-    entry type. Currently the chainweb library uses this implementation. In the
-    future it will be replaced and moved to the test library.
+*   chaindb: a database for storing the block headers for a single chain.
+    The current implementation uses `chaindb-hashmap` that uses an in-memory
+    hash table for storing the blockheaders.
 
-*   chaindb-sync-trivial-indef: a prototype implementation of the component
-    for synchronizing the blockheaders of a single chain between two nodes.
-    It implements a `P2pSession` that can be used with the P2P Api. It works
-    with any implementation of the `ChainDB` Api. This is a prototype
-    implementation that will be replaced with a production implementation in the
-    future.
+*   chaindb-sync: a library for synchronizing the remote block header databases
+    over a P2P network. The current implementation uses `chaindb-sync-trivial`,
+    which uses a very simple synchronization strategy that has complexity that
+    is proportional to the size of the databases and thus unbounded. In the
+    future it will be replaced by a more efficient implementation.
+
+*   p2p: a P2P network library. It currently uses `p2p-node-inprocess` as
+    implementation for the a P2P node. In the future it will be replaced by an
+    implementation that uses TCP over a real network.
 
 *   chainweb-test: a library for modules that are shared between different test,
     simulation, and example components.
@@ -98,17 +97,32 @@ Currently, these include
 
 *   chaindb-trivial-sync-example: An simple end-to-end scenario for mining
     and synchronizing nodes for a single chain. It demonstrates the feasibility
-    of the `ChainDB` and `P2P` APIs by integrating prototype implementations
-    of these APIs on top of the data-structures in `chainweb-types`.
+    of the `ChainDB` and `P2P` APIs by integrating prototype implementations of
+    these APIs on top of the data-structures in `chainweb-types`.
 
 *   chaindb-example: Example for how to use the ChainDB API of chainweb.
 
 *   chaindb-example-int: Example for how to use ChainDB API with a mock
     implementation for `Chainweb.ChainDB.Entry`.
 
+The following indefinite components can be used to switch the underlying
+implementations without modifying the source code:
+
+*   chaindb-hashmap-indef: an implementation of the ChainDB signatures that uses
+    an in-memory hashmap for storing block headers. It is parameterized over the
+    entry type.
+
+*   chaindb-sync-trivial-indef: a prototype implementation of the component
+    for synchronizing the blockheaders of a single chain between two nodes. It
+    implements a `P2pSession` that can be used with the P2P Api. It works with
+    any implementation of the `ChainDB` Api.
+
+*   p2p-indef: P2P network that is parameterized over the `P2P.Node` signature
+    that instantiates the underlying network transport.
+
 ## Source Code Layout
 
-*   `src`: contains the source code for the chainweb library.
+*   `src`: contains the source code for the chainweb-types library.
 *   `node`: contains the source code for the chainweb-node application.
 *   `test/chainweb` contains the code for the chainweb-tests test-suite.
 
@@ -116,6 +130,33 @@ Currently, these include
 *   `example`: contains example code for using different APIs and components.
 
 *   `docs`: contains documentation files
+
+# Chainweb Types Library
+
+This internal library contains all basic chainweb types. The source code lives
+in the `src` directory.
+
+# ChainDB Library
+
+The ChainDB Library is a database for content-addressed, ranked, rooted, trees,
+that grow monotonically by adding new leafs. It also includes functionality for
+synchronizing remote ChainDB instances over a P2P network.
+
+## Source Code Layout
+
+All code and resources for the ChainDB library live in the `chaindb` directory.
+
+*   `chaindb/src`: contains source code for the modules of ChainDB and Sync
+    components.
+*   `chaindb/test`: contains source code for the tests-suites for the
+    ChainDB library.
+
+In addition to these public production components, the are the following
+development components:
+
+*   `chaindb/signatures`: contains all signatures files.
+*   `chaindb/example`: contains example code for using the ChainDB and Sync
+    APIs.
 
 # P2P Network
 
