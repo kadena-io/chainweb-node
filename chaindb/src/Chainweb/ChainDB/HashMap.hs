@@ -349,7 +349,7 @@ children k s = case HM.lookup (dbKey k) ∘ _dbChildren $ _snapshotDb s of
     Just c → HS.map CheckedKey c
 
 getEntry ∷ Key 'Checked → Snapshot → Maybe (Entry 'Checked)
-getEntry k = fmap CheckedEntry ∘ HM.lookup (dbKey k) ∘ _dbEntries ∘ _snapshotDb
+getEntry = lookupEntry
 
 lookupEntry ∷ Key t → Snapshot → Maybe (Entry 'Checked)
 lookupEntry k =
@@ -358,9 +358,11 @@ lookupEntry k =
 getEntryIO ∷ Key 'Checked → Snapshot → IO (Entry 'Checked)
 getEntryIO k s = case getEntry k s of
     Just c → return c
-    Nothing → syncSnapshot s >>= \s' → case getEntry k s' of
+    Nothing → snapshot db >>= \s' → case getEntry k s' of
         Just c → return c
         Nothing → error "TODO internal exception"
+  where
+    db = view snapshotChainDb s
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
