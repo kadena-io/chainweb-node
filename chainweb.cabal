@@ -418,6 +418,7 @@ library chaindb-hashmap
         , exceptions >=0.10
         , hashable >=1.2
         , lens >=4.16
+        , paths >= 0.2 && < 0.3
         , stm >=2.4
         , unordered-containers >=0.2
 

@@ -5,6 +5,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.ChainStore.HashMap
@@ -80,6 +84,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString as B
+import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -91,6 +96,8 @@ import qualified Data.Sequence as S
 
 import Numeric.Natural
 
+
+import System.Path (Path, Absolute, toFilePath)
 
 -- internal imports
 
@@ -388,4 +395,35 @@ encodeEntry :: Entry s -> B.ByteString
 encodeEntry = E.encodeEntry . dbEntry
 
 decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
-decodeEntry = fmap UncheckedEntry . E.decodeEntry
+decodeEntry = fmap UncheckedEntry ∘ E.decodeEntry
+
+-- -------------------------------------------------------------------------- --
+-- ChainDb Persistence
+
+-- | Write the contents of a `ChainDb` to a given filepath. The entries are
+-- written in order of block height, from newest to oldest.
+persistDb :: Path Absolute -> ChainDb -> IO ()
+persistDb fp cdb = updates cdb >>= \u -> snapshot cdb >>= f u
+  where f u s   = atomically ((Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
+        g u s k = case getEntry k s of
+                    Just e  -> magic fp e >> f u s
+                    Nothing -> syncSnapshot s >>= \s' -> g u s' k
+
+-- | A very dumb way to consume each `Entry`.
+magic :: Path Absolute -> Entry 'Checked -> IO ()
+magic (toFilePath -> fp) e = B.appendFile fp $ encodeEntry e
+
+-- What about the file format?
+
+{-
+
+What's the liklihood that the `ByteString` form of each entry will be the same length?
+
+Should I be using `streaming-bytestring` for this instead, with the
+monadic source `m` being my `STM` arrangement? If yes, I may be able
+to intersperse some "separator bytes" that would indicate a break
+between entries. This would be convenient for the reading side too,
+since I could easily break on that.
+
+-}
+>>>>>>> First pass at `persistDb`
