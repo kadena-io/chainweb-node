@@ -349,7 +349,7 @@ children k s = case HM.lookup (dbKey k) ∘ _dbChildren $ _snapshotDb s of
     Just c → HS.map CheckedKey c
 
 getEntry ∷ Key 'Checked → Snapshot → Maybe (Entry 'Checked)
-getEntry k = fmap CheckedEntry ∘ HM.lookup (dbKey k) ∘ _dbEntries ∘ _snapshotDb
+getEntry = lookupEntry
 
 lookupEntry ∷ Key t → Snapshot → Maybe (Entry 'Checked)
 lookupEntry k =
