@@ -358,9 +358,11 @@ lookupEntry k =
 getEntryIO ∷ Key 'Checked → Snapshot → IO (Entry 'Checked)
 getEntryIO k s = case getEntry k s of
     Just c → return c
-    Nothing → syncSnapshot s >>= \s' → case getEntry k s' of
+    Nothing → snapshot db >>= \s' → case getEntry k s' of
         Just c → return c
         Nothing → error "TODO internal exception"
+  where
+    db = view snapshotChainDb s
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
