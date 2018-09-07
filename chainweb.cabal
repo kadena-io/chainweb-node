@@ -37,6 +37,9 @@ flag dev
     default: False
     manual: True
 
+common warning-flags
+  ghc-options: -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -45,8 +48,8 @@ flag dev
 -- all internal components.
 --
 library
+    import: warning-flags
     default-language: Haskell2010
-    ghc-options: -Wall
     reexported-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
@@ -88,9 +91,9 @@ library
 -- the package
 --
 library chainweb-types
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: src
-    ghc-options: -Wall
     exposed-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
@@ -173,10 +176,11 @@ library chainweb-types
 -- The application that runs an chainweb node
 --
 executable chainweb-node
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: node
     main-is: ChainwebNode.hs
-    ghc-options: -Wall -threaded
+    ghc-options: -threaded
     other-modules:
     build-depends:
         -- internal
@@ -191,11 +195,12 @@ executable chainweb-node
 -- Main test suite for the chainweb public library
 --
 test-suite chainweb-tests
+    import: warning-flags
     type: exitcode-stdio-1.0
     default-language: Haskell2010
     hs-source-dirs: test/chainweb
     main-is: ChainwebTests.hs
-    ghc-options: -Wall -threaded -main-is ChainwebTests
+    ghc-options: -threaded -main-is ChainwebTests
     other-modules:
     build-depends:
         -- internal
@@ -215,9 +220,9 @@ test-suite chainweb-tests
 -- internal components.
 --
 library chainweb-test
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: test/chainweb
-    ghc-options: -Wall
     exposed-modules:
     build-depends:
         -- internal
@@ -238,9 +243,9 @@ library chainweb-test
 -- signatures of all APIs
 --
 library signatures
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/signatures, p2p/signatures
-    ghc-options: -Wall
     signatures:
         Chainweb.ChainDB
         Chainweb.ChainDB.Entry
@@ -266,9 +271,9 @@ library signatures
 -- respective signatures
 --
 test-suite check-signatures
+    import: warning-flags
     type: exitcode-stdio-1.0
     default-language: Haskell2010
-    ghc-options: -Wall
     main-is: test/chainweb/CheckSignatures.hs
     mixins:
           chaindb-hashmap-indef
@@ -322,10 +327,11 @@ test-suite check-signatures
 -- -------------------------------------------------------------------------- --
 
 executable chaindb-trivial-sync-example
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: example
     main-is: TrivialSync.hs
-    ghc-options: -Wall -threaded -with-rtsopts=-N
+    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -357,9 +363,9 @@ executable chaindb-trivial-sync-example
 -- ChainDB Entry
 
 library chaindb-entry-blockheader
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/src
-    ghc-options: -Wall
     exposed-modules:
         Chainweb.ChainDB.Entry.BlockHeader
     build-depends:
@@ -374,9 +380,9 @@ library chaindb-entry-blockheader
         , text >=1.2
 
 library chaindb-entry-int
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/src
-    ghc-options: -Wall
     exposed-modules:
         Chainweb.ChainDB.Entry.Int
     build-depends:
@@ -392,9 +398,9 @@ library chaindb-entry-int
         , text >=1.2
 
 library chaindb-entry
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/src
-    ghc-options: -Wall
     reexported-modules:
         Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
     build-depends:
@@ -404,9 +410,9 @@ library chaindb-entry
 -- ChainDB
 
 library chaindb-hashmap
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/src
-    ghc-options: -Wall
     exposed-modules:
         Chainweb.ChainDB.HashMap
     build-depends:
@@ -426,17 +432,17 @@ library chaindb-hashmap
         , unordered-containers >=0.2
 
 library chaindb
+    import: warning-flags
     default-language: Haskell2010
-    ghc-options: -Wall
     reexported-modules:
         Chainweb.ChainDB.HashMap as Chainweb.ChainDB
     build-depends:
           chaindb-hashmap
 
 library chaindb-hashmap-indef
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/signatures, chaindb/src
-    ghc-options: -Wall
     exposed-modules:
         Chainweb.ChainDB.HashMap
     signatures:
@@ -462,9 +468,9 @@ library chaindb-hashmap-indef
 -- Synchronization of remote ChainDBs
 
 library chaindb-sync-trivial
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/src
-    ghc-options: -Wall
     exposed-modules:
           Chainweb.ChainDB.Sync.Trivial
     build-depends:
@@ -487,17 +493,17 @@ library chaindb-sync-trivial
         , unordered-containers >=0.2
 
 library chaindb-sync
+    import: warning-flags
     default-language: Haskell2010
-    ghc-options: -Wall
     reexported-modules:
         Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession
     build-depends:
           chaindb-sync-trivial
 
 library chaindb-sync-trivial-indef
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/signatures, chaindb/src
-    ghc-options: -Wall
     exposed-modules:
           Chainweb.ChainDB.Sync.Trivial
     signatures:
@@ -526,10 +532,11 @@ library chaindb-sync-trivial-indef
 -- Examples for ChainDB usage
 
 executable chaindb-example
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/example
     main-is: BlockHeaderChainDb.hs
-    ghc-options: -Wall -threaded -with-rtsopts=-N
+    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -552,10 +559,11 @@ executable chaindb-example
 -- this is also an example how chainweb-indefinite can be used to plug in
 -- mock implementations.
 executable chaindb-example-int
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: chaindb/example
     main-is: IntChainDb.hs
-    ghc-options: -Wall -threaded -with-rtsopts=-N
+    ghc-options: -threaded -with-rtsopts=-N
     mixins:
         chaindb-entry-int
             (Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry)
@@ -594,6 +602,7 @@ executable chaindb-example-int
 -- P2P Connection
 
 library p2p-connection
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: p2p/src
     exposed-modules:
@@ -612,6 +621,7 @@ library p2p-connection
 -- In process implementation of P2P API
 --
 library p2p-node-inprocess
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: p2p/inprocess
     exposed-modules:
@@ -632,6 +642,7 @@ library p2p-node-inprocess
         , text >=1.2
 
 library p2p
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: p2p/src
     reexported-modules:
@@ -643,6 +654,7 @@ library p2p
         , base >=4.10 && <5.0
 
 library p2p-indef
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: p2p/signatures
     reexported-modules:
@@ -659,10 +671,11 @@ library p2p-indef
 -- P2P example
 
 executable p2p-example-inprocess
+    import: warning-flags
     default-language: Haskell2010
     hs-source-dirs: p2p/example
     main-is: InProcessP2p.hs
-    ghc-options: -Wall -threaded
+    ghc-options: -threaded
     build-depends:
         -- internal
           p2p
