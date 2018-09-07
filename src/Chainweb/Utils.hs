@@ -155,7 +155,7 @@ minBy cmp a b = case cmp a b of
 -- Encodings and Serialization
 
 data EncodingException where
-    EncodeExeption ∷ T.Text → EncodingException
+    EncodeException ∷ T.Text → EncodingException
     DecodeException ∷ T.Text → EncodingException
     Base64DecodeException ∷ T.Text → EncodingException
     ItemCountDecodeException ∷ Expected Natural → Actual Natural → EncodingException
