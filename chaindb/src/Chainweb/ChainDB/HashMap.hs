@@ -93,9 +93,10 @@ import Data.Hashable (Hashable(..))
 import Data.Kind
 import Data.Monoid
 import Data.Sequence (Seq)
-import qualified Data.ByteString as BS
+
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Streaming as B
+import qualified Data.ByteString.Streaming as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
@@ -401,35 +402,18 @@ insert e s
 -- -------------------------------------------------------------------------- --
 -- Serialization of Entries
 
-encodeEntry :: Entry s -> BS.ByteString
+encodeEntry :: Entry s -> B.ByteString
 encodeEntry = E.encodeEntry . dbEntry
 
-decodeEntry :: MonadThrow m => BS.ByteString -> m (Entry 'Unchecked)
+decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
 decodeEntry = fmap UncheckedEntry . E.decodeEntry
 
 -- -------------------------------------------------------------------------- --
 -- ChainDb Persistence
 
--- SECOND ATTEMPT
-
--- | Write the contents of a `ChainDb` to a given filepath. The entries are
--- written in order of block height, from newest to oldest.
--- persistDb :: Path Absolute -> ChainDb -> IO ()
--- persistDb fp cdb = updates cdb >>= \u -> snapshot cdb >>= f u
---   where f u s   = atomically ((Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
---         g u s k = case getEntry k s of
---                     Just e  -> magic fp e >> f u s
---                     Nothing -> syncSnapshot s >>= \s' -> g u s' k
-
--- | A very dumb way to consume each `Entry`.
--- magic :: Path Absolute -> Entry 'Checked -> IO ()
--- magic (toFilePath -> fp) e = BS.appendFile fp $ encodeEntry e
-
--- THIRD ATTEMPT
-
 -- | Given a `ChainDb`, stream all the Entries it contains in order of
 -- block height, from newest to oldest.
-entries :: ChainDb -> Stream (Of (Entry 'Checked)) IO ()
+entries ∷ ChainDb -> Stream (Of (Entry 'Checked)) IO ()
 entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
   where f !u !s = do
           e <- lift (atomically $ (Just <$> updatesNext u) `orElse` pure Nothing)
@@ -438,18 +422,18 @@ entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
                        Just e  -> S.yield e >> f u s
                        Nothing -> lift (syncSnapshot s) >>= \s' -> g u s' k
 
--- | Encode each `Entry` as a base64 `BS.ByteString`.
-encoded :: Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of BS.ByteString) m ()
+-- | Encode each `Entry` as a base64 `B.ByteString`.
+encoded ∷ Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of B.ByteString) m ()
 encoded = S.map (B64.encode . encodeEntry)
 {-# INLINE encoded #-}
 
 -- | Form a ByteString stream from base64-encoded Entries, and divide them by
 -- newline characters. A newline byte cannot appear in a base64 encodings, thus
 -- making it a unique byte to split on.
-separated :: Monad m => Stream (Of BS.ByteString) m () -> B.ByteString m ()
-separated = B.fromChunks . S.intersperse (BS.singleton 0x0A)
+separated ∷ Monad m => Stream (Of B.ByteString) m () -> BS.ByteString m ()
+separated = BS.fromChunks . S.intersperse (B.singleton 0x0A)
 {-# INLINE separated #-}
 
-persist :: Path Absolute -> ChainDb -> IO ()
+persist ∷ Path Absolute -> ChainDb -> IO ()
 persist (toFilePath -> fp) db =
-  runResourceT . B.writeFile fp . hoist lift . separated . encoded $ entries db
+  runResourceT . BS.writeFile fp . hoist lift . separated . encoded $ entries db
