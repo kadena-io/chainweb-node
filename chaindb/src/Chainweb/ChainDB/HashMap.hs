@@ -431,7 +431,9 @@ decodeEntry = fmap UncheckedEntry . E.decodeEntry
 -- block height, from newest to oldest.
 entries :: ChainDb -> Stream (Of (Entry 'Checked)) IO ()
 entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
-  where f !u !s = lift (atomically $ (Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
+  where f !u !s = do
+          e <- lift (atomically $ (Just <$> updatesNext u) `orElse` pure Nothing)
+          traverse_ (g u s) e
         g !u !s !k = case getEntry k s of
                        Just e  -> S.yield e >> f u s
                        Nothing -> lift (syncSnapshot s) >>= \s' -> g u s' k
@@ -449,4 +451,5 @@ separated = B.intersperse 0x0A . B.fromChunks
 {-# INLINE separated #-}
 
 persist :: Path Absolute -> ChainDb -> IO ()
-persist (toFilePath -> fp) db = runResourceT . B.writeFile fp . hoist lift . separated . encoded $ entries db
+persist (toFilePath -> fp) db =
+  runResourceT . B.writeFile fp . hoist lift . separated . encoded $ entries db
