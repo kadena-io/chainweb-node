@@ -447,7 +447,7 @@ encoded = S.map (B64.encode . encodeEntry)
 -- newline characters. A newline byte cannot appear in a base64 encodings, thus
 -- making it a unique byte to split on.
 separated :: Monad m => Stream (Of BS.ByteString) m () -> B.ByteString m ()
-separated = B.intersperse 0x0A . B.fromChunks
+separated = B.fromChunks . S.intersperse (BS.singleton 0x0A)
 {-# INLINE separated #-}
 
 persist :: Path Absolute -> ChainDb -> IO ()
