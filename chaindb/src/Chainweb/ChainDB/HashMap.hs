@@ -9,6 +9,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.ChainStore.HashMap
@@ -68,6 +69,9 @@ module Chainweb.ChainDB.HashMap
 , encodeEntry
 , decodeEntry
 
+-- * Persistence
+, persist
+
 -- * Exceptions
 , DbException(..)
 
@@ -82,20 +86,26 @@ import Control.Concurrent.STM
 import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource (runResourceT)
 
-import qualified Data.ByteString as B
 import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(..))
+import Data.Kind
+import Data.Monoid
+import Data.Sequence (Seq)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Streaming as B
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Kind
 import qualified Data.List as L
-import Data.Monoid
-import Data.Sequence (Seq(..))
-import qualified Data.Sequence as S
+import qualified Data.Sequence as Seq
 
 import Numeric.Natural
 
+
+import Streaming
+import qualified Streaming.Prelude as S
 
 import System.Path (Path, Absolute, toFilePath)
 
@@ -186,13 +196,13 @@ data Configuration = Configuration
 
 data ChainDb = ChainDb
     { _getDb :: MVar Db
-    , _dbEnumeration :: !(TVar (S.Seq (Key 'Checked)))
+    , _dbEnumeration :: !(TVar (Seq.Seq (Key 'Checked)))
     }
 
 initChainDb :: Configuration -> IO ChainDb
 initChainDb config = ChainDb
     <$> newMVar (dbAdd root emptyDb)
-    <*> newTVarIO (S.singleton (CheckedKey $ E.key root))
+    <*> newTVarIO (Seq.singleton (CheckedKey $ E.key root))
   where
     root = _configRoot config
     emptyDb = Db mempty mempty mempty
@@ -283,7 +293,7 @@ updates db = Updates
 updatesFrom :: ChainDb -> Key 'Checked -> IO Updates
 updatesFrom db k = do
     enumeration <- readTVarIO enumVar
-    idx <- case S.elemIndexL k enumeration of
+    idx <- case Seq.elemIndexL k enumeration of
         Just i -> return i
         Nothing -> error "TODO: Internal invariant violation"
     Updates
@@ -296,7 +306,7 @@ updatesNext :: Updates -> STM (Key 'Checked)
 updatesNext u = do
     xs <- readTVar (_updatesEnum u)
     c <- readTVar (_updatesCursor u)
-    case S.lookup c xs of
+    case Seq.lookup c xs of
         Nothing -> retry
         Just x -> do
             writeTVar (_updatesCursor u) (c + 1)
@@ -391,39 +401,52 @@ insert e s
 -- -------------------------------------------------------------------------- --
 -- Serialization of Entries
 
-encodeEntry :: Entry s -> B.ByteString
+encodeEntry :: Entry s -> BS.ByteString
 encodeEntry = E.encodeEntry . dbEntry
 
-decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
-decodeEntry = fmap UncheckedEntry ∘ E.decodeEntry
+decodeEntry :: MonadThrow m => BS.ByteString -> m (Entry 'Unchecked)
+decodeEntry = fmap UncheckedEntry . E.decodeEntry
 
 -- -------------------------------------------------------------------------- --
 -- ChainDb Persistence
 
+-- SECOND ATTEMPT
+
 -- | Write the contents of a `ChainDb` to a given filepath. The entries are
 -- written in order of block height, from newest to oldest.
-persistDb :: Path Absolute -> ChainDb -> IO ()
-persistDb fp cdb = updates cdb >>= \u -> snapshot cdb >>= f u
-  where f u s   = atomically ((Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
-        g u s k = case getEntry k s of
-                    Just e  -> magic fp e >> f u s
-                    Nothing -> syncSnapshot s >>= \s' -> g u s' k
+-- persistDb :: Path Absolute -> ChainDb -> IO ()
+-- persistDb fp cdb = updates cdb >>= \u -> snapshot cdb >>= f u
+--   where f u s   = atomically ((Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
+--         g u s k = case getEntry k s of
+--                     Just e  -> magic fp e >> f u s
+--                     Nothing -> syncSnapshot s >>= \s' -> g u s' k
 
 -- | A very dumb way to consume each `Entry`.
-magic :: Path Absolute -> Entry 'Checked -> IO ()
-magic (toFilePath -> fp) e = B.appendFile fp $ encodeEntry e
+-- magic :: Path Absolute -> Entry 'Checked -> IO ()
+-- magic (toFilePath -> fp) e = BS.appendFile fp $ encodeEntry e
 
--- What about the file format?
+-- THIRD ATTEMPT
 
-{-
+-- | Given a `ChainDb`, stream all the Entries it contains in order of
+-- block height, from newest to oldest.
+entries :: ChainDb -> Stream (Of (Entry 'Checked)) IO ()
+entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
+  where f !u !s = lift (atomically $ (Just <$> updatesNext u) `orElse` pure Nothing) >>= traverse_ (g u s)
+        g !u !s !k = case getEntry k s of
+                       Just e  -> S.yield e >> f u s
+                       Nothing -> lift (syncSnapshot s) >>= \s' -> g u s' k
 
-What's the liklihood that the `ByteString` form of each entry will be the same length?
+-- | Encode each `Entry` as a base64 `BS.ByteString`.
+encoded :: Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of BS.ByteString) m ()
+encoded = S.map (B64.encode . encodeEntry)
+{-# INLINE encoded #-}
 
-Should I be using `streaming-bytestring` for this instead, with the
-monadic source `m` being my `STM` arrangement? If yes, I may be able
-to intersperse some "separator bytes" that would indicate a break
-between entries. This would be convenient for the reading side too,
-since I could easily break on that.
+-- | Form a ByteString stream from base64-encoded Entries, and divide them by
+-- newline characters. A newline byte cannot appear in a base64 encodings, thus
+-- making it a unique byte to split on.
+separated :: Monad m => Stream (Of BS.ByteString) m () -> B.ByteString m ()
+separated = B.intersperse 0x0A . B.fromChunks
+{-# INLINE separated #-}
 
--}
->>>>>>> First pass at `persistDb`
+persist :: Path Absolute -> ChainDb -> IO ()
+persist (toFilePath -> fp) db = runResourceT . B.writeFile fp . hoist lift . separated . encoded $ entries db
