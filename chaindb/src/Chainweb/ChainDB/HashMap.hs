@@ -55,6 +55,7 @@ module Chainweb.ChainDB.HashMap
 , children
 , getEntry
 , getEntryIO
+, getEntrySync
 , lookupEntry
 
 -- * Insertion
@@ -364,6 +365,12 @@ getEntryIO k s = case getEntry k s of
   where
     db = view snapshotChainDb s
 
+getEntrySync ∷ Key 'Checked → Snapshot → IO (Snapshot, Entry 'Checked)
+getEntrySync = f sync
+  where f g k s  = maybe (g k s) (pure ∘ (s,)) $ getEntry k s
+        sync k s = syncSnapshot s >>= f die k
+        die _ _  = error "Checked Key from a different database used for Snapshot query"
+
 -- -------------------------------------------------------------------------- --
 -- Insertion
 
@@ -384,4 +391,3 @@ encodeEntry = E.encodeEntry ∘ dbEntry
 
 decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m (Entry 'Unchecked)
 decodeEntry = fmap UncheckedEntry ∘ E.decodeEntry
-

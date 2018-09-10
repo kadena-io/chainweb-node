@@ -104,6 +104,7 @@ signature Chainweb.ChainDB
 , children
 , getEntry
 , getEntryIO
+, getEntrySync
 , lookupEntry
 
 -- * Insertion
@@ -303,6 +304,22 @@ getEntry ∷ Key 'Checked → Snapshot → Maybe (Entry 'Checked)
 --
 getEntryIO ∷ Key 'Checked → Snapshot → IO (Entry 'Checked)
 
+-- | Get the entry for a key.
+--
+-- Similar to `getEntryIO`, except a `Snapshot` is returned as well.
+-- If an internal sync needed to occur before yielding an entry,
+-- then the `Snapshot` will be new. Otherwise, it will be the same
+-- as what was given.
+--
+-- Fails with an exception if the key was not present in the Snapshot,
+-- even after syncing. This would only occur if the checked key was
+-- taken from a database /other/ than the one being queried.
+--
+-- Note: As a side-effect, any non-committed additions will be committed
+-- by calling this function.
+--
+getEntrySync :: Key 'Checked → Snapshot → IO (Snapshot, Entry 'Checked)
+
 -- | Looks up an entry in a database snapshot. Returns 'Nothing' if the entry
 -- for the given key is not in the snapshot.
 --
@@ -349,4 +366,3 @@ data DbException
 
 instance Show DbException
 instance Exception DbException
-
