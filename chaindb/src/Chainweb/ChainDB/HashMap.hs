@@ -387,9 +387,10 @@ getEntryIO k s = case getEntry k s of
 
 getEntrySync :: Key 'Checked -> Snapshot -> IO (Snapshot, Entry 'Checked)
 getEntrySync = f sync
-  where f g k s  = maybe (g k s) (pure . (s,)) $ getEntry k s
-        sync k s = syncSnapshot s >>= f die k
-        die _ _  = error "Checked Key from a different database used for Snapshot query"
+  where
+    f g k s  = maybe (g k s) (pure . (s,)) $ getEntry k s
+    sync k s = syncSnapshot s >>= f die k
+    die _ _  = error "Checked Key from a different database used for Snapshot query"
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
@@ -419,10 +420,11 @@ decodeEntry = fmap UncheckedEntry . E.decodeEntry
 -- block height, from newest to oldest.
 entries ∷ ChainDb -> Stream (Of (Entry 'Checked)) IO ()
 entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
-  where f !u !s = do
-          e <- lift . atomically $ (Just <$> updatesNext u) `orElse` pure Nothing
-          traverse_ (g u s) e
-        g !u !s !k = lift (getEntrySync k s) >>= \(s', e) -> S.yield e >> f u s'
+  where
+    f !u !s = do
+      e <- lift . atomically $ (Just <$> updatesNext u) `orElse` pure Nothing
+      traverse_ (g u s) e
+    g !u !s !k = lift (getEntrySync k s) >>= \(s', e) -> S.yield e >> f u s'
 
 -- | Encode each `Entry` as a base64 `B.ByteString`.
 encoded ∷ Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of B.ByteString) m ()
@@ -443,11 +445,12 @@ persist (toFilePath -> fp) db =
 restore :: Path Absolute -> IO (Maybe ChainDb)
 restore (toFilePath -> fp) = runResourceT $
   S.uncons (decoded . destream . BS.lines $ BS.readFile @(ResourceT IO) fp) >>= traverse f
-  where f (e, s) = do
-          db <- lift . initChainDb . Configuration $ dbEntry e
-          ss <- lift $ snapshot db
-          void $ execStateT (S.mapM_ goIn $ hoist lift s) ss
-          pure db
+  where
+    f (e, s) = do
+      db <- lift . initChainDb . Configuration $ dbEntry e
+      ss <- lift $ snapshot db
+      void $ execStateT (S.mapM_ goIn $ hoist lift s) ss
+      pure db
 
 goIn :: Entry s -> StateT Snapshot (ResourceT IO) ()
 goIn e = get >>= insert e >>= put
