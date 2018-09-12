@@ -188,6 +188,7 @@ data DbException
     | ParentMissing (Entry 'Unchecked)
     | InvalidRank (Entry 'Unchecked)
     | DeserializationFailure SomeException
+    | Base64DeserializationFailed
     deriving (Show)
 
 instance Exception DbException
@@ -442,15 +443,18 @@ persist ∷ Path Absolute -> ChainDb -> IO ()
 persist (toFilePath -> fp) db =
   runResourceT . BS.writeFile fp . hoist lift . separated . encoded $ entries db
 
-restore :: Path Absolute -> IO (Maybe ChainDb)
-restore (toFilePath -> fp) = runResourceT $
-  S.uncons (decoded . destream . BS.lines $ BS.readFile @(ResourceT IO) fp) >>= traverse f
-  where
-    f (e, s) = do
-      db <- lift . initChainDb . Configuration $ dbEntry e
-      ss <- lift $ snapshot db
-      void $ execStateT (S.mapM_ goIn $ hoist lift s) ss
-      pure db
+-- | Given a path to a database written to file via `persist` and a freshly
+-- initialized `ChainDb` (i.e. it only contains the genesis block), update
+-- the `ChainDb` to contain all entries in the file.
+--
+-- Throws exceptions if the path given doesn't exist,
+-- or certain ByteStrings within failed to decode.
+restore :: Path Absolute -> ChainDb -> IO ()
+restore (toFilePath -> fp) db = runResourceT $ do
+  ss <- lift $ snapshot db
+  let s = decoded . destream . BS.lines $ BS.readFile @(ResourceT IO) fp
+  ss' <- execStateT (S.mapM_ goIn $ hoist lift s) ss
+  void . lift $ syncSnapshot ss'
 
 goIn :: Entry s -> StateT Snapshot (ResourceT IO) ()
 goIn e = get >>= insert e >>= put
@@ -463,6 +467,9 @@ destream = S.mapped BS.toStrict
 {-# INLINE destream #-}
 
 -- | Reverse the base64 encoding and further decode from our custom encoding.
+-- Throws a `DbException` if either decoding step fails.
 decoded :: MonadThrow m => Stream (Of B.ByteString) m r -> Stream (Of (Entry 'Unchecked)) m r
-decoded = S.mapM (decodeEntry . _ . B64.decode)
+decoded = S.mapM (either die pure . B64.decode >=> decodeEntry)
+  where
+    die _ = throwM Base64DeserializationFailed
 {-# INLINE decoded #-}
