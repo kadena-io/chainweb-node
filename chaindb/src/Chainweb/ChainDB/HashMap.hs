@@ -10,6 +10,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.ChainStore.HashMap
@@ -71,6 +72,7 @@ module Chainweb.ChainDB.HashMap
 
 -- * Persistence
 , persist
+, restore
 
 -- * Exceptions
 , DbException(..)
@@ -86,7 +88,8 @@ import Control.Concurrent.STM
 import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.Trans.Resource (runResourceT)
+import Control.Monad.Trans.Resource (ResourceT, runResourceT)
+import Control.Monad.Trans.State.Strict
 
 import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(..))
@@ -97,6 +100,7 @@ import Data.Sequence (Seq)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Streaming as BS
+import qualified Data.ByteString.Streaming.Char8 as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
@@ -416,11 +420,9 @@ decodeEntry = fmap UncheckedEntry . E.decodeEntry
 entries ∷ ChainDb -> Stream (Of (Entry 'Checked)) IO ()
 entries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
   where f !u !s = do
-          e <- lift (atomically $ (Just <$> updatesNext u) `orElse` pure Nothing)
+          e <- lift . atomically $ (Just <$> updatesNext u) `orElse` pure Nothing
           traverse_ (g u s) e
-        g !u !s !k = case getEntry k s of
-                       Just e  -> S.yield e >> f u s
-                       Nothing -> lift (syncSnapshot s) >>= \s' -> g u s' k
+        g !u !s !k = lift (getEntrySync k s) >>= \(s', e) -> S.yield e >> f u s'
 
 -- | Encode each `Entry` as a base64 `B.ByteString`.
 encoded ∷ Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of B.ByteString) m ()
@@ -437,3 +439,27 @@ separated = BS.fromChunks . S.intersperse (B.singleton 0x0A)
 persist ∷ Path Absolute -> ChainDb -> IO ()
 persist (toFilePath -> fp) db =
   runResourceT . BS.writeFile fp . hoist lift . separated . encoded $ entries db
+
+restore :: Path Absolute -> IO (Maybe ChainDb)
+restore (toFilePath -> fp) = runResourceT $
+  S.uncons (decoded . destream . BS.lines $ BS.readFile @(ResourceT IO) fp) >>= traverse f
+  where f (e, s) = do
+          db <- lift . initChainDb . Configuration $ dbEntry e
+          ss <- lift $ snapshot db
+          void $ execStateT (S.mapM_ goIn $ hoist lift s) ss
+          pure db
+
+goIn :: Entry s -> StateT Snapshot (ResourceT IO) ()
+goIn e = get >>= insert e >>= put
+
+-- | Flatten a "stream of streamable bytestrings". We know these are each
+-- finite-sized encodings of `ChainDb` entries, which we don't expect to
+-- be large.
+destream :: Monad m => Stream (BS.ByteString m) m r -> Stream (Of B.ByteString) m r
+destream = S.mapped BS.toStrict
+{-# INLINE destream #-}
+
+-- | Reverse the base64 encoding and further decode from our custom encoding.
+decoded :: MonadThrow m => Stream (Of B.ByteString) m r -> Stream (Of (Entry 'Unchecked)) m r
+decoded = S.mapM (decodeEntry . _ . B64.decode)
+{-# INLINE decoded #-}
