@@ -51,6 +51,7 @@ empty = do
   db <- chaindb
   1 @?= 1
 
+-- | Borrowed from TrivialSync.hs
 chaindb :: IO DB.ChainDb
 chaindb = DB.initChainDb . DB.Configuration $ genesisBlockHeader Test graph cid
   where graph = toChainGraph (const cid) singleton
@@ -58,8 +59,8 @@ chaindb = DB.initChainDb . DB.Configuration $ genesisBlockHeader Test graph cid
 
 insertItem :: Assertion
 insertItem = do
-  db  <- chaindb
-  ss  <- DB.snapshot db
-  bh  <- DB.entry <$> generate arbitrary
+  db <- chaindb
+  ss <- DB.snapshot db
+  bh <- DB.entry <$> generate arbitrary
   DB.insert bh ss >>= void . DB.syncSnapshot
   DB.closeChainDb db

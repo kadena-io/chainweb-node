@@ -417,19 +417,34 @@ library chaindb-hashmap
         -- external
         , base >=4.10 && <5.0
         , base-unicode-symbols >=0.2
-        , base64-bytestring >= 1.0
         , bytestring >=0.10
         , containers >=0.5
         , exceptions >=0.10
         , hashable >=1.2
         , lens >=4.16
+        , stm >=2.4
+        , unordered-containers >=0.2
+
+library chaindb-persisted
+    import: production-component
+    hs-source-dirs: chaindb/src
+    exposed-modules:
+        Chainweb.ChainDB.Persist
+    reexported-modules:
+        Chainweb.ChainDB
+    build-depends:
+        -- internal
+          chaindb
+        -- external
+        , base
+        , base64-bytestring >= 1.0
+        , bytestring >=0.10
         , paths >= 0.2 && < 0.3
         , resourcet >= 1.2
         , stm >=2.4
         , streaming >= 0.2.1 && < 0.3
         , streaming-bytestring >= 0.1.6 && < 0.2
         , transformers >= 0.5
-        , unordered-containers >=0.2
 
 library chaindb
     import: production-component
