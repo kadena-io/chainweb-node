@@ -208,17 +208,20 @@ test-suite chainweb-tests
     type: exitcode-stdio-1.0
     hs-source-dirs: test/chainweb
     main-is: ChainwebTests.hs
-    ghc-options: -threaded -main-is ChainwebTests
-    other-modules:
+    ghc-options: -threaded -with-rtsopts=-N -main-is ChainwebTests
+    other-modules: Orphans
     build-depends:
         -- internal
           chainweb
         -- external
         , base >=4.10 && <5.0
-        , base16-bytestring >=0.1
         , bytestring >=0.10
-        , QuickCheck >=2.11
---         , quickcheck-instances >=0.3
+        , generic-arbitrary >= 0.1
+        , largeword >= 1.2
+        , paths >= 0.2
+        , tasty >= 1.1
+        , tasty-hunit >= 0.10
+        , QuickCheck >= 2.11
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test Library
@@ -425,6 +428,7 @@ library chaindb-hashmap
         , stm >=2.4
         , streaming >= 0.2.1 && < 0.3
         , streaming-bytestring >= 0.1.6 && < 0.2
+        , transformers >= 0.5
         , unordered-containers >=0.2
 
 library chaindb
