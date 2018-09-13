@@ -1,6 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
 
 -- |
@@ -19,22 +18,26 @@ module Chainweb.ChainDB.Persist
     -- * Reading
   , fileEntries
   , restore
-  )where
+  ) where
 
-import           Control.Concurrent.STM
-import           Control.Monad ((>=>))
-import           Control.Monad.Trans.Resource (MonadResource, MonadThrow(..), ResourceT, runResourceT)
-import           Control.Monad.Trans.State.Strict
+import Control.Concurrent.STM
+import Control.Monad ((>=>))
+import Control.Monad.Trans.Resource (MonadResource, MonadThrow(..), ResourceT, runResourceT)
+import Control.Monad.Trans.State.Strict
+
+import Data.Foldable (traverse_)
+
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Streaming as BS
 import qualified Data.ByteString.Streaming.Char8 as BS
-import           Data.Foldable (traverse_)
-import           Streaming
-import qualified Streaming.Prelude as S
-import           System.Path (Path, Absolute, toFilePath)
 
-import           Chainweb.ChainDB
+import Streaming
+import qualified Streaming.Prelude as S
+
+import System.Path (Path, Absolute, toFilePath)
+
+import Chainweb.ChainDB
 
 ---
 
