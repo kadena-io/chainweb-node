@@ -78,6 +78,9 @@ separated = BS.fromChunks . S.intersperse (B.singleton 0x0A)
 --
 -- Throws exceptions if the path given doesn't exist,
 -- or certain ByteStrings within failed to decode.
+--
+-- /Note:/ This assumes that reinserting the genesis block into a `ChainDb`
+-- that already contains it is a no-op. This invariant is enforced by tests.
 restore :: Path Absolute -> ChainDb -> IO ()
 restore fp db = runResourceT $ do
   ss  <- lift $ snapshot db

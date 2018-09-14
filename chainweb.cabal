@@ -213,6 +213,7 @@ test-suite chainweb-tests
     build-depends:
         -- internal
           chainweb
+        , chaindb-persisted
         -- external
         , QuickCheck >= 2.11
         , base >=4.10 && <5.0
@@ -221,6 +222,8 @@ test-suite chainweb-tests
         , largeword >= 1.2
         , paths >= 0.2
         , pretty-simple >= 2.2
+        , resourcet >= 1.2
+        , streaming >= 0.2
         , tasty >= 1.1
         , tasty-hunit >= 0.10
 
