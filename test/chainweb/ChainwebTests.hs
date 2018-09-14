@@ -1,4 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TupleSections #-}
+
 -- |
 -- Module: ChainwebTests
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -14,17 +18,22 @@ module ChainwebTests ( main ) where
 -- import           Chainweb.ChainDB (persist)
 -- import           System.Path (Path, Absolute, toFilePath)
 
-import           Chainweb.BlockHeader (genesisBlockHeader)
+import           Chainweb.BlockHash (BlockHash)
+import           Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader)
 import qualified Chainweb.ChainDB as DB
-import           Chainweb.ChainId (testChainId)
+import           Chainweb.ChainId (ChainId, testChainId)
 import           Chainweb.Graph (toChainGraph)
 import           Chainweb.Version (ChainwebVersion(..))
+import           Control.Lens ((#), (&), (.~))
 import           Control.Monad (void)
 import           Data.DiGraph (singleton)
+import           Data.Generics.Product (field, typed)
+import           Data.Generics.Sum (_Ctor)
 import           Orphans ()
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
+-- import           Text.Pretty.Simple (pPrintNoColor)
 
 ---
 
@@ -35,32 +44,42 @@ suite :: TestTree
 suite = testGroup "Unit Tests"
   [ testGroup "ChainDB"
     [ testGroup "Basic Interaction"
-      [ testCase "Initialization + Shutdown" $ chaindb >>= DB.closeChainDb
+      [ testCase "Initialization + Shutdown" $ chaindb >>= DB.closeChainDb . snd
       , testCase "Single Insertion + Sync" insertItem
       ]
     , testGroup "Encoding round-trips"
-      [ testCase "Empty ChainDb" empty
+      [ -- testCase "Empty ChainDb" empty
       -- , testCase "Singleton ChainDb" $ undefined
       -- , testCase "Multiple Entries"  $ undefined
       ]
     ]
   ]
 
-empty :: Assertion
-empty = do
-  db <- chaindb
-  1 @?= 1
+-- empty :: Assertion
+-- empty = do
+--   db <- chaindb
+--   1 @?= 1
+
+chainId :: ChainId
+chainId = testChainId 0
 
 -- | Borrowed from TrivialSync.hs
-chaindb :: IO DB.ChainDb
-chaindb = DB.initChainDb . DB.Configuration $ genesisBlockHeader Test graph cid
-  where graph = toChainGraph (const cid) singleton
-        cid   = testChainId 0
+chaindb :: IO (BlockHeader, DB.ChainDb)
+chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
+  where graph   = toChainGraph (const chainId) singleton
+        genesis = genesisBlockHeader Test graph chainId
 
 insertItem :: Assertion
 insertItem = do
-  db <- chaindb
+  (g, db) <- chaindb
   ss <- DB.snapshot db
-  bh <- DB.entry <$> generate arbitrary
+  bh <- DB.entry . f (_blockHash g) <$> generate arbitrary
+  -- pPrintNoColor bh
   DB.insert bh ss >>= void . DB.syncSnapshot
   DB.closeChainDb db
+  where f :: BlockHash -> BlockHeader -> BlockHeader
+        f g e = e & field @"_blockHeight" .~ (_Ctor @"BlockHeight" # 1)
+                  & field @"_blockParent" .~ g -- . typed @ChainId .~ chainId
+                  & field @"_blockChainId" .~ chainId
+                  & field @"_blockMiner" . field @"_nodeIdChain" .~ chainId
+                  & field @"_blockHash" . typed @ChainId .~ chainId
