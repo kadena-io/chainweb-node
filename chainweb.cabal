@@ -218,9 +218,7 @@ test-suite chainweb-tests
         , base >=4.10 && <5.0
         , bytestring >=0.10
         , generic-arbitrary >= 0.1
-        , generic-lens >= 1.0
         , largeword >= 1.2
-        , lens >= 4.16
         , paths >= 0.2
         , pretty-simple >= 2.2
         , tasty >= 1.1
