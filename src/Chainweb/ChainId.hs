@@ -41,9 +41,9 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
 import Data.Hashable (Hashable(..))
-import Data.Int
 import Data.Kind
 import qualified Data.Text as T
+import Data.Word (Word32)
 
 import GHC.Generics (Generic)
 
@@ -79,7 +79,7 @@ instance Exception ChainIdException
 -- include the 'ChainwebVersion' and the 'ChainId' into the genesis hash.
 --
 newtype ChainId ∷ Type where
-    ChainId ∷ Int32 → ChainId
+    ChainId ∷ Word32 → ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, ToJSON, FromJSON)
 
@@ -140,7 +140,7 @@ encodeChainId (ChainId i32) = putWord32le $ unsigned i32
 {-# INLINE encodeChainId #-}
 
 decodeChainId ∷ MonadGet m ⇒ m ChainId
-decodeChainId = ChainId ∘ signed <$> getWord32le
+decodeChainId = ChainId <$> getWord32le
 {-# INLINE decodeChainId #-}
 
 decodeChainIdChecked
@@ -158,6 +158,6 @@ decodeChainIdChecked p = checkChainId p ∘ Actual =<< decodeChainId
 -- | Generally, the 'ChainId' is determined by the genesis block of a chain for
 -- a given 'Chainweb.Version'. This constructor is only for testing.
 --
-testChainId ∷ Int32 → ChainId
+testChainId ∷ Word32 → ChainId
 testChainId = ChainId
 {-# INLINE testChainId #-}
