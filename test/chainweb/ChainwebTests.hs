@@ -79,7 +79,18 @@ insertItem = do
   DB.closeChainDb db
   where f :: BlockHash -> BlockHeader -> BlockHeader
         f g e = e & field @"_blockHeight" .~ (_Ctor @"BlockHeight" # 1)
-                  & field @"_blockParent" .~ g -- . typed @ChainId .~ chainId
+                  & field @"_blockParent" .~ g
                   & field @"_blockChainId" .~ chainId
                   & field @"_blockMiner" . field @"_nodeIdChain" .~ chainId
                   & field @"_blockHash" . typed @ChainId .~ chainId
+
+-- | Given a `BlockHeader` of some initial parent, generate an infinite stream
+-- of `BlockHeader`s which form a legal chain.
+headers :: BlockHeader -> IO [BlockHeader]
+headers h = tail . scanl f h <$> generate infiniteList
+  where f :: BlockHeader -> BlockHeader -> BlockHeader
+        f prev curr = curr & field @"_blockHeight" .~ (_Ctor @"BlockHeight" # 1)
+                           & field @"_blockParent" .~ _blockHash prev
+                           & field @"_blockChainId" .~ _blockChainId prev
+                           & field @"_blockMiner" . field @"_nodeIdChain" .~ _blockChainId prev
+                           & field @"_blockHash" . typed @ChainId .~ _blockChainId prev
