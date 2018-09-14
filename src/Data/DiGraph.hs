@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: DiGraph
@@ -72,7 +71,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
 import Data.Maybe
-import Data.Monoid.Unicode
 import Data.Semigroup
 import qualified Data.Traversable as T
 import Data.Tuple
@@ -82,18 +80,17 @@ import GHC.Generics
 import Numeric.Natural
 
 import Prelude hiding (cycle)
-import Prelude.Unicode
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-int ∷ Integral a ⇒ Num b ⇒ a → b
+int :: Integral a => Num b => a -> b
 int = fromIntegral
 
-traverseHM ∷ Eq k ⇒ Hashable k ⇒ Monad f ⇒ (a → f b) → HM.HashMap k a → f (HM.HashMap k b)
+traverseHM :: Eq k => Hashable k => Monad f => (a -> f b) -> HM.HashMap k a -> f (HM.HashMap k b)
 traverseHM f = fmap HM.fromList . mapM (mapM f) . HM.toList
 
-traverseHS ∷ Eq b ⇒ Hashable b ⇒ Monad f ⇒ (a → f b) → HS.HashSet a → f (HS.HashSet b)
+traverseHS :: Eq b => Hashable b => Monad f => (a -> f b) -> HS.HashSet a -> f (HS.HashSet b)
 traverseHS f = fmap HS.fromList . T.mapM f . HS.toList
 
 -- -------------------------------------------------------------------------- --
@@ -101,89 +98,89 @@ traverseHS f = fmap HS.fromList . T.mapM f . HS.toList
 
 type DiEdge a = (a, a)
 
-newtype DiGraph a = DiGraph { unGraph ∷ HM.HashMap a (HS.HashSet a) }
+newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
 
-instance (Hashable a, Eq a) ⇒ Semigroup (DiGraph a) where
+instance (Hashable a, Eq a) => Semigroup (DiGraph a) where
     (DiGraph a) <> (DiGraph b) = DiGraph (HM.unionWith (<>) a b)
 
-instance (Hashable a, Eq a) ⇒ Monoid (DiGraph a) where
+instance (Hashable a, Eq a) => Monoid (DiGraph a) where
     mempty = DiGraph mempty
     mappend = (<>)
 
-isDiGraph ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Bool
+isDiGraph :: Eq a => Hashable a => DiGraph a -> Bool
 isDiGraph g@(DiGraph m) = HS.null (HS.unions (HM.elems m) `HS.difference` vertices g)
 
-vertices ∷ DiGraph a → HS.HashSet a
-vertices = HS.fromMap ∘ HM.map (const ()) ∘ unGraph
+vertices :: DiGraph a -> HS.HashSet a
+vertices = HS.fromMap . HM.map (const ()) . unGraph
 
-order ∷ DiGraph a → Natural
-order = int ∘ HS.size ∘ vertices
+order :: DiGraph a -> Natural
+order = int . HS.size . vertices
 
-edges ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → HS.HashSet (DiEdge a)
-edges = HS.fromList ∘ concatMap (sequence ∘ fmap HS.toList) ∘ HM.toList ∘ unGraph
+edges :: Eq a => Hashable a => DiGraph a -> HS.HashSet (DiEdge a)
+edges = HS.fromList . concatMap (sequence . fmap HS.toList) . HM.toList . unGraph
 
-size ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Natural
-size = int ∘ HS.size ∘ edges
+size :: Eq a => Hashable a => DiGraph a -> Natural
+size = int . HS.size . edges
 
-adjacents ∷ Eq a ⇒ Hashable a ⇒ a → DiGraph a → HS.HashSet a
+adjacents :: Eq a => Hashable a => a -> DiGraph a -> HS.HashSet a
 adjacents a (DiGraph g) = g HM.! a
 
-incidents ∷ Eq a ⇒ Hashable a ⇒ a → DiGraph a → [(a, a)]
-incidents a g = [ (a, b) | b ← F.toList (adjacents a g) ]
+incidents :: Eq a => Hashable a => a -> DiGraph a -> [(a, a)]
+incidents a g = [ (a, b) | b <- F.toList (adjacents a g) ]
 
 --
 
-fromList ∷ Eq a ⇒ Hashable a ⇒ [(a,[a])] → DiGraph a
-fromList = DiGraph ∘ HM.map HS.fromList ∘ HM.fromList
+fromList :: Eq a => Hashable a => [(a,[a])] -> DiGraph a
+fromList = DiGraph . HM.map HS.fromList . HM.fromList
 
-fromEdges ∷ Eq a ⇒ Hashable a ⇒ HS.HashSet (a, a) → DiGraph a
+fromEdges :: Eq a => Hashable a => HS.HashSet (a, a) -> DiGraph a
 fromEdges = foldr insertEdge mempty
 
-union ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → DiGraph a → DiGraph a
+union :: Eq a => Hashable a => DiGraph a -> DiGraph a -> DiGraph a
 union = (<>)
 
-mapVertices ∷ Eq b ⇒ Hashable b ⇒ (a → b) → DiGraph a → DiGraph b
-mapVertices f = DiGraph ∘ HM.fromList . fmap (f *** HS.map f) . HM.toList ∘ unGraph
+mapVertices :: Eq b => Hashable b => (a -> b) -> DiGraph a -> DiGraph b
+mapVertices f = DiGraph . HM.fromList . fmap (f *** HS.map f) . HM.toList . unGraph
 
-transpose ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → DiGraph a
-transpose g = (DiGraph $ const mempty <$> unGraph g) `union` (fromEdges ∘ HS.map swap $ edges g)
+transpose :: Eq a => Hashable a => DiGraph a -> DiGraph a
+transpose g = (DiGraph $ const mempty <$> unGraph g) `union` (fromEdges . HS.map swap $ edges g)
 
 -- | Insert an edge. Returns the graph unmodified if the edge
 -- is already in the graph.
 --
-insertEdge ∷ Eq a ⇒ Hashable a ⇒ DiEdge a → DiGraph a → DiGraph a
-insertEdge (a,b) = DiGraph ∘ HM.insertWith (⊕) a [b] ∘ unGraph
+insertEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> DiGraph a
+insertEdge (a,b) = DiGraph . HM.insertWith (<>) a [b] . unGraph
 
 -- -------------------------------------------------------------------------- --
 -- Concrete Graphs
 
-clique ∷ Natural → DiGraph Int
+clique :: Natural -> DiGraph Int
 clique i = fromList
     [ (a, b)
-    | a ← [0 .. int i - 1]
-    , let b = [ x | x ← [0 .. int i - 1] , x ≠ a ]
+    | a <- [0 .. int i - 1]
+    , let b = [ x | x <- [0 .. int i - 1] , x /= a ]
     ]
 
-singleton ∷ DiGraph Int
+singleton :: DiGraph Int
 singleton = clique 1
 
-pair ∷ DiGraph Int
+pair :: DiGraph Int
 pair = clique 2
 
-triangle ∷ DiGraph Int
+triangle :: DiGraph Int
 triangle = clique 3
 
-diCycle ∷ Natural → DiGraph Int
-diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a ← [0 .. int n - 1] ]
+diCycle :: Natural -> DiGraph Int
+diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a <- [0 .. int n - 1] ]
 
-cycle ∷ Natural → DiGraph Int
-cycle n = diCycle n ⊕ transpose (diCycle n)
+cycle :: Natural -> DiGraph Int
+cycle n = diCycle n <> transpose (diCycle n)
 
-line ∷ Natural → DiGraph Int
-line n = fromList [ (a, [ a + 1 | a ≠ int n - 1]) | a ← [0 .. int n - 1] ]
+line :: Natural -> DiGraph Int
+line n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
 
-petersonGraph ∷ DiGraph Int
+petersonGraph :: DiGraph Int
 petersonGraph = DiGraph
     [ (0, [2,3,5])
     , (1, [3,4,6])
@@ -197,7 +194,7 @@ petersonGraph = DiGraph
     , (9, [4,8,5])
     ]
 
-twentyChainGraph ∷ DiGraph Int
+twentyChainGraph :: DiGraph Int
 twentyChainGraph  = pentagram `union` pentagon1 `union` pentagon2 `union` connections
   where
     pentagram = mapVertices (+ 5) $ pentagon2pentagram $ cycle 5
@@ -205,89 +202,89 @@ twentyChainGraph  = pentagram `union` pentagon1 `union` pentagon2 `union` connec
     pentagon2 = mapVertices (+ 15) $ cycle 5
     connections = fromEdges $ HS.fromList $ mconcat
         [ [(i, x), (x, i)]
-        | i ← [0..4]
-        , x ← [i + 5, i + 10, i + 15]
+        | i <- [0..4]
+        , x <- [i + 5, i + 10, i + 15]
         ]
     pentagon2pentagram = mapVertices $ \case
-        0 → 0
-        1 → 3
-        2 → 1
-        3 → 4
-        4 → 2
-        _ → error "invalid vertex"
+        0 -> 0
+        1 -> 3
+        2 -> 1
+        3 -> 4
+        4 -> 2
+        _ -> error "invalid vertex"
 
 -- Hoffman-Singleton Graph. It is a 7-regular graph with 50 nodes and 175 edges.
 -- It's the largest graph of max-degree 7 and diameter 2.
 -- cf. [https://en.wikipedia.org/wiki/Hoffman–Singleton_graph]()
 --
-hoffmanSingleton ∷ DiGraph Int
+hoffmanSingleton :: DiGraph Int
 hoffmanSingleton = pentagons `union` pentagrams `union` connections
   where
     pentagons = mconcat
-        [ mapVertices (p_off i) $ cycle 5 | i ← [0 .. 4] ]
+        [ mapVertices (p_off i) $ cycle 5 | i <- [0 .. 4] ]
     pentagrams = mconcat
-        [ mapVertices (q_off i) $ pentagon2pentagram $ cycle 5 | i ← [0 .. 4] ]
+        [ mapVertices (q_off i) $ pentagon2pentagram $ cycle 5 | i <- [0 .. 4] ]
 
     p_off h = (+) (25 + 5 * h)
     q_off i = (+) (5 * i)
 
     pentagon2pentagram = mapVertices $ \case
-        0 → 0
-        1 → 3
-        2 → 1
-        3 → 4
-        4 → 2
-        _ → error "invalid vertex"
+        0 -> 0
+        1 -> 3
+        2 -> 1
+        3 -> 4
+        4 -> 2
+        _ -> error "invalid vertex"
 
     connections = fromEdges $ HS.fromList $ mconcat
         [ [(a, b), (b, a)]
-        | h ← [0 .. 4]
-        , j ← [0 .. 4]
+        | h <- [0 .. 4]
+        , j <- [0 .. 4]
         , let a = p_off h j
-        , i ← [0 .. 4]
+        , i <- [0 .. 4]
         , let b = q_off i ((h * i + j) `mod` 5)
         ]
 
 -- -------------------------------------------------------------------------- --
 -- Properties
 
-isRegular ∷ DiGraph a → Bool
-isRegular = (≡ 1)
-    ∘ length
-    ∘ L.group
-    ∘ fmap (HS.size . snd)
-    ∘ HM.toList
-    ∘ unGraph
+isRegular :: DiGraph a -> Bool
+isRegular = (== 1)
+    . length
+    . L.group
+    . fmap (HS.size . snd)
+    . HM.toList
+    . unGraph
 
-isSymmetric ∷ Hashable a ⇒ Eq a ⇒ DiGraph a → Bool
+isSymmetric :: Hashable a => Eq a => DiGraph a -> Bool
 isSymmetric g = F.all checkNode $ HM.toList $ unGraph g
   where
-    checkNode (a, e) = F.all (\x → isAdjacent x a g) $ HS.toList e
+    checkNode (a, e) = F.all (\x -> isAdjacent x a g) $ HS.toList e
 
-isVertex ∷ Eq a ⇒ Hashable a ⇒ a → DiGraph a → Bool
-isVertex a = HM.member a ∘ unGraph
+isVertex :: Eq a => Hashable a => a -> DiGraph a -> Bool
+isVertex a = HM.member a . unGraph
 
-isEdge ∷ Eq a ⇒ Hashable a ⇒ DiEdge a → DiGraph a → Bool
-isEdge (a, b) = fromMaybe False ∘ fmap (HS.member b) ∘ HM.lookup a ∘ unGraph
+isEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> Bool
+isEdge (a, b) = fromMaybe False . fmap (HS.member b) . HM.lookup a . unGraph
 
-isAdjacent ∷ Eq a ⇒ Hashable a ⇒ a → a → DiGraph a → Bool
+isAdjacent :: Eq a => Hashable a => a -> a -> DiGraph a -> Bool
 isAdjacent = curry isEdge
 
-outDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → a → Natural
-outDegree (DiGraph g) a = int ∘ HS.size $ g HM.! a
+outDegree :: Eq a => Hashable a => DiGraph a -> a -> Natural
+outDegree (DiGraph g) a = int . HS.size $ g HM.! a
 
-maxOutDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Natural
+maxOutDegree :: Eq a => Hashable a => DiGraph a -> Natural
 maxOutDegree g = maximum $ HS.map (outDegree g) (vertices g)
 
-minOutDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Natural
+minOutDegree :: Eq a => Hashable a => DiGraph a -> Natural
 minOutDegree g = minimum $ HS.map (outDegree g) (vertices g)
 
-inDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → a → Natural
+inDegree :: Eq a => Hashable a => DiGraph a -> a -> Natural
 inDegree g = outDegree (transpose g)
 
-maxInDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Natural
-maxInDegree = maxOutDegree ∘ transpose
+maxInDegree :: Eq a => Hashable a => DiGraph a -> Natural
+maxInDegree = maxOutDegree . transpose
 
-minInDegree ∷ Eq a ⇒ Hashable a ⇒ DiGraph a → Natural
-minInDegree = minOutDegree ∘ transpose
+minInDegree :: Eq a => Hashable a => DiGraph a -> Natural
+minInDegree = minOutDegree . transpose
 

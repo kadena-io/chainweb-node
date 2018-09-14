@@ -1,5 +1,3 @@
-{-# LANGUAGE UnicodeSyntax #-}
-
 -- |
 -- Module: CheckSignatures
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -11,5 +9,5 @@ module Main
 ( main
 ) where
 
-main ∷ IO ()
+main :: IO ()
 main = return ()

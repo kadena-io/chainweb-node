@@ -1,5 +1,4 @@
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Signature: P2P.Node
@@ -28,7 +27,7 @@ data P2pConfiguration
 
 -- | Runs a node in a peer to peer network. A node establishes and maintains a
 -- number of connections with other peers and concurrently runs the given
--- session of type @P2pConnection → m ()@ for each connection. Sessions may be
+-- session of type @P2pConnection -> m ()@ for each connection. Sessions may be
 -- terminating or non-terminating. If a session exits without closing the
 -- connection a connection failure is raised at the remote peer.
 --
@@ -51,7 +50,7 @@ data P2pConfiguration
 -- connections and /open/ sessions.
 --
 p2pNode
-    ∷ P2pConfiguration
-    → P2pSession
-    → IO ()
+    :: P2pConfiguration
+    -> P2pSession
+    -> IO ()
 

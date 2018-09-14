@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Signature: Chainweb.ChainDB
@@ -145,11 +144,11 @@ data ChainDb
 
 -- | Initialize a database handle
 --
-initChainDb ∷ Configuration → IO ChainDb
+initChainDb :: Configuration -> IO ChainDb
 
 -- | Close a database handle and release all resources
 --
-closeChainDb ∷ ChainDb → IO ()
+closeChainDb :: ChainDb -> IO ()
 
 -- -------------------------------------------------------------------------- --
 -- Validation Status
@@ -166,7 +165,7 @@ data ValidationStatus = Unchecked | Checked
 -- | Key type for Entries. A key uniquly globally identifies an entry but is
 -- expected to be much shorted than the entry itself.
 --
-data Key ∷ ValidationStatus → Type
+data Key :: ValidationStatus -> Type
 instance Show (Key s)
 instance Eq (Key s)
 instance Ord (Key s)
@@ -174,45 +173,45 @@ instance Hashable (Key s)
 
 -- | Type of a database entry
 --
-data Entry ∷ ValidationStatus → Type
+data Entry :: ValidationStatus -> Type
 instance Show (Entry s)
 instance Eq (Entry s)
 
 -- | Compute the 'Key' from an 'Entry'. A key is a globally unique hash of an
 -- entry. Two entries have the same key if and only if they are the same.
 --
-key ∷ Entry s → Key s
+key :: Entry s -> Key s
 
 -- | Each but exaclty one entry has a parent. The unique entry without a parent
 -- is called the root entry.
 --
 -- The parent relation induces a tree on the set of all entries.
 --
-parent ∷ Entry s → Maybe (Key s)
+parent :: Entry s -> Maybe (Key s)
 
 -- | The rank of an entry is the depth of the entry in the tree from the root.
 --
-rank ∷ Entry s → Natural
+rank :: Entry s -> Natural
 
 -- | It's always possible to declare a key to be unchecked
 --
-uncheckedKey ∷ Key s → Key 'Unchecked
+uncheckedKey :: Key s -> Key 'Unchecked
 
 -- | It's always possible to declare an entry  to be unchecked
 --
-uncheckedEntry ∷ Entry s → Entry 'Unchecked
+uncheckedEntry :: Entry s -> Entry 'Unchecked
 
 -- | Decides whether a key is checked
 --
-decideKeyStatus ∷ Key s → Either (Key 'Unchecked) (Key 'Checked)
+decideKeyStatus :: Key s -> Either (Key 'Unchecked) (Key 'Checked)
 
 -- | Decides whether an entry is checked
 --
-decideEntryStatus ∷ Entry s → Either (Entry 'Unchecked) (Entry 'Checked)
+decideEntryStatus :: Entry s -> Either (Entry 'Unchecked) (Entry 'Checked)
 
 --  | A set of database keys
 --
-type KeySet (s ∷ ValidationStatus) = HS.HashSet (Key s)
+type KeySet (s :: ValidationStatus) = HS.HashSet (Key s)
 
 -- -------------------------------------------------------------------------- --
 -- Updates
@@ -227,19 +226,19 @@ type KeySet (s ∷ ValidationStatus) = HS.HashSet (Key s)
 -- There is no guarantee that entries are traversed in the same order as they
 -- are inserted.
 --
-data Updates ∷ Type
+data Updates :: Type
 
 -- | Creates a traversal from some recently added key
 --
-updates ∷ ChainDb → IO Updates
+updates :: ChainDb -> IO Updates
 
 -- | Creates a traversal from a given key
 --
-updatesFrom ∷ ChainDb → Key 'Checked → IO Updates
+updatesFrom :: ChainDb -> Key 'Checked -> IO Updates
 
 -- | Get next entry (represented by it's key) in the traversal
 --
-updatesNext ∷ Updates → STM (Key 'Checked)
+updatesNext :: Updates -> STM (Key 'Checked)
 
 -- -------------------------------------------------------------------------- --
 -- Pure Database Snapshot
@@ -254,11 +253,11 @@ updatesNext ∷ Updates → STM (Key 'Checked)
 -- Any changes to the backend database become visible only after a calling
 -- 'syncSnapshot'.
 --
-data Snapshot ∷ Type
+data Snapshot :: Type
 
 -- | Checkout a pure snapshot of the database.
 --
-snapshot ∷ ChainDb → IO Snapshot
+snapshot :: ChainDb -> IO Snapshot
 
 -- | Sychronize a database snapshot with the backend database. Because the
 -- stored tree is content addressed and monotonically increasing there can't be
@@ -267,7 +266,7 @@ snapshot ∷ ChainDb → IO Snapshot
 -- All invariants are checked. If an invariant is violated this throws the
 -- respective exception.
 --
-syncSnapshot ∷ Snapshot → IO Snapshot
+syncSnapshot :: Snapshot -> IO Snapshot
 
 -- -------------------------------------------------------------------------- --
 -- Queries
@@ -281,12 +280,12 @@ syncSnapshot ∷ Snapshot → IO Snapshot
 -- This result set is guaranteed to be non-empty. It will at least contain the
 -- root of the tree.
 --
-branches ∷ Snapshot → KeySet 'Checked
+branches :: Snapshot -> KeySet 'Checked
 
 -- | The children relation allows to efficiently traverse the tree of entries
 -- from the root to the leafs.
 --
-children ∷ Key 'Checked → Snapshot → KeySet 'Checked
+children :: Key 'Checked -> Snapshot -> KeySet 'Checked
 
 -- | Get the entry for a key.
 --
@@ -295,14 +294,14 @@ children ∷ Key 'Checked → Snapshot → KeySet 'Checked
 -- the snapshot with 'syncSnapshot' will resolve this and 'getEntry' is
 -- guaranteed to return 'Just' a value.
 --
-getEntry ∷ Key 'Checked → Snapshot → Maybe (Entry 'Checked)
+getEntry :: Key 'Checked -> Snapshot -> Maybe (Entry 'Checked)
 
 -- | Get the entry for key.
 --
 -- Unlike 'getEntry' this function is guaranteed to return a value at the cost
 -- of being in IO and possibly querying the entry from the backend database.
 --
-getEntryIO ∷ Key 'Checked → Snapshot → IO (Entry 'Checked)
+getEntryIO :: Key 'Checked -> Snapshot -> IO (Entry 'Checked)
 
 -- | Get the entry for a key.
 --
@@ -318,12 +317,12 @@ getEntryIO ∷ Key 'Checked → Snapshot → IO (Entry 'Checked)
 -- Note: As a side-effect, any non-committed additions will be committed
 -- by calling this function.
 --
-getEntrySync :: Key 'Checked → Snapshot → IO (Snapshot, Entry 'Checked)
+getEntrySync :: Key 'Checked -> Snapshot -> IO (Snapshot, Entry 'Checked)
 
 -- | Looks up an entry in a database snapshot. Returns 'Nothing' if the entry
 -- for the given key is not in the snapshot.
 --
-lookupEntry ∷ Key t → Snapshot → Maybe (Entry 'Checked)
+lookupEntry :: Key t -> Snapshot -> Maybe (Entry 'Checked)
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
@@ -340,20 +339,20 @@ lookupEntry ∷ Key t → Snapshot → Maybe (Entry 'Checked)
 -- Raises an 'ValidationFailed' exception if some other implementation specific
 -- consistency check failed.
 --
-insert ∷ MonadThrow m ⇒ Entry s → Snapshot → m Snapshot
+insert :: MonadThrow m => Entry s -> Snapshot -> m Snapshot
 
 -- -------------------------------------------------------------------------- --
 -- Serialization of Entries
 
 -- | Serialize an 'Entry'
 --
-encodeEntry ∷ Entry s → B.ByteString
+encodeEntry :: Entry s -> B.ByteString
 
 -- | Deserialize an 'Entry'. The deserialized values is 'Unchecked'.
 --
 -- Raises an 'DeserializationFailure' the decoding fails.
 --
-decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m (Entry 'Unchecked)
+decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

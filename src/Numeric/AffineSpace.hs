@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Numeric.AffineSpace
@@ -48,10 +47,10 @@ import Numeric.Additive
 --
 -- The last property is states that `add` is a bijection.
 --
-class (AdditiveGroup (Diff t)) ⇒ LeftTorsor t where
+class (AdditiveGroup (Diff t)) => LeftTorsor t where
     type Diff t
-    add ∷ Diff t → t → t
-    diff ∷ t → t → Diff t
+    add :: Diff t -> t -> t
+    diff :: t -> t -> Diff t
 
 instance LeftTorsor Integer where
     type Diff Integer = Integer
@@ -68,19 +67,19 @@ instance LeftTorsor Rational where
     {-# INLINE diff #-}
 
 infix 6 .-.
-(.-.) ∷ AdditiveAbelianGroup (Diff t) ⇒ LeftTorsor t ⇒ t → t → Diff t
+(.-.) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> t -> Diff t
 (.-.) = diff
 
 infixl 6 ^+.
-(^+.) ∷ AdditiveAbelianGroup (Diff t) ⇒ LeftTorsor t ⇒ Diff t → t → t
+(^+.) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => Diff t -> t -> t
 (^+.) = add
 
 infixl 6 .+^
-(.+^) ∷ AdditiveAbelianGroup (Diff t) ⇒ LeftTorsor t ⇒ t → Diff t → t
+(.+^) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> Diff t -> t
 (.+^) = flip add
 
 infixl 6 .-^
-(.-^) ∷ AdditiveAbelianGroup (Diff t) ⇒ LeftTorsor t ⇒ t → Diff t → t
+(.-^) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> Diff t -> t
 (.-^) t d = t .+^ invert d
 
 -- -------------------------------------------------------------------------- --
@@ -94,9 +93,9 @@ infixl 6 .-^
 -- prop> a `scale` (b `plus` c) == (a `scale` b) `plus` (a `scale` c)
 -- prop> (a + b) `scale` c == (a `scale` c) `plus` (b `scale` c)
 --
-class (AdditiveAbelianGroup v, Fractional (Scalar v)) ⇒ FractionalVectorSpace v where
+class (AdditiveAbelianGroup v, Fractional (Scalar v)) => FractionalVectorSpace v where
     type Scalar v
-    scale ∷ Scalar v → v → v
+    scale :: Scalar v -> v -> v
 
 instance FractionalVectorSpace Rational where
     type Scalar Rational = Rational

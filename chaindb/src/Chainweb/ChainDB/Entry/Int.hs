@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.ChainDB.Entry.Int
@@ -39,46 +38,45 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Prelude.Unicode
 
 type Key = Int
 
 -- | Type of a database entry
 --
 data Entry = Entry
-    { _entryRank ∷ !Int
-    , _entryParent ∷ !Int
-    , _entryInt ∷ !Int
+    { _entryRank :: !Int
+    , _entryParent :: !Int
+    , _entryInt :: !Int
     }
     deriving (Show, Eq, Generic, Hashable)
 
-root ∷ Entry
+root :: Entry
 root = Entry 0 (-1) 0
 
-entry ∷ Entry → Int → Entry
+entry :: Entry -> Int -> Entry
 entry p i
     | i < 1 = error "entry must have a positive value"
     | otherwise = Entry (_entryRank p + 1) (key p) i
 
-key ∷ Entry → Key
+key :: Entry -> Key
 key = hash
 
-parent ∷ Entry → Maybe Key
+parent :: Entry -> Maybe Key
 parent e
     | _entryParent e == (-1) = Nothing
     | otherwise = Just (_entryParent e)
 
-rank ∷ Entry → Natural
-rank = fromIntegral ∘ _entryRank
+rank :: Entry -> Natural
+rank = fromIntegral . _entryRank
 
-encodeEntry ∷ Entry → B.ByteString
+encodeEntry :: Entry -> B.ByteString
 encodeEntry e = runPutS $ do
     putWordhost (unsigned $ _entryRank e)
     putWordhost (unsigned $ _entryParent e)
     putWordhost (unsigned $ _entryInt e)
 
-decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m Entry
-decodeEntry bytes = either (throwM ∘ DecodeFailure ∘ T.pack) return
+decodeEntry :: MonadThrow m => B.ByteString -> m Entry
+decodeEntry bytes = either (throwM . DecodeFailure . T.pack) return
     $ flip runGetS bytes $ Entry
         <$> (signed <$> getWordhost)
         <*> (signed <$> getWordhost)

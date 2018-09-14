@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -83,157 +82,156 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Prelude.Unicode
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
 
-milli, micro, nano, pico, femto ∷ Fractional a ⇒ a
-milli = 10 ^^ (-3 ∷ Int)
-micro = 10 ^^ (-6 ∷ Int)
-nano = 10 ^^ (-9 ∷ Int)
-pico = 10 ^^ (-12 ∷ Int)
-femto = 10 ^^ (-15 ∷ Int)
+milli, micro, nano, pico, femto :: Fractional a => a
+milli = 10 ^^ (-3 :: Int)
+micro = 10 ^^ (-6 :: Int)
+nano = 10 ^^ (-9 :: Int)
+pico = 10 ^^ (-12 :: Int)
+femto = 10 ^^ (-15 :: Int)
 
-kilo, mega, giga, tera, peta, exa ∷ Num a ⇒ a
-kilo = 10 ^ (3 ∷ Int)
-mega = 10 ^ (6 ∷ Int)
-giga = 10 ^ (9 ∷ Int)
-tera = 10 ^ (12 ∷ Int)
-peta = 10 ^ (15 ∷ Int)
-exa = 10 ^ (18 ∷ Int)
+kilo, mega, giga, tera, peta, exa :: Num a => a
+kilo = 10 ^ (3 :: Int)
+mega = 10 ^ (6 :: Int)
+giga = 10 ^ (9 :: Int)
+tera = 10 ^ (12 :: Int)
+peta = 10 ^ (15 :: Int)
+exa = 10 ^ (18 :: Int)
 
 -- -------------------------------------------------------------------------- --
 -- Misc
 
-int ∷ Integral a ⇒ Num b ⇒ a → b
+int :: Integral a => Num b => a -> b
 int = fromIntegral
 {-# INLINE int #-}
 
-(==>) ∷ Bool → Bool → Bool
-a ==> b = not a ∨ b
+(==>) :: Bool -> Bool -> Bool
+a ==> b = not a && b
 infixr 1 ==>
 {-# INLINE (==>) #-}
 
-keySet ∷ HM.HashMap a b → HS.HashSet a
+keySet :: HM.HashMap a b -> HS.HashSet a
 keySet = HS.fromMap . set each ()
 {-# INLINE keySet #-}
 
-minimumsOf ∷ Ord a ⇒ Getting (Endo (Endo [a])) s a → s → [a]
+minimumsOf :: Ord a => Getting (Endo (Endo [a])) s a -> s -> [a]
 minimumsOf l = foldlOf' l mf []
   where
     mf [] !y = [y]
     mf x@(h:_) !y = case compare h y of
-        EQ → y:x
-        LT → [y]
-        GT → x
+        EQ -> y:x
+        LT -> [y]
+        GT -> x
 {-# INLINE minimumsOf #-}
 
-minimumsByOf ∷ Getting (Endo (Endo [a])) s a → (a → a → Ordering) → s → [a]
+minimumsByOf :: Getting (Endo (Endo [a])) s a -> (a -> a -> Ordering) -> s -> [a]
 minimumsByOf l cmp = foldlOf' l mf []
   where
     mf [] !y = [y]
     mf x@(h:_) !y = case cmp h y of
-        EQ → y:x
-        LT → [y]
-        GT → x
+        EQ -> y:x
+        LT -> [y]
+        GT -> x
 {-# INLINE minimumsByOf #-}
 
-maxBy ∷ Ord a ⇒ (a → a → Ordering) → a → a → a
+maxBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
 maxBy cmp a b = case cmp a b of
-    LT → b
-    _ → a
+    LT -> b
+    _ -> a
 {-# INLINE maxBy #-}
 
-minBy ∷ Ord a ⇒ (a → a → Ordering) → a → a → a
+minBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
 minBy cmp a b = case cmp a b of
-    GT → b
-    _ → a
+    GT -> b
+    _ -> a
 {-# INLINE minBy #-}
 
 -- -------------------------------------------------------------------------- --
 -- Encodings and Serialization
 
 data EncodingException where
-    EncodeException ∷ T.Text → EncodingException
-    DecodeException ∷ T.Text → EncodingException
-    Base64DecodeException ∷ T.Text → EncodingException
-    ItemCountDecodeException ∷ Expected Natural → Actual Natural → EncodingException
+    EncodeException :: T.Text -> EncodingException
+    DecodeException :: T.Text -> EncodingException
+    Base64DecodeException :: T.Text -> EncodingException
+    ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception EncodingException
 
-runGet ∷ MonadThrow m ⇒ Get a → B.ByteString → m a
-runGet g = fromEitherM ∘ runGetEither g
+runGet :: MonadThrow m => Get a -> B.ByteString -> m a
+runGet g = fromEitherM . runGetEither g
 {-# INLINE runGet #-}
 
-runGetEither ∷ Get a → B.ByteString → Either EncodingException a
-runGetEither g = first (DecodeException ∘ T.pack) ∘ runGetS g
+runGetEither :: Get a -> B.ByteString -> Either EncodingException a
+runGetEither g = first (DecodeException . T.pack) . runGetS g
 {-# INLINE runGetEither #-}
 
-sshow ∷ Show a ⇒ IsString b ⇒ a → b
-sshow = fromString ∘ show
+sshow :: Show a => IsString b => a -> b
+sshow = fromString . show
 {-# INLINE sshow #-}
 
-encodeToText ∷ ToJSON a ⇒ a → T.Text
-encodeToText = TL.toStrict ∘ encodeToLazyText
+encodeToText :: ToJSON a => a -> T.Text
+encodeToText = TL.toStrict . encodeToLazyText
 {-# INLINE encodeToText #-}
 
-decodeB64Text ∷ MonadThrow m ⇒ T.Text → m B.ByteString
+decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
-    ∘ first (Base64DecodeException ∘ T.pack)
-    ∘ B64.decode
-    ∘ T.encodeUtf8
+    . first (Base64DecodeException . T.pack)
+    . B64.decode
+    . T.encodeUtf8
 {-# INLINE decodeB64Text #-}
 
-encodeB64Text ∷ B.ByteString → T.Text
-encodeB64Text = T.decodeUtf8 ∘ B64.encode
+encodeB64Text :: B.ByteString -> T.Text
+encodeB64Text = T.decodeUtf8 . B64.encode
 {-# INLINE encodeB64Text #-}
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling
 
-newtype Expected a = Expected { getExpected ∷ a }
+newtype Expected a = Expected { getExpected :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
 
-newtype Actual a = Actual { getActual ∷ a }
+newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
 
-(≡?) ∷ Eq a ⇒ Expected a → Actual a → Bool
+(≡?) :: Eq a => Expected a -> Actual a -> Bool
 (≡?) (Expected a) (Actual b) = a == b
 
 check
-    ∷ MonadThrow m
-    ⇒ Eq a
-    ⇒ Exception e
-    ⇒ (Expected a → Actual a → e)
-    → Expected a
-    → Actual a
-    → m a
+    :: MonadThrow m
+    => Eq a
+    => Exception e
+    => (Expected a -> Actual a -> e)
+    -> Expected a
+    -> Actual a
+    -> m a
 check e a b = do
     unless (a ≡? b) $ throwM (e a b)
     return (getActual b)
 
-fromMaybeM ∷ MonadThrow m ⇒ Exception e ⇒ e → Maybe a → m a
+fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
 {-# INLINE fromMaybeM #-}
 
-(???) ∷ MonadThrow m ⇒ Exception e ⇒ Maybe a → e → m a
+(???) :: MonadThrow m => Exception e => Maybe a -> e -> m a
 (???) = flip fromMaybeM
 infixl 0 ???
 {-# INLINE (???) #-}
 
-fromEitherM ∷ MonadThrow m ⇒ Exception e ⇒ Either e a → m a
+fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
 
-leadingZeros ∷ B.ByteString → Natural
+leadingZeros :: B.ByteString -> Natural
 leadingZeros b = int (B.length x) * 8 + case B.uncons y of
-    Just (h, _) → int $ countLeadingZeros h
-    Nothing → 0
+    Just (h, _) -> int $ countLeadingZeros h
+    Nothing -> 0
   where
     (x, y) = B.span (== 0x00) b
 

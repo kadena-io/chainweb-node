@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Data.Word.Encoding
@@ -20,11 +19,11 @@ import Data.LargeWord
 import Data.Word
 
 class WordEncoding w where
-    encodeWordLe ∷ MonadPut m ⇒ w → m ()
-    decodeWordLe ∷ MonadGet m ⇒ m w
+    encodeWordLe :: MonadPut m => w -> m ()
+    decodeWordLe :: MonadGet m => m w
 
-    encodeWordBe ∷ MonadPut m ⇒ w → m ()
-    decodeWordBe ∷ MonadGet m ⇒ m w
+    encodeWordBe :: MonadPut m => w -> m ()
+    decodeWordBe :: MonadGet m => m w
 
 instance WordEncoding Word8 where
     encodeWordLe = putWord8
@@ -66,7 +65,7 @@ instance WordEncoding Word64 where
     {-# INLINE encodeWordBe #-}
     {-# INLINE decodeWordBe #-}
 
-instance (WordEncoding a, WordEncoding b) ⇒ WordEncoding (LargeKey a b) where
+instance (WordEncoding a, WordEncoding b) => WordEncoding (LargeKey a b) where
     encodeWordLe (LargeKey a b) = encodeWordLe a *> encodeWordLe b
     decodeWordLe = LargeKey <$> decodeWordLe <*> decodeWordLe
     encodeWordBe (LargeKey a b) = encodeWordBe b *> encodeWordBe a

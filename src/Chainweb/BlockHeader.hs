@@ -20,7 +20,6 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -110,7 +109,6 @@ import Data.Word
 
 import GHC.Generics (Generic)
 
-import Prelude.Unicode
 
 -- Internal imports
 
@@ -137,10 +135,10 @@ newtype BlockHeight = BlockHeight Word64
         , Num, Integral, Real, Enum
         )
 
-encodeBlockHeight ∷ MonadPut m ⇒ BlockHeight → m ()
+encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
-decodeBlockHeight ∷ MonadGet m ⇒ m BlockHeight
+decodeBlockHeight :: MonadGet m => m BlockHeight
 decodeBlockHeight = BlockHeight <$> getWord64le
 
 -- -------------------------------------------------------------------------- --
@@ -157,10 +155,10 @@ newtype BlockWeight = BlockWeight HashDifficulty
         , Num
         )
 
-encodeBlockWeight ∷ MonadPut m ⇒ BlockWeight → m ()
+encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 
-decodeBlockWeight ∷ MonadGet m ⇒ m BlockWeight
+decodeBlockWeight :: MonadGet m => m BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 
 -- -------------------------------------------------------------------------- --
@@ -170,10 +168,10 @@ newtype BlockPayloadHash = BlockPayloadHash ()
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
-encodeBlockPayloadHash ∷ MonadPut m ⇒ BlockPayloadHash → m ()
+encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
 encodeBlockPayloadHash (BlockPayloadHash _) = return ()
 
-decodeBlockPayloadHash ∷ MonadGet m ⇒ m BlockPayloadHash
+decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
 decodeBlockPayloadHash = return $ BlockPayloadHash ()
 
 -- -------------------------------------------------------------------------- --
@@ -186,10 +184,10 @@ newtype Nonce = Nonce Word64
     deriving stock (Show, Eq, Ord)
     deriving newtype (ToJSON, FromJSON, Hashable)
 
-encodeNonce ∷ MonadPut m ⇒ Nonce → m ()
+encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n
 
-decodeNonce ∷ MonadGet m ⇒ m Nonce
+decodeNonce :: MonadGet m => m Nonce
 decodeNonce = Nonce <$> getWord64le
 
 -- -------------------------------------------------------------------------- --
@@ -201,21 +199,21 @@ decodeNonce = Nonce <$> getWord64le
 -- hash. This enables nodes to inductively with respective to existing blocks
 -- without recalculating the aggregated value from the genesis block onward.
 --
-data BlockHeader ∷ Type where
-    BlockHeader ∷
-        { _blockParent ∷ !BlockHash
+data BlockHeader :: Type where
+    BlockHeader ::
+        { _blockParent :: !BlockHash
             -- ^ authorative
 
-        , _blockAdjacentHashes ∷ !BlockHashRecord
+        , _blockAdjacentHashes :: !BlockHashRecord
             -- ^ authorative
 
-        , _blockTarget ∷ !HashTarget
+        , _blockTarget :: !HashTarget
             -- ^ authorative
 
-        , _blockPayloadHash ∷ !BlockPayloadHash
+        , _blockPayloadHash :: !BlockPayloadHash
             -- ^ authorative
 
-        , _blockCreationTime ∷ !(Time Int64)
+        , _blockCreationTime :: !(Time Int64)
             -- ^ the time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
             -- with in the chain of blocks. The smallest allowed increment is
@@ -247,42 +245,42 @@ data BlockHeader ∷ Type where
             -- this strategy doesn't give an advantage to an attacker that would
             -- increase the success propbability for an attack.
 
-        , _blockNonce ∷ !Nonce
+        , _blockNonce :: !Nonce
             -- ^ authorative
 
-        , _blockChainId ∷ !ChainId
+        , _blockChainId :: !ChainId
 
-        , _blockWeight ∷ !BlockWeight
+        , _blockWeight :: !BlockWeight
             -- ^ the accumulated weight of the chain. It is redundant information
             -- that is subject to the inductive property that the block weight
             -- of a block is the block weight of the parent plus the difficulty
             -- of the block.
 
-        , _blockHeight ∷ !BlockHeight
+        , _blockHeight :: !BlockHeight
             -- ^ block height records the length of the chain. It is redundant
             -- information and thus subject the inductive property that
             -- the block height of a block is the block height of its parent
             -- plus one.
 
-        , _blockChainwebVersion ∷ !ChainwebVersion
+        , _blockChainwebVersion :: !ChainwebVersion
             -- ^ the Chainweb version is a constant for the chain. A chain
             -- is uniquely identified by its genesis block. Thus this is
             -- redundant information and thus subject to the inductive property
             -- that the Chainweb version of a block equals the Chainweb version
             -- of its parent.
 
-        , _blockMiner ∷ !NodeId
+        , _blockMiner :: !NodeId
             -- ^ The public identifier of the miner of the block as self-idenfied
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
             -- enfored. This information is merely informational.
 
-        , _blockHash ∷ !BlockHash
+        , _blockHash :: !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
             -- The difficulty must match the block difficulty as stated in the respective
             -- property.
         }
-        → BlockHeader
+        -> BlockHeader
         deriving (Show, Generic)
 
 instance Eq BlockHeader where
@@ -294,7 +292,7 @@ instance Ord BlockHeader where
      {-# INLINE compare #-}
 
 instance Hashable BlockHeader where
-    hashWithSalt s = hashWithSalt s ∘ _blockHash
+    hashWithSalt s = hashWithSalt s . _blockHash
     {-# INLINE hashWithSalt #-}
 
 instance HasChainId BlockHeader where
@@ -304,9 +302,9 @@ instance HasChainId BlockHeader where
 makeLenses ''BlockHeader
 
 encodeBlockHeaderNoHash
-    ∷ MonadPut m
-    ⇒ BlockHeader
-    → m ()
+    :: MonadPut m
+    => BlockHeader
+    -> m ()
 encodeBlockHeaderNoHash b = do
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
@@ -321,9 +319,9 @@ encodeBlockHeaderNoHash b = do
     encodeNodeId (_blockMiner b)
 
 encodeBlockHeader
-    ∷ MonadPut m
-    ⇒ BlockHeader
-    → m ()
+    :: MonadPut m
+    => BlockHeader
+    -> m ()
 encodeBlockHeader b = do
     encodeBlockHeaderNoHash b
     encodeBlockHash (_blockHash b)
@@ -334,13 +332,13 @@ encodeBlockHeader b = do
 -- 2. all adjacentParent match adjacents in graph
 --
 decodeBlockHeaderChecked
-    ∷ MonadThrow m
-    ⇒ MonadGet m
-    ⇒ ChainGraph
-    → m BlockHeader
+    :: MonadThrow m
+    => MonadGet m
+    => ChainGraph
+    -> m BlockHeader
 decodeBlockHeaderChecked g = do
-    bh ← decodeBlockHeader
-    _ ← give g $ checkAdjacentChainIds bh (Expected $ _blockAdjacentChainIds bh)
+    bh <- decodeBlockHeader
+    _ <- give g $ checkAdjacentChainIds bh (Expected $ _blockAdjacentChainIds bh)
     return bh
 
 -- | Decode and check that
@@ -350,22 +348,22 @@ decodeBlockHeaderChecked g = do
 -- 3. chainId matches the expected chain id
 --
 decodeBlockHeaderCheckedChainId
-    ∷ MonadThrow m
-    ⇒ MonadGet m
-    ⇒ HasChainId p
-    ⇒ ChainGraph
-    → Expected p
-    → m BlockHeader
+    :: MonadThrow m
+    => MonadGet m
+    => HasChainId p
+    => ChainGraph
+    -> Expected p
+    -> m BlockHeader
 decodeBlockHeaderCheckedChainId g p = do
-    bh ← decodeBlockHeaderChecked g
-    _ ← checkChainId p (Actual (_chainId bh))
+    bh <- decodeBlockHeaderChecked g
+    _ <- checkChainId p (Actual (_chainId bh))
     return bh
 
 -- | Decode a BlockHeader and trust the result
 --
 decodeBlockHeader
-    ∷ MonadGet m
-    ⇒ m BlockHeader
+    :: MonadGet m
+    => m BlockHeader
 decodeBlockHeader = BlockHeader
     <$> decodeBlockHash
     <*> decodeBlockHashRecord
@@ -396,7 +394,7 @@ instance ToJSON BlockHeader where
         , "hash" .= _blockHash b
         ]
 
-parseBlockHeaderObject ∷ Object → Parser BlockHeader
+parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
     <$> o .: "parent"
     <*> o .: "adjacents"
@@ -415,21 +413,21 @@ instance FromJSON BlockHeader where
     parseJSON = withObject "BlockHeader" parseBlockHeaderObject
     {-# INLINE parseJSON #-}
 
-_blockAdjacentChainIds ∷ BlockHeader → HS.HashSet ChainId
+_blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
 _blockAdjacentChainIds =
-    HS.fromList ∘ HM.keys ∘ _getBlockHashRecord ∘ _blockAdjacentHashes
+    HS.fromList . HM.keys . _getBlockHashRecord . _blockAdjacentHashes
 
-blockAdjacentChainIds ∷ Getter BlockHeader (HS.HashSet ChainId)
+blockAdjacentChainIds :: Getter BlockHeader (HS.HashSet ChainId)
 blockAdjacentChainIds = to _blockAdjacentChainIds
 
-getAdjacentHash ∷ MonadThrow m ⇒ HasChainId p ⇒ p → BlockHeader → m BlockHash
-getAdjacentHash p b = firstOf (blockAdjacentHashes ∘ ix (_chainId p)) b
+getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
+getAdjacentHash p b = firstOf (blockAdjacentHashes . ix (_chainId p)) b
     ??? ChainNotAdjacentException
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
 {-# INLINE getAdjacentHash #-}
 
-computeBlockHash ∷ BlockHeader → BlockHash
+computeBlockHash :: BlockHeader -> BlockHash
 computeBlockHash b
     | isGenesisBlockHeader b = genesisBlockHash (_blockChainwebVersion b) b
     | otherwise = BlockHash (_chainId b)
@@ -437,8 +435,8 @@ computeBlockHash b
             putLazyByteString "block"
             encodeBlockHeaderNoHash b
 
-isGenesisBlockHeader ∷ BlockHeader → Bool
-isGenesisBlockHeader b = _blockHeight b ≡ BlockHeight 0
+isGenesisBlockHeader :: BlockHeader -> Bool
+isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 {-# INLINE isGenesisBlockHeader #-}
 
 -- -------------------------------------------------------------------------- --
@@ -447,24 +445,24 @@ isGenesisBlockHeader b = _blockHeight b ≡ BlockHeight 0
 -- | The genesis block hash includes the Chainweb version and the 'ChainId'
 -- within the Chainweb version.
 --
-genesisBlockHash ∷ HasChainId p ⇒ ChainwebVersion → p → BlockHash
+genesisBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
 genesisBlockHash v p =
-    BlockHash (_chainId p) ∘ cryptoHash v ∘ runPutS $ encodeChainId (_chainId p)
+    BlockHash (_chainId p) . cryptoHash v . runPutS $ encodeChainId (_chainId p)
 
-genesisBlockTarget ∷ HashTarget
+genesisBlockTarget :: HashTarget
 genesisBlockTarget = HashTarget maxBound
 
-genesisTime ∷ ChainwebVersion → ChainId → Time Int64
+genesisTime :: ChainwebVersion -> ChainId -> Time Int64
 genesisTime Test _ = epoche
 genesisTime Simulation _ = epoche
 genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
 
-genesisMiner ∷ HasChainId p ⇒ ChainwebVersion → p → NodeId
+genesisMiner :: HasChainId p => ChainwebVersion -> p -> NodeId
 genesisMiner Test p = NodeId (_chainId p) 0
 genesisMiner Simulation p = NodeId (_chainId p) 0
 genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 
-genesisBlockPayloadHash ∷ ChainwebVersion → ChainId → BlockPayloadHash
+genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash _ _ = BlockPayloadHash ()
 
 -- | A block chain is globally uniquely identified by its genesis hash.
@@ -476,15 +474,15 @@ genesisBlockPayloadHash _ _ = BlockPayloadHash ()
 -- scope and identify chains only by there internal 'ChainId'.
 --
 genesisBlockHeader
-    ∷ HasChainId p
-    ⇒ ChainwebVersion
-    → ChainGraph
-    → p
-    → BlockHeader
+    :: HasChainId p
+    => ChainwebVersion
+    -> ChainGraph
+    -> p
+    -> BlockHeader
 genesisBlockHeader v g p = BlockHeader
     { _blockParent = genesisBlockHash v p
     , _blockAdjacentHashes = BlockHashRecord $ HM.fromList $
-        (\c → (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
+        (\c -> (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
     , _blockTarget = genesisBlockTarget
     , _blockPayloadHash = genesisBlockPayloadHash v cid
     , _blockNonce = Nonce 0
@@ -500,42 +498,42 @@ genesisBlockHeader v g p = BlockHeader
     cid = _chainId p
 
 genesisBlockHeaders
-    ∷ HasChainId p
-    ⇒ ChainwebVersion
-    → ChainGraph
-    → HS.HashSet p
-    → HM.HashMap ChainId BlockHeader
+    :: HasChainId p
+    => ChainwebVersion
+    -> ChainGraph
+    -> HS.HashSet p
+    -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v g ps = HM.fromList
-    $ (\cid → (_chainId cid, genesisBlockHeader v g cid)) <$> HS.toList ps
+    $ (\cid -> (_chainId cid, genesisBlockHeader v g cid)) <$> HS.toList ps
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
 
-prop_block_difficulty ∷ BlockHeader → Bool
+prop_block_difficulty :: BlockHeader -> Bool
 prop_block_difficulty b =
     checkTarget (_blockTarget b) (_blockHash b)
 
 prop_block_hash
-    ∷ BlockHeader
-    → Bool
-prop_block_hash b = _blockHash b ≡ computeBlockHash b
+    :: BlockHeader
+    -> Bool
+prop_block_hash b = _blockHash b == computeBlockHash b
 
-prop_block_genesis_parent ∷ BlockHeader → Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b ≡ _blockHash b
+prop_block_genesis_parent :: BlockHeader -> Bool
+prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
 
-prop_block_genesis_target ∷ BlockHeader → Bool
+prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b ==>
-    _blockTarget b ≡ genesisBlockTarget
+    _blockTarget b == genesisBlockTarget
 
 -- -------------------------------------------------------------------------- --
 -- Testing
 
 testBlockHeader
-    ∷ NodeId
-    → BlockHashRecord
-    → Nonce
-    → BlockHeader
-    → BlockHeader
+    :: NodeId
+    -> BlockHashRecord
+    -> Nonce
+    -> BlockHeader
+    -> BlockHeader
 testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
   where
     target = _blockTarget b -- no difficulty adjustment

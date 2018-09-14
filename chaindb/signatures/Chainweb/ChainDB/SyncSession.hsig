@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Signature: Chainweb.ChainDB.SyncSession
@@ -30,11 +29,11 @@ import Chainweb.ChainDB
 import P2P.Connection
 
 syncSession
-    ∷ ∀ m
+    :: forall m
     . MonadMask m
-    ⇒ MonadAsync m
-    ⇒ MonadIO m
-    ⇒ (LogLevel → T.Text → m ())
-    → ChainDb
-    → P2pConnection m
-    → m ()
+    => MonadAsync m
+    => MonadIO m
+    => (LogLevel -> T.Text -> m ())
+    -> ChainDb
+    -> P2pConnection m
+    -> m ()

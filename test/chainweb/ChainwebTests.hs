@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: ChainwebTests
@@ -15,6 +14,6 @@ module ChainwebTests
 ( main
 ) where
 
-main ∷ IO ()
+main :: IO ()
 main = putStrLn "nothing yet implemented"
 

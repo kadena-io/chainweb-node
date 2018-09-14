@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Numeric.Cast
@@ -25,17 +24,17 @@ import Numeric.Natural
 -- Safe Casts
 
 class NumCast a b where
-    numCast ∷ a → b
+    numCast :: a -> b
 
 instance NumCast a a where
     numCast = id
     {-# INLINE numCast #-}
 
-instance Integral a ⇒ NumCast a Integer where
+instance Integral a => NumCast a Integer where
     numCast = toInteger
     {-# INLINE numCast #-}
 
-instance Real a ⇒ NumCast a Rational where
+instance Real a => NumCast a Rational where
     numCast = toRational
     {-# INLINE numCast #-}
 
@@ -139,23 +138,23 @@ instance NumCast Float Double where
 -- -------------------------------------------------------------------------- --
 -- Checked Casts
 
-class MaybeNumCast a b where maybeNumCast ∷ a → Maybe b
+class MaybeNumCast a b where maybeNumCast :: a -> Maybe b
 
--- instance NumCast a b ⇒ MaybeNumCast a b where maybeNumCast = Just ∘ numCast
+-- instance NumCast a b => MaybeNumCast a b where maybeNumCast = Just . numCast
 
-instance (Integral a) ⇒ MaybeNumCast a Integer where
+instance (Integral a) => MaybeNumCast a Integer where
     maybeNumCast = Just . toInteger
     {-# INLINE maybeNumCast #-}
 
-instance (Integral a) ⇒ MaybeNumCast a Natural where
+instance (Integral a) => MaybeNumCast a Natural where
     maybeNumCast a
         | a >= 0 = Just $ fromIntegral a
         | otherwise = Nothing
     {-# INLINE maybeNumCast #-}
 
-instance (Integral a, Integral b, Bounded b) ⇒ MaybeNumCast a b where
+instance (Integral a, Integral b, Bounded b) => MaybeNumCast a b where
     maybeNumCast a
-        | a <= fromIntegral (maxBound ∷ b) && a >= fromIntegral (minBound ∷ b) = Just $ fromIntegral a
+        | a <= fromIntegral (maxBound :: b) && a >= fromIntegral (minBound :: b) = Just $ fromIntegral a
         | otherwise = Nothing
     {-# INLINE maybeNumCast #-}
 

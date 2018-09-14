@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Main
@@ -15,6 +14,6 @@ module Main
 ( main
 ) where
 
-main ∷ IO ()
+main :: IO ()
 main = putStrLn "nothing yet implemented"
 

@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Modulue: P2P.Connection
@@ -39,27 +38,26 @@ import qualified Data.ByteString as B
 
 import GHC.Generics (Generic)
 
-import Prelude.Unicode
 
 -- -------------------------------------------------------------------------- --
 -- Monad Async
 
 -- | Monads that support asynchronous computations.
 --
-class Monad m ⇒ MonadAsync m where
-    async ∷ m a → m (TMVar (Either SomeException a), ThreadId)
+class Monad m => MonadAsync m where
+    async :: m a -> m (TMVar (Either SomeException a), ThreadId)
 
 instance MonadAsync IO where
     async action = do
-        var ← newEmptyTMVarIO
-        t ← action `forkFinally` (atomically ∘ putTMVar var)
+        var <- newEmptyTMVarIO
+        t <- action `forkFinally` (atomically . putTMVar var)
         return (var,t)
 
-instance MonadAsync m ⇒ MonadAsync (ReaderT r m) where
-    async a = ask >>= lift ∘ async ∘ runReaderT a
+instance MonadAsync m => MonadAsync (ReaderT r m) where
+    async a = ask >>= lift . async . runReaderT a
 
-instance MonadAsync m ⇒ MonadAsync (IdentityT m) where
-    async = lift ∘ async ∘ runIdentityT
+instance MonadAsync m => MonadAsync (IdentityT m) where
+    async = lift . async . runIdentityT
 
 -- -------------------------------------------------------------------------- --
 -- P2P Connection
@@ -133,7 +131,7 @@ type P2pMessage = [B.ByteString]
 -- connection state.
 --
 data P2pConnection m = P2pConnection
-    { p2pSend ∷ P2pMessage → m ()
+    { p2pSend :: P2pMessage -> m ()
         -- ^ Send a message to the peer. This call is non-blocking.
         --
         -- Raises a 'P2pConnectionClosed' exception after 'p2pClose' was called
@@ -141,7 +139,7 @@ data P2pConnection m = P2pConnection
         -- messages that were sent before that call have been received. Raises
         -- 'P2pConnectionFailure' if a connection failure occurred.
 
-    , p2pReceive ∷ m P2pMessage
+    , p2pReceive :: m P2pMessage
         -- ^ Receive the next message from the message queue. This call blocks
         -- if the receive queue is empty and the connection hasn't been closed
         -- by the remote peer.
@@ -151,7 +149,7 @@ data P2pConnection m = P2pConnection
         -- messages that were sent before that call have been received. Raises
         -- 'P2pConnectionFailure' if a connection failure occurred.
 
-    , p2pTryReceive ∷ m (Maybe P2pMessage)
+    , p2pTryReceive :: m (Maybe P2pMessage)
         -- ^ Receive the next message from the message queue. Returns 'Nothing'
         -- if the queue is empty.
         --
@@ -160,7 +158,7 @@ data P2pConnection m = P2pConnection
         -- messages that were sent before that call have been received. Raises
         -- 'P2pConnectionFailure' if a connection failure occurred.
 
-    , p2pClose ∷ m ()
+    , p2pClose :: m ()
         -- ^ Close this session. The peer may still receive some number of
         -- messages. No message send by the peer after this call is received and
         -- no new message is sent.
@@ -174,10 +172,10 @@ data P2pConnection m = P2pConnection
 -- -------------------------------------------------------------------------- --
 -- P2P Session
 
-type P2pSession = ∀ m
+type P2pSession = forall m
     . MonadIO m
-    ⇒ MonadMask m
-    ⇒ MonadAsync m
-    ⇒ P2pConnection m
-    → m ()
+    => MonadMask m
+    => MonadAsync m
+    => P2pConnection m
+    -> m ()
 

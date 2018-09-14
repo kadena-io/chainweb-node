@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Signature: Chainweb.ChainDB.Entry
@@ -31,7 +30,7 @@ import Data.Kind
 
 import Numeric.Natural
 
-data Key ∷ Type
+data Key :: Type
 instance Show Key
 instance Eq Key
 instance Ord Key
@@ -39,33 +38,33 @@ instance Hashable Key
 
 -- | Type of a database entry
 --
-data Entry ∷ Type
+data Entry :: Type
 instance Show Entry
 instance Eq Entry
 
 -- | Compute the 'Key' from an 'Entry'. A key is a globally unique hash of an
 -- entry. Two entries have the same key if and only if they are the same.
 --
-key ∷ Entry → Key
+key :: Entry -> Key
 
 -- | Each but exaclty one entry has a parent. The unique entry without a parent
 -- is called the root entry.
 --
 -- The parent relation induces a tree on the set of all entries.
 --
-parent ∷ Entry → Maybe Key
+parent :: Entry -> Maybe Key
 
 -- | The rank of an entry is the depth of the entry in the tree from the root.
 --
-rank ∷ Entry → Natural
+rank :: Entry -> Natural
 
 -- | Serialize an 'Entry'
 --
-encodeEntry ∷ Entry → B.ByteString
+encodeEntry :: Entry -> B.ByteString
 
 -- | Deserialize an 'Entry'. The deserialized values is 'Unchecked'.
 --
 -- Raises some exception if the decoding fails.
 --
-decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m Entry
+decodeEntry :: MonadThrow m => B.ByteString -> m Entry
 

@@ -8,7 +8,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.Time
@@ -70,7 +69,6 @@ import Data.Time.Clock.POSIX
 
 import GHC.Generics
 
-import Prelude.Unicode
 
 -- internal imports
 
@@ -84,8 +82,8 @@ import Numeric.Cast
 
 -- | The internal unit is microseconds.
 --
-newtype TimeSpan ∷ Type → Type where
-    TimeSpan ∷ a → TimeSpan a
+newtype TimeSpan :: Type -> Type where
+    TimeSpan :: a -> TimeSpan a
     deriving (Show, Eq, Ord, Generic)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
@@ -93,35 +91,35 @@ newtype TimeSpan ∷ Type → Type where
         , Enum, Bounded, Hashable, ToJSON, FromJSON
         )
 
-encodeTimeSpan ∷ MonadPut m ⇒ TimeSpan Int64 → m ()
+encodeTimeSpan :: MonadPut m => TimeSpan Int64 -> m ()
 encodeTimeSpan (TimeSpan a) = putWord64le $ unsigned a
 {-# INLINE encodeTimeSpan #-}
 
-decodeTimeSpan ∷ MonadGet m ⇒ m (TimeSpan Int64)
-decodeTimeSpan = TimeSpan ∘ signed <$> getWord64le
+decodeTimeSpan :: MonadGet m => m (TimeSpan Int64)
+decodeTimeSpan = TimeSpan . signed <$> getWord64le
 {-# INLINE decodeTimeSpan #-}
 
-castTimeSpan ∷ NumCast a b ⇒ TimeSpan a → TimeSpan b
+castTimeSpan :: NumCast a b => TimeSpan a -> TimeSpan b
 castTimeSpan (TimeSpan a) = TimeSpan $ numCast a
 {-# INLINE castTimeSpan #-}
 
-maybeCastTimeSpan ∷ MaybeNumCast a b ⇒ TimeSpan a → Maybe (TimeSpan b)
+maybeCastTimeSpan :: MaybeNumCast a b => TimeSpan a -> Maybe (TimeSpan b)
 maybeCastTimeSpan (TimeSpan a) = TimeSpan <$> maybeNumCast a
 {-# INLINE maybeCastTimeSpan #-}
 
-ceilingTimeSpan ∷ RealFrac a ⇒ Integral b ⇒ TimeSpan a → TimeSpan b
+ceilingTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
 ceilingTimeSpan (TimeSpan a) = TimeSpan (ceiling a)
 {-# INLINE ceilingTimeSpan #-}
 
-floorTimeSpan ∷ RealFrac a ⇒ Integral b ⇒ TimeSpan a → TimeSpan b
+floorTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
 floorTimeSpan (TimeSpan a) = TimeSpan (floor a)
 {-# INLINE floorTimeSpan #-}
 
-scaleTimeSpan ∷ Integral a ⇒ Num b ⇒ a → TimeSpan b → TimeSpan b
+scaleTimeSpan :: Integral a => Num b => a -> TimeSpan b -> TimeSpan b
 scaleTimeSpan scalar (TimeSpan t) = TimeSpan (fromIntegral scalar * t)
 {-# INLINE scaleTimeSpan #-}
 
-addTimeSpan ∷ Num a ⇒ TimeSpan a → TimeSpan a → TimeSpan a
+addTimeSpan :: Num a => TimeSpan a -> TimeSpan a -> TimeSpan a
 addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 {-# INLINE addTimeSpan #-}
 
@@ -134,79 +132,79 @@ newtype Time a = Time (TimeSpan a)
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON, Hashable)
 
-instance AdditiveGroup (TimeSpan a) ⇒ LeftTorsor (Time a) where
+instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     type Diff (Time a) = TimeSpan a
     add s (Time t) = Time (s `plus` t)
     diff (Time t₁) (Time t₂) = t₁ `minus` t₂
     {-# INLINE add #-}
     {-# INLINE diff #-}
 
-epoche ∷ Num a ⇒ Time a
+epoche :: Num a => Time a
 epoche = Time (TimeSpan 0)
 {-# INLINE epoche #-}
 
-getCurrentTimeIntegral ∷ Integral a ⇒ IO (Time a)
+getCurrentTimeIntegral :: Integral a => IO (Time a)
 getCurrentTimeIntegral = do
     -- returns POSIX seconds with picosecond precision
-    t ← getPOSIXTime
+    t <- getPOSIXTime
     return $ Time $ TimeSpan (round $ t * 1000000)
 
-encodeTime ∷ MonadPut m ⇒ Time Int64 → m ()
+encodeTime :: MonadPut m => Time Int64 -> m ()
 encodeTime (Time a) = encodeTimeSpan a
 {-# INLINE encodeTime #-}
 
-decodeTime ∷ MonadGet m ⇒ m (Time Int64)
+decodeTime :: MonadGet m => m (Time Int64)
 decodeTime  = Time <$> decodeTimeSpan
 {-# INLINE decodeTime #-}
 
-castTime ∷ NumCast a b ⇒ Time a → Time b
+castTime :: NumCast a b => Time a -> Time b
 castTime (Time a) = Time $ castTimeSpan a
 {-# INLINE castTime #-}
 
-maybeCastTime ∷ MaybeNumCast a b ⇒ Time a → Maybe (Time b)
+maybeCastTime :: MaybeNumCast a b => Time a -> Maybe (Time b)
 maybeCastTime (Time a) = Time <$> maybeCastTimeSpan a
 {-# INLINE maybeCastTime #-}
 
-ceilingTime ∷ RealFrac a ⇒ Integral b ⇒ Time a → Time b
+ceilingTime :: RealFrac a => Integral b => Time a -> Time b
 ceilingTime (Time a) = Time (ceilingTimeSpan a)
 {-# INLINE ceilingTime #-}
 
-floorTime ∷ RealFrac a ⇒ Integral b ⇒ Time a → Time b
+floorTime :: RealFrac a => Integral b => Time a -> Time b
 floorTime (Time a) = Time (floorTimeSpan a)
 {-# INLINE floorTime #-}
 
-minTime ∷ Bounded a ⇒ Time a
+minTime :: Bounded a => Time a
 minTime = minBound
 {-# INLINE maxTime #-}
 
-maxTime ∷ Bounded a ⇒ Time a
+maxTime :: Bounded a => Time a
 maxTime = maxBound
 {-# INLINE minTime #-}
 
 -- -------------------------------------------------------------------------- --
 -- Time Span Values
 
-microsecond ∷ Num a ⇒ TimeSpan a
+microsecond :: Num a => TimeSpan a
 microsecond = TimeSpan 1
 {-# INLINE microsecond #-}
 
-millisecond ∷ Num a ⇒ TimeSpan a
+millisecond :: Num a => TimeSpan a
 millisecond = TimeSpan kilo
 {-# INLINE millisecond #-}
 
-second ∷ Num a ⇒ TimeSpan a
+second :: Num a => TimeSpan a
 second = TimeSpan mega
 {-# INLINE second #-}
 
-minute ∷ Num a ⇒ TimeSpan a
+minute :: Num a => TimeSpan a
 minute = TimeSpan $ mega * 60
 {-# INLINE minute #-}
 
-hour ∷ Num a ⇒ TimeSpan a
+hour :: Num a => TimeSpan a
 hour = TimeSpan $ mega * 3600
 {-# INLINE hour #-}
 
-day ∷ Num a ⇒ TimeSpan a
+day :: Num a => TimeSpan a
 day = TimeSpan $ mega * 24 * 3600
 {-# INLINE day #-}
 

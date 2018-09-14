@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Main
@@ -32,12 +31,10 @@ import qualified Data.ByteString.Base64 as B64
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
-import Data.Monoid.Unicode
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import Prelude.Unicode
 
 import System.Logger hiding (logg)
 import System.Random
@@ -52,21 +49,21 @@ import qualified Chainweb.ChainDB as DB
 
 -- | Setup a logger and run the example
 --
-main ∷ IO ()
+main :: IO ()
 main = withHandleBackend (_logConfigBackend config)
-     $ \backend → withLogger (_logConfigLogger config) backend
+     $ \backend -> withLogger (_logConfigLogger config) backend
      $ example
   where
     level = Debug
     config = defaultLogConfig
-        & logConfigLogger ∘ loggerConfigThreshold .~ level
+        & logConfigLogger . loggerConfigThreshold .~ level
 
 -- | Initializes a new chain database and spawns six miners and one observer.
 --
-example ∷ Logger T.Text → IO ()
+example :: Logger T.Text -> IO ()
 example logger = do
-    db ← DB.initChainDb $ DB.Configuration { DB._configRoot = root }
-    withAsync (observer logger db) $ \o → do
+    db <- DB.initChainDb $ DB.Configuration { DB._configRoot = root }
+    withAsync (observer logger db) $ \o -> do
         mapConcurrently_ (miner logger db) [0..5]
         wait o
     return ()
@@ -76,31 +73,31 @@ example logger = do
 
 -- | A miner creates new entries with successive natural numbers as payload.
 --
-miner ∷ Logger T.Text → DB.ChainDb → Int → IO ()
-miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' → do
+miner :: Logger T.Text -> DB.ChainDb -> Int -> IO ()
+miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> do
     let logg = loggerFunIO logger'
     logg Info "Started Miner"
     go logg 1
   where
     go logg i = do
         -- get db snapshot
-        s ← DB.snapshot db
+        s <- DB.snapshot db
 
         -- pick parent from random longest branch
         let bs = DB.branches s
-        p ← maximumBy (compare `on` DB.rank) <$>
+        p <- maximumBy (compare `on` DB.rank) <$>
             mapM (`DB.getEntryIO` s) (HS.toList bs)
 
         -- create entry
         let e = DB.entry $ entry (DB.dbEntry p) i
 
         -- Add entry to database
-        s' ← DB.insert e s
+        s' <- DB.insert e s
         void $ DB.syncSnapshot s'
-        _ ← logg Debug $ "published new block " ⊕ sshow i
+        _ <- logg Debug $ "published new block " <> sshow i
 
         -- continue
-        d ← randomRIO (0, 1000000)
+        d <- randomRIO (0, 1000000)
         threadDelay d
         go logg (i + 1)
 
@@ -111,29 +108,29 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' →
 -- also reads the number of branches and checks that the set of children is
 -- empty for the heads of branches.
 --
-observer ∷ Logger T.Text → DB.ChainDb → IO ()
-observer logger db = withLoggerLabel ("observer", "") logger $ \logger' → do
+observer :: Logger T.Text -> DB.ChainDb -> IO ()
+observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
     let logg level = loggerFunIO logger' level
     logg Info "Initialized Observer"
     threadDelay $ 2 * 1000000
 
     logg Info "Subscribed to updates"
-    us ← DB.updates db
+    us <- DB.updates db
 
     threadDelay $ 3 * 1000000
     logg Info "Started observing entries"
     forever $ do
-        s ← DB.snapshot db
+        s <- DB.snapshot db
             -- taking the snapshot first increases the changes for an outdated
             -- snapshot.
-        n ← atomically $ DB.updatesNext us
+        n <- atomically $ DB.updatesNext us
 
-        e ← DB.getEntryIO n s
-        logg Info $ "observed new entry: " ⊕ sshow e
-        logg Info $ "serialized Entry: " ⊕ T.decodeUtf8 (B64.encode (DB.encodeEntry e))
+        e <- DB.getEntryIO n s
+        logg Info $ "observed new entry: " <> sshow e
+        logg Info $ "serialized Entry: " <> T.decodeUtf8 (B64.encode (DB.encodeEntry e))
 
         let bs = DB.branches s
-        logg Info $ "branch count: " ⊕ sshow (length bs)
+        logg Info $ "branch count: " <> sshow (length bs)
 
         mapM_ (checkBranch logg s) bs
 
@@ -141,16 +138,16 @@ observer logger db = withLoggerLabel ("observer", "") logger $ \logger' → do
 -- Utils
 
 checkBranch
-    ∷ (LogLevel → T.Text → IO ())
-    → DB.Snapshot
-    → DB.Key 'DB.Checked
-    → IO ()
+    :: (LogLevel -> T.Text -> IO ())
+    -> DB.Snapshot
+    -> DB.Key 'DB.Checked
+    -> IO ()
 checkBranch logg s bk = do
-    be ← DB.getEntryIO bk s
+    be <- DB.getEntryIO bk s
     unless (HS.null $ DB.children bk s)
-        $ logg Error $ "branch " ⊕ sshow be ⊕ " has children"
+        $ logg Error $ "branch " <> sshow be <> " has children"
     return ()
 
-sshow ∷ Show a ⇒ IsString b ⇒ a → b
-sshow = fromString ∘ show
+sshow :: Show a => IsString b => a -> b
+sshow = fromString . show
 

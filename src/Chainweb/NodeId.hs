@@ -8,7 +8,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeInType #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.NodeId
@@ -37,7 +36,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
 import Data.Kind
-import Data.Monoid.Unicode
+import Data.Monoid
 import qualified Data.Text as T
 import Data.Word
 
@@ -51,8 +50,8 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- NodeId
 
-data NodeId ∷ Type where
-    NodeId ∷ { _nodeIdChain ∷ !ChainId, _nodeIdId ∷ !Word64 } → NodeId
+data NodeId :: Type where
+    NodeId :: { _nodeIdChain :: !ChainId, _nodeIdId :: !Word64 } -> NodeId
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, FromJSON, ToJSON)
 
@@ -62,24 +61,24 @@ instance HasChainId NodeId where
     _chainId = _nodeIdChain
     {-# INLINE _chainId #-}
 
-encodeNodeId ∷ MonadPut m ⇒ NodeId → m ()
+encodeNodeId :: MonadPut m => NodeId -> m ()
 encodeNodeId (NodeId cid i) = encodeChainId cid >> putWord64le i
 {-# INLINE encodeNodeId #-}
 
-decodeNodeId ∷ MonadGet m ⇒ m NodeId
+decodeNodeId :: MonadGet m => m NodeId
 decodeNodeId = NodeId <$> decodeChainId <*> getWord64le
 {-# INLINE decodeNodeId #-}
 
 decodeNodeIdCheckedChain
-    ∷ MonadThrow m
-    ⇒ MonadGet m
-    ⇒ HasChainId p
-    ⇒ Expected p
-    → m NodeId
+    :: MonadThrow m
+    => MonadGet m
+    => HasChainId p
+    => Expected p
+    -> m NodeId
 decodeNodeIdCheckedChain p = NodeId <$> decodeChainIdChecked p <*> getWord64le
 {-# INLINE decodeNodeIdCheckedChain #-}
 
-prettyNodeId ∷ NodeId → T.Text
-prettyNodeId (NodeId c i) = sshow i ⊕ "/" ⊕ prettyChainId c
+prettyNodeId :: NodeId -> T.Text
+prettyNodeId (NodeId c i) = sshow i <> "/" <> prettyChainId c
 {-# INLINE prettyNodeId #-}
 

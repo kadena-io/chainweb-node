@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Main
@@ -28,7 +27,6 @@ import Control.Monad.STM
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
-import Data.Monoid.Unicode
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
@@ -39,7 +37,6 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Prelude.Unicode
 
 import System.Logger hiding (logg)
 import qualified System.LogLevel as L
@@ -65,22 +62,22 @@ import P2P.Node
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
-logLevel ∷ LogLevel
+logLevel :: LogLevel
 logLevel = Debug
 
-meanBlockTimeSeconds ∷ Natural
+meanBlockTimeSeconds :: Natural
 meanBlockTimeSeconds = 2
 
-numberOfNodes ∷ Natural
+numberOfNodes :: Natural
 numberOfNodes = 10
 
-targetSessionCount ∷ Natural
+targetSessionCount :: Natural
 targetSessionCount = 4
 
-maxSessionCount ∷ Natural
+maxSessionCount :: Natural
 maxSessionCount = 6
 
-msgBufferSize ∷ Natural
+msgBufferSize :: Natural
 msgBufferSize = 1000
 
 -- | Adds some jitter to the P2P network and makes the example more interesting.
@@ -90,33 +87,33 @@ msgBufferSize = 1000
 -- ever increasing overhead. Combined with a small value for msgBufferSize this
 -- can quickly lead to a live-lock.
 --
-meanTimeoutSeconds ∷ Natural
+meanTimeoutSeconds :: Natural
 meanTimeoutSeconds = 20
 
 -- -------------------------------------------------------------------------- --
 -- Main
 
-exampleChainId ∷ ChainId
+exampleChainId :: ChainId
 exampleChainId = testChainId 0
 
-graph ∷ ChainGraph
+graph :: ChainGraph
 graph = toChainGraph (const exampleChainId) singleton
 
 -- | Setup a logger and run the example
 --
-main ∷ IO ()
+main :: IO ()
 main = withHandleBackend (_logConfigBackend config)
-     $ \backend → withLogger (_logConfigLogger config) backend
+     $ \backend -> withLogger (_logConfigLogger config) backend
      $ example
   where
     config = defaultLogConfig
-        & logConfigLogger ∘ loggerConfigThreshold .~ logLevel
+        & logConfigLogger . loggerConfigThreshold .~ logLevel
 
 -- | Configure the P2P network start the nodes
 --
 example
-    ∷ Logger T.Text
-    → IO ()
+    :: Logger T.Text
+    -> IO ()
 example logger = do
 
     -- P2P node configuration
@@ -125,7 +122,7 @@ example logger = do
             { _p2pConfigSessionCount = targetSessionCount
             , _p2pConfigMaxSessionCount = maxSessionCount
             , _p2pConfigMessageBufferSize = msgBufferSize
-            , _p2pLogFunction = \l → liftIO ∘ loggerFunIO logger (l2l l)
+            , _p2pLogFunction = \l -> liftIO . loggerFunIO logger (l2l l)
             }
 
     -- run nodes concurrently
@@ -138,13 +135,13 @@ example logger = do
 -- -------------------------------------------------------------------------- --
 -- Node
 
-node ∷ Logger T.Text → P2pConfiguration → NodeId → IO ()
+node :: Logger T.Text -> P2pConfiguration -> NodeId -> IO ()
 node logger p2pConfig nid =
-    withLoggerLabel ("node", prettyNodeId nid) logger $ \logger' → do
+    withLoggerLabel ("node", prettyNodeId nid) logger $ \logger' -> do
 
         -- initialize new database handle
         --
-        db ← DB.initChainDb DB.Configuration
+        db <- DB.initChainDb DB.Configuration
             { DB._configRoot = genesisBlockHeader Test graph exampleChainId
             }
 
@@ -153,8 +150,8 @@ node logger p2pConfig nid =
         --
         runConcurrently
             $ Concurrently (miner logger' nid db)
-            ⊕ Concurrently (syncer logger' p2pConfig db)
-            ⊕ Concurrently (monitor logger' db)
+            <> Concurrently (syncer logger' p2pConfig db)
+            <> Concurrently (monitor logger' db)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -167,30 +164,30 @@ node logger p2pConfig nid =
 -- each nonce if accepted. Block creation is delayed through through
 -- 'threadDelay' with an geometric distribution.
 --
-miner ∷ Logger T.Text → NodeId → DB.ChainDb → IO ()
-miner logger nid db = withLoggerLabel ("component", "miner") logger $ \logger' → do
+miner :: Logger T.Text -> NodeId -> DB.ChainDb -> IO ()
+miner logger nid db = withLoggerLabel ("component", "miner") logger $ \logger' -> do
     let logg = loggerFunIO logger'
     logg Info "Started Miner"
-    gen ← MWC.createSystemRandom
-    go logg gen (1 ∷ Int)
+    gen <- MWC.createSystemRandom
+    go logg gen (1 :: Int)
   where
     go logg gen i = do
 
         -- mine new block
         --
-        d ← MWC.geometric1
+        d <- MWC.geometric1
             (1 / (fromIntegral numberOfNodes * fromIntegral meanBlockTimeSeconds * 1000000))
             gen
         threadDelay d
 
         -- get db snapshot
         --
-        s ← DB.snapshot db
+        s <- DB.snapshot db
 
         -- pick parent from longest branch
         --
         let bs = DB.branches s
-        p ← maximumBy (compare `on` DB.rank) <$>
+        p <- maximumBy (compare `on` DB.rank) <$>
             mapM (`DB.getEntryIO` s) (HS.toList bs)
 
         -- create new (test) block header
@@ -199,9 +196,9 @@ miner logger nid db = withLoggerLabel ("component", "miner") logger $ \logger' �
 
         -- Add block header to the database
         --
-        s' ← DB.insert e s
+        s' <- DB.insert e s
         void $ DB.syncSnapshot s'
-        _ ← logg Debug $ "published new block " ⊕ sshow i
+        _ <- logg Debug $ "published new block " <> sshow i
 
         -- continue
         --
@@ -214,20 +211,20 @@ miner logger nid db = withLoggerLabel ("component", "miner") logger $ \logger' �
 
 -- | Synchronized the local block database copy over the P2P network.
 --
-syncer ∷ Logger T.Text → P2pConfiguration → DB.ChainDb → IO ()
+syncer :: Logger T.Text -> P2pConfiguration -> DB.ChainDb -> IO ()
 syncer logger p2pConfig db = do
 
     -- create P2P configuration for local node
     --
-    p2pConfig' ← withLoggerLabel ("component", "syncer/p2p") logger $ \logger' →
+    p2pConfig' <- withLoggerLabel ("component", "syncer/p2p") logger $ \logger' ->
         return p2pConfig
-            { _p2pLogFunction = \l → liftIO ∘ loggerFunIO logger' (l2l l)
+            { _p2pLogFunction = \l -> liftIO . loggerFunIO logger' (l2l l)
             }
 
     -- run P2P node with synchronization session
     --
-    withLoggerLabel ("component", "syncer") logger $ \logger' → do
-        let logfun level = liftIO ∘ loggerFunIO logger' level
+    withLoggerLabel ("component", "syncer") logger $ \logger' -> do
+        let logfun level = liftIO . loggerFunIO logger' level
         logfun Info "initialized syncer"
         p2pNode p2pConfig' session `finally` logfun Info "stopped syncer"
   where
@@ -235,25 +232,25 @@ syncer logger p2pConfig db = do
     -- a sync session with a timeout
     --
     session
-        ∷ ∀ m
+        :: forall m
         . MonadCatch m
-        ⇒ MonadMask m
-        ⇒ MonadAsync m
-        ⇒ MonadIO m
-        ⇒ P2pConnection m
-        → m ()
+        => MonadMask m
+        => MonadAsync m
+        => MonadIO m
+        => P2pConnection m
+        -> m ()
     session p =
-        withLoggerLabel ("component", "syncer/session") logger $ \logger' → do
+        withLoggerLabel ("component", "syncer/session") logger $ \logger' -> do
             timer p
-            syncSession (\l → liftIO ∘ loggerFunIO logger' (l2l l)) db p
+            syncSession (\l -> liftIO . loggerFunIO logger' (l2l l)) db p
 
     -- The timeout adds some noise to the P2P network to make the example more
     -- fun :-)
     --
     timer p = void $ async $ do
         liftIO $ do
-            gen ← MWC.createSystemRandom
-            timeout ← MWC.geometric1 (1 / (fromIntegral meanTimeoutSeconds * 1000000)) gen
+            gen <- MWC.createSystemRandom
+            timeout <- MWC.geometric1 (1 / (fromIntegral meanTimeoutSeconds * 1000000)) gen
             threadDelay timeout
         p2pClose p
 
@@ -261,10 +258,10 @@ syncer logger p2pConfig db = do
 -- Monitor
 
 data Stats = Stats
-    { _chainHeight ∷ !Natural
-    , _branchCount ∷ !Natural
-    , _branchHeightHistogram ∷ ![Natural] -- not yet implemented
-    , _blockHeaderCount ∷ !Natural
+    { _chainHeight :: !Natural
+    , _branchCount :: !Natural
+    , _branchHeightHistogram :: ![Natural] -- not yet implemented
+    , _blockHeaderCount :: !Natural
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -282,23 +279,23 @@ instance Monoid Stats where
 
 -- | Collects statistics about local block database copy
 --
-monitor ∷ Logger T.Text → DB.ChainDb → IO ()
+monitor :: Logger T.Text -> DB.ChainDb -> IO ()
 monitor logger db =
-    withLoggerLabel ("component", "monitor") logger $ \logger' → do
+    withLoggerLabel ("component", "monitor") logger $ \logger' -> do
         let logg = loggerFunIO logger'
         logg Info "Initialized Monitor"
-        us ← DB.updates db
+        us <- DB.updates db
         go logg us mempty
   where
     go logg us stat = do
         void $ atomically $ DB.updatesNext us
-        s ← DB.snapshot db
+        s <- DB.snapshot db
 
         let bs = DB.branches s
-        maxBranch ← maximumBy (compare `on` DB.rank)
+        maxBranch <- maximumBy (compare `on` DB.rank)
             <$> mapM (`DB.getEntryIO` s) (HS.toList bs)
 
-        let stat' = stat ⊕ Stats
+        let stat' = stat <> Stats
                 { _chainHeight = DB.rank maxBranch
                 , _branchCount = fromIntegral $ length bs
                 , _branchHeightHistogram = []
@@ -311,10 +308,10 @@ monitor logger db =
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-sshow ∷ Show a ⇒ IsString b ⇒ a → b
-sshow = fromString ∘ show
+sshow :: Show a => IsString b => a -> b
+sshow = fromString . show
 
-l2l ∷ L.LogLevel → LogLevel
+l2l :: L.LogLevel -> LogLevel
 l2l L.Quiet = Quiet
 l2l L.Error = Error
 l2l L.Warn = Warn

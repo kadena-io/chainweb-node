@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Numeric.Additive
@@ -50,7 +49,7 @@ import Numeric.Natural
 -- prop> (a `plus` b) `plus` c == a `plus` (b `plus` c)
 --
 class AdditiveSemigroup g where
-    plus ∷ g → g → g
+    plus :: g -> g -> g
 
 instance AdditiveSemigroup Integer where
     plus = (+)
@@ -117,7 +116,7 @@ instance AdditiveSemigroup Int64 where
 --
 -- prop> a `plus` b == b `plus` a
 --
-class AdditiveSemigroup g ⇒ AdditiveAbelianSemigroup g
+class AdditiveSemigroup g => AdditiveAbelianSemigroup g
 
 instance AdditiveAbelianSemigroup Integer
 instance AdditiveAbelianSemigroup Rational
@@ -136,7 +135,7 @@ instance AdditiveAbelianSemigroup Word128
 instance AdditiveAbelianSemigroup Word256
 
 infixl 6 ^+^
-(^+^) ∷ AdditiveAbelianSemigroup g ⇒ g → g → g
+(^+^) :: AdditiveAbelianSemigroup g => g -> g -> g
 (^+^) = plus
 {-# INLINE (^+^) #-}
 
@@ -146,8 +145,8 @@ infixl 6 ^+^
 -- prop> a `plus` zero == a
 -- prop> zero `plus` a == a
 --
-class AdditiveSemigroup g ⇒ AdditiveMonoid g where
-    zero ∷ g
+class AdditiveSemigroup g => AdditiveMonoid g where
+    zero :: g
 
 instance AdditiveMonoid Integer where
     zero = 0
@@ -217,11 +216,11 @@ type AdditiveAbelianMonoid g = (AdditiveMonoid g, AdditiveAbelianSemigroup g)
 -- prop> a `plus` inverse a == zero
 -- prop> inverse a `plus` a == zero
 --
-class AdditiveMonoid g ⇒ AdditiveGroup g where
-    invert ∷ g → g
+class AdditiveMonoid g => AdditiveGroup g where
+    invert :: g -> g
     invert a = zero `minus` a
 
-    minus ∷ g → g → g
+    minus :: g -> g -> g
     minus a b = a `plus` invert b
 
     {-# MINIMAL invert | minus #-}
@@ -316,7 +315,7 @@ instance AdditiveGroup Int64 where
 type AdditiveAbelianGroup g = (AdditiveGroup g, AdditiveAbelianMonoid g)
 
 infix 6 ^-^
-(^-^) ∷ AdditiveAbelianGroup g ⇒ g → g → g
+(^-^) :: AdditiveAbelianGroup g => g -> g -> g
 (^-^) = minus
 {-# INLINE (^-^) #-}
 

@@ -14,7 +14,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.Graph
@@ -75,19 +74,19 @@ import Data.DiGraph
 -- to the place where those enties are defined and rename these exceptions
 -- accordingly. However, keeping it here remove code duplication.
 --
-data ChainGraphException ∷ Type where
+data ChainGraphException :: Type where
     ChainNotInChainGraphException
-        ∷ Expected (HS.HashSet ChainId)
-        → Actual ChainId
-        → ChainGraphException
+        :: Expected (HS.HashSet ChainId)
+        -> Actual ChainId
+        -> ChainGraphException
     AdjacentChainMissmatch
-        ∷ Expected (HS.HashSet ChainId)
-        → Actual (HS.HashSet ChainId)
-        → ChainGraphException
+        :: Expected (HS.HashSet ChainId)
+        -> Actual (HS.HashSet ChainId)
+        -> ChainGraphException
     ChainNotAdjacentException
-        ∷ Expected ChainId
-        → Actual (HS.HashSet ChainId)
-        → ChainGraphException
+        :: Expected ChainId
+        -> Actual (HS.HashSet ChainId)
+        -> ChainGraphException
     deriving (Show, Eq, Generic)
 
 instance Exception ChainGraphException
@@ -97,47 +96,47 @@ instance Exception ChainGraphException
 
 type ChainGraph = DiGraph ChainId
 
-toChainGraph ∷ (a → ChainId) → DiGraph a → ChainGraph
+toChainGraph :: (a -> ChainId) -> DiGraph a -> ChainGraph
 toChainGraph = mapVertices
 {-# INLINE toChainGraph #-}
 
-validChainGraph ∷ DiGraph ChainId → Bool
+validChainGraph :: DiGraph ChainId -> Bool
 validChainGraph g = isDiGraph g && isSymmetric g && isRegular g
 {-# INLINE validChainGraph #-}
 
 adjacentChainIds
-    ∷ HasChainId p
-    ⇒ ChainGraph
-    → p
-    → HS.HashSet ChainId
+    :: HasChainId p
+    => ChainGraph
+    -> p
+    -> HS.HashSet ChainId
 adjacentChainIds g cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
 -- Checks with a given Graphs
 
-chainIds ∷ Given ChainGraph ⇒ HS.HashSet ChainId
+chainIds :: Given ChainGraph => HS.HashSet ChainId
 chainIds = vertices given
 {-# INLINE chainIds #-}
 
-checkWebChainId ∷ MonadThrow m ⇒ Given ChainGraph ⇒ HasChainId p ⇒ p → m ()
+checkWebChainId :: MonadThrow m => Given ChainGraph => HasChainId p => p -> m ()
 checkWebChainId p = unless (isWebChain p)
     $ throwM $ ChainNotInChainGraphException
         (Expected (vertices given))
         (Actual (_chainId p))
 
-isWebChain ∷ Given ChainGraph ⇒ HasChainId p ⇒ p → Bool
+isWebChain :: Given ChainGraph => HasChainId p => p -> Bool
 isWebChain p = isVertex (_chainId p) given
 {-# INLINE isWebChain #-}
 
 checkAdjacentChainIds
-    ∷ MonadThrow m
-    ⇒ Given ChainGraph
-    ⇒ HasChainId cid
-    ⇒ HasChainId adj
-    ⇒ cid
-    → Expected (HS.HashSet adj)
-    → m (HS.HashSet adj)
+    :: MonadThrow m
+    => Given ChainGraph
+    => HasChainId cid
+    => HasChainId adj
+    => cid
+    -> Expected (HS.HashSet adj)
+    -> m (HS.HashSet adj)
 checkAdjacentChainIds cid expectedAdj = do
     checkWebChainId cid
     void $ check AdjacentChainMissmatch

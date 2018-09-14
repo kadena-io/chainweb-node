@@ -159,7 +159,6 @@ library chainweb-types
         -- external
           base >=4.10 && <5.0
         , aeson >=1.3
-        , base-unicode-symbols >=0.2
         , base64-bytestring >=1.0
         , bytes >=0.15
         , bytestring >=0.10
@@ -237,7 +236,6 @@ library chainweb-test
           chainweb
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytes >=0.15
         , bytestring >=0.10
         , exceptions >=0.10
@@ -341,7 +339,6 @@ executable chaindb-trivial-sync-example
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , base64-bytestring >=1.0
         , containers >=0.5
         , exceptions >=0.10
@@ -371,7 +368,6 @@ library chaindb-entry-blockheader
           chainweb-types
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytes >=0.15
         , bytestring >=0.10
         , exceptions >=0.10
@@ -388,7 +384,6 @@ library chaindb-entry-int
           chainweb-types
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytes >=0.15
         , bytestring >=0.10
         , exceptions >=0.10
@@ -418,7 +413,6 @@ library chaindb-hashmap
 
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , containers >=0.5
         , exceptions >=0.10
@@ -447,7 +441,6 @@ library chaindb-hashmap-indef
 
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , containers >=0.5
         , exceptions >=0.10
@@ -472,7 +465,6 @@ library chaindb-sync-trivial
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , deepseq >=1.4
         , exceptions >=0.10
@@ -504,7 +496,6 @@ library chaindb-sync-trivial-indef
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , deepseq >=1.4
         , exceptions >=0.10
@@ -530,7 +521,6 @@ executable chaindb-example
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , base64-bytestring >=1.0
         , containers >=0.5
         , lens >=4.16
@@ -561,7 +551,6 @@ executable chaindb-example-int
         -- external
         , async >=2.2
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , base64-bytestring >=1.0
         , bytes >=0.15
         , bytestring >=0.10
@@ -588,7 +577,6 @@ library p2p-connection
         P2P.Connection
     build-depends:
           base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >= 0.10
         , exceptions >=0.10
         , stm >=2.4
@@ -611,7 +599,6 @@ library p2p-node-inprocess
         -- external
         , base >=4.10 && <5.0
         , async >=2.2
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , exceptions >=0.10
         , loglevel >=0.1
@@ -656,7 +643,6 @@ executable p2p-example-inprocess
         -- external
         , async >=2.2
         , base >=4.10 && < 5.0
-        , base-unicode-symbols >=0.2
         , exceptions >=0.10
         , lens >=4.16
         , loglevel >= 0.1

@@ -13,7 +13,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -59,7 +58,6 @@ import Data.LargeWord
 import GHC.Generics
 import GHC.TypeNats
 
-import Prelude.Unicode
 
 -- internal imports
 
@@ -72,20 +70,20 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- LargeWord Orphans
 
-instance (Hashable a, Hashable b) ⇒ Hashable (LargeKey a b) where
+instance (Hashable a, Hashable b) => Hashable (LargeKey a b) where
     hashWithSalt s (LargeKey a b) = hashWithSalt s (a,b)
 
 instance ToJSON Word128 where
-    toJSON = toJSON ∘ (fromIntegral ∷ Word128 → Integer)
+    toJSON = toJSON . (fromIntegral :: Word128 -> Integer)
 
 instance ToJSON Word256 where
-    toJSON = toJSON ∘ (fromIntegral ∷ Word256 → Integer)
+    toJSON = toJSON . (fromIntegral :: Word256 -> Integer)
 
 instance FromJSON Word128 where
-    parseJSON = fmap (fromIntegral ∷ Integer → Word128) ∘ parseJSON
+    parseJSON = fmap (fromIntegral :: Integer -> Word128) . parseJSON
 
 instance FromJSON Word256 where
-    parseJSON = fmap (fromIntegral ∷ Integer → Word256) ∘ parseJSON
+    parseJSON = fmap (fromIntegral :: Integer -> Word256) . parseJSON
 
 -- -------------------------------------------------------------------------- --
 -- BlockHashNat
@@ -109,19 +107,19 @@ newtype BlockHashNat = BlockHashNat Word256
     -- deriving newtype (MultiplicativeSemigroup, MultiplicativeAbelianSemigroup, MultiplicativeGroup)
         -- FIXME use checked arithmetic instead
 
-blockHashNat ∷ BlockHash → BlockHashNat
+blockHashNat :: BlockHash -> BlockHashNat
 blockHashNat (BlockHash _ bytes) = BlockHashNat $ blockHashBytesToWord256 bytes
 {-# INLINE blockHashNat #-}
 
-blockHashBytesToWord256 ∷ 32 <= BlockHashBytesCount ⇒ BlockHashBytes → Word256
+blockHashBytesToWord256 :: 32 <= BlockHashBytesCount => BlockHashBytes -> Word256
 blockHashBytesToWord256 (BlockHashBytes bs) = either error id $ runGetS decodeWordLe bs
 {-# INLINE blockHashBytesToWord256 #-}
 
-encodeBlockHashNat ∷ MonadPut m ⇒ BlockHashNat → m ()
+encodeBlockHashNat :: MonadPut m => BlockHashNat -> m ()
 encodeBlockHashNat (BlockHashNat n) = encodeWordLe n
 {-# INLINE encodeBlockHashNat #-}
 
-decodeBlockHashNat ∷ MonadGet m ⇒ m BlockHashNat
+decodeBlockHashNat :: MonadGet m => m BlockHashNat
 decodeBlockHashNat = BlockHashNat <$> decodeWordLe
 {-# INLINE decodeBlockHashNat #-}
 
@@ -130,7 +128,7 @@ instance ToJSON BlockHashNat where
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHashNat where
-    parseJSON = fmap BlockHashNat ∘ parseJSON
+    parseJSON = fmap BlockHashNat . parseJSON
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey BlockHashNat
@@ -150,11 +148,11 @@ newtype HashDifficulty = HashDifficulty BlockHashNat
     deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
     deriving newtype (Num, Integral, Real)
 
-encodeHashDifficulty ∷ MonadPut m ⇒ HashDifficulty → m ()
+encodeHashDifficulty :: MonadPut m => HashDifficulty -> m ()
 encodeHashDifficulty (HashDifficulty x) = encodeBlockHashNat x
 {-# INLINE encodeHashDifficulty #-}
 
-decodeHashDifficulty ∷ MonadGet m ⇒ m HashDifficulty
+decodeHashDifficulty :: MonadGet m => m HashDifficulty
 decodeHashDifficulty = HashDifficulty <$> decodeBlockHashNat
 {-# INLINE decodeHashDifficulty #-}
 
@@ -172,23 +170,23 @@ newtype HashTarget = HashTarget BlockHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded, Enum)
 
-difficultyToTarget ∷ HashDifficulty → HashTarget
+difficultyToTarget :: HashDifficulty -> HashTarget
 difficultyToTarget difficulty = HashTarget $ maxBound `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
-targetToDifficulty ∷ HashTarget → HashDifficulty
+targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
 {-# INLINE targetToDifficulty #-}
 
-checkTarget ∷ HashTarget → BlockHash → Bool
-checkTarget target h = blockHashNat h ≤ coerce target
+checkTarget :: HashTarget -> BlockHash -> Bool
+checkTarget target h = blockHashNat h <= coerce target
 {-# INLINE checkTarget #-}
 
-encodeHashTarget ∷ MonadPut m ⇒ HashTarget → m ()
-encodeHashTarget = encodeBlockHashNat ∘ coerce
+encodeHashTarget :: MonadPut m => HashTarget -> m ()
+encodeHashTarget = encodeBlockHashNat . coerce
 {-# INLINE encodeHashTarget #-}
 
-decodeHashTarget ∷ MonadGet m ⇒ m HashTarget
+decodeHashTarget :: MonadGet m => m HashTarget
 decodeHashTarget = HashTarget <$> decodeBlockHashNat
 {-# INLINE decodeHashTarget #-}
 
@@ -205,24 +203,24 @@ decodeHashTarget = HashTarget <$> decodeBlockHashNat
 -- code is a compromise.
 --
 calculateTarget
-    ∷ ∀ a
+    :: forall a
     . Integral a
-    ⇒ TimeSpan a
-    → [(HashTarget, TimeSpan a)]
-    → HashTarget
+    => TimeSpan a
+    -> [(HashTarget, TimeSpan a)]
+    -> HashTarget
 calculateTarget targetTime l = HashTarget $ sum
     [ weightedTarget trg (t2h t) w
-    | (HashTarget trg, t) ← l
-    | w ← [ (1∷BlockHashNat) ..]
+    | (HashTarget trg, t) <- l
+    | w <- [ (1::BlockHashNat) ..]
     ]
   where
-    n ∷ BlockHashNat
+    n :: BlockHashNat
     n = int $ length l
 
     -- represent time span as integral number of milliseconds
     --
-    t2h ∷ TimeSpan a → BlockHashNat
-    t2h t = int (coerce t ∷ a) `div` 1000
+    t2h :: TimeSpan a -> BlockHashNat
+    t2h t = int (coerce t :: a) `div` 1000
 
     -- weight and n is in the order of 2^7
     -- time spans are in the order of 2^17 milliseconds
@@ -230,7 +228,7 @@ calculateTarget targetTime l = HashTarget $ sum
     -- Target should be < 2^231 (or difficulty should be larger than 2^25.
     -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
     --
-    weightedTarget ∷ BlockHashNat → BlockHashNat → BlockHashNat → BlockHashNat
+    weightedTarget :: BlockHashNat -> BlockHashNat -> BlockHashNat -> BlockHashNat
     weightedTarget target timeSpan weight
         | nominator < target = error "arithmetic overflow in hash target calculation"
         | denominator < timeSpan = error "arithmetic overfow in hash target calculation"

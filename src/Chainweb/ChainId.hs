@@ -4,7 +4,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -47,7 +46,6 @@ import Data.Word (Word32)
 
 import GHC.Generics (Generic)
 
-import Prelude.Unicode
 
 -- internal imports
 
@@ -78,8 +76,8 @@ instance Exception ChainIdException
 -- the cycle by using the Chainweb version as globally unique identifier and
 -- include the 'ChainwebVersion' and the 'ChainId' into the genesis hash.
 --
-newtype ChainId ∷ Type where
-    ChainId ∷ Word32 → ChainId
+newtype ChainId :: Type where
+    ChainId :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, ToJSON, FromJSON)
 
@@ -88,15 +86,15 @@ instance ToJSONKey ChainId where
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyText (ChainId ∘ read ∘ T.unpack)
+    fromJSONKey = FromJSONKeyText (ChainId . read . T.unpack)
     {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
-    _chainId ∷ a → ChainId
+    _chainId :: a -> ChainId
     _chainId = view chainId
     {-# INLINE _chainId #-}
 
-    chainId ∷ Getter a ChainId
+    chainId :: Getter a ChainId
     chainId = to _chainId
     {-# INLINE chainId #-}
 
@@ -106,26 +104,26 @@ instance HasChainId ChainId where
     _chainId = id
     {-# INLINE _chainId #-}
 
-instance HasChainId a ⇒ HasChainId (Expected a) where
-    _chainId = _chainId ∘ getExpected
+instance HasChainId a => HasChainId (Expected a) where
+    _chainId = _chainId . getExpected
     {-# INLINE _chainId #-}
 
-instance HasChainId a ⇒ HasChainId (Actual a) where
-    _chainId = _chainId ∘ getActual
+instance HasChainId a => HasChainId (Actual a) where
+    _chainId = _chainId . getActual
     {-# INLINE _chainId #-}
 
 checkChainId
-    ∷ MonadThrow m
-    ⇒ HasChainId expected
-    ⇒ HasChainId actual
-    ⇒ Expected expected
-    → Actual actual
-    → m ChainId
+    :: MonadThrow m
+    => HasChainId expected
+    => HasChainId actual
+    => Expected expected
+    -> Actual actual
+    -> m ChainId
 checkChainId expected actual = _chainId
     <$> check ChainIdMissmatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
 
-prettyChainId ∷ ChainId → T.Text
+prettyChainId :: ChainId -> T.Text
 prettyChainId (ChainId i) = sshow i
 {-# INLINE prettyChainId #-}
 
@@ -135,21 +133,21 @@ prettyChainId (ChainId i) = sshow i
 -- ChainIds can be deserialized in two ways:
 --
 
-encodeChainId ∷ MonadPut m ⇒ ChainId → m ()
+encodeChainId :: MonadPut m => ChainId -> m ()
 encodeChainId (ChainId i32) = putWord32le $ unsigned i32
 {-# INLINE encodeChainId #-}
 
-decodeChainId ∷ MonadGet m ⇒ m ChainId
+decodeChainId :: MonadGet m => m ChainId
 decodeChainId = ChainId <$> getWord32le
 {-# INLINE decodeChainId #-}
 
 decodeChainIdChecked
-    ∷ MonadGet m
-    ⇒ MonadThrow m
-    ⇒ HasChainId p
-    ⇒ Expected p
-    → m ChainId
-decodeChainIdChecked p = checkChainId p ∘ Actual =<< decodeChainId
+    :: MonadGet m
+    => MonadThrow m
+    => HasChainId p
+    => Expected p
+    -> m ChainId
+decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 {-# INLINE decodeChainIdChecked #-}
 
 -- -------------------------------------------------------------------------- --
@@ -158,6 +156,6 @@ decodeChainIdChecked p = checkChainId p ∘ Actual =<< decodeChainId
 -- | Generally, the 'ChainId' is determined by the genesis block of a chain for
 -- a given 'Chainweb.Version'. This constructor is only for testing.
 --
-testChainId ∷ Word32 → ChainId
+testChainId :: Word32 -> ChainId
 testChainId = ChainId
 {-# INLINE testChainId #-}

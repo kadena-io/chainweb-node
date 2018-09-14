@@ -4,7 +4,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -47,15 +46,15 @@ data ChainwebVersion
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, ToJSON, FromJSON)
 
-encodeChainwebVersion ∷ MonadPut m ⇒ ChainwebVersion → m ()
+encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
 encodeChainwebVersion Test = putWord32le 0x0
 encodeChainwebVersion Simulation = putWord32le 0x1
 encodeChainwebVersion Testnet00 = putWord32le 0x2
 
-decodeChainwebVersion ∷ MonadGet m ⇒ m ChainwebVersion
+decodeChainwebVersion :: MonadGet m => m ChainwebVersion
 decodeChainwebVersion = getWord32le >>= \case
-    0x0 → return Test
-    0x1 → return Simulation
-    0x2 → return Testnet00
-    x → fail $ "Unknown chainweb version: " ++ show x
+    0x0 -> return Test
+    0x1 -> return Simulation
+    0x2 -> return Testnet00
+    x -> fail $ "Unknown chainweb version: " ++ show x
 

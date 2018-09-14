@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.ChainDB.Entry.BlockHeader
@@ -31,7 +30,6 @@ import qualified Data.Text as T
 
 import Numeric.Natural
 
-import Prelude.Unicode
 
 -- internal modules
 
@@ -41,23 +39,23 @@ import Chainweb.BlockHeader
 type Key = BlockHash
 type Entry = BlockHeader
 
-key ∷ Entry → Key
+key :: Entry -> Key
 key = _blockHash
 
-parent ∷ Entry → Maybe Key
+parent :: Entry -> Maybe Key
 parent e
     | isGenesisBlockHeader e = Nothing
     | otherwise = Just $ _blockParent e
 
-rank ∷ Entry → Natural
+rank :: Entry -> Natural
 rank = fromIntegral . _blockHeight
 
-encodeEntry ∷ Entry → B.ByteString
+encodeEntry :: Entry -> B.ByteString
 encodeEntry = runPutS . encodeBlockHeader
 
-decodeEntry ∷ MonadThrow m ⇒ B.ByteString → m Entry
-decodeEntry = either (throwM ∘ DecodeFailure ∘ T.pack) return
-    ∘ runGetS decodeBlockHeader
+decodeEntry :: MonadThrow m => B.ByteString -> m Entry
+decodeEntry = either (throwM . DecodeFailure . T.pack) return
+    . runGetS decodeBlockHeader
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
