@@ -17,12 +17,13 @@ module ChainwebTests ( main ) where
 
 import           Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
 import qualified Chainweb.ChainDB as DB
-import           Chainweb.ChainDB.Persist (persist, dbEntries, restore, fileEntries)
+import           Chainweb.ChainDB.Persist (persist, dbEntries, fileEntries)
 import           Chainweb.ChainId (ChainId, testChainId)
 import           Chainweb.Graph (toChainGraph)
 import           Chainweb.Version (ChainwebVersion(..))
 import           Control.Monad (void)
 import           Control.Monad.Trans.Resource (ResourceT, runResourceT)
+import           Data.Align (padZipWith)
 import           Data.DiGraph (singleton)
 import           Data.Foldable (foldlM)
 import qualified Streaming.Prelude as S
@@ -46,8 +47,7 @@ suite = testGroup "Unit Tests"
       ]
     , testGroup "Encoding round-trips"
       [ testCase "Fresh ChainDb (only genesis)" onlyGenesis
-      -- , testCase "Singleton ChainDb" $ undefined
-      -- , testCase "Multiple Entries"  $ undefined
+      , testCase "Multiple Entries" manyBlocksWritten
       ]
     ]
   ]
@@ -67,12 +67,14 @@ chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
 withDB :: (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
 withDB f = chaindb >>= \(g, db) -> f g db >> DB.closeChainDb db
 
-insertItems :: Assertion
-insertItems = withDB $ \g db -> do
+insertN :: Int -> BlockHeader -> DB.ChainDb -> IO DB.Snapshot
+insertN n g db = do
   ss <- DB.snapshot db
-  let bhs = map DB.entry . take 10 $ testBlockHeaders g
-  -- pPrintNoColor bhs
-  foldlM (\ss' bh -> DB.insert bh ss') ss bhs >>= void . DB.syncSnapshot
+  let bhs = map DB.entry . take n $ testBlockHeaders g
+  foldlM (\ss' bh -> DB.insert bh ss') ss bhs >>= DB.syncSnapshot
+
+insertItems :: Assertion
+insertItems = withDB $ \g db -> void (insertN 10 g db)
 
 -- | This test represents a critical invariant: that reinserting the genesis block
 -- has no effect on the Database. In particular, the persistence function
@@ -86,9 +88,31 @@ reinsertGenesis = withDB $ \g db -> do
   l   <- S.length_ $ dbEntries db
   l @?= 1
 
+-- | Persisting a freshly initialized `DB.ChainDb` will successfully read and
+-- write its only block, the genesis block.
 onlyGenesis :: Assertion
 onlyGenesis = withDB $ \g db -> do
   persist fp db
   g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) fp
   g' @?= Just (DB.entry g)
   where fp = fromAbsoluteFilePath "/tmp/only-genesis"
+
+-- | Write a number of block headers to a database, persist that database,
+-- reread it, and compare. Guarantees:
+--
+--  * The DB and its persistence will have the same contents in the same order.
+--  * The first block streamed from both the DB and the file will be the genesis.
+manyBlocksWritten :: Assertion
+manyBlocksWritten = withDB $ \g db -> do
+  void $ insertN len g db
+  persist fp db
+  fromDB <- S.toList_ . S.map DB.dbEntry $ dbEntries db
+  fromFi <- runResourceT . S.toList_ . S.map DB.dbEntry $ fileEntries fp
+  length fromDB @?= len + 1
+  length fromFi @?= len + 1
+  head fromDB @?= g
+  head fromFi @?= g
+  let b = and $ padZipWith (==) fromDB fromFi
+  assertBool "Couldn't write many blocks" b
+  where fp  = fromAbsoluteFilePath "/tmp/many-blocks-written"
+        len = 10

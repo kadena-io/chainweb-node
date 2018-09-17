@@ -226,6 +226,7 @@ test-suite chainweb-tests
         , streaming >= 0.2
         , tasty >= 1.1
         , tasty-hunit >= 0.10
+        , these >= 0.7
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test Library
