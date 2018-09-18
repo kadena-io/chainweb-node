@@ -5,7 +5,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UnicodeSyntax #-}
 
 -- |
 -- Module: Chainweb.ChainStore.HashMap

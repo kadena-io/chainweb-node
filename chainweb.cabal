@@ -421,7 +421,6 @@ library chaindb-hashmap
 
         -- external
         , base >=4.10 && <5.0
-        , base-unicode-symbols >=0.2
         , bytestring >=0.10
         , containers >=0.5
         , exceptions >=0.10
