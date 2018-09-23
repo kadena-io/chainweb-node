@@ -20,6 +20,7 @@ module Chainweb.ChainId
 , HasChainId(..)
 , checkChainId
 , prettyChainId
+, readPrettyChainId
 
 -- * Serialization
 
@@ -126,6 +127,10 @@ checkChainId expected actual = _chainId
 prettyChainId :: ChainId -> T.Text
 prettyChainId (ChainId i) = sshow i
 {-# INLINE prettyChainId #-}
+
+readPrettyChainId :: T.Text -> Either T.Text ChainId
+readPrettyChainId = fmap ChainId . tread
+{-# INLINE readPrettyChainId #-}
 
 -- -------------------------------------------------------------------------- --
 -- $Serialization
