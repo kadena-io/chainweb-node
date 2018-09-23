@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -55,6 +57,7 @@ module Chainweb.Utils
 -- * Error Handling
 , Expected(..)
 , Actual(..)
+, unexpectedMsg
 , (≡?)
 , check
 , fromMaybeM
@@ -78,6 +81,9 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 import Data.Serialize.Get (Get)
 import Data.String (IsString(..))
 import qualified Data.Text as T
@@ -87,7 +93,6 @@ import qualified Data.Text.Lazy as TL
 import GHC.Generics
 
 import Numeric.Natural
-
 
 import Text.Read (readEither)
 
@@ -223,6 +228,11 @@ newtype Expected a = Expected { getExpected :: a }
 
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+
+unexpectedMsg :: Show a => T.Text -> Expected a -> Actual a -> T.Text
+unexpectedMsg msg expected actual = msg
+    <> ", expected: " <> sshow (getExpected expected)
+    <> ", actual: " <> sshow (getActual actual)
 
 (≡?) :: Eq a => Expected a -> Actual a -> Bool
 (≡?) (Expected a) (Actual b) = a == b

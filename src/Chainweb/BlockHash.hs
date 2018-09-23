@@ -72,14 +72,12 @@ import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Random as BR
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Data.Proxy
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 import GHC.TypeNats
@@ -159,13 +157,13 @@ randomBlockHashBytes :: MonadIO m => m BlockHashBytes
 randomBlockHashBytes = BlockHashBytes <$> liftIO (BR.random blockHashBytesCount)
 
 instance ToJSON BlockHashBytes where
-    toJSON = toJSON . encodeB64Text . runPutS . encodeBlockHashBytes
+    toJSON = toJSON . encodeB64UrlText . runPutS . encodeBlockHashBytes
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHashBytes where
     parseJSON = withText "BlockHashBytes" $ \t ->
         either (fail . show) return
-            $ runGet decodeBlockHashBytes =<< decodeB64Text t
+            $ runGet decodeBlockHashBytes =<< decodeB64UrlText t
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
@@ -227,23 +225,23 @@ decodeBlockHashChecked p = BlockHash
 {-# INLINE decodeBlockHashChecked #-}
 
 instance ToJSON BlockHash where
-    toJSON = toJSON . T.decodeUtf8 . B64.encode . runPutS . encodeBlockHash
+    toJSON = toJSON . encodeB64UrlText . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHash where
     parseJSON = withText "BlockHash" $ \t ->
         either (fail . show) return
-            $ runGet decodeBlockHash =<< decodeB64Text t
+            $ runGet decodeBlockHash =<< decodeB64UrlText t
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey BlockHash where
-    toJSONKey = toJSONKeyText $ encodeB64Text . runPutS . encodeBlockHash
+    toJSONKey = toJSONKeyText $ encodeB64UrlText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey BlockHash where
     fromJSONKey = FromJSONKeyTextParser $ \t ->
         either (fail . show) return
-            $ runGet decodeBlockHash =<< decodeB64Text t
+            $ runGet decodeBlockHash =<< decodeB64UrlText t
     {-# INLINE fromJSONKey #-}
 
 randomBlockHash :: MonadIO m => HasChainId p => p -> m BlockHash

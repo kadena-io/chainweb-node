@@ -21,6 +21,8 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.BlockHeader
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -550,7 +552,7 @@ testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
         , _blockHeight = _blockHeight b + 1
         , _blockCreationTime = add second $ _blockCreationTime b
         , _blockMiner = m
-        , _blockHash = _blockHash b
+        , _blockHash = _blockHash b -- preliminary, not used in hash
         }
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream

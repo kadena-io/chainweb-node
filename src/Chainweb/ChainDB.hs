@@ -1,11 +1,12 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE CPP #-}
 
 -- |
 -- Module    : Chainweb.ChainDB
@@ -119,6 +120,7 @@ import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Aeson
 import Data.Hashable (Hashable(..))
 import Data.Kind
 #if !MIN_VERSION_base(4,11,0)
@@ -138,6 +140,7 @@ import Numeric.Natural
 -- internal imports
 
 import qualified Chainweb.ChainDB.Entry as E
+import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Internal DB Representation
@@ -192,7 +195,7 @@ dbAddChecked e db = fst <$> dbAddChecked_ e db
 
 dbAddBranch :: E.Entry -> HS.HashSet E.Key -> HS.HashSet E.Key
 dbAddBranch e bs = HS.insert (E.key e)
-    $ maybe bs (flip HS.delete bs) (E.parent e)
+    $ maybe bs (`HS.delete` bs) (E.parent e)
 
 dbAddChildren :: E.Entry -> ChildrenMap -> ChildrenMap
 dbAddChildren e cs = HM.insert k mempty $ case E.parent e of
@@ -579,3 +582,21 @@ encodeEntry = E.encodeEntry . dbEntry
 --
 decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
 decodeEntry = fmap UncheckedEntry . E.decodeEntry
+
+-- -------------------------------------------------------------------------- --
+-- JSON Serialization
+
+instance ToJSON (Key 'Unchecked) where
+    toJSON = toJSON . encodeB64UrlText . encodeKey
+
+instance FromJSON (Key 'Unchecked) where
+    parseJSON = withText "key" $ either (fail . show) return
+        . (decodeKey <=< decodeB64UrlText)
+
+instance ToJSON (Entry 'Unchecked) where
+    toJSON = toJSON . encodeB64UrlText . encodeEntry
+
+instance FromJSON (Entry 'Unchecked) where
+    parseJSON = withText "entry" $ either (fail . sshow) return
+        . (decodeEntry <=< decodeB64UrlText)
+
