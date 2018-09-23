@@ -17,6 +17,8 @@ module Chainweb.ChainDB.Entry.Int
 , key
 , parent
 , rank
+, encodeKey
+, decodeKey
 , encodeEntry
 , decodeEntry
 
@@ -68,6 +70,13 @@ parent e
 
 rank :: Entry -> Natural
 rank = fromIntegral . _entryRank
+
+encodeKey :: Key -> B.ByteString
+encodeKey = runPutS . putWordhost . unsigned
+
+decodeKey :: MonadThrow m => B.ByteString -> m Key
+decodeKey = either (throwM . DecodeFailure . T.pack) return . runGetS
+    (signed <$> getWordhost)
 
 encodeEntry :: Entry -> B.ByteString
 encodeEntry e = runPutS $ do
