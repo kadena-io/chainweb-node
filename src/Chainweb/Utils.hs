@@ -137,13 +137,13 @@ minimumsByOf l cmp = foldlOf' l mf []
         GT -> x
 {-# INLINE minimumsByOf #-}
 
-maxBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
+maxBy :: (a -> a -> Ordering) -> a -> a -> a
 maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
 {-# INLINE maxBy #-}
 
-minBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
+minBy :: (a -> a -> Ordering) -> a -> a -> a
 minBy cmp a b = case cmp a b of
     GT -> b
     _ -> a
