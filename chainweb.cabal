@@ -209,17 +209,13 @@ test-suite chainweb-tests
     hs-source-dirs: test/chainweb
     main-is: ChainwebTests.hs
     ghc-options: -threaded -with-rtsopts=-N -main-is ChainwebTests
-    other-modules: Orphans
     build-depends:
         -- internal
           chainweb
         , chaindb-persisted
         -- external
-        , QuickCheck >= 2.11
         , base >=4.10 && <5.0
         , bytestring >=0.10
-        , generic-arbitrary >= 0.1
-        , largeword >= 1.2
         , paths >= 0.2
         , resourcet >= 1.2
         , streaming >= 0.2
