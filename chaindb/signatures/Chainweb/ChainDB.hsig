@@ -110,6 +110,8 @@ signature Chainweb.ChainDB
 , insert
 
 -- * Serialization
+, encodeKey
+, decodeKey
 , encodeEntry
 , decodeEntry
 
@@ -344,13 +346,23 @@ insert :: MonadThrow m => Entry s -> Snapshot -> m Snapshot
 -- -------------------------------------------------------------------------- --
 -- Serialization of Entries
 
+-- | Serialize a 'Key'
+--
+encodeKey :: Key t -> B.ByteString
+
+-- | Deserialize a 'Key'. The deserialized value is 'Unchecked'
+--
+-- Raises a 'DeserializationFailure' if decoding fails.
+--
+decodeKey :: MonadThrow m => B.ByteString -> m (Key 'Unchecked)
+
 -- | Serialize an 'Entry'
 --
 encodeEntry :: Entry s -> B.ByteString
 
--- | Deserialize an 'Entry'. The deserialized values is 'Unchecked'.
+-- | Deserialize an 'Entry'. The deserialized value is 'Unchecked'.
 --
--- Raises an 'DeserializationFailure' the decoding fails.
+-- Raises a 'DeserializationFailure' if decoding fails.
 --
 decodeEntry :: MonadThrow m => B.ByteString -> m (Entry 'Unchecked)
 

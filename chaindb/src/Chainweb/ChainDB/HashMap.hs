@@ -61,6 +61,8 @@ module Chainweb.ChainDB.HashMap
 , insert
 
 -- * Serialization
+, encodeKey
+, decodeKey
 , encodeEntry
 , decodeEntry
 
@@ -374,7 +376,7 @@ getEntrySync = f sync
 
 insert :: MonadThrow m => Entry s -> Snapshot -> m Snapshot
 insert e s
-    | (E.key dbe) `HM.member` (_dbEntries $ _snapshotDb s) = return s
+    | E.key dbe `HM.member` _dbEntries (_snapshotDb s) = return s
     | otherwise = s
         & (snapshotAdditions %~ HM.insert (E.key dbe) dbe)
         & snapshotDb (dbAddChecked dbe)
@@ -383,6 +385,12 @@ insert e s
 
 -- -------------------------------------------------------------------------- --
 -- Serialization of Entries
+
+encodeKey :: Key s -> B.ByteString
+encodeKey = E.encodeKey . dbKey
+
+decodeKey :: MonadThrow m => B.ByteString -> m (Key 'Unchecked)
+decodeKey = fmap UncheckedKey . E.decodeKey
 
 encodeEntry :: Entry s -> B.ByteString
 encodeEntry = E.encodeEntry . dbEntry

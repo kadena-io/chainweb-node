@@ -17,6 +17,8 @@ module Chainweb.ChainDB.Entry.BlockHeader
 , key
 , parent
 , rank
+, encodeKey
+, decodeKey
 , encodeEntry
 , decodeEntry
 ) where
@@ -49,6 +51,13 @@ parent e
 
 rank :: Entry -> Natural
 rank = fromIntegral . _blockHeight
+
+encodeKey :: Key -> B.ByteString
+encodeKey = runPutS . encodeBlockHash
+
+decodeKey :: MonadThrow m => B.ByteString -> m Key
+decodeKey = either (throwM . DecodeFailure . T.pack) return
+    . runGetS decodeBlockHash
 
 encodeEntry :: Entry -> B.ByteString
 encodeEntry = runPutS . encodeBlockHeader

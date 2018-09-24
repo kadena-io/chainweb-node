@@ -18,6 +18,8 @@ signature Chainweb.ChainDB.Entry
 , key
 , parent
 , rank
+, encodeKey
+, decodeKey
 , encodeEntry
 , decodeEntry
 ) where
@@ -58,11 +60,21 @@ parent :: Entry -> Maybe Key
 --
 rank :: Entry -> Natural
 
+-- | Serialize a 'Key'
+--
+encodeKey :: Key -> B.ByteString
+
+-- | Deserialize a 'Key'.
+--
+-- Raises some exception if the decoding fails.
+--
+decodeKey :: MonadThrow m => B.ByteString -> m Key
+
 -- | Serialize an 'Entry'
 --
 encodeEntry :: Entry -> B.ByteString
 
--- | Deserialize an 'Entry'. The deserialized values is 'Unchecked'.
+-- | Deserialize an 'Entry'.
 --
 -- Raises some exception if the decoding fails.
 --
