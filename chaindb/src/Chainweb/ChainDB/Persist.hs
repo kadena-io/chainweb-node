@@ -25,28 +25,27 @@ import Control.Monad ((>=>))
 import Control.Monad.Trans.Resource (MonadResource, MonadThrow(..), ResourceT, runResourceT)
 import Control.Monad.Trans.State.Strict
 
-import Data.Foldable (traverse_)
-
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Streaming as BS
 import qualified Data.ByteString.Streaming.Char8 as BS
+import Data.Foldable (traverse_)
 
 import Streaming
 import qualified Streaming.Prelude as S
 
 import System.Path (Path, Absolute, toFilePath)
 
-import Chainweb.ChainDB
+-- internal modules
 
----
+import Chainweb.ChainDB
 
 -- -------------------------------------------------------------------------- --
 -- ChainDb Persistence
 
 persist :: Path Absolute -> ChainDb -> IO ()
 persist (toFilePath -> fp) db =
-  runResourceT . BS.writeFile fp . hoist lift . separated . encoded $ dbEntries db
+    runResourceT . BS.writeFile fp . hoist lift . separated . encoded $ dbEntries db
 
 -- | Given a `ChainDb`, stream all the Entries it contains in order of
 -- block height, from oldest to newest.
@@ -56,8 +55,8 @@ dbEntries :: ChainDb -> Stream (Of (Entry 'Checked)) IO ()
 dbEntries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
   where
     f !u !s = do
-      e <- lift . atomically $ (Just <$> updatesNext u) `orElse` pure Nothing
-      traverse_ (g u s) e
+        e <- lift . atomically $ (Just <$> updatesNext u) `orElse` pure Nothing
+        traverse_ (g u s) e
     g !u !s !k = lift (getEntrySync k s) >>= \(s', e) -> S.yield e >> f u s'
 
 -- | Encode each `Entry` as a base64 `B.ByteString`.
@@ -83,9 +82,9 @@ separated = BS.fromChunks . S.intersperse (B.singleton 0x0A)
 -- that already contains it is a no-op. This invariant is enforced by tests.
 restore :: Path Absolute -> ChainDb -> IO ()
 restore fp db = runResourceT $ do
-  ss  <- lift $ snapshot db
-  ss' <- execStateT (S.mapM_ goIn . hoist lift $ fileEntries fp) ss
-  void . lift $ syncSnapshot ss'
+    ss  <- lift $ snapshot db
+    ss' <- execStateT (S.mapM_ goIn . hoist lift $ fileEntries fp) ss
+    void . lift $ syncSnapshot ss'
 
 -- | A stream of all entries, decoded from a file.
 --

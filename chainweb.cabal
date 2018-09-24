@@ -221,7 +221,6 @@ test-suite chainweb-tests
         , generic-arbitrary >= 0.1
         , largeword >= 1.2
         , paths >= 0.2
-        , pretty-simple >= 2.2
         , resourcet >= 1.2
         , streaming >= 0.2
         , tasty >= 1.1
