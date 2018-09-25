@@ -4,16 +4,16 @@
 {-# LANGUAGE TupleSections #-}
 
 -- |
--- Module: ChainwebTests
+-- Module: Main
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb Test Suite
 --
 
-module ChainwebTests ( main ) where
+module Main ( main ) where
 
 import Control.Monad (void)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
