@@ -222,6 +222,7 @@ test-suite chainweb-tests
         , tasty >= 1.1
         , tasty-hunit >= 0.10
         , these >= 0.7
+        , unliftio >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test Library

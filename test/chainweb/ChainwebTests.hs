@@ -29,6 +29,8 @@ import System.Path (fromAbsoluteFilePath)
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import UnliftIO.Exception (bracket)
+
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
@@ -72,7 +74,7 @@ chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
 -- an initialized `DB.ChainDb`, perform some action
 -- and cleanly close the DB.
 withDB :: (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
-withDB f = chaindb >>= \(g, db) -> f g db >> DB.closeChainDb db
+withDB = bracket chaindb (DB.closeChainDb . snd) . uncurry
 
 insertN :: Int -> BlockHeader -> DB.ChainDb -> IO DB.Snapshot
 insertN n g db = do
