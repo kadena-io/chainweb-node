@@ -152,7 +152,7 @@ oneHashBytes :: BlockHashBytes
 oneHashBytes = BlockHashBytes $ B.replicate (int blockHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
 
--- | This must be used only for testing. The the result hash is uniformily
+-- | This must be used only for testing. The result hash is uniformily
 -- distributed, but not cryptographically safe.
 --
 randomBlockHashBytes :: MonadIO m => m BlockHashBytes
@@ -292,4 +292,3 @@ decodeBlockHashRecordChecked ps = do
         $ BlockHashRecord
         $ HM.fromList
         $ (_chainId <$> getExpected ps) `zip` hashes
-

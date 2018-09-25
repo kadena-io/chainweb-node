@@ -89,8 +89,10 @@ module Chainweb.BlockHeader
 
 -- * Testing
 , testBlockHeader
+, testBlockHeaders
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
@@ -104,6 +106,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Int
 import Data.Kind
+import Data.List (unfoldr)
 import Data.Reflection
 import Data.Word
 
@@ -549,3 +552,12 @@ testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
         , _blockMiner = m
         , _blockHash = _blockHash b
         }
+
+-- | Given a `BlockHeader` of some initial parent, generate an infinite stream
+-- of `BlockHeader`s which form a legal chain.
+--
+-- Should only be used for testing purposes.
+testBlockHeaders :: BlockHeader -> [BlockHeader]
+testBlockHeaders = unfoldr (Just . (id &&& id) . f)
+  where
+    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) (_blockNonce b) b

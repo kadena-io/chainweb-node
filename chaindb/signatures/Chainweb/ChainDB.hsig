@@ -374,6 +374,7 @@ data DbException
     | ParentMissing (Entry 'Unchecked)
     | InvalidRank (Entry 'Unchecked)
     | DeserializationFailure SomeException
+    | Base64DeserializationFailed
 
 instance Show DbException
 instance Exception DbException

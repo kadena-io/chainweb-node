@@ -81,15 +81,16 @@ import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
 
-import qualified Data.ByteString as B
 import Data.Hashable (Hashable(..))
+import Data.Kind
+import Data.Monoid
+import Data.Sequence (Seq)
+
+import qualified Data.ByteString as B
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Kind
 import qualified Data.List as L
-import Data.Monoid
-import Data.Sequence (Seq(..))
-import qualified Data.Sequence as S
+import qualified Data.Sequence as Seq
 
 import Numeric.Natural
 
@@ -168,6 +169,7 @@ data DbException
     | ParentMissing (Entry 'Unchecked)
     | InvalidRank (Entry 'Unchecked)
     | DeserializationFailure SomeException
+    | Base64DeserializationFailed
     deriving (Show)
 
 instance Exception DbException
@@ -181,13 +183,13 @@ data Configuration = Configuration
 
 data ChainDb = ChainDb
     { _getDb :: MVar Db
-    , _dbEnumeration :: !(TVar (S.Seq (Key 'Checked)))
+    , _dbEnumeration :: !(TVar (Seq.Seq (Key 'Checked)))
     }
 
 initChainDb :: Configuration -> IO ChainDb
 initChainDb config = ChainDb
     <$> newMVar (dbAdd root emptyDb)
-    <*> newTVarIO (S.singleton (CheckedKey $ E.key root))
+    <*> newTVarIO (Seq.singleton (CheckedKey $ E.key root))
   where
     root = _configRoot config
     emptyDb = Db mempty mempty mempty
@@ -278,7 +280,7 @@ updates db = Updates
 updatesFrom :: ChainDb -> Key 'Checked -> IO Updates
 updatesFrom db k = do
     enumeration <- readTVarIO enumVar
-    idx <- case S.elemIndexL k enumeration of
+    idx <- case Seq.elemIndexL k enumeration of
         Just i -> return i
         Nothing -> error "TODO: Internal invariant violation"
     Updates
@@ -291,7 +293,7 @@ updatesNext :: Updates -> STM (Key 'Checked)
 updatesNext u = do
     xs <- readTVar (_updatesEnum u)
     c <- readTVar (_updatesCursor u)
-    case S.lookup c xs of
+    case Seq.lookup c xs of
         Nothing -> retry
         Just x -> do
             writeTVar (_updatesCursor u) (c + 1)
@@ -367,9 +369,10 @@ getEntryIO k s = case getEntry k s of
 
 getEntrySync :: Key 'Checked -> Snapshot -> IO (Snapshot, Entry 'Checked)
 getEntrySync = f sync
-  where f g k s  = maybe (g k s) (pure . (s,)) $ getEntry k s
-        sync k s = syncSnapshot s >>= f die k
-        die _ _  = error "Checked Key from a different database used for Snapshot query"
+  where
+    f g k s  = maybe (g k s) (pure . (s,)) $ getEntry k s
+    sync k s = syncSnapshot s >>= f die k
+    die _ _  = error "Checked Key from a different database used for Snapshot query"
 
 -- -------------------------------------------------------------------------- --
 -- Insertion

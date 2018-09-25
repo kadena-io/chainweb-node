@@ -208,17 +208,21 @@ test-suite chainweb-tests
     type: exitcode-stdio-1.0
     hs-source-dirs: test/chainweb
     main-is: ChainwebTests.hs
-    ghc-options: -threaded -main-is ChainwebTests
-    other-modules:
+    ghc-options: -threaded -with-rtsopts=-N -main-is ChainwebTests
     build-depends:
         -- internal
           chainweb
+        , chaindb-persisted
         -- external
         , base >=4.10 && <5.0
-        , base16-bytestring >=0.1
         , bytestring >=0.10
-        , QuickCheck >=2.11
---         , quickcheck-instances >=0.3
+        , paths >= 0.2
+        , resourcet >= 1.2
+        , streaming >= 0.2
+        , tasty >= 1.1
+        , tasty-hunit >= 0.10
+        , these >= 0.7
+        , unliftio >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test Library
@@ -420,6 +424,27 @@ library chaindb-hashmap
         , lens >=4.16
         , stm >=2.4
         , unordered-containers >=0.2
+
+library chaindb-persisted
+    import: production-component
+    hs-source-dirs: chaindb/src
+    exposed-modules:
+        Chainweb.ChainDB.Persist
+    reexported-modules:
+        Chainweb.ChainDB
+    build-depends:
+        -- internal
+          chaindb
+        -- external
+        , base
+        , base64-bytestring >= 1.0
+        , bytestring >=0.10
+        , paths >= 0.2 && < 0.3
+        , resourcet >= 1.2
+        , stm >=2.4
+        , streaming >= 0.2.1 && < 0.3
+        , streaming-bytestring >= 0.1.6 && < 0.2
+        , transformers >= 0.5
 
 library chaindb
     import: production-component
