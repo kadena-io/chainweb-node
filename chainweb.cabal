@@ -211,6 +211,7 @@ test-suite chainweb-tests
     ghc-options: -threaded -with-rtsopts=-N
     other-modules:
         Chainweb.Test.Roundtrips
+        Chainweb.Test.ChainDB.Persistence
     build-depends:
         -- internal
           chaindb-persisted
