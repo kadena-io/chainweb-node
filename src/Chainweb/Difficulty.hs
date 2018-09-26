@@ -28,7 +28,7 @@
 module Chainweb.Difficulty
 (
 -- * BlockHashNat
-  BlockHashNat
+  BlockHashNat(..)
 , blockHashNat
 , encodeBlockHashNat
 , decodeBlockHashNat

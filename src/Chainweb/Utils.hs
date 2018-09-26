@@ -41,6 +41,7 @@ module Chainweb.Utils
 -- * Encoding and Serialization
 , EncodingException(..)
 , sshow
+, tread
 , runGet
 , runGetEither
 , encodeToText
@@ -82,6 +83,8 @@ import GHC.Generics
 
 import Numeric.Natural
 
+
+import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -137,13 +140,13 @@ minimumsByOf l cmp = foldlOf' l mf []
         GT -> x
 {-# INLINE minimumsByOf #-}
 
-maxBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
+maxBy :: (a -> a -> Ordering) -> a -> a -> a
 maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
 {-# INLINE maxBy #-}
 
-minBy :: Ord a => (a -> a -> Ordering) -> a -> a -> a
+minBy :: (a -> a -> Ordering) -> a -> a -> a
 minBy cmp a b = case cmp a b of
     GT -> b
     _ -> a
@@ -172,6 +175,10 @@ runGetEither g = first (DecodeException . T.pack) . runGetS g
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
 {-# INLINE sshow #-}
+
+tread :: Read a => T.Text -> Either T.Text a
+tread = first T.pack . readEither . T.unpack
+{-# INLINE tread #-}
 
 encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText

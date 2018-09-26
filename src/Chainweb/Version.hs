@@ -43,7 +43,7 @@ data ChainwebVersion
     = Test
     | Simulation
     | Testnet00
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
     deriving anyclass (Hashable, ToJSON, FromJSON)
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()

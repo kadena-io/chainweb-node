@@ -31,7 +31,7 @@
 module Chainweb.BlockHeader
 (
 -- * Block Height
-  BlockHeight
+  BlockHeight(..)
 , encodeBlockHeight
 , decodeBlockHeight
 

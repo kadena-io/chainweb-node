@@ -1,10 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: ChainwebTests
+-- Module: Chainweb.Test.ChainDB.Persistence
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,8 +10,9 @@
 --
 -- TODO
 --
-
-module ChainwebTests ( main ) where
+module Chainweb.Test.ChainDB.Persistence
+( tests
+) where
 
 import Control.Monad (void)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
@@ -42,21 +41,16 @@ import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
-main :: IO ()
-main = defaultMain suite
-
-suite :: TestTree
-suite = testGroup "Unit Tests"
-    [ testGroup "ChainDB"
-        [ testGroup "Basic Interaction"
-            [ testCase "Initialization + Shutdown" $ chaindb >>= DB.closeChainDb . snd
-            , testCase "10 Insertions + Sync" insertItems
-            , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
-            ]
-        , testGroup "Encoding round-trips"
-            [ testCase "Fresh ChainDb (only genesis)" onlyGenesis
-            , testCase "Multiple Entries" manyBlocksWritten
-            ]
+tests :: TestTree
+tests = testGroup "ChainDB/Persistence"
+    [ testGroup "Basic Interaction"
+        [ testCase "Initialization + Shutdown" $ chaindb >>= DB.closeChainDb . snd
+        , testCase "10 Insertions + Sync" insertItems
+        , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
+        ]
+    , testGroup "Encoding round-trips"
+        [ testCase "Fresh ChainDb (only genesis)" onlyGenesis
+        , testCase "Multiple Entries" manyBlocksWritten
         ]
     ]
 

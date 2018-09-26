@@ -206,22 +206,34 @@ executable chainweb-node
 test-suite chainweb-tests
     import: production-component
     type: exitcode-stdio-1.0
-    hs-source-dirs: test/chainweb
+    hs-source-dirs: test/suite
     main-is: ChainwebTests.hs
-    ghc-options: -threaded -with-rtsopts=-N -main-is ChainwebTests
+    ghc-options: -threaded -with-rtsopts=-N
+    other-modules:
+        Chainweb.Test.Roundtrips
+        Chainweb.Test.ChainDB.Persistence
     build-depends:
         -- internal
-          chainweb
-        , chaindb-persisted
+          chaindb-persisted
+        , chainweb
+        , chainweb-test
+
         -- external
+        , QuickCheck >= 2.12
         , base >=4.10 && <5.0
+        , bytes >=0.15
         , bytestring >=0.10
-        , paths >= 0.2
-        , resourcet >= 1.2
-        , streaming >= 0.2
-        , tasty >= 1.1
-        , tasty-hunit >= 0.10
-        , these >= 0.7
+        , exceptions >=0.10
+        , largeword >=1.2
+        , paths >=0.2
+        , quickcheck-instances >=0.3
+        , resourcet >=1.2
+        , streaming >=0.2
+        , tasty >=1.1
+        , tasty-hunit >=0.10
+        , tasty-quickcheck >=0.10
+        , text >=1.2
+        , these >=0.7
         , unliftio >= 0.2
 
 -- -------------------------------------------------------------------------- --
@@ -233,16 +245,22 @@ test-suite chainweb-tests
 --
 library chainweb-test
     import: production-component
-    hs-source-dirs: test/chainweb
+    hs-source-dirs: test/lib
     exposed-modules:
+          Chainweb.Test.Orphans.Internal
+        , Chainweb.Test.Orphans.External
+        , Chainweb.Test.Utils
     build-depends:
         -- internal
           chainweb
+
         -- external
+        , QuickCheck >= 2.12
         , base >=4.10 && <5.0
         , bytes >=0.15
         , bytestring >=0.10
         , exceptions >=0.10
+        , largeword >=1.2
         , hashable >=1.2
         , text >=1.2
 
@@ -280,7 +298,7 @@ library signatures
 test-suite check-signatures
     import: dev-component
     type: exitcode-stdio-1.0
-    main-is: test/chainweb/CheckSignatures.hs
+    main-is: test/suite/CheckSignatures.hs
     mixins:
           chaindb-hashmap-indef
           requires
