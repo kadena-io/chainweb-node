@@ -25,6 +25,10 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.NodeId
 import Chainweb.Utils
+import Chainweb.Version
+
+instance Arbitrary ChainwebVersion where
+    arbitrary = elements [minBound .. maxBound]
 
 instance Arbitrary ChainId where
     arbitrary = testChainId <$> arbitrary

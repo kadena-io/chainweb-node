@@ -31,6 +31,7 @@ import Chainweb.Difficulty
 import Chainweb.NodeId
 import Chainweb.Test.Utils
 import Chainweb.Utils
+import Chainweb.Version
 
 import Chainweb.Test.Orphans.Internal ()
 
@@ -47,6 +48,8 @@ tests = testGroup "roundtrip tests"
         $ prop_iso' decodeB64Text encodeB64Text
     , testProperty "pretty ChainId"
         $ prop_iso' readPrettyChainId prettyChainId
+    , testProperty "ChainwebVersion"
+        $ prop_encodeDecodeRoundtrip decodeChainwebVersion encodeChainwebVersion
     , testProperty "ChainId"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
     , testProperty "NodeId"
