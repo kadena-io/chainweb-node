@@ -90,7 +90,11 @@ restore fp db = runResourceT $ do
 --
 -- Throws exceptions if the path given doesn't exist,
 -- or certain ByteStrings within failed to decode.
-fileEntries :: (MonadThrow m, MonadResource m) => Path Absolute -> Stream (Of (Entry 'Unchecked)) m ()
+fileEntries
+    :: MonadThrow m
+    => MonadResource m
+    => Path Absolute
+    -> Stream (Of (Entry 'Unchecked)) m ()
 fileEntries = decoded . destream . BS.lines . BS.readFile . toFilePath
 {-# INLINE fileEntries #-}
 
