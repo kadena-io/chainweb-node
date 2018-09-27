@@ -148,6 +148,7 @@ test-suite chainweb-tests
         , text >= 1.2
         , these >= 0.7
         , unliftio >= 0.2
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node

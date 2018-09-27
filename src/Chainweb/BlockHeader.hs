@@ -41,7 +41,7 @@ module Chainweb.BlockHeader
 , decodeBlockWeight
 
 -- * Block Payload Hash
-, BlockPayloadHash
+, BlockPayloadHash(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
 
