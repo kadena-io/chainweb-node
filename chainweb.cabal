@@ -120,7 +120,7 @@ library
 test-suite chainweb-tests
     import: common-settings
     type: exitcode-stdio-1.0
-    hs-source-dirs: test/suite
+    hs-source-dirs: test
     main-is: ChainwebTests.hs
     ghc-options: -threaded -with-rtsopts=-N
     other-modules:
