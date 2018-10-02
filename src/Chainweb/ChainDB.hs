@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.ChainStore.HashMap
+-- Module: Chainweb.ChainStore
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -15,7 +15,7 @@
 --
 -- Implements "Chainweb.ChainDB"
 --
-module Chainweb.ChainDB.HashMap
+module Chainweb.ChainDB
 (
 -- * Chain Database Handle
   Configuration(..)

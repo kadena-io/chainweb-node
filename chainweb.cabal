@@ -44,158 +44,70 @@ common warning-flags
       -Wincomplete-uni-patterns
       -Wredundant-constraints
 
-common production-component
-  import: warning-flags
-  default-language: Haskell2010
-
-common dev-component
-  import: warning-flags
-  default-language: Haskell2010
-  if flag(dev) { buildable: True } else { buildable: False }
+common base-version
+  build-depends:
+      base >=4.10 && <5.0
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
 
--- This is the public chainweb API. It reexports all exposed modules from
--- all internal components.
---
 library
-    import: production-component
-    reexported-modules:
-          Chainweb.BlockHash
-        , Chainweb.BlockHeader
-        , Chainweb.ChainDB
-        , Chainweb.ChainDB.SyncSession
-        , Chainweb.ChainId
-        , Chainweb.Difficulty
-        , Chainweb.Graph
-        , Chainweb.NodeId
-        , Chainweb.Time
-        , Chainweb.Utils
-        , Chainweb.Version
-
-        , Data.DiGraph
-        , Data.Word.Encoding
-
-        , Numeric.Cast
-        , Numeric.Additive
-        , Numeric.AffineSpace
-
-        , P2P.Connection
-        , P2P.Node
-
-    build-depends:
-        -- internal
-          chainweb-types
-        , chaindb
-        , chaindb-sync
-        , p2p
-
-        -- external
-        , base >=4.10 && <5.0
-
--- -------------------------------------------------------------------------- --
--- Chainweb Types Library
--- -------------------------------------------------------------------------- --
-
--- Lowlevel chainweb types that are used by different components throughout
--- the package
---
-library chainweb-types
-    import: production-component
-    hs-source-dirs: src
+    import: warning-flags, base-version
+    hs-source-dirs:     src, p2p/src, p2p/inprocess
     exposed-modules:
-          Chainweb.BlockHash
-        , Chainweb.BlockHeader
-        , Chainweb.ChainId
-        , Chainweb.Difficulty
-        , Chainweb.Graph
-        , Chainweb.NodeId
-        , Chainweb.Time
-        , Chainweb.Utils
-        , Chainweb.Version
+                    Chainweb.BlockHash
+                  , Chainweb.BlockHeader
+                  , Chainweb.ChainDB
+                  , Chainweb.ChainDB.Persist
+                  , Chainweb.ChainDB.SyncSession
+                  , Chainweb.ChainId
+                  , Chainweb.Difficulty
+                  , Chainweb.Graph
+                  , Chainweb.NodeId
+                  , Chainweb.Time
+                  , Chainweb.Utils
+                  , Chainweb.Version
 
-        , Data.DiGraph
-        , Data.Word.Encoding
+                  , Data.DiGraph
+                  , Data.Word.Encoding
 
-        , Numeric.Cast
-        , Numeric.Additive
-        , Numeric.AffineSpace
+                  , Numeric.Cast
+                  , Numeric.Additive
+                  , Numeric.AffineSpace
 
-        -- Not yet ported
-        -- , Chainweb.Braiding
-        -- , Chainweb.Chain
-        -- , Chainweb.Children
-        -- , Chainweb.Graph.Gexf
-        -- , Chainweb.WebBranch
-        -- , Chainweb.WebChain
-        -- , Chainweb.WebChildren
-
-        -- , Data.Graph.TypeLevel
-        -- , Data.Graph.TypeLevel.HoffmanSingleton
-        -- , Data.Lattice
-        -- , Data.List.TypeLevel
-        -- , Data.TypeLevel
-        -- , Data.Vinyl.Utils
-        -- , Numeric.Multiplicative
-
-        -- obsolete
-        -- , Data.HList
-        -- , Chainweb.Simulation
-        -- , Chainweb.Simulation.Chainweb
-        -- , Chainweb.Simulation.ChainwebSlice
-        -- , Chainweb.Simulation.Configuration
-        -- , Chainweb.Simulation.Mine
-        -- , Chainweb.Simulation.Miner
-        -- , Chainweb.Simulation.Node
-        -- , Chainweb.Simulation.Utils
-        -- , Chainweb.Simulation.WebNode
-        -- , Chainweb.Pid
+                  , P2P.Connection
+                  , P2P.Node
 
     other-modules:
-    build-depends:
-        -- internal
-        -- external
-          base >=4.10 && <5.0
-        , aeson >=1.3
-        , base64-bytestring >=1.0
-        , bytes >=0.15
-        , bytestring >=0.10
-        , cereal >=0.5
-        , containers >=0.5
-        , cryptohash-sha512 >=0.11
-        , exceptions >=0.10
-        , hashable >=1.2
-        , largeword >=1.2
-        , lens >=4.16
-        , random-bytestring >=0.1
-        , reflection >=2.1
-        , stm >=2.4
-        , streaming >=0.2
-        , text >=1.2
-        , time >=1.8
-        , transformers >=0.5
-        , unordered-containers >=0.2
-        , xmlgen >=0.6
+                  Chainweb.ChainDB.Entry
 
--- -------------------------------------------------------------------------- --
--- Chainweb Node
--- -------------------------------------------------------------------------- --
-
--- The application that runs an chainweb node
---
-executable chainweb-node
-    import: production-component
-    hs-source-dirs: node
-    main-is: ChainwebNode.hs
-    ghc-options: -threaded
-    other-modules:
     build-depends:
-        -- internal
-          chainweb
-        -- external
-        , base >=4.10 && <5.0
+                  aeson >=1.3
+                , async >= 2.2
+                , base64-bytestring >=1.0
+                , bytes >=0.15
+                , bytestring >=0.10
+                , cereal >=0.5
+                , containers >=0.5
+                , cryptohash-sha512 >=0.11
+                , exceptions >=0.10
+                , hashable >=1.2
+                , largeword >=1.2
+                , lens >=4.16
+                , loglevel >= 0.1
+                , paths >= 0.2
+                , random >= 1.1
+                , random-bytestring >=0.1
+                , reflection >=2.1
+                , resourcet >= 1.2
+                , stm >=2.4
+                , streaming >=0.2
+                , streaming-bytestring >= 0.1
+                , text >=1.2
+                , time >=1.8
+                , transformers >=0.5
+                , unordered-containers >=0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -204,23 +116,23 @@ executable chainweb-node
 -- Main test suite for the chainweb public library
 --
 test-suite chainweb-tests
-    import: production-component
+    import: warning-flags, base-version
     type: exitcode-stdio-1.0
     hs-source-dirs: test/suite
     main-is: ChainwebTests.hs
     ghc-options: -threaded -with-rtsopts=-N
     other-modules:
-        Chainweb.Test.Roundtrips
         Chainweb.Test.ChainDB.Persistence
+        Chainweb.Test.Orphans.External
+        Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Roundtrips
+        Chainweb.Test.Utils
     build-depends:
         -- internal
-          chaindb-persisted
-        , chainweb
-        , chainweb-test
+          chainweb
 
         -- external
         , QuickCheck >= 2.12
-        , base >=4.10 && <5.0
         , bytes >=0.15
         , bytestring >=0.10
         , exceptions >=0.10
@@ -237,130 +149,34 @@ test-suite chainweb-tests
         , unliftio >= 0.2
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Test Library
+-- Chainweb Node
 -- -------------------------------------------------------------------------- --
 
--- This library contains modules that are shared among test-suites and other
--- internal components.
+-- The application that runs an chainweb node
 --
-library chainweb-test
-    import: production-component
-    hs-source-dirs: test/lib
-    exposed-modules:
-          Chainweb.Test.Orphans.Internal
-        , Chainweb.Test.Orphans.External
-        , Chainweb.Test.Utils
+executable chainweb-node
+    import: warning-flags, base-version
+    hs-source-dirs: node
+    main-is: ChainwebNode.hs
+    ghc-options: -threaded
     build-depends:
-        -- internal
           chainweb
-
-        -- external
-        , QuickCheck >= 2.12
-        , base >=4.10 && <5.0
-        , bytes >=0.15
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , largeword >=1.2
-        , hashable >=1.2
-        , text >=1.2
-
--- -------------------------------------------------------------------------- --
--- Chainweb APIs
--- -------------------------------------------------------------------------- --
-
--- signatures of all APIs
---
-library signatures
-    import: dev-component
-    hs-source-dirs: chaindb/signatures, p2p/signatures
-    signatures:
-        Chainweb.ChainDB
-        Chainweb.ChainDB.Entry
-        Chainweb.ChainDB.SyncSession
-    build-depends:
-        -- internal
-          p2p-connection
-
-        -- external
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , deepseq >=1.4
-        , exceptions >=0.10
-        , hashable >=1.2
-        , loglevel >=0.1
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-
--- Building this checks that all production implementations comply with their
--- respective signatures
---
-test-suite check-signatures
-    import: dev-component
-    type: exitcode-stdio-1.0
-    main-is: test/suite/CheckSignatures.hs
-    mixins:
-          chaindb-hashmap-indef
-          requires
-            (Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.BlockHeader
-            )
-        , chaindb-hashmap-indef
-            (Chainweb.ChainDB.HashMap as ChainDB.ChainDB.HashMapInt)
-          requires
-            (Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.Int
-            )
-        , signatures
-          requires
-            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
-            ,Chainweb.ChainDB.SyncSession as Chainweb.ChainDB.Sync.Trivial
-            ,Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.Int
-            )
-        , signatures
-          requires
-            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
-            ,Chainweb.ChainDB.SyncSession as Chainweb.ChainDB.Sync.Trivial
-            ,Chainweb.ChainDB.Entry as Chainweb.ChainDB.Entry.BlockHeader
-            )
-        , chaindb-sync-trivial-indef
-          requires
-            (Chainweb.ChainDB as Chainweb.ChainDB.HashMap
-            )
-        , p2p-indef
-          requires
-            (P2P.Node as P2P.Node.InProcess
-            )
-    build-depends:
-        -- internal
-          chainweb-types
-        , chaindb-hashmap-indef
-        , chaindb-entry-int
-        , chaindb-entry-blockheader
-        , chaindb-sync-trivial-indef
-        , signatures
-        , chainweb-test
-        , p2p-node-inprocess
-        , p2p-indef
-
-        -- external
-        , base >=4.10 && <5.0
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain End-To-End Example
 -- -------------------------------------------------------------------------- --
 
 executable chaindb-trivial-sync-example
-    import: dev-component
+    import: warning-flags, base-version
     hs-source-dirs: example
     main-is: TrivialSync.hs
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
-        , p2p
 
         -- external
         , async >=2.2
-        , base >=4.10 && <5.0
         , base64-bytestring >=1.0
         , containers >=0.5
         , exceptions >=0.10
@@ -374,186 +190,10 @@ executable chaindb-trivial-sync-example
         , yet-another-logger >=0.3
 
 -- -------------------------------------------------------------------------- --
--- ChainDB Library
--- -------------------------------------------------------------------------- --
-
--- -------------------------------------------------------------------------- --
--- ChainDB Entry
-
-library chaindb-entry-blockheader
-    import: production-component
-    hs-source-dirs: chaindb/src
-    exposed-modules:
-        Chainweb.ChainDB.Entry.BlockHeader
-    build-depends:
-        -- internal
-          chainweb-types
-        -- external
-        , base >=4.10 && <5.0
-        , bytes >=0.15
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , text >=1.2
-
-library chaindb-entry-int
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: chaindb/src
-    exposed-modules:
-        Chainweb.ChainDB.Entry.Int
-    build-depends:
-        -- internal
-          chainweb-types
-        -- external
-        , base >=4.10 && <5.0
-        , bytes >=0.15
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , hashable >=1.2
-        , text >=1.2
-
-library chaindb-entry
-    import: production-component
-    hs-source-dirs: chaindb/src
-    reexported-modules:
-        Chainweb.ChainDB.Entry.BlockHeader as Chainweb.ChainDB.Entry
-    build-depends:
-          chaindb-entry-blockheader
-
--- -------------------------------------------------------------------------- --
--- ChainDB
-
-library chaindb-hashmap
-    import: production-component
-    hs-source-dirs: chaindb/src
-    exposed-modules:
-        Chainweb.ChainDB.HashMap
-    build-depends:
-        -- internal
-          chainweb-types
-        , chaindb-entry
-
-        -- external
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , containers >=0.5
-        , exceptions >=0.10
-        , hashable >=1.2
-        , lens >=4.16
-        , stm >=2.4
-        , unordered-containers >=0.2
-
-library chaindb-persisted
-    import: production-component
-    hs-source-dirs: chaindb/src
-    exposed-modules:
-        Chainweb.ChainDB.Persist
-    reexported-modules:
-        Chainweb.ChainDB
-    build-depends:
-        -- internal
-          chaindb
-        -- external
-        , base
-        , base64-bytestring >= 1.0
-        , bytestring >=0.10
-        , paths >= 0.2 && < 0.3
-        , resourcet >= 1.2
-        , stm >=2.4
-        , streaming >= 0.2.1 && < 0.3
-        , streaming-bytestring >= 0.1.6 && < 0.2
-        , transformers >= 0.5
-
-library chaindb
-    import: production-component
-    reexported-modules:
-        Chainweb.ChainDB.HashMap as Chainweb.ChainDB
-    build-depends:
-          chaindb-hashmap
-
-library chaindb-hashmap-indef
-    import: dev-component
-    hs-source-dirs: chaindb/signatures, chaindb/src
-    exposed-modules:
-        Chainweb.ChainDB.HashMap
-    signatures:
-          Chainweb.ChainDB.Entry
-    build-depends:
-        -- internal
-          chainweb-types
-
-        -- external
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , containers >=0.5
-        , exceptions >=0.10
-        , hashable >=1.2
-        , lens >=4.16
-        , stm >=2.4
-        , unordered-containers >=0.2
-
--- -------------------------------------------------------------------------- --
--- Synchronization of remote ChainDBs
-
-library chaindb-sync-trivial
-    import: production-component
-    hs-source-dirs: chaindb/src
-    exposed-modules:
-          Chainweb.ChainDB.Sync.Trivial
-    build-depends:
-        -- internal
-          p2p-connection
-        , chaindb
-
-        -- external
-        , async >=2.2
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , deepseq >=1.4
-        , exceptions >=0.10
-        , hashable >=1.2
-        , lifted-async >= 0.10
-        , loglevel >= 0.1
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-
-library chaindb-sync
-    import: production-component
-    reexported-modules:
-        Chainweb.ChainDB.Sync.Trivial as Chainweb.ChainDB.SyncSession
-    build-depends:
-          chaindb-sync-trivial
-
-library chaindb-sync-trivial-indef
-    import: dev-component
-    hs-source-dirs: chaindb/signatures, chaindb/src
-    exposed-modules:
-          Chainweb.ChainDB.Sync.Trivial
-    signatures:
-          Chainweb.ChainDB
-    build-depends:
-        -- internal
-          p2p-connection
-
-        -- external
-        , async >=2.2
-        , base >=4.10 && <5.0
-        , bytestring >=0.10
-        , deepseq >=1.4
-        , exceptions >=0.10
-        , hashable >=1.2
-        , lifted-async >= 0.10
-        , loglevel >= 0.1
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-
--- -------------------------------------------------------------------------- --
 -- Examples for ChainDB usage
 
 executable chaindb-example
-    import: dev-component
+    import: warning-flags, base-version
     hs-source-dirs: chaindb/example
     main-is: BlockHeaderChainDb.hs
     ghc-options: -threaded -with-rtsopts=-N
@@ -563,7 +203,6 @@ executable chaindb-example
 
         -- external
         , async >=2.2
-        , base >=4.10 && <5.0
         , base64-bytestring >=1.0
         , containers >=0.5
         , lens >=4.16
@@ -573,119 +212,20 @@ executable chaindb-example
         , unordered-containers >=0.2
         , yet-another-logger >=0.3
 
--- this is also an example how chainweb-indefinite can be used to plug in
--- mock implementations.
-executable chaindb-example-int
-    import: dev-component
-    hs-source-dirs: chaindb/example
-    main-is: IntChainDb.hs
-    ghc-options: -threaded -with-rtsopts=-N
-    mixins:
-        chaindb-entry-int
-            (Chainweb.ChainDB.Entry.Int as Chainweb.ChainDB.Entry)
-        , chaindb-hashmap-indef
-            (Chainweb.ChainDB.HashMap as Chainweb.ChainDB)
-    build-depends:
-        -- internal
-          chainweb-types
-        , chaindb-hashmap-indef
-        , chaindb-entry-int
-
-        -- external
-        , async >=2.2
-        , base >=4.10 && <5.0
-        , base64-bytestring >=1.0
-        , bytes >=0.15
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , hashable >=1.2
-        , lens >=4.16
-        , random >=1.1
-        , stm >=2.4
-        , text >=1.2
-        , unordered-containers >=0.2
-        , yet-another-logger >=0.3
-
--- -------------------------------------------------------------------------- --
--- P2P Library
--- -------------------------------------------------------------------------- --
-
--- -------------------------------------------------------------------------- --
--- P2P Connection
-
-library p2p-connection
-    import: production-component
-    hs-source-dirs: p2p/src
-    exposed-modules:
-        P2P.Connection
-    build-depends:
-          base >=4.10 && <5.0
-        , bytestring >= 0.10
-        , exceptions >=0.10
-        , stm >=2.4
-        , transformers >=0.5
-
--- -------------------------------------------------------------------------- --
--- P2P Node
-
--- In process implementation of P2P API
---
-library p2p-node-inprocess
-    import: production-component
-    hs-source-dirs: p2p/inprocess
-    exposed-modules:
-          P2P.Node.InProcess
-    build-depends:
-        -- internal
-          p2p-connection
-
-        -- external
-        , base >=4.10 && <5.0
-        , async >=2.2
-        , bytestring >=0.10
-        , exceptions >=0.10
-        , loglevel >=0.1
-        , random >=1.1
-        , stm >=2.4
-        , text >=1.2
-
-library p2p
-    import: production-component
-    hs-source-dirs: p2p/src
-    reexported-modules:
-          P2P.Connection as P2P.Connection
-        , P2P.Node.InProcess as P2P.Node
-    build-depends:
-          p2p-connection
-        , p2p-node-inprocess
-        , base >=4.10 && <5.0
-
-library p2p-indef
-    import: dev-component
-    hs-source-dirs: p2p/signatures
-    reexported-modules:
-          P2P.Connection as P2P.Connection
-    signatures:
-          P2P.Node
-    build-depends:
-          p2p-connection
-        , base >=4.10 && <5.0
-
 -- -------------------------------------------------------------------------- --
 -- P2P example
 
 executable p2p-example-inprocess
-    import: dev-component
+    import: warning-flags, base-version
     hs-source-dirs: p2p/example
     main-is: InProcessP2p.hs
     ghc-options: -threaded
     build-depends:
         -- internal
-          p2p
+          chainweb
 
         -- external
         , async >=2.2
-        , base >=4.10 && < 5.0
         , exceptions >=0.10
         , lens >=4.16
         , loglevel >= 0.1

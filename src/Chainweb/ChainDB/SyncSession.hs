@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.ChainDB.Sync.Trivial
+-- Module: Chainweb.ChainDB.SyncSession
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,7 +12,7 @@
 --
 -- TODO
 --
-module Chainweb.ChainDB.Sync.Trivial
+module Chainweb.ChainDB.SyncSession
 ( syncSession
 ) where
 
@@ -103,4 +103,3 @@ runConcurrently_ l = void $ mask $ \restore -> do
 waitAny :: MonadIO m => [TMVar a] -> m a
 waitAny vars = liftIO
     $ atomically $ foldr (orElse . takeTMVar) retry vars
-

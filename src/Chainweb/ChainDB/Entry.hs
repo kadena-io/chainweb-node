@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.ChainDB.Entry.BlockHeader
+-- Module: Chainweb.ChainDB.Entry
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -11,7 +11,7 @@
 --
 -- Implementation of "Chainweb.ChainDB.Entry" based on "Chainweb.BlockHeader".
 --
-module Chainweb.ChainDB.Entry.BlockHeader
+module Chainweb.ChainDB.Entry
 ( Key
 , Entry
 , key
@@ -73,4 +73,3 @@ newtype BlockHeaderEntryException = DecodeFailure T.Text
     deriving (Show)
 
 instance Exception BlockHeaderEntryException
-

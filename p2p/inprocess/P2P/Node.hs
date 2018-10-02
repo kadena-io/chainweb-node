@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: P2P.Node.InProcess
+-- Module: P2P.Node
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,7 +12,7 @@
 --
 -- TODO
 --
-module P2P.Node.InProcess
+module P2P.Node
 ( P2pConfiguration(..)
 , InProcessNodeException(..)
 , p2pNode
@@ -416,4 +416,3 @@ createNewConnection n₁ n₂ = do
   where
     c₁ = _nodeConfig n₁
     c₂ = _nodeConfig n₂
-
