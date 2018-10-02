@@ -37,23 +37,25 @@ flag dev
     default: False
     manual: True
 
-common warning-flags
+common common-settings
+  default-language: Haskell2010
   ghc-options:
       -Wall
       -Wincomplete-record-updates
       -Wincomplete-uni-patterns
       -Wredundant-constraints
-
-common base-version
   build-depends:
       base >=4.10 && <5.0
+
+common dev-component
+  if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
 
 library
-    import: warning-flags, base-version
+    import: common-settings
     hs-source-dirs:     src, p2p/src, p2p/inprocess
     exposed-modules:
                     Chainweb.BlockHash
@@ -116,7 +118,7 @@ library
 -- Main test suite for the chainweb public library
 --
 test-suite chainweb-tests
-    import: warning-flags, base-version
+    import: common-settings
     type: exitcode-stdio-1.0
     hs-source-dirs: test/suite
     main-is: ChainwebTests.hs
@@ -155,7 +157,7 @@ test-suite chainweb-tests
 -- The application that runs an chainweb node
 --
 executable chainweb-node
-    import: warning-flags, base-version
+    import: common-settings
     hs-source-dirs: node
     main-is: ChainwebNode.hs
     ghc-options: -threaded
@@ -167,7 +169,7 @@ executable chainweb-node
 -- -------------------------------------------------------------------------- --
 
 executable chaindb-trivial-sync-example
-    import: warning-flags, base-version
+    import: common-settings, dev-component
     hs-source-dirs: example
     main-is: TrivialSync.hs
     ghc-options: -threaded -with-rtsopts=-N
@@ -193,7 +195,7 @@ executable chaindb-trivial-sync-example
 -- Examples for ChainDB usage
 
 executable chaindb-example
-    import: warning-flags, base-version
+    import: common-settings, dev-component
     hs-source-dirs: chaindb/example
     main-is: BlockHeaderChainDb.hs
     ghc-options: -threaded -with-rtsopts=-N
@@ -216,7 +218,7 @@ executable chaindb-example
 -- P2P example
 
 executable p2p-example-inprocess
-    import: warning-flags, base-version
+    import: common-settings, dev-component
     hs-source-dirs: p2p/example
     main-is: InProcessP2p.hs
     ghc-options: -threaded
