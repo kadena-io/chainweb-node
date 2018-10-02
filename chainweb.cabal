@@ -170,7 +170,7 @@ executable chainweb-node
 
 executable chaindb-trivial-sync-example
     import: common-settings, dev-component
-    hs-source-dirs: example
+    hs-source-dirs: examples
     main-is: TrivialSync.hs
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:
@@ -196,7 +196,7 @@ executable chaindb-trivial-sync-example
 
 executable chaindb-example
     import: common-settings, dev-component
-    hs-source-dirs: chaindb/example
+    hs-source-dirs: examples
     main-is: BlockHeaderChainDb.hs
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:
@@ -219,7 +219,7 @@ executable chaindb-example
 
 executable p2p-example-inprocess
     import: common-settings, dev-component
-    hs-source-dirs: p2p/example
+    hs-source-dirs: examples
     main-is: InProcessP2p.hs
     ghc-options: -threaded
     build-depends:
