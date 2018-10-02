@@ -56,7 +56,7 @@ common dev-component
 
 library
     import: common-settings
-    hs-source-dirs:     src, p2p/src, p2p/inprocess
+    hs-source-dirs:     src
     exposed-modules:
                     Chainweb.BlockHash
                   , Chainweb.BlockHeader

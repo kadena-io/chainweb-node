@@ -55,6 +55,7 @@ sshow = fromString . show
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
+-- | Configuration of the Network
 data P2pConfiguration = P2pConfiguration
     { _p2pConfigSessionCount :: !Natural
         -- ^ number of sessions that a node tries to keep open
@@ -283,6 +284,30 @@ newNodeId = atomicModifyIORef' newNodeIdCounter $ \a -> (succ a, NodeId a)
 -- -------------------------------------------------------------------------- --
 -- Running a P2P Node
 
+-- | Runs a node in a peer to peer network. A node establishes and maintains a
+-- number of connections with other peers and concurrently runs the given
+-- session of type @P2pConnection -> m ()@ for each connection. Sessions may be
+-- terminating or non-terminating. If a session exits without closing the
+-- connection a connection failure is raised at the remote peer.
+--
+-- There is exactly one connection per session and one session per connection.
+-- Sessions may remain active even after a connection failure. The only
+-- guaranteed way to kill an active connection externally is by terminating the
+-- 'p2pNode' by raising an assynchronous exception. Implementations may
+-- implement additional ways like asynchronously killing sessions after a
+-- certain time of inactivity.
+--
+-- Exception that are not connection specific are  propagated to the 'p2pNode'
+-- and subsequently to all sessions. Local sessions are termianted
+-- asynchronously and an failure is raised in remote sessions.
+--
+-- It is implementation specific how a 'p2pNode' allocates connections and
+-- sessions. Some implementation may try to keep a certain number of sessions
+-- active independent of the number of /open/ connections. Some implementations
+-- may try to keep a certain number of /open/ connections independent of the
+-- number of active sessions. And some implementations my enforce bounds both on
+-- connections and /open/ sessions.
+--
 p2pNode
     :: P2pConfiguration
     -> P2pSession
