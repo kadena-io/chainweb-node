@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 
 -- |
--- Modulue: P2P.Connection
+-- Module: P2P.Connection
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -178,4 +178,3 @@ type P2pSession = forall m
     => MonadAsync m
     => P2pConnection m
     -> m ()
-

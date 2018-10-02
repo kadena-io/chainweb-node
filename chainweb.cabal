@@ -6,8 +6,8 @@ cabal-version: 2.2
 
 name: chainweb
 version: 0.1.0.0
-synopsis: Chainweb
-description: A Chainweb Node
+synopsis: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
+description: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage: https://github.com/kadena-io/chainweb
 bug-reports: https://github.com/kadena-io/chainweb/issues
 license: NONE
@@ -137,7 +137,6 @@ test-suite chainweb-tests
         , QuickCheck >= 2.12
         , bytes >=0.15
         , bytestring >=0.10
-        , exceptions >=0.10
         , largeword >=1.2
         , paths >=0.2
         , quickcheck-instances >=0.3
@@ -179,13 +178,10 @@ executable chaindb-trivial-sync-example
 
         -- external
         , async >=2.2
-        , base64-bytestring >=1.0
-        , containers >=0.5
         , exceptions >=0.10
         , lens >=4.16
         , loglevel >=0.1
         , mwc-random >=0.13
-        , random >=1.1
         , stm >=2.4
         , text >=1.2
         , unordered-containers >=0.2
@@ -206,7 +202,6 @@ executable chaindb-example
         -- external
         , async >=2.2
         , base64-bytestring >=1.0
-        , containers >=0.5
         , lens >=4.16
         , random >=1.1
         , stm >=2.4
