@@ -134,7 +134,7 @@ test-suite chainweb-tests
           chainweb
 
         -- external
-        , QuickCheck >= 2.12
+        , QuickCheck >= 2.12 && < 2.12.6
         , bytes >=0.15
         , bytestring >=0.10
         , largeword >=1.2
