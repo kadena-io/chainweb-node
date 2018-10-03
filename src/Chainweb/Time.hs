@@ -37,7 +37,7 @@ module Chainweb.Time
 , addTimeSpan
 
 -- * Time
-, Time
+, Time(..)
 , minTime
 , maxTime
 , encodeTime

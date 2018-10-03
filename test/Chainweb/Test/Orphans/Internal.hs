@@ -14,6 +14,7 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import qualified Data.ByteString as B
+import qualified Data.HashMap.Strict as HM
 
 import Test.QuickCheck
 
@@ -24,6 +25,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.NodeId
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -56,4 +58,35 @@ instance Arbitrary BlockHashNat where
 
 instance Arbitrary HashTarget where
     arbitrary = HashTarget <$> arbitrary
+
+instance Arbitrary BlockHashRecord where
+    arbitrary = BlockHashRecord . HM.fromList . fmap (\x -> (_chainId x, x))
+        <$> arbitrary
+
+instance Arbitrary BlockPayloadHash where
+    arbitrary = BlockPayloadHash <$> arbitrary
+
+instance Arbitrary Nonce where
+    arbitrary = Nonce <$> arbitrary
+
+instance Arbitrary a => Arbitrary (Time a) where
+    arbitrary = Time <$> arbitrary
+
+instance Arbitrary a => Arbitrary (TimeSpan a) where
+    arbitrary = TimeSpan <$> arbitrary
+
+instance Arbitrary BlockHeader where
+    arbitrary = BlockHeader
+        <$> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
 

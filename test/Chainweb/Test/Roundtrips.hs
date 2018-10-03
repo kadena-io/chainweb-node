@@ -30,13 +30,34 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.NodeId
 import Chainweb.Test.Utils
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
 import Chainweb.Test.Orphans.Internal ()
 
 -- -------------------------------------------------------------------------- --
--- Tests
+-- Encode-Decode Roundrip Tests
+--
+-- * [x] encodeB64Text
+-- * [x] encodeBlockHash
+-- * [x] encodeBlockHashBytes
+-- * [x] encodeBlockHashNat
+-- * [x] encodeBlockHashRecord
+-- * [x] encodeBlockHeader
+-- * [x] encodeBlockHeight
+-- * [x] encodeBlockPayloadHash
+-- * [x] encodeBlockWeight
+-- * [x] encodeChainId
+-- * [x] encodeChainwebVersion
+-- * [x] encodeHashDifficulty
+-- * [x] encodeHashTarget
+-- * [x] encodeNodeId
+-- * [x] encodeNonce
+-- * [x] encodeTime
+-- * [x] encodeTimeSpan
+-- * [ ] encodeKey
+-- * [ ] encodeEntry
 
 tests :: TestTree
 tests = testGroup "roundtrip tests"
@@ -68,6 +89,19 @@ tests = testGroup "roundtrip tests"
         $ prop_encodeDecodeRoundtrip decodeHashTarget encodeHashTarget
     , testProperty "BlockWeight"
         $ prop_encodeDecodeRoundtrip decodeBlockWeight encodeBlockWeight
+
+    , testProperty "BlockHashRecord"
+        $ prop_encodeDecodeRoundtrip decodeBlockHashRecord encodeBlockHashRecord
+    , testProperty "BlockHeader"
+        $ prop_encodeDecodeRoundtrip decodeBlockHeader encodeBlockHeader
+    , testProperty "BlockPayloadHash"
+        $ prop_encodeDecodeRoundtrip decodeBlockPayloadHash encodeBlockPayloadHash
+    , testProperty "Nonce"
+       $ prop_encodeDecodeRoundtrip decodeNonce encodeNonce
+   , testProperty "Time"
+       $ prop_encodeDecodeRoundtrip decodeTime encodeTime
+   , testProperty "TimeSpan"
+       $ prop_encodeDecodeRoundtrip decodeTimeSpan encodeTimeSpan
 
     -- The following doesn't hold:
     -- , testProperty "target difficulty"
