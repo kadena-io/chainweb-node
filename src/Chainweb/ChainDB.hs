@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module    : Chainweb.ChainDB
@@ -120,7 +121,9 @@ import Control.Monad.Catch
 
 import Data.Hashable (Hashable(..))
 import Data.Kind
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid
+#endif
 import Data.Sequence (Seq)
 
 import qualified Data.ByteString as B

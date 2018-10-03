@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module: P2P.Node
@@ -31,7 +32,9 @@ import qualified Data.ByteString as B
 import Data.Function
 import Data.IORef
 import qualified Data.List as L
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid
+#endif
 import Data.String
 import qualified Data.Text as T
 
