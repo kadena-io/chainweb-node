@@ -9,14 +9,15 @@
     root = ./.;
     overrides = self: super: with pkgs.haskell.lib; {
       # Don't run a package's test suite
-      # chainweb = enableCabalFlag super.chainweb "dev";
+      # foo = dontCheck super.chainweb;
       #
       # Don't enforce package's version constraints
       # bar = doJailbreak super.bar;
       #
       # To discover more functions that can be used to modify haskell
-      # packages, run "nix-repl", type "pkgs.haskell.lib.", then hit
-      # <TAB> to get a tab-completed list of functions.
+      # packages, run "nix repl", type "pkgs = import <nixpkgs> {}", het
+      # enter, then type "pkgs.haskell.lib.", then hit <TAB> to get a
+      # tab-completed list of functions.
     };
     source-overrides = {
       # Use a specific hackage version
