@@ -1,7 +1,10 @@
 # To pin to a specific version of nixpkgs, you can substitute <nixpkgs> with:
 # `(builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/<nixpkgs_commit_hash>.tar.gz")`
 { compiler ? "ghc822"
-, pkgs     ? import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/6cbd1ec4b043df6f9f6e7c59c79e1025b66d5faa.tar.gz") {} }:
+, pkgs     ? import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/6cbd1ec4b043df6f9f6e7c59c79e1025b66d5faa.tar.gz") {
+    config.allowUnfree = true;
+  }
+}:
   pkgs.haskell.packages.${compiler}.developPackage {
     root = ./.;
     overrides = self: super: with pkgs.haskell.lib; {
