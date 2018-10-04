@@ -1,17 +1,4 @@
-stages:
-  - prelude
-  - build
-
-setup:
-  stage: prelude
-  script: cabal update
-
 chainweb-cabal-ghc82:
   stage: build
   script:
-    - nix-shell -p haskell.compiler.ghc822 cabal-install zlib --run "cabal new-test -f-dev && cabal new-test -f+dev"
-
-chainweb-cabal-ghc84:
-  stage: build
-  script:
-    - nix-shell -p haskell.compiler.ghc843 cabal-install zlib --run "cabal new-test -f-dev && cabal new-test -f+dev"
+    - nix-build

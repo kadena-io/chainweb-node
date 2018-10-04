@@ -31,6 +31,7 @@ import qualified Data.ByteString.Base64 as B64
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
+import Data.Monoid
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T

@@ -23,6 +23,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
+import Data.Monoid
 import Data.String
 import qualified Data.Text as T
 
