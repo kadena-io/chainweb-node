@@ -40,6 +40,7 @@ import Chainweb.Test.Orphans.Internal ()
 -- Encode-Decode Roundrip Tests
 --
 -- * [x] encodeB64Text
+-- * [x] encodeB64UrlText
 -- * [x] encodeBlockHash
 -- * [x] encodeBlockHashBytes
 -- * [x] encodeBlockHashNat
@@ -67,6 +68,8 @@ tests = testGroup "roundtrip tests"
         $ showReadTests (prop_iso' (Right @() . read) sshow)
     , testProperty "decodeB64Text . encodeB64Text"
         $ prop_iso' decodeB64Text encodeB64Text
+    , testProperty "decodeB64UrlText . encodeB64UrlText"
+        $ prop_iso' decodeB64UrlText encodeB64UrlText
     , testProperty "pretty ChainId"
         $ prop_iso' readPrettyChainId prettyChainId
     , testProperty "ChainwebVersion"

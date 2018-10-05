@@ -47,6 +47,8 @@ module Chainweb.Utils
 , encodeToText
 , encodeB64Text
 , decodeB64Text
+, encodeB64UrlText
+, decodeB64UrlText
 
 -- * Error Handling
 , Expected(..)
@@ -70,6 +72,7 @@ import Data.Bits
 import Data.Bytes.Get
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
@@ -194,6 +197,17 @@ decodeB64Text = fromEitherM
 encodeB64Text :: B.ByteString -> T.Text
 encodeB64Text = T.decodeUtf8 . B64.encode
 {-# INLINE encodeB64Text #-}
+
+decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlText = fromEitherM
+    . first (Base64DecodeException . T.pack)
+    . B64U.decode
+    . T.encodeUtf8
+{-# INLINE decodeB64UrlText #-}
+
+encodeB64UrlText :: B.ByteString -> T.Text
+encodeB64UrlText = T.decodeUtf8 . B64U.encode
+{-# INLINE encodeB64UrlText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling
