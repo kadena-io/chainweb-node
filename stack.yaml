@@ -10,6 +10,7 @@ extra-deps:
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   - pcg-random-0.1.3.5
   - random-bytestring-0.1.3.1
+  - refined-0.3.0.0@sha256:688f7fb1979acdcf3e99b096590d54c53ab2c3302b7dec15eb600911e05a578f,1240
   - yet-another-logger-0.3.1
   
   # QuickCheck-2.12
