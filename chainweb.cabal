@@ -71,7 +71,7 @@ library
                 , cereal >= 0.5
                 , containers >= 0.5
                 , cryptohash-sha512 >= 0.11
-                , exceptions
+                , exceptions >= 0.10
                 , hashable >= 1.2
                 , largeword >= 1.2
                 , lens >= 4.16

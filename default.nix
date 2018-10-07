@@ -15,20 +15,20 @@
       # bar = doJailbreak super.bar;
       #
       # To discover more functions that can be used to modify haskell
-      # packages, run "nix repl", type "pkgs = import <nixpkgs> {}", het
+      # packages, run "nix repl", type "pkgs = import <nixpkgs> {}", hit
       # enter, then type "pkgs.haskell.lib.", then hit <TAB> to get a
       # tab-completed list of functions.
     };
     source-overrides = {
-      # Use a specific hackage version
-      tasty-hunit = "0.9.2";
+      # Use a specific hackage version (if nixpkgs knows about it)
+      # foo = "0.11.3.1";
 
       # Use a particular commit from github
-      yet-another-logger = pkgs.fetchFromGitHub
-        { owner = "alephcloud";
-          repo = "hs-yet-another-logger";
-          rev = "a3a84c2ca26c88485e5663391454b434ff36726b";
-          sha256 = "06qxhjah7sc1d6ir38bs1dmmgxc158cj35xfqdss4kbksbc1b351";
-        };
+      yet-another-logger = pkgs.fetchFromGitHub {
+        owner = "alephcloud";
+        repo = "hs-yet-another-logger";
+        rev = "5706c1bb57e18f2793da21808868d947f74005f0";
+        sha256 = "1lkg6p8s3j48q6cq27k9sldd1f8aqd6b77rsa0vbbzsi69idqb17";
+      };
     };
   }
