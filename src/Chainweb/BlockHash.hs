@@ -78,13 +78,13 @@ import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Data.Proxy
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 import GHC.TypeNats
 
 import Numeric.Natural
-
 
 import qualified "cryptohash-sha512" Crypto.Hash.SHA512 as SHA512
 
@@ -190,7 +190,10 @@ cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 --
 data BlockHash :: Type where
     BlockHash :: ChainId -> BlockHashBytes -> BlockHash
-    deriving stock (Show, Read, Eq, Ord, Generic)
+    deriving stock (Eq, Ord, Generic)
+
+instance Show BlockHash where
+    show = T.unpack . encodeToText
 
 instance HasChainId BlockHash where
     _chainId (BlockHash cid _) = cid
