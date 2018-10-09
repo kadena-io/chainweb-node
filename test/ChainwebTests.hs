@@ -23,6 +23,7 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.RestAPI.Utils (properties)
 import qualified Chainweb.Test.ChainDB.Persistence
 import qualified Chainweb.Test.RestAPI
+import qualified Chainweb.Test.ChainDB.Sync
 import qualified Chainweb.Test.Roundtrips
 
 ---
@@ -34,9 +35,9 @@ suite :: TestTree
 suite = testGroup "Unit Tests"
     [ testGroup "ChainDB"
         [ Chainweb.Test.ChainDB.Persistence.tests
+        , Chainweb.Test.ChainDB.Sync.tests
         ]
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
     ]
-
