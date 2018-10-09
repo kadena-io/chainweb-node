@@ -1,20 +1,22 @@
-name: chainweb
-version: 0.1.0.0
-synopsis: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
-description: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
-homepage: https://github.com/kadena-io/chainweb
-bug-reports: https://github.com/kadena-io/chainweb/issues
-license: AllRightsReserved
+cabal-version: 2.0
+
+name:         chainweb
+version:      0.1.0.0
+synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
+description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
+homepage:     https://github.com/kadena-io/chainweb
+bug-reports:  https://github.com/kadena-io/chainweb/issues
+license:      AllRightsReserved
 license-file: LICENSE
-author: Chainweb Dev Team
-maintainer: lars@kadena.io
-copyright: Copyright (C) 2018 Kadena LLC
-cabal-version:  >= 1.10
-category: Blockchain, Currency, Bitcoin
-build-type: Simple
+author:       Chainweb Dev Team
+maintainer:   lars@kadena.io
+copyright:    Copyright (C) 2018 Kadena LLC
+category:     Blockchain, Currency, Bitcoin
+build-type:   Simple
+
 tested-with:
-      GHC == 8.4.3
-    , GHC == 8.2.2
+    GHC == 8.4.3
+    GHC == 8.2.2
 
 extra-source-files:
     CHANGELOG.md
@@ -24,6 +26,13 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
+flag dev
+    description:
+        Enable build of additional development components and perform
+        extra tests.
+    default: False
+    manual: True
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -31,74 +40,76 @@ source-repository head
 library
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
-    hs-source-dirs:     src
+    hs-source-dirs: src
     exposed-modules:
-                    Chainweb.BlockHash
-                  , Chainweb.BlockHeader
-                  , Chainweb.ChainDB
-                  , Chainweb.ChainDB.Persist
-                  , Chainweb.ChainDB.SyncSession
-                  , Chainweb.ChainId
-                  , Chainweb.Difficulty
-                  , Chainweb.Graph
-                  , Chainweb.NodeId
-                  , Chainweb.Time
-                  , Chainweb.Utils
-                  , Chainweb.Version
+          Chainweb.BlockHash
+        , Chainweb.BlockHeader
+        , Chainweb.ChainDB
+        , Chainweb.ChainDB.Persist
+        , Chainweb.ChainDB.SyncSession
+        , Chainweb.ChainId
+        , Chainweb.Difficulty
+        , Chainweb.Graph
+        , Chainweb.NodeId
+        , Chainweb.Time
+        , Chainweb.Utils
+        , Chainweb.Version
 
-                  , Data.DiGraph
-                  , Data.Word.Encoding
+        , Data.DiGraph
+        , Data.Word.Encoding
 
-                  , Numeric.Cast
-                  , Numeric.Additive
-                  , Numeric.AffineSpace
+        , Numeric.Cast
+        , Numeric.Additive
+        , Numeric.AffineSpace
 
-                  , P2P.Connection
-                  , P2P.Node
+        , P2P.Connection
+        , P2P.Node
 
     other-modules:
-                  Chainweb.ChainDB.Entry
+        Chainweb.ChainDB.Entry
 
     build-depends:
-                  aeson >= 1.2
-                , async >= 2.1
-                , base >= 4.10 && < 5.0
-                , base64-bytestring >= 1.0
-                , bytes >= 0.15
-                , bytestring >= 0.10
-                , cereal >= 0.5
-                , containers >= 0.5
-                , cryptohash-sha512 >= 0.11
-                , exceptions >= 0.8
-                , hashable >= 1.2
-                , largeword >= 1.2
-                , lens >= 4.16
-                , loglevel >= 0.1
-                , paths >= 0.2
-                , random >= 1.1
-                , random-bytestring >= 0.1
-                , reflection >= 2.1
-                , resourcet >= 1.2
-                , stm >= 2.4
-                , streaming >= 0.2
-                , streaming-bytestring >= 0.1
-                , text >= 1.2
-                , time >= 1.8
-                , transformers >= 0.5
-                , unordered-containers >= 0.2
+          aeson >= 1.2
+        , async >= 2.1
+        , base >= 4.10 && < 5.0
+        , base64-bytestring >= 1.0
+        , bytes >= 0.15
+        , bytestring >= 0.10
+        , cereal >= 0.5
+        , containers >= 0.5
+        , cryptohash-sha512 >= 0.11
+        , exceptions >= 0.8
+        , hashable >= 1.2
+        , largeword >= 1.2
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , paths >= 0.2
+        , random >= 1.1
+        , random-bytestring >= 0.1
+        , reflection >= 2.1
+        , resourcet >= 1.2
+        , stm >= 2.4
+        , streaming >= 0.2
+        , streaming-bytestring >= 0.1
+        , text >= 1.2
+        , time >= 1.8
+        , transformers >= 0.5
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
 
--- Main test suite for the chainweb public library
---
 test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
     type: exitcode-stdio-1.0
     hs-source-dirs: test
@@ -116,7 +127,7 @@ test-suite chainweb-tests
 
         -- external
         , QuickCheck >= 2.10
-        , base
+        , base >= 4.10
         , bytes >= 0.15
         , bytestring >= 0.10
         , largeword >= 1.2
@@ -127,10 +138,10 @@ test-suite chainweb-tests
         , tasty >= 1.0
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
-        , text
+        , text >= 1.2
         , these >= 0.7
         , unliftio >= 0.2
-        , unordered-containers
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
@@ -141,7 +152,9 @@ test-suite chainweb-tests
 executable chainweb-node
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
     hs-source-dirs: node
     main-is: ChainwebNode.hs
@@ -157,7 +170,9 @@ executable chainweb-node
 executable chaindb-trivial-sync-example
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
     hs-source-dirs: examples
     main-is: TrivialSync.hs
@@ -167,24 +182,28 @@ executable chaindb-trivial-sync-example
           chainweb
 
         -- external
-        , async
-        , base
-        , exceptions
-        , lens
-        , loglevel
+        , async >= 2.1
+        , base >= 4.10
+        , exceptions >= 0.8
+        , lens >= 4.16
+        , loglevel >= 0.1
         , mwc-random >= 0.13
-        , stm
-        , text
-        , unordered-containers
-        , yet-another-logger >= 0.3
+        , stm >= 2.4
+        , text >= 1.2
+        , unordered-containers >= 0.2
+        , yet-another-logger >= 0.3.1
+    if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- Examples for ChainDB usage
+-- -------------------------------------------------------------------------- --
 
 executable chaindb-example
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
     hs-source-dirs: examples
     main-is: BlockHeaderChainDb.hs
@@ -194,23 +213,27 @@ executable chaindb-example
           chainweb
 
         -- external
-        , async
-        , base
-        , base64-bytestring
-        , lens
-        , random
-        , stm
-        , text
-        , unordered-containers
-        , yet-another-logger
+        , async >= 2.1
+        , base >= 4.10
+        , base64-bytestring >= 1.0
+        , lens >= 4.16
+        , random >= 1.1
+        , stm >= 2.4
+        , text >= 1.2
+        , unordered-containers >= 0.2
+        , yet-another-logger >= 0.3.1
+    if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- P2P example
+-- -------------------------------------------------------------------------- --
 
 executable p2p-example-inprocess
     default-language: Haskell2010
     ghc-options:
-        -Wall -Wincomplete-record-updates -Wincomplete-uni-patterns
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
         -Wredundant-constraints
     hs-source-dirs: examples
     main-is: InProcessP2p.hs
@@ -220,11 +243,12 @@ executable p2p-example-inprocess
           chainweb
 
         -- external
-        , async
-        , base
-        , exceptions
-        , lens
-        , loglevel
-        , random
-        , text
-        , yet-another-logger
+        , async >= 2.1
+        , base >= 4.10
+        , exceptions >= 0.8
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , random >= 1.1
+        , text >= 1.2
+        , yet-another-logger >= 0.3.1
+    if flag(dev) { buildable: True } else { buildable: False }

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -23,7 +24,9 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Monoid
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 import Data.String
 import qualified Data.Text as T
 
@@ -111,4 +114,3 @@ l2l L.Warn = Warn
 l2l L.Info = Info
 l2l L.Debug = Debug
 l2l (L.Other _) = Debug
-

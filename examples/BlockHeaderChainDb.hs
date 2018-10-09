@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -31,7 +32,9 @@ import qualified Data.ByteString.Base64 as B64
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
-import Data.Monoid
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -174,4 +177,3 @@ checkBranch logg s bk = do
 
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
-
