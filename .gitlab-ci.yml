@@ -5,4 +5,4 @@ chainweb-cabal-ghc82:
 chainweb-stack:
   stage: build
   script:
-    - nix-shell -p stack libiconv zlib --run "stack build"
+    - nix-shell -p stack libiconv zlib --run "stack test"
