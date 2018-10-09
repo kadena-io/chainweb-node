@@ -62,8 +62,8 @@ library
                   Chainweb.ChainDB.Entry
 
     build-depends:
-                  aeson >= 1.3
-                , async >= 2.2
+                  aeson >= 1.2
+                , async >= 2.1
                 , base >= 4.10 && < 5.0
                 , base64-bytestring >= 1.0
                 , bytes >= 0.15
@@ -71,7 +71,7 @@ library
                 , cereal >= 0.5
                 , containers >= 0.5
                 , cryptohash-sha512 >= 0.11
-                , exceptions >= 0.10
+                , exceptions >= 0.8
                 , hashable >= 1.2
                 , largeword >= 1.2
                 , lens >= 4.16

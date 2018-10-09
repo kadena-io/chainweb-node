@@ -2,3 +2,7 @@ chainweb-cabal-ghc82:
   stage: build
   script:
     - nix-build
+chainweb-stack:
+  stage: build
+  script:
+    - nix-shell -p stack libiconv zlib --run "stack build"
