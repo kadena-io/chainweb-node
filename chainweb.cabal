@@ -115,7 +115,7 @@ test-suite chainweb-tests
           chainweb
 
         -- external
-        , QuickCheck >= 2.11
+        , QuickCheck >= 2.10
         , base
         , bytes >= 0.15
         , bytestring >= 0.10
