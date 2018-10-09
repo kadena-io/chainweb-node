@@ -124,9 +124,9 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , resourcet >= 1.2
         , streaming >= 0.2
-        , tasty >= 1.1
+        , tasty >= 1.0
         , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.10
+        , tasty-quickcheck >= 0.9
         , text
         , these >= 0.7
         , unliftio >= 0.2
