@@ -1,8 +1,11 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: P2P.Node
@@ -14,433 +17,366 @@
 -- TODO
 --
 module P2P.Node
-( P2pConfiguration(..)
-, InProcessNodeException(..)
-, p2pNode
+(
+-- * P2P Configuration
+  P2pConfiguration(..)
+, p2pConfigId
+, p2pConfigMaxSessionCount
+, p2pConfigMaxPeerCount
+, p2pConfigSessionTimeout
+, p2pConfigInitialDb
+, p2pConfigPeerDbFilePath
+, defaultP2pConfiguration
+
+-- * Run Peer Database
+, startPeerDb
+, stopPeerDb
+, withPeerDb
+
+-- * P2P Node
+, p2pCreateNode
+, p2pStartNode
+, p2pStopNode
 ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM.TBQueue
-import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import qualified Data.ByteString as B
-import Data.Function
-import Data.IORef
-import qualified Data.List as L
+import qualified Data.ByteString.Char8 as B8
+import Data.Foldable
+import qualified Data.Map.Strict as M
+import Data.Maybe
 #if !MIN_VERSION_base(4,11,0)
-import Data.Monoid
+import Data.Semigroup
 #endif
-import Data.String
 import qualified Data.Text as T
+
+import GHC.Generics
+
+import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
+import Servant.Client
 
-import System.IO.Unsafe
 import System.LogLevel
-import System.Random
+import qualified System.Random as R
 
 -- Internal imports
 
-import P2P.Connection
+import Chainweb.ChainId
+import Chainweb.HostAddress
+import Chainweb.RestAPI.Utils
+import Chainweb.Time
+import Chainweb.Utils hiding (check)
+import Chainweb.Version
+
+import P2P.Session
+
+import P2P.Node.PeerDB
+import P2P.Node.RestAPI.Client
 
 -- -------------------------------------------------------------------------- --
--- Misc Utils
-
-sshow :: Show a => IsString b => a -> b
-sshow = fromString . show
-
--- -------------------------------------------------------------------------- --
--- Configuration
+-- P2P Configuration
 
 -- | Configuration of the Network
+--
+-- TODO: add ChainwebVersion?
+--
 data P2pConfiguration = P2pConfiguration
-    { _p2pConfigSessionCount :: !Natural
-        -- ^ number of sessions that a node tries to keep open
-
+    { _p2pConfigId :: !(Maybe PeerId)
     , _p2pConfigMaxSessionCount :: !Natural
-        -- ^ maximum number of session that a node accepts
-
-    , _p2pConfigMessageBufferSize :: !Natural
-
-    , _p2pLogFunction :: LogLevel -> T.Text -> IO ()
+        -- ^ number of active peers
+    , _p2pConfigMaxPeerCount :: !Natural
+        -- ^ total number of peers
+    , _p2pConfigSessionTimeout :: !(TimeSpan Int)
+        -- ^ interval at which peers are rotated out of the active set
+    , _p2pConfigInitialDb :: ![PeerInfo]
+    , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
     }
+    deriving (Generic)
 
--- -------------------------------------------------------------------------- --
--- Exceptions
+makeLenses ''P2pConfiguration
 
-data InProcessNodeException
-    = BufferOverflow
-    | RemoteSessionEnded
-    | NodeFailure
-        -- ^ raised if the local node failes to allocate or to run
-        -- sessions.
-
-    deriving (Show)
-
-instance Exception InProcessNodeException
-
--- -------------------------------------------------------------------------- --
--- Connection State
-
--- | Msg wrapper
---
-data Msg
-    = Close
-    | Failure SomeException
-    | Msg [B.ByteString]
-
--- | Connection State
---
-data ConnState = ConnState
-    { _sendChan :: !(TBQueue Msg)
-        -- ^ Shared with the other end of the connection.
-        --
-        -- FIXME: Using TBQueue is problematic here because of it's amortized
-        -- performance guarantees.
-    , _receiveChan :: !(TBQueue Msg)
-        -- ^ Shared with the other end of the connection.
-    , _failure :: !(TMVar SomeException)
-        -- ^ Shared between both ends of the connection.
-    , _isClosed :: !(TMVar P2pPeer)
-        -- ^ Local to one end of the connection.
-    }
-    deriving (Eq)
-
-newConnState :: TBQueue Msg -> TBQueue Msg -> TMVar SomeException -> IO ConnState
-newConnState s r f = do
-    closedVar <- newEmptyTMVarIO
-    return $ ConnState
-        { _sendChan = s
-        , _receiveChan = r
-        , _isClosed = closedVar
-        , _failure = f
-        }
-
--- -------------------------------------------------------------------------- --
--- Connection Utils
-
--- | Exception handling for Transactions
---
-runP2pStm :: forall m a . MonadIO m => MonadThrow m => STM a -> m a
-runP2pStm transaction = do
-    eitherResult <- liftIO $ atomically
-        $ fmap Right transaction `catchSTM` \e ->
-            return $ Left (e :: P2pConnectionException)
-    either throwM return eitherResult
-
-checkClosedAndFailure :: ConnState -> STM ()
-checkClosedAndFailure s = do
-    tryReadTMVar (_isClosed s) >>= \case
-        Just peer -> throwSTM $ P2pConnectionClosed peer
-        Nothing -> return ()
-
-    tryReadTMVar (_failure s) >>= \case
-        Just e -> throwSTM $ P2pConnectionFailed e
-        Nothing -> return ()
-
-checkBufferOverflow :: ConnState -> STM ()
-checkBufferOverflow s =
-    isFullTBQueue (_sendChan s) >>= \case
-        True -> do
-            let e = toException BufferOverflow
-            void $ tryPutTMVar (_failure s) e
-            throwSTM $ P2pConnectionFailed e
-        False -> return ()
-
-checkReceive :: ConnState -> Msg -> STM [B.ByteString]
-checkReceive s msg =  case msg of
-    Close -> do
-        void $ tryTakeTMVar (_isClosed s)
-        putTMVar (_isClosed s) Remote
-        throwSTM $ P2pConnectionClosed Remote
-    Failure e -> do
-        void $ tryPutTMVar (_failure s) e
-        throwSTM $ P2pConnectionFailed e
-    Msg bytes -> return bytes
-
--- -------------------------------------------------------------------------- --
--- P2pConnection
-
-send :: MonadIO m => MonadThrow m => ConnState -> P2pMessage -> m ()
-send s msg = runP2pStm $ do
-    checkClosedAndFailure s
-    checkBufferOverflow s
-    writeTBQueue (_sendChan s) (Msg msg)
-
-receive :: MonadIO m => MonadThrow m => ConnState -> m P2pMessage
-receive s = runP2pStm $ do
-    checkClosedAndFailure s
-    msg <- readTBQueue (_receiveChan s)
-    checkReceive s msg
-
-tryReceive :: MonadIO m => MonadThrow m => ConnState -> m (Maybe P2pMessage)
-tryReceive s = runP2pStm $ do
-    checkClosedAndFailure s
-    maybeMsg <- tryReadTBQueue (_receiveChan s)
-    mapM (checkReceive s) maybeMsg
-
-close :: MonadIO m => MonadThrow m => ConnState -> m ()
-close s = runP2pStm $ do
-    checkClosedAndFailure s
-    checkBufferOverflow s
-    putTMVar (_isClosed s) Local
-    void $ writeTBQueue (_sendChan s) Close
-
-endpoint :: MonadThrow m => MonadIO m => ConnState -> P2pConnection m
-endpoint s = P2pConnection
-    { p2pSend = send s
-    , p2pReceive = receive s
-    , p2pTryReceive = tryReceive s
-    , p2pClose = close s
-    }
-
--- -------------------------------------------------------------------------- --
--- Node
-
-newtype NodeId = NodeId Int
-    deriving (Show, Eq, Ord)
-
-data Node = Node
-    { _nodeSessions :: !(TVar [Async Bool])
-    , _nodeConfig :: !P2pConfiguration
-    , _nodeSession :: !P2pSession
-    , _nodeSessionCount :: !(TVar Natural)
-    , _nodeSuccessConnectionCount :: !(TVar Natural)
-    , _nodeFailedConnectionCount :: !(TVar Natural)
-    , _nodeId :: !NodeId
-    }
-
-instance Eq Node where
-    (==) = (==) `on` _nodeId
-
-instance Show Node where
-    show = show . _nodeId
-
-newNode :: P2pConfiguration -> P2pSession -> NodeId -> IO Node
-newNode conf session i = do
-    sessions <- newTVarIO []
-    successCount <- newTVarIO 0
-    failureCount <- newTVarIO 0
-    sessionCount <- newTVarIO 0
-
-    return $ Node
-        { _nodeSessions = sessions
-        , _nodeConfig = conf
-        , _nodeSession = session
-        , _nodeSessionCount = sessionCount
-        , _nodeSuccessConnectionCount = successCount
-        , _nodeFailedConnectionCount = failureCount
-        , _nodeId = i
-        }
-
-addSession :: Node -> Async Bool -> STM ()
-addSession node s = do
-    modifyTVar' (_nodeSessions node) ((:) s)
-    modifyTVar' (_nodeSessionCount node) succ
-
-removeSession :: Node -> Async Bool -> STM ()
-removeSession node s = do
-    modifyTVar' (_nodeSessions node) (L.delete s)
-    modifyTVar' (_nodeSessionCount node) pred
-
--- -------------------------------------------------------------------------- --
--- Global nodes list
-
-nodes :: TVar [Node]
-nodes = unsafePerformIO $ newTVarIO []
-{-# NOINLINE nodes #-}
-
-addNode :: Node -> STM ()
-addNode n = modifyTVar' nodes $ (:) n
-
-removeNode :: Node -> STM ()
-removeNode n = modifyTVar' nodes $ L.delete n
-
-sampleNodeIdx :: IO Natural
-sampleNodeIdx = do
-    ns <- readTVarIO nodes
-    fromIntegral <$> randomRIO (0, length ns - 1)
-
-findNextNode :: Node -> Natural -> [Node] -> STM Node
-findNextNode cur i ns = foldr (orElse . checkNode) retry ns'
-  where
-    ns' = let (a,b) = splitAt (fromIntegral i) ns in b ++ a
-    checkNode n = do
-        check (n /= cur)
-        c <- readTVar (_nodeSessionCount n)
-        check (c < _p2pConfigMaxSessionCount (_nodeConfig n))
-        return n
-
-newNodeIdCounter :: IORef Int
-newNodeIdCounter = unsafePerformIO $ newIORef 0
-{-# NOINLINE newNodeIdCounter #-}
-
-newNodeId :: IO NodeId
-newNodeId = atomicModifyIORef' newNodeIdCounter $ \a -> (succ a, NodeId a)
-
--- -------------------------------------------------------------------------- --
--- Running a P2P Node
-
--- | Runs a node in a peer to peer network. A node establishes and maintains a
--- number of connections with other peers and concurrently runs the given
--- session of type @P2pConnection -> m ()@ for each connection. Sessions may be
--- terminating or non-terminating. If a session exits without closing the
--- connection a connection failure is raised at the remote peer.
---
--- There is exactly one connection per session and one session per connection.
--- Sessions may remain active even after a connection failure. The only
--- guaranteed way to kill an active connection externally is by terminating the
--- 'p2pNode' by raising an assynchronous exception. Implementations may
--- implement additional ways like asynchronously killing sessions after a
--- certain time of inactivity.
---
--- Exception that are not connection specific are  propagated to the 'p2pNode'
--- and subsequently to all sessions. Local sessions are termianted
--- asynchronously and an failure is raised in remote sessions.
---
--- It is implementation specific how a 'p2pNode' allocates connections and
--- sessions. Some implementation may try to keep a certain number of sessions
--- active independent of the number of /open/ connections. Some implementations
--- may try to keep a certain number of /open/ connections independent of the
--- number of active sessions. And some implementations my enforce bounds both on
--- connections and /open/ sessions.
---
-p2pNode
-    :: P2pConfiguration
-    -> P2pSession
-    -> IO ()
-p2pNode conf session = bracket createNode deleteNode runNode
-  where
-
-    logg = _p2pLogFunction conf
-
-    -- Create new node
-    --
-    createNode = do
-        nid <- newNodeId
-        node <- newNode conf session nid
-        atomically $ addNode node
-        logg Info $ "created node"
-        return node
-
-    -- Delete node on exit
-    --
-    deleteNode node = do
-        sessions <- atomically $ do
-            removeNode node
-            readTVar (_nodeSessions node)
-        mapM_ uninterruptibleCancel sessions
-        logg Info $ "deleted node"
-
-    -- Run node
-    --
-    runNode node = concurrently_ (awaitSessions node) (connect node)
-
-    -- Monitor and garbage collect sessions connections.
-    --
-    awaitSessions node = forever $ do
-        (ses, result) <- atomically $ do
-            ss <- readTVar (_nodeSessions node)
-            (a, r) <- waitAnySTM ss
-            removeSession node a
-            modifyTVar' (if r then _nodeSuccessConnectionCount node else _nodeFailedConnectionCount node) succ
-            return (a, r)
-
-        -- logging
-        successes <- readTVarIO (_nodeSuccessConnectionCount node)
-        failures <- readTVarIO (_nodeFailedConnectionCount node)
-        logg Info
-            $ "closed session " <> sshow (_nodeId node) <> ":" <> sshow (asyncThreadId ses)
-            <> if result then " (success)" else " (failure)"
-        logg Info
-            $ "successes: " <> sshow successes <> ", "
-            <> "failures: " <> sshow failures
-
-    -- Make new connections
-    --
-    connect fromNode = forever $ do
-        i <- sampleNodeIdx
-        toNode <- atomically $ do
-            c <- readTVar (_nodeSessionCount fromNode)
-            check (c < _p2pConfigSessionCount (_nodeConfig fromNode))
-
-            -- find next available node starting from n
-            ns <- readTVar nodes
-            findNextNode fromNode i ns
-
-        -- We don't take a lock on fromNode and toNode, so there may be
-        -- a race here. We just don't care if we have a few more connections.
-        (fromSession, toSession) <- connectNodes fromNode toNode
-        logg Info $ "connected"
-            <> " from session " <> sshow fromNode <> ":" <> sshow (asyncThreadId fromSession)
-            <> " to session " <> sshow toNode <> ":" <> sshow (asyncThreadId toSession)
-
-connectNodes
-    :: Node
-        -- ^ from node
-    -> Node
-        -- ^ to node
-    -> IO (Async Bool, Async Bool)
-connectNodes from to = do
-    (fromState, toState) <- createNewConnection from to
-
-    mask_ $ do
-        fromSession <- asyncWithUnmask $ runSessionWithConnection (_nodeSession from) fromState
-        atomically $ addSession from fromSession
-
-        toSession <- asyncWithUnmask $ runSessionWithConnection (_nodeSession to) toState
-        atomically $ addSession to toSession
-
-        -- the return value is only use for logging
-        return (fromSession, toSession)
-
--- | Runs a session.
---
--- Returns 'True' if and only if the session terminated without a failure.
--- Terminating a session without closing the underlying connection raises an
--- failure.
---
-runSessionWithConnection :: P2pSession -> ConnState -> (forall a . IO a -> IO a) -> IO Bool
-runSessionWithConnection session s unmask = do
-    unmask (session $ endpoint s) `catches`
-        [ Handler $ \(e :: P2pConnectionException) ->
-            void $ atomically $ tryPutTMVar (_failure s) (toException e)
-
-        -- this handler ensures that the remote connection is notified even if
-        -- the local connection is killed asynchronously.
-        , Handler $ \(e :: SomeException) -> do
-            void $ atomically $ tryPutTMVar (_failure s) e
-            throwM e
+defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
+defaultP2pConfiguration Test = P2pConfiguration
+    { _p2pConfigId = Nothing
+    , _p2pConfigMaxSessionCount = 10
+    , _p2pConfigMaxPeerCount = 50
+    , _p2pConfigSessionTimeout = scaleTimeSpan (1 :: Natural) minute
+    , _p2pConfigInitialDb =
+        [ PeerInfo
+            (unsafeReadPeerId "525ff65f-9240-4ada-9c36-fe7da982b4b4")
+            (fromJust $ readHostAddressBytes "localhost:1789")
         ]
+    , _p2pConfigPeerDbFilePath = Nothing
+    }
 
-    atomically $ tryReadTMVar (_isClosed s) >>= \case
-        Nothing -> void
-            $ tryPutTMVar (_failure s) $ toException RemoteSessionEnded
-        Just _ -> return ()
+defaultP2pConfiguration _ = error "TODO not implemented"
 
-    atomically (tryReadTMVar $ _failure s) >>= \case
-        Just _ -> return False
-        Nothing -> return True
+-- -------------------------------------------------------------------------- --
+-- P2P Node State
 
--- | Creates a new connection between two nodes.
+-- | P2P Node State
 --
-createNewConnection
-    :: Node
-    -> Node
-    -> IO (ConnState, ConnState)
-createNewConnection n₁ n₂ = do
-    receiveChan₁ <- newTBQueueIO (fromIntegral $ _p2pConfigMessageBufferSize c₁)
-    receiveChan₂ <- newTBQueueIO (fromIntegral $ _p2pConfigMessageBufferSize c₂)
-    failureVar <- newEmptyTMVarIO
-    connState₁ <- newConnState receiveChan₂ receiveChan₁ failureVar
-    connState₂ <- newConnState receiveChan₁ receiveChan₂ failureVar
-    return (connState₁, connState₂)
+-- TODO: add configuration
+--
+data P2pNode = P2pNode
+    { _p2pNodeChainId :: !ChainId
+    , _p2pNodeChainwebVersion :: !ChainwebVersion
+    , _p2pNodePeerInfo :: !PeerInfo
+    , _p2pNodePeerDb :: !PeerDb
+    , _p2pNodeSessions :: !(TVar (M.Map PeerId (Async Bool)))
+    , _p2pNodeManager :: !HTTP.Manager
+    , _p2pNodeLogFunction :: !LogFunction
+    , _p2pNodeSuccessCount :: !(TVar Natural)
+    , _p2pNodeFailureCount :: !(TVar Natural)
+    , _p2pNodeClientSession :: !P2pSession
+    , _p2pNodeRng :: !(TVar R.StdGen)
+    , _p2pNodeActive :: !(TVar Bool)
+    }
+
+addSession :: P2pNode -> PeerId -> Async Bool -> STM ()
+addSession node pid session =
+    modifyTVar' (_p2pNodeSessions node) $ M.insert pid session
+
+removeSession :: P2pNode -> PeerId -> STM ()
+removeSession node pid =
+    modifyTVar' (_p2pNodeSessions node) $ M.delete pid
+
+countSuccess :: P2pNode -> STM ()
+countSuccess node = modifyTVar' (_p2pNodeSuccessCount node) succ
+
+countFailure :: P2pNode -> STM ()
+countFailure node = modifyTVar' (_p2pNodeSuccessCount node) succ
+
+logg :: P2pNode -> LogLevel -> T.Text -> IO ()
+logg = _p2pNodeLogFunction
+
+randomR :: R.Random a => P2pNode -> (a, a) -> STM a
+randomR node range = do
+    gen <- readTVar (_p2pNodeRng node)
+    let (a, gen') = R.randomR range gen
+    a <$ writeTVar (_p2pNodeRng node) gen'
+
+setInactive :: P2pNode -> STM ()
+setInactive node = writeTVar (_p2pNodeActive node) False
+
+-- -------------------------------------------------------------------------- --
+-- Sync Peers
+
+peerBaseUrl :: HostAddress -> BaseUrl
+peerBaseUrl a = BaseUrl Http
+    (B8.unpack . hostnameBytes $ view hostAddressHost a)
+    (int $ view hostAddressPort a)
+    ""
+
+peerClientEnv :: P2pNode -> PeerInfo -> ClientEnv
+peerClientEnv node = mkClientEnv (_p2pNodeManager node) . peerBaseUrl . _peerAddr
+
+-- TODO: handle paging
+--
+syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
+syncFromPeer node info = runClientM sync env >>= \case
+    Left e -> do
+        logg node Warn $ "failed to sync peers: " <> sshow e
+        return False
+    Right p -> do
+        peerDbInsertList (_pageItems p) (_p2pNodePeerDb node)
+        return True
   where
-    c₁ = _nodeConfig n₁
-    c₂ = _nodeConfig n₂
+    env = peerClientEnv node info
+    v = _p2pNodeChainwebVersion node
+    cid = _p2pNodeChainId node
+    sync = do
+        p <- peerGetClient v cid Nothing Nothing
+        liftIO $ logg node Info $ "got " <> sshow (_pageLimit p) <> " peers"
+        void $ peerPutClient v cid (_p2pNodePeerInfo node)
+        liftIO $ logg node Info "put peer"
+        return p
+
+-- -------------------------------------------------------------------------- --
+-- Sample Peer from PeerDb
+
+-- | Sample next active peer. Blocks until a suitable peer is available
+--
+-- @O(_p2pConfigActivePeerCount conf)@
+--
+findNextPeer
+    :: P2pConfiguration
+    -> P2pNode
+    -> STM PeerInfo
+findNextPeer conf node = do
+    active <- readTVar (_p2pNodeActive node)
+    check active
+    peers <- peerDbSnapshotSTM peerDbVar
+    sessions <- readTVar sessionsVar
+    let peerCount = length peers
+    let sessionCount = length sessions
+    check (sessionCount < peerCount)
+    i <- randomR node (0, peerCount - 1)
+    let (a, b) = M.splitAt (fromIntegral i) peers
+    let checkPeer n = do
+            check (int sessionCount < _p2pConfigMaxSessionCount conf)
+            check (M.notMember (_peerId n) sessions)
+            return n
+    foldr (orElse . checkPeer) retry (toList b ++ toList a)
+  where
+    peerDbVar = _p2pNodePeerDb node
+    sessionsVar = _p2pNodeSessions node
+
+-- -------------------------------------------------------------------------- --
+-- Manage Sessions
+
+-- | TODO May loop forever. Add proper retry logic and logging
+--
+newSession :: P2pConfiguration -> P2pNode -> IO ()
+newSession conf node = do
+    logg node Debug "Select new peer"
+    newPeer <- atomically $ findNextPeer conf node
+    let newPeerId = _peerId newPeer
+    logg node Info $ "Selected new peer " <> sshow newPeerId
+    syncFromPeer node newPeer >>= \case
+        False -> do
+            logg node Warn $ "Failed to connect new peer " <> sshow newPeerId
+            newSession conf node
+        True -> do
+            logg node Debug $ "Connect to new peer " <> sshow newPeerId
+            let env = peerClientEnv node newPeer
+            newSes <- mask_ $ do
+                newSes <- async $ _p2pNodeClientSession node (logg node) env
+                atomically $ addSession node newPeerId newSes
+                return newSes
+            let sId = asyncThreadId newSes
+            logg node Info $ "Started peer session "
+                <> sshow newPeerId <> ":" <> sshow sId
+
+-- | Monitor and garbage collect sessions
+--
+awaitSessions :: P2pNode -> IO ()
+awaitSessions node = do
+    (pId, ses, result) <- atomically $ do
+        (p, a, r) <- waitAnySession node
+        removeSession node p
+        case r of
+            Right{} -> countSuccess node
+            Left{} -> countFailure node
+        return (p, a, r)
+
+    -- logging
+    let sId = asyncThreadId ses
+    r <- case result of
+        Right{} -> return True
+        Left e -> do
+            logg node Warn
+                $ "session " <> sshow pId <> ":" <> sshow sId
+                <> " failed with " <> sshow e
+            return False
+
+    logg node Info
+        $ "closed session " <> sshow pId <> ":" <> sshow sId
+        <> if r then " (success)" else " (failure)"
+
+    successes <- readTVarIO (_p2pNodeSuccessCount node)
+    failures <- readTVarIO (_p2pNodeFailureCount node)
+    logg node Info
+        $ "successes: " <> sshow successes <> ", "
+        <> "failures: " <> sshow failures
+
+waitAnySession :: P2pNode -> STM (PeerId, Async Bool, Either SomeException Bool)
+waitAnySession node = do
+    sessions <- readTVar $ _p2pNodeSessions node
+    foldr orElse retry $ waitFor <$> M.toList sessions
+  where
+    waitFor (k, a) = (k, a,) <$> waitCatchSTM a
+
+-- -------------------------------------------------------------------------- --
+-- Run Peer DB
+
+startPeerDb
+    :: P2pConfiguration
+    -> IO PeerDb
+startPeerDb conf = do
+    peerDb <- fromPeerList (_p2pConfigInitialDb conf)
+    case _p2pConfigPeerDbFilePath conf of
+        Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
+        Nothing -> return ()
+    return peerDb
+
+stopPeerDb :: P2pConfiguration -> PeerDb -> IO ()
+stopPeerDb conf db = case _p2pConfigPeerDbFilePath conf of
+    Just dbFilePath -> storePeerDb dbFilePath db
+    Nothing -> return ()
+
+withPeerDb
+    :: P2pConfiguration
+    -> (PeerDb -> IO a)
+    -> IO a
+withPeerDb conf = bracket (startPeerDb conf) (stopPeerDb conf)
+
+-- -------------------------------------------------------------------------- --
+-- Create
+
+p2pCreateNode
+    :: ChainwebVersion
+    -> ChainId
+    -> P2pConfiguration
+    -> LogFunction
+    -> PeerDb
+    -> HostAddress
+    -> HTTP.Manager
+    -> P2pSession
+    -> IO P2pNode
+p2pCreateNode cv cid conf logfun db addr mgr session = do
+    -- get node id
+    nid <-  maybe createPeerId return $ _p2pConfigId conf
+    let myInfo = PeerInfo
+            { _peerId = nid
+            , _peerAddr = addr
+            }
+
+    -- intialize P2P State
+    sessionsVar <- newTVarIO mempty
+    successVar <- newTVarIO 0
+    failureVar <- newTVarIO 0
+    rngVar <- newTVarIO =<< R.newStdGen
+    activeVar <- newTVarIO True
+    let s = P2pNode
+                { _p2pNodeChainId = cid
+                , _p2pNodeChainwebVersion = cv
+                , _p2pNodePeerInfo = myInfo
+                , _p2pNodePeerDb = db
+                , _p2pNodeSessions = sessionsVar
+                , _p2pNodeManager = mgr
+                , _p2pNodeLogFunction = logfun
+                , _p2pNodeSuccessCount = successVar
+                , _p2pNodeFailureCount = failureVar
+                , _p2pNodeClientSession = session
+                , _p2pNodeRng = rngVar
+                , _p2pNodeActive = activeVar
+                }
+
+    logfun Info "created node"
+    return s
+
+-- -------------------------------------------------------------------------- --
+-- Run P2P Node
+
+p2pStartNode :: P2pConfiguration -> P2pNode -> IO ()
+p2pStartNode conf node = concurrently_
+    (forever $ awaitSessions node)
+    (forever $ newSession conf node)
+
+p2pStopNode :: P2P.Node.P2pNode -> IO ()
+p2pStopNode node = do
+    sessions <- atomically $ do
+        setInactive node
+        readTVar (_p2pNodeSessions node)
+    mapM_ uninterruptibleCancel sessions
+    logg node Info "stopped node"
+

@@ -55,7 +55,6 @@ library
         , Chainweb.ChainDB.RestAPI.Client
         , Chainweb.ChainDB.RestAPI.Orphans
         , Chainweb.ChainDB.RestAPI.Server
-        , Chainweb.ChainDB.SyncSession
         , Chainweb.ChainDB.Sync
         , Chainweb.ChainId
         , Chainweb.Difficulty
@@ -75,8 +74,12 @@ library
         , Numeric.Additive
         , Numeric.AffineSpace
 
-        , P2P.Connection
         , P2P.Node
+        , P2P.Node.PeerDB
+        , P2P.Node.RestAPI
+        , P2P.Node.RestAPI.Server
+        , P2P.Node.RestAPI.Client
+        , P2P.Session
 
     other-modules:
         Chainweb.ChainDB.Entry
@@ -97,6 +100,7 @@ library
         , cryptohash-sha512 >= 0.11
         , exceptions >= 0.8
         , hashable >= 1.2
+        , http-client >= 0.5
         , largeword >= 1.2
         , lens >= 4.16
         , loglevel >= 0.1
@@ -108,6 +112,7 @@ library
         , reflection >= 2.1
         , refined >= 0.3
         , resourcet >= 1.2
+        , safeio >= 0.0
         , servant >= 0.13
         , servant-client >= 0.13
         , servant-server >= 0.13
@@ -116,10 +121,12 @@ library
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , swagger2 >= 2.2
+        , temporary >= 1.3
         , text >= 1.2
         , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
+        , uuid >= 1.3
         , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
@@ -174,6 +181,7 @@ test-suite chainweb-tests
         , these >= 0.7
         , unliftio >= 0.2
         , unordered-containers >= 0.2
+        , wai >= 3.2
         , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
@@ -200,32 +208,32 @@ executable chainweb-node
 -- Single Chain End-To-End Example
 -- -------------------------------------------------------------------------- --
 
-executable chaindb-trivial-sync-example
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-    hs-source-dirs: examples
-    main-is: TrivialSync.hs
-    ghc-options: -threaded -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.10
-        , exceptions >= 0.8
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mwc-random >= 0.13
-        , stm >= 2.4
-        , text >= 1.2
-        , unordered-containers >= 0.2
-        , yet-another-logger >= 0.3.1
-    if flag(dev) { buildable: True } else { buildable: False }
+-- executable chaindb-trivial-sync-example
+--     default-language: Haskell2010
+--     ghc-options:
+--         -Wall
+--         -Wincomplete-record-updates
+--         -Wincomplete-uni-patterns
+--         -Wredundant-constraints
+--     hs-source-dirs: examples
+--     main-is: TrivialSync.hs
+--     ghc-options: -threaded -with-rtsopts=-N
+--     build-depends:
+--         -- internal
+--           chainweb
+--
+--         -- external
+--         , async >= 2.2
+--         , base >= 4.10
+--         , exceptions >= 0.8
+--         , lens >= 4.16
+--         , loglevel >= 0.1
+--         , mwc-random >= 0.13
+--         , stm >= 2.4
+--         , text >= 1.2
+--         , unordered-containers >= 0.2
+--         , yet-another-logger >= 0.3.1
+--     if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- Examples for ChainDB usage
@@ -258,10 +266,10 @@ executable chaindb-example
     if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
--- P2P example
+-- Single Chain End-To-End Example
 -- -------------------------------------------------------------------------- --
 
-executable p2p-example-inprocess
+executable p2p-example
     default-language: Haskell2010
     ghc-options:
         -Wall
@@ -269,8 +277,8 @@ executable p2p-example-inprocess
         -Wincomplete-uni-patterns
         -Wredundant-constraints
     hs-source-dirs: examples
-    main-is: InProcessP2p.hs
-    ghc-options: -threaded
+    main-is: P2pExample.hs
+    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -278,10 +286,15 @@ executable p2p-example-inprocess
         -- external
         , async >= 2.2
         , base >= 4.10
+        , configuration-tools >= 0.4
         , exceptions >= 0.8
+        , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , random >= 1.1
+        , mwc-random >= 0.13
+        , stm >= 2.4
         , text >= 1.2
+        , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
     if flag(dev) { buildable: True } else { buildable: False }
+

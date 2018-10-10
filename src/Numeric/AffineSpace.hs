@@ -41,7 +41,7 @@ import Numeric.Additive
 -- add unneeded complexity to the formal definition of the operational
 -- semantics.
 --
--- A Torsor is also called  principal homogeous space.
+-- A Torsor is also called principal homogeous space.
 --
 -- prop> zero `add` a == a
 -- prop> (a `plus` b) `add` t == a `add` (b `add` t)

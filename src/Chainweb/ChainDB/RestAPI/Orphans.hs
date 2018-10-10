@@ -40,7 +40,6 @@ import Chainweb.ChainId
 import Chainweb.Utils
 import Chainweb.Version
 
-
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
 

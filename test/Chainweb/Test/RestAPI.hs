@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 
 -- |
@@ -16,8 +17,6 @@ module Chainweb.Test.RestAPI
 ( tests
 ) where
 
-import Control.Concurrent
-import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -30,10 +29,7 @@ import Data.Semigroup
 #endif
 import qualified Data.Text as T
 
-import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types.Status
-import Network.Socket (close)
-import Network.Wai.Handler.Warp
 
 import Numeric.Natural
 
@@ -57,59 +53,6 @@ import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
-import qualified Data.DiGraph as G
-
--- -------------------------------------------------------------------------- --
--- Test Chain Database Configurations
-
-peterson :: ChainGraph
-peterson = toChainGraph (testChainId . int) G.petersonGraph
-
-singleton :: ChainGraph
-singleton = toChainGraph (testChainId . int) G.singleton
-
-testChainDbs :: ChainGraph -> ChainwebVersion -> IO [(ChainId, ChainDb)]
-testChainDbs g v = mapM (\c -> (c,) <$> db c) $ give g $ toList chainIds
-  where
-    db c = initChainDb . Configuration $ genesisBlockHeader v g c
-
-petersonGenesisChainDbs :: IO [(ChainId, ChainDb)]
-petersonGenesisChainDbs = testChainDbs peterson Test
-
-singletonGenesisChainDbs :: IO [(ChainId, ChainDb)]
-singletonGenesisChainDbs = testChainDbs singleton Test
-
-linearChainDbs :: Natural -> IO [(ChainId, ChainDb)] -> IO [(ChainId, ChainDb)]
-linearChainDbs n genDbs = do
-    dbs <- genDbs
-    mapM_ (uncurry populateDb) dbs
-    return dbs
-  where
-    populateDb cid db = do
-        let gbh0 = genesisBlockHeader Test peterson cid
-        sn <- snapshot db
-        sn' <- foldM (flip insert) sn
-            . fmap entry
-            . take (int n)
-            $ testBlockHeaders gbh0
-        syncSnapshot sn'
-
-starChainDbs :: Natural -> IO [(ChainId, ChainDb)] -> IO [(ChainId, ChainDb)]
-starChainDbs n genDbs = do
-    dbs <- genDbs
-    mapM_ (uncurry populateDb) dbs
-    return dbs
-  where
-    populateDb cid db = do
-        let gbh0 = genesisBlockHeader Test peterson cid
-        sn <- snapshot db
-        sn' <- foldM
-            (\s i -> insert (newEntry i gbh0) s)
-            sn
-            [0 .. (int n-1)]
-        syncSnapshot sn'
-    newEntry i h = entry . head $ testBlockHeadersWithNonce (Nonce i) h
-
 -- -------------------------------------------------------------------------- --
 -- ChainDb queries from Chainweb.ChainDB.Queries
 
@@ -125,46 +68,7 @@ dbBranches db = do
     SP.toList_ $ chainDbBranches sn Nothing Nothing
 
 -- -------------------------------------------------------------------------- --
--- Test Client Environment
-
-testHost :: String
-testHost = "localhost"
-
-data TestClientEnv = TestClientEnv
-    { _envClientEnv :: !ClientEnv
-    , _envDbs :: ![(ChainId, ChainDb)]
-    }
-
--- TODO: catch, wrap, and forward exceptions from chainwebApplication
---
-withChainwebServer
-    :: IO [(ChainId, ChainDb)]
-    -> (IO TestClientEnv -> TestTree)
-    -> TestTree
-withChainwebServer dbsIO test = withResource start stop $ \x ->
-    test $ x >>= \(_, _, env) -> return env
-  where
-    start = do
-        dbs <- dbsIO
-        (port, sock) <- openFreePort
-        readyVar <- newEmptyMVar
-        server <- async $ do
-            let settings = setBeforeMainLoop (putMVar readyVar ()) defaultSettings
-            runSettingsSocket settings sock (chainwebApplication Test dbs)
-        link server
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        _ <- takeMVar readyVar
-        return
-            ( server
-            , sock
-            , TestClientEnv (mkClientEnv mgr (BaseUrl Http testHost port "")) dbs
-            )
-    stop (server, sock, _) = do
-        uninterruptibleCancel server
-        close sock
-
-size :: MonadIO m => Integral a => ChainDb -> m a
-size db = int . length <$> hashes db
+-- ChainDB Utils
 
 genesisBh :: MonadIO m => ChainDb -> m BlockHeader
 genesisBh db = dbEntry . head <$> headers db
@@ -199,14 +103,14 @@ tests = testGroup "REST API tests"
 -- Test all endpoints on each chain
 
 simpleSessionTests :: TestTree
-simpleSessionTests = withChainwebServer petersonGenesisChainDbs
+simpleSessionTests = withChainDbsServer petersonGenesisChainDbs
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (give peterson chainIds)
 
 simpleClientSession :: IO TestClientEnv -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        TestClientEnv env _ <- envIO
+        ChainDbsTestClientEnv env _ <- envIO
         res <- runClientM (session step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
         return ()
@@ -290,7 +194,7 @@ simpleTest
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
-    TestClientEnv env [(_, db)] <- envIO
+    ChainDbsTestClientEnv env [(_, db)] <- envIO
     gbh <- dbEntry . head <$> headers db
     res <- runClientM (session gbh) env
     assertBool ("test failed with unexpected result: " <> sshow res) (p res)
@@ -332,7 +236,7 @@ put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
 putTests :: TestTree
-putTests = withChainwebServer singletonGenesisChainDbs
+putTests = withChainDbsServer singletonGenesisChainDbs
     $ \env -> testGroup "put tests"
         [ putNewBlockHeader env
         , putExisting env
@@ -345,7 +249,7 @@ putTests = withChainwebServer singletonGenesisChainDbs
 -- Paging Tests
 
 pagingTests :: TestTree
-pagingTests = withChainwebServer (starChainDbs 6 singletonGenesisChainDbs)
+pagingTests = withChainDbsServer (starChainDbs 6 singletonGenesisChainDbs)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient env
         , testPageLimitHashesClient env
@@ -368,7 +272,7 @@ pagingTest
     -> TestTree
 pagingTest name getDbItems getKey request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        TestClientEnv env [(cid, db)] <- envIO
+        ChainDbsTestClientEnv env [(cid, db)] <- envIO
         entries <- getDbItems db
         let l = len entries
         res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
@@ -376,7 +280,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         assertBool ("test of limit failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test next parameter" $ \step -> do
-        TestClientEnv env [(cid, db)] <- envIO
+        ChainDbsTestClientEnv env [(cid, db)] <- envIO
         entries <- getDbItems db
         let l = len entries
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
@@ -385,7 +289,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
-        TestClientEnv env [(cid, db)] <- envIO
+        ChainDbsTestClientEnv env [(cid, db)] <- envIO
         entries <- getDbItems db
         let l = len entries
         res <- flip runClientM env
@@ -395,7 +299,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        TestClientEnv env [(cid, db)] <- envIO
+        ChainDbsTestClientEnv env [(cid, db)] <- envIO
         missing <- missingKey db
         res <- flip runClientM env $ request cid Nothing (Just missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
