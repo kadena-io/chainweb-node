@@ -58,7 +58,7 @@ module Chainweb.Utils
 , Expected(..)
 , Actual(..)
 , unexpectedMsg
-, (≡?)
+, (==?)
 , check
 , fromMaybeM
 , (???)
@@ -234,8 +234,8 @@ unexpectedMsg msg expected actual = msg
     <> ", expected: " <> sshow (getExpected expected)
     <> ", actual: " <> sshow (getActual actual)
 
-(≡?) :: Eq a => Expected a -> Actual a -> Bool
-(≡?) (Expected a) (Actual b) = a == b
+(==?) :: Eq a => Expected a -> Actual a -> Bool
+(==?) (Expected a) (Actual b) = a == b
 
 check
     :: MonadThrow m
@@ -246,7 +246,7 @@ check
     -> Actual a
     -> m a
 check e a b = do
-    unless (a ≡? b) $ throwM (e a b)
+    unless (a ==? b) $ throwM (e a b)
     return (getActual b)
 
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
