@@ -30,6 +30,7 @@ module Chainweb.Utils
 
 -- * Misc
 , int
+, len
 , (==>)
 , keySet
 , minimumsOf
@@ -37,6 +38,7 @@ module Chainweb.Utils
 , leadingZeros
 , maxBy
 , minBy
+, (&)
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -113,6 +115,10 @@ exa = 10 ^ (18 :: Int)
 int :: Integral a => Num b => a -> b
 int = fromIntegral
 {-# INLINE int #-}
+
+len :: Integral a => [b] -> a
+len = int . length
+{-# INLINE len #-}
 
 (==>) :: Bool -> Bool -> Bool
 a ==> b = not a && b
