@@ -1,5 +1,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
+
 
 -- |
 -- Module: Chainweb.ChainDB.Sync
@@ -18,6 +20,8 @@ module Chainweb.ChainDB.Sync
 
 import           Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import           Chainweb.ChainDB
+import           Chainweb.ChainDB.RestAPI.Client (headersClient)
+import           Chainweb.RestAPI.Utils (Page(..))
 import           Control.Arrow ((&&&))
 import           Control.Monad.Trans.State.Strict
 import           Data.Foldable (toList)
@@ -25,7 +29,10 @@ import           Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
+import           Network.HTTP.Client (newManager)
+import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Refined hiding (NonEmpty)
+import           Servant.Client hiding (client)
 import           Streaming
 import qualified Streaming.Prelude as SP
 
@@ -52,7 +59,7 @@ sync d p db = do
         >>= Just . Leaves . fmap dbEntry
   case mleaves of
     Nothing -> undefined
-    Just leaves -> putThemIn s . headers p $ _blockHeight (lowLeaf d leaves) + 1
+    Just leaves -> putThemIn s . headers p $ lowLeaf d leaves
 
 -- | \(\mathcal{O}(n \log n)\).
 leafMap :: Leaves -> M.Map BlockHeight BlockHeader
@@ -82,8 +89,38 @@ lowLeaf d l = fromMaybe (NEL.head $ unleaves l) . fmap snd $ M.lookupGE lowH lma
 -- INVARIANTS:
 --   * The `BlockHeader`s are streamed in order of `BlockHeight`, lowest to highest.
 --     We assume the server will do this correctly.
-headers :: Peer -> BlockHeight -> Stream (Of BlockHeader) IO ()
-headers = undefined
+headers :: Peer -> BlockHeader -> Stream (Of BlockHeader) IO ()
+headers p h = do
+    env <- flip mkClientEnv (url p) <$> lift (newManager tlsManagerSettings)
+    headers' env h
+
+-- | Manage a connection to a `HeadersApi` and automatically handle its paging.
+headers' :: ClientEnv -> BlockHeader -> Stream (Of BlockHeader) IO ()
+headers' env h = g $ client Nothing
+  where
+    height = 1 + fromIntegral (_blockHeight h)
+
+    -- TODO What's the best limit value? 100? 1000?
+    client :: Maybe (Key 'Unchecked) -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
+    client next = headersClient (_blockChainwebVersion h) (_blockChainId h) (Just 100) next (Just height) Nothing Nothing
+
+    g :: ClientM (Page (Key 'Unchecked) (Entry 'Unchecked)) -> Stream (Of BlockHeader) IO ()
+    g c = do
+        lift (runClientM c env) >>= \case
+            Left err   -> undefined  -- TODO
+            Right page -> f page
+
+    f :: Page (Key 'Unchecked) (Entry 'Unchecked) -> Stream (Of BlockHeader) IO ()
+    f page = do
+        SP.map dbEntry . SP.each $ _pageItems page
+        maybe (pure ()) (g . client . Just) $ _pageNext page
+
+url :: Peer -> BaseUrl
+url p = BaseUrl Https (ip p) 443 ""
+
+-- TODO In the real version, this is just a field accessor.
+ip :: Peer -> String
+ip = undefined
 
 -- TODO How often to call `syncSnapshot`?
 -- Currently it calls it after all new `BlockHeader`s have been inserted.
