@@ -50,11 +50,18 @@ library
         , Chainweb.BlockHeader
         , Chainweb.ChainDB
         , Chainweb.ChainDB.Persist
+        , Chainweb.ChainDB.Queries
+        , Chainweb.ChainDB.RestAPI
+        , Chainweb.ChainDB.RestAPI.Client
+        , Chainweb.ChainDB.RestAPI.Orphans
+        , Chainweb.ChainDB.RestAPI.Server
         , Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.NodeId
+        , Chainweb.RestAPI
+        , Chainweb.RestAPI.Utils
         , Chainweb.Time
         , Chainweb.Utils
         , Chainweb.Version
@@ -73,9 +80,11 @@ library
         Chainweb.ChainDB.Entry
 
     build-depends:
-          aeson >= 1.2
-        , async >= 2.1
-        , base >= 4.10 && < 5.0
+          QuickCheck >= 2.10
+        , aeson >= 1.2
+        , aeson-pretty >= 0.8
+        , async >= 2.2
+        , base >= 4.10
         , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
@@ -87,18 +96,26 @@ library
         , largeword >= 1.2
         , lens >= 4.16
         , loglevel >= 0.1
+        , mtl >= 2.2
         , paths >= 0.2
+        , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
+        , servant >= 0.13
+        , servant-client >= 0.13
+        , servant-server >= 0.13
+        , servant-swagger >= 1.1
         , stm >= 2.4
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
+        , swagger2 >= 2.2
         , text >= 1.2
         , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
+        , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -120,6 +137,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Roundtrips
+        Chainweb.Test.RestAPI
         Chainweb.Test.Utils
     build-depends:
         -- internal
@@ -127,13 +145,19 @@ test-suite chainweb-tests
 
         -- external
         , QuickCheck >= 2.10
+        , async >= 2.2
         , base >= 4.10
         , bytes >= 0.15
         , bytestring >= 0.10
+        , http-client >= 0.5
+        , http-types >= 0.12
         , largeword >= 1.2
+        , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , reflection >= 2.1
         , resourcet >= 1.2
+        , servant-client >= 0.13
         , streaming >= 0.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9
@@ -142,6 +166,7 @@ test-suite chainweb-tests
         , these >= 0.7
         , unliftio >= 0.2
         , unordered-containers >= 0.2
+        , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node
@@ -182,7 +207,7 @@ executable chaindb-trivial-sync-example
           chainweb
 
         -- external
-        , async >= 2.1
+        , async >= 2.2
         , base >= 4.10
         , exceptions >= 0.8
         , lens >= 4.16
@@ -213,7 +238,7 @@ executable chaindb-example
           chainweb
 
         -- external
-        , async >= 2.1
+        , async >= 2.2
         , base >= 4.10
         , base64-bytestring >= 1.0
         , lens >= 4.16
@@ -243,7 +268,7 @@ executable p2p-example-inprocess
           chainweb
 
         -- external
-        , async >= 2.1
+        , async >= 2.2
         , base >= 4.10
         , exceptions >= 0.8
         , lens >= 4.16

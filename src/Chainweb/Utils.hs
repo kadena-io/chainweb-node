@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -30,6 +32,7 @@ module Chainweb.Utils
 
 -- * Misc
 , int
+, len
 , (==>)
 , keySet
 , minimumsOf
@@ -37,6 +40,7 @@ module Chainweb.Utils
 , leadingZeros
 , maxBy
 , minBy
+, (&)
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -47,11 +51,14 @@ module Chainweb.Utils
 , encodeToText
 , encodeB64Text
 , decodeB64Text
+, encodeB64UrlText
+, decodeB64UrlText
 
 -- * Error Handling
 , Expected(..)
 , Actual(..)
-, (≡?)
+, unexpectedMsg
+, (==?)
 , check
 , fromMaybeM
 , (???)
@@ -70,9 +77,13 @@ import Data.Bits
 import Data.Bytes.Get
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 import Data.Serialize.Get (Get)
 import Data.String (IsString(..))
 import qualified Data.Text as T
@@ -82,7 +93,6 @@ import qualified Data.Text.Lazy as TL
 import GHC.Generics
 
 import Numeric.Natural
-
 
 import Text.Read (readEither)
 
@@ -110,6 +120,10 @@ exa = 10 ^ (18 :: Int)
 int :: Integral a => Num b => a -> b
 int = fromIntegral
 {-# INLINE int #-}
+
+len :: Integral a => [b] -> a
+len = int . length
+{-# INLINE len #-}
 
 (==>) :: Bool -> Bool -> Bool
 a ==> b = not a && b
@@ -195,6 +209,17 @@ encodeB64Text :: B.ByteString -> T.Text
 encodeB64Text = T.decodeUtf8 . B64.encode
 {-# INLINE encodeB64Text #-}
 
+decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlText = fromEitherM
+    . first (Base64DecodeException . T.pack)
+    . B64U.decode
+    . T.encodeUtf8
+{-# INLINE decodeB64UrlText #-}
+
+encodeB64UrlText :: B.ByteString -> T.Text
+encodeB64UrlText = T.decodeUtf8 . B64U.encode
+{-# INLINE encodeB64UrlText #-}
+
 -- -------------------------------------------------------------------------- --
 -- Error Handling
 
@@ -204,8 +229,13 @@ newtype Expected a = Expected { getExpected :: a }
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
 
-(≡?) :: Eq a => Expected a -> Actual a -> Bool
-(≡?) (Expected a) (Actual b) = a == b
+unexpectedMsg :: Show a => T.Text -> Expected a -> Actual a -> T.Text
+unexpectedMsg msg expected actual = msg
+    <> ", expected: " <> sshow (getExpected expected)
+    <> ", actual: " <> sshow (getActual actual)
+
+(==?) :: Eq a => Expected a -> Actual a -> Bool
+(==?) (Expected a) (Actual b) = a == b
 
 check
     :: MonadThrow m
@@ -216,7 +246,7 @@ check
     -> Actual a
     -> m a
 check e a b = do
-    unless (a ≡? b) $ throwM (e a b)
+    unless (a ==? b) $ throwM (e a b)
     return (getActual b)
 
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a

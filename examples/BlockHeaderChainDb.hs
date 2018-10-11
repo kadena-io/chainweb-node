@@ -28,17 +28,13 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.STM
 
-import qualified Data.ByteString.Base64 as B64
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
-import Data.String
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-
 
 import System.Logger hiding (logg)
 import System.Random
@@ -51,6 +47,7 @@ import qualified Chainweb.ChainDB as DB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.NodeId
+import Chainweb.Utils
 import Chainweb.Version
 
 import Data.DiGraph
@@ -68,8 +65,7 @@ graph = toChainGraph (const exampleChainId) singleton
 --
 main :: IO ()
 main = withHandleBackend (_logConfigBackend config)
-     $ \backend -> withLogger (_logConfigLogger config) backend
-     $ example
+     $ \backend -> withLogger (_logConfigLogger config) backend example
   where
     level = Debug
     config = defaultLogConfig
@@ -132,7 +128,7 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
 --
 observer :: Logger T.Text -> DB.ChainDb -> IO ()
 observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
-    let logg level = loggerFunIO logger' level
+    let logg = loggerFunIO logger'
     logg Info "Initialized Observer"
     threadDelay $ 2 * 1000000
 
@@ -151,7 +147,7 @@ observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
         logg Info $ "observed new entry: " <> sshow e
 
         let encoded = DB.encodeEntry e
-        logg Debug $ "serialized Entry: " <> T.decodeUtf8 (B64.encode encoded)
+        logg Debug $ "serialized Entry: " <> encodeB64UrlText encoded
 
         decoded <- DB.decodeEntry encoded
         logg Debug $ "deserialized Entry: " <> sshow (decoded :: DB.Entry 'DB.Unchecked)
@@ -173,7 +169,4 @@ checkBranch logg s bk = do
     be <- DB.getEntryIO bk s
     unless (HS.null $ DB.children bk s)
         $ logg Error $ "branch " <> sshow be <> " has children"
-    return ()
 
-sshow :: Show a => IsString b => a -> b
-sshow = fromString . show

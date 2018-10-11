@@ -13,13 +13,20 @@ module Chainweb.Test.Utils
 ( prop_iso
 , prop_iso'
 , prop_encodeDecodeRoundtrip
+
+-- * Expectations
+, assertExpectation
 ) where
+
+import Control.Monad.IO.Class
 
 import Data.Bifunctor
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.Text as T
 
 import Test.QuickCheck
+import Test.Tasty.HUnit
 
 -- internal modules
 
@@ -49,4 +56,19 @@ prop_encodeDecodeRoundtrip
     -> a
     -> Property
 prop_encodeDecodeRoundtrip d e = prop_iso' (runGetEither d) (runPutS . e)
+
+-- -------------------------------------------------------------------------- --
+-- Expectations
+
+assertExpectation
+    :: MonadIO m
+    => Eq a
+    => Show a
+    => T.Text
+    -> Expected a
+    -> Actual a
+    -> m ()
+assertExpectation msg expected actual = liftIO $ assertBool
+    (T.unpack $ unexpectedMsg msg expected actual)
+    (getExpected expected == getActual actual)
 

@@ -26,7 +26,7 @@ import Control.Monad.Trans.Resource (MonadResource, MonadThrow(..), ResourceT, r
 import Control.Monad.Trans.State.Strict
 
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Streaming as BS
 import qualified Data.ByteString.Streaming.Char8 as BS
 import Data.Foldable (traverse_)
@@ -61,7 +61,7 @@ dbEntries db = lift (updates db) >>= \u -> lift (snapshot db) >>= f u
 
 -- | Encode each `Entry` as a base64 `B.ByteString`.
 encoded :: Monad m => Stream (Of (Entry 'Checked)) m () -> Stream (Of B.ByteString) m ()
-encoded = S.map (B64.encode . encodeEntry)
+encoded = S.map (B64U.encode . encodeEntry)
 {-# INLINE encoded #-}
 
 -- | Form a ByteString stream from base64-encoded Entries, and divide them by
@@ -111,7 +111,7 @@ destream = S.mapped BS.toStrict
 -- | Reverse the base64 encoding and further decode from our custom encoding.
 -- Throws a `DbException` if either decoding step fails.
 decoded :: MonadThrow m => Stream (Of B.ByteString) m r -> Stream (Of (Entry 'Unchecked)) m r
-decoded = S.mapM (either die pure . B64.decode >=> decodeEntry)
+decoded = S.mapM (either die pure . B64U.decode >=> decodeEntry)
   where
     die _ = throwM Base64DeserializationFailed
 {-# INLINE decoded #-}

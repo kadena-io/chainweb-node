@@ -16,10 +16,13 @@
 module Main ( main ) where
 
 import Test.Tasty
+import Test.Tasty.QuickCheck
 
 -- internal modules
 
+import qualified Chainweb.ChainDB.RestAPI.Server (properties)
 import qualified Chainweb.Test.ChainDB.Persistence
+import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 
 ---
@@ -33,5 +36,7 @@ suite = testGroup "Unit Tests"
         [ Chainweb.Test.ChainDB.Persistence.tests
         ]
     , Chainweb.Test.Roundtrips.tests
+    , Chainweb.Test.RestAPI.tests
+    , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.ChainDB.RestAPI.Server.properties
     ]
 
