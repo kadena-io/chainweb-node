@@ -81,7 +81,6 @@ module Chainweb.BlockHeader
 , isGenesisBlockHeader
 
 -- * BlockHeader Validation
-
 , prop_block_difficulty
 , prop_block_hash
 , prop_block_genesis_parent
@@ -90,6 +89,7 @@ module Chainweb.BlockHeader
 -- * Testing
 , testBlockHeader
 , testBlockHeaders
+, testBlockHeadersWithNonce
 ) where
 
 import Control.Arrow ((&&&))
@@ -557,7 +557,19 @@ testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
+--
 testBlockHeaders :: BlockHeader -> [BlockHeader]
 testBlockHeaders = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) (_blockNonce b) b
+
+-- | Given a `BlockHeader` of some initial parent, generate an infinite stream
+-- of `BlockHeader`s which form a legal chain.
+--
+-- Should only be used for testing purposes.
+--
+testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
+testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
+  where
+    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
+
