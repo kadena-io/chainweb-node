@@ -145,13 +145,16 @@ headersClient_
 headersClient_ = client (headersApi @v @c)
 
 headersClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
+    :: ChainwebVersion  -- ^ The remote chainweb that you wish to query from.
+    -> ChainId  -- ^ The remote chain within the web that you wish to query from.
+    -> Maybe Natural  -- ^ The number of responses per-`Page` to return.
+    -> Maybe (Key 'Unchecked)  -- ^ The first header you want to see within the `Page`.
+                               -- `Page` contains a field `_pageNext`, which can be used
+                               -- to produce the value needed for subsequent calls.
+    -> Maybe Natural  -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
+    -> Maybe Natural  -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
+    -> Maybe (Key 'Unchecked, Key 'Unchecked)  -- ^ Filter: only yield headers between two specific hashes,
+                                               -- i.e. a single, specific branch.
     -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
 headersClient v c limit start minr maxr range = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
@@ -213,4 +216,3 @@ hashesClient v c limit start minr maxr range = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ hashesClient_ @v @c limit start minr maxr range
-
