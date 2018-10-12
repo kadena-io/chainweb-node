@@ -18,8 +18,6 @@ import Control.Monad (void)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
 
 import Data.Align (padZipWith)
-import Data.DiGraph (singleton)
-import Data.Foldable (foldlM)
 
 import qualified Streaming.Prelude as S
 
@@ -28,16 +26,11 @@ import System.Path (fromAbsoluteFilePath)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import UnliftIO.Exception (bracket)
-
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
 import qualified Chainweb.ChainDB as DB
 import Chainweb.ChainDB.Persist (persist, dbEntries, fileEntries)
-import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Graph (toChainGraph)
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Test.Utils (chaindb, withDB, insertN)
 
 ---
 
@@ -53,28 +46,6 @@ tests = testGroup "ChainDB/Persistence"
         , testCase "Multiple Entries" manyBlocksWritten
         ]
     ]
-
-chainId :: ChainId
-chainId = testChainId 0
-
--- | Borrowed from TrivialSync.hs
-chaindb :: IO (BlockHeader, DB.ChainDb)
-chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
-  where
-    graph = toChainGraph (const chainId) singleton
-    genesis = genesisBlockHeader Test graph chainId
-
--- | Given a function that accepts a Genesis Block and
--- an initialized `DB.ChainDb`, perform some action
--- and cleanly close the DB.
-withDB :: (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
-withDB = bracket chaindb (DB.closeChainDb . snd) . uncurry
-
-insertN :: Int -> BlockHeader -> DB.ChainDb -> IO DB.Snapshot
-insertN n g db = do
-    ss <- DB.snapshot db
-    let bhs = map DB.entry . take n $ testBlockHeaders g
-    foldlM (\ss' bh -> DB.insert bh ss') ss bhs >>= DB.syncSnapshot
 
 insertItems :: Assertion
 insertItems = withDB $ \g db -> void (insertN 10 g db)

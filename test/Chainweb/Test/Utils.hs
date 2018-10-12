@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -10,7 +11,14 @@
 -- TODO
 --
 module Chainweb.Test.Utils
-( prop_iso
+(
+-- * ChainDb Generation
+  chaindb
+, withDB
+, insertN
+
+-- * QuickCheck Properties
+, prop_iso
 , prop_iso'
 , prop_encodeDecodeRoundtrip
 
@@ -23,14 +31,49 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.DiGraph (singleton)
+import Data.Foldable (foldlM)
 import qualified Data.Text as T
 
 import Test.QuickCheck
 import Test.Tasty.HUnit
 
+import UnliftIO.Exception (bracket)
+
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
+import qualified Chainweb.ChainDB as DB
+import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.Graph (toChainGraph)
+import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Utils
+
+-- -------------------------------------------------------------------------- --
+-- ChainDb Generation
+
+chainId :: ChainId
+chainId = testChainId 0
+
+-- | Borrowed from TrivialSync.hs
+chaindb :: IO (BlockHeader, DB.ChainDb)
+chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
+  where
+    graph = toChainGraph (const chainId) singleton
+    genesis = genesisBlockHeader Test graph chainId
+
+-- | Given a function that accepts a Genesis Block and
+-- an initialized `DB.ChainDb`, perform some action
+-- and cleanly close the DB.
+withDB :: (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
+withDB = bracket chaindb (DB.closeChainDb . snd) . uncurry
+
+-- | Populate a `DB.ChainDb` with /n/ generated `BlockHeader`s.
+insertN :: Int -> BlockHeader -> DB.ChainDb -> IO DB.Snapshot
+insertN n g db = do
+    ss <- DB.snapshot db
+    let bhs = map DB.entry . take n $ testBlockHeaders g
+    foldlM (\ss' bh -> DB.insert bh ss') ss bhs >>= DB.syncSnapshot
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips
@@ -71,4 +114,3 @@ assertExpectation
 assertExpectation msg expected actual = liftIO $ assertBool
     (T.unpack $ unexpectedMsg msg expected actual)
     (getExpected expected == getActual actual)
-
