@@ -24,6 +24,13 @@
       # foo = "0.11.3.1";
 
       # Use a particular commit from github
+      refined = pkgs.fetchFromGitHub {
+        owner = "nikita-volkov";
+        repo = "refined";
+        rev = "cd3d99a6a9dff6adfc6dfceb06697ae56261ea6d";
+        sha256 = "0ihgr7ldqjx7f3nzpf7g587s0i9acix9xwm9wwp0v6rs4jcdbbm7";
+      };
+
       yet-another-logger = pkgs.fetchFromGitHub {
         owner = "alephcloud";
         repo = "hs-yet-another-logger";
