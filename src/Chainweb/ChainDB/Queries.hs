@@ -18,7 +18,6 @@ module Chainweb.ChainDB.Queries
 ) where
 
 import Control.Concurrent.STM
-import Control.Monad.Error
 
 import Data.Functor.Of
 import Data.Maybe
@@ -213,4 +212,3 @@ chainDbHeader
         -- ^ The key of the requested entry.
     -> Maybe (Entry 'Checked)
 chainDbHeader sn k = lookupEntry k sn
-

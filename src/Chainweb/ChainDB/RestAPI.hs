@@ -15,7 +15,7 @@
 --
 -- Collections of hashes or block headers are returned in an order that is
 -- compatible with the order of the block heights of the respective block
--- headers. This allows guarantees that all dependecies of a block header are
+-- headers. This allows guarantees that all dependencies of a block header are
 -- returned before the block header itself is returned.
 --
 -- Block hashes and block headers are base64-URL encoded.
@@ -218,4 +218,3 @@ someChainDbApi v c = runIdentity $ do
 
 someChainDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
 someChainDbApis v = mconcat . fmap (someChainDbApi v)
-

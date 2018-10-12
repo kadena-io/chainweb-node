@@ -26,7 +26,7 @@ module Chainweb.ChainDB.RestAPI.Server
 , properties
 ) where
 
-import Control.Monad.Error
+import Control.Monad.Except (MonadError(..), liftIO)
 import Control.Monad.Identity
 
 import Data.Functor.Of
@@ -255,4 +255,3 @@ someChainDbServer (SomeChainDb (db :: ChainDb_ v c))
 someChainDbServers :: ChainwebVersion -> [(ChainId, ChainDb)] -> SomeServer
 someChainDbServers v = mconcat
     . fmap (someChainDbServer . uncurry (someChainDbVal v))
-
