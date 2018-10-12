@@ -10,7 +10,10 @@
   }
 }:
   pkgs.haskell.packages.${compiler}.developPackage {
-    root = ./.;
+    root = builtins.filterSource
+      (path: type: !(builtins.elem (baseNameOf path)
+         ["result" "dist" "dist-ghcjs" ".git" ".stack-work"]))
+      ./.;
     overrides = self: super: with pkgs.haskell.lib; {
       # Don't run a package's test suite
       # foo = dontCheck super.chainweb;
