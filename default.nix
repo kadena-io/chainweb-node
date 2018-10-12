@@ -1,7 +1,11 @@
 # To pin to a specific version of nixpkgs, you can substitute <nixpkgs> with:
 # `(builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/<nixpkgs_commit_hash>.tar.gz")`
 { compiler ? "ghc822"
-, pkgs     ? import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/6cbd1ec4b043df6f9f6e7c59c79e1025b66d5faa.tar.gz") {
+, rev ? "6cbd1ec4b043df6f9f6e7c59c79e1025b66d5faa"
+, sha ? "0i2ahdilnb8p4gafyqfzzr85n7pghw295bya1y7c1kpvc7hf5mhp"
+, pkgs     ? import (builtins.fetchTarball {
+                       url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
+                       sha256 = sha; }) {
     config.allowUnfree = true;
   }
 }:
