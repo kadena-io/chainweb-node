@@ -14,8 +14,12 @@ module Chainweb.Test.Utils
 (
 -- * ChainDb Generation
   chaindb
+, chainId
 , withDB
 , insertN
+
+-- * Toy Server Interaction
+, withServer
 
 -- * QuickCheck Properties
 , prop_iso
@@ -26,6 +30,8 @@ module Chainweb.Test.Utils
 , assertExpectation
 ) where
 
+import Control.Concurrent.Async (async, link, uninterruptibleCancel)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -34,6 +40,12 @@ import Data.Bytes.Put
 import Data.DiGraph (singleton)
 import Data.Foldable (foldlM)
 import qualified Data.Text as T
+
+import qualified Network.HTTP.Client as HTTP
+import Network.Socket (close)
+import qualified Network.Wai.Handler.Warp as W
+
+import Servant.Client (ClientEnv, mkClientEnv, BaseUrl(..), Scheme(..))
 
 import Test.QuickCheck
 import Test.Tasty.HUnit
@@ -46,6 +58,7 @@ import Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeade
 import qualified Chainweb.ChainDB as DB
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Graph (toChainGraph)
+import Chainweb.RestAPI (chainwebApplication)
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Utils
 
@@ -74,6 +87,27 @@ insertN n g db = do
     ss <- DB.snapshot db
     let bhs = map DB.entry . take n $ testBlockHeaders g
     foldlM (\ss' bh -> DB.insert bh ss') ss bhs >>= DB.syncSnapshot
+
+-- -------------------------------------------------------------------------- --
+-- Toy Server Interaction
+
+withServer :: [(ChainId, DB.ChainDb)] -> (ClientEnv -> IO ()) -> IO ()
+withServer chains f = bracket start stop (\(_, _, env) -> f env)
+  where
+    start = do
+        (port, sock) <- W.openFreePort
+        readyVar <- newEmptyMVar
+        server <- async $ do
+            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            W.runSettingsSocket settings sock (chainwebApplication Test chains)
+        link server
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        _ <- takeMVar readyVar
+        pure (server, sock, mkClientEnv mgr (BaseUrl Http "localhost" port ""))
+
+    stop (server, sock, _) = do
+        uninterruptibleCancel server
+        close sock
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

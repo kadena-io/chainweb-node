@@ -431,4 +431,3 @@ testPageLimitBranchesClient = pagingTest "branchesClient" entries id request
   where
     entries db = fmap uncheckedKey <$> dbBranches db
     request cid l n = branchesClient Test cid l n Nothing Nothing
-
