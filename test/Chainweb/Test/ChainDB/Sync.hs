@@ -1,16 +1,21 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Chainweb.Test.ChainDB.Sync ( tests ) where
 
-import Chainweb.Test.Orphans.Internal ()
+import Chainweb.ChainDB.Sync
+import Chainweb.Test.Utils (withServer, withDB, chainId)
+import Refined (refineTH)
 import Test.Tasty
+import Test.Tasty.HUnit
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"
-  [ -- testProperty "`highest` yields greatest BlockHeaders" (highestT . nel)
-  ]
+    [ testCase "Two length-1 chains" noopSync
+    ]
 
--- highestT :: NonEmpty BlockHeader -> Bool
--- highestT bs = maximumBy p bs `elem` highest bs
---   where p b b' = compare (_blockHeight b) (_blockHeight b')
+diam :: Diameter
+diam = Diameter $$(refineTH 6)
 
--- nel :: NonEmptyList a -> NonEmpty a
--- nel = NEL.fromList . getNonEmpty
+-- | Syncing a length-1 chain to another length-1 chain should have no effect.
+noopSync :: Assertion
+noopSync = withDB $ \_ db -> withServer [(chainId, db)] $ \env -> sync diam env db

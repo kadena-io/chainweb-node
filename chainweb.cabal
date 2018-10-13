@@ -158,6 +158,7 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , refined >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
