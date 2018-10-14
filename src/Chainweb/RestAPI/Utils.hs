@@ -31,6 +31,7 @@ module Chainweb.RestAPI.Utils
 -- * Paging
 , Page(..)
 , PageParams
+, streamToPage
 
 -- * API Version
 , Version
@@ -67,17 +68,23 @@ module Chainweb.RestAPI.Utils
 -- * Chainweb API Endpoints
 , ChainwebEndpoint
 , ChainEndpoint
+
+-- * Properties
+, properties
 ) where
 
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), (:>))
 
 import Data.Aeson
+import Data.Functor.Of
 import Data.Kind
+import Data.Maybe
 import Data.Proxy
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
-import Data.Swagger
+import qualified Data.Swagger as Swagger
+import Data.Swagger hiding (properties)
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -90,9 +97,14 @@ import Servant.Client
 import Servant.Server
 import Servant.Swagger
 
+import qualified Streaming.Prelude as SP
+
+import Test.QuickCheck
+import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
+
 -- internal modules
 import Chainweb.ChainId
-import Chainweb.Utils
+import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -135,7 +147,7 @@ instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
         itemsSchema <- declareSchemaRef (Proxy :: Proxy [a])
         return $ NamedSchema (Just "Page") $ mempty
             & type_ .~ SwaggerObject
-            & properties .~
+            & Swagger.properties .~
                 [ ("limit", naturalSchema)
                 , ("items", itemsSchema)
                 , ("next", keySchema)
@@ -151,6 +163,59 @@ type PageParams k = LimitParam :> NextParam k
 
 type LimitParam = QueryParam "limit" Natural
 type NextParam k = QueryParam "next" k
+
+-- -------------------------------------------------------------------------- --
+-- Paging Tools
+
+-- | Quick and dirty pagin implementation
+--
+streamToPage
+    :: Monad m
+    => Eq k
+    => (a -> k)
+    -> Maybe k
+    -> Maybe Natural
+    -> SP.Stream (Of a) m ()
+    -> m (Page k a)
+streamToPage k next limit s = do
+    (items' :> limit' :> tailStream) <- id
+
+        -- count and collect items from first stream
+        . SP.toList
+        . SP.length
+        . SP.copy
+
+        -- split the stream
+        . maybe (SP.each ([]::[a]) <$) (SP.splitAt . int) limit
+
+        -- search for requested next item
+        . maybe id (\n -> SP.dropWhile (\x -> k x /= n)) next
+        $ s
+
+    -- get next item from the tail stream
+    next' <- SP.head_ tailStream
+
+    return $ Page (int limit') items' (k <$> next')
+
+prop_streamToPage_limit :: [Int] -> Natural -> Property
+prop_streamToPage_limit l i = i <= len l ==> actual === expected
+#if MIN_VERSION_QuickCheck(2,12,0)
+    & cover 1 (i == len l) "limit == length of stream"
+    & cover 1 (i == 0) "limit == 0"
+    & cover 1 (length l == 0) "length of stream == 0"
+#endif
+  where
+    actual = runIdentity (streamToPage id Nothing (Just i) (SP.each l))
+    expected = Page i (take (int i) l) (listToMaybe $ drop (int i) l)
+
+prop_streamToPage_id :: [Int] -> Property
+prop_streamToPage_id l = actual === expected
+#if MIN_VERSION_QuickCheck(2,12,0)
+    & cover 1 (length l == 0) "len l == 0"
+#endif
+  where
+    actual = runIdentity (streamToPage id Nothing Nothing (SP.each l))
+    expected = Page (len l) l Nothing
 
 -- -------------------------------------------------------------------------- --
 -- API Version
@@ -272,4 +337,13 @@ type family ChainwebEndpoint (v :: ChainwebVersionT) (e :: Type) where
 --
 type family ChainEndpoint (v :: ChainwebVersionT) (cid :: ChainIdT) (e :: Type) where
     ChainEndpoint v c e = ChainwebEndpoint v ("chain" :> ChainIdSymbol c :> e)
+
+-- -------------------------------------------------------------------------- --
+-- Properties
+
+properties :: [(String, Property)]
+properties =
+    [ ("streamToPage_limit", property prop_streamToPage_limit)
+    , ("streamToPage_id", property prop_streamToPage_id)
+    ]
 
