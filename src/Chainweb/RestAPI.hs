@@ -52,7 +52,7 @@ import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import Network.Wai.Handler.Warp
+import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
 import Servant.Server

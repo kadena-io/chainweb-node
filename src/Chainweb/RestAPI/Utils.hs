@@ -25,8 +25,12 @@
 --
 module Chainweb.RestAPI.Utils
 (
+-- * Misc
+  Port
+, HostName
+
 -- * Servant Utils
-  Reassoc
+, Reassoc
 
 -- * Paging
 , Page(..)
@@ -106,6 +110,12 @@ import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
 import Chainweb.ChainId
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+type Port = Int
+type HostName = T.Text
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils
