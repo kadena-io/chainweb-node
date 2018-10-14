@@ -90,6 +90,7 @@ import Data.Semigroup
 import qualified Data.Swagger as Swagger
 import Data.Swagger hiding (properties)
 import qualified Data.Text as T
+import Data.Word
 
 import GHC.Generics
 import GHC.TypeLits
@@ -114,7 +115,7 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- Misc
 
-type Port = Int
+type Port = Word8
 type HostName = T.Text
 
 -- -------------------------------------------------------------------------- --

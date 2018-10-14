@@ -122,7 +122,7 @@ chainwebApplication :: ChainwebVersion -> [(ChainId, ChainDb)] -> Application
 chainwebApplication v = someServerApplication . someChainwebServer v
 
 serveChainwebOnPort :: Port -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
-serveChainwebOnPort p v = run p . chainwebApplication v
+serveChainwebOnPort p v = run (int p) . chainwebApplication v
 
 serveChainweb :: Settings -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
 serveChainweb s v = runSettings s . chainwebApplication v
