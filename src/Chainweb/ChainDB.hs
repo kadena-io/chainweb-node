@@ -93,6 +93,7 @@ module Chainweb.ChainDB
 , branches
 , children
 , height
+, highest
 , getEntry
 , getEntryIO
 , getEntrySync
@@ -123,7 +124,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
-import Data.Foldable (toList)
+import Data.Foldable (toList, maximumBy)
 import Data.Hashable (Hashable(..))
 import Data.Kind
 import Data.Maybe (mapMaybe)
@@ -553,7 +554,13 @@ getEntrySync = f sync
 -- | The current highest `BlockHeight` in the entire chain.
 --
 height :: Snapshot -> BlockHeight
-height s = maximum . mapMaybe (fmap (_blockHeight . dbEntry) . (`lookupEntry` s)) . toList $ branches s
+height = _blockHeight . highest
+
+-- | The `BlockHeader` with the highest block height.
+highest :: Snapshot -> BlockHeader
+highest s = maximumBy p . mapMaybe (fmap dbEntry . (`lookupEntry` s)) . toList $ branches s
+  where
+    p bh0 bh1 = compare (_blockHeight bh0) (_blockHeight bh1)
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
