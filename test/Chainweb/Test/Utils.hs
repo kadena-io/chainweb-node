@@ -13,8 +13,7 @@
 module Chainweb.Test.Utils
 (
 -- * ChainDb Generation
-  chaindb
-, chainId
+  toyChainDB
 , withDB
 , insertN
 
@@ -56,7 +55,7 @@ import UnliftIO.Exception (bracket)
 
 import Chainweb.BlockHeader (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
 import qualified Chainweb.ChainDB as DB
-import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.ChainId (ChainId)
 import Chainweb.Graph (toChainGraph)
 import Chainweb.RestAPI (chainwebApplication)
 import Chainweb.Version (ChainwebVersion(..))
@@ -65,23 +64,25 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- ChainDb Generation
 
-chainId :: ChainId
-chainId = testChainId 0
-
--- | Borrowed from TrivialSync.hs
-chaindb :: IO (BlockHeader, DB.ChainDb)
-chaindb = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
+-- | Initialize an length-1 `ChainDb` for testing purposes.
+--
+-- Borrowed from TrivialSync.hs
+--
+toyChainDB :: ChainId -> IO (BlockHeader, DB.ChainDb)
+toyChainDB cid = (genesis,) <$> DB.initChainDb (DB.Configuration genesis)
   where
-    graph = toChainGraph (const chainId) singleton
-    genesis = genesisBlockHeader Test graph chainId
+    graph = toChainGraph (const cid) singleton
+    genesis = genesisBlockHeader Test graph cid
 
 -- | Given a function that accepts a Genesis Block and
 -- an initialized `DB.ChainDb`, perform some action
 -- and cleanly close the DB.
-withDB :: (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
-withDB = bracket chaindb (DB.closeChainDb . snd) . uncurry
+--
+withDB :: ChainId -> (BlockHeader -> DB.ChainDb -> IO ()) -> IO ()
+withDB cid = bracket (toyChainDB cid) (DB.closeChainDb . snd) . uncurry
 
 -- | Populate a `DB.ChainDb` with /n/ generated `BlockHeader`s.
+--
 insertN :: Int -> BlockHeader -> DB.ChainDb -> IO DB.Snapshot
 insertN n g db = do
     ss <- DB.snapshot db
