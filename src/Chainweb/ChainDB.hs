@@ -91,6 +91,7 @@ module Chainweb.ChainDB
 -- * Queries
 , branches
 , children
+, height
 , getEntry
 , getEntryIO
 , getEntrySync
@@ -121,8 +122,10 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Foldable (toList)
 import Data.Hashable (Hashable(..))
 import Data.Kind
+import Data.Maybe (mapMaybe)
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid
 #endif
@@ -139,6 +142,7 @@ import Numeric.Natural
 
 -- internal imports
 
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
 import qualified Chainweb.ChainDB.Entry as E
 import Chainweb.Utils
 
@@ -532,6 +536,11 @@ getEntrySync = f sync
     sync k s = syncSnapshot s >>= f die k
     die _ _  = error "Checked Key from a different database used for Snapshot query"
 
+-- | The current highest `BlockHeight` in the entire chain.
+--
+height :: Snapshot -> BlockHeight
+height s = maximum . mapMaybe (fmap (_blockHeight . dbEntry) . (`lookupEntry` s)) . toList $ branches s
+
 -- -------------------------------------------------------------------------- --
 -- Insertion
 
@@ -599,4 +608,3 @@ instance ToJSON (Entry 'Unchecked) where
 instance FromJSON (Entry 'Unchecked) where
     parseJSON = withText "entry" $ either (fail . sshow) return
         . (decodeEntry <=< decodeB64UrlText)
-

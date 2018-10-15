@@ -22,7 +22,7 @@ module Chainweb.ChainDB.Sync
   ) where
 
 import           Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
-import           Chainweb.ChainDB
+import           Chainweb.ChainDB hiding (height)
 import           Chainweb.ChainDB.RestAPI.Client (headersClient)
 import           Chainweb.RestAPI.Utils (Page(..))
 import           Control.Arrow ((&&&))

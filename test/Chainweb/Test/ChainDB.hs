@@ -31,6 +31,7 @@ tests = testGroup "Basic Interaction"
     [ testCase "Initialization + Shutdown" $ (toyChainDB chainId0) >>= DB.closeChainDb . snd
     , testCase "10 Insertions + Sync" insertItems
     , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
+    , testCase "height" correctHeight
     ]
 
 chainId0 :: ChainId
@@ -51,3 +52,10 @@ reinsertGenesis = withDB chainId0 $ \g db -> do
     void $ DB.syncSnapshot ss'
     l <- S.length_ $ dbEntries db
     l @?= 1
+
+correctHeight :: Assertion
+correctHeight = withDB chainId0 $ \g db -> do
+    ss  <- DB.snapshot db
+    DB.height ss @?= 0
+    ss' <- insertN 10 g db
+    DB.height ss' @?= 10
