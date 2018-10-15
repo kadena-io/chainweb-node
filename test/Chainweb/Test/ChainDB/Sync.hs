@@ -13,7 +13,9 @@ import Test.Tasty.HUnit
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"
-    [ testCase "Two length-1 chains" noopSync
+    [ testCase "Two identical length-1 chains" noopSingletonSync
+    , testCase "Two identical length-N chains" noopLongSync
+    , testCase "Syncing a newer node (no-op)" noopNewerNode
     , testCase "Syncing a fresh node" newNode
     , testCase "Syncing an old node" oldNode
     ]
@@ -26,11 +28,35 @@ cid = testChainId 0
 
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
-noopSync :: Assertion
-noopSync = withDB cid $ \_ db -> withServer [(cid, db)] $ \env -> do
+noopSingletonSync :: Assertion
+noopSingletonSync = withDB cid $ \_ db -> withServer [(cid, db)] $ \env -> do
     sync diam env db
     s <- snapshot db
     height s @?= 0
+
+-- | Simulates an up-to-date node querying another for updates,
+-- and finding none.
+--
+noopLongSync :: Assertion
+noopLongSync = withDB cid $ \g db -> do
+    void $ insertN 10 g db
+    peer <- copy db
+    withServer [(cid, peer)] $ \env -> do
+        sync diam env db
+        snapshot db >>= \ss -> height ss @?= 10
+
+-- | Simulates a node that queries an /older/ node for updates.
+--
+noopNewerNode :: Assertion
+noopNewerNode = withDB cid $ \g db -> do
+    void $ insertN 10 g db
+    peer <- copy db
+    h <- highest <$> snapshot peer
+    void $ insertN 90 h peer
+    withServer [(cid, db)] $ \env -> do
+        sync diam env peer
+        snapshot peer >>= \ss -> height ss @?= 100
+        snapshot db >>= \ss -> height ss @?= 10
 
 -- | Simulates a brand new node syncing everything from a peer.
 --
