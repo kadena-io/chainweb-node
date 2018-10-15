@@ -2,14 +2,19 @@
 
 module Chainweb.Test.ChainDB.Sync ( tests ) where
 
+import Control.Monad (void)
+
+import Refined (refineTH)
+
+import Test.Tasty
+import Test.Tasty.HUnit
+
+-- internal modules
+
 import Chainweb.ChainDB (snapshot, height, copy, highest)
 import Chainweb.ChainDB.Sync
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (withServer, withDB, insertN)
-import Control.Monad (void)
-import Refined (refineTH)
-import Test.Tasty
-import Test.Tasty.HUnit
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"

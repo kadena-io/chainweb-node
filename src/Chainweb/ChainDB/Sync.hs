@@ -21,22 +21,29 @@ module Chainweb.ChainDB.Sync
   , Diameter(..)
   ) where
 
-import           Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
-import           Chainweb.ChainDB hiding (height)
-import           Chainweb.ChainDB.RestAPI.Client (headersClient)
-import           Chainweb.RestAPI.Utils (Page(..))
-import           Control.Arrow ((&&&))
-import           Control.Monad.Catch (throwM)
-import           Control.Monad.Trans.State.Strict
-import           Data.Foldable (toList)
-import           Data.List.NonEmpty (NonEmpty)
+import Control.Arrow ((&&&))
+import Control.Monad.Catch (throwM)
+import Control.Monad.Trans.State.Strict
+
+import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
-import           Data.Maybe (fromMaybe)
-import           Refined hiding (NonEmpty)
-import           Servant.Client hiding (client)
-import           Streaming
+import Data.Maybe (fromMaybe)
+
+import Refined hiding (NonEmpty)
+
+import Servant.Client hiding (client)
+
+import Streaming
 import qualified Streaming.Prelude as SP
+
+-- internal modules
+
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
+import Chainweb.ChainDB hiding (height)
+import Chainweb.ChainDB.RestAPI.Client (headersClient)
+import Chainweb.RestAPI.Utils (Page(..))
 
 -- TODO The real version of this will be present elsewhere.
 -- | The diameter of the current chain graph.
