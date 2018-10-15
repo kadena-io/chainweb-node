@@ -21,16 +21,11 @@ module Chainweb.ChainDB.RestAPI.Server
 -- * Single Chain Server
 , chainDbApp
 , chainDbApiLayout
-
--- * Properties
-, properties
 ) where
 
-import Control.Monad.Except (MonadError(..), liftIO)
-import Control.Monad.Identity
+import Control.Monad.IO.Class
+import Control.Monad.Except (MonadError(..))
 
-import Data.Functor.Of
-import Data.Maybe
 import Data.Proxy
 import qualified Data.Text.IO as T
 
@@ -38,11 +33,6 @@ import Numeric.Natural
 
 import Servant.API
 import Servant.Server
-
-import qualified Streaming.Prelude as SP
-
-import Test.QuickCheck
-import Test.QuickCheck.Instances ({- Arbitrary Natural -})
 
 -- internal modules
 import Chainweb.ChainDB
@@ -53,68 +43,6 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
-
--- -------------------------------------------------------------------------- --
--- Properties
-
-properties :: [(String, Property)]
-properties =
-    [ ("streamToPage_limit", property prop_streamToPage_limit)
-    , ("streamToPage_id", property prop_streamToPage_id)
-    ]
-
--- -------------------------------------------------------------------------- --
--- ChainDB Tools
-
--- | Quick and dirty pagin implementation
---
-streamToPage
-    :: Monad m
-    => Eq k
-    => (a -> k)
-    -> Maybe k
-    -> Maybe Natural
-    -> SP.Stream (Of a) m ()
-    -> m (Page k a)
-streamToPage k next limit s = do
-    (items' :> limit' :> tailStream) <- id
-
-        -- count and collect items from first stream
-        . SP.toList
-        . SP.length
-        . SP.copy
-
-        -- split the stream
-        . maybe (SP.each [] <$) (SP.splitAt . int) limit
-
-        -- search for requested next item
-        . maybe id (\n -> SP.dropWhile (\x -> k x /= n)) next
-        $ s
-
-    -- get next item from the tail stream
-    next' <- SP.head_ tailStream
-
-    return $ Page (int limit') items' (k <$> next')
-
-prop_streamToPage_limit :: [Int] -> Natural -> Property
-prop_streamToPage_limit l i = i <= len l ==> actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
-    & cover 1 (i == len l) "limit == length of stream"
-    & cover 1 (i == 0) "limit == 0"
-    & cover 1 (length l == 0) "length of stream == 0"
-#endif
-  where
-    actual = runIdentity (streamToPage id Nothing (Just i) (SP.each l))
-    expected = Page i (take (int i) l) (listToMaybe $ drop (int i) l)
-
-prop_streamToPage_id :: [Int] -> Property
-prop_streamToPage_id l = actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
-    & cover 1 (length l == 0) "len l == 0"
-#endif
-  where
-    actual = runIdentity (streamToPage id Nothing Nothing (SP.each l))
-    expected = Page (len l) l Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -174,8 +102,6 @@ hashesHandler db limit next minr maxr range = do
     fmap uncheckKeyPage
         . streamToPage id nextChecked limit
         $ chainDbHashes db minr maxr rangeChecked
-
---
 
 headersHandler
     :: ChainDb

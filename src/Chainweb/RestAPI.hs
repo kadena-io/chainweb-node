@@ -52,7 +52,7 @@ import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import Network.Wai.Handler.Warp
+import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
 import Servant.Server
@@ -122,7 +122,7 @@ chainwebApplication :: ChainwebVersion -> [(ChainId, ChainDb)] -> Application
 chainwebApplication v = someServerApplication . someChainwebServer v
 
 serveChainwebOnPort :: Port -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
-serveChainwebOnPort p v = run p . chainwebApplication v
+serveChainwebOnPort p v = run (int p) . chainwebApplication v
 
 serveChainweb :: Settings -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
 serveChainweb s v = runSettings s . chainwebApplication v

@@ -48,11 +48,22 @@ module Chainweb.Utils
 , tread
 , runGet
 , runGetEither
-, encodeToText
+
+-- * BASE64
+
 , encodeB64Text
 , decodeB64Text
 , encodeB64UrlText
 , decodeB64UrlText
+
+-- * JSON
+, encodeToText
+, decodeOrThrow
+, decodeStrictOrThrow
+, decodeFileStrictOrThrow
+, decodeOrThrow'
+, decodeStrictOrThrow'
+, decodeFileStrictOrThrow'
 
 -- * Error Handling
 , Expected(..)
@@ -69,8 +80,9 @@ import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
 
-import Data.Aeson (ToJSON)
+import Data.Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Bifunctor
 import Data.Bits
@@ -78,6 +90,7 @@ import Data.Bytes.Get
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
@@ -194,9 +207,8 @@ tread :: Read a => T.Text -> Either T.Text a
 tread = first T.pack . readEither . T.unpack
 {-# INLINE tread #-}
 
-encodeToText :: ToJSON a => a -> T.Text
-encodeToText = TL.toStrict . encodeToLazyText
-{-# INLINE encodeToText #-}
+-- -------------------------------------------------------------------------- --
+-- Base64
 
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
@@ -219,6 +231,61 @@ decodeB64UrlText = fromEitherM
 encodeB64UrlText :: B.ByteString -> T.Text
 encodeB64UrlText = T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlText #-}
+
+-- -------------------------------------------------------------------------- --
+-- JSON
+
+data JsonException where
+    JsonDecodeException :: T.Text -> JsonException
+    deriving (Show, Eq, Ord, Generic)
+
+instance Exception JsonException
+
+encodeToText :: ToJSON a => a -> T.Text
+encodeToText = TL.toStrict . encodeToLazyText
+{-# INLINE encodeToText #-}
+
+decodeStrictOrThrow :: MonadThrow m => FromJSON a => B.ByteString -> m a
+decodeStrictOrThrow = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecodeStrict
+{-# INLINE decodeStrictOrThrow #-}
+
+decodeOrThrow :: MonadThrow m => FromJSON a => BL.ByteString -> m a
+decodeOrThrow = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecode
+{-# INLINE decodeOrThrow #-}
+
+decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
+decodeFileStrictOrThrow = fromEitherM
+    <=< return . first (JsonDecodeException . T.pack)
+    <=< liftIO . eitherDecodeFileStrict
+{-# INLINE decodeFileStrictOrThrow #-}
+
+decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
+decodeStrictOrThrow' = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecodeStrict
+{-# INLINE decodeStrictOrThrow' #-}
+
+decodeOrThrow' :: MonadThrow m => FromJSON a => BL.ByteString -> m a
+decodeOrThrow' = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecode'
+{-# INLINE decodeOrThrow' #-}
+
+decodeFileStrictOrThrow'
+    :: forall a m
+    . MonadIO m
+    => MonadThrow m
+    => FromJSON a
+    => FilePath
+    -> m a
+decodeFileStrictOrThrow' = fromEitherM
+    <=< return . first (JsonDecodeException . T.pack)
+    <=< liftIO . eitherDecodeFileStrict'
+{-# INLINE decodeFileStrictOrThrow' #-}
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling
