@@ -32,6 +32,7 @@ tests = testGroup "Basic Interaction"
     , testCase "10 Insertions + Sync" insertItems
     , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
     , testCase "height" correctHeight
+    , testCase "copy" copyTest
     ]
 
 chainId0 :: ChainId
@@ -59,3 +60,15 @@ correctHeight = withDB chainId0 $ \g db -> do
     DB.height ss @?= 0
     ss' <- insertN 10 g db
     DB.height ss' @?= 10
+
+copyTest :: Assertion
+copyTest = withDB chainId0 $ \g db -> do
+    db' <- DB.copy db
+    DB.snapshot db  >>= \ss -> DB.height ss @?= 0
+    DB.snapshot db' >>= \ss -> DB.height ss @?= 0
+    ss' <- insertN 10 g db'
+    DB.snapshot db  >>= \ss -> DB.height ss @?= 0
+    DB.height ss' @?= 10
+    ss'' <- insertN 20 g db
+    DB.height ss'' @?= 20
+    DB.snapshot db' >>= \ss -> DB.height ss @?= 10

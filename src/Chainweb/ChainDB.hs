@@ -61,6 +61,7 @@ module Chainweb.ChainDB
 , ChainDb
 , initChainDb
 , closeChainDb
+, copy
 
 -- * Validation Status
 , ValidationStatus(..)
@@ -253,6 +254,19 @@ initChainDb config = ChainDb
 --
 closeChainDb :: ChainDb -> IO ()
 closeChainDb = void . takeMVar . _getDb
+
+-- | Make a copy of a `ChainDb` whose memory is independent of the original.
+-- Useful for duplicating chains within a testing environment.
+--
+copy :: ChainDb -> IO ChainDb
+copy chain = do
+    tv <- atomically $ readTVar (_dbEnumeration chain) >>= newTVar
+    db <- takeMVar mv
+    mv' <- newMVar db
+    putMVar mv db
+    pure $ ChainDb mv' tv
+  where
+    mv = _getDb chain
 
 -- -------------------------------------------------------------------------- --
 -- Validation Status
