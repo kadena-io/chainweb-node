@@ -40,13 +40,16 @@ import qualified Streaming.Prelude as SP
 
 -- TODO The real version of this will be present elsewhere.
 -- | The diameter of the current chain graph.
+--
 newtype Diameter = Diameter { diameter :: Refined (Positive && LessThan 10) Int }
 
 -- | `BlockHeader`s in a `ChainDb` that have no children.
+--
 newtype Leaves = Leaves { unleaves :: NonEmpty BlockHeader }
 
 -- | Given a peer to connect to, fetch all `BlockHeader`s that exist
 -- in the peer's chain but not our local given `ChainDb`, and sync them.
+--
 sync :: Diameter -> ClientEnv -> ChainDb -> IO ()
 sync d env db = do
   s <- snapshot db
@@ -59,12 +62,14 @@ sync d env db = do
     Just leaves -> putThemIn s . headers env $ lowLeaf d leaves
 
 -- | \(\mathcal{O}(n \log n)\).
+--
 leafMap :: Leaves -> M.Map BlockHeight BlockHeader
 leafMap = M.fromList . map (_blockHeight &&& id) . toList . unleaves
 
 -- TODO Add unit tests for this.
 -- | Given some leaves, find the lowest one such that it's at most only
 -- (diameter * 2) in height away from the highest.
+--
 lowLeaf :: Diameter -> Leaves -> BlockHeader
 -- The `lookupGE` should never fail. In the degenerate case, the difference
 -- between the high and low points would be negative, defaulting to a
@@ -86,6 +91,7 @@ lowLeaf d l = fromMaybe (NEL.head $ unleaves l) . fmap snd $ M.lookupGE lowH lma
 --
 --   * The `BlockHeader`s are streamed in order of `BlockHeight`, lowest to highest.
 --     We assume the server will do this correctly.
+--
 headers :: ClientEnv -> BlockHeader -> Stream (Of BlockHeader) IO ()
 headers env h = g $ client Nothing
   where
@@ -96,11 +102,13 @@ headers env h = g $ client Nothing
     client next = headersClient (_blockChainwebVersion h) (_blockChainId h) (Just 100) next (Just height) Nothing Nothing
 
     -- | Attempt to run a servant client.
+    --
     g :: ClientM (Page (Key 'Unchecked) (Entry 'Unchecked)) -> Stream (Of BlockHeader) IO ()
     g c = lift (runClientM c env) >>= either (lift . throwM) f
 
     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
     -- the next `Page` if there is one.
+    --
     f :: Page (Key 'Unchecked) (Entry 'Unchecked) -> Stream (Of BlockHeader) IO ()
     f page = do
         SP.map dbEntry . SP.each $ _pageItems page
@@ -109,6 +117,7 @@ headers env h = g $ client Nothing
 -- TODO How often to call `syncSnapshot`?
 -- Currently it calls it after all new `BlockHeader`s have been inserted.
 -- | Add the new remote `BlockHeader`s to our local chain.
+--
 putThemIn :: Snapshot -> Stream (Of BlockHeader) IO () -> IO ()
 putThemIn s bs = execStateT (SP.mapM_ goIn $ hoist lift bs) s >>= void . syncSnapshot
 
