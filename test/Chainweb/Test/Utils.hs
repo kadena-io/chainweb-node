@@ -92,6 +92,8 @@ insertN n g db = do
 -- -------------------------------------------------------------------------- --
 -- Toy Server Interaction
 
+-- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
+--
 withServer :: [(ChainId, DB.ChainDb)] -> (ClientEnv -> IO ()) -> IO ()
 withServer chains f = bracket start stop (\(_, _, env) -> f env)
   where
