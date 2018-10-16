@@ -7,7 +7,7 @@ Read [our whitepaper](http://kadena.io/docs/chainweb-v15.pdf).
 
 Requirements:
 
-- Cabal >=2.2
+- Cabal >=2.0
 - GHC >=8.2
 - (optional) Stack >=1.6
 

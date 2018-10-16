@@ -1,12 +1,19 @@
 # To pin to a specific version of nixpkgs, you can substitute <nixpkgs> with:
 # `(builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/<nixpkgs_commit_hash>.tar.gz")`
 { compiler ? "ghc822"
-, pkgs     ? import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/6cbd1ec4b043df6f9f6e7c59c79e1025b66d5faa.tar.gz") {
+, rev ? "9169ee6b588c8c7077645d3ab76948a3093e25cf"
+, sha ? "1wzbjh20vb7ykd4ysm7lg6m0g2icagxvpsy7hq94mpp6001cjqi1"
+, pkgs ? import (builtins.fetchTarball {
+                   url = "https://github.com/kadena-io/nixpkgs/archive/${rev}.tar.gz";
+                   sha256 = sha; }) {
     config.allowUnfree = true;
   }
 }:
   pkgs.haskell.packages.${compiler}.developPackage {
-    root = ./.;
+    name = "chainweb";
+    root = builtins.filterSource
+      (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
+      ./.;
     overrides = self: super: with pkgs.haskell.lib; {
       # Don't run a package's test suite
       # foo = dontCheck super.chainweb;
