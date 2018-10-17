@@ -29,8 +29,6 @@ module Chainweb.Test.Utils
 , assertExpectation
 ) where
 
-import Control.Concurrent.Async (async, link, uninterruptibleCancel)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -41,7 +39,6 @@ import Data.Foldable (foldlM)
 import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (close)
 import qualified Network.Wai.Handler.Warp as W
 
 import Servant.Client (ClientEnv, mkClientEnv, BaseUrl(..), Scheme(..))
@@ -95,22 +92,12 @@ insertN n g db = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withServer :: [(ChainId, DB.ChainDb)] -> (ClientEnv -> IO ()) -> IO ()
-withServer chains f = bracket start stop (\(_, _, env) -> f env)
+withServer chains f = W.testWithApplication (pure app) work
   where
-    start = do
-        (port, sock) <- W.openFreePort
-        readyVar <- newEmptyMVar
-        server <- async $ do
-            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
-            W.runSettingsSocket settings sock (chainwebApplication Test chains)
-        link server
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        _ <- takeMVar readyVar
-        pure (server, sock, mkClientEnv mgr (BaseUrl Http "localhost" port ""))
-
-    stop (server, sock, _) = do
-        uninterruptibleCancel server
-        close sock
+    app = chainwebApplication Test chains
+    work port = do
+      mgr <- HTTP.newManager HTTP.defaultManagerSettings
+      f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips
