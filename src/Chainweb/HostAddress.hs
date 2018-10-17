@@ -34,7 +34,7 @@
 --      port          = *digit
 -- @
 --
--- @1*digit@ designates the decimal representation of an octet. The specifcation
+-- @1*digit@ designates the decimal representation of an octet. The specification
 -- takes the form of hostnames from section 2.1 RFC1123, but limiting the
 -- rightmost (top-most) label to the from given in section 3 of RFC1034, which
 -- allows to disambiguate domain names and IPv4 addresses. IPv6 Addresses are
