@@ -20,19 +20,19 @@ chainweb-stack:
 chainweb-cabal-ghc82:
   stage: build
   script:
-    - nix-shell -p haskell.compiler.ghc822 cabal-install zlib --run "cabal new-update && cabal new-build && cabal new-test"
+    - nix-shell -p haskell.compiler.ghc822 cabal-install zlib --run "cabal new-build && cabal new-test"
 
 chainweb-cabal-ghc82-dev:
   stage: build
   script:
-    - nix-shell -p haskell.compiler.ghc822 cabal-install zlib --run "cabal new-update && cabal new-build -fdev && cabal new-test -fdev"
+    - nix-shell -p haskell.compiler.ghc822 cabal-install zlib --run "cabal new-build -fdev && cabal new-test -fdev"
 
 chainweb-cabal-ghc84:
   stage: build
   script:
-    - nix-shell -p haskell.compiler.ghc843 cabal-install zlib --run "cabal new-update && cabal new-build && cabal new-test"
+    - nix-shell -p haskell.compiler.ghc843 cabal-install zlib --run "cabal new-build && cabal new-test"
 
 chainweb-cabal-ghc84-dev:
   stage: build
   script:
-    - nix-shell -p haskell.compiler.ghc843 cabal-install zlib --run "cabal new-update && cabal new-build -fdev && cabal new-test -fdev"
+    - nix-shell -p haskell.compiler.ghc843 cabal-install zlib --run "cabal new-build -fdev && cabal new-test -fdev"

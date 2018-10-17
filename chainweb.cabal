@@ -56,6 +56,7 @@ library
         , Chainweb.ChainDB.RestAPI.Orphans
         , Chainweb.ChainDB.RestAPI.Server
         , Chainweb.ChainDB.SyncSession
+        , Chainweb.ChainDB.Sync
         , Chainweb.ChainId
         , Chainweb.Difficulty
         , Chainweb.Graph
@@ -102,6 +103,7 @@ library
         , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
+        , refined >= 0.3
         , resourcet >= 1.2
         , servant >= 0.13
         , servant-client >= 0.13
@@ -133,7 +135,9 @@ test-suite chainweb-tests
     main-is: ChainwebTests.hs
     ghc-options: -threaded -with-rtsopts=-N
     other-modules:
+        Chainweb.Test.ChainDB
         Chainweb.Test.ChainDB.Persistence
+        Chainweb.Test.ChainDB.Sync
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Roundtrips
@@ -155,6 +159,7 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , refined >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13

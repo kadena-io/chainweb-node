@@ -61,6 +61,7 @@ module Chainweb.ChainDB
 , ChainDb
 , initChainDb
 , closeChainDb
+, copy
 
 -- * Validation Status
 , ValidationStatus(..)
@@ -91,6 +92,8 @@ module Chainweb.ChainDB
 -- * Queries
 , branches
 , children
+, height
+, highest
 , getEntry
 , getEntryIO
 , getEntrySync
@@ -121,8 +124,10 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Foldable (toList, maximumBy)
 import Data.Hashable (Hashable(..))
 import Data.Kind
+import Data.Maybe (mapMaybe)
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid
 #endif
@@ -139,6 +144,7 @@ import Numeric.Natural
 
 -- internal imports
 
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
 import qualified Chainweb.ChainDB.Entry as E
 import Chainweb.Utils
 
@@ -249,6 +255,19 @@ initChainDb config = ChainDb
 --
 closeChainDb :: ChainDb -> IO ()
 closeChainDb = void . takeMVar . _getDb
+
+-- | Make a copy of a `ChainDb` whose memory is independent of the original.
+-- Useful for duplicating chains within a testing environment.
+--
+copy :: ChainDb -> IO ChainDb
+copy chain = do
+    tv <- atomically $ readTVar (_dbEnumeration chain) >>= newTVar
+    db <- takeMVar mv
+    mv' <- newMVar db
+    putMVar mv db
+    pure $ ChainDb mv' tv
+  where
+    mv = _getDb chain
 
 -- -------------------------------------------------------------------------- --
 -- Validation Status
@@ -532,6 +551,17 @@ getEntrySync = f sync
     sync k s = syncSnapshot s >>= f die k
     die _ _  = error "Checked Key from a different database used for Snapshot query"
 
+-- | The current highest `BlockHeight` in the entire chain.
+--
+height :: Snapshot -> BlockHeight
+height = _blockHeight . highest
+
+-- | The `BlockHeader` with the highest block height.
+highest :: Snapshot -> BlockHeader
+highest s = maximumBy p . mapMaybe (fmap dbEntry . (`lookupEntry` s)) . toList $ branches s
+  where
+    p bh0 bh1 = compare (_blockHeight bh0) (_blockHeight bh1)
+
 -- -------------------------------------------------------------------------- --
 -- Insertion
 
@@ -599,4 +629,3 @@ instance ToJSON (Entry 'Unchecked) where
 instance FromJSON (Entry 'Unchecked) where
     parseJSON = withText "entry" $ either (fail . sshow) return
         . (decodeEntry <=< decodeB64UrlText)
-
