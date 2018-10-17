@@ -91,7 +91,7 @@ insertN n g db = do
 
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
-withServer :: [(ChainId, DB.ChainDb)] -> (ClientEnv -> IO ()) -> IO ()
+withServer :: [(ChainId, DB.ChainDb)] -> (ClientEnv -> IO a) -> IO a
 withServer chains f = W.testWithApplication (pure app) work
   where
     app = chainwebApplication Test chains
