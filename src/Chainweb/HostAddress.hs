@@ -40,7 +40,7 @@
 -- allows to disambiguate domain names and IPv4 addresses. IPv6 Addresses are
 -- not supported.
 --
--- Additional restriction for hostname apply from RfC1123: labels must have not
+-- Additional restriction for hostname apply from RFC1123: labels must have not
 -- more than 63 octets, letters are case-insenstive. The maximum length must not
 -- exceed 254 octets, excluding the (optional) terminating dot.
 --
