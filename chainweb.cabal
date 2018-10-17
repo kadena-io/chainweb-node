@@ -60,6 +60,7 @@ library
         , Chainweb.ChainId
         , Chainweb.Difficulty
         , Chainweb.Graph
+        , Chainweb.HostAddress
         , Chainweb.NodeId
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Utils
@@ -85,10 +86,12 @@ library
         , aeson >= 1.2
         , aeson-pretty >= 0.8
         , async >= 2.2
+        , attoparsec >= 0.13
         , base >= 4.10
         , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
         , cereal >= 0.5
         , containers >= 0.5
         , cryptohash-sha512 >= 0.11

@@ -65,6 +65,7 @@ import Chainweb.ChainDB.RestAPI
 import Chainweb.ChainDB.RestAPI.Client
 import Chainweb.ChainDB.RestAPI.Server
 import Chainweb.ChainId
+import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version

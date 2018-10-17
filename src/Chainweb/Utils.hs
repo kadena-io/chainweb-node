@@ -187,6 +187,7 @@ data EncodingException where
     DecodeException :: T.Text -> EncodingException
     Base64DecodeException :: T.Text -> EncodingException
     ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
+    TextFormatException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception EncodingException

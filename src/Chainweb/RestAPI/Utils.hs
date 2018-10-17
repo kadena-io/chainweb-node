@@ -25,12 +25,8 @@
 --
 module Chainweb.RestAPI.Utils
 (
--- * Misc
-  Port
-, HostName
-
 -- * Servant Utils
-, Reassoc
+  Reassoc
 
 -- * Paging
 , Page(..)
@@ -90,7 +86,6 @@ import Data.Semigroup
 import qualified Data.Swagger as Swagger
 import Data.Swagger hiding (properties)
 import qualified Data.Text as T
-import Data.Word
 
 import GHC.Generics
 import GHC.TypeLits
@@ -111,12 +106,6 @@ import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
 import Chainweb.ChainId
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
-
--- -------------------------------------------------------------------------- --
--- Misc
-
-type Port = Word8
-type HostName = T.Text
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils

@@ -20,6 +20,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
+import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.RestAPI.Utils (properties)
 import qualified Chainweb.Test.ChainDB
 import qualified Chainweb.Test.ChainDB.Persistence
@@ -42,4 +43,5 @@ suite = testGroup "Unit Tests"
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
+    , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     ]
