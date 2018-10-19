@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -54,21 +55,31 @@ module Chainweb.HostAddress
 (
 -- * Port Numbers
   Port
+, portToText
+, portFromText
+, pPort
 
 -- * Hostnames
 , Hostname
 , hostnameBytes
 , localhost
 , readHostnameBytes
+, hostnameToText
+, hostnameFromText
+, unsafeHostnameFromText
+, pHostname
 
 -- * HostAddresses
 , HostAddress
 , hostAddressPort
 , hostAddressHost
 , hostAddressBytes
-, hostAddressText
 , readHostAddressBytes
+, hostAddressToText
+, hostAddressFromText
+, unsafeHostAddressFromText
 , arbitraryHostAddress
+, pHostAddress
 
 -- * Arbitrary Values
 , arbitraryPort
@@ -81,17 +92,18 @@ module Chainweb.HostAddress
 , properties
 ) where
 
-import Control.Applicative
+import Configuration.Utils
+
 import Control.Lens.TH
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson
 import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable
 import qualified Data.List as L
+import Data.Maybe
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
@@ -100,6 +112,8 @@ import qualified Data.Text.Encoding as T
 import Data.Word (Word8, Word16)
 
 import GHC.Generics
+
+import qualified Options.Applicative as O
 
 import Test.QuickCheck
 
@@ -202,12 +216,33 @@ newtype Port = Port Word16
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port
 readPortBytes = either (throwM . TextFormatException . T.pack) return
     . parseOnly (portParser <* endOfInput)
+{-# INLINE readPortBytes #-}
 
 arbitraryPort :: Gen Port
 arbitraryPort = Port <$> arbitrary
 
 instance Arbitrary Port where
     arbitrary = arbitraryPort
+
+portToText :: Port -> T.Text
+portToText = sshow
+{-# INLINE portToText #-}
+
+portFromText :: MonadThrow m => T.Text -> m Port
+portFromText = readPortBytes . T.encodeUtf8
+{-# INLINE portFromText #-}
+
+instance HasTextRepresentation Port where
+    toText = portToText
+    {-# INLINE toText #-}
+    fromText = portFromText
+    {-# INLINE fromText #-}
+
+pPort :: Maybe String -> O.Parser Port
+pPort service = textOption
+    % prefixLong service "port"
+    <> suffixHelp service "port number"
+{-# INLINE pPort #-}
 
 -- -------------------------------------------------------------------------- --
 -- Hostnames
@@ -222,12 +257,15 @@ readHostnameBytes b = Hostname
     <$> either (throwM . TextFormatException . T.pack) return (parseOnly parser b)
   where
     parser = CI.mk b <$ hostParser <* endOfInput
+{-# INLINE readHostnameBytes #-}
 
 localhost :: Hostname
 localhost = Hostname "localhost"
+{-# INLINE localhost #-}
 
 hostnameBytes :: Hostname -> B8.ByteString
 hostnameBytes (Hostname b) = CI.original b
+{-# INLINE hostnameBytes #-}
 
 arbitraryHostname :: Gen Hostname
 arbitraryHostname = oneof
@@ -238,6 +276,38 @@ arbitraryHostname = oneof
         --  Also, syntactic restriction apply for certain top-level domains.
     , pure localhost
     ]
+
+hostnameToText :: Hostname -> T.Text
+hostnameToText = T.decodeUtf8 . hostnameBytes
+{-# INLINE hostnameToText #-}
+
+hostnameFromText :: MonadThrow m => T.Text -> m Hostname
+hostnameFromText = readHostnameBytes . T.encodeUtf8
+{-# INLINE hostnameFromText #-}
+
+unsafeHostnameFromText :: T.Text -> Hostname
+unsafeHostnameFromText = fromJust . hostnameFromText
+{-# INLINE unsafeHostnameFromText #-}
+
+instance ToJSON Hostname where
+    toJSON = toJSON . hostnameToText
+    {-# INLINE toJSON #-}
+
+instance FromJSON Hostname where
+    parseJSON = parseJsonFromText "Hostname"
+    {-# INLINE parseJSON #-}
+
+instance HasTextRepresentation Hostname where
+    toText = hostnameToText
+    {-# INLINE toText #-}
+    fromText = hostnameFromText
+    {-# INLINE fromText #-}
+
+pHostname :: Maybe String -> O.Parser Hostname
+pHostname service = textOption
+    % prefixLong service "hostname"
+    <> suffixHelp service "hostname"
+{-# INLINE pHostname #-}
 
 instance Arbitrary Hostname where
     arbitrary = arbitraryHostname
@@ -259,24 +329,54 @@ makeLenses ''HostAddress
 hostAddressBytes :: HostAddress -> B8.ByteString
 hostAddressBytes a = hostnameBytes (_hostAddressHost a)
     <> ":" <> sshow (_hostAddressPort a)
-
-hostAddressText :: HostAddress -> T.Text
-hostAddressText = T.decodeUtf8 . hostAddressBytes
+{-# INLINE hostAddressBytes #-}
 
 readHostAddressBytes :: MonadThrow m => B8.ByteString -> m HostAddress
 readHostAddressBytes bytes = do
     let (h,p) = B8.break (== ':') bytes
-    HostAddress
-        <$> readHostnameBytes h
-        <*> readPortBytes (B8.drop 1 p)
+    HostAddress <$> readHostnameBytes h <*> readPortBytes (B8.drop 1 p)
+
+hostAddressToText :: HostAddress -> T.Text
+hostAddressToText = T.decodeUtf8 . hostAddressBytes
+{-# INLINE hostAddressToText #-}
+
+hostAddressFromText :: MonadThrow m => T.Text -> m HostAddress
+hostAddressFromText = readHostAddressBytes . T.encodeUtf8
+{-# INLINE hostAddressFromText #-}
+
+unsafeHostAddressFromText :: T.Text -> HostAddress
+unsafeHostAddressFromText = fromJust . hostAddressFromText
+{-# INLINE unsafeHostAddressFromText #-}
+
+instance HasTextRepresentation HostAddress where
+    toText = hostAddressToText
+    {-# INLINE toText #-}
+    fromText = hostAddressFromText
+    {-# INLINE fromText #-}
 
 instance ToJSON HostAddress where
-    toJSON = toJSON . hostAddressText
+    toJSON o = object
+        [ "hostname" .= _hostAddressHost o
+        , "port" .= _hostAddressPort o
+        ]
+    {-# INLINE toJSON #-}
 
 instance FromJSON HostAddress where
-    parseJSON = withText "HostAddress"
-        $ either (fail . sshow) return
-        . readHostAddressBytes . T.encodeUtf8
+    parseJSON = withObject "HostAddress" $ \o -> HostAddress
+        <$> o .: "hostname"
+        <*> o .: "port"
+    {-# INLINE parseJSON #-}
+
+instance FromJSON (HostAddress -> HostAddress) where
+    parseJSON = withObject "HostAddress" $ \o -> id
+        <$< hostAddressHost ..: "hostname" % o
+        <*< hostAddressPort ..: "port" % o
+    {-# INLINE parseJSON #-}
+
+pHostAddress :: Maybe String -> MParser HostAddress
+pHostAddress service = id
+    <$< hostAddressHost .:: pHostname service
+    <*< hostAddressPort .:: pPort service
 
 arbitraryHostAddress :: Gen HostAddress
 arbitraryHostAddress = HostAddress <$> arbitrary <*> arbitrary

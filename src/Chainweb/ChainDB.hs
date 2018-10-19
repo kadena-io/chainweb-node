@@ -617,15 +617,15 @@ decodeEntry = fmap UncheckedEntry . E.decodeEntry
 -- JSON Serialization
 
 instance ToJSON (Key 'Unchecked) where
-    toJSON = toJSON . encodeB64UrlText . encodeKey
+    toJSON = toJSON . encodeB64UrlNoPaddingText . encodeKey
 
 instance FromJSON (Key 'Unchecked) where
     parseJSON = withText "key" $ either (fail . show) return
-        . (decodeKey <=< decodeB64UrlText)
+        . (decodeKey <=< decodeB64UrlNoPaddingText)
 
 instance ToJSON (Entry 'Unchecked) where
-    toJSON = toJSON . encodeB64UrlText . encodeEntry
+    toJSON = toJSON . encodeB64UrlNoPaddingText . encodeEntry
 
 instance FromJSON (Entry 'Unchecked) where
     parseJSON = withText "entry" $ either (fail . sshow) return
-        . (decodeEntry <=< decodeB64UrlText)
+        . (decodeEntry <=< decodeB64UrlNoPaddingText)

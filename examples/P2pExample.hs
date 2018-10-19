@@ -48,12 +48,11 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
-import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node
-import P2P.Node.PeerDB
+import P2P.Node.Configuration
 import P2P.Node.RestAPI.Server
 import P2P.Session
 
@@ -155,14 +154,14 @@ example conf logger = do
     let p2pConfig = (defaultP2pConfiguration Test)
             { _p2pConfigMaxSessionCount = _maxSessionCount conf
             , _p2pConfigMaxPeerCount = _maxPeerCount conf
-            , _p2pConfigSessionTimeout = scaleTimeSpan (_sessionTimeoutSeconds conf) second
+            , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
             }
 
     -- Configuration for bootstrap node
     --
-    let bootstrapPeer = head . toList $ _p2pConfigInitialDb p2pConfig
+    let bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
         bootstrapConfig = p2pConfig
-            { _p2pConfigId = Just (_peerId bootstrapPeer)
+            { _p2pConfigPeerId = Just (_peerId bootstrapPeer)
             }
         bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
 
@@ -190,9 +189,9 @@ noopSession t logfun _ = do
     return True
 
 timer :: Natural -> IO ()
-timer t = do
+timer seconds = do
     gen <- MWC.createSystemRandom
-    timeout <- MWC.geometric1 (1 / (int t * 1000000)) gen
+    timeout <- MWC.geometric1 (1 / (int seconds * 1000000)) gen
     threadDelay timeout
 
 -- -------------------------------------------------------------------------- --

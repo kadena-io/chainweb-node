@@ -44,10 +44,10 @@ import Chainweb.Version
 -- HttpApiData
 
 instance FromHttpApiData (Key 'Unchecked) where
-    parseUrlPiece = first sshow . (decodeKey <=< decodeB64UrlText)
+    parseUrlPiece = first sshow . (decodeKey <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData (Key 'Unchecked) where
-    toUrlPiece = encodeB64UrlText . encodeKey
+    toUrlPiece = encodeB64UrlNoPaddingText . encodeKey
 
 instance FromHttpApiData ChainwebVersion where
     parseUrlPiece "testnet00" = Right Testnet00
@@ -61,15 +61,15 @@ instance ToHttpApiData ChainwebVersion where
     toUrlPiece Simulation = "simulation"
 
 instance FromHttpApiData ChainId where
-    parseUrlPiece = readPrettyChainId
+    parseUrlPiece = first sshow . chainIdFromText
 
 instance ToHttpApiData ChainId where
-    toUrlPiece = prettyChainId
+    toUrlPiece = chainIdToText
 
 instance FromHttpApiData (Key 'Unchecked, Key 'Unchecked) where
     parseUrlPiece t =
-        let (a,b) = T.break (== ',') t
-        in (,) <$> parseUrlPiece a <*> parseUrlPiece b
+        let (a, b) = T.break (== ',') t
+        in (,) <$> parseUrlPiece a <*> parseUrlPiece (T.drop 1 b)
 
 instance ToHttpApiData (Key 'Unchecked, Key 'Unchecked) where
     toUrlPiece (a,b) = toUrlPiece a <> "," <> toUrlPiece b

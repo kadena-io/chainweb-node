@@ -19,8 +19,8 @@ module Chainweb.ChainId
 , ChainId
 , HasChainId(..)
 , checkChainId
-, prettyChainId
-, readPrettyChainId
+, chainIdToText
+, chainIdFromText
 
 -- * Serialization
 
@@ -47,6 +47,7 @@ import Data.Word (Word32)
 
 import GHC.Generics (Generic)
 
+import Test.QuickCheck (Arbitrary(..))
 
 -- internal imports
 
@@ -87,7 +88,7 @@ instance ToJSONKey ChainId where
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyText (ChainId . read . T.unpack)
+    fromJSONKey = FromJSONKeyValue parseJSON
     {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
@@ -124,13 +125,19 @@ checkChainId expected actual = _chainId
     <$> check ChainIdMissmatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
 
-prettyChainId :: ChainId -> T.Text
-prettyChainId (ChainId i) = sshow i
-{-# INLINE prettyChainId #-}
+chainIdToText :: ChainId -> T.Text
+chainIdToText (ChainId i) = sshow i
+{-# INLINE chainIdToText #-}
 
-readPrettyChainId :: T.Text -> Either T.Text ChainId
-readPrettyChainId = fmap ChainId . tread
-{-# INLINE readPrettyChainId #-}
+chainIdFromText :: MonadThrow m => T.Text -> m ChainId
+chainIdFromText = fmap ChainId . treadM
+{-# INLINE chainIdFromText #-}
+
+instance HasTextRepresentation ChainId where
+    toText = chainIdToText
+    {-# INLINE toText #-}
+    fromText = chainIdFromText
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- $Serialization
@@ -164,3 +171,7 @@ decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 testChainId :: Word32 -> ChainId
 testChainId = ChainId
 {-# INLINE testChainId #-}
+
+instance Arbitrary ChainId where
+    arbitrary = testChainId <$> arbitrary
+

@@ -6,6 +6,7 @@ packages:
 extra-deps:
   - aeson-1.3.1.1
   - async-2.2.1 # we need the fix for the behavior of link
+  - configuration-tools-0.4.0
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   - pcg-random-0.1.3.5

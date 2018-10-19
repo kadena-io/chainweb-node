@@ -120,13 +120,16 @@ putHeader (ChainClientEnv v cid env) = void . flip runClientThrowM env
 fullSync :: ChainDb -> LogFunction -> ChainClientEnv -> IO ()
 fullSync db logg env = do
 
-    logg Debug "get branches"
+    logg Debug "request branches"
     sn <- snapshot db
     (unknownBranches :> maxKnownBranch) <- getBranches env Nothing Nothing
         & SP.map (\k -> maybe (Right k) Left $ lookupEntry k sn)
         & SP.partitionEithers
         & SP.fold_ (maxBy (compare `on` rank)) (chainDbGenesisEntry db) id
         & SP.toList
+
+    logg Debug $ "got " <> sshow (length unknownBranches) <> " unknown branches"
+    logg Debug $ "maximum known branch is " <> sshow maxKnownBranch
 
     -- we break streaming here and buffer all branches, because we want
     -- to continue with the maximum known branch. This can safe a lot of
@@ -139,6 +142,8 @@ fullSync db logg env = do
         & SP.foldM_ fetchHeaders
             (return . uncheckedEntry $ maxKnownBranch)
             (void . return)
+
+    -- TODO count received headers
 
   where
     fetchHeaders :: Entry 'Unchecked -> Key 'Unchecked -> IO (Entry 'Unchecked)
@@ -180,8 +185,10 @@ syncSession db logg env = go
     cenv = chainClientEnv db env
 
     go = do
+        hashes <- updates db
+        atomically $ drainUpdates hashes
         receiveBlockHeaders
-        hashes <- updates db -- FIXME forwar to end of stream
+        atomically $ drainUpdates hashes
         sendAllBlockHeaders hashes
 
     sendAllBlockHeaders hashes = forever $ do
@@ -194,6 +201,11 @@ syncSession db logg env = go
     receiveBlockHeaders = do
         fullSync db logg cenv
         logg Debug "finished full sync"
+
+drainUpdates :: Updates -> STM ()
+drainUpdates u = go
+  where
+    go = updatesNext u *> go <|> return ()
 
 -- -------------------------------------------------------------------------- --
 -- Utils

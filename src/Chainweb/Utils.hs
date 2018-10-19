@@ -2,7 +2,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -44,19 +47,26 @@ module Chainweb.Utils
 
 -- * Encoding and Serialization
 , EncodingException(..)
-, sshow
-, tread
+
+-- ** Binary
 , runGet
 , runGetEither
 
--- * BASE64
+-- ** Text
+, sshow
+, tread
+, treadM
+, HasTextRepresentation(..)
 
+-- ** Base64
 , encodeB64Text
 , decodeB64Text
 , encodeB64UrlText
 , decodeB64UrlText
+, encodeB64UrlNoPaddingText
+, decodeB64UrlNoPaddingText
 
--- * JSON
+-- ** JSON
 , encodeToText
 , decodeOrThrow
 , decodeStrictOrThrow
@@ -64,6 +74,7 @@ module Chainweb.Utils
 , decodeOrThrow'
 , decodeStrictOrThrow'
 , decodeFileStrictOrThrow'
+, parseJsonFromText
 
 -- * Error Handling
 , Expected(..)
@@ -74,15 +85,23 @@ module Chainweb.Utils
 , fromMaybeM
 , (???)
 , fromEitherM
+
+-- * Command Line Options
+, OptionParser
+, prefixLong
+, suffixHelp
+, textOption
 ) where
 
-import Control.Exception
+import Configuration.Utils
+
+-- import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Aeson
+import qualified Data.Aeson.Types as Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Bifunctor
 import Data.Bits
@@ -95,7 +114,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 #if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
+import Data.Semigroup hiding (option)
 #endif
 import Data.Serialize.Get (Get)
 import Data.String (IsString(..))
@@ -104,6 +123,8 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 
 import GHC.Generics
+
+import qualified Options.Applicative as O
 
 import Numeric.Natural
 
@@ -180,7 +201,10 @@ minBy cmp a b = case cmp a b of
 {-# INLINE minBy #-}
 
 -- -------------------------------------------------------------------------- --
--- Encodings and Serialization
+-- * Encodings and Serialization
+
+-- -------------------------------------------------------------------------- --
+-- ** Binary
 
 data EncodingException where
     EncodeException :: T.Text -> EncodingException
@@ -188,6 +212,7 @@ data EncodingException where
     Base64DecodeException :: T.Text -> EncodingException
     ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
     TextFormatException :: T.Text -> EncodingException
+    JsonDecodeException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception EncodingException
@@ -200,6 +225,9 @@ runGetEither :: Get a -> B.ByteString -> Either EncodingException a
 runGetEither g = first (DecodeException . T.pack) . runGetS g
 {-# INLINE runGetEither #-}
 
+-- -------------------------------------------------------------------------- --
+-- ** Text
+
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
 {-# INLINE sshow #-}
@@ -208,8 +236,30 @@ tread :: Read a => T.Text -> Either T.Text a
 tread = first T.pack . readEither . T.unpack
 {-# INLINE tread #-}
 
+-- | Throws 'TextFormatException' on failure.
+--
+treadM :: MonadThrow m => Read a => T.Text -> m a
+treadM = fromEitherM . first TextFormatException . tread
+{-# INLINE treadM #-}
+
+class HasTextRepresentation a where
+    toText :: a -> T.Text
+    fromText :: MonadThrow m => T.Text -> m a
+
+instance HasTextRepresentation T.Text where
+    toText = id
+    {-# INLINE toText #-}
+    fromText = return
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation [Char] where
+    toText = T.pack
+    {-# INLINE toText #-}
+    fromText = return . T.unpack
+    {-# INLINE fromText #-}
+
 -- -------------------------------------------------------------------------- --
--- Base64
+-- ** Base64
 
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
@@ -233,14 +283,22 @@ encodeB64UrlText :: B.ByteString -> T.Text
 encodeB64UrlText = T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlText #-}
 
+decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlNoPaddingText = fromEitherM
+    . first (Base64DecodeException . T.pack)
+    . B64U.decode
+    . T.encodeUtf8
+    . pad
+  where
+    pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
+{-# INLINE decodeB64UrlNoPaddingText #-}
+
+encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
+encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
+{-# INLINE encodeB64UrlNoPaddingText #-}
+
 -- -------------------------------------------------------------------------- --
--- JSON
-
-data JsonException where
-    JsonDecodeException :: T.Text -> JsonException
-    deriving (Show, Eq, Ord, Generic)
-
-instance Exception JsonException
+-- ** JSON
 
 encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText
@@ -287,6 +345,31 @@ decodeFileStrictOrThrow' = fromEitherM
     <=< return . first (JsonDecodeException . T.pack)
     <=< liftIO . eitherDecodeFileStrict'
 {-# INLINE decodeFileStrictOrThrow' #-}
+
+parseJsonFromText
+    :: HasTextRepresentation a
+    => String
+    -> Value
+    -> Aeson.Parser a
+parseJsonFromText l = withText l $ either f return . fromText
+  where
+    f e = fail $ case fromException e of
+        Just (TextFormatException err) -> T.unpack err
+        _ -> show e
+
+-- -------------------------------------------------------------------------- --
+-- Option Parsing
+
+type OptionParser a = O.Parser a
+
+prefixLong :: HasName f => Maybe String -> String -> Mod f a
+prefixLong prefix l = long $ maybe "" ("-" <>) prefix <> l
+
+suffixHelp :: Maybe String -> String -> Mod f a
+suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix
+
+textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
+textOption = option (eitherReader $ first show . fromText . T.pack)
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling

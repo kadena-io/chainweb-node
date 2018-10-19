@@ -54,6 +54,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI
 

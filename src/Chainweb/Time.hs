@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -56,7 +57,15 @@ module Chainweb.Time
 , minute
 , hour
 , day
+
+-- * Seconds
+, Seconds
+, secondsToTimeSpan
+, secondsToText
+, secondsFromText
 ) where
+
+import Control.Monad.Catch
 
 import Data.Aeson (ToJSON, FromJSON)
 import Data.Bytes.Get
@@ -66,6 +75,7 @@ import Data.Hashable (Hashable)
 import Data.Int
 import Data.Kind
 import Data.Time.Clock.POSIX
+import qualified Data.Text as T
 
 import GHC.Generics
 
@@ -85,10 +95,12 @@ import Numeric.Cast
 newtype TimeSpan :: Type -> Type where
     TimeSpan :: a -> TimeSpan a
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
-        , Enum, Bounded, Hashable, ToJSON, FromJSON
+        , Enum, Bounded
+        , ToJSON, FromJSON
         )
 
 encodeTimeSpan :: MonadPut m => TimeSpan Int64 -> m ()
@@ -130,7 +142,8 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 --
 newtype Time a = Time (TimeSpan a)
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (Enum, Bounded, ToJSON, FromJSON, Hashable)
+    deriving anyclass (Hashable)
+    deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     type Diff (Time a) = TimeSpan a
@@ -207,4 +220,30 @@ hour = TimeSpan $ mega * 3600
 day :: Num a => TimeSpan a
 day = TimeSpan $ mega * 24 * 3600
 {-# INLINE day #-}
+
+-- -------------------------------------------------------------------------- --
+-- Seconds
+
+newtype Seconds = Seconds Integer
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable)
+    deriving newtype (Num, Enum, FromJSON, ToJSON)
+
+secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
+secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
+{-# INLINE secondsToTimeSpan #-}
+
+secondsToText :: Seconds -> T.Text
+secondsToText (Seconds s) = sshow s
+{-# INLINE secondsToText #-}
+
+secondsFromText :: MonadThrow m => T.Text -> m Seconds
+secondsFromText = fmap Seconds . treadM
+{-# INLINE secondsFromText #-}
+
+instance HasTextRepresentation Seconds where
+    toText = secondsToText
+    {-# INLINE toText #-}
+    fromText = secondsFromText
+    {-# INLINE fromText #-}
 

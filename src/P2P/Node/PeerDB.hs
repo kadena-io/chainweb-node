@@ -1,15 +1,11 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -23,19 +19,11 @@
 --
 module P2P.Node.PeerDB
 (
--- * Peer Info
-  PeerId(..)
-, createPeerId
-, unsafeReadPeerId
-, PeerInfo(..)
-, peerId
-, peerAddr
-, arbitraryPeerInfo
-
 -- * Peer Database
-, PeerDb(..)
+  PeerDb(..)
 , peerDbSnapshot
 , peerDbSnapshotSTM
+, peerDbSize
 , peerDbInsert
 , peerDbInsertList
 , peerDbInsertMap
@@ -60,77 +48,29 @@ import Control.Monad.STM
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
-import Data.Hashable
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Proxy
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
-import qualified Data.UUID as V4
-import qualified Data.UUID.V4 as V4
 
 import GHC.Generics
+
+import Numeric.Natural
 
 import System.IO.SafeWrite
 import System.IO.Temp
 
-import Test.QuickCheck
-
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck (Property, ioProperty, property, (===))
 
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress hiding (properties)
 import Chainweb.RestAPI.Utils hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
 
--- -------------------------------------------------------------------------- --
--- Peer Id
-
-newtype PeerId = PeerId V4.UUID
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
-    deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Arbitrary)
-
-createPeerId :: IO PeerId
-createPeerId = PeerId <$> V4.nextRandom
-
-unsafeReadPeerId :: String -> PeerId
-unsafeReadPeerId = PeerId . fromJust . V4.fromString
-
--- -------------------------------------------------------------------------- --
--- Peer Info
-
--- | TODO: eventually this should have more information, like, for instance,
--- the API version that the peer supports, public key, etc.
---
-data PeerInfo = PeerInfo
-    { _peerId :: !PeerId
-    , _peerAddr :: !HostAddress
-    }
-    deriving (Show, Eq, Ord, Generic, Hashable)
-
-makeLenses ''PeerInfo
-
-instance ToJSON PeerInfo where
-    toJSON a = object
-        [ "id" .= _peerId a
-        , "address" .= _peerAddr a
-        ]
-
-instance FromJSON PeerInfo where
-    parseJSON = withObject "PeerInfo" $ \o -> PeerInfo
-        <$> o .: "id"
-        <*> o .: "address"
-
-arbitraryPeerInfo :: Gen PeerInfo
-arbitraryPeerInfo = PeerInfo <$> arbitrary <*> arbitrary
-
-instance Arbitrary PeerInfo where
-    arbitrary = arbitraryPeerInfo
+import P2P.Node.Configuration
 
 -- -------------------------------------------------------------------------- --
 -- Peer Database
@@ -150,6 +90,9 @@ peerDbSnapshot (PeerDb _ var) = readTVarIO var
 peerDbSnapshotSTM :: PeerDb -> STM PeerMap
 peerDbSnapshotSTM (PeerDb _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
+
+peerDbSize :: PeerDb -> IO Natural
+peerDbSize (PeerDb _ var) = int . M.size <$> readTVarIO var
 
 -- | If there is a conflict newly added entries get precedence.
 --
