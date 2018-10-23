@@ -24,6 +24,7 @@ module Data.DiGraph
 -- * Creation of Graphs
 
 , insertEdge
+, insertVertex
 , mapVertices
 , union
 , fromList
@@ -147,10 +148,16 @@ transpose :: Eq a => Hashable a => DiGraph a -> DiGraph a
 transpose g = (DiGraph $ const mempty <$> unGraph g) `union` (fromEdges . HS.map swap $ edges g)
 
 -- | Insert an edge. Returns the graph unmodified if the edge
--- is already in the graph.
+-- is already in the graph. Non-existing vertices are added.
 --
 insertEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> DiGraph a
 insertEdge (a,b) = DiGraph . HM.insertWith (<>) a [b] . unGraph
+
+-- | Insert a vertex. Returns the graph unmodified if the vertex
+-- is already in the graph.
+--
+insertVertex :: Eq a => Hashable a => a -> DiGraph a -> DiGraph a
+insertVertex a = DiGraph . HM.insertWith (<>) a [] . unGraph
 
 -- -------------------------------------------------------------------------- --
 -- Concrete Graphs
