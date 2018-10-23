@@ -25,7 +25,6 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.NodeId
-import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -65,15 +64,6 @@ instance Arbitrary BlockPayloadHash where
 
 instance Arbitrary Nonce where
     arbitrary = Nonce <$> arbitrary
-
-instance Arbitrary a => Arbitrary (Time a) where
-    arbitrary = Time <$> arbitrary
-
-instance Arbitrary a => Arbitrary (TimeSpan a) where
-    arbitrary = TimeSpan <$> arbitrary
-
-instance Arbitrary Seconds where
-    arbitrary = int <$> (arbitrary :: Gen Integer)
 
 instance Arbitrary BlockHeader where
     arbitrary = BlockHeader

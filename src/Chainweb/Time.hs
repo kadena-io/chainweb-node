@@ -74,11 +74,12 @@ import Data.Bytes.Signed
 import Data.Hashable (Hashable)
 import Data.Int
 import Data.Kind
-import Data.Time.Clock.POSIX
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX
 
 import GHC.Generics
 
+import Test.QuickCheck (Arbitrary(..), Gen)
 
 -- internal imports
 
@@ -246,4 +247,16 @@ instance HasTextRepresentation Seconds where
     {-# INLINE toText #-}
     fromText = secondsFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Arbitrary Instances
+
+instance Arbitrary a => Arbitrary (Time a) where
+    arbitrary = Time <$> arbitrary
+
+instance Arbitrary a => Arbitrary (TimeSpan a) where
+    arbitrary = TimeSpan <$> arbitrary
+
+instance Arbitrary Seconds where
+    arbitrary = int <$> (arbitrary :: Gen Integer)
 
