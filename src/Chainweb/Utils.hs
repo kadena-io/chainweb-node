@@ -363,7 +363,6 @@ parseJsonFromText
     -> Value
     -> Aeson.Parser a
 parseJsonFromText l = withText l $ either fail return . eitherFromText
-{-# INLINE parseJsonFromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
