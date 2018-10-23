@@ -70,7 +70,7 @@ module Chainweb.HostAddress
 , pHostname
 
 -- * HostAddresses
-, HostAddress
+, HostAddress(..)
 , hostAddressPort
 , hostAddressHost
 , hostAddressBytes
@@ -94,6 +94,7 @@ module Chainweb.HostAddress
 
 import Configuration.Utils
 
+import Control.DeepSeq
 import Control.Lens.TH
 import Control.Monad
 import Control.Monad.Catch
@@ -210,7 +211,7 @@ arbitraryDomainLabel isTop = sized $ \n -> resize (min n 63)
 
 newtype Port = Port Word16
     deriving (Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Show, Real, Integral, Num, Bounded, Enum, ToJSON, FromJSON)
 
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port
@@ -249,7 +250,7 @@ pPort service = textOption
 
 newtype Hostname = Hostname (CI.CI B8.ByteString)
     deriving (Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Show)
 
 readHostnameBytes :: MonadThrow m => B8.ByteString -> m Hostname
@@ -322,7 +323,8 @@ data HostAddress = HostAddress
     { _hostAddressHost :: !Hostname
     , _hostAddressPort :: !Port
     }
-    deriving (Show, Eq, Ord, Generic, Hashable)
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
 
 makeLenses ''HostAddress
 

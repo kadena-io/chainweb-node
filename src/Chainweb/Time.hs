@@ -65,6 +65,7 @@ module Chainweb.Time
 , secondsFromText
 ) where
 
+import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON, FromJSON)
@@ -96,7 +97,7 @@ import Numeric.Cast
 newtype TimeSpan :: Type -> Type where
     TimeSpan :: a -> TimeSpan a
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
@@ -143,7 +144,7 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 --
 newtype Time a = Time (TimeSpan a)
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
@@ -227,7 +228,7 @@ day = TimeSpan $ mega * 24 * 3600
 
 newtype Seconds = Seconds Integer
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Enum, FromJSON, ToJSON)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a

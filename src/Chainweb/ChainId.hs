@@ -32,6 +32,7 @@ module Chainweb.ChainId
 , testChainId
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch (Exception, MonadThrow)
 
@@ -81,7 +82,7 @@ instance Exception ChainIdException
 newtype ChainId :: Type where
     ChainId :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, ToJSON, FromJSON)
+    deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
 
 instance ToJSONKey ChainId where
     toJSONKey = toJSONKeyText toText
