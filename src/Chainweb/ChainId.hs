@@ -35,8 +35,8 @@ module Chainweb.ChainId
 import Control.Lens
 import Control.Monad.Catch (Exception, MonadThrow)
 
-import Data.Aeson (ToJSON(..), FromJSON(..), ToJSONKey(..), FromJSONKey(..))
-import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
+import Data.Aeson
+import Data.Aeson.Types (toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
@@ -84,11 +84,11 @@ newtype ChainId :: Type where
     deriving anyclass (Hashable, ToJSON, FromJSON)
 
 instance ToJSONKey ChainId where
-    toJSONKey = toJSONKeyText sshow
+    toJSONKey = toJSONKeyText toText
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyValue parseJSON
+    fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
     {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
