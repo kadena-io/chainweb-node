@@ -165,12 +165,14 @@ test-suite chainweb-tests
         Chainweb.Test.Roundtrips
         Chainweb.Test.RestAPI
         Chainweb.Test.Utils
+
     build-depends:
         -- internal
           chainweb
 
         -- external
         , QuickCheck >= 2.10
+        , aeson >= 1.2
         , async >= 2.2
         , base >= 4.10
         , bytes >= 0.15
