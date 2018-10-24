@@ -135,7 +135,7 @@ syncFromPeer node info = runClientM sync env >>= \case
         logg node Warn $ "failed to sync peers from " <> showPid pid <> ": " <> sshow e
         return False
     Right p -> do
-        peerDbInsertList (_pageItems p) (_p2pNodePeerDb node)
+        peerDbInsertList (pageItemsWithoutMe p) (_p2pNodePeerDb node)
         return True
   where
     env = peerClientEnv node info
@@ -148,6 +148,8 @@ syncFromPeer node info = runClientM sync env >>= \case
         void $ peerPutClient v cid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showPid pid
         return p
+    myPid = _peerId $ _p2pNodePeerInfo node
+    pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
