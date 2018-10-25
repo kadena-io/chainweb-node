@@ -55,6 +55,7 @@ module Chainweb.BlockHash
 
 -- * Block Hash Record
 , BlockHashRecord(..)
+, getBlockHashRecord
 , encodeBlockHashRecord
 , decodeBlockHashRecord
 , decodeBlockHashRecordChecked

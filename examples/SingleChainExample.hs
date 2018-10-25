@@ -35,6 +35,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.STM
 
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
@@ -42,12 +43,15 @@ import Data.Maybe
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup hiding (option)
 #endif
+import qualified Data.Text as T
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
+
+import qualified Streaming.Prelude as SP
 
 import qualified System.Logger as L
 import System.LogLevel
@@ -59,6 +63,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainDB
+import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -76,6 +81,7 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
 
+import Utils.Gexf
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
@@ -270,7 +276,7 @@ node cid t logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info "start test node"
 
-        withChainDb cid
+        withChainDb cid nid
             $ \cdb -> withPeerDb p2pConfig
             $ \pdb -> withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, ChainDb)]
@@ -284,14 +290,20 @@ node cid t logger conf p2pConfig nid port =
                     <> Concurrently (monitor logger' cdb)
                 wait server
 
-withChainDb :: ChainId -> (ChainDb -> IO b) -> IO b
-withChainDb cid = bracket start closeChainDb
+withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b
+withChainDb cid nid = bracket start stop
   where
     start = initChainDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
         }
+    stop db = do
+        l <- SP.toList_ $ SP.map dbEntry $ chainDbHeaders db Nothing Nothing Nothing
+        B8.writeFile ("headersgraph." <> nidPath <> ".tmp.gexf") $ blockHeaders2gexf l
+        closeChainDb db
 
     graph = toChainGraph (const cid) singleton
+
+    nidPath = T.unpack . T.replace "/" "." $ toText nid
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
