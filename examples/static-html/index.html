@@ -1,0 +1,336 @@
+<html>
+<head>
+    <!--
+    <script type="text/javascript" src="vis/vis.min.js"></script>
+    <script type="text/javascript" src="jquery-3.3.1.min.js"></script>
+    <link href="vis/vis.min.css" rel="stylesheet" type="text/css" />
+    -->
+    <script type="text/javascript" src="vis.min.js"></script>
+    <script type="text/javascript" src="jquery-3.3.1.min.js"></script>
+    <link href="vis.min.css" rel="stylesheet" type="text/css" />
+
+    <style type="text/css">
+        #mynetwork {
+            width: 600px;
+            height: 400px;
+            border: 1px solid lightgray;
+        }
+        #p2p-session-timeline .vis-item .vis-item-content {
+            padding: 1px;
+        }
+        * { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
+    </style>
+</head>
+<body>
+<div id="p2p-session-timeline"></div>
+<div id="p2p-network"></div>
+<div id="log"></div>
+
+<script type="text/javascript">
+
+    function log (t) { $("#log").innerHTML += "<div>" + t + "</div>"; };
+
+    /* ---------------------------------------------------------------------- */
+    /* Session */
+
+    function SessionNetwork(nodes, sessions) {
+
+        var my = this;
+
+        /* ************************** */
+        /* initial options */
+
+        this.elem = document.getElementById('p2p-network');
+
+        this.options = 
+            { width: "90%"
+            , height: "50%"
+            , nodes:
+                { color:
+                    { highlight: { border: "red" }
+                    , hover: { border: "green" }
+                    // , border: "yellow"
+                    }
+                }
+            , edges:
+                { arrows: {to: true} 
+                , smooth: { enabled: false}
+                , physics: false
+                , color: { inherit: 'from' }
+                , chosen: 
+                    { edge: function (values, id, select, hovering) {
+                        values.color = "red";
+                    }}
+                }
+            // , layout: { hierarchical: true }
+            // , physics: { enabled: true, stabilization: true }
+            };
+
+        /* ************************** */
+        /* Nodes */
+
+        this.nodes = new vis.DataSet(nodes.data.get());
+
+        nodes.data.on("add", function (e,p,s) {
+            my.nodes.add(nodes.data.get(p.items));
+        });
+
+        /* ************************** */
+        /* Edges */
+
+        this.edges = new vis.DataSet(sessions.data.get(
+            { fields: 
+                { "id": "id"
+                , "fromId": "from"
+                , "toId": "to"
+                }
+            })
+        );
+
+        sessions.data.on('*', function (e,p,s) {
+            var ses = sessions.data.get(p.items)[0];
+            if (ses.end) {
+                my.edges.remove(p.items);
+            } else {
+                my.edges.add(sessions.data.get(p.items,
+                    { fields:
+                        { "id": "id"
+                        , "fromId": "from"
+                        , "toId": "to"
+                        }
+                    })
+                );
+            };
+        });
+
+        /* ************************** */
+        /* Network Visualization */
+
+        this.network = new vis.Network
+            ( this.elem
+            , {nodes: this.nodes, edges: this.edges}
+            , this.options
+            );
+
+        /* ************************** */
+        /* radial laytout */
+
+        function radialCoord (center, radius, pos) {
+            var x = center.x + radius * Math.cos(pos);
+            var y = center.y + radius * Math.sin(pos);
+            var coord = {x : x, y : y};
+            return coord;
+        };
+
+        this.makeRadialLayout = function (radius) {
+            var center = {x: 0, y: 0};
+            var n = this.nodes.length;
+            var i = 0;
+            this.nodes.forEach(function(node) {
+                var pos = i * Math.PI * 2 / n;
+                var coord = radialCoord(center, radius, pos);
+                my.network.moveNode(node.id, coord.x, coord.y);
+                i += 1;
+            });
+        };
+
+        /* TODO: compute radius based on number of nodes */
+        this.radialLayout = function () {
+            var opts = this.network.options;
+            opts.physics = false;
+            this.network.setOptions(opts);
+            var radius = 500;
+
+            this.makeRadialLayout(radius);
+            this.network.fit();
+
+            /* Install event handler to run layout when a new node is added */
+            this.nodes.on('add', function () { 
+                my.makeRadialLayout(radius);
+                my.network.fit();
+            });
+        };
+
+        this.radialLayout();
+
+        /* ************************** */
+        /* Export */
+
+        var exported = { };
+        return exported;
+    };
+
+    /* ---------------------------------------------------------------------- */
+    /* Timeline */
+
+    function SessionTimeline(nodes, sessions) {
+        this.items = new vis.DataView(sessions.data,
+            { fields:
+                { "start": "start"
+                , "end": "end"
+                , "id": "id"
+                , "fromId": "group"
+                , "type": "type"
+                , "style": "style"
+                // , "timelineContent": "content"
+                }
+            , convert: { "start": "date", "end":"date" }
+            }
+        );
+
+        this.groups = new vis.DataView(nodes.data,
+            { fields:
+                { "id": "id"
+                , "timelineGroupContent": "content"
+                }
+            }
+        );
+
+        this.elem = document.getElementById('p2p-session-timeline');
+
+        var now = new Date();
+        this.options =
+            { width: "90%"
+            , maxHeight: "50%"
+            , margin: { item: 2 }
+            , minHeight: 100
+            , verticalScroll: true
+            , maxMinorChars: 5
+            , showCurrentTime: true
+            , selectable: false
+            , autoResize: true
+            , rollingMode: { follow: true, offset: 0.9 }
+            , start: (this.items.length > 0) ? this.items.getDataSet().min("start").start : new Date()
+            , min: (this.items.length > 0) ? this.items.getDataSet().min("start").start : new Date(new Date().getTime() - 5000)
+            , end: (this.items.length > 0) ? this.items.getDataSet().max("end").end : new Date(new Date().getTime() + 60*1000)
+            };
+
+        log("initialize timeline");
+        this.timeline = new vis.Timeline
+            ( this.elem
+            , this.items
+            , this.groups
+            , this.options
+            );
+
+        this.setStartEnd = function() {
+            var o = this.timeline.options;
+            o.min = this.items.getDataSet().min("start").start;
+            o.start =  this.items.getDataSet().min("start").start;
+            o.end = this.items.getDataSet().max("end").end;
+            this.timeline.setOptions(o);
+        }
+    };
+
+
+    /* ---------------------------------------------------------------------- */
+    /* Sessions */
+
+    function getDates(s) {
+        var dates = 
+            { start: new Date(s._p2pSessionInfoStart / 1000)
+            , end: s._p2pSessionInfoEnd ? new Date(s._p2pSessionInfoEnd / 1000) : null
+            };
+        return dates;
+    };
+
+    function Sessions () {
+        this.data = new vis.DataSet([]);
+
+        this.add = function (s) {
+            var dates = getDates(s);
+            if (! this.data.get(s._p2pSessionInfoId)) {
+                this.data.add(
+                    { id: s._p2pSessionInfoId
+                    , start: dates.start
+                    , end: dates.end
+                    , from: s._p2pSessionInfoSource
+                    , to: s._p2pSessionInfoTarget
+                    , result: s._p2pSessionInfoResult
+                    , timelineContent: s._p2pSessionInfoId
+                    , toId : s._p2pSessionInfoTarget.id
+                    , fromId : s._p2pSessionInfoSource.id
+                    , type: this.itemType(dates)
+                    , style: "background-color: " + this.resultColor(s) + ";"
+                    }
+                );
+            } else {
+                this.data.update(
+                    { id: s._p2pSessionInfoId
+                    , end: dates.end
+                    , result: s._p2pSessionInfoResult
+                    , type: this.itemType(dates)
+                    , style: "background-color: " + this.resultColor(s) + ";"
+                    }
+                );
+            };
+        };
+
+        this.itemType = function (dates) {
+            return dates.end ? "range" : "point";
+        }
+
+        this.resultColor = function (s) {
+            var r = s._p2pSessionInfoResult;
+            if (r) {
+                if (r.tag == 'P2pSessionResult' && r.contents) {
+                    return 'green';
+                } else if (r.tag == 'P2pSessionResult' && !r.contents) {
+                    return "yellow";
+                } else if (r.tag == 'P2pSessionException') {
+                    return "red";
+                } else {
+                    return "orange";
+                }
+            } else {
+                return "blue";
+            }
+        };
+    };
+    
+    /* ---------------------------------------------------------------------- */
+    /* Nodes */
+
+    function Nodes () {
+        this.data = new vis.DataSet([]);
+
+        this.add = function (session) {
+            var s = getDates(session).start;
+            this.addInfo(session._p2pSessionInfoSource, s);
+            this.addInfo(session._p2pSessionInfoTarget, s);
+        };
+
+        this.addInfo = function (i, s) {
+            if (this.data.get(i.id) == null)
+            {
+                this.data.add(
+                    { id: i.id
+                    , start: s
+                    , timelineGroupContent: i.id
+                    }
+                );
+            };
+        };
+    };
+
+    /* ---------------------------------------------------------------------- */
+    /* Main */
+
+    var sessions = new Sessions();
+    var nodes = new Nodes();
+    timeline = new SessionTimeline(nodes, sessions);
+    network = new SessionNetwork(nodes, sessions);
+
+    /* Event Source */
+
+    var source = new EventSource("http://localhost:8000/events")
+    var isFirst = true;
+    source.onmessage = function(event) {
+        var jdata = JSON.parse(event.data);
+        nodes.add(jdata.message);
+        sessions.add(jdata.message);
+    };
+
+</script>
+</body>
+</html>

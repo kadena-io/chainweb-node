@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Main
@@ -39,7 +40,7 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import System.Logger hiding (logg)
+import System.Logger hiding (logg, LogMessage)
 import qualified System.LogLevel as L
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -50,6 +51,8 @@ import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.LogMessage
 
 import P2P.Node
 import P2P.Node.Configuration
@@ -139,14 +142,14 @@ mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
 
 main :: IO ()
 main = runWithConfiguration mainInfo
-    $ \config -> withHandleBackend (_logConfigBackend $ _logConfig config)
+    $ \config -> withHandleBackend_ logText (_logConfigBackend $ _logConfig config)
     $ \backend -> withLogger (_logConfigLogger $ _logConfig config) backend
     $ example config
 
 -- -------------------------------------------------------------------------- --
 -- Example
 
-example :: P2pExampleConfig -> Logger T.Text -> IO ()
+example :: P2pExampleConfig -> Logger SomeLogMessage -> IO ()
 example conf logger = do
 
     -- P2P node configuration
@@ -183,9 +186,9 @@ example conf logger = do
 --
 noopSession :: Natural -> P2pSession
 noopSession t logfun _ = do
-    logfun L.Info "start session"
+    logfun @T.Text L.Info "start session"
     timer t
-    logfun L.Info "stop session"
+    logfun @T.Text L.Info "stop session"
     return True
 
 timer :: Natural -> IO ()
@@ -197,12 +200,12 @@ timer seconds = do
 -- -------------------------------------------------------------------------- --
 -- Test Node
 
-node :: ChainId -> Natural -> Logger T.Text -> P2pConfiguration -> Port -> IO ()
+node :: ChainId -> Natural -> Logger SomeLogMessage -> P2pConfiguration -> Port -> IO ()
 node cid t logger conf port =
     withLoggerLabel ("node", sshow port) logger $ \logger' -> do
 
         let logfun l = loggerFunIO logger' (l2l l)
-        logfun L.Info "start test node"
+        logfun L.Info $ toLogMessage @T.Text "start test node"
 
         -- initialize PeerDB
         withPeerDb conf $ \pdb ->
@@ -210,12 +213,12 @@ node cid t logger conf port =
             -- start P2P server
             withAsync (serveP2pOnPort port Test [(cid, pdb)]) $ \server -> do
 
-                logfun L.Info "started server"
+                logfun L.Info $ toLogMessage @T.Text "started server"
 
                 -- Create P2P client node
                 mgr <- HTTP.newManager HTTP.defaultManagerSettings
                 n <- withLoggerLabel ("session", "noopSession") logger' $ \sessionLogger -> do
-                    let sessionLogFun l = loggerFunIO sessionLogger (l2l l)
+                    let sessionLogFun l = loggerFunIO sessionLogger (l2l l) . toLogMessage
                     p2pCreateNode Test cid conf sessionLogFun pdb ha mgr (noopSession t)
 
                 -- Run P2P client node

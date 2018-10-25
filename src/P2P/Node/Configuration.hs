@@ -237,6 +237,11 @@ data P2pConfiguration = P2pConfiguration
 
 makeLenses ''P2pConfiguration
 
+instance Arbitrary P2pConfiguration where
+    arbitrary = P2pConfiguration
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 defaultP2pConfiguration Test = P2pConfiguration
     { _p2pConfigPeerId = Nothing
@@ -277,6 +282,17 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
+
+instance FromJSON P2pConfiguration where
+    parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
+        <$> o .: "peerId"
+        <*> o .: "hostAddress"
+        <*> o .: "networkId"
+        <*> o .: "maxSessionCount"
+        <*> o .: "maxPeerCount"
+        <*> o .: "sessionTimeout"
+        <*> o .: "peers"
+        <*> o .: "peerDbFilePath"
 
 pP2pConfiguration :: Maybe P2pNetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
