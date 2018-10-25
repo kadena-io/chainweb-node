@@ -5,9 +5,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -92,11 +92,17 @@ module Chainweb.Utils
 , prefixLong
 , suffixHelp
 , textOption
+
+, EnableConfig(..)
+, enableConfigConfig
+, enableConfigEnabled
+, defaultEnableConfig
+, pEnableConfig
 ) where
 
 import Configuration.Utils
 
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -429,4 +435,39 @@ leadingZeros b = int (B.length x) * 8 + case B.uncons y of
     Nothing -> 0
   where
     (x, y) = B.span (== 0x00) b
+
+-- -------------------------------------------------------------------------- --
+-- Configuration wrapper to enable and disable components
+
+data EnableConfig a = EnableConfig
+    { _enableConfigEnabled :: !Bool
+    , _enableConfigConfig :: !a
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+makeLenses ''EnableConfig
+
+defaultEnableConfig :: a -> EnableConfig a
+defaultEnableConfig a = EnableConfig
+    { _enableConfigEnabled = True
+    , _enableConfigConfig = a
+    }
+
+instance ToJSON a => ToJSON (EnableConfig a) where
+    toJSON o = object
+        [ "enabled" .= _enableConfigEnabled o
+        , "configuration" .= _enableConfigConfig o
+        ]
+
+instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
+    parseJSON = withObject "EnableConfig" $ \o -> id
+        <$< enableConfigEnabled ..: "enabled" % o
+        <*< enableConfigConfig %.: "configuration" % o
+
+pEnableConfig :: String -> MParser a -> MParser (EnableConfig a)
+pEnableConfig compName pConfig = id
+    <$< enableConfigEnabled .:: enableDisableFlag
+        % long compName
+        <> help ("whether " <> compName <> " is enabled or disabled")
+    <*< enableConfigConfig %:: pConfig
 
