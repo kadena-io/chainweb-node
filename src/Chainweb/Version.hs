@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -20,12 +21,22 @@ module Chainweb.Version
 , decodeChainwebVersion
 ) where
 
-import Data.Aeson (ToJSON, FromJSON)
+import Control.Monad.Catch
+
+import Data.Aeson
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable (Hashable)
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
+import qualified Data.Text as T
 
 import GHC.Generics
+
+-- internal modules
+
+import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Version
@@ -44,17 +55,46 @@ data ChainwebVersion
     | Simulation
     | Testnet00
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
-    deriving anyclass (Hashable, ToJSON, FromJSON)
+    deriving anyclass (Hashable)
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
 encodeChainwebVersion Test = putWord32le 0x0
 encodeChainwebVersion Simulation = putWord32le 0x1
 encodeChainwebVersion Testnet00 = putWord32le 0x2
+{-# INLINABLE encodeChainwebVersion #-}
 
 decodeChainwebVersion :: MonadGet m => m ChainwebVersion
 decodeChainwebVersion = getWord32le >>= \case
     0x0 -> return Test
     0x1 -> return Simulation
     0x2 -> return Testnet00
-    x -> fail $ "Unknown chainweb version: " ++ show x
+    x -> fail $ "Unknown Chainweb version: " ++ show x
+{-# INLINABLE decodeChainwebVersion #-}
+
+instance ToJSON ChainwebVersion where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON ChainwebVersion where
+    parseJSON = parseJsonFromText "ChainwebVersion"
+
+chainwebVersionToText :: ChainwebVersion -> T.Text
+chainwebVersionToText Test = "test"
+chainwebVersionToText Simulation = "simulation"
+chainwebVersionToText Testnet00 = "testnet00"
+{-# INLINABLE chainwebVersionToText #-}
+
+chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
+chainwebVersionFromText "test" = return Test
+chainwebVersionFromText "simulation" =return Simulation
+chainwebVersionFromText "testnet00" = return Testnet00
+chainwebVersionFromText t = throwM . TextFormatException
+    $ "Unknown Chainweb version: \"" <> t <> "\"."
+{-# INLINABLE chainwebVersionFromText #-}
+
+instance HasTextRepresentation ChainwebVersion where
+    toText = chainwebVersionToText
+    {-# INLINE toText #-}
+    fromText = chainwebVersionFromText
+    {-# INLINE fromText #-}
 

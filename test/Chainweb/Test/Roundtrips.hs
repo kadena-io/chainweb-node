@@ -141,7 +141,8 @@ base64RoundtripTests = testGroup "Base64 encoding roundtrips"
 
 hasTextRepresentationTests :: TestTree
 hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
-    [ testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
+    [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
+    , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText

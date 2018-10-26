@@ -50,15 +50,10 @@ instance ToHttpApiData (Key 'Unchecked) where
     toUrlPiece = encodeB64UrlNoPaddingText . encodeKey
 
 instance FromHttpApiData ChainwebVersion where
-    parseUrlPiece "testnet00" = Right Testnet00
-    parseUrlPiece "test" = Right Test
-    parseUrlPiece "simulation" = Right Simulation
-    parseUrlPiece _ = Left "Unsupported Chainweb Instance"
+    parseUrlPiece = first T.pack . eitherFromText
 
 instance ToHttpApiData ChainwebVersion where
-    toUrlPiece Testnet00 = "testnet00"
-    toUrlPiece Test = "test"
-    toUrlPiece Simulation = "simulation"
+    toUrlPiece = toText
 
 instance FromHttpApiData ChainId where
     parseUrlPiece = first sshow . chainIdFromText
