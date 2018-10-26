@@ -57,6 +57,7 @@ module Chainweb.Utils
 , tread
 , treadM
 , HasTextRepresentation(..)
+, eitherFromText
 
 -- ** Base64
 , encodeB64Text
@@ -95,14 +96,13 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
--- import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import qualified Data.Aeson.Types as Aeson
 import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.Aeson.Types as Aeson
 import Data.Bifunctor
 import Data.Bits
 import Data.Bytes.Get
@@ -124,9 +124,9 @@ import qualified Data.Text.Lazy as TL
 
 import GHC.Generics
 
-import qualified Options.Applicative as O
-
 import Numeric.Natural
+
+import qualified Options.Applicative as O
 
 import Text.Read (readEither)
 
@@ -258,6 +258,17 @@ instance HasTextRepresentation [Char] where
     fromText = return . T.unpack
     {-# INLINE fromText #-}
 
+eitherFromText
+    :: HasTextRepresentation a
+    => T.Text
+    -> Either String a
+eitherFromText = either f return . fromText
+  where
+    f e = Left $ case fromException e of
+        Just (TextFormatException err) -> T.unpack err
+        _ -> show e
+{-# INLINE eitherFromText #-}
+
 -- -------------------------------------------------------------------------- --
 -- ** Base64
 
@@ -351,11 +362,8 @@ parseJsonFromText
     => String
     -> Value
     -> Aeson.Parser a
-parseJsonFromText l = withText l $ either f return . fromText
-  where
-    f e = fail $ case fromException e of
-        Just (TextFormatException err) -> T.unpack err
-        _ -> show e
+parseJsonFromText l = withText l $ either fail return . eitherFromText
+{-# INLINE parseJsonFromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
