@@ -14,7 +14,7 @@ extra-deps:
   - refined-0.3.0.0@sha256:688f7fb1979acdcf3e99b096590d54c53ab2c3302b7dec15eb600911e05a578f,1240
   - temporary-1.3
   - yet-another-logger-0.3.1
-  
+
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
   - hspec-2.5.8
@@ -22,3 +22,7 @@ extra-deps:
   - hspec-discover-2.5.8
   - these-0.7.5
   - quickcheck-instances-0.3.19
+
+flags:
+  aeson:
+    cffi: true
