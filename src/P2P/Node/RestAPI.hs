@@ -42,49 +42,18 @@ module P2P.Node.RestAPI
 
 import Control.Lens hiding ((.=))
 
-import Data.Bifunctor
 import Data.Proxy
-import Data.Swagger
-import qualified Data.Text.Encoding as T
-import qualified Data.UUID as V4
 
 import Servant
 
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
-
--- -------------------------------------------------------------------------- --
--- Instances
-
--- FIXME
---
-instance ToSchema HostAddress where
-    declareNamedSchema _ = return $ NamedSchema (Just "HostAddress") $ mempty
-        & type_ .~ SwaggerString
-        & pattern ?~ "<hostname>:<port>"
-        & minLength ?~ 3
-        & maxLength ?~ 258
-
-instance FromHttpApiData HostAddress where
-    parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
-
-instance ToSchema PeerId where
-    declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
-
-instance ToParamSchema PeerId where
-    toParamSchema _ = toParamSchema (Proxy @V4.UUID)
-
-deriving newtype instance FromHttpApiData PeerId
-deriving newtype instance ToHttpApiData PeerId
-
-instance ToSchema PeerInfo
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/peer/@

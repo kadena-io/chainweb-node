@@ -38,7 +38,7 @@ import Servant.Server
 import Chainweb.ChainDB
 import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.RestAPI
-import Chainweb.ChainDB.RestAPI.Orphans ()
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils hiding ((==>))

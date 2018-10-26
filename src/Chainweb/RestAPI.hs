@@ -109,10 +109,6 @@ someSwaggerServer :: ChainwebVersion -> [ChainId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return (chainwebSwagger v cs)
 
-instance ToSchema Swagger where
-    declareNamedSchema _ = return $ NamedSchema (Just "Swagger")
-        $ sketchSchema ("swagger specification" :: T.Text)
-
 chainwebSwagger :: ChainwebVersion -> [ChainId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a

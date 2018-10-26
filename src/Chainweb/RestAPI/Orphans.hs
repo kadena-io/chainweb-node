@@ -1,9 +1,13 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -16,7 +20,7 @@
 --
 -- TODO
 --
-module Chainweb.ChainDB.RestAPI.Orphans
+module Chainweb.RestAPI.Orphans
 (
 ) where
 
@@ -25,11 +29,14 @@ import Control.Monad
 
 import Data.Aeson
 import Data.Bifunctor
+import Data.Proxy
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
 import Data.Swagger
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.UUID as V4
 
 import Servant.API
 
@@ -37,11 +44,20 @@ import Servant.API
 import Chainweb.BlockHash
 import Chainweb.ChainDB
 import Chainweb.ChainId
+import Chainweb.HostAddress
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node.Configuration
+
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
+
+deriving newtype instance ToHttpApiData PeerId
+deriving newtype instance FromHttpApiData PeerId
+
+instance FromHttpApiData HostAddress where
+    parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
 
 instance FromHttpApiData (Key 'Unchecked) where
     parseUrlPiece = first sshow . (decodeKey <=< decodeB64UrlNoPaddingText)
@@ -72,6 +88,9 @@ instance ToHttpApiData (Key 'Unchecked, Key 'Unchecked) where
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
+instance ToParamSchema PeerId where
+    toParamSchema _ = toParamSchema (Proxy @V4.UUID)
+
 instance ToParamSchema (Key t) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
@@ -101,6 +120,22 @@ instance ToParamSchema ChainwebVersion where
 
 -- -------------------------------------------------------------------------- --
 -- Swagger Schema
+
+instance ToSchema Swagger where
+    declareNamedSchema _ = return $ NamedSchema (Just "Swagger")
+        $ sketchSchema ("swagger specification" :: T.Text)
+
+instance ToSchema PeerInfo
+
+instance ToSchema PeerId where
+    declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
+
+instance ToSchema HostAddress where
+    declareNamedSchema _ = return $ NamedSchema (Just "HostAddress") $ mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "<hostname>:<port>"
+        & minLength ?~ 3
+        & maxLength ?~ 258
 
 instance ToSchema (Key t) where
     declareNamedSchema _ = return $ NamedSchema (Just "Key") $ byteSchema
