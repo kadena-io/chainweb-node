@@ -1,0 +1,4 @@
+packages: chainweb.cabal
+
+package aeson
+    flags: +cffi
