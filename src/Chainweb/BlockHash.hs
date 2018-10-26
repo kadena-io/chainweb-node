@@ -50,6 +50,8 @@ module Chainweb.BlockHash
 , randomBlockHash
 , nullBlockHash
 , cryptoHash
+, blockHashToText
+, blockHashFromText
 
 -- * Block Hash Record
 , BlockHashRecord(..)
@@ -157,13 +159,13 @@ randomBlockHashBytes :: MonadIO m => m BlockHashBytes
 randomBlockHashBytes = BlockHashBytes <$> liftIO (BR.random blockHashBytesCount)
 
 instance ToJSON BlockHashBytes where
-    toJSON = toJSON . encodeB64UrlText . runPutS . encodeBlockHashBytes
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHashBytes
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHashBytes where
     parseJSON = withText "BlockHashBytes" $ \t ->
         either (fail . show) return
-            $ runGet decodeBlockHashBytes =<< decodeB64UrlText t
+            $ runGet decodeBlockHashBytes =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
@@ -225,30 +227,45 @@ decodeBlockHashChecked p = BlockHash
 {-# INLINE decodeBlockHashChecked #-}
 
 instance ToJSON BlockHash where
-    toJSON = toJSON . encodeB64UrlText . runPutS . encodeBlockHash
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHash where
     parseJSON = withText "BlockHash" $ \t ->
         either (fail . show) return
-            $ runGet decodeBlockHash =<< decodeB64UrlText t
+            $ runGet decodeBlockHash =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey BlockHash where
-    toJSONKey = toJSONKeyText $ encodeB64UrlText . runPutS . encodeBlockHash
+    toJSONKey = toJSONKeyText $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey BlockHash where
-    fromJSONKey = FromJSONKeyTextParser $ \t ->
-        either (fail . show) return
-            $ runGet decodeBlockHash =<< decodeB64UrlText t
+    fromJSONKey = FromJSONKeyValue parseJSON
     {-# INLINE fromJSONKey #-}
 
 randomBlockHash :: MonadIO m => HasChainId p => p -> m BlockHash
 randomBlockHash p = BlockHash (_chainId p) <$> randomBlockHashBytes
+{-# INLINE randomBlockHash #-}
 
 nullBlockHash :: HasChainId p => p -> BlockHash
 nullBlockHash p = BlockHash (_chainId p) nullHashBytes
+{-# INLINE nullBlockHash #-}
+
+blockHashToText :: BlockHash -> T.Text
+blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+{-# INLINE blockHashToText #-}
+
+blockHashFromText :: MonadThrow m => T.Text -> m BlockHash
+blockHashFromText t = either (throwM . TextFormatException . sshow) return
+    $ runGet decodeBlockHash =<< decodeB64UrlNoPaddingText t
+{-# INLINE blockHashFromText #-}
+
+instance HasTextRepresentation BlockHash where
+    toText = blockHashToText
+    {-# INLINE toText #-}
+    fromText = blockHashFromText
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- BlockHashRecord

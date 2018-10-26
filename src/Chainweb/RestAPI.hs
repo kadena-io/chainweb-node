@@ -37,7 +37,12 @@ module Chainweb.RestAPI
 , Port
 
 -- * Chainweb API Client
+
+-- ** ChainDB API Client
 , module Chainweb.ChainDB.RestAPI.Client
+
+-- ** P2P API Client
+, module P2P.Node.RestAPI.Client
 ) where
 
 import Control.Lens
@@ -70,11 +75,18 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node.PeerDB
+import P2P.Node.RestAPI
+import P2P.Node.RestAPI.Client
+import P2P.Node.RestAPI.Server
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb API
 
 someChainwebApi :: ChainwebVersion -> [ChainId] -> SomeApi
-someChainwebApi v cs = someSwaggerApi <> someChainDbApis v cs
+someChainwebApi v cs = someSwaggerApi
+    <> someChainDbApis v cs
+    <> someP2pApis v cs
 
 prettyShowChainwebApi :: ChainwebVersion -> [ChainId] -> T.Text
 prettyShowChainwebApi v cs = case someChainwebApi v cs of
@@ -97,10 +109,6 @@ someSwaggerServer :: ChainwebVersion -> [ChainId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return (chainwebSwagger v cs)
 
-instance ToSchema Swagger where
-    declareNamedSchema _ = return $ NamedSchema (Just "Swagger")
-        $ sketchSchema ("swagger specification" :: T.Text)
-
 chainwebSwagger :: ChainwebVersion -> [ChainId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a
@@ -115,16 +123,38 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 -- -------------------------------------------------------------------------- --
 -- Server
 
-someChainwebServer :: ChainwebVersion -> [(ChainId, ChainDb)] -> SomeServer
-someChainwebServer v cs = someSwaggerServer v (fst <$> cs)
-    <> someChainDbServers v cs
+someChainwebServer
+    :: ChainwebVersion
+    -> [(ChainId, ChainDb)]
+    -> [(ChainId, PeerDb)]
+    -> SomeServer
+someChainwebServer v chainDbs peerDbs = someSwaggerServer v (fst <$> chainDbs)
+    <> someChainDbServers v chainDbs
+    <> someP2pServers v peerDbs
 
-chainwebApplication :: ChainwebVersion -> [(ChainId, ChainDb)] -> Application
-chainwebApplication v = someServerApplication . someChainwebServer v
+chainwebApplication
+    :: ChainwebVersion
+    -> [(ChainId, ChainDb)]
+    -> [(ChainId, PeerDb)]
+    -> Application
+chainwebApplication v chainDbs peerDbs = someServerApplication
+    $ someChainwebServer v chainDbs peerDbs
 
-serveChainwebOnPort :: Port -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
-serveChainwebOnPort p v = run (int p) . chainwebApplication v
+serveChainwebOnPort
+    :: Port
+    -> ChainwebVersion
+    -> [(ChainId, ChainDb)]
+    -> [(ChainId, PeerDb)]
+    -> IO ()
+serveChainwebOnPort p v chainDbs peerDbs = run (int p)
+    $ chainwebApplication v chainDbs peerDbs
 
-serveChainweb :: Settings -> ChainwebVersion -> [(ChainId, ChainDb)] -> IO ()
-serveChainweb s v = runSettings s . chainwebApplication v
+serveChainweb
+    :: Settings
+    -> ChainwebVersion
+    -> [(ChainId, ChainDb)]
+    -> [(ChainId, PeerDb)]
+    -> IO ()
+serveChainweb s v chainDbs peerDbs = runSettings s
+    $ chainwebApplication v chainDbs peerDbs
 

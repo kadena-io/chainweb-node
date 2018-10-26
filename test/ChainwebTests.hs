@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Main
@@ -28,6 +26,8 @@ import qualified Chainweb.Test.ChainDB.Sync
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 
+import qualified P2P.Node.PeerDB (properties)
+
 ---
 
 main :: IO ()
@@ -44,4 +44,5 @@ suite = testGroup "Unit Tests"
     , Chainweb.Test.RestAPI.tests
     , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+    , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     ]

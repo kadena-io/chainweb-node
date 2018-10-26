@@ -124,23 +124,22 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
+import qualified Data.ByteString as B
 import Data.Foldable (toList, maximumBy)
+import Data.Function
 import Data.Hashable (Hashable(..))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Kind
+import qualified Data.List as L
 import Data.Maybe (mapMaybe)
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid
 #endif
 import Data.Sequence (Seq)
-
-import qualified Data.ByteString as B
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.List as L
 import qualified Data.Sequence as Seq
 
 import Numeric.Natural
-
 
 -- internal imports
 
@@ -557,10 +556,11 @@ height :: Snapshot -> BlockHeight
 height = _blockHeight . highest
 
 -- | The `BlockHeader` with the highest block height.
+--
 highest :: Snapshot -> BlockHeader
-highest s = maximumBy p . mapMaybe (fmap dbEntry . (`lookupEntry` s)) . toList $ branches s
-  where
-    p bh0 bh1 = compare (_blockHeight bh0) (_blockHeight bh1)
+highest s = maximumBy (compare `on` _blockHeight)
+    . mapMaybe (fmap dbEntry . (`lookupEntry` s))
+    . toList $ branches s
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
@@ -617,15 +617,15 @@ decodeEntry = fmap UncheckedEntry . E.decodeEntry
 -- JSON Serialization
 
 instance ToJSON (Key 'Unchecked) where
-    toJSON = toJSON . encodeB64UrlText . encodeKey
+    toJSON = toJSON . encodeB64UrlNoPaddingText . encodeKey
 
 instance FromJSON (Key 'Unchecked) where
     parseJSON = withText "key" $ either (fail . show) return
-        . (decodeKey <=< decodeB64UrlText)
+        . (decodeKey <=< decodeB64UrlNoPaddingText)
 
 instance ToJSON (Entry 'Unchecked) where
-    toJSON = toJSON . encodeB64UrlText . encodeEntry
+    toJSON = toJSON . encodeB64UrlNoPaddingText . encodeEntry
 
 instance FromJSON (Entry 'Unchecked) where
     parseJSON = withText "entry" $ either (fail . sshow) return
-        . (decodeEntry <=< decodeB64UrlText)
+        . (decodeEntry <=< decodeB64UrlNoPaddingText)

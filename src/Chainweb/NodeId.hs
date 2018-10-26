@@ -26,7 +26,8 @@ module Chainweb.NodeId
 , encodeNodeId
 , decodeNodeId
 , decodeNodeIdCheckedChain
-, prettyNodeId
+, nodeIdToText
+, nodeIdFromText
 ) where
 
 import Control.Lens
@@ -81,6 +82,20 @@ decodeNodeIdCheckedChain
 decodeNodeIdCheckedChain p = NodeId <$> decodeChainIdChecked p <*> getWord64le
 {-# INLINE decodeNodeIdCheckedChain #-}
 
-prettyNodeId :: NodeId -> T.Text
-prettyNodeId (NodeId c i) = sshow i <> "/" <> prettyChainId c
-{-# INLINE prettyNodeId #-}
+nodeIdToText :: NodeId -> T.Text
+nodeIdToText (NodeId c i) = sshow i <> "/" <> chainIdToText c
+{-# INLINE nodeIdToText #-}
+
+nodeIdFromText :: MonadThrow m => T.Text -> m NodeId
+nodeIdFromText t = case T.break (== '/') t of
+    (a, b)
+        | not (T.null b) -> NodeId <$> fromText (T.drop 1 b) <*> treadM a
+        | otherwise -> throwM . TextFormatException
+            $ "Missing '/' in \"" <> a <> "\"."
+
+instance HasTextRepresentation NodeId where
+    toText = nodeIdToText
+    {-# INLINE toText #-}
+    fromText = nodeIdFromText
+    {-# INLINE fromText #-}
+

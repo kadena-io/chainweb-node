@@ -32,9 +32,6 @@ import Chainweb.Version
 instance Arbitrary ChainwebVersion where
     arbitrary = elements [minBound .. maxBound]
 
-instance Arbitrary ChainId where
-    arbitrary = testChainId <$> arbitrary
-
 instance Arbitrary NodeId where
     arbitrary = NodeId <$> arbitrary <*> arbitrary
 
@@ -74,6 +71,9 @@ instance Arbitrary a => Arbitrary (Time a) where
 
 instance Arbitrary a => Arbitrary (TimeSpan a) where
     arbitrary = TimeSpan <$> arbitrary
+
+instance Arbitrary Seconds where
+    arbitrary = int <$> (arbitrary :: Gen Integer)
 
 instance Arbitrary BlockHeader where
     arbitrary = BlockHeader

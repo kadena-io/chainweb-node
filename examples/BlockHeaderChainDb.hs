@@ -147,7 +147,7 @@ observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
         logg Info $ "observed new entry: " <> sshow e
 
         let encoded = DB.encodeEntry e
-        logg Debug $ "serialized Entry: " <> encodeB64UrlText encoded
+        logg Debug $ "serialized Entry: " <> encodeB64UrlNoPaddingText encoded
 
         decoded <- DB.decodeEntry encoded
         logg Debug $ "deserialized Entry: " <> sshow (decoded :: DB.Entry 'DB.Unchecked)

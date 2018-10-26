@@ -34,7 +34,7 @@ cid = testChainId 0
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
 noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \_ db -> withServer [(cid, db)] $ \env -> do
+noopSingletonSync = withDB cid $ \_ db -> withServer [(cid, db)] [] $ \env -> do
     sync diam env db
     s <- snapshot db
     height s @?= 0
@@ -46,7 +46,7 @@ noopLongSync :: Assertion
 noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    withServer [(cid, peer)] $ \env -> do
+    withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
         snapshot db >>= \ss -> height ss @?= 10
 
@@ -58,7 +58,7 @@ noopNewerNode = withDB cid $ \g db -> do
     peer <- copy db
     h <- highest <$> snapshot peer
     void $ insertN 90 h peer
-    withServer [(cid, db)] $ \env -> do
+    withServer [(cid, db)] [] $ \env -> do
         sync diam env peer
         snapshot peer >>= \ss -> height ss @?= 100
         snapshot db >>= \ss -> height ss @?= 10
@@ -70,7 +70,7 @@ newNode = withDB cid $ \g db -> do
     peer <- copy db
     void $ insertN 10 g peer
     snapshot db >>= \ss -> height ss @?= 0
-    withServer [(cid, peer)] $ \env -> do
+    withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
         snapshot db >>= \ss -> height ss @?= 10
 
@@ -82,6 +82,6 @@ oldNode = withDB cid $ \g db -> do
     peer <- copy db
     h <- highest <$> snapshot peer
     void $ insertN 90 h peer
-    withServer [(cid, peer)] $ \env -> do
+    withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
         snapshot db >>= \ss -> height ss @?= 100

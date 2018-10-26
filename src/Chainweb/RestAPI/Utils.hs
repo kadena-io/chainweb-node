@@ -300,7 +300,7 @@ instance KnownSymbol n => KnownChainIdSymbol ('ChainIdT n) where
     chainIdSymbolVal _ = symbolVal (Proxy @n)
 
 someChainIdVal :: ChainId -> SomeChainIdT
-someChainIdVal cid = case someSymbolVal (T.unpack (prettyChainId cid)) of
+someChainIdVal cid = case someSymbolVal (T.unpack (toText cid)) of
     (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
 
 -- -------------------------------------------------------------------------- --

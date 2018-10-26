@@ -29,7 +29,6 @@ import qualified Streaming.Prelude as SP
 
 -- internal modules
 import Chainweb.ChainDB
-import Chainweb.ChainDB.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Utils

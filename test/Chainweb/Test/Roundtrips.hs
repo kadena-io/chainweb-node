@@ -28,51 +28,34 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.HostAddress
 import Chainweb.NodeId
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node.Configuration
+
 import Chainweb.Test.Orphans.Internal ()
 
 -- -------------------------------------------------------------------------- --
--- Encode-Decode Roundrip Tests
---
--- * [x] encodeB64Text
--- * [x] encodeB64UrlText
--- * [x] encodeBlockHash
--- * [x] encodeBlockHashBytes
--- * [x] encodeBlockHashNat
--- * [x] encodeBlockHashRecord
--- * [x] encodeBlockHeader
--- * [x] encodeBlockHeight
--- * [x] encodeBlockPayloadHash
--- * [x] encodeBlockWeight
--- * [x] encodeChainId
--- * [x] encodeChainwebVersion
--- * [x] encodeHashDifficulty
--- * [x] encodeHashTarget
--- * [x] encodeNodeId
--- * [x] encodeNonce
--- * [x] encodeTime
--- * [x] encodeTimeSpan
--- * [ ] encodeKey
--- * [ ] encodeEntry
+-- Roundrip Tests
 
 tests :: TestTree
 tests = testGroup "roundtrip tests"
-    [ testGroup "tread . sshow"
-        $ showReadTests (prop_iso' tread sshow)
-    , testGroup "read . sshow"
-        $ showReadTests (prop_iso' (Right @() . read) sshow)
-    , testProperty "decodeB64Text . encodeB64Text"
-        $ prop_iso' decodeB64Text encodeB64Text
-    , testProperty "decodeB64UrlText . encodeB64UrlText"
-        $ prop_iso' decodeB64UrlText encodeB64UrlText
-    , testProperty "pretty ChainId"
-        $ prop_iso' readPrettyChainId prettyChainId
-    , testProperty "ChainwebVersion"
+    [ encodeDecodeTests
+    , showReadTests
+    , base64RoundtripTests
+    , hasTextRepresentationTests
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Binary Encoding rountrips
+
+encodeDecodeTests :: TestTree
+encodeDecodeTests = testGroup "Encode-Decode roundtrips"
+    [ testProperty "ChainwebVersion"
         $ prop_encodeDecodeRoundtrip decodeChainwebVersion encodeChainwebVersion
     , testProperty "ChainId"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
@@ -111,10 +94,13 @@ tests = testGroup "roundtrip tests"
     --     $ prop_iso difficultyToTarget targetToDifficulty
     ]
 
-showReadTests
+-- -------------------------------------------------------------------------- --
+-- Show-Read
+
+showReadTestCases
     :: (forall a . Arbitrary a => Show a => Eq a => Read a => a -> Property)
     -> [TestTree]
-showReadTests f =
+showReadTestCases f =
     [ testProperty "Int" $ f @Int
     , testProperty "()" $ f @()
     , testProperty "Double" $ f @Double
@@ -125,5 +111,47 @@ showReadTests f =
     , testProperty "Text" $ f @T.Text
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
+    ]
+
+showReadTests :: TestTree
+showReadTests = testGroup "Show-Read roundtrips"
+    [ testGroup "tread . sshow"
+        $ showReadTestCases (prop_iso' tread sshow)
+    , testGroup "treadM . sshow"
+        $ showReadTestCases (prop_iso' treadM sshow)
+    , testGroup "read . sshow"
+        $ showReadTestCases (prop_iso' (Right @() . read) sshow)
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Base64
+
+base64RoundtripTests :: TestTree
+base64RoundtripTests = testGroup "Base64 encoding roundtrips"
+    [ testProperty "decodeB64Text . encodeB64Text"
+        $ prop_iso' decodeB64Text encodeB64Text
+    , testProperty "decodeB64UrlText . encodeB64UrlText"
+        $ prop_iso' decodeB64UrlText encodeB64UrlText
+    , testProperty "decodeB64UrlNoPaddingText . encodeB64UrlNoPaddingText"
+        $ prop_iso' decodeB64UrlText encodeB64UrlText
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- HasTextReprestation
+
+hasTextRepresentationTests :: TestTree
+hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
+    [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
+    , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
+    , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
+    , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
+    , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
+    , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText
+    , testProperty "Port" $ prop_iso' @_ @Port fromText toText
+    , testProperty "HostAddress" $ prop_iso' @_ @HostAddress fromText toText
+    , testProperty "T.Text" $ prop_iso' @_ @T.Text fromText toText
+    , testProperty "[Char]" $ prop_iso' @_ @[Char] fromText toText
+    , testProperty "PeerId" $ prop_iso' @_ @PeerId fromText toText
+    , testProperty "P2pNetworkId" $ prop_iso' @_ @P2pNetworkId fromText toText
     ]
 
