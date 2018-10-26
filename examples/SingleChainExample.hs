@@ -25,12 +25,12 @@ module Main
 ( main
 ) where
 
-import Configuration.Utils hiding (Error)
+import Configuration.Utils hiding (Error, (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.STM
@@ -53,6 +53,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as SP
 
+import System.FilePath
 import qualified System.Logger as L
 import System.LogLevel
 import qualified System.Random.MWC as MWC
@@ -298,7 +299,7 @@ withChainDb cid nid = bracket start stop
         }
     stop db = do
         l <- SP.toList_ $ SP.map dbEntry $ chainDbHeaders db Nothing Nothing Nothing
-        B8.writeFile ("headersgraph." <> nidPath <> ".tmp.gexf") $ blockHeaders2gexf l
+        B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
         closeChainDb db
 
     graph = toChainGraph (const cid) singleton
