@@ -48,7 +48,10 @@ module Chainweb.Difficulty
 , calculateTarget
 ) where
 
+import Control.Monad
+
 import Data.Aeson
+import Data.Aeson.Types (toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce
@@ -57,7 +60,6 @@ import Data.LargeWord
 
 import GHC.Generics
 import GHC.TypeNats
-
 
 -- internal imports
 
@@ -73,22 +75,10 @@ import Chainweb.Utils
 instance (Hashable a, Hashable b) => Hashable (LargeKey a b) where
     hashWithSalt s (LargeKey a b) = hashWithSalt s (a,b)
 
-instance ToJSON Word128 where
-    toJSON = toJSON . (fromIntegral :: Word128 -> Integer)
-
-instance ToJSON Word256 where
-    toJSON = toJSON . (fromIntegral :: Word256 -> Integer)
-
-instance FromJSON Word128 where
-    parseJSON = fmap (fromIntegral :: Integer -> Word128) . parseJSON
-
-instance FromJSON Word256 where
-    parseJSON = fmap (fromIntegral :: Integer -> Word256) . parseJSON
-
 -- -------------------------------------------------------------------------- --
 -- BlockHashNat
 
--- | A type that maps block hashes to unsigned 64 bit integers by
+-- | A type that maps block hashes to unsigned 256 bit integers by
 -- projecting onto the first 8 bytes (least significant in little
 -- endian encoding) and interpreting them as little endian encoded
 -- unsigned integer value.
@@ -124,15 +114,23 @@ decodeBlockHashNat = BlockHashNat <$> decodeWordLe
 {-# INLINE decodeBlockHashNat #-}
 
 instance ToJSON BlockHashNat where
-    toJSON (BlockHashNat n) = toJSON n
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHashNat
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHashNat where
-    parseJSON = fmap BlockHashNat . parseJSON
+    parseJSON = withText "BlockHashNat" $ either (fail . show) return
+        . (runGet decodeBlockHashNat <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
-instance ToJSONKey BlockHashNat
-instance FromJSONKey BlockHashNat
+instance ToJSONKey BlockHashNat where
+    toJSONKey = toJSONKeyText
+        $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHashNat
+    {-# INLINE toJSONKey #-}
+
+instance FromJSONKey BlockHashNat where
+    fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
+        . (runGet decodeBlockHashNat <=< decodeB64UrlNoPaddingText)
+    {-# INLINE fromJSONKey #-}
 
 -- -------------------------------------------------------------------------- --
 -- HashDifficulty

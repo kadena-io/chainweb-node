@@ -55,6 +55,7 @@ module Chainweb.BlockHash
 
 -- * Block Hash Record
 , BlockHashRecord(..)
+, getBlockHashRecord
 , encodeBlockHashRecord
 , decodeBlockHashRecord
 , decodeBlockHashRecordChecked
@@ -231,17 +232,18 @@ instance ToJSON BlockHash where
     {-# INLINE toJSON #-}
 
 instance FromJSON BlockHash where
-    parseJSON = withText "BlockHash" $ \t ->
-        either (fail . show) return
-            $ runGet decodeBlockHash =<< decodeB64UrlNoPaddingText t
+    parseJSON = withText "BlockHash" $ either (fail . show) return
+        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey BlockHash where
-    toJSONKey = toJSONKeyText $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toJSONKey = toJSONKeyText
+        $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey BlockHash where
-    fromJSONKey = FromJSONKeyValue parseJSON
+    fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
+        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
 randomBlockHash :: MonadIO m => HasChainId p => p -> m BlockHash
@@ -270,10 +272,8 @@ instance HasTextRepresentation BlockHash where
 -- -------------------------------------------------------------------------- --
 -- BlockHashRecord
 
-newtype BlockHashRecord :: Type where
-    BlockHashRecord
-        :: { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
-        -> BlockHashRecord
+newtype BlockHashRecord = BlockHashRecord
+    { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
     deriving (Show, Eq, Hashable, Generic, ToJSON, FromJSON)
 
 makeLenses ''BlockHashRecord

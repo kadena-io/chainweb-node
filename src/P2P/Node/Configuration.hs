@@ -57,6 +57,7 @@ module P2P.Node.Configuration
 
 import Configuration.Utils
 
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
@@ -74,6 +75,7 @@ import GHC.Generics (Generic)
 import Numeric.Natural
 
 import Test.QuickCheck
+
 import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 -- Internal imports
@@ -89,7 +91,7 @@ import Chainweb.Version
 
 newtype PeerId = PeerId V4.UUID
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Arbitrary)
 
 createPeerId :: IO PeerId
@@ -130,7 +132,8 @@ data PeerInfo = PeerInfo
     { _peerId :: !PeerId
     , _peerAddr :: !HostAddress
     }
-    deriving (Show, Eq, Ord, Generic, Hashable)
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
 
 makeLenses ''PeerInfo
 
@@ -166,6 +169,7 @@ data P2pNetworkId
     = ChainNetwork ChainId
     | CutNetwork
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
 
 p2pNetworkIdToText :: P2pNetworkId -> T.Text
 p2pNetworkIdToText CutNetwork = "cut"
@@ -228,9 +232,15 @@ data P2pConfiguration = P2pConfiguration
     , _p2pConfigKnownPeers :: ![PeerInfo]
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
     }
-    deriving (Generic)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (Hashable, NFData)
 
 makeLenses ''P2pConfiguration
+
+instance Arbitrary P2pConfiguration where
+    arbitrary = P2pConfiguration
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 defaultP2pConfiguration Test = P2pConfiguration
@@ -272,6 +282,17 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
+
+instance FromJSON P2pConfiguration where
+    parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
+        <$> o .: "peerId"
+        <*> o .: "hostAddress"
+        <*> o .: "networkId"
+        <*> o .: "maxSessionCount"
+        <*> o .: "maxPeerCount"
+        <*> o .: "sessionTimeout"
+        <*> o .: "peers"
+        <*> o .: "peerDbFilePath"
 
 pP2pConfiguration :: Maybe P2pNetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id

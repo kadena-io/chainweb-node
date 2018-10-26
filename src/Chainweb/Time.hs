@@ -65,6 +65,7 @@ module Chainweb.Time
 , secondsFromText
 ) where
 
+import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON, FromJSON)
@@ -74,11 +75,12 @@ import Data.Bytes.Signed
 import Data.Hashable (Hashable)
 import Data.Int
 import Data.Kind
-import Data.Time.Clock.POSIX
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX
 
 import GHC.Generics
 
+import Test.QuickCheck (Arbitrary(..), Gen)
 
 -- internal imports
 
@@ -95,7 +97,7 @@ import Numeric.Cast
 newtype TimeSpan :: Type -> Type where
     TimeSpan :: a -> TimeSpan a
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
@@ -142,7 +144,7 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 --
 newtype Time a = Time (TimeSpan a)
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
@@ -226,7 +228,7 @@ day = TimeSpan $ mega * 24 * 3600
 
 newtype Seconds = Seconds Integer
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Enum, FromJSON, ToJSON)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
@@ -246,4 +248,16 @@ instance HasTextRepresentation Seconds where
     {-# INLINE toText #-}
     fromText = secondsFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Arbitrary Instances
+
+instance Arbitrary a => Arbitrary (Time a) where
+    arbitrary = Time <$> arbitrary
+
+instance Arbitrary a => Arbitrary (TimeSpan a) where
+    arbitrary = TimeSpan <$> arbitrary
+
+instance Arbitrary Seconds where
+    arbitrary = int <$> (arbitrary :: Gen Integer)
 

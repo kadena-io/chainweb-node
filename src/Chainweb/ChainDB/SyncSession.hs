@@ -1,9 +1,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.ChainDB.SyncSession
@@ -48,6 +49,8 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.LogMessage
 
 import P2P.Session
 
@@ -118,7 +121,7 @@ putHeader (ChainClientEnv v cid env) = void . flip runClientThrowM env
 -- we find a known block header
 --
 fullSync :: ChainDb -> LogFunction -> ChainClientEnv -> IO ()
-fullSync db logg env = do
+fullSync db logFun env = do
 
     logg Debug "request branches"
     sn <- snapshot db
@@ -154,6 +157,9 @@ fullSync db logg env = do
             (lift $ snapshot db)
             (lift . syncSnapshot)
         & SP.fold_ (maxBy (compare `on` rank)) curMax id
+
+    logg :: LogFunctionText
+    logg = logFun
 
 -- | TODO provide a more efficient implementation
 --
@@ -200,7 +206,7 @@ syncSession db logg env = go
 
     receiveBlockHeaders = do
         fullSync db logg cenv
-        logg Debug "finished full sync"
+        logg @T.Text Debug "finished full sync"
 
 drainUpdates :: Updates -> STM ()
 drainUpdates u = go

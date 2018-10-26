@@ -24,6 +24,7 @@ module P2P.Node.PeerDB
 , peerDbSnapshot
 , peerDbSnapshotSTM
 , peerDbSize
+, peerDbSizeSTM
 , peerDbInsert
 , peerDbInsertList
 , peerDbInsertMap
@@ -93,6 +94,11 @@ peerDbSnapshotSTM (PeerDb _ var) = readTVar var
 
 peerDbSize :: PeerDb -> IO Natural
 peerDbSize (PeerDb _ var) = int . M.size <$> readTVarIO var
+{-# INLINE peerDbSize #-}
+
+peerDbSizeSTM :: PeerDb -> STM Natural
+peerDbSizeSTM (PeerDb _ var) = int . M.size <$> readTVar var
+{-# INLINE peerDbSizeSTM #-}
 
 -- | If there is a conflict newly added entries get precedence.
 --

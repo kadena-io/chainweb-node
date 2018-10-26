@@ -14,6 +14,10 @@ module Chainweb.Test.Roundtrips
 ( tests
 ) where
 
+import Data.Aeson
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as HM
+import Data.Int
 import qualified Data.Text as T
 
 import Test.QuickCheck
@@ -35,6 +39,7 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node
 import P2P.Node.Configuration
 
 import Chainweb.Test.Orphans.Internal ()
@@ -48,6 +53,8 @@ tests = testGroup "roundtrip tests"
     , showReadTests
     , base64RoundtripTests
     , hasTextRepresentationTests
+    , jsonRoundtripTests
+    , jsonKeyRoundtripTests
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -92,6 +99,72 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     -- The following doesn't hold:
     -- , testProperty "target difficulty"
     --     $ prop_iso difficultyToTarget targetToDifficulty
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- JSON
+
+jsonTestCases
+    :: (forall a . Arbitrary a => Show a => ToJSON a => FromJSON a => Eq a => a -> Property)
+    -> [TestTree]
+jsonTestCases f =
+    [ testProperty "Time Int64" $ f @(Time Int64)
+    , testProperty "TimeSpan Int64" $ f @(TimeSpan Int64)
+    , testProperty "Seconds" $ f @Seconds
+    , testProperty "ChainId" $ f @ChainId
+    , testProperty "NodeId" $ f @NodeId
+    , testProperty "ChainwebVersion" $ f @ChainwebVersion
+    , testProperty "Nonce" $ f @Nonce
+    , testProperty "HashDifficulty" $ f @HashDifficulty
+    , testProperty "HashTarget" $ f @HashTarget
+    , testProperty "BlockHashBytes" $ f @BlockHashBytes
+    , testProperty "BlockHashNat" $ f @BlockHashNat
+    , testProperty "BlockHash" $ f @BlockHash
+    , testProperty "BlockHashRecord" $ f @BlockHashRecord
+    , testProperty "BlockHeader" $ f @BlockHeader
+    , testProperty "BlockWeight" $ f @BlockWeight
+    , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
+    , testProperty "P2pNodeStats" $ f @P2pNodeStats
+    , testProperty "P2pSessionResult" $ f @P2pSessionResult
+    , testProperty "P2pSessionInfo" $ f @P2pSessionInfo
+    , testProperty "P2pConfiguration" $ f @P2pConfiguration
+    , testProperty "Hostname" $ f @Hostname
+    , testProperty "Port" $ f @Port
+    , testProperty "HostAddress" $ f @HostAddress
+    , testProperty "PeerId" $ f @PeerId
+    , testProperty "PeerInfo" $ f @PeerInfo
+    , testProperty "P2pNetworkId" $ f @P2pNetworkId
+    ]
+
+
+jsonRoundtripTests :: TestTree
+jsonRoundtripTests = testGroup "JSON roundtrips"
+    [ testGroup "decodeOrThrow . encode"
+        $ jsonTestCases (prop_iso' decodeOrThrow encode)
+    , testGroup "decodeOrThrow' . encode"
+        $ jsonTestCases (prop_iso' decodeOrThrow' encode)
+    , testGroup "decodeStrictOrThrow . encode"
+        $ jsonTestCases (prop_iso' decodeStrictOrThrow (BL.toStrict . encode))
+    , testGroup "decodeStrictOrThrow' . encode"
+        $ jsonTestCases (prop_iso' decodeStrictOrThrow' (BL.toStrict . encode))
+    ]
+
+jsonKeyTestCases
+    :: (forall a . Arbitrary a => Show a => ToJSON a => FromJSON a => Eq a => a -> Property)
+    -> [TestTree]
+jsonKeyTestCases f =
+    [ testProperty "HashMap ChainId ()" $ f @(HM.HashMap ChainId ())
+    , testProperty "HashMap PeerId ()" $ f @(HM.HashMap BlockHash ())
+    , testProperty "HashMap BlockHash ()" $ f @(HM.HashMap BlockHash ())
+    , testProperty "HashMap BlockWeight ()" $ f @(HM.HashMap BlockHash ())
+    , testProperty "HashMap BlockHashNat ()" $ f @(HM.HashMap BlockHash ())
+    , testProperty "HashMap HashDifficulty ()" $ f @(HM.HashMap BlockHash ())
+    ]
+
+jsonKeyRoundtripTests :: TestTree
+jsonKeyRoundtripTests = testGroup "JSON Key roundtrips"
+    [ testGroup "decodeOrThrow . encode"
+        $ jsonKeyTestCases (prop_iso' decodeOrThrow encode)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -142,6 +215,7 @@ base64RoundtripTests = testGroup "Base64 encoding roundtrips"
 hasTextRepresentationTests :: TestTree
 hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
+    , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText

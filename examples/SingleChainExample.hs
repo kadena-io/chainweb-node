@@ -1,10 +1,16 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Main
@@ -19,15 +25,17 @@ module Main
 ( main
 ) where
 
-import Configuration.Utils hiding (Error)
+import Configuration.Utils hiding (Error, (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Lens hiding ((.=))
+import Control.DeepSeq
+import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.STM
 
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
@@ -43,8 +51,11 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import System.Logger hiding (logg)
-import qualified System.LogLevel as L
+import qualified Streaming.Prelude as SP
+
+import System.FilePath
+import qualified System.Logger as L
+import System.LogLevel
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
 
@@ -53,6 +64,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainDB
+import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -63,11 +75,15 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Data.DiGraph
+import Data.LogMessage
 
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
+
+import Utils.Gexf
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
@@ -80,7 +96,8 @@ data P2pExampleConfig = P2pExampleConfig
     , _meanSessionSeconds :: !Natural
     , _meanBlockTimeSeconds :: !Natural
     , _exampleChainId :: !ChainId
-    , _logConfig :: !LogConfig
+    , _logConfig :: !L.LogConfig
+    , _sessionsLoggerConfig :: !(EnableConfig JsonLoggerConfig)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -95,7 +112,9 @@ defaultP2pExampleConfig = P2pExampleConfig
     , _meanSessionSeconds = 20
     , _meanBlockTimeSeconds = 10
     , _exampleChainId = testChainId 0
-    , _logConfig = defaultLogConfig
+    , _logConfig = L.defaultLogConfig
+        & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
+    , _sessionsLoggerConfig = EnableConfig True defaultJsonLoggerConfig
     }
 
 instance ToJSON P2pExampleConfig where
@@ -108,6 +127,7 @@ instance ToJSON P2pExampleConfig where
         , "meanBlockTimeSeconds" .= _meanBlockTimeSeconds o
         , "exampleChainId" .= _exampleChainId o
         , "logConfig" .= _logConfig o
+        , "sessionsLoggerConfig" .= _sessionsLoggerConfig o
         ]
 
 instance FromJSON (P2pExampleConfig -> P2pExampleConfig) where
@@ -120,6 +140,7 @@ instance FromJSON (P2pExampleConfig -> P2pExampleConfig) where
         <*< meanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
         <*< exampleChainId ..: "exampleChainId" % o
         <*< logConfig %.: "logConfig" % o
+        <*< sessionsLoggerConfig %.: "sessionsLoggerConfig" % o
 
 pP2pExampleConfig :: MParser P2pExampleConfig
 pP2pExampleConfig = id
@@ -151,7 +172,9 @@ pP2pExampleConfig = id
         % long "chainid"
         <> short 'c'
         <> help "the chain id that is used in the example"
-    <*< logConfig %:: pLogConfig
+    <*< logConfig %:: L.pLogConfig
+    <*< sessionsLoggerConfig %::
+        pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
 
 -- -------------------------------------------------------------------------- --
 -- Main
@@ -160,20 +183,22 @@ mainInfo :: ProgramInfo P2pExampleConfig
 mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
 
 main :: IO ()
-main = runWithConfiguration mainInfo
-    $ \config -> withHandleBackend (_logConfigBackend $ _logConfig config)
-    $ \backend -> withLogger (_logConfigLogger $ _logConfig config) backend
-    $ example config
+main = runWithConfiguration mainInfo $ \config ->
+    withExampleLogger
+        (_logConfig config)
+        (_sessionsLoggerConfig config)
+        (example config)
 
 -- -------------------------------------------------------------------------- --
 -- Example
 
 
-example :: P2pExampleConfig -> Logger T.Text -> IO ()
-example conf logger = do
-    withAsync (node cid t logger conf bootstrapConfig bootstrapNodeId bootstrapPort) $ \bootstrap -> do
-        mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
-        wait bootstrap
+example :: P2pExampleConfig -> Logger -> IO ()
+example conf logger =
+    withAsync (node cid t logger conf bootstrapConfig bootstrapNodeId bootstrapPort)
+        $ \bootstrap -> do
+            mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
+            wait bootstrap
 
   where
     cid = _exampleChainId conf
@@ -214,22 +239,25 @@ timer t = do
     threadDelay timeout
 
 chainDbSyncSession :: Natural -> ChainDb -> P2pSession
-chainDbSyncSession t db logg env =
+chainDbSyncSession t db logFun env =
     withAsync (timer t) $ \timerAsync ->
-    withAsync (syncSession db logg env) $ \sessionAsync ->
+    withAsync (syncSession db logFun env) $ \sessionAsync ->
         waitEitherCatchCancel timerAsync sessionAsync >>= \case
             Left (Left e) -> do
-                logg L.Info $ "session timer failed " <> sshow e
+                logg Info $ "session timer failed " <> sshow e
                 return False
             Left (Right ()) -> do
-                logg L.Info "session killed by timer"
+                logg Info "session killed by timer"
                 return False
             Right (Left e) -> do
-                logg L.Warn $ "Session failed: " <> sshow e
+                logg Warn $ "Session failed: " <> sshow e
                 return False
             Right (Right a) -> do
-                logg L.Warn "Session succeeded"
+                logg Warn "Session succeeded"
                 return a
+  where
+    logg :: LogFunctionText
+    logg = logFun
 
 -- -------------------------------------------------------------------------- --
 -- Test Node
@@ -237,58 +265,75 @@ chainDbSyncSession t db logg env =
 node
     :: ChainId
     -> Natural
-    -> Logger T.Text
+    -> Logger
     -> P2pExampleConfig
     -> P2pConfiguration
     -> NodeId
     -> Port
     -> IO ()
 node cid t logger conf p2pConfig nid port =
-    withLoggerLabel ("node", toText nid) logger $ \logger' -> do
+    L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
-        let logfun l = loggerFunIO logger' (l2l l)
-        logfun L.Info "start test node"
+        let logfun = loggerFunText logger'
+        logfun Info "start test node"
 
-        withChainDb cid
+        withChainDb cid nid
             $ \cdb -> withPeerDb p2pConfig
-            $ \pdb -> withAsync (serveChainwebOnPort port Test [(cid, cdb)] [(cid, pdb)])
+            $ \pdb -> withAsync (serveChainwebOnPort port Test
+                [(cid, cdb)] -- :: [(ChainId, ChainDb)]
+                [(cid, pdb)] -- :: [(ChainId, PeerDb)]
+                )
             $ \server -> do
-                logfun L.Info "started server"
+                logfun Info "started server"
                 runConcurrently
                     $ Concurrently (miner logger' conf nid cdb)
                     <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
                     <> Concurrently (monitor logger' cdb)
                 wait server
 
-withChainDb :: ChainId -> (ChainDb -> IO b) -> IO b
-withChainDb cid = bracket start closeChainDb
+withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b
+withChainDb cid nid = bracket start stop
   where
     start = initChainDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
         }
+    stop db = do
+        l <- SP.toList_ $ SP.map dbEntry $ chainDbHeaders db Nothing Nothing Nothing
+        B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
+        closeChainDb db
 
     graph = toChainGraph (const cid) singleton
+
+    nidPath = T.unpack . T.replace "/" "." $ toText nid
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
 
 -- | Synchronized the local block database copy over the P2P network.
 --
-syncer :: ChainId -> Logger T.Text -> P2pConfiguration -> ChainDb -> PeerDb -> Port -> Natural -> IO ()
-syncer cid logger conf cdb pdb port t = withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
-    let syncLogg = loggerFunIO syncLogger . l2l
+syncer
+    :: ChainId
+    -> Logger
+    -> P2pConfiguration
+    -> ChainDb
+    -> PeerDb
+    -> Port
+    -> Natural
+    -> IO ()
+syncer cid logger conf cdb pdb port t =
+    L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
+        let syncLogg = loggerFunText syncLogger
 
-    -- Create P2P client node
-    mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    n <- withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
-        let sessionLogFun l = loggerFunIO sessionLogger (l2l l)
-        p2pCreateNode Test cid conf sessionLogFun pdb ha mgr (chainDbSyncSession t cdb)
+        -- Create P2P client node
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
+            p2pCreateNode Test cid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
 
-    -- Run P2P client node
-    syncLogg L.Info "initialized syncer"
-    p2pStartNode conf n `finally` do
-        p2pStopNode n
-        syncLogg L.Info "stopped syncer"
+        -- Run P2P client node
+        syncLogg Info "initialized syncer"
+        p2pStartNode conf n `finally` do
+            p2pStopNode n
+            syncLogg Info "stopped syncer"
 
   where
     ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
@@ -304,9 +349,9 @@ syncer cid logger conf cdb pdb port t = withLoggerLabel ("component", "syncer") 
 -- each nonce if accepted. Block creation is delayed through through
 -- 'threadDelay' with an geometric distribution.
 --
-miner :: Logger T.Text -> P2pExampleConfig -> NodeId -> ChainDb -> IO ()
-miner logger conf nid db = withLoggerLabel ("component", "miner") logger $ \logger' -> do
-    let logg = loggerFunIO logger'
+miner :: Logger -> P2pExampleConfig -> NodeId -> ChainDb -> IO ()
+miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \logger' -> do
+    let logg = loggerFunText logger'
     logg Info "Started Miner"
     gen <- MWC.createSystemRandom
     go logg gen (1 :: Int)
@@ -357,6 +402,7 @@ data Stats = Stats
     , _blockHeaderCount :: !Natural
     }
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (ToJSON, NFData)
 
 instance Semigroup Stats where
     a <> b = Stats
@@ -372,13 +418,13 @@ instance Monoid Stats where
 
 -- | Collects statistics about local block database copy
 --
-monitor :: Logger T.Text -> ChainDb -> IO ()
+monitor :: Logger -> ChainDb -> IO ()
 monitor logger db =
-    withLoggerLabel ("component", "monitor") logger $ \logger' -> do
-        let logg = loggerFunIO logger'
-        logg Info "Initialized Monitor"
+    L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
+        let logg = loggerFun logger'
+        logg Info $ TextLog "Initialized Monitor"
         us <- updates db
-        go logg us mempty
+        go (loggerFun logger') us mempty
   where
     go logg us stat = do
         void $ atomically $ updatesNext us
@@ -395,17 +441,6 @@ monitor logger db =
                 , _blockHeaderCount = 1
                 }
 
-        void $ logg Info $ sshow stat'
+        void $ logg Info $ JsonLog stat'
         go logg us stat'
-
--- -------------------------------------------------------------------------- --
--- Utils
-
-l2l :: L.LogLevel -> LogLevel
-l2l L.Quiet = Quiet
-l2l L.Error = Error
-l2l L.Warn = Warn
-l2l L.Info = Info
-l2l L.Debug = Debug
-l2l (L.Other _) = Debug
 

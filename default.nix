@@ -30,6 +30,7 @@
       # Use a specific hackage version (if nixpkgs knows about it)
       # foo = "0.11.3.1";
       configuration-tools = "0.4.0";
+      aeson = "1.4.0.0";
 
       # Use a particular commit from github
       refined = pkgs.fetchFromGitHub {

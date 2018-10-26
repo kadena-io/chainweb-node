@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -14,6 +15,7 @@ module P2P.Session
 (
 -- * Log Function
   LogFunction
+, LogFunctionText
 , defaultLogFunction
 
 -- * P2P Client Session
@@ -29,15 +31,17 @@ import Servant.Client
 
 import System.LogLevel
 
--- Internal imports
+-- Internal modules
+
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Log Function
 
-type LogFunction = LogLevel -> T.Text -> IO ()
-
 defaultLogFunction :: LogFunction
-defaultLogFunction l = when (l >= Warn) . T.putStrLn
+defaultLogFunction l = when (l >= Warn) . T.putStrLn . logText
+
+type LogFunctionText = LogLevel -> T.Text -> IO ()
 
 -- -------------------------------------------------------------------------- --
 -- P2P Client Session

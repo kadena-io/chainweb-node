@@ -22,6 +22,12 @@ extra-source-files:
     CHANGELOG.md
     README.md
 
+data-files:
+    examples/static-html/index.html
+    examples/static-html/jquery-3.3.1.min.js
+    examples/static-html/vis.min.js
+    examples/static-html/vis.min.css
+
 source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
@@ -69,6 +75,7 @@ library
         , Chainweb.Version
 
         , Data.DiGraph
+        , Data.LogMessage
         , Data.Word.Encoding
 
         , Numeric.Cast
@@ -88,7 +95,7 @@ library
 
     build-depends:
           QuickCheck >= 2.10
-        , aeson >= 1.2
+        , aeson >= 1.4
         , aeson-pretty >= 0.8
         , async >= 2.2
         , attoparsec >= 0.13
@@ -101,6 +108,7 @@ library
         , configuration-tools >= 0.4
         , containers >= 0.5
         , cryptohash-sha512 >= 0.11
+        , deepseq >= 1.4
         , exceptions >= 0.8
         , hashable >= 1.2
         , http-client >= 0.5
@@ -157,12 +165,14 @@ test-suite chainweb-tests
         Chainweb.Test.Roundtrips
         Chainweb.Test.RestAPI
         Chainweb.Test.Utils
+
     build-depends:
         -- internal
           chainweb
 
         -- external
         , QuickCheck >= 2.10
+        , aeson >= 1.4
         , async >= 2.2
         , base >= 4.10
         , bytes >= 0.15
@@ -260,10 +270,12 @@ executable p2p-example
         , async >= 2.2
         , base >= 4.10
         , configuration-tools >= 0.4
+        , deepseq >= 1.4
         , exceptions >= 0.8
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
+        , monad-control >= 1.0
         , mwc-random >= 0.13
         , stm >= 2.4
         , text >= 1.2
@@ -284,23 +296,41 @@ executable single-chain-example
         -Wredundant-constraints
     hs-source-dirs: examples
     main-is: SingleChainExample.hs
+    other-modules:
+        Paths_chainweb
+        Utils.Gexf
+        Utils.Logging
+
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
 
         -- external
+        , aeson >= 1.4
         , async >= 2.2
         , base >= 4.10
+        , bytestring >= 0.10
+        , clock >= 0.7
         , configuration-tools >= 0.4
+        , deepseq >= 1.4
         , exceptions >= 0.8
+        , filepath >= 1.4
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
+        , monad-control >= 1.0
         , mwc-random >= 0.13
         , stm >= 2.4
+        , streaming >= 0.2
         , text >= 1.2
         , unordered-containers >= 0.2
+        , wai-app-static >= 3.1
+        , wai-cors >= 0.2
+        , wai-extra >= 3.0
+        , warp >= 3.2
+        , xmlgen >= 0.6
         , yet-another-logger >= 0.3.1
+
     if flag(dev) { buildable: True } else { buildable: False }
 

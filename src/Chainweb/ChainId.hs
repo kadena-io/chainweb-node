@@ -32,11 +32,12 @@ module Chainweb.ChainId
 , testChainId
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch (Exception, MonadThrow)
 
-import Data.Aeson (ToJSON(..), FromJSON(..), ToJSONKey(..), FromJSONKey(..))
-import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
+import Data.Aeson
+import Data.Aeson.Types (toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
@@ -81,14 +82,14 @@ instance Exception ChainIdException
 newtype ChainId :: Type where
     ChainId :: Word32 -> ChainId
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, ToJSON, FromJSON)
+    deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
 
 instance ToJSONKey ChainId where
-    toJSONKey = toJSONKeyText sshow
+    toJSONKey = toJSONKeyText toText
     {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyValue parseJSON
+    fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
     {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
