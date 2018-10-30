@@ -77,6 +77,7 @@ library
 
         , Data.DiGraph
         , Data.LogMessage
+        , Data.Singletons
         , Data.Word.Encoding
 
         , Numeric.Cast
