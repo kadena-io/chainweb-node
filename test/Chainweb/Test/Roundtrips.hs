@@ -34,6 +34,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.NodeId
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
@@ -133,7 +134,7 @@ jsonTestCases f =
     , testProperty "HostAddress" $ f @HostAddress
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
-    , testProperty "P2pNetworkId" $ f @P2pNetworkId
+    , testProperty "P2pNetworkId" $ f @NetworkId
     ]
 
 
@@ -226,6 +227,6 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "T.Text" $ prop_iso' @_ @T.Text fromText toText
     , testProperty "[Char]" $ prop_iso' @_ @[Char] fromText toText
     , testProperty "PeerId" $ prop_iso' @_ @PeerId fromText toText
-    , testProperty "P2pNetworkId" $ prop_iso' @_ @P2pNetworkId fromText toText
+    , testProperty "P2pNetworkId" $ prop_iso' @_ @NetworkId fromText toText
     ]
 

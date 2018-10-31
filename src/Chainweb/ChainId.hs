@@ -1,9 +1,13 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -28,6 +32,18 @@ module Chainweb.ChainId
 , decodeChainId
 , decodeChainIdChecked
 
+-- * Typelevel ChainID
+, ChainIdT(..)
+, ChainIdSymbol
+, chainIdSymbolVal
+, SomeChainIdT(..)
+, KnownChainIdSymbol
+, someChainIdVal
+
+-- * Singletons
+, Sing(SChainId)
+, type SChainId
+
 -- * Testing
 , testChainId
 ) where
@@ -43,16 +59,20 @@ import Data.Bytes.Put
 import Data.Bytes.Signed
 import Data.Hashable (Hashable(..))
 import Data.Kind
+import Data.Proxy
 import qualified Data.Text as T
 import Data.Word (Word32)
 
 import GHC.Generics (Generic)
+import GHC.TypeLits
 
 import Test.QuickCheck (Arbitrary(..))
 
 -- internal imports
 
 import Chainweb.Utils
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -141,10 +161,7 @@ instance HasTextRepresentation ChainId where
     {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
--- $Serialization
---
--- ChainIds can be deserialized in two ways:
---
+-- Serialization
 
 encodeChainId :: MonadPut m => ChainId -> m ()
 encodeChainId (ChainId i32) = putWord32le $ unsigned i32
@@ -162,6 +179,46 @@ decodeChainIdChecked
     -> m ChainId
 decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 {-# INLINE decodeChainIdChecked #-}
+
+-- -------------------------------------------------------------------------- --
+-- Type Level ChainId
+
+-- it's easier to use Symbol here. If we wanted to use Nat we'd need a
+-- typelevel function Nat -> Symbol
+--
+newtype ChainIdT = ChainIdT Symbol
+
+data SomeChainIdT = forall (a :: ChainIdT)
+    . KnownChainIdSymbol a => SomeChainIdT (Proxy a)
+
+class KnownSymbol (ChainIdSymbol n) => KnownChainIdSymbol (n :: ChainIdT) where
+    type ChainIdSymbol n :: Symbol
+    chainIdSymbolVal :: Proxy n -> T.Text
+
+instance KnownSymbol n => KnownChainIdSymbol ('ChainIdT n) where
+    type ChainIdSymbol ('ChainIdT n) = n
+    chainIdSymbolVal _ = T.pack $ symbolVal (Proxy @n)
+
+someChainIdVal :: ChainId -> SomeChainIdT
+someChainIdVal cid = case someSymbolVal (T.unpack (toText cid)) of
+    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
+
+-- -------------------------------------------------------------------------- --
+-- Singletons
+
+data instance Sing (n :: ChainIdT) where
+    SChainId :: KnownChainIdSymbol n => Sing n
+
+type SChainId (n :: ChainIdT) = Sing n
+
+instance KnownChainIdSymbol n => SingI (n :: ChainIdT) where
+    sing = SChainId
+
+instance SingKind ChainIdT where
+    type Demote ChainIdT = ChainId
+    fromSing (SChainId :: Sing n) = unsafeFromText $ chainIdSymbolVal (Proxy @n)
+    toSing n = case someChainIdVal n of
+        SomeChainIdT p -> SomeSing (singByProxy p)
 
 -- -------------------------------------------------------------------------- --
 -- Testing

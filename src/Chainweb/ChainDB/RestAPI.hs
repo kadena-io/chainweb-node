@@ -74,10 +74,11 @@ import Servant.API
 
 -- internal modules
 import Chainweb.ChainDB
-import Chainweb.RestAPI.Orphans ()
 import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+
+import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed ChainDb
@@ -119,7 +120,7 @@ type BranchesApi_
     :> Get '[JSON] (Page (Key 'Unchecked) (Key 'Unchecked))
 
 type BranchesApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = Reassoc (ChainEndpoint v c BranchesApi_)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchesApi_
 
 branchesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -136,7 +137,7 @@ type HashesApi_
     :> Get '[JSON] (Page (Key 'Unchecked) (Key 'Unchecked))
 
 type HashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = Reassoc (ChainEndpoint v c HashesApi_)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HashesApi_
 
 hashesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -153,7 +154,7 @@ type HeadersApi_
     :> Get '[JSON] (Page (Key 'Unchecked) (Entry 'Unchecked))
 
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = Reassoc (ChainEndpoint v c HeadersApi_)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
 
 headersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -169,7 +170,7 @@ type HeaderApi_
     :> Get '[JSON] (Entry 'Unchecked)
 
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = Reassoc (ChainEndpoint v c HeaderApi_)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
 
 headerApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -185,7 +186,7 @@ type HeaderPutApi_
     :> PutNoContent '[JSON] NoContent
 
 type HeaderPutApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = Reassoc (ChainEndpoint v c HeaderPutApi_)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderPutApi_
 
 headerPutApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

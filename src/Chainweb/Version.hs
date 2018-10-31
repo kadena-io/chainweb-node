@@ -1,9 +1,16 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -18,6 +25,19 @@ module Chainweb.Version
 ( ChainwebVersion(..)
 , encodeChainwebVersion
 , decodeChainwebVersion
+
+-- * Typelevel ChainwebVersion
+, ChainwebVersionT(..)
+, ChainwebVersionSymbol
+, chainwebVersionSymbolVal
+, SomeChainwebVersionT(..)
+, KnownChainwebVersionSymbol
+, someChainwebVersionVal
+
+-- * Singletons
+, Sing(SChainwebVersion)
+, type SChainwebVersion
+
 ) where
 
 import Control.Monad.Catch
@@ -26,13 +46,17 @@ import Data.Aeson
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable (Hashable)
+import Data.Proxy
 import qualified Data.Text as T
 
 import GHC.Generics
+import GHC.TypeLits
 
 -- internal modules
 
 import Chainweb.Utils
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Version
@@ -93,4 +117,44 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE toText #-}
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Type level ChainwebVersion
+
+newtype ChainwebVersionT = ChainwebVersionT Symbol
+
+data SomeChainwebVersionT = forall (a :: ChainwebVersionT)
+        . KnownChainwebVersionSymbol a => SomeChainwebVersionT (Proxy a)
+
+class KnownSymbol (ChainwebVersionSymbol n) => KnownChainwebVersionSymbol (n :: ChainwebVersionT) where
+    type ChainwebVersionSymbol n :: Symbol
+    chainwebVersionSymbolVal :: Proxy n -> T.Text
+
+instance (KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n) where
+    type ChainwebVersionSymbol ('ChainwebVersionT n) = n
+    chainwebVersionSymbolVal _ = T.pack $ symbolVal (Proxy @n)
+
+someChainwebVersionVal :: ChainwebVersion -> SomeChainwebVersionT
+someChainwebVersionVal v = case someSymbolVal (sshow v) of
+    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainwebVersionT (Proxy @('ChainwebVersionT v))
+
+-- -------------------------------------------------------------------------- --
+-- Singletons
+
+data instance Sing (v :: ChainwebVersionT) where
+    SChainwebVersion :: KnownChainwebVersionSymbol v => Sing v
+
+type SChainwebVersion (v :: ChainwebVersionT) = Sing v
+
+instance KnownChainwebVersionSymbol v => SingI (v :: ChainwebVersionT) where
+    sing = SChainwebVersion
+
+instance SingKind ChainwebVersionT where
+    type Demote ChainwebVersionT = ChainwebVersion
+
+    fromSing (SChainwebVersion :: Sing v) = unsafeFromText
+        . chainwebVersionSymbolVal $ Proxy @v
+
+    toSing n = case someChainwebVersionVal n of
+        SomeChainwebVersionT p -> SomeSing (singByProxy p)
 
