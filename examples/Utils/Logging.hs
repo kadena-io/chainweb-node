@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -79,9 +78,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 
 import qualified Data.ByteString.Lazy.Char8 as BL8
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import qualified Data.Text as T
 
 import GHC.Generics

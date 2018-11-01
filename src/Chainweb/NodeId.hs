@@ -8,7 +8,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeInType #-}
-{-# LANGUAGE CPP #-}
 
 -- |
 -- Module: Chainweb.NodeId
@@ -38,9 +37,6 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
 import Data.Kind
-#if !MIN_VERSION_base(4,11,0)
-import Data.Monoid
-#endif
 import qualified Data.Text as T
 import Data.Word
 

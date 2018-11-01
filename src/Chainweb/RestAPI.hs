@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -50,9 +49,6 @@ import Control.Lens
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -63,9 +62,6 @@ import Control.Monad.Catch
 
 import Data.Hashable
 import Data.Maybe
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup hiding (option)
-#endif
 import qualified Data.Text as T
 import qualified Data.UUID as V4
 import qualified Data.UUID.V4 as V4

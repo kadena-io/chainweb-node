@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -133,9 +132,6 @@ import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import Data.Maybe (mapMaybe)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Monoid
-#endif
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -40,9 +39,6 @@ import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
 import Data.Maybe
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup hiding (option)
-#endif
 import qualified Data.Text as T
 
 import GHC.Generics

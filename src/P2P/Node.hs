@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -67,9 +66,6 @@ import Data.Foldable
 import Data.Hashable
 import Data.Int
 import qualified Data.Map.Strict as M
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import qualified Data.Text as T
 
 import GHC.Generics
