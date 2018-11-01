@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,9 +50,6 @@ import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import Data.Proxy
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 
 import GHC.Generics
 

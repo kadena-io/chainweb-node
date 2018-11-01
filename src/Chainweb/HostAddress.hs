@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -105,9 +104,6 @@ import qualified Data.CaseInsensitive as CI
 import Data.Hashable
 import qualified Data.List as L
 import Data.Maybe
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Word (Word8, Word16)

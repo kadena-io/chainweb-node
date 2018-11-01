@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -119,9 +118,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup hiding (option)
-#endif
 import Data.Serialize.Get (Get)
 import Data.String (IsString(..))
 import qualified Data.Text as T

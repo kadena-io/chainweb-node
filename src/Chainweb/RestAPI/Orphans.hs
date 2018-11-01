@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -30,9 +29,6 @@ import Control.Monad
 import Data.Aeson
 import Data.Bifunctor
 import Data.Proxy
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T

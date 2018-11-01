@@ -80,9 +80,6 @@ import Data.Functor.Of
 import Data.Kind
 import Data.Maybe
 import Data.Proxy
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import qualified Data.Swagger as Swagger
 import Data.Swagger hiding (properties)
 import qualified Data.Text as T

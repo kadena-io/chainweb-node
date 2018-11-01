@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -24,9 +23,6 @@ import Data.Either
 import Data.Foldable
 import Data.Maybe
 import Data.Reflection (give)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup
-#endif
 import qualified Data.Text as T
 
 import Network.HTTP.Types.Status

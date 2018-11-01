@@ -1,4 +1,4 @@
-cabal-version: 2.0
+cabal-version: 2.2
 
 name:         chainweb
 version:      0.1.0.0
@@ -6,7 +6,7 @@ synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
 bug-reports:  https://github.com/kadena-io/chainweb/issues
-license:      AllRightsReserved
+license:      NONE
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   lars@kadena.io
@@ -15,8 +15,9 @@ category:     Blockchain, Currency, Bitcoin
 build-type:   Simple
 
 tested-with:
-    GHC == 8.4.3
-    GHC == 8.2.2
+    GHC == 8.6.1
+     GHC == 8.4.4
+     GHC == 8.4.3
 
 extra-source-files:
     CHANGELOG.md
@@ -99,7 +100,7 @@ library
         , aeson-pretty >= 0.8
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.10
+        , base >= 4.11
         , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
@@ -174,7 +175,7 @@ test-suite chainweb-tests
         , QuickCheck >= 2.10
         , aeson >= 1.4
         , async >= 2.2
-        , base >= 4.10
+        , base >= 4.11
         , bytes >= 0.15
         , bytestring >= 0.10
         , http-client >= 0.5
@@ -215,8 +216,11 @@ executable chainweb-node
     main-is: ChainwebNode.hs
     ghc-options: -threaded
     build-depends:
-          base
-        , chainweb
+        -- internal
+          chainweb
+
+        -- external
+        , base >= 4.11
 
 -- -------------------------------------------------------------------------- --
 -- Examples for ChainDB usage
@@ -238,7 +242,7 @@ executable chaindb-example
 
         -- external
         , async >= 2.2
-        , base >= 4.10
+        , base >= 4.11
         , base64-bytestring >= 1.0
         , lens >= 4.16
         , random >= 1.1
@@ -268,7 +272,7 @@ executable p2p-example
 
         -- external
         , async >= 2.2
-        , base >= 4.10
+        , base >= 4.11
         , configuration-tools >= 0.4
         , deepseq >= 1.4
         , exceptions >= 0.8
@@ -309,7 +313,7 @@ executable single-chain-example
         -- external
         , aeson >= 1.4
         , async >= 2.2
-        , base >= 4.10
+        , base >= 4.11
         , bytestring >= 0.10
         , clock >= 0.7
         , configuration-tools >= 0.4

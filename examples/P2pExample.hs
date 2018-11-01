@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -29,9 +28,6 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Maybe
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup hiding (option)
-#endif
 import qualified Data.Text as T
 
 import GHC.Generics
