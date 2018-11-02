@@ -110,7 +110,7 @@ import qualified Data.HashSet as HS
 import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
-import Data.Reflection
+import Data.Reflection hiding (int)
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -124,6 +124,7 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Time
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -528,6 +529,15 @@ prop_block_genesis_parent b = isGenesisBlockHeader b
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
     ==> _blockTarget b == genesisBlockTarget
+
+-- -------------------------------------------------------------------------- --
+-- TreeDBEntry instance
+
+instance TreeDbEntry BlockHeader where
+    type Key BlockHeader = BlockHash
+    key = _blockHash
+    rank = int . _blockHeight
+    parent e = let p = _blockParent e in if p == key e then Nothing else Just p
 
 -- -------------------------------------------------------------------------- --
 -- Testing

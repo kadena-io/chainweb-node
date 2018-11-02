@@ -50,6 +50,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Exception (bracket)
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -72,8 +73,6 @@ import Servant.Client (ClientEnv, mkClientEnv, BaseUrl(..), Scheme(..))
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
-
-import UnliftIO.Exception (bracket)
 
 -- internal modules
 

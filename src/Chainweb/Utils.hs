@@ -111,8 +111,8 @@ module Chainweb.Utils
 , pEnableConfig
 
 -- * Streaming
-, toHs
-, toHs_
+, streamToHashSet
+, streamToHashSet_
 , nub
 , timeoutStream
 
@@ -553,19 +553,19 @@ timeoutStream msecs = go
 nub :: Monad m => Eq a => S.Stream (Of a) m r -> S.Stream (Of a) m r
 nub = S.concats . S.maps (S.drained . S.splitAt 1) . S.group
 
-toHs
+streamToHashSet
     :: Monad m
     => Eq a
     => Hashable a
     => S.Stream (Of a) m r
     -> m (Of (HS.HashSet a) r)
-toHs = fmap (first HS.fromList) . S.toList
+streamToHashSet = fmap (first HS.fromList) . S.toList
 
-toHs_
+streamToHashSet_
     :: Monad m
     => Eq a
     => Hashable a
     => S.Stream (Of a) m r
     -> m (HS.HashSet a)
-toHs_ = fmap HS.fromList . S.toList_
+streamToHashSet_ = fmap HS.fromList . S.toList_
 

@@ -73,6 +73,7 @@ library
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.Time
+        , Chainweb.TreeDB
         , Chainweb.Utils
         , Chainweb.Version
 
@@ -205,7 +206,6 @@ test-suite chainweb-tests
         , text >= 1.2
         , these >= 0.7
         , transformers >= 0.5
-        , unliftio >= 0.2
         , unordered-containers >= 0.2
         , wai >= 3.2
         , warp >= 3.2
