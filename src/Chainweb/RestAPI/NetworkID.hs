@@ -122,7 +122,7 @@ data NetworkIdT
     | CutNetworkT
 
 
--- | SomeNetworkIdT encapsulates a known NetworkIdT, such that it's type is
+-- | SomeNetworkIdT encapsulates a known NetworkIdT, such that its type is
 -- hidden from the compiler.
 --
 data SomeNetworkIdT where
