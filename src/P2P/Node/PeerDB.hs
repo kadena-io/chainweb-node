@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: P2P.Node.PeerDB
@@ -43,13 +44,11 @@ module P2P.Node.PeerDB
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
-import Control.Lens hiding ((.=))
 import Control.Monad.STM
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
-import Data.Proxy
 
 import GHC.Generics
 
@@ -63,9 +62,11 @@ import Test.QuickCheck (Property, ioProperty, property, (===))
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.RestAPI.Utils hiding (properties)
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.Singletons
 
 import P2P.Node.Configuration
 
@@ -155,18 +156,18 @@ loadIntoPeerDb f db = do
 
 -- | 'PeerDb' with type level 'ChainwebVersion' and 'ChainIdT' indexes
 --
-newtype PeerDbT (v :: ChainwebVersionT) (c :: ChainIdT) = PeerDbT PeerDb
+newtype PeerDbT (v :: ChainwebVersionT) (n :: NetworkIdT) = PeerDbT PeerDb
     deriving (Eq, Generic)
 
-data SomePeerDb = forall v c
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => SomePeerDb (PeerDbT v c)
+data SomePeerDb = forall v n
+    . (KnownChainwebVersionSymbol v, SingI n)
+    => SomePeerDb (PeerDbT v n)
 
-somePeerDbVal :: ChainwebVersion -> ChainId -> PeerDb -> SomePeerDb
-somePeerDbVal v c db = runIdentity $ do
-    SomeChainwebVersionT (Proxy :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (Proxy :: Proxy c) <- return $ someChainIdVal c
-    return $ SomePeerDb (PeerDbT @v @c db)
+somePeerDbVal :: ChainwebVersion -> NetworkId -> PeerDb -> SomePeerDb
+somePeerDbVal (FromSing (SChainwebVersion :: Sing v)) n db = f n
+  where
+    f (FromSing (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+    f (FromSing (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
 
 -- -------------------------------------------------------------------------- --
 -- Properties

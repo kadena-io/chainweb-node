@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -48,6 +49,7 @@ import Control.Lens
 
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy as BL
+import Data.Maybe
 import Data.Proxy
 import Data.Swagger
 import qualified Data.Text as T
@@ -67,6 +69,7 @@ import Chainweb.ChainDB.RestAPI.Client
 import Chainweb.ChainDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
@@ -79,12 +82,18 @@ import P2P.Node.RestAPI.Server
 -- -------------------------------------------------------------------------- --
 -- Chainweb API
 
-someChainwebApi :: ChainwebVersion -> [ChainId] -> SomeApi
+someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
-    <> someChainDbApis v cs
+    <> someChainDbApis v (selectChainIds cs)
     <> someP2pApis v cs
 
-prettyShowChainwebApi :: ChainwebVersion -> [ChainId] -> T.Text
+selectChainIds :: [NetworkId] -> [ChainId]
+selectChainIds = catMaybes . fmap f
+  where
+    f (ChainNetwork c) = Just c
+    f CutNetwork = Nothing
+
+prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyShowChainwebApi v cs = case someChainwebApi v cs of
     SomeApi a -> layout a
 
@@ -101,18 +110,18 @@ type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
 someSwaggerApi :: SomeApi
 someSwaggerApi = SomeApi $ Proxy @SwaggerApi
 
-someSwaggerServer :: ChainwebVersion -> [ChainId] -> SomeServer
+someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return (chainwebSwagger v cs)
 
-chainwebSwagger :: ChainwebVersion -> [ChainId] -> Swagger
+chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a
         & info.title   .~ "Chainweb"
         & info.version .~ prettyApiVersion
         & info.description ?~ "Chainweb/" <> sshow v <> " API"
 
-prettyChainwebSwagger :: ChainwebVersion -> [ChainId] -> T.Text
+prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
     $ chainwebSwagger v cs
 
@@ -122,16 +131,16 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 someChainwebServer
     :: ChainwebVersion
     -> [(ChainId, ChainDb)]
-    -> [(ChainId, PeerDb)]
+    -> [(NetworkId, PeerDb)]
     -> SomeServer
-someChainwebServer v chainDbs peerDbs = someSwaggerServer v (fst <$> chainDbs)
+someChainwebServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
     <> someChainDbServers v chainDbs
     <> someP2pServers v peerDbs
 
 chainwebApplication
     :: ChainwebVersion
     -> [(ChainId, ChainDb)]
-    -> [(ChainId, PeerDb)]
+    -> [(NetworkId, PeerDb)]
     -> Application
 chainwebApplication v chainDbs peerDbs = someServerApplication
     $ someChainwebServer v chainDbs peerDbs
@@ -140,7 +149,7 @@ serveChainwebOnPort
     :: Port
     -> ChainwebVersion
     -> [(ChainId, ChainDb)]
-    -> [(ChainId, PeerDb)]
+    -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebOnPort p v chainDbs peerDbs = run (int p)
     $ chainwebApplication v chainDbs peerDbs
@@ -149,7 +158,7 @@ serveChainweb
     :: Settings
     -> ChainwebVersion
     -> [(ChainId, ChainDb)]
-    -> [(ChainId, PeerDb)]
+    -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainweb s v chainDbs peerDbs = runSettings s
     $ chainwebApplication v chainDbs peerDbs

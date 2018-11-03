@@ -34,12 +34,6 @@ module P2P.Node.Configuration
 , pPeerInfo
 , arbitraryPeerInfo
 
-, P2pNetworkId(..)
-, p2pNetworkIdToText
-, p2pNetworkIdFromText
-, unsafeP2pNetworkIdFromText
-, pP2pNetworkId
-
 -- * P2P Configuration
 , P2pConfiguration(..)
 , p2pConfigPeerId
@@ -78,6 +72,7 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -159,56 +154,6 @@ pPeerInfo service = id
 {-# INLINE pPeerInfo #-}
 
 -- -------------------------------------------------------------------------- --
--- Network ID
-
-data P2pNetworkId
-    = ChainNetwork ChainId
-    | CutNetwork
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
-
-p2pNetworkIdToText :: P2pNetworkId -> T.Text
-p2pNetworkIdToText CutNetwork = "cut"
-p2pNetworkIdToText (ChainNetwork cid) = "chain/" <> chainIdToText cid
-{-# INLINE p2pNetworkIdToText #-}
-
-p2pNetworkIdFromText :: MonadThrow m => T.Text -> m P2pNetworkId
-p2pNetworkIdFromText "cut" = return CutNetwork
-p2pNetworkIdFromText t = case T.break (== '/') t of
-    (a, b)
-        | a == "chain" -> ChainNetwork <$> chainIdFromText (T.drop 1 b)
-        | T.null b -> throwM . TextFormatException $ "missing '/' in P2P network id: \"" <> t <> "\"."
-        | otherwise -> throwM $ TextFormatException $ "unrecognized P2P network id: \"" <> t <> "\"."
-
-unsafeP2pNetworkIdFromText :: T.Text -> P2pNetworkId
-unsafeP2pNetworkIdFromText = fromJust . p2pNetworkIdFromText
-{-# INLINE unsafeP2pNetworkIdFromText #-}
-
-instance ToJSON P2pNetworkId where
-    toJSON = toJSON . p2pNetworkIdToText
-    {-# INLINE toJSON #-}
-
-instance FromJSON P2pNetworkId where
-    parseJSON = parseJsonFromText "P2pNetworkId"
-    {-# INLINE parseJSON #-}
-
-instance HasTextRepresentation P2pNetworkId where
-    toText = p2pNetworkIdToText
-    {-# INLINE toText #-}
-    fromText = p2pNetworkIdFromText
-    {-# INLINE fromText #-}
-
-pP2pNetworkId :: OptionParser P2pNetworkId
-pP2pNetworkId = textOption
-    % long "network-id"
-
-instance Arbitrary P2pNetworkId where
-    arbitrary = frequency
-        [ (1, pure CutNetwork)
-        , (5, ChainNetwork <$> arbitrary)
-        ]
-
--- -------------------------------------------------------------------------- --
 -- P2P Configuration
 
 -- | Configuration of the Network
@@ -218,7 +163,7 @@ instance Arbitrary P2pNetworkId where
 data P2pConfiguration = P2pConfiguration
     { _p2pConfigPeerId :: !(Maybe PeerId)
     , _p2pConfigHostAddress :: !HostAddress
-    , _p2pConfigNetworkId :: !P2pNetworkId
+    , _p2pConfigNetworkId :: !NetworkId
     , _p2pConfigMaxSessionCount :: !Natural
         -- ^ number of active peers
     , _p2pConfigMaxPeerCount :: !Natural
@@ -290,7 +235,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "peers"
         <*> o .: "peerDbFilePath"
 
-pP2pConfiguration :: Maybe P2pNetworkId -> MParser P2pConfiguration
+pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
     <$< p2pConfigPeerId .:: fmap Just % pPeerId net
     <*< p2pConfigHostAddress %:: pHostAddress net
@@ -308,4 +253,5 @@ pP2pConfiguration networkId = id
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
   where
-    net = T.unpack . p2pNetworkIdToText <$> networkId
+    net = T.unpack . networkIdToText <$> networkId
+

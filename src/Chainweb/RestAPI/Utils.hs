@@ -1,10 +1,14 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -39,6 +43,12 @@ module Chainweb.RestAPI.Utils
 , apiVersion
 , prettyApiVersion
 
+-- * Chainweb API Endpoints
+, ChainwebEndpoint(..)
+, NetworkEndpoint(..)
+, ChainEndpoint
+, CutEndpoint
+
 -- * Some API
 --
 -- $someapi
@@ -48,26 +58,6 @@ module Chainweb.RestAPI.Utils
 -- ** Some Server
 , SomeServer(..)
 , someServerApplication
-
--- ** Typelevel ChainID
-, ChainIdT(..)
-, ChainIdSymbol
-, chainIdSymbolVal
-, SomeChainIdT(..)
-, KnownChainIdSymbol
-, someChainIdVal
-
--- ** Typelevel ChainwebVersion
-, ChainwebVersionT(..)
-, ChainwebVersionSymbol
-, chainwebVersionSymbolVal
-, SomeChainwebVersionT(..)
-, KnownChainwebVersionSymbol
-, someChainwebVersionVal
-
--- * Chainweb API Endpoints
-, ChainwebEndpoint
-, ChainEndpoint
 
 -- * Properties
 , properties
@@ -100,7 +90,9 @@ import Test.QuickCheck
 import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
 
 -- internal modules
+
 import Chainweb.ChainId
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
@@ -231,6 +223,118 @@ prettyApiVersion = case apiVersion of
     ApiVersion t -> t
 
 -- -------------------------------------------------------------------------- --
+-- Chainweb API Endpoints
+
+newtype ChainwebEndpoint = ChainwebEndpoint ChainwebVersionT
+
+type ChainwebEndpointApi c a = "chainweb" :> Version :> ChainwebVersionSymbol c :> a
+
+instance
+    (HasServer api ctx, KnownChainwebVersionSymbol c)
+    => HasServer ('ChainwebEndpoint c :> api) ctx
+  where
+    type ServerT ('ChainwebEndpoint c :> api) m
+        = ServerT (ChainwebEndpointApi c api) m
+
+    route _ = route $ Proxy @(ChainwebEndpointApi c api)
+
+    hoistServerWithContext _ = hoistServerWithContext
+        $ Proxy @(ChainwebEndpointApi c api)
+
+instance
+    (KnownChainwebVersionSymbol c, HasSwagger api)
+    => HasSwagger ('ChainwebEndpoint c :> api)
+  where
+    toSwagger _ = toSwagger (Proxy @(ChainwebEndpointApi c api))
+
+instance
+    (KnownChainwebVersionSymbol v, HasClient m api)
+    => HasClient m ('ChainwebEndpoint v :> api)
+  where
+    type Client m ('ChainwebEndpoint v :> api)
+        = Client m (NetworkEndpointApi 'CutNetworkT api)
+
+    clientWithRoute pm _
+        = clientWithRoute pm $ Proxy @(ChainwebEndpointApi v api)
+    hoistClientMonad pm _
+        = hoistClientMonad pm $ Proxy @(ChainwebEndpointApi v api)
+
+-- -------------------------------------------------------------------------- --
+-- Network API Endpoint
+
+newtype NetworkEndpoint = NetworkEndpoint NetworkIdT
+
+type ChainEndpoint (c :: ChainIdT) = 'NetworkEndpoint ('ChainNetworkT c)
+type CutEndpoint = 'NetworkEndpoint 'CutNetworkT
+
+type family NetworkEndpointApi (net :: NetworkIdT) (api :: Type) :: Type where
+    NetworkEndpointApi 'CutNetworkT api = "cut" :> api
+    NetworkEndpointApi ('ChainNetworkT c) api = "chain" :> ChainIdSymbol c :> api
+
+-- HasServer
+
+instance
+    (HasServer api ctx, KnownChainIdSymbol c, x ~ 'ChainNetworkT c)
+    => HasServer ('NetworkEndpoint ('ChainNetworkT c) :> api) ctx
+  where
+    type ServerT ('NetworkEndpoint ('ChainNetworkT c) :> api) m
+        = ServerT (NetworkEndpointApi ('ChainNetworkT c) api) m
+
+    route _ = route (Proxy @(NetworkEndpointApi x api))
+
+    hoistServerWithContext _ = hoistServerWithContext
+        (Proxy @(NetworkEndpointApi x api))
+
+instance
+    HasServer api ctx => HasServer ('NetworkEndpoint 'CutNetworkT :> api) ctx
+  where
+    type ServerT ('NetworkEndpoint 'CutNetworkT :> api) m
+        = ServerT (NetworkEndpointApi 'CutNetworkT api) m
+
+    route _ = route (Proxy @(NetworkEndpointApi 'CutNetworkT api))
+
+    hoistServerWithContext _ = hoistServerWithContext
+        (Proxy @(NetworkEndpointApi 'CutNetworkT api))
+
+-- HasSwagger
+
+instance
+    (KnownChainIdSymbol c, HasSwagger api)
+    => HasSwagger ('NetworkEndpoint ('ChainNetworkT c) :> api)
+  where
+    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('ChainNetworkT c) api))
+
+instance
+    (HasSwagger api) => HasSwagger ('NetworkEndpoint 'CutNetworkT :> api)
+  where
+    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi 'CutNetworkT api))
+
+-- HasClient
+
+instance
+    (KnownChainIdSymbol c, HasClient m api)
+    => HasClient m ('NetworkEndpoint ('ChainNetworkT c) :> api)
+  where
+    type Client m ('NetworkEndpoint ('ChainNetworkT c) :> api)
+        = Client m (NetworkEndpointApi ('ChainNetworkT c) api)
+
+    clientWithRoute pm _
+        = clientWithRoute pm $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
+    hoistClientMonad pm _
+        = hoistClientMonad pm $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
+
+instance
+    (HasClient m api) => HasClient m ('NetworkEndpoint 'CutNetworkT :> api)
+  where
+    type Client m ('NetworkEndpoint 'CutNetworkT :> api)
+        = Client m (NetworkEndpointApi 'CutNetworkT api)
+
+    clientWithRoute pm _
+        = clientWithRoute pm $ Proxy @(NetworkEndpointApi 'CutNetworkT api)
+    hoistClientMonad pm _
+        = hoistClientMonad pm $ Proxy @(NetworkEndpointApi 'CutNetworkT api)
+
+-- -------------------------------------------------------------------------- --
 -- Some API
 
 -- $someapi
@@ -276,64 +380,6 @@ instance Monoid SomeServer where
 
 someServerApplication :: SomeServer -> Application
 someServerApplication (SomeServer a server) = serve a server
-
--- -------------------------------------------------------------------------- --
--- Type level ChainId
-
--- it's easier to use Symbol here. If we wanted to use Nat we'd need a
--- typelevel function Nat -> Symbol
---
-newtype ChainIdT = ChainIdT Symbol
-
-data SomeChainIdT = forall (a :: ChainIdT)
-    . KnownChainIdSymbol a => SomeChainIdT (Proxy a)
-
-class KnownSymbol (ChainIdSymbol n) => KnownChainIdSymbol (n :: ChainIdT) where
-    type ChainIdSymbol n :: Symbol
-    chainIdSymbolVal :: Proxy n -> String
-
-instance KnownSymbol n => KnownChainIdSymbol ('ChainIdT n) where
-    type ChainIdSymbol ('ChainIdT n) = n
-    chainIdSymbolVal _ = symbolVal (Proxy @n)
-
-someChainIdVal :: ChainId -> SomeChainIdT
-someChainIdVal cid = case someSymbolVal (T.unpack (toText cid)) of
-    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
-
--- -------------------------------------------------------------------------- --
--- Type level ChainwebVersion
-
-newtype ChainwebVersionT = ChainwebVersionT Symbol
-
-data SomeChainwebVersionT = forall (a :: ChainwebVersionT)
-        . KnownChainwebVersionSymbol a => SomeChainwebVersionT (Proxy a)
-
-class KnownSymbol (ChainwebVersionSymbol n) => KnownChainwebVersionSymbol (n :: ChainwebVersionT) where
-    type ChainwebVersionSymbol n :: Symbol
-    chainwebVersionSymbolVal :: Proxy n -> String
-
-instance (KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n) where
-    type ChainwebVersionSymbol ('ChainwebVersionT n) = n
-    chainwebVersionSymbolVal _ = symbolVal (Proxy @n)
-
-someChainwebVersionVal :: ChainwebVersion -> SomeChainwebVersionT
-someChainwebVersionVal v = case someSymbolVal (sshow v) of
-    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainwebVersionT (Proxy @('ChainwebVersionT v))
-
--- -------------------------------------------------------------------------- --
--- Chainweb API Endpoints
-
--- | Chainweb Endpoint Constructor
---
-type family ChainwebEndpoint (v :: ChainwebVersionT) (e :: Type) where
-    ChainwebEndpoint v e
-        = "chainweb" :> Version :> ChainwebVersionSymbol v
-        :> e
-
--- | Chain Endpoint Constructor
---
-type family ChainEndpoint (v :: ChainwebVersionT) (cid :: ChainIdT) (e :: Type) where
-    ChainEndpoint v c e = ChainwebEndpoint v ("chain" :> ChainIdSymbol c :> e)
 
 -- -------------------------------------------------------------------------- --
 -- Properties

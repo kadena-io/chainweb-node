@@ -57,6 +57,7 @@ module Chainweb.Utils
 , treadM
 , HasTextRepresentation(..)
 , eitherFromText
+, unsafeFromText
 
 -- ** Base64
 , encodeB64Text
@@ -117,6 +118,7 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Maybe
 import Data.Monoid (Endo)
 import Data.Serialize.Get (Get)
 import Data.String (IsString(..))
@@ -270,6 +272,10 @@ eitherFromText = either f return . fromText
         Just (TextFormatException err) -> T.unpack err
         _ -> show e
 {-# INLINE eitherFromText #-}
+
+unsafeFromText :: HasTextRepresentation a => T.Text -> a
+unsafeFromText = fromJust . fromText
+{-# INLINE unsafeFromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64

@@ -83,8 +83,8 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 -- Internal imports
 
-import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -179,7 +179,7 @@ instance Arbitrary P2pSessionInfo where
 -- TODO: add configuration
 --
 data P2pNode = P2pNode
-    { _p2pNodeChainId :: !ChainId
+    { _p2pNodeNetworkId :: !NetworkId
     , _p2pNodeChainwebVersion :: !ChainwebVersion
     , _p2pNodePeerInfo :: !PeerInfo
     , _p2pNodePeerDb :: !PeerDb
@@ -285,12 +285,12 @@ syncFromPeer node info = runClientM sync env >>= \case
   where
     env = peerClientEnv node info
     v = _p2pNodeChainwebVersion node
-    cid = _p2pNodeChainId node
+    nid = _p2pNodeNetworkId node
     pid = _peerId info
     sync = do
-        p <- peerGetClient v cid Nothing Nothing
+        p <- peerGetClient v nid Nothing Nothing
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showPid pid
-        void $ peerPutClient v cid (_p2pNodePeerInfo node)
+        void $ peerPutClient v nid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showPid pid
         return p
     myPid = _peerId $ _p2pNodePeerInfo node
@@ -425,7 +425,7 @@ withPeerDb conf = bracket (startPeerDb conf) (stopPeerDb conf)
 
 p2pCreateNode
     :: ChainwebVersion
-    -> ChainId
+    -> NetworkId
     -> P2pConfiguration
     -> LogFunction
     -> PeerDb
@@ -447,7 +447,7 @@ p2pCreateNode cv cid conf logfun db addr mgr session = do
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
     let s = P2pNode
-                { _p2pNodeChainId = cid
+                { _p2pNodeNetworkId = cid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
                 , _p2pNodePeerDb = db

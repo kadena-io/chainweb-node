@@ -1,5 +1,8 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: P2P.Node.RestAPI.Server
@@ -50,9 +53,12 @@ import qualified Streaming.Prelude as SP
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.Singletons
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -82,39 +88,46 @@ peerPutHandler db e = liftIO $ NoContent <$ peerDbInsert db e
 -- P2P API Server
 
 p2pServer
-    :: PeerDbT v c
-    -> Server (P2pApi v c)
-p2pServer (PeerDbT db)
-    = peerGetHandler db
-    :<|> peerPutHandler db
+    :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
+    . SingI n
+    => PeerDbT v n
+    -> Server (P2pApi v n)
+p2pServer (PeerDbT db) = case sing @_ @n of
+    SCutNetwork -> peerGetHandler db :<|> peerPutHandler db
+    SChainNetwork _ -> peerGetHandler db :<|> peerPutHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network
 
 chainP2pApp
-    :: forall v c
+    :: forall v n
     . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => PeerDbT v c
+    => SingI n
+    => PeerDbT v n
     -> Application
-chainP2pApp db = serve (Proxy @(P2pApi v c)) (p2pServer db)
+chainP2pApp db = case sing @_ @n of
+    SCutNetwork -> serve (Proxy @(P2pApi v n)) (p2pServer db)
+    SChainNetwork SChainId -> serve (Proxy @(P2pApi v n)) (p2pServer db)
 
 chainP2pApiLayout
-    :: forall v c
+    :: forall v n
     . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => PeerDbT v c
+    => SingI n
+    => PeerDbT v n
     -> IO ()
-chainP2pApiLayout _ = T.putStrLn $ layout (Proxy @(P2pApi v c))
+chainP2pApiLayout _ = case sing @_ @n of
+    SCutNetwork -> T.putStrLn $ layout (Proxy @(P2pApi v n))
+    SChainNetwork SChainId -> T.putStrLn $ layout (Proxy @(P2pApi v n))
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
 someP2pServer :: SomePeerDb -> SomeServer
-someP2pServer (SomePeerDb (db :: PeerDbT v c))
-    = SomeServer (Proxy @(P2pApi v c)) (p2pServer db)
+someP2pServer (SomePeerDb (db :: PeerDbT v n)) = case sing @_ @n of
+    SCutNetwork -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
+    SChainNetwork SChainId -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
 
-someP2pServers :: ChainwebVersion -> [(ChainId, PeerDb)] -> SomeServer
+someP2pServers :: ChainwebVersion -> [(NetworkId, PeerDb)] -> SomeServer
 someP2pServers v = mconcat
     . fmap (someP2pServer . uncurry (somePeerDbVal v))
 
@@ -124,7 +137,7 @@ someP2pServers v = mconcat
 serveP2pOnPort
     :: Port
     -> ChainwebVersion
-    -> [(ChainId, PeerDb)]
+    -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
 

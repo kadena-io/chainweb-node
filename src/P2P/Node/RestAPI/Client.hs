@@ -1,8 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -16,15 +14,9 @@
 -- TODO
 --
 module P2P.Node.RestAPI.Client
-( peerGetClient_
-, peerGetClient
-, peerPutClient_
+( peerGetClient
 , peerPutClient
 ) where
-
-import Control.Monad.Identity
-
-import Data.Proxy
 
 import Numeric.Natural
 
@@ -32,9 +24,13 @@ import Servant.API (NoContent(..))
 import Servant.Client
 
 -- internal modules
+
 import Chainweb.ChainId
+import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+
+import Data.Singletons
 
 import P2P.Node.Configuration
 import P2P.Node.RestAPI
@@ -42,44 +38,27 @@ import P2P.Node.RestAPI
 -- -------------------------------------------------------------------------- --
 -- GET Peer Client
 
-peerGetClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Maybe Natural
-    -> Maybe PeerId
-    -> ClientM (Page PeerId PeerInfo)
-peerGetClient_ = client (peerGetApi @v @c)
-
 peerGetClient
     :: ChainwebVersion
-    -> ChainId
+    -> NetworkId
     -> Maybe Natural
     -> Maybe PeerId
     -> ClientM (Page PeerId PeerInfo)
-peerGetClient v c limit next = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ peerGetClient_ @v @c limit next
+peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
+  where
+    f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
+    f (FromSing (SCutNetwork :: Sing n)) = client $ peerGetApi @v @n
 
 -- -------------------------------------------------------------------------- --
 -- PUT Peer Client
 
-peerPutClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => PeerInfo
-    -> ClientM NoContent
-peerPutClient_ = client (peerPutApi @v @c)
-
 peerPutClient
     :: ChainwebVersion
-    -> ChainId
+    -> NetworkId
     -> PeerInfo
     -> ClientM NoContent
-peerPutClient v c e = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ peerPutClient_ @v @c e
+peerPutClient (FromSing (SChainwebVersion :: Sing v)) = f
+  where
+    f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
+    f (FromSing (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
 

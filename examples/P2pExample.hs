@@ -45,6 +45,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -207,7 +208,7 @@ node cid t logger conf port =
         withPeerDb conf $ \pdb ->
 
             -- start P2P server
-            withAsync (serveP2pOnPort port Test [(cid, pdb)]) $ \server -> do
+            withAsync (serveP2pOnPort port Test [(ChainNetwork cid, pdb)]) $ \server -> do
 
                 logfun L.Info $ toLogMessage @T.Text "started server"
 
@@ -215,7 +216,7 @@ node cid t logger conf port =
                 mgr <- HTTP.newManager HTTP.defaultManagerSettings
                 n <- withLoggerLabel ("session", "noopSession") logger' $ \sessionLogger -> do
                     let sessionLogFun l = loggerFunIO sessionLogger (l2l l) . toLogMessage
-                    p2pCreateNode Test cid conf sessionLogFun pdb ha mgr (noopSession t)
+                    p2pCreateNode Test nid conf sessionLogFun pdb ha mgr (noopSession t)
 
                 -- Run P2P client node
                 p2pStartNode conf n `finally` p2pStopNode n
@@ -223,6 +224,7 @@ node cid t logger conf port =
                 wait server
 
   where
+    nid = ChainNetwork cid
     ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
 
 -- -------------------------------------------------------------------------- --

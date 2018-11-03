@@ -82,6 +82,7 @@ import Chainweb.ChainDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI (chainwebApplication)
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -175,7 +176,7 @@ starChainDbs n genDbs = do
 --
 withServer
     :: [(ChainId, ChainDb)]
-    -> [(ChainId, P2P.PeerDb)]
+    -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
 withServer chainDbs peerDbs f = W.testWithApplication (pure app) work
@@ -194,7 +195,7 @@ testHost = "localhost"
 data TestClientEnv = TestClientEnv
     { _envClientEnv :: !ClientEnv
     , _envChainDbs :: ![(ChainId, ChainDb)]
-    , _envPeerDbs :: ![(ChainId, P2P.PeerDb)]
+    , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
 pattern ChainDbsTestClientEnv
@@ -206,7 +207,7 @@ pattern ChainDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvChainDbs }
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, P2P.PeerDb)]
+    -> [(NetworkId, P2P.PeerDb)]
     -> TestClientEnv
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
     = TestClientEnv _pdbEnvClientEnv [] _pdbEnvPeerDbs
@@ -239,7 +240,7 @@ withTestServer appIO envIO test = withResource start stop $ \x ->
 
 withChainwebServer
     :: IO [(ChainId, ChainDb)]
-    -> IO [(ChainId, P2P.PeerDb)]
+    -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
 withChainwebServer chainDbsIO peerDbsIO = withTestServer mkApp mkEnv
@@ -252,10 +253,10 @@ withChainwebServer chainDbsIO peerDbsIO = withTestServer mkApp mkEnv
             <*> peerDbsIO
 
 withPeerDbsServer
-    :: IO [(ChainId, P2P.PeerDb)]
+    :: IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withPeerDbsServer peerDbsIO = withChainwebServer (return []) peerDbsIO
+withPeerDbsServer = withChainwebServer (return [])
 
 withChainDbsServer
     :: IO [(ChainId, ChainDb)]

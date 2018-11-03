@@ -69,6 +69,7 @@ library
         , Chainweb.HostAddress
         , Chainweb.NodeId
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.Time
@@ -77,6 +78,7 @@ library
 
         , Data.DiGraph
         , Data.LogMessage
+        , Data.Singletons
         , Data.Word.Encoding
 
         , Numeric.Cast

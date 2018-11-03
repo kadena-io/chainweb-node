@@ -67,6 +67,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.NodeId
 import Chainweb.RestAPI
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -277,7 +278,7 @@ node cid t logger conf p2pConfig nid port =
             $ \cdb -> withPeerDb p2pConfig
             $ \pdb -> withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, ChainDb)]
-                [(cid, pdb)] -- :: [(ChainId, PeerDb)]
+                [(ChainNetwork cid, pdb)] -- :: [(ChainId, PeerDb)]
                 )
             $ \server -> do
                 logfun Info "started server"
@@ -323,7 +324,7 @@ syncer cid logger conf cdb pdb port t =
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
-            p2pCreateNode Test cid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
+            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
@@ -332,6 +333,7 @@ syncer cid logger conf cdb pdb port t =
             syncLogg Info "stopped syncer"
 
   where
+    nid = ChainNetwork cid
     ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
 
 -- -------------------------------------------------------------------------- --
