@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -108,6 +109,13 @@ module Chainweb.Utils
 , enableConfigEnabled
 , defaultEnableConfig
 , pEnableConfig
+
+-- * Streaming
+, toHs
+, toHs_
+, nub
+, timeoutStream
+
 ) where
 
 import Configuration.Utils
@@ -116,6 +124,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Trans
 
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
@@ -127,6 +136,8 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
+import Data.Functor.Of
+import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Maybe
@@ -142,6 +153,11 @@ import GHC.Generics
 import Numeric.Natural
 
 import qualified Options.Applicative as O
+
+import qualified Streaming.Prelude as S
+import qualified Streaming as S (concats, maps)
+
+import System.Timeout
 
 import Text.Read (readEither)
 
@@ -519,4 +535,37 @@ pEnableConfig compName pConfig = id
         % long compName
         <> help ("whether " <> compName <> " is enabled or disabled")
     <*< enableConfigConfig %:: pConfig
+
+-- -------------------------------------------------------------------------- --
+-- Streaming Utilities
+
+timeoutStream
+    :: Int
+    -> S.Stream (Of a) IO r
+    -> S.Stream (Of a) IO (Maybe r)
+timeoutStream msecs = go
+  where
+    go s = lift (timeout msecs (S.next s)) >>= \case
+        Nothing -> return Nothing
+        Just (Left r) -> return (Just r)
+        Just (Right (a, s')) -> S.yield a >> go s'
+
+nub :: Monad m => Eq a => S.Stream (Of a) m r -> S.Stream (Of a) m r
+nub = S.concats . S.maps (S.drained . S.splitAt 1) . S.group
+
+toHs
+    :: Monad m
+    => Eq a
+    => Hashable a
+    => S.Stream (Of a) m r
+    -> m (Of (HS.HashSet a) r)
+toHs = fmap (first HS.fromList) . S.toList
+
+toHs_
+    :: Monad m
+    => Eq a
+    => Hashable a
+    => S.Stream (Of a) m r
+    -> m (HS.HashSet a)
+toHs_ = fmap HS.fromList . S.toList_
 

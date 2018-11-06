@@ -135,7 +135,7 @@ library
         , servant-server >= 0.13
         , servant-swagger >= 1.1
         , stm >= 2.4
-        , streaming >= 0.2
+        , streaming >= 0.2.2
         , streaming-bytestring >= 0.1
         , swagger2 >= 2.2
         , temporary >= 1.3
@@ -198,7 +198,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
-        , streaming >= 0.2
+        , streaming >= 0.2.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
@@ -338,7 +338,7 @@ executable single-chain-example
         , monad-control >= 1.0
         , mwc-random >= 0.13
         , stm >= 2.4
-        , streaming >= 0.2
+        , streaming >= 0.2.2
         , text >= 1.2
         , unordered-containers >= 0.2
         , wai-app-static >= 3.1

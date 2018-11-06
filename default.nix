@@ -32,6 +32,14 @@
       configuration-tools = "0.4.0";
       aeson = "1.4.0.0";
 
+      # streaming >=0.2.2 is on Hackage, but nix doesn't know how get it from there
+      streaming = pkgs.fetchFromGitHub {
+        owner = "haskell-streaming";
+        repo = "streaming";
+        rev = "cf4ae245a0c31432776c9ae6c11312c25a8c6c88";
+        sha256 = "1b8m1ia2qp3rh09cyacsx9cjb20hdk7vlylc166wmnpwl46g4dvx";
+      };
+
       # Use a particular commit from github
       refined = pkgs.fetchFromGitHub {
         owner = "nikita-volkov";
