@@ -95,6 +95,7 @@ module Chainweb.Utils
 , fromMaybeM
 , (???)
 , fromEitherM
+, InternalInvariantViolation(..)
 
 -- * Command Line Options
 , OptionParser
@@ -468,6 +469,11 @@ infixl 0 ???
 fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
+
+newtype InternalInvariantViolation = InternalInvariantViolation T.Text
+    deriving (Show)
+
+instance Exception InternalInvariantViolation
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
