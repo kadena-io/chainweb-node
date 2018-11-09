@@ -16,6 +16,7 @@ extra-deps:
   - hspec-2.5.8
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
+  - QuickCheck-GenT-0.2.0
 
 flags:
   aeson:

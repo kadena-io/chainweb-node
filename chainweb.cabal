@@ -52,6 +52,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
+        , Chainweb.Cut
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -91,6 +92,7 @@ library
 
     build-depends:
           QuickCheck >= 2.10
+        , QuickCheck-GenT >=0.2
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , async >= 2.2
@@ -109,6 +111,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
+        , heaps >= 0.3
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
