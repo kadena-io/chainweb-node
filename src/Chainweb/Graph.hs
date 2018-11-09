@@ -1,12 +1,16 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -42,6 +46,13 @@ module Chainweb.Graph
 , adjacentChainIds
 , HasChainGraph(..)
 
+-- * Undirected Edges
+, AdjPair
+, pattern Adj
+, _getAdjPair
+, adjs
+, adjsOfVertex
+
 -- * Checks with a given chain graph
 
 , isWebChain
@@ -59,6 +70,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import Data.Reflection hiding (int)
@@ -118,6 +130,33 @@ adjacentChainIds
     -> HS.HashSet ChainId
 adjacentChainIds g cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
+
+-- -------------------------------------------------------------------------- --
+-- Undirected Edges
+
+newtype AdjPair a = AdjPair { _getAdjPair :: (a, a) }
+    deriving stock (Show, Ord, Eq, Generic, Functor)
+    deriving anyclass (Hashable)
+
+pattern Adj :: HasChainId a => a -> a -> AdjPair a
+pattern Adj a b <- AdjPair (a, b)
+  where
+    Adj a b
+        | _chainId a < _chainId b = AdjPair (a,b)
+        | otherwise = AdjPair (b,a)
+
+adjs
+    :: ChainGraph
+    -> HS.HashSet (AdjPair ChainId)
+adjs = HS.map (uncurry Adj) . edges
+{-# INLINE adjs #-}
+
+adjsOfVertex
+    :: HasChainId p
+    => ChainGraph
+    -> p
+    -> HS.HashSet (AdjPair ChainId)
+adjsOfVertex g a = HS.map (Adj (_chainId a)) $ adjacentChainIds g a
 
 -- -------------------------------------------------------------------------- --
 -- HasChainGraph
