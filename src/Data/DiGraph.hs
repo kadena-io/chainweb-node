@@ -119,7 +119,7 @@ order :: DiGraph a -> Natural
 order = int . HS.size . vertices
 
 edges :: Eq a => Hashable a => DiGraph a -> HS.HashSet (DiEdge a)
-edges = HS.fromList . concatMap (sequence . fmap HS.toList) . HM.toList . unGraph
+edges = HS.fromList . concatMap (traverse HS.toList) . HM.toList . unGraph
 
 size :: Eq a => Hashable a => DiGraph a -> Natural
 size = int . HS.size . edges
@@ -272,7 +272,7 @@ isVertex :: Eq a => Hashable a => a -> DiGraph a -> Bool
 isVertex a = HM.member a . unGraph
 
 isEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> Bool
-isEdge (a, b) = fromMaybe False . fmap (HS.member b) . HM.lookup a . unGraph
+isEdge (a, b) = maybe False (HS.member b) . HM.lookup a . unGraph
 
 isAdjacent :: Eq a => Hashable a => a -> a -> DiGraph a -> Bool
 isAdjacent = curry isEdge
