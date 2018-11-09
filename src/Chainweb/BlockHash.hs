@@ -20,6 +20,9 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- ixg
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.BlockHash
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -281,8 +284,8 @@ makeLenses ''BlockHashRecord
 type instance Index BlockHashRecord = ChainId
 type instance IxValue BlockHashRecord = BlockHash
 
-instance Ixed BlockHashRecord where
-    ix i = getBlockHashRecord . ix i
+instance IxedGet BlockHashRecord where
+    ixg i = getBlockHashRecord . ix i
 
 encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
 encodeBlockHashRecord (BlockHashRecord r) =

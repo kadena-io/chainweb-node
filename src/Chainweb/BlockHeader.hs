@@ -426,7 +426,7 @@ blockAdjacentChainIds :: Getter BlockHeader (HS.HashSet ChainId)
 blockAdjacentChainIds = to _blockAdjacentChainIds
 
 getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
-getAdjacentHash p b = firstOf (blockAdjacentHashes . ix (_chainId p)) b
+getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
