@@ -184,6 +184,9 @@ chainIds :: Given ChainGraph => HS.HashSet ChainId
 chainIds = vertices given
 {-# INLINE chainIds #-}
 
+-- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
+-- in @g@.
+--
 checkWebChainId :: MonadThrow m => Given ChainGraph => HasChainId p => p -> m ()
 checkWebChainId p = unless (isWebChain p)
     $ throwM $ ChainNotInChainGraphException
@@ -194,6 +197,10 @@ isWebChain :: Given ChainGraph => HasChainId p => p -> Bool
 isWebChain p = isVertex (_chainId p) given
 {-# INLINE isWebChain #-}
 
+-- | Given a 'ChainGraph' @g@, @checkAdjacentChainIds cid as@ checks that the
+-- 'ChainId' cid is in @g@ and the set of adjacents chain ids of @cid@ is the
+-- expected set @as@.
+--
 checkAdjacentChainIds
     :: MonadThrow m
     => Given ChainGraph
