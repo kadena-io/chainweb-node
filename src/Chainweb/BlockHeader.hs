@@ -78,6 +78,7 @@ module Chainweb.BlockHeader
 , adjacentChainIds
 
 -- * Genesis BlockHeader
+, genesisBlockHash
 , genesisBlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
