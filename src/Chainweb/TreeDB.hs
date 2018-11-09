@@ -66,6 +66,11 @@ module Chainweb.TreeDB
 -- ** Stream a foldable value
 , foldableEntries
 
+-- * Misc Utils
+, forkEntry
+, branchDiff
+, branchDiff_
+
 -- * properties
 , properties
 ) where
@@ -89,6 +94,7 @@ import Data.Semigroup
 import Data.Typeable
 
 import GHC.Generics
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -477,7 +483,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- prop> maxRank db == head (branches db Nothing (Just 1))
     --
     --
-    maxRank :: db -> IO Natural
+    maxRank :: HasCallStack => db -> IO Natural
     maxRank db = fmap (rank . fromJust)
         $ S.head_
         $ leafEntries db Nothing (Just 1) Nothing Nothing
@@ -793,6 +799,51 @@ foldableEntries k l mir mar f = S.each f
     & applyRank mir mar
     & void
     & seekLimitStream key k l
+
+-- -------------------------------------------------------------------------- --
+-- Misc Utils
+
+forkEntry
+    :: HasCallStack
+    => TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> IO (DbEntry db)
+forkEntry db a b = S.effects $ branchDiff_ db a b
+
+branchDiff
+    :: TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> S.Stream (Of (DiffItem (DbEntry db))) IO ()
+branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (BothD i i)
+
+branchDiff_
+    :: TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> S.Stream (Of (DiffItem (DbEntry db))) IO (DbEntry db)
+branchDiff_ db = go
+  where
+    go l r
+        | key l == key r = return l
+        | rank l > rank r = do
+            S.yield (LeftD l)
+            lp <- step l
+            go lp r
+        | rank r > rank l = do
+            S.yield (RightD r)
+            rp <- step r
+            go l rp
+        | otherwise = do
+            S.yield (BothD l r)
+            lp <- step l
+            rp <- step r
+            go lp rp
+    step = lift . lookupParentM GenesisParentThrow db
 
 -- -------------------------------------------------------------------------- --
 -- Properties

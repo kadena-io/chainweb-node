@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -53,6 +56,10 @@ module Chainweb.Utils
 , whenM
 , (&)
 , IxedGet(..)
+
+-- * Diffs
+, DiffItem(..)
+, resolve
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -255,7 +262,7 @@ whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
 
 -- -------------------------------------------------------------------------- --
--- Read only Ixed
+-- * Read only Ixed
 
 class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
@@ -263,6 +270,20 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg = ix
     {-# INLINE ixg #-}
+
+-- -------------------------------------------------------------------------- --
+-- * Diffs
+
+data DiffItem a
+    = LeftD a
+    | RightD a
+    | BothD a a
+    deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
+
+resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
+resolve l _ _ (LeftD a) = l a
+resolve _ r _ (RightD a) = r a
+resolve _ _ m (BothD a b) = m a b
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
