@@ -47,6 +47,11 @@ module Chainweb.Graph
 , chainIds
 , checkWebChainId
 , checkAdjacentChainIds
+
+-- * Some Graphs
+
+, singletonChainGraph
+, petersonChainGraph
 ) where
 
 import Control.Monad
@@ -54,7 +59,7 @@ import Control.Monad.Catch
 
 import qualified Data.HashSet as HS
 import Data.Kind
-import Data.Reflection
+import Data.Reflection hiding (int)
 
 import GHC.Generics
 
@@ -144,3 +149,11 @@ checkAdjacentChainIds cid expectedAdj = do
         (Actual $ adjacents (_chainId cid) given)
     return (getExpected expectedAdj)
 
+-- -------------------------------------------------------------------------- --
+-- Some Graphs
+
+singletonChainGraph :: ChainGraph
+singletonChainGraph = toChainGraph (testChainId . int) singleton
+
+petersonChainGraph :: ChainGraph
+petersonChainGraph = toChainGraph (testChainId . int) petersonGraph
