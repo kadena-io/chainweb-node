@@ -47,6 +47,8 @@ module Chainweb.Utils
 , leadingZeros
 , maxBy
 , minBy
+, unlessM
+, whenM
 , (&)
 , IxedGet(..)
 
@@ -209,6 +211,18 @@ minBy cmp a b = case cmp a b of
     GT -> b
     _ -> a
 {-# INLINE minBy #-}
+
+-- | A version of 'unless' with a monadic predicate.
+--
+unlessM :: Monad m => m Bool -> m () -> m ()
+unlessM c a = c >>= flip unless a
+{-# INLINE unlessM #-}
+
+-- | A version of 'when' with a monadic predicate.
+--
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM c a = c >>= flip when a
+{-# INLINE whenM #-}
 
 -- -------------------------------------------------------------------------- --
 -- Read only Ixed
