@@ -40,6 +40,7 @@ module Chainweb.Graph
 , toChainGraph
 , validChainGraph
 , adjacentChainIds
+, HasChainGraph(..)
 
 -- * Checks with a given chain graph
 
@@ -54,6 +55,7 @@ module Chainweb.Graph
 , petersonChainGraph
 ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
@@ -61,7 +63,7 @@ import qualified Data.HashSet as HS
 import Data.Kind
 import Data.Reflection hiding (int)
 
-import GHC.Generics
+import GHC.Generics hiding (to)
 
 -- internal imports
 
@@ -74,7 +76,7 @@ import Data.DiGraph
 -- Exceptions
 
 -- | This exceptions are not about the properties of the graph itself
--- but about properties of enties (BlockHeader graph) that are constraint
+-- but about properties of enties (BlockHeader graph) that are constrained
 -- by this graph. So, maybe we should move this and the respective checks
 -- to the place where those enties are defined and rename these exceptions
 -- accordingly. However, keeping it here remove code duplication.
@@ -116,6 +118,25 @@ adjacentChainIds
     -> HS.HashSet ChainId
 adjacentChainIds g cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
+
+-- -------------------------------------------------------------------------- --
+-- HasChainGraph
+
+class HasChainGraph a where
+    _chainGraph :: a -> ChainGraph
+    chainGraph :: Getter a ChainGraph
+
+    _chainGraph = view chainGraph
+    {-# INLINE _chainGraph #-}
+
+    chainGraph = to _chainGraph
+    {-# INLINE chainGraph #-}
+
+    {-# MINIMAL _chainGraph | chainGraph #-}
+
+instance HasChainGraph ChainGraph where
+    _chainGraph = id
+    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Checks with a given Graphs
