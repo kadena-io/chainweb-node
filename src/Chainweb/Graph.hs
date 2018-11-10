@@ -1,12 +1,16 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -40,6 +44,14 @@ module Chainweb.Graph
 , toChainGraph
 , validChainGraph
 , adjacentChainIds
+, HasChainGraph(..)
+
+-- * Undirected Edges
+, AdjPair
+, pattern Adj
+, _getAdjPair
+, adjs
+, adjsOfVertex
 
 -- * Checks with a given chain graph
 
@@ -47,16 +59,23 @@ module Chainweb.Graph
 , chainIds
 , checkWebChainId
 , checkAdjacentChainIds
+
+-- * Some Graphs
+
+, singletonChainGraph
+, petersonChainGraph
 ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
-import Data.Reflection
+import Data.Reflection hiding (int)
 
-import GHC.Generics
+import GHC.Generics hiding (to)
 
 -- internal imports
 
@@ -69,7 +88,7 @@ import Data.DiGraph
 -- Exceptions
 
 -- | This exceptions are not about the properties of the graph itself
--- but about properties of enties (BlockHeader graph) that are constraint
+-- but about properties of enties (BlockHeader graph) that are constrained
 -- by this graph. So, maybe we should move this and the respective checks
 -- to the place where those enties are defined and rename these exceptions
 -- accordingly. However, keeping it here remove code duplication.
@@ -113,6 +132,52 @@ adjacentChainIds g cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
+-- Undirected Edges
+
+newtype AdjPair a = AdjPair { _getAdjPair :: (a, a) }
+    deriving stock (Show, Ord, Eq, Generic, Functor)
+    deriving anyclass (Hashable)
+
+pattern Adj :: HasChainId a => a -> a -> AdjPair a
+pattern Adj a b <- AdjPair (a, b)
+  where
+    Adj a b
+        | _chainId a < _chainId b = AdjPair (a,b)
+        | otherwise = AdjPair (b,a)
+
+adjs
+    :: ChainGraph
+    -> HS.HashSet (AdjPair ChainId)
+adjs = HS.map (uncurry Adj) . edges
+{-# INLINE adjs #-}
+
+adjsOfVertex
+    :: HasChainId p
+    => ChainGraph
+    -> p
+    -> HS.HashSet (AdjPair ChainId)
+adjsOfVertex g a = HS.map (Adj (_chainId a)) $ adjacentChainIds g a
+
+-- -------------------------------------------------------------------------- --
+-- HasChainGraph
+
+class HasChainGraph a where
+    _chainGraph :: a -> ChainGraph
+    chainGraph :: Getter a ChainGraph
+
+    _chainGraph = view chainGraph
+    {-# INLINE _chainGraph #-}
+
+    chainGraph = to _chainGraph
+    {-# INLINE chainGraph #-}
+
+    {-# MINIMAL _chainGraph | chainGraph #-}
+
+instance HasChainGraph ChainGraph where
+    _chainGraph = id
+    {-# INLINE _chainGraph #-}
+
+-- -------------------------------------------------------------------------- --
 -- Checks with a given Graphs
 
 chainIds :: Given ChainGraph => HS.HashSet ChainId
@@ -144,3 +209,11 @@ checkAdjacentChainIds cid expectedAdj = do
         (Actual $ adjacents (_chainId cid) given)
     return (getExpected expectedAdj)
 
+-- -------------------------------------------------------------------------- --
+-- Some Graphs
+
+singletonChainGraph :: ChainGraph
+singletonChainGraph = toChainGraph (testChainId . int) singleton
+
+petersonChainGraph :: ChainGraph
+petersonChainGraph = toChainGraph (testChainId . int) petersonGraph
