@@ -1,12 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+
+-- ixg
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -43,6 +48,7 @@ module Chainweb.Utils
 , maxBy
 , minBy
 , (&)
+, IxedGet(..)
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -203,6 +209,16 @@ minBy cmp a b = case cmp a b of
     GT -> b
     _ -> a
 {-# INLINE minBy #-}
+
+-- -------------------------------------------------------------------------- --
+-- Read only Ixed
+
+class IxedGet a where
+    ixg :: Index a -> Fold a (IxValue a)
+
+    default ixg :: Ixed a => Index a -> Fold a (IxValue a)
+    ixg = ix
+    {-# INLINE ixg #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
