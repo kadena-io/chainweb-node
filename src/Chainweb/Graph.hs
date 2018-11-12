@@ -63,6 +63,7 @@ module Chainweb.Graph
 -- * Some Graphs
 
 , singletonChainGraph
+, pairChainGraph
 , petersonChainGraph
 ) where
 
@@ -221,6 +222,9 @@ checkAdjacentChainIds cid expectedAdj = do
 
 singletonChainGraph :: ChainGraph
 singletonChainGraph = toChainGraph (testChainId . int) singleton
+
+pairChainGraph :: ChainGraph
+pairChainGraph = toChainGraph (testChainId . int) pair
 
 petersonChainGraph :: ChainGraph
 petersonChainGraph = toChainGraph (testChainId . int) petersonGraph
