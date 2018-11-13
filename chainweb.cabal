@@ -77,6 +77,7 @@ library
         , Chainweb.Version
 
         , Data.DiGraph
+        , Data.DiGraph.FloydWarshall
         , Data.LogMessage
         , Data.Singletons
         , Data.Word.Encoding
@@ -118,6 +119,7 @@ library
         , largeword >= 1.2
         , lens >= 4.16
         , loglevel >= 0.1
+        , massiv >= 0.2
         , mtl >= 2.2
         , optparse-applicative >= 0.14
         , paths >= 0.2

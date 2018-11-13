@@ -61,6 +61,7 @@ module Data.DiGraph
 , minInDegree
 , isEdge
 , isVertex
+, diameter
 
 -- * misc
 , traverseHM
@@ -70,14 +71,14 @@ module Data.DiGraph
 import Control.Arrow
 import Control.Monad
 
-import qualified Data.Foldable as F
+import Data.Foldable
 import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
-import qualified Data.Traversable as T
+import Data.Traversable
 import Data.Tuple
 
 import GHC.Generics
@@ -85,6 +86,10 @@ import GHC.Generics
 import Numeric.Natural
 
 import Prelude hiding (cycle)
+
+-- internal modules
+
+import qualified Data.DiGraph.FloydWarshall as FW
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -96,7 +101,7 @@ traverseHM :: Eq k => Hashable k => Monad f => (a -> f b) -> HM.HashMap k a -> f
 traverseHM f = fmap HM.fromList . mapM (mapM f) . HM.toList
 
 traverseHS :: Eq b => Hashable b => Monad f => (a -> f b) -> HS.HashSet a -> f (HS.HashSet b)
-traverseHS f = fmap HS.fromList . T.mapM f . HS.toList
+traverseHS f = fmap HS.fromList . mapM f . HS.toList
 
 -- -------------------------------------------------------------------------- --
 -- Graph
@@ -155,7 +160,7 @@ adjacents :: Eq a => Hashable a => a -> DiGraph a -> HS.HashSet a
 adjacents a (DiGraph g) = g HM.! a
 
 incidents :: Eq a => Hashable a => a -> DiGraph a -> [(a, a)]
-incidents a g = [ (a, b) | b <- F.toList (adjacents a g) ]
+incidents a g = [ (a, b) | b <- toList (adjacents a g) ]
 
 --
 
@@ -317,7 +322,7 @@ isRegular = (== 1)
     . unGraph
 
 isSymmetric :: Hashable a => Eq a => DiGraph a -> Bool
-isSymmetric g = F.all checkNode $ HM.toList $ unGraph g
+isSymmetric g = all checkNode $ HM.toList $ unGraph g
   where
     checkNode (a, e) = all (\x -> isAdjacent x a g) e
 
@@ -350,4 +355,13 @@ maxInDegree = maxOutDegree . transpose
 
 minInDegree :: Eq a => Hashable a => DiGraph a -> Natural
 minInDegree = minOutDegree . transpose
+
+-- | This is expensive for larger graphs. Use with care and
+-- consider caching the result.
+--
+diameter ::Eq a => Hashable a => DiGraph a -> Natural
+diameter g = FW.diameter $ FW.fromAdjacencySets (unGraph ig)
+  where
+    vmap = HM.fromList $ zip (HS.toList $ vertices g) [0..]
+    ig = mapVertices (vmap HM.!) g
 
