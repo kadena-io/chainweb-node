@@ -57,6 +57,7 @@ library
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
+        , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
@@ -118,6 +119,7 @@ library
         , loglevel >= 0.1
         , massiv >= 0.2
         , mtl >= 2.2
+        , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , paths >= 0.2
         , quickcheck-instances >= 0.3
