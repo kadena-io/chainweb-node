@@ -144,6 +144,7 @@ pattern Adj a b <- AdjPair (a, b)
     Adj a b
         | _chainId a < _chainId b = AdjPair (a,b)
         | otherwise = AdjPair (b,a)
+{-# COMPLETE Adj #-}
 
 adjs
     :: ChainGraph
