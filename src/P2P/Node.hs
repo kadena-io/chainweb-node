@@ -305,6 +305,16 @@ syncFromPeer node info = runClientM sync env >>= \case
     myPid = _peerId $ _p2pNodePeerInfo node
     pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
 
+{-
+-- | Get PeerInfo when only the HostAddress is known.
+--
+getPeerInfos :: ChainwebVersion -> NetworkId -> HTTP.Manager -> HostAddress -> IO PeerInfo
+getPeerInfos mgr nid ha = do
+    let env = mkClientEnv mgr $ peerBaseUrl ha
+    is <- runClientM $ peerGetClient v nid Nothing Nothing
+    L.find (\i -> _peerAddr == ha) (_pageItems
+-}
+
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
 
@@ -472,11 +482,9 @@ p2pCreateNode
     -> HTTP.Manager
     -> P2pSession
     -> IO P2pNode
-p2pCreateNode cv cid conf logfun db addr mgr session = do
-    -- get node id
-    nid <-  maybe createPeerId return $ _p2pConfigPeerId conf
+p2pCreateNode cv nid conf logfun db addr mgr session = do
     let myInfo = PeerInfo
-            { _peerId = nid
+            { _peerId = _p2pConfigPeerId conf
             , _peerAddr = addr
             }
 
@@ -486,7 +494,7 @@ p2pCreateNode cv cid conf logfun db addr mgr session = do
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
     let s = P2pNode
-                { _p2pNodeNetworkId = cid
+                { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
                 , _p2pNodePeerDb = db

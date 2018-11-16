@@ -244,7 +244,7 @@ runNodeWithConfig conf logger = do
 
     -- Configuration for this node
     --
-    myConfig pid = p2pConfig & p2pConfigPeerId .~ Just pid
+    myConfig pid = p2pConfig & p2pConfigPeerId .~ pid
     myPort = fromIntegral (_nodePort conf)
 
 -- -------------------------------------------------------------------------- --

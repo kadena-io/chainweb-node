@@ -214,7 +214,7 @@ example conf logger =
     --
     bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
     bootstrapConfig = p2pConfig
-        & p2pConfigPeerId ?~ _peerId bootstrapPeer
+        & p2pConfigPeerId .~ _peerId bootstrapPeer
 
     bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
     bootstrapNodeId = NodeId cid 0
@@ -225,7 +225,6 @@ example conf logger =
         [ (NodeId cid i, bootstrapPort + fromIntegral i)
         | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
         ]
-
 
 -- -------------------------------------------------------------------------- --
 -- Example P2P Client Sessions
