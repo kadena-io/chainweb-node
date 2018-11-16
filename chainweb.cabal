@@ -306,6 +306,7 @@ executable single-chain-example
         Paths_chainweb
         Utils.Gexf
         Utils.Logging
+        Chainweb.Example.SingleChainMiner
 
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:

@@ -57,12 +57,12 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainDB
 import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
+import Chainweb.Example.SingleChainMiner
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.NodeId
@@ -278,15 +278,20 @@ node cid t logger conf p2pConfig nid port =
             $ \cdb -> withPeerDb p2pConfig
             $ \pdb -> withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, ChainDb)]
-                [(ChainNetwork cid, pdb)] -- :: [(ChainId, PeerDb)]
+                [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 )
             $ \server -> do
                 logfun Info "started server"
                 runConcurrently
-                    $ Concurrently (miner logger' conf nid cdb)
+                    $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
                     <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
                     <> Concurrently (monitor logger' cdb)
                 wait server
+  where
+    minerConfig = SingleChainMinerConfig
+        (_numberOfNodes conf)
+        (_meanBlockTimeSeconds conf)
+        cid
 
 withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b
 withChainDb cid nid = bracket start stop
@@ -315,6 +320,7 @@ syncer
     -> ChainDb
     -> PeerDb
     -> Port
+        -- This is the local port that is used in the local peer info
     -> Natural
     -> IO ()
 syncer cid logger conf cdb pdb port t =
@@ -323,7 +329,7 @@ syncer cid logger conf cdb pdb port t =
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
+        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger ->
             p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
 
         -- Run P2P client node
@@ -335,60 +341,6 @@ syncer cid logger conf cdb pdb port t =
   where
     nid = ChainNetwork cid
     ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
-
--- -------------------------------------------------------------------------- --
--- Miner
-
--- | A miner creates new blocks headers on the top of the longest branch in
--- the chain database with a mean rate of meanBlockTimeSeconds. Mind blocks
--- are added to the database.
---
--- For testing the difficulty is trivial, so that the target is 'maxBound' and
--- each nonce if accepted. Block creation is delayed through through
--- 'threadDelay' with an geometric distribution.
---
-miner :: Logger -> P2pExampleConfig -> NodeId -> ChainDb -> IO ()
-miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \logger' -> do
-    let logg = loggerFunText logger'
-    logg Info "Started Miner"
-    gen <- MWC.createSystemRandom
-    go logg gen (1 :: Int)
-  where
-    go logg gen i = do
-
-        -- mine new block
-        --
-        d <- MWC.geometric1
-            (1 / (int (_numberOfNodes conf) * int (_meanBlockTimeSeconds conf) * 1000000))
-            gen
-        threadDelay d
-
-        -- get db snapshot
-        --
-        s <- snapshot db
-
-        -- pick parent from longest branch
-        --
-        let bs = branches s
-        p <- maximumBy (compare `on` rank)
-            <$> mapM (`getEntryIO` s) (HS.toList bs)
-
-        -- create new (test) block header
-        --
-        let e = entry $ testBlockHeader nid adjs (Nonce 0) (dbEntry p)
-
-        -- Add block header to the database
-        --
-        s' <- insert e s
-        void $ syncSnapshot s'
-        _ <- logg Debug $ "published new block " <> sshow i
-
-        -- continue
-        --
-        go logg gen (i + 1)
-
-    adjs = BlockHashRecord mempty
-
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
