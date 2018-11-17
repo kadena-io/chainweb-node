@@ -47,6 +47,9 @@ module Chainweb.Utils
 , leadingZeros
 , maxBy
 , minBy
+, allEqOn
+, unlessM
+, whenM
 , (&)
 , IxedGet(..)
 
@@ -122,6 +125,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Maybe
@@ -209,6 +213,27 @@ minBy cmp a b = case cmp a b of
     GT -> b
     _ -> a
 {-# INLINE minBy #-}
+
+-- | Checks that all elements of foldable structure are equal under the given
+-- mapping.
+--
+allEqOn :: Foldable f => Eq b => (a -> b) -> f a -> Bool
+allEqOn p f = case toList f of
+    [] -> True
+    (h:t) -> all (== p h) $ p <$> t
+{-# INLINEABLE allEqOn #-}
+
+-- | A version of 'unless' with a monadic predicate.
+--
+unlessM :: Monad m => m Bool -> m () -> m ()
+unlessM c a = c >>= flip unless a
+{-# INLINE unlessM #-}
+
+-- | A version of 'when' with a monadic predicate.
+--
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM c a = c >>= flip when a
+{-# INLINE whenM #-}
 
 -- -------------------------------------------------------------------------- --
 -- Read only Ixed
