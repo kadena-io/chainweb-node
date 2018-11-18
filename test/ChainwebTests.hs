@@ -23,6 +23,7 @@ import qualified Chainweb.RestAPI.Utils (properties)
 import qualified Chainweb.Test.ChainDB
 import qualified Chainweb.Test.ChainDB.Persistence
 import qualified Chainweb.Test.ChainDB.Sync
+import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 
@@ -44,6 +45,7 @@ suite = testGroup "Unit Tests"
         ]
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
+    , Chainweb.Test.DiGraph.tests
     , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
