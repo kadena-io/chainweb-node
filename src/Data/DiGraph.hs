@@ -51,6 +51,7 @@ module Data.DiGraph
 , isAdjacent
 , isRegular
 , isSymmetric
+, isIrreflexive
 , outDegree
 , inDegree
 , maxOutDegree
@@ -278,6 +279,9 @@ isSymmetric :: Hashable a => Eq a => DiGraph a -> Bool
 isSymmetric g = F.all checkNode $ HM.toList $ unGraph g
   where
     checkNode (a, e) = F.all (\x -> isAdjacent x a g) $ HS.toList e
+
+isIrreflexive :: Eq a => Hashable a => DiGraph a -> Bool
+isIrreflexive = not . any (uncurry HS.member) . HM.toList . unGraph
 
 isVertex :: Eq a => Hashable a => a -> DiGraph a -> Bool
 isVertex a = HM.member a . unGraph
