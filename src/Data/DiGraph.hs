@@ -103,6 +103,16 @@ traverseHS f = fmap HS.fromList . T.mapM f . HS.toList
 
 type DiEdge a = (a, a)
 
+-- | Adjacency list representation of directed graphs.
+--
+-- It is assumed that each target of an edge is also explicitely a node in the
+-- graph.
+--
+-- It is not generally required that graphs are irreflexive, but all concrete
+-- graphs that are defined in this module are irreflexive.
+--
+-- Undirected graphs are represented as symmetric directed graphs.
+--
 newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
 
@@ -116,6 +126,9 @@ instance (Hashable a, Eq a) => Monoid (DiGraph a) where
 adjacencySets :: DiGraph a -> HM.HashMap a (HS.HashSet a)
 adjacencySets = unGraph
 
+-- | A predicate that asserts that every target of an edge is also a vertex in
+-- the graph.
+--
 isDiGraph :: Eq a => Hashable a => DiGraph a -> Bool
 isDiGraph g@(DiGraph m) = HS.null (HS.unions (HM.elems m) `HS.difference` vertices g)
 
@@ -183,8 +196,10 @@ insertVertex :: Eq a => Hashable a => a -> DiGraph a -> DiGraph a
 insertVertex a = DiGraph . HM.insertWith (<>) a [] . unGraph
 
 -- -------------------------------------------------------------------------- --
--- Concrete Graphs
+-- Concrete Graph
 
+-- | undirected clique
+--
 clique :: Natural -> DiGraph Int
 clique i = fromList
     [ (a, b)
@@ -195,15 +210,23 @@ clique i = fromList
 singleton :: DiGraph Int
 singleton = clique 1
 
+-- | Undirected pair graph
+--
 pair :: DiGraph Int
 pair = clique 2
 
+-- | Undirected triange graph
+--
 triangle :: DiGraph Int
 triangle = clique 3
 
+-- | Directed cycle
+--
 diCycle :: Natural -> DiGraph Int
 diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a <- [0 .. int n - 1] ]
 
+-- | Undirected cycle
+--
 cycle :: Natural -> DiGraph Int
 cycle = symmetric . diCycle
 
@@ -296,7 +319,7 @@ isRegular = (== 1)
 isSymmetric :: Hashable a => Eq a => DiGraph a -> Bool
 isSymmetric g = F.all checkNode $ HM.toList $ unGraph g
   where
-    checkNode (a, e) = F.all (\x -> isAdjacent x a g) $ HS.toList e
+    checkNode (a, e) = all (\x -> isAdjacent x a g) e
 
 isIrreflexive :: Eq a => Hashable a => DiGraph a -> Bool
 isIrreflexive = not . any (uncurry HS.member) . HM.toList . unGraph
