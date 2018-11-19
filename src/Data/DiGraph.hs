@@ -31,6 +31,7 @@ module Data.DiGraph
 , fromList
 , fromEdges
 , transpose
+, symmetric
 
 -- * Graphs
 , singleton
@@ -149,7 +150,13 @@ mapVertices :: Eq b => Hashable b => (a -> b) -> DiGraph a -> DiGraph b
 mapVertices f = DiGraph . HM.fromList . fmap (f *** HS.map f) . HM.toList . unGraph
 
 transpose :: Eq a => Hashable a => DiGraph a -> DiGraph a
-transpose g = (DiGraph $ const mempty <$> unGraph g) `union` (fromEdges . HS.map swap $ edges g)
+transpose g = (DiGraph $ const mempty <$> unGraph g)
+    `union` (fromEdges . HS.map swap $ edges g)
+
+-- | Symmetric closure of a directe graph.
+--
+symmetric :: Eq a => Hashable a => DiGraph a -> DiGraph a
+symmetric g = g <> transpose g
 
 -- | Insert an edge. Returns the graph unmodified if the edge
 -- is already in the graph. Non-existing vertices are added.
@@ -186,7 +193,7 @@ diCycle :: Natural -> DiGraph Int
 diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a <- [0 .. int n - 1] ]
 
 cycle :: Natural -> DiGraph Int
-cycle n = diCycle n <> transpose (diCycle n)
+cycle = symmetric . diCycle
 
 line :: Natural -> DiGraph Int
 line n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
