@@ -127,8 +127,15 @@ order = int . HS.size . vertices
 edges :: Eq a => Hashable a => DiGraph a -> HS.HashSet (DiEdge a)
 edges = HS.fromList . concatMap (traverse HS.toList) . HM.toList . unGraph
 
+-- | Directed Size
+--
+diSize :: Eq a => Hashable a => DiGraph a -> Natural
+diSize = int . HS.size . edges
+
+-- |
+--
 size :: Eq a => Hashable a => DiGraph a -> Natural
-size = int . HS.size . edges
+size g = diSize (symmetric g) `div` 2
 
 adjacents :: Eq a => Hashable a => a -> DiGraph a -> HS.HashSet a
 adjacents a (DiGraph g) = g HM.! a
