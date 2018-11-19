@@ -170,7 +170,10 @@ symmetric g = g <> transpose g
 -- is already in the graph. Non-existing vertices are added.
 --
 insertEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> DiGraph a
-insertEdge (a,b) = DiGraph . HM.insertWith (<>) a [b] . unGraph
+insertEdge (a,b) = DiGraph
+    . HM.insertWith (<>) a [b]
+    . HM.insertWith (<>) b []
+    . unGraph
 
 -- | Insert a vertex. Returns the graph unmodified if the vertex
 -- is already in the graph.
