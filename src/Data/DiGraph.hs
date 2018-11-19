@@ -41,6 +41,7 @@ module Data.DiGraph
 , cycle
 , diCycle
 , line
+, diLine
 , petersonGraph
 , twentyChainGraph
 , hoffmanSingleton
@@ -206,8 +207,15 @@ diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a <- [0 .. int n - 1] ]
 cycle :: Natural -> DiGraph Int
 cycle = symmetric . diCycle
 
+-- | Directed line graph
+--
+diLine :: Natural -> DiGraph Int
+diLine n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
+
+-- | Undirected line graph
+--
 line :: Natural -> DiGraph Int
-line n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
+line = symmetric . diLine
 
 petersonGraph :: DiGraph Int
 petersonGraph = DiGraph
