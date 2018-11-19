@@ -28,6 +28,8 @@ import qualified Chainweb.Test.Roundtrips
 
 import qualified P2P.Node.PeerDB (properties)
 
+import qualified Data.DiGraph (properties)
+
 ---
 
 main :: IO ()
@@ -45,4 +47,6 @@ suite = testGroup "Unit Tests"
     , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
+    , testProperties "Data.DiGraph" Data.DiGraph.properties
     ]
+
