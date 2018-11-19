@@ -15,6 +15,7 @@
 module Data.DiGraph
 ( DiGraph
 , DiEdge
+, adjacencySets
 , vertices
 , edges
 , adjacents
@@ -108,6 +109,9 @@ instance (Hashable a, Eq a) => Semigroup (DiGraph a) where
 instance (Hashable a, Eq a) => Monoid (DiGraph a) where
     mempty = DiGraph mempty
     mappend = (<>)
+
+adjacencySets :: DiGraph a -> HM.HashMap a (HS.HashSet a)
+adjacencySets = unGraph
 
 isDiGraph :: Eq a => Hashable a => DiGraph a -> Bool
 isDiGraph g@(DiGraph m) = HS.null (HS.unions (HM.elems m) `HS.difference` vertices g)
