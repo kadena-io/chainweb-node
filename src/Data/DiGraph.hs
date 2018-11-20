@@ -62,10 +62,6 @@ module Data.DiGraph
 , isEdge
 , isVertex
 , diameter
-
--- * misc
-, traverseHM
-, traverseHS
 ) where
 
 import Control.Arrow
@@ -96,12 +92,6 @@ import qualified Data.DiGraph.FloydWarshall as FW
 
 int :: Integral a => Num b => a -> b
 int = fromIntegral
-
-traverseHM :: Eq k => Hashable k => Monad f => (a -> f b) -> HM.HashMap k a -> f (HM.HashMap k b)
-traverseHM f = fmap HM.fromList . mapM (mapM f) . HM.toList
-
-traverseHS :: Eq b => Hashable b => Monad f => (a -> f b) -> HS.HashSet a -> f (HS.HashSet b)
-traverseHS f = fmap HS.fromList . mapM f . HS.toList
 
 -- -------------------------------------------------------------------------- --
 -- Graph
