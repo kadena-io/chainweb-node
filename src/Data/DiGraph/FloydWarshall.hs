@@ -14,12 +14,9 @@ module Data.DiGraph.FloydWarshall
 -- * Graph Representations
   DenseAdjMatrix
 , AdjacencySets
-, Edges
 
 -- * Conversions
-, fromEdges
 , fromAdjacencySets
-, toEdges
 , toAdjacencySets
 
 -- * FloydWarshall Algorithm
@@ -41,23 +38,10 @@ type DenseAdjMatrix = Array U Ix2 Int
 
 type AdjacencySets = HM.HashMap Int (HS.HashSet Int)
 
-type Edges = HS.HashSet (Int, Int)
-
 -- -------------------------------------------------------------------------- --
 -- Adjacency Matrix for dense Graphs
 --
 -- (uses massiv)
-
--- | Assumes that the input is an undirected graph and that the vertex
--- set is a prefix of the natural numbers.
---
-fromEdges :: Int -> Edges -> DenseAdjMatrix
-fromEdges n s = makeArray Seq (n :. n) go
-  where
-    go (i :. j)
-        | (i, j) `HS.member` s = 1
-        | (j, i) `HS.member` s = 1
-        | otherwise = 0
 
 -- | Assumes that the input is an undirected graph and that the vertex
 -- set is a prefix of the natural numbers.
@@ -71,13 +55,6 @@ fromAdjacencySets g = makeArray Seq (n :. n) go
         | isEdge (j, i) = 1
         | otherwise = 0
     isEdge (a, b) = maybe False (HS.member b) $ HM.lookup a g
-
-toEdges :: DenseAdjMatrix -> Edges
-toEdges = ifoldlS f mempty
-  where
-    f a (i :. j) x
-        | x == 0 = a
-        | otherwise = HS.insert (i, j) a
 
 toAdjacencySets :: DenseAdjMatrix -> AdjacencySets
 toAdjacencySets = ifoldlS f mempty
@@ -125,8 +102,9 @@ floydWarshall a = foldl' go a [0..n-1]
 shortestPaths :: Array U Ix2 Int -> Array U Ix2 Double
 shortestPaths = floydWarshall . computeAs U . distMatrix
 
-diameter :: Array U Ix2 Int -> Natural
+diameter :: Array U Ix2 Int -> Maybe Natural
 diameter g
-    | M.isEmpty g = 0
-    | otherwise = round . M.maximum $ shortestPaths g
+    | M.isEmpty g = Just 0
+    | otherwise = let x = round $ M.maximum $ shortestPaths g
+        in if x == round (1/0) then Nothing else Just x
 

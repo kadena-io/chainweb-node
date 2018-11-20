@@ -34,6 +34,7 @@ module Data.DiGraph
 , symmetric
 
 -- * Graphs
+, emptyGraph
 , singleton
 , clique
 , pair
@@ -193,6 +194,9 @@ insertVertex a = DiGraph . HM.insertWith (<>) a [] . unGraph
 -- -------------------------------------------------------------------------- --
 -- Concrete Graph
 
+emptyGraph :: Natural -> DiGraph Int
+emptyGraph n = fromList [ (i, []) | i <- [0 .. int n - 1] ]
+
 -- | undirected clique
 --
 clique :: Natural -> DiGraph Int
@@ -349,7 +353,7 @@ minInDegree = minOutDegree . transpose
 -- | This is expensive for larger graphs. Use with care and
 -- consider caching the result.
 --
-diameter ::Eq a => Hashable a => DiGraph a -> Natural
+diameter ::Eq a => Hashable a => DiGraph a -> Maybe Natural
 diameter g = FW.diameter $ FW.fromAdjacencySets (unGraph ig)
   where
     vmap = HM.fromList $ zip (HS.toList $ vertices g) [0..]
