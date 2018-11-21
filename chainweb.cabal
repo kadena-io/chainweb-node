@@ -55,6 +55,7 @@ library
     exposed-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeaderDB
         , Chainweb.ChainDB
         , Chainweb.ChainDB.Persist
         , Chainweb.ChainDB.Queries

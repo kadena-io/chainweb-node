@@ -101,7 +101,7 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
 
         -- create entry
         -- let e = DB.entry $ entry (DB.dbEntry p) i
-        let e = DB.entry $ testBlockHeader mid adjs (Nonce 0) (DB.dbEntry p)
+        let e = DB.entry $ testBlockHeader mid as (Nonce 0) (DB.dbEntry p)
 
         -- Add entry to database
         s' <- DB.insert e s
@@ -113,7 +113,7 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
         threadDelay d
         go logg (i + 1)
 
-    adjs = BlockHashRecord mempty
+    as = BlockHashRecord mempty
 
 -- -------------------------------------------------------------------------- --
 -- Observer

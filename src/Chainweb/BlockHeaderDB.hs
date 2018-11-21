@@ -83,7 +83,7 @@ makeLenses ''Db
 --
 dbAdd :: E -> Db -> Db
 dbAdd e
-    . over dbChildren (dbAddChildren e)
+    = over dbChildren (dbAddChildren e)
     . over dbBranches (dbAddBranch e)
     . over dbEntries (HM.insert (key e) e)
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 -- |
@@ -106,5 +107,5 @@ diameter :: Array U Ix2 Int -> Maybe Natural
 diameter g
     | M.isEmpty g = Just 0
     | otherwise = let x = round $ M.maximum $ shortestPaths g
-        in if x == round (1/0) then Nothing else Just x
+        in if x == round (1/0 :: Double) then Nothing else Just x
 
