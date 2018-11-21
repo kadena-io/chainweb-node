@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: DiGraph
@@ -15,6 +16,7 @@
 module Data.DiGraph
 ( DiGraph
 , DiEdge
+, adjacencySets
 , vertices
 , edges
 , adjacents
@@ -30,8 +32,10 @@ module Data.DiGraph
 , fromList
 , fromEdges
 , transpose
+, symmetric
 
 -- * Graphs
+, emptyGraph
 , singleton
 , clique
 , pair
@@ -39,6 +43,7 @@ module Data.DiGraph
 , cycle
 , diCycle
 , line
+, diLine
 , petersonGraph
 , twentyChainGraph
 , hoffmanSingleton
@@ -49,6 +54,7 @@ module Data.DiGraph
 , isAdjacent
 , isRegular
 , isSymmetric
+, isIrreflexive
 , outDegree
 , inDegree
 , maxOutDegree
@@ -57,23 +63,24 @@ module Data.DiGraph
 , minInDegree
 , isEdge
 , isVertex
+, diameter
 
--- * misc
-, traverseHM
-, traverseHS
+-- * Test Properties
+, properties
+, properties_undirected
 ) where
 
 import Control.Arrow
 import Control.Monad
 
-import qualified Data.Foldable as F
+import Data.Foldable
 import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
-import qualified Data.Traversable as T
+import Data.Traversable
 import Data.Tuple
 
 import GHC.Generics
@@ -82,23 +89,33 @@ import Numeric.Natural
 
 import Prelude hiding (cycle)
 
+import Test.QuickCheck
+
+-- internal modules
+
+import qualified Data.DiGraph.FloydWarshall as FW
+
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 int :: Integral a => Num b => a -> b
 int = fromIntegral
 
-traverseHM :: Eq k => Hashable k => Monad f => (a -> f b) -> HM.HashMap k a -> f (HM.HashMap k b)
-traverseHM f = fmap HM.fromList . mapM (mapM f) . HM.toList
-
-traverseHS :: Eq b => Hashable b => Monad f => (a -> f b) -> HS.HashSet a -> f (HS.HashSet b)
-traverseHS f = fmap HS.fromList . T.mapM f . HS.toList
-
 -- -------------------------------------------------------------------------- --
 -- Graph
 
 type DiEdge a = (a, a)
 
+-- | Adjacency list representation of directed graphs.
+--
+-- It is assumed that each target of an edge is also explicitely a node in the
+-- graph.
+--
+-- It is not generally required that graphs are irreflexive, but all concrete
+-- graphs that are defined in this module are irreflexive.
+--
+-- Undirected graphs are represented as symmetric directed graphs.
+--
 newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
 
@@ -109,6 +126,12 @@ instance (Hashable a, Eq a) => Monoid (DiGraph a) where
     mempty = DiGraph mempty
     mappend = (<>)
 
+adjacencySets :: DiGraph a -> HM.HashMap a (HS.HashSet a)
+adjacencySets = unGraph
+
+-- | A predicate that asserts that every target of an edge is also a vertex in
+-- the graph.
+--
 isDiGraph :: Eq a => Hashable a => DiGraph a -> Bool
 isDiGraph g@(DiGraph m) = HS.null (HS.unions (HM.elems m) `HS.difference` vertices g)
 
@@ -121,14 +144,21 @@ order = int . HS.size . vertices
 edges :: Eq a => Hashable a => DiGraph a -> HS.HashSet (DiEdge a)
 edges = HS.fromList . concatMap (traverse HS.toList) . HM.toList . unGraph
 
+-- | Directed Size
+--
+diSize :: Eq a => Hashable a => DiGraph a -> Natural
+diSize = int . HS.size . edges
+
+-- |
+--
 size :: Eq a => Hashable a => DiGraph a -> Natural
-size = int . HS.size . edges
+size g = diSize (symmetric g) `div` 2
 
 adjacents :: Eq a => Hashable a => a -> DiGraph a -> HS.HashSet a
 adjacents a (DiGraph g) = g HM.! a
 
 incidents :: Eq a => Hashable a => a -> DiGraph a -> [(a, a)]
-incidents a g = [ (a, b) | b <- F.toList (adjacents a g) ]
+incidents a g = [ (a, b) | b <- toList (adjacents a g) ]
 
 --
 
@@ -145,13 +175,22 @@ mapVertices :: Eq b => Hashable b => (a -> b) -> DiGraph a -> DiGraph b
 mapVertices f = DiGraph . HM.fromList . fmap (f *** HS.map f) . HM.toList . unGraph
 
 transpose :: Eq a => Hashable a => DiGraph a -> DiGraph a
-transpose g = (DiGraph $ const mempty <$> unGraph g) `union` (fromEdges . HS.map swap $ edges g)
+transpose g = (DiGraph $ const mempty <$> unGraph g)
+    `union` (fromEdges . HS.map swap $ edges g)
+
+-- | Symmetric closure of a directe graph.
+--
+symmetric :: Eq a => Hashable a => DiGraph a -> DiGraph a
+symmetric g = g <> transpose g
 
 -- | Insert an edge. Returns the graph unmodified if the edge
 -- is already in the graph. Non-existing vertices are added.
 --
 insertEdge :: Eq a => Hashable a => DiEdge a -> DiGraph a -> DiGraph a
-insertEdge (a,b) = DiGraph . HM.insertWith (<>) a [b] . unGraph
+insertEdge (a,b) = DiGraph
+    . HM.insertWith (<>) a [b]
+    . HM.insertWith (<>) b []
+    . unGraph
 
 -- | Insert a vertex. Returns the graph unmodified if the vertex
 -- is already in the graph.
@@ -160,8 +199,13 @@ insertVertex :: Eq a => Hashable a => a -> DiGraph a -> DiGraph a
 insertVertex a = DiGraph . HM.insertWith (<>) a [] . unGraph
 
 -- -------------------------------------------------------------------------- --
--- Concrete Graphs
+-- Concrete Graph
 
+emptyGraph :: Natural -> DiGraph Int
+emptyGraph n = fromList [ (i, []) | i <- [0 .. int n - 1] ]
+
+-- | undirected clique
+--
 clique :: Natural -> DiGraph Int
 clique i = fromList
     [ (a, b)
@@ -172,20 +216,35 @@ clique i = fromList
 singleton :: DiGraph Int
 singleton = clique 1
 
+-- | Undirected pair graph
+--
 pair :: DiGraph Int
 pair = clique 2
 
+-- | Undirected triange graph
+--
 triangle :: DiGraph Int
 triangle = clique 3
 
+-- | Directed cycle
+--
 diCycle :: Natural -> DiGraph Int
 diCycle n = fromList [ (a, [(a + 1) `mod` int n]) | a <- [0 .. int n - 1] ]
 
+-- | Undirected cycle
+--
 cycle :: Natural -> DiGraph Int
-cycle n = diCycle n <> transpose (diCycle n)
+cycle = symmetric . diCycle
 
+-- | Directed line graph
+--
+diLine :: Natural -> DiGraph Int
+diLine n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
+
+-- | Undirected line graph
+--
 line :: Natural -> DiGraph Int
-line n = fromList [ (a, [ a + 1 | a /= int n - 1]) | a <- [0 .. int n - 1] ]
+line = symmetric . diLine
 
 petersonGraph :: DiGraph Int
 petersonGraph = DiGraph
@@ -264,9 +323,12 @@ isRegular = (== 1)
     . unGraph
 
 isSymmetric :: Hashable a => Eq a => DiGraph a -> Bool
-isSymmetric g = F.all checkNode $ HM.toList $ unGraph g
+isSymmetric g = all checkNode $ HM.toList $ unGraph g
   where
-    checkNode (a, e) = F.all (\x -> isAdjacent x a g) $ HS.toList e
+    checkNode (a, e) = all (\x -> isAdjacent x a g) e
+
+isIrreflexive :: Eq a => Hashable a => DiGraph a -> Bool
+isIrreflexive = not . any (uncurry HS.member) . HM.toList . unGraph
 
 isVertex :: Eq a => Hashable a => a -> DiGraph a -> Bool
 isVertex a = HM.member a . unGraph
@@ -294,4 +356,88 @@ maxInDegree = maxOutDegree . transpose
 
 minInDegree :: Eq a => Hashable a => DiGraph a -> Natural
 minInDegree = minOutDegree . transpose
+
+-- | This is expensive for larger graphs. Use with care and
+-- consider caching the result.
+--
+diameter ::Eq a => Hashable a => DiGraph a -> Maybe Natural
+diameter g = FW.diameter $ FW.fromAdjacencySets (unGraph ig)
+  where
+    vmap = HM.fromList $ zip (HS.toList $ vertices g) [0..]
+    ig = mapVertices (vmap HM.!) g
+
+-- -------------------------------------------------------------------------- --
+-- Properties
+
+prefixProperties :: String -> [(String, Property)] -> [(String, Property)]
+prefixProperties p = fmap $ first (p <>)
+
+properties_undirected :: Eq a => Hashable a => DiGraph a -> [(String, Property)]
+properties_undirected g =
+    [ ("isDiGraph", property $ isDiGraph g)
+    , ("isIrreflexive", property $ isIrreflexive g)
+    , ("isSymmetric", property $ isSymmetric g)
+    ]
+
+properties_emptyGraph :: Natural -> [(String, Property)]
+properties_emptyGraph n = prefixProperties ("emptyGraph of order " <> show n <> ": ")
+    $ ("order == " <> show n, order g === n)
+    : ("size == 0", size g === 0)
+    : properties_undirected g
+  where
+    g = emptyGraph n
+
+properties_singletonGraph :: [(String, Property)]
+properties_singletonGraph = prefixProperties "singletonGraph: "
+    $ ("order == 1", order g === 1)
+    : ("size == 0", size g === 0)
+    : ("outDegree == 0", maxOutDegree g === 0)
+    : ("isRegular", property $ isRegular g)
+    : ("diameter == 0", diameter g === Just 0)
+    : properties_undirected g
+  where
+    g = singleton
+
+properties_petersonGraph :: [(String, Property)]
+properties_petersonGraph = prefixProperties "petersonGraph: "
+    $ ("order == 10", order g === 10)
+    : ("size == 15", size g === 15)
+    : ("outDegree == 3", maxOutDegree g === 3)
+    : ("isRegular", property $ isRegular g)
+    : ("diameter == 2", diameter g === Just 2)
+    : properties_undirected g
+  where
+    g = petersonGraph
+
+properties_twentyChainGraph :: [(String, Property)]
+properties_twentyChainGraph = prefixProperties "twentyChainGraph: "
+    $ ("order == 20", order g === 20)
+    : ("size == 30", size g === 30)
+    : ("outDegree == 3", maxOutDegree g === 3)
+    : ("isRegular", property $ isRegular g)
+    : ("diameter == 2", diameter g === Just 4)
+    : properties_undirected g
+  where
+    g = twentyChainGraph
+
+properties_hoffmanSingletonGraph :: [(String, Property)]
+properties_hoffmanSingletonGraph = prefixProperties "HoffmanSingletonGraph: "
+    $ ("order == 50", order g === 50)
+    : ("size == 50", size g === 175)
+    : ("outDegree == 7", maxOutDegree g === 7)
+    : ("isRegular", property $ isRegular g)
+    : ("diameter == 2", diameter g === Just 2)
+    : properties_undirected g
+  where
+    g = hoffmanSingleton
+
+properties :: [(String, Property)]
+properties = (concat :: [[(String, Property)]] -> [(String, Property)])
+    [ properties_emptyGraph 0
+    , properties_emptyGraph 2
+    , properties_singletonGraph
+    , properties_petersonGraph
+    , properties_twentyChainGraph
+    , properties_hoffmanSingletonGraph
+    ]
 
