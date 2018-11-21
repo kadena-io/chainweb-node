@@ -102,7 +102,7 @@ rrg
 rrg gen n d = go 0 (S.fromList c) (emptyGraph n)
   where
     v = [0 .. int n - 1]
-    c = [(x, y) | x <- v, y <- [0 .. int d - 1]]
+    c = [(x, y) | x <- v, y <- [0 :: Int .. int d - 1]]
 
     go i s g
         | S.null s = return $ Just g
@@ -165,7 +165,7 @@ newtype RegularGraph (d :: Nat) = RegularGraph { getRegularGraph :: DiGraph Int 
 
 instance KnownNat d => Arbitrary (RegularGraph d) where
     arbitrary = fmap RegularGraph
-        $ scale (if d > 0 then (+ (d + 1)) else id)
+        $ scale (if d > (0 :: Int) then (+ (d + 1)) else id)
         $ sized $ \n -> maybe discard return =<< rrg choose (int n) d
       where
         d :: Num a => a
@@ -246,7 +246,7 @@ fglDiameter :: G.Graph g => g Int Int -> Maybe Natural
 fglDiameter g = if M.isEmpty sps
     then Just 0
     else let x = round $ M.maximum sps
-        in if x == round (1/0) then Nothing else Just x
+        in if x == round (1/0 :: Double) then Nothing else Just x
   where
     sps = fglShortestPaths g
 
