@@ -28,7 +28,7 @@ import Chainweb.Test.Utils (toyChainDB, withDB, insertN)
 
 tests :: TestTree
 tests = testGroup "Basic Interaction"
-    [ testCase "Initialization + Shutdown" $ (toyChainDB chainId0) >>= DB.closeChainDb . snd
+    [ testCase "Initialization + Shutdown" $ toyChainDB chainId0 >>= DB.closeChainDb . snd
     , testCase "10 Insertions + Sync" insertItems
     , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
     , testCase "height" correctHeight
