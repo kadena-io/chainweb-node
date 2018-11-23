@@ -85,6 +85,11 @@ newtype PeerId = PeerId V4.UUID
     deriving anyclass (Hashable, NFData)
     deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Arbitrary)
 
+instance Read PeerId where
+    readsPrec _ x = case peerIdFromText (T.pack x) of
+        Nothing -> []
+        Just v -> [(v,"")]
+
 createPeerId :: IO PeerId
 createPeerId = PeerId <$> V4.nextRandom
 {-# INLINE createPeerId #-}

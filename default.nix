@@ -15,6 +15,7 @@
       (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
       ./.;
     overrides = self: super: with pkgs.haskell.lib; {
+      configuration-tools = dontCheck super.configuration-tools;
       # Don't run a package's test suite
       # foo = dontCheck super.chainweb;
       #
