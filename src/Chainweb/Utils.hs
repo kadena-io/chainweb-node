@@ -191,7 +191,7 @@ len = int . length
 {-# INLINE len #-}
 
 (==>) :: Bool -> Bool -> Bool
-a ==> b = not a && b
+a ==> b = not a || b
 infixr 1 ==>
 {-# INLINE (==>) #-}
 

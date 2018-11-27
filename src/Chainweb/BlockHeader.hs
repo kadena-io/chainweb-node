@@ -82,12 +82,7 @@ module Chainweb.BlockHeader
 , genesisBlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
-
--- * BlockHeader Validation
-, prop_block_difficulty
-, prop_block_hash
-, prop_block_genesis_parent
-, prop_block_genesis_target
+, genesisBlockTarget
 
 -- * Testing
 , testBlockHeader
@@ -161,11 +156,6 @@ newtype BlockWeight = BlockWeight HashDifficulty
         , AdditiveSemigroup, AdditiveAbelianSemigroup
         , Num
         )
-
-instance LeftTorsor BlockWeight where
-    type Diff BlockWeight = HashDifficulty
-    add d (BlockWeight w) = BlockWeight (d + w)
-    diff (BlockWeight w) (BlockWeight w') = w - w'
 
 encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
@@ -492,7 +482,7 @@ genesisBlockHeader
     -> p
     -> BlockHeader
 genesisBlockHeader v g p = BlockHeader
-    { _blockParent = genesisBlockHash v p
+    { _blockParent = genesisBlockHash v cid
     , _blockAdjacentHashes = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
     , _blockTarget = genesisBlockTarget
@@ -517,92 +507,6 @@ genesisBlockHeaders
     -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v g ps = HM.fromList
     $ (\cid -> (_chainId cid, genesisBlockHeader v g cid)) <$> HS.toList ps
-
--- -------------------------------------------------------------------------- --
--- BlockHeader Validation
-
--- | An enumeration of possible validation failures for a block header.
-data ValidationFailure =
-      MissingParent -- ^ Parent isn't in the database
-    | CreatedInFuture -- ^ Claims to be created at a time greater than the current time
-    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
-    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
-    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
-    | IncorrectHeight -- ^ The given height is not one more than the parent height
-    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
-    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
-    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
-    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
-  deriving (Show, Eq, Ord)
-
-instance Exception ValidationFailure
-
--- | Validate properties of the block header, producing a list of the validation failures
-validateBlockHeader
-    :: Time Int64 -- ^ The current time (or the time with respect to which we are determining if the block header is valid)
-    -> Snapshot -- ^ A snapshot of the database
-    -> BlockHeader -- ^ The block header to be checked
-    -> [ValidationFailure] -- ^ A list of ways in which the block header isn't valid
-validateBlockHeader now s b = validateBlockHeaderIntrinsic now b ++ validateBlockHeaderInductive s b
-
--- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an empty list)
-isValidBlockHeader :: Time Int64 -> Snapshot -> BlockHeader -> Bool
-isValidBlockHeader now s b = null (validateBlockHeader now s b)
-
--- | Validates properties of a block with respect to its parent.
-validateBlockHeaderInductive
-    :: Snapshot
-    -> BlockHeader
-    -> [ValidationFailure]
-validateBlockHeaderInductive s b =
-    case lookupEntry (UncheckedKey (_blockParent b)) s of
-        Nothing -> [MissingParent]
-        Just p -> validateParent p b
-
--- | Validates properties of a block which are checkable from the block header without observing the remainder
--- of the database.
-validateBlockHeaderIntrinsic
-    :: Time Int64 -- ^ the current time (or time with respect to which we are judging the block)
-    -> BlockHeader -- ^ block header to be validated
-    -> [ValidationFailure]
-validateBlockHeaderIntrinsic now b = concat
-    [ [ CreatedInFuture | not (prop_block_created_before now b) ]
-    , [ IncorrectTarget | not (prop_block_difficulty b) ]
-    , [ IncorrectHash | not (prop_block_hash b) ]
-    , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
-    , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
-    ]
-
--- | Validate properties of a block with respect to a given parent.
-validateParent
-    :: BlockHeader -- ^ Parent block header
-    -> BlockHeader -- ^ Block header under scrutiny
-    -> [ValidationFailure]
-validateParent p b = concat
-    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
-    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
-    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
-    , [ IncorrectWeight | not (_blockWeight b == add (targetToDifficulty (_blockTarget b)) (_blockWeight p)) ]
-    -- TODO:
-    -- target of block matches the calculate target for the branch
-    ]
-
-prop_block_created_before :: Time Int64 -> BlockHeader -> Bool
-prop_block_created_before now b = _blockCreationTime b < now
-
-prop_block_difficulty :: BlockHeader -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
-
-prop_block_hash :: BlockHeader -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
-
-prop_block_genesis_parent :: BlockHeader -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b
-    ==> _blockParent b == _blockHash b
-
-prop_block_genesis_target :: BlockHeader -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

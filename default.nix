@@ -5,11 +5,9 @@
 , sha ? "1wzbjh20vb7ykd4ysm7lg6m0g2icagxvpsy7hq94mpp6001cjqi1"
 , pkgs ? import (builtins.fetchTarball {
                    url = "https://github.com/kadena-io/nixpkgs/archive/${rev}.tar.gz";
-                   sha256 = sha; }) {
-    config.allowUnfree = true;
-  }
+                   sha256 = sha; }) { config.allowUnfree = true; }
 }:
-  pkgs.haskell.packages.${compiler}.developPackage {
+  (pkgs.haskell.packages.${compiler}.developPackage {
     name = "chainweb";
     root = builtins.filterSource
       (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
@@ -56,4 +54,4 @@
         sha256 = "1lkg6p8s3j48q6cq27k9sldd1f8aqd6b77rsa0vbbzsi69idqb17";
       };
     };
-  }
+  }).overrideAttrs (attrs: { buildInputs = [pkgs.haskellPackages.cabal-install]; })
