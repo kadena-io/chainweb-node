@@ -26,6 +26,7 @@
       # packages, run "nix repl", type "pkgs = import <nixpkgs> {}", hit
       # enter, then type "pkgs.haskell.lib.", then hit <TAB> to get a
       # tab-completed list of functions.
+      configuration-tools = dontCheck super.configuration-tools;
     };
     source-overrides = {
       # Use a specific hackage version (if nixpkgs knows about it)

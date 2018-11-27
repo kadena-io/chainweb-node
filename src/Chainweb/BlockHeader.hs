@@ -162,6 +162,11 @@ newtype BlockWeight = BlockWeight HashDifficulty
         , Num
         )
 
+instance LeftTorsor BlockWeight where
+    type Diff BlockWeight = HashDifficulty
+    add d (BlockWeight w) = BlockWeight (d + w)
+    diff (BlockWeight w) (BlockWeight w') = w - w'
+
 encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 
@@ -203,32 +208,32 @@ decodeNonce = Nonce <$> getWord64le
 -- | BlockHeader
 --
 -- Some redunant, aggregated information is included in the block and the block
--- hash. This enables nodes to inductively with respective to existing blocks
--- without recalculating the aggregated value from the genesis block onward.
+-- hash. This enables nodes to be checked inductively with respective to existing
+-- blocks without recalculating the aggregated value from the genesis block onward.
 --
 data BlockHeader :: Type where
     BlockHeader ::
         { _blockParent :: !BlockHash
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockAdjacentHashes :: !BlockHashRecord
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockTarget :: !HashTarget
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockPayloadHash :: !BlockPayloadHash
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockCreationTime :: !(Time Int64)
             -- ^ the time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
             -- with in the chain of blocks. The smallest allowed increment is
             -- 'smallestBlockTimeIncrement'. Nodes are supposed to ignore blocks
-            -- with values that are in the future and reconsider a block when it's
+            -- with values that are in the future and reconsider a block when its
             -- value is in the past.
             --
-            -- The block creation time is used to determin the block difficulty for
+            -- The block creation time is used to determine the block difficulty for
             -- future blocks.
             --
             -- Nodes are not supposed to consider the creation time when choosing
@@ -239,21 +244,21 @@ data BlockHeader :: Type where
             -- with respect to a (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
-            -- It is possible that an miner always choses the smallest possible
+            -- It is possible that an miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
             -- gain from doing so, but attack models should consider and investigate
             -- such behavior.
             --
-            -- On the other hand miners may chose to compute forks with creation
-            -- time long the future. By doing so, the difficulty on such a fork
+            -- On the other hand miners may choose to compute forks with creation
+            -- time long in the future. By doing so, the difficulty on such a fork
             -- would decrease allowing the miner to compute very long chains very
             -- quickly. However, those chains would become valid only after a long
             -- time passed. The algorithm for computing the difficulty must ensure
             -- this strategy doesn't give an advantage to an attacker that would
-            -- increase the success propbability for an attack.
+            -- increase the success probability for an attack.
 
         , _blockNonce :: !Nonce
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockChainId :: !ChainId
 
@@ -280,7 +285,7 @@ data BlockHeader :: Type where
             -- ^ The public identifier of the miner of the block as self-idenfied
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
-            -- enfored. This information is merely informational.
+            -- enforced. This information is merely informational.
 
         , _blockHash :: !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
@@ -515,6 +520,75 @@ genesisBlockHeaders v g ps = HM.fromList
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
+
+-- | An enumeration of possible validation failures for a block header.
+data ValidationFailure =
+      MissingParent -- ^ Parent isn't in the database
+    | CreatedInFuture -- ^ Claims to be created at a time greater than the current time
+    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
+    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
+    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
+    | IncorrectHeight -- ^ The given height is not one more than the parent height
+    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
+    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
+    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
+    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
+  deriving (Show, Eq, Ord)
+
+instance Exception ValidationFailure
+
+-- | Validate properties of the block header, producing a list of the validation failures
+validateBlockHeader
+    :: Time Int64 -- ^ The current time (or the time with respect to which we are determining if the block header is valid)
+    -> Snapshot -- ^ A snapshot of the database
+    -> BlockHeader -- ^ The block header to be checked
+    -> [ValidationFailure] -- ^ A list of ways in which the block header isn't valid
+validateBlockHeader now s b = validateBlockHeaderIntrinsic now b ++ validateBlockHeaderInductive s b
+
+-- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an empty list)
+isValidBlockHeader :: Time Int64 -> Snapshot -> BlockHeader -> Bool
+isValidBlockHeader now s b = null (validateBlockHeader now s b)
+
+-- | Validates properties of a block with respect to its parent.
+validateBlockHeaderInductive
+    :: Snapshot
+    -> BlockHeader
+    -> [ValidationFailure]
+validateBlockHeaderInductive s b =
+    case lookupEntry (UncheckedKey (_blockParent b)) s of
+        Nothing -> [MissingParent]
+        Just p -> validateParent p b
+
+-- | Validates properties of a block which are checkable from the block header without observing the remainder
+-- of the database.
+validateBlockHeaderIntrinsic
+    :: Time Int64 -- ^ the current time (or time with respect to which we are judging the block)
+    -> BlockHeader -- ^ block header to be validated
+    -> [ValidationFailure]
+validateBlockHeaderIntrinsic now b = concat
+    [ [ CreatedInFuture | not (prop_block_created_before now b) ]
+    , [ IncorrectTarget | not (prop_block_difficulty b) ]
+    , [ IncorrectHash | not (prop_block_hash b) ]
+    , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
+    , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
+    ]
+
+-- | Validate properties of a block with respect to a given parent.
+validateParent
+    :: BlockHeader -- ^ Parent block header
+    -> BlockHeader -- ^ Block header under scrutiny
+    -> [ValidationFailure]
+validateParent p b = concat
+    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
+    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
+    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
+    , [ IncorrectWeight | not (_blockWeight b == add (targetToDifficulty (_blockTarget b)) (_blockWeight p)) ]
+    -- TODO:
+    -- target of block matches the calculate target for the branch
+    ]
+
+prop_block_created_before :: Time Int64 -> BlockHeader -> Bool
+prop_block_created_before now b = _blockCreationTime b < now
 
 prop_block_difficulty :: BlockHeader -> Bool
 prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
