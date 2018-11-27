@@ -54,4 +54,7 @@
         sha256 = "1lkg6p8s3j48q6cq27k9sldd1f8aqd6b77rsa0vbbzsi69idqb17";
       };
     };
-  }).overrideAttrs (attrs: { buildInputs = [pkgs.haskellPackages.cabal-install]; })
+  }).overrideAttrs (attrs: { buildInputs = attrs.buildInputs ++
+      [pkgs.haskellPackages.cabal-install
+       pkgs.zlib
+      ]; })
