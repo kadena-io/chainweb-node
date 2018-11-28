@@ -198,7 +198,7 @@ decodeNonce = Nonce <$> getWord64le
 -- | BlockHeader
 --
 -- Some redunant, aggregated information is included in the block and the block
--- hash. This enables nodes to be checked inductively with respective to existing
+-- hash. This enables nodes to be checked inductively with respect to existing
 -- blocks without recalculating the aggregated value from the genesis block onward.
 --
 data BlockHeader :: Type where
