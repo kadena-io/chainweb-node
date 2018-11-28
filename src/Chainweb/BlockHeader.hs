@@ -234,7 +234,7 @@ data BlockHeader :: Type where
             -- with respect to a (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
-            -- It is possible that an miner always chooses the smallest possible
+            -- It is possible that a miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
             -- gain from doing so, but attack models should consider and investigate
             -- such behavior.
