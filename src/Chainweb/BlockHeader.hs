@@ -198,7 +198,7 @@ decodeNonce = Nonce <$> getWord64le
 -- | BlockHeader
 --
 -- Some redunant, aggregated information is included in the block and the block
--- hash. This enables nodes to be checked inductively with respective to existing
+-- hash. This enables nodes to be checked inductively with respect to existing
 -- blocks without recalculating the aggregated value from the genesis block onward.
 --
 data BlockHeader :: Type where
@@ -234,7 +234,7 @@ data BlockHeader :: Type where
             -- with respect to a (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
-            -- It is possible that an miner always chooses the smallest possible
+            -- It is possible that a miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
             -- gain from doing so, but attack models should consider and investigate
             -- such behavior.
