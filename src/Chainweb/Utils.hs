@@ -191,7 +191,7 @@ len = int . length
 {-# INLINE len #-}
 
 (==>) :: Bool -> Bool -> Bool
-a ==> b = not a && b
+a ==> b = not a || b
 infixr 1 ==>
 {-# INLINE (==>) #-}
 
@@ -568,4 +568,3 @@ streamToHashSet_
     => S.Stream (Of a) m r
     -> m (HS.HashSet a)
 streamToHashSet_ = fmap HS.fromList . S.toList_
-
