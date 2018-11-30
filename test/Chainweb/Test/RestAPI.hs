@@ -40,7 +40,6 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.Queries
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI
