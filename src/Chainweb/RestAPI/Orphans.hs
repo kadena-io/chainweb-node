@@ -102,15 +102,6 @@ instance FromHttpApiData (Bounds BlockHash) where
 instance ToHttpApiData (Bounds BlockHash) where
     toUrlPiece (Bounds (LowerBound l) (UpperBound u)) = toUrlPiece l <> "," <> toUrlPiece u
 
--- TODO remove?
-instance FromHttpApiData (BlockHash, BlockHash) where
-    parseUrlPiece t =
-        let (a, b) = T.break (== ',') t
-        in (,) <$> parseUrlPiece a <*> parseUrlPiece (T.drop 1 b)
-
-instance ToHttpApiData (BlockHash, BlockHash) where
-    toUrlPiece (a,b) = toUrlPiece a <> "," <> toUrlPiece b
-
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -148,12 +139,6 @@ instance ToParamSchema Limit where
     & exclusiveMinimum ?~ False
 
 instance ToParamSchema (Bounds BlockHash) where
-    toParamSchema _ = mempty
-        & type_ .~ SwaggerString
-        & pattern ?~ "key,key"
-
--- TODO remove?
-instance ToParamSchema (BlockHash, BlockHash) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "key,key"
