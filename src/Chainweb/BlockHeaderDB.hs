@@ -19,9 +19,9 @@ module Chainweb.BlockHeaderDB
 (
 -- * Chain Database Handle
   Configuration(..)
-, ChainDb
-, initChainDb
-, closeChainDb
+, BlockHeaderDb
+, initBlockHeaderDb
+, closeBlockHeaderDb
 , copy
 
 ) where
@@ -91,10 +91,10 @@ dbAddCheckedInternal :: MonadThrow m => E -> Db -> m Db
 dbAddCheckedInternal e db = case parent e of
     Nothing -> return $ dbAdd e db
     Just p -> case HM.lookup p (_dbEntries db) of
-        Nothing -> throwM $ TreeDbParentMissing @ChainDb e
+        Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
         Just pe -> do
             unless (rank e == rank pe + 1)
-                $ throwM $ TreeDbInvalidRank @ChainDb e
+                $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
             return $ dbAdd e db
 
 dbAddChecked_ :: MonadThrow m => E -> Db -> m (Db, Maybe K)
@@ -129,7 +129,7 @@ data Configuration = Configuration
 --
 -- The database is guaranteed to never be empty.
 --
-data ChainDb = ChainDb
+data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
     , _getDb :: MVar Db
         -- ^ Database that provides random access the block headers indexed by
@@ -143,13 +143,13 @@ data ChainDb = ChainDb
         -- processes to subscribe to (await) new insertions.
     }
 
-instance HasChainId ChainDb where
+instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
 
 -- | Initialize a database handle
 --
-initChainDb :: Configuration -> IO ChainDb
-initChainDb config = ChainDb (_chainId root)
+initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
+initBlockHeaderDb config = BlockHeaderDb (_chainId root)
     <$> newMVar (dbAdd root emptyDb)
     <*> newTVarIO (Seq.singleton (key root))
   where
@@ -158,33 +158,33 @@ initChainDb config = ChainDb (_chainId root)
 
 -- | Close a database handle and release all resources
 --
-closeChainDb :: ChainDb -> IO ()
-closeChainDb = void . takeMVar . _getDb
+closeBlockHeaderDb :: BlockHeaderDb -> IO ()
+closeBlockHeaderDb = void . takeMVar . _getDb
 
--- | Make a copy of a `ChainDb` whose memory is independent of the original.
+-- | Make a copy of a `BlockHeaderDb` whose memory is independent of the original.
 -- Useful for duplicating chains within a testing environment.
 --
-copy :: ChainDb -> IO ChainDb
+copy :: BlockHeaderDb -> IO BlockHeaderDb
 copy chain = do
     tv <- atomically $ readTVar (_dbEnumeration chain) >>= newTVar
     db <- takeMVar mv
     mv' <- newMVar db
     putMVar mv db
-    pure $ ChainDb (_chainId chain) mv' tv
+    pure $ BlockHeaderDb (_chainId chain) mv' tv
   where
     mv = _getDb chain
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
 
-instance TreeDb ChainDb where
-    type DbEntry ChainDb = BlockHeader
+instance TreeDb BlockHeaderDb where
+    type DbEntry BlockHeaderDb = BlockHeader
 
     lookup db k = HM.lookup k . _dbEntries <$> liftIO (readMVar $ _getDb db)
 
     children db k = HM.lookup k. _dbChildren <$> liftIO (readMVar $ _getDb db)
         >>= \case
-            Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb k
+            Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb k
             Just c -> S.each c
 
     leafEntries db n l mir mar = _dbBranches <$> liftIO (readMVar $ _getDb db) >>= \b -> do
@@ -218,7 +218,7 @@ instance TreeDb ChainDb where
         >>= mapM (liftIO .lookupM db)
         >>= foldableEntries k l mir mar
 
-    insert db e = liftIO $ insertChainDb db [e]
+    insert db e = liftIO $ insertBlockHeaderDb db [e]
 
 -- -------------------------------------------------------------------------- --
 -- Updates
@@ -254,7 +254,7 @@ data Updates = Updates
 
 -- | Creates a traversal from some recently added key
 --
-updates :: ChainDb -> IO Updates
+updates :: BlockHeaderDb -> IO Updates
 updates db = Updates
     <$> newTVarIO 0
     <*> pure (_dbEnumeration db)
@@ -263,12 +263,12 @@ updates db = Updates
 --
 -- | Creates a traversal from a given key
 --
-updatesFrom :: ChainDb -> K -> IO Updates
+updatesFrom :: BlockHeaderDb -> K -> IO Updates
 updatesFrom db k = do
     enumeration <- readTVarIO enumVar
     idx <- case Seq.elemIndexL k enumeration of
         Just i -> return i
-        Nothing -> throwM $ TreeDbKeyNotFound @ChainDb k
+        Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb k
     Updates
         <$> newTVarIO idx
         <*> pure enumVar
@@ -296,8 +296,8 @@ updatesNext u = do
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertChainDb :: ChainDb -> [E] -> IO ()
-insertChainDb db es = do
+insertBlockHeaderDb :: BlockHeaderDb -> [E] -> IO ()
+insertBlockHeaderDb db es = do
     -- insert entries to db and collect new keys
     --
     news <- modifyMVar (_getDb db)
@@ -311,4 +311,3 @@ insertChainDb db es = do
     atomically $ modifyTVar' (_dbEnumeration db) (<> news)
   where
     rankedAdditions = L.sortOn rank es
-
