@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -10,7 +9,7 @@
 --
 -- TODO
 --
-module Chainweb.Test.ChainDB.Persistence
+module Chainweb.Test.TreeDB.Persistence
 ( tests
 ) where
 
@@ -28,8 +27,6 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import qualified Chainweb.ChainDB as DB
-import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (withDB, insertN)
 import Chainweb.TreeDB
@@ -52,12 +49,12 @@ tests = testGroup "Persistence"
 -- write its only block, the genesis block.
 --
 onlyGenesis :: Assertion
-onlyGenesis = withDB chainId0 $ \g db -> do pure ()  -- TODO restore
-  --   persist fp db
-  --   g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) fp
-  --   g' @?= Just (DB.entry g)
-  -- where
-  --   fp = fromAbsoluteFilePath "/tmp/only-genesis"
+onlyGenesis = withDB chainId0 $ \g db -> do
+    persist fp db
+    g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) fp
+    g' @?= Just g
+  where
+    fp = fromAbsoluteFilePath "/tmp/only-genesis"
 
 -- | Write a number of block headers to a database, persist that database,
 -- reread it, and compare. Guarantees:
@@ -66,17 +63,17 @@ onlyGenesis = withDB chainId0 $ \g db -> do pure ()  -- TODO restore
 --  * The first block streamed from both the DB and the file will be the genesis.
 --
 manyBlocksWritten :: Assertion
-manyBlocksWritten = withDB chainId0 $ \g db -> do pure ()  -- TODO restore!
-  --   void $ insertN len g db
-  --   persist fp db
-  --   fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing
-  --   fromFi <- runResourceT . S.toList_ $ fileEntries fp
-  --   length fromDB @?= len + 1
-  --   length fromFi @?= len + 1
-  --   head fromDB @?= g
-  --   head fromFi @?= g
-  --   let b = and $ padZipWith (==) fromDB fromFi
-  --   assertBool "Couldn't write many blocks" b
-  -- where
-  --   fp = fromAbsoluteFilePath "/tmp/many-blocks-written"
-  --   len = 10
+manyBlocksWritten = withDB chainId0 $ \g db -> do
+    void $ insertN len g db
+    persist fp db
+    fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing
+    fromFi <- runResourceT . S.toList_ $ fileEntries fp
+    length fromDB @?= len + 1
+    length fromFi @?= len + 1
+    head fromDB @?= g
+    head fromFi @?= g
+    let b = and $ padZipWith (==) fromDB fromFi
+    assertBool "Couldn't write many blocks" b
+  where
+    fp  = fromAbsoluteFilePath "/tmp/many-blocks-written"
+    len = 10

@@ -21,11 +21,11 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.RestAPI.Utils (properties)
 import qualified Chainweb.Test.BlockHeaderDB
-import qualified Chainweb.Test.ChainDB.Persistence
 import qualified Chainweb.Test.ChainDB.Sync
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
+import qualified Chainweb.Test.TreeDB.Persistence
 
 import qualified P2P.Node.PeerDB (properties)
 
@@ -40,7 +40,7 @@ suite :: TestTree
 suite = testGroup "Unit Tests"
     [ testGroup "ChainDB"
         [ Chainweb.Test.BlockHeaderDB.tests
-        , Chainweb.Test.ChainDB.Persistence.tests
+        , Chainweb.Test.TreeDB.Persistence.tests
         -- , Chainweb.Test.ChainDB.Sync.tests  -- TODO restore all these
         ]
     , Chainweb.Test.Roundtrips.tests

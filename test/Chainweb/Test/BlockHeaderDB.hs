@@ -11,8 +11,6 @@ module Chainweb.Test.BlockHeaderDB
 ( tests
 ) where
 
-import Control.Monad (void)
-
 import qualified Streaming.Prelude as S
 
 import Test.Tasty

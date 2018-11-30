@@ -111,6 +111,7 @@ import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
 import Data.Reflection hiding (int)
+import Data.Serialize (Serialize(..))
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -307,6 +308,10 @@ instance HasChainId BlockHeader where
     {-# INLINE _chainId #-}
 
 makeLenses ''BlockHeader
+
+instance Serialize BlockHeader where
+    put = encodeBlockHeader
+    get = decodeBlockHeader
 
 encodeBlockHeaderNoHash
     :: MonadPut m
@@ -583,4 +588,3 @@ testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
-
