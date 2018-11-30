@@ -36,6 +36,7 @@ module Chainweb.TreeDB
 , isInclusive
 , LowerBound(..)
 , UpperBound(..)
+, Bounds(..)
 
 -- * Tree Database
 , TreeDbEntry(..)
@@ -152,6 +153,9 @@ newtype Limit = Limit { _getLimit :: Natural }
     deriving anyclass (Hashable)
     deriving newtype (Num, Real, Integral, Enum, Ord)
 
+instance Arbitrary Limit where
+  arbitrary = Limit <$> arbitrary
+
 data NextItem k
     = Inclusive k
     | Exclusive k
@@ -179,6 +183,11 @@ newtype LowerBound k = LowerBound { _getLowerBound :: k }
     deriving anyclass (Hashable)
 
 newtype UpperBound k = UpperBound { _getUpperBound :: k }
+    deriving stock (Eq, Show, Ord, Generic)
+    deriving anyclass (Hashable)
+
+-- | A simple pair of bounds.
+data Bounds k = Bounds { _lower :: !(LowerBound k), _upper :: !(UpperBound k) }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
 
@@ -782,4 +791,3 @@ properties =
     [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
     , ("seekLimitStream_id", property prop_seekLimitStream_id)
     ]
-

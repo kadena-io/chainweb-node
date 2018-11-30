@@ -28,6 +28,7 @@ import Servant.Client
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB (Limit)
 import Chainweb.Version
 
 import Data.Singletons
@@ -41,7 +42,7 @@ import P2P.Node.RestAPI
 peerGetClient
     :: ChainwebVersion
     -> NetworkId
-    -> Maybe Natural
+    -> Maybe Limit
     -> Maybe PeerId
     -> ClientM (Page PeerId PeerInfo)
 peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
@@ -61,4 +62,3 @@ peerPutClient (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSing (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
-

@@ -38,18 +38,18 @@
 --
 module Chainweb.ChainDB.RestAPI
 (
--- * ChainDB with typelevel ChainId and ChainwebVersion parameters
-  ChainDb_(..)
-, SomeChainDb(..)
-, someChainDbVal
+-- * BlockHeaderDb with typelevel ChainId and ChainwebVersion parameters
+  BlockHeaderDb_(..)
+, SomeBlockHeaderDb(..)
+, someBlockHeaderDbVal
 
--- * ChainDB API
-, ChainDbApi
-, chainDbApi
+-- * BlockHeaderDb API
+, BlockHeaderDbApi
+, blockHeaderDbApi
 
 -- * Multichain APIs
-, someChainDbApi
-, someChainDbApis
+, someBlockHeaderDbApi
+, someBlockHeaderDbApis
 
 -- * Sub APIs
 , BranchesApi
@@ -68,31 +68,30 @@ import Control.Monad.Identity
 
 import Data.Proxy
 
-import Numeric.Natural
-
 import Servant.API
 
 -- internal modules
-import Chainweb.ChainDB
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB
 import Chainweb.Version
 
 import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
--- Type indexed ChainDb
+-- Type indexed BlockHeaderDb
 
-newtype ChainDb_ (v :: ChainwebVersionT) (c :: ChainIdT) = ChainDb_ ChainDb
+newtype BlockHeaderDb_ (v :: ChainwebVersionT) (c :: ChainIdT) = BlockHeaderDb_ BlockHeaderDb
 
-data SomeChainDb = forall v c
+data SomeBlockHeaderDb = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => SomeChainDb (ChainDb_ v c)
+    => SomeBlockHeaderDb (BlockHeaderDb_ v c)
 
-someChainDbVal :: ChainwebVersion -> ChainId -> ChainDb -> SomeChainDb
-someChainDbVal v cid db = case someChainwebVersionVal v of
+someBlockHeaderDbVal :: ChainwebVersion -> ChainId -> BlockHeaderDb -> SomeBlockHeaderDb
+someBlockHeaderDbVal v cid db = case someChainwebVersionVal v of
      (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
-         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomeChainDb (ChainDb_ @vt @cidt db)
+         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomeBlockHeaderDb (BlockHeaderDb_ @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Query Parameters
@@ -105,19 +104,19 @@ someChainDbVal v cid db = case someChainwebVersionVal v of
 --
 type FilterParams = MinHeightParam :> MaxHeightParam :> BranchParam
 
-type MinHeightParam = QueryParam "minheight" Natural
-type MaxHeightParam = QueryParam "maxheight" Natural
-type BranchParam = QueryParam "branch" (Key 'Unchecked, Key 'Unchecked)
+type MinHeightParam = QueryParam "minheight" MinRank
+type MaxHeightParam = QueryParam "maxheight" MaxRank
+type BranchParam = QueryParam "branch" (Bounds (DbKey BlockHeaderDb))
 
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
 --
 type BranchesApi_
     = "branch"
-    :> PageParams (Key 'Unchecked)
+    :> PageParams (DbKey BlockHeaderDb)
     :> MinHeightParam
     :> MaxHeightParam
-    :> Get '[JSON] (Page (Key 'Unchecked) (Key 'Unchecked))
+    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 
 type BranchesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchesApi_
@@ -132,9 +131,9 @@ branchesApi = Proxy
 --
 type HashesApi_
     = "hash"
-    :> PageParams (Key 'Unchecked)
+    :> PageParams (DbKey BlockHeaderDb)
     :> FilterParams
-    :> Get '[JSON] (Page (Key 'Unchecked) (Key 'Unchecked))
+    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 
 type HashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HashesApi_
@@ -149,9 +148,9 @@ hashesApi = Proxy
 --
 type HeadersApi_
     = "header"
-    :> PageParams (Key 'Unchecked)
+    :> PageParams (DbKey BlockHeaderDb)
     :> FilterParams
-    :> Get '[JSON] (Page (Key 'Unchecked) (Entry 'Unchecked))
+    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
 
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
@@ -166,8 +165,8 @@ headersApi = Proxy
 --
 type HeaderApi_
     = "header"
-    :> Capture "BlockHash" (Key 'Unchecked)
-    :> Get '[JSON] (Entry 'Unchecked)
+    :> Capture "BlockHash" (DbKey BlockHeaderDb)
+    :> Get '[JSON] (DbEntry BlockHeaderDb)
 
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
@@ -182,7 +181,7 @@ headerApi = Proxy
 --
 type HeaderPutApi_
     = "header"
-    :> ReqBody '[JSON] (Entry 'Unchecked)
+    :> ReqBody '[JSON] (DbEntry BlockHeaderDb)
     :> PutNoContent '[JSON] NoContent
 
 type HeaderPutApi (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -194,28 +193,28 @@ headerPutApi
 headerPutApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | ChainDb Api
+-- | BlockHeaderDb Api
 --
-type ChainDbApi v c
+type BlockHeaderDbApi v c
     = BranchesApi v c
     :<|> HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c
     :<|> HeaderPutApi v c
 
-chainDbApi
+blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (ChainDbApi v c)
-chainDbApi = Proxy
+    . Proxy (BlockHeaderDbApi v c)
+blockHeaderDbApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- Multi Chain API
 
-someChainDbApi :: ChainwebVersion -> ChainId -> SomeApi
-someChainDbApi v c = runIdentity $ do
+someBlockHeaderDbApi :: ChainwebVersion -> ChainId -> SomeApi
+someBlockHeaderDbApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $ SomeApi (chainDbApi @v' @c')
+    return $ SomeApi (blockHeaderDbApi @v' @c')
 
-someChainDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
-someChainDbApis v = mconcat . fmap (someChainDbApi v)
+someBlockHeaderDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
+someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)

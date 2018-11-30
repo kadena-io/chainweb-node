@@ -56,6 +56,7 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
+import Chainweb.TreeDB (Limit)
 import Chainweb.Version
 
 import Data.Singletons
@@ -69,7 +70,7 @@ import P2P.Node.RestAPI
 
 peerGetHandler
     :: PeerDb
-    -> Maybe Natural
+    -> Maybe Limit
     -> Maybe PeerId
     -> Handler (Page PeerId PeerInfo)
 peerGetHandler db limit next = do
@@ -140,4 +141,3 @@ serveP2pOnPort
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
-

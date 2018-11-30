@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.ChainDB.RestAPI.Server
@@ -15,33 +16,37 @@
 --
 module Chainweb.ChainDB.RestAPI.Server
 (
-  someChainDbServer
-, someChainDbServers
+  someBlockHeaderDbServer
+, someBlockHeaderDbServers
 
 -- * Single Chain Server
-, chainDbApp
-, chainDbApiLayout
+, blockHeaderDbApp
+, blockHeaderDbApiLayout
 ) where
 
+import Control.Arrow ((***), (&&&))
+import Control.Monad (void)
 import Control.Monad.IO.Class
 import Control.Monad.Except (MonadError(..))
+import Control.Lens
 
+import Data.Hashable (Hashable)
+import qualified Data.HashSet as HS
 import Data.Proxy
 import qualified Data.Text.IO as T
 
-import Numeric.Natural
+import Prelude hiding (lookup)
 
 import Servant.API
 import Servant.Server
 
 -- internal modules
-import Chainweb.ChainDB
-import Chainweb.ChainDB.Queries
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainDB.RestAPI
-import Chainweb.RestAPI.Orphans ()
 import Chainweb.ChainId
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils hiding ((==>))
+import Chainweb.TreeDB
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -49,104 +54,86 @@ import Chainweb.Version
 
 checkKey
     :: MonadError ServantErr m
-    => Snapshot
-    -> Key t
-    -> m (Key 'Checked)
-checkKey s k = maybe (throwError err404) return $ key <$> lookupEntry k s
+    => MonadIO m
+    => TreeDb db
+    => db
+    -> DbKey db
+    -> m (DbKey db)
+checkKey db k = liftIO (lookup db k) >>= maybe (throwError err404) (pure . const k)
 
-uncheckKeyPage
-    :: Page (Key 'Checked) (Key 'Checked)
-    -> Page (Key 'Unchecked) (Key 'Unchecked)
-uncheckKeyPage p = Page
-    (_pageLimit p)
-    (uncheckedKey <$> _pageItems p)
-    (uncheckedKey <$> _pageNext p)
+-- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
+checkBounds
+    :: MonadError ServantErr m
+    => MonadIO m
+    => TreeDb db
+    => db
+    -> Bounds (DbKey db)
+    -> m (Bounds (DbKey db))
+checkBounds db (Bounds l u) = (\l' u' -> Bounds (LowerBound l') (UpperBound u'))
+    <$> checkKey db (_getLowerBound l)
+    <*> checkKey db (_getUpperBound u)
 
-uncheckEntryPage
-    :: Page (Key 'Checked) (Entry 'Checked)
-    -> Page (Key 'Unchecked) (Entry 'Unchecked)
-uncheckEntryPage p = Page
-    (_pageLimit p)
-    (uncheckedEntry <$> _pageItems p)
-    (uncheckedKey <$> _pageNext p)
+-- | Convenience function for rewrapping `Bounds` in a form preferred by
+-- the handlers below.
+setWrap :: Hashable k => Bounds k -> (HS.HashSet (LowerBound k), HS.HashSet (UpperBound k))
+setWrap = (HS.singleton *** HS.singleton) . (_lower &&& _upper)
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
 branchesHandler
-    :: ChainDb
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Handler (Page (Key 'Unchecked) (Key 'Unchecked))
-branchesHandler db limit next minr maxr = do
-    sn <- liftIO $ snapshot db
-    nextChecked <- mapM (checkKey sn) next
-    fmap uncheckKeyPage
-        . streamToPage id nextChecked limit
-        $ chainDbBranches sn minr maxr
+    :: TreeDb db
+    => db
+    -> Maybe Limit
+    -> Maybe (DbKey db)  -- TODO use `NextItem` here and elsewhere?
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Handler (Page (DbKey db) (DbKey db))
+branchesHandler db limit next minr maxr =
+    hashesHandler db limit next minr maxr Nothing
 
 hashesHandler
-    :: ChainDb
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
-    -> Handler (Page (Key 'Unchecked) (Key 'Unchecked))
+    :: TreeDb db
+    => db
+    -> Maybe Limit
+    -> Maybe (DbKey db)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey db))
+    -> Handler (Page (DbKey db) (DbKey db))
 hashesHandler db limit next minr maxr range = do
-    sn <- liftIO $ snapshot db
-    nextChecked <- mapM (checkKey sn) next
-    rangeChecked <- mapM (\(a, b) -> (,) <$> checkKey sn a <*> checkKey sn b) range
-    fmap uncheckKeyPage
-        . streamToPage id nextChecked limit
-        $ chainDbHashes db minr maxr rangeChecked
+    nextChecked <- traverse (checkKey db) next
+    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
+    let hs = void $ branchKeys db Nothing Nothing minr maxr low upp
+    liftIO $ streamToPage id nextChecked limit hs
 
 headersHandler
-    :: ChainDb
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
-    -> Handler (Page (Key 'Unchecked) (Entry 'Unchecked))
+    :: TreeDb db
+    => db
+    -> Maybe Limit
+    -> Maybe (DbKey db)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey db))
+    -> Handler (Page (DbKey db) (DbEntry db))
 headersHandler db limit next minr maxr range = do
-    sn <- liftIO $ snapshot db
-    nextChecked <- mapM (checkKey sn) next
-    rangeChecked <- mapM (\(a, b) -> (,) <$> checkKey sn a <*> checkKey sn b) range
-    fmap uncheckEntryPage
-        . streamToPage key nextChecked limit
-        $ chainDbHeaders db minr maxr rangeChecked
+    nextChecked <- traverse (checkKey db) next
+    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
+    let hs = void $ branchEntries db Nothing Nothing minr maxr low upp
+    liftIO $ streamToPage key nextChecked limit hs
 
-headerHandler
-    :: ChainDb
-    -> Key 'Unchecked
-    -> Handler (Entry 'Unchecked)
-headerHandler db k = do
-    sn <- liftIO (snapshot db)
-    kChecked <- checkKey sn k
-    case chainDbHeader sn kChecked of
-        Nothing -> throwError err404
-        Just x -> return $ uncheckedEntry x
+headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
+headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
 
-headerPutHandler
-    :: ChainDb
-    -> Entry 'Unchecked
-    -> Handler NoContent
-headerPutHandler db e = do
-    sn <- liftIO $ snapshot db
-    case insert e sn of
-        Left err -> throwError $ err400 { errBody = sshow err }
-        Right sn' -> liftIO $ NoContent <$ syncSnapshot sn'
+headerPutHandler :: TreeDb db => db -> DbEntry db -> Handler NoContent
+headerPutHandler db e = NoContent <$ liftIO (insert db e)
 
 -- -------------------------------------------------------------------------- --
 -- ChainDB API Server
 
-chainDbServer
-    :: ChainDb_ v c
-    -> Server (ChainDbApi v c)
-chainDbServer (ChainDb_ db) = branchesHandler db
+blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
+blockHeaderDbServer (BlockHeaderDb_ db) =
+    branchesHandler db
     :<|> hashesHandler db
     :<|> headersHandler db
     :<|> headerHandler db
@@ -155,29 +142,29 @@ chainDbServer (ChainDb_ db) = branchesHandler db
 -- -------------------------------------------------------------------------- --
 -- Application for a single ChainDB
 
-chainDbApp
+blockHeaderDbApp
     :: forall v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => ChainDb_ v c
+    => BlockHeaderDb_ v c
     -> Application
-chainDbApp db = serve (Proxy @(ChainDbApi v c)) (chainDbServer db)
+blockHeaderDbApp db = serve (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
 
-chainDbApiLayout
+blockHeaderDbApiLayout
     :: forall v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => ChainDb_ v c
+    => BlockHeaderDb_ v c
     -> IO ()
-chainDbApiLayout _ = T.putStrLn $ layout (Proxy @(ChainDbApi v c))
+blockHeaderDbApiLayout _ = T.putStrLn $ layout (Proxy @(BlockHeaderDbApi v c))
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-someChainDbServer :: SomeChainDb -> SomeServer
-someChainDbServer (SomeChainDb (db :: ChainDb_ v c))
-    = SomeServer (Proxy @(ChainDbApi v c)) (chainDbServer db)
+someBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
+someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
+    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
 
-someChainDbServers :: ChainwebVersion -> [(ChainId, ChainDb)] -> SomeServer
-someChainDbServers v = mconcat
-    . fmap (someChainDbServer . uncurry (someChainDbVal v))
+someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
+someBlockHeaderDbServers v = mconcat
+    . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))

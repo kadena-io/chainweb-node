@@ -72,19 +72,17 @@ import Control.Monad.Identity
 
 import Data.Proxy
 
-import Numeric.Natural
-
 import Servant.API (NoContent(..))
 import Servant.Client
 
 -- internal modules
-import Chainweb.ChainDB
+import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainDB.RestAPI
-import Chainweb.RestAPI.Orphans ()
 import Chainweb.ChainId
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB
 import Chainweb.Version
-
 
 -- -------------------------------------------------------------------------- --
 -- GET Header Client
@@ -93,15 +91,15 @@ headerClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Key 'Unchecked
-    -> ClientM (Entry 'Unchecked)
+    => DbKey BlockHeaderDb
+    -> ClientM (DbEntry BlockHeaderDb)
 headerClient_ = client (headerApi @v @c)
 
 headerClient
     :: ChainwebVersion
     -> ChainId
-    -> Key 'Unchecked
-    -> ClientM (Entry 'Unchecked)
+    -> DbKey BlockHeaderDb
+    -> ClientM (DbEntry BlockHeaderDb)
 headerClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
@@ -114,14 +112,14 @@ headerPutClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Entry 'Unchecked
+    => DbEntry BlockHeaderDb
     -> ClientM NoContent
 headerPutClient_ = client (headerPutApi @v @c)
 
 headerPutClient
     :: ChainwebVersion
     -> ChainId
-    -> Entry 'Unchecked
+    -> DbEntry BlockHeaderDb
     -> ClientM NoContent
 headerPutClient v c e = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
@@ -135,26 +133,26 @@ headersClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
-    -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
+    => Maybe Limit
+    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
 headersClient_ = client (headersApi @v @c)
 
 headersClient
     :: ChainwebVersion  -- ^ The remote chainweb that you wish to query from.
     -> ChainId  -- ^ The remote chain within the web that you wish to query from.
-    -> Maybe Natural  -- ^ The number of responses per-`Page` to return.
-    -> Maybe (Key 'Unchecked)  -- ^ The first header you want to see within the `Page`.
+    -> Maybe Limit  -- ^ The number of responses per-`Page` to return.
+    -> Maybe (DbKey BlockHeaderDb)  -- ^ The first header you want to see within the `Page`.
                                -- `Page` contains a field `_pageNext`, which can be used
                                -- to produce the value needed for subsequent calls.
-    -> Maybe Natural  -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
-    -> Maybe Natural  -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)  -- ^ Filter: only yield headers between two specific hashes,
+    -> Maybe MinRank  -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
+    -> Maybe MaxRank  -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
+    -> Maybe (Bounds (DbKey BlockHeaderDb))  -- ^ Filter: only yield headers between two specific hashes,
                                                -- i.e. a single, specific branch.
-    -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
 headersClient v c limit start minr maxr range = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
@@ -167,21 +165,21 @@ branchesClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> ClientM (Page (Key 'Unchecked) (Key 'Unchecked))
+    => Maybe Limit
+    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 branchesClient_ = client (branchesApi @v @c)
 
 branchesClient
     :: ChainwebVersion
     -> ChainId
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> ClientM (Page (Key 'Unchecked) (Key 'Unchecked))
+    -> Maybe Limit
+    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 branchesClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
@@ -194,23 +192,23 @@ hashesClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
-    -> ClientM (Page (Key 'Unchecked) (Key 'Unchecked))
+    => Maybe Limit
+    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 hashesClient_ = client (hashesApi @v @c)
 
 hashesClient
     :: ChainwebVersion
     -> ChainId
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked)
-    -> Maybe Natural
-    -> Maybe Natural
-    -> Maybe (Key 'Unchecked, Key 'Unchecked)
-    -> ClientM (Page (Key 'Unchecked) (Key 'Unchecked))
+    -> Maybe Limit
+    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
 hashesClient v c limit start minr maxr range = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c

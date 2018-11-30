@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -46,7 +45,7 @@ persist fp db = runResourceT $ do
     let es = void $ entries db Nothing Nothing Nothing Nothing
     BS.writeFile (toFilePath fp) . hoist lift . separated $ encoded es
 
--- | Encode each `Entry` as a base64 `B.ByteString`.
+-- | Encode each `DbEntry` as a base64 `B.ByteString`.
 --
 encoded :: (Monad m, Serialize e) => Stream (Of e) m () -> Stream (Of B.ByteString) m ()
 encoded = S.map (B64U.encode . encode)

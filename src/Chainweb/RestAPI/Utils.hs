@@ -93,6 +93,7 @@ import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
 
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
+import Chainweb.TreeDB (Limit(..))
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
@@ -110,7 +111,7 @@ type family ReassocBranch (a :: s) (b :: [Type]) :: Type where
 -- Paging
 
 data Page k a = Page
-    { _pageLimit :: !Natural
+    { _pageLimit :: !Limit
     , _pageItems :: ![a]
     , _pageNext :: !(Maybe k)
     }
@@ -118,14 +119,14 @@ data Page k a = Page
 
 instance (ToJSON k, ToJSON a) => ToJSON (Page k a) where
     toJSON p = object
-        [ "limit" .= _pageLimit p
+        [ "limit" .= _getLimit (_pageLimit p)
         , "items" .= _pageItems p
         , "next" .= _pageNext p
         ]
 
 instance (FromJSON k, FromJSON a) => FromJSON (Page k a) where
     parseJSON = withObject "page" $ \o -> Page
-        <$> o .: "limit"
+        <$> (Limit <$> (o .: "limit"))
         <*> o .: "items"
         <*> o .: "next"
 
@@ -150,7 +151,7 @@ instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
 --
 type PageParams k = LimitParam :> NextParam k
 
-type LimitParam = QueryParam "limit" Natural
+type LimitParam = QueryParam "limit" Limit
 type NextParam k = QueryParam "next" k
 
 -- -------------------------------------------------------------------------- --
@@ -163,7 +164,7 @@ streamToPage
     => Eq k
     => (a -> k)
     -> Maybe k
-    -> Maybe Natural
+    -> Maybe Limit
     -> SP.Stream (Of a) m ()
     -> m (Page k a)
 streamToPage k next limit s = do
@@ -186,7 +187,7 @@ streamToPage k next limit s = do
 
     return $ Page (int limit') items' (k <$> next')
 
-prop_streamToPage_limit :: [Int] -> Natural -> Property
+prop_streamToPage_limit :: [Int] -> Limit -> Property
 prop_streamToPage_limit l i = i <= len l ==> actual === expected
 #if MIN_VERSION_QuickCheck(2,12,0)
     & cover 1 (i == len l) "limit == length of stream"
@@ -389,4 +390,3 @@ properties =
     [ ("streamToPage_limit", property prop_streamToPage_limit)
     , ("streamToPage_id", property prop_streamToPage_id)
     ]
-

@@ -10,12 +10,12 @@
 --
 -- TODO: This module mixes 'ChainDb' and 'BlockHeader' terminonlogy.
 --
-module Chainweb.ChainDB.Queries
-( chainDbBranches
-, chainDbHashes
-, chainDbHeaders
-, chainDbHeader
-) where
+module Chainweb.ChainDB.Queries where
+-- ( chainDbBranches
+-- , chainDbHashes
+-- , chainDbHeaders
+-- , chainDbHeader
+-- ) where
 
 import Control.Concurrent.STM
 
@@ -24,11 +24,14 @@ import Data.Maybe
 
 import Numeric.Natural
 
+import Prelude hiding (lookup)
+
 import Streaming
 import qualified Streaming.Prelude as SP
 
 -- internal modules
-import Chainweb.ChainDB
+import Chainweb.BlockHeaderDB
+import Chainweb.TreeDB
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -37,12 +40,13 @@ import Chainweb.ChainDB
 --
 applyRank
     :: Monad m
+    => TreeDbEntry e
     => Maybe Natural
         -- ^ Return just the entries that have the given minimum rank.
     -> Maybe Natural
         -- ^ Return just the entries that have the given maximum rank.
-    -> SP.Stream (Of (Entry t)) m ()
-    -> SP.Stream (Of (Entry t)) m ()
+    -> SP.Stream (Of e) m ()
+    -> SP.Stream (Of e) m ()
 applyRank l u
     = maybe id (\x -> SP.takeWhile (\e -> rank e <= x)) u
     . maybe id (\x -> SP.dropWhile (\e -> rank e < x)) l
@@ -57,53 +61,56 @@ applyRank l u
 --
 -- Entries are returned starting with the head of branch @a@.
 --
-getBranch
-    :: Monad m
-    => Snapshot
-        -- ^ a 'ChainDb' snapshot
-    -> Key 'Checked
-        -- ^ a key that defines the branch from which the entries are returned
-    -> Key 'Checked
-        -- ^ a key that defines the branch that limits the query
-    -> SP.Stream (Of (Entry 'Checked)) m ()
-getBranch s = go
-  where
-    go k0 k1
-        | k0 == k1 = SP.yield e0
-        | rank e0 == rank e1 = SP.yield e0 >> go p0 p1
-        | rank e0 < rank e1 = go k0 p1
-        | otherwise {- rank e0 > rank e1 -} = SP.yield e0 >> go p0 k1
-      where
-        e0 = fromJust $ getEntry k0 s
-        e1 = fromJust $ getEntry k1 s
-        p0 = fromJust $ parent e0
-        p1 = fromJust $ parent e1
+-- getBranch
+--     :: Monad m
+--     => TreeDb db
+--     => db
+--         -- ^ a 'ChainDb' snapshot
+--     -> DbKey db
+--         -- ^ a key that defines the branch from which the entries are returned
+--     -> DbKey db
+--         -- ^ a key that defines the branch that limits the query
+--     -> SP.Stream (Of (DbEntry db)) m ()
+-- getBranch s = go
+--   where
+--     go k0 k1
+--         | k0 == k1 = SP.yield e0
+--         | rank e0 == rank e1 = SP.yield e0 >> go p0 p1
+--         | rank e0 < rank e1 = go k0 p1
+--         | otherwise {- rank e0 > rank e1 -} = SP.yield e0 >> go p0 k1
+--       where
+--         e0 = fromJust $ getEntry k0 s
+--         e1 = fromJust $ getEntry k1 s
+--         p0 = fromJust $ parent e0
+--         p1 = fromJust $ parent e1
 
 -- | The /finite/ stream of the keys of all /available/ chain database
 -- entries. The stream terminates if an entry is requested that doesn't yet
 -- exist the database.
 --
-hashesStream
-    :: MonadIO m
-    => Updates
-        -- ^ The /infinite/ stream of chain database updates
-    -> SP.Stream (Of (Key 'Checked)) m ()
-hashesStream u =
-    liftIO (atomically ((Just <$> updatesNext u) `orElse` pure Nothing)) >>= \case
-        Nothing -> return ()
-        Just x -> SP.yield x >> hashesStream u
+-- hashesStream
+--     :: MonadIO m
+--     => Updates
+--         -- ^ The /infinite/ stream of chain database updates
+--     -> SP.Stream (Of (Key 'Checked)) m ()
+-- hashesStream u =
+--     liftIO (atomically ((Just <$> updatesNext u) `orElse` pure Nothing)) >>= \case
+--         Nothing -> return ()
+--         Just x -> SP.yield x >> hashesStream u
 
+-- TODO Remove this? It's probably superceded by things in `TreeDb`.
 -- | Lookup all entries in a stream of database keys and return the stream
 -- of entries.
 --
 getEntries
     :: MonadIO m
-    => Snapshot
+    => TreeDb db
+    => db
         -- ^ a 'ChainDb' snapshot
-    -> SP.Stream (Of (Key 'Checked)) m ()
+    -> SP.Stream (Of (DbKey db)) m ()
         -- ^ a stream of checked keys from the 'ChainDb' snapshot
-    -> SP.Stream (Of (Entry 'Checked)) m ()
-getEntries sn = SP.mapM (\k -> liftIO $ getEntryIO k sn)
+    -> SP.Stream (Of (DbEntry db)) m ()
+getEntries db ks = SP.concat $ SP.mapM (liftIO . lookup db) ks
 
 -- | This function reverses the order of the items in a stream. In order to due
 -- so it store all items of the stream in a memory buffer before continuing to
@@ -133,81 +140,81 @@ reverseStream = effect . SP.fold_ (flip (:)) [] SP.each
 
 -- | Return the leaf (maximal length) branches of a 'ChainDb' snapshot.
 --
-chainDbBranches
-    :: MonadIO m
-    => Snapshot
-        -- ^ A 'ChainDb' snapshot.
-    -> Maybe Natural
-        -- ^ Return just the branches that have the given minimum rank.
-    -> Maybe Natural
-        -- ^ Return just the branches that have the given maximum rank.
-    -> SP.Stream (Of (Key 'Checked)) m ()
-chainDbBranches sn minr maxr = SP.map key
-    . applyRank minr maxr
-    . getEntries sn
-    . SP.each
-    $ branches sn
+-- chainDbBranches
+--     :: MonadIO m
+--     => Snapshot
+--         -- ^ A 'ChainDb' snapshot.
+--     -> Maybe Natural
+--         -- ^ Return just the branches that have the given minimum rank.
+--     -> Maybe Natural
+--         -- ^ Return just the branches that have the given maximum rank.
+--     -> SP.Stream (Of (Key 'Checked)) m ()
+-- chainDbBranches sn minr maxr = SP.map key
+--     . applyRank minr maxr
+--     . getEntries sn
+--     . SP.each
+--     $ branches sn
 
 -- | Return the keys of a 'ChainDb'.
 --
-chainDbHashes
-    :: MonadIO m
-    => ChainDb
-        -- ^ A 'ChainDb'.
-    -> Maybe Natural
-        -- ^ Return just the keys that have the given minimum rank.
-    -> Maybe Natural
-        -- ^ Return just the keys that have the given maximum rank.
-    -> Maybe (Key 'Checked, Key 'Checked)
-        -- ^ Return just the keys in the given range.
-    -> SP.Stream (Of (Key 'Checked)) m ()
-chainDbHashes db minr maxr (Just (l,u)) = do
-    sn <- liftIO $ snapshot db
-    reverseStream
-        . SP.map key
-        . applyRank minr maxr
-        $ getBranch sn u l
-chainDbHashes db minr maxr Nothing = do
-    us <- liftIO $ updates db
-    sn <- liftIO $ snapshot db
-    SP.map key
-        . applyRank minr maxr
-        . getEntries sn
-        $ hashesStream us
-{-# WARNING chainDbHashes "Uses expensive reverseStream; use in a server only with paging." #-}
+-- chainDbHashes
+--     :: MonadIO m
+--     => ChainDb
+--         -- ^ A 'ChainDb'.
+--     -> Maybe Natural
+--         -- ^ Return just the keys that have the given minimum rank.
+--     -> Maybe Natural
+--         -- ^ Return just the keys that have the given maximum rank.
+--     -> Maybe (Key 'Checked, Key 'Checked)
+--         -- ^ Return just the keys in the given range.
+--     -> SP.Stream (Of (Key 'Checked)) m ()
+-- chainDbHashes db minr maxr (Just (l,u)) = do
+--     sn <- liftIO $ snapshot db
+--     reverseStream
+--         . SP.map key
+--         . applyRank minr maxr
+--         $ getBranch sn u l
+-- chainDbHashes db minr maxr Nothing = do
+--     us <- liftIO $ updates db
+--     sn <- liftIO $ snapshot db
+--     SP.map key
+--         . applyRank minr maxr
+--         . getEntries sn
+--         $ hashesStream us
+-- {-# WARNING chainDbHashes "Uses expensive reverseStream; use in a server only with paging." #-}
 
 -- | Return the entries of a 'ChainDb'.
 --
-chainDbHeaders
-    :: MonadIO m
-    => ChainDb
-        -- ^ A 'ChainDb'.
-    -> Maybe Natural
-        -- ^ Return just the entries that have the given minimum rank.
-    -> Maybe Natural
-        -- ^ Return just the entries that have the given maximum rank.
-    -> Maybe (Key 'Checked, Key 'Checked)
-        -- ^ Return just the entries in the given range.
-    -> SP.Stream (Of (Entry 'Checked)) m ()
-chainDbHeaders db minr maxr (Just (l,u)) = do
-    sn <- liftIO $ snapshot db
-    reverseStream
-        . applyRank minr maxr
-        $ getBranch sn l u
-chainDbHeaders db minr maxr Nothing = do
-    us <- liftIO $ updates db
-    sn <- liftIO $ snapshot db
-    applyRank minr maxr
-        . getEntries sn
-        $ hashesStream us
-{-# WARNING chainDbHeaders "Uses expensive reverseStream; use in a server only with paging." #-}
+-- chainDbHeaders
+--     :: MonadIO m
+--     => ChainDb
+--         -- ^ A 'ChainDb'.
+--     -> Maybe Natural
+--         -- ^ Return just the entries that have the given minimum rank.
+--     -> Maybe Natural
+--         -- ^ Return just the entries that have the given maximum rank.
+--     -> Maybe (Key 'Checked, Key 'Checked)
+--         -- ^ Return just the entries in the given range.
+--     -> SP.Stream (Of (Entry 'Checked)) m ()
+-- chainDbHeaders db minr maxr (Just (l,u)) = do
+--     sn <- liftIO $ snapshot db
+--     reverseStream
+--         . applyRank minr maxr
+--         $ getBranch sn l u
+-- chainDbHeaders db minr maxr Nothing = do
+--     us <- liftIO $ updates db
+--     sn <- liftIO $ snapshot db
+--     applyRank minr maxr
+--         . getEntries sn
+--         $ hashesStream us
+-- {-# WARNING chainDbHeaders "Uses expensive reverseStream; use in a server only with paging." #-}
 
 -- | Return the entries for a give key from a 'ChainDb' snapshot.
 --
-chainDbHeader
-    :: Snapshot
-        -- ^ A 'ChainDb' snapshot.
-    -> Key 'Checked
-        -- ^ The key of the requested entry.
-    -> Maybe (Entry 'Checked)
-chainDbHeader sn k = lookupEntry k sn
+-- chainDbHeader
+--     :: Snapshot
+--         -- ^ A 'ChainDb' snapshot.
+--     -> Key 'Checked
+--         -- ^ The key of the requested entry.
+--     -> Maybe (Entry 'Checked)
+-- chainDbHeader sn k = lookupEntry k sn

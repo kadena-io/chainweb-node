@@ -16,7 +16,7 @@
 module Chainweb.ChainDB.Sync
   ( -- * Syncronizing a Chain
     sync
-  , headers
+  -- , headers
     -- * Temporary Export
   , Diameter(..)
   ) where
@@ -41,9 +41,9 @@ import qualified Streaming.Prelude as SP
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
-import Chainweb.ChainDB hiding (height)
 import Chainweb.ChainDB.RestAPI.Client (headersClient)
 import Chainweb.RestAPI.Utils (Page(..))
+import Chainweb.TreeDB
 
 -- TODO The real version of this will be present elsewhere.
 -- | The diameter of the current chain graph.
@@ -57,16 +57,16 @@ newtype Leaves = Leaves { unleaves :: NonEmpty BlockHeader }
 -- | Given a peer to connect to, fetch all `BlockHeader`s that exist
 -- in the peer's chain but not our local given `ChainDb`, and sync them.
 --
-sync :: Diameter -> ClientEnv -> ChainDb -> IO ()
-sync d env db = do
-  s <- snapshot db
-  let mleaves :: Maybe Leaves
-      mleaves = traverse (`getEntry` s) (toList $ branches s)
-        >>= NEL.nonEmpty
-        >>= Just . Leaves . fmap dbEntry
-  case mleaves of
-    Nothing -> error "Local ChainDb is impossibly empty."
-    Just leaves -> putThemIn s . headers env $ lowLeaf d leaves
+sync :: TreeDb db => Diameter -> ClientEnv -> db -> IO ()
+sync d env db = do pure () -- TODO restore
+  -- s <- snapshot db
+  -- let mleaves :: Maybe Leaves
+  --     mleaves = traverse (`getEntry` s) (toList $ branches s)
+  --       >>= NEL.nonEmpty
+  --       >>= Just . Leaves . fmap dbEntry
+  -- case mleaves of
+  --   Nothing -> error "Local ChainDb is impossibly empty."
+  --   Just leaves -> putThemIn s . headers env $ lowLeaf d leaves
 
 -- | \(\mathcal{O}(n \log n)\).
 --
@@ -92,6 +92,8 @@ lowLeaf d l = fromMaybe (NEL.head $ unleaves l) . fmap snd $ M.lookupGE lowH lma
     high = fromIntegral . _blockHeight . NEL.head $ unleaves l
     low  = 2 * unrefine (diameter d)
 
+-- TODO restore? This is almost certainly superceded by a `TreeDb` instance
+-- for a remote DB behind a rest API.
 -- | Fetch all `BlockHeader`s from a peer from a given `BlockHeight` and higher.
 --
 -- INVARIANTS:
@@ -99,36 +101,36 @@ lowLeaf d l = fromMaybe (NEL.head $ unleaves l) . fmap snd $ M.lookupGE lowH lma
 --   * The `BlockHeader`s are streamed in order of `BlockHeight`, lowest to highest.
 --     We assume the server will do this correctly.
 --
-headers :: ClientEnv -> BlockHeader -> Stream (Of BlockHeader) IO ()
-headers env h = g $ client Nothing
-  where
-    height = 1 + fromIntegral (_blockHeight h)
+-- headers :: ClientEnv -> BlockHeader -> Stream (Of BlockHeader) IO ()
+-- headers env h = g $ client Nothing
+--   where
+--     height = 1 + fromIntegral (_blockHeight h)
 
-    -- TODO What's the best limit value? 100? 1000?
-    client :: Maybe (Key 'Unchecked) -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
-    client next = headersClient (_blockChainwebVersion h) (_blockChainId h) (Just 100) next (Just height) Nothing Nothing
+--     -- TODO What's the best limit value? 100? 1000?
+--     client :: Maybe (Key 'Unchecked) -> ClientM (Page (Key 'Unchecked) (Entry 'Unchecked))
+--     client next = headersClient (_blockChainwebVersion h) (_blockChainId h) (Just 100) next (Just height) Nothing Nothing
 
-    -- | Attempt to run a servant client.
-    --
-    g :: ClientM (Page (Key 'Unchecked) (Entry 'Unchecked)) -> Stream (Of BlockHeader) IO ()
-    g c = lift (runClientM c env) >>= either (lift . throwM) f
+--     -- | Attempt to run a servant client.
+--     --
+--     g :: ClientM (Page (Key 'Unchecked) (Entry 'Unchecked)) -> Stream (Of BlockHeader) IO ()
+--     g c = lift (runClientM c env) >>= either (lift . throwM) f
 
-    -- | Stream every `BlockHeader` from a `Page`, automatically requesting
-    -- the next `Page` if there is one.
-    --
-    f :: Page (Key 'Unchecked) (Entry 'Unchecked) -> Stream (Of BlockHeader) IO ()
-    f page = do
-        SP.map dbEntry . SP.each $ _pageItems page
-        maybe (pure ()) (g . client . Just) $ _pageNext page
+--     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
+--     -- the next `Page` if there is one.
+--     --
+--     f :: Page (Key 'Unchecked) (Entry 'Unchecked) -> Stream (Of BlockHeader) IO ()
+--     f page = do
+--         SP.map dbEntry . SP.each $ _pageItems page
+--         maybe (pure ()) (g . client . Just) $ _pageNext page
 
 -- TODO How often to call `syncSnapshot`?
 -- Currently it calls it after all new `BlockHeader`s have been inserted.
 -- | Add the new remote `BlockHeader`s to our local chain.
 --
-putThemIn :: Snapshot -> Stream (Of BlockHeader) IO () -> IO ()
-putThemIn s bs = execStateT (SP.mapM_ goIn $ hoist lift bs) s >>= void . syncSnapshot
+-- putThemIn :: Snapshot -> Stream (Of BlockHeader) IO () -> IO ()
+-- putThemIn s bs = execStateT (SP.mapM_ goIn $ hoist lift bs) s >>= void . syncSnapshot
 
 -- TODO This is copied from `Persist` and should be factored out into something common.
-goIn :: BlockHeader -> StateT Snapshot IO ()
-goIn bh = get >>= insert (entry bh) >>= put
-{-# INLINE goIn #-}
+-- goIn :: BlockHeader -> StateT Snapshot IO ()
+-- goIn bh = get >>= insert (entry bh) >>= put
+-- {-# INLINE goIn #-}

@@ -19,16 +19,16 @@
 --
 -- TODO
 --
-module Chainweb.RestAPI.Orphans
-(
-) where
+module Chainweb.RestAPI.Orphans () where
 
 import Control.Lens
 import Control.Monad
 
-import Data.Aeson
+import Data.Aeson hiding (encode, decode)
 import Data.Bifunctor
 import Data.Proxy
+import Data.Semigroup (Min(..), Max(..))
+import Data.Serialize (encode, decode)
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -38,9 +38,10 @@ import Servant.API
 
 -- internal modules
 import Chainweb.BlockHash
-import Chainweb.ChainDB
+import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -55,11 +56,11 @@ deriving newtype instance FromHttpApiData PeerId
 instance FromHttpApiData HostAddress where
     parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
 
-instance FromHttpApiData (Key 'Unchecked) where
-    parseUrlPiece = first sshow . (decodeKey <=< decodeB64UrlNoPaddingText)
+instance FromHttpApiData BlockHash where
+    parseUrlPiece = first sshow . (decode <=< first show . decodeB64UrlNoPaddingText)
 
-instance ToHttpApiData (Key 'Unchecked) where
-    toUrlPiece = encodeB64UrlNoPaddingText . encodeKey
+instance ToHttpApiData BlockHash where
+    toUrlPiece = encodeB64UrlNoPaddingText . encode
 
 instance FromHttpApiData ChainwebVersion where
     parseUrlPiece = first T.pack . eitherFromText
@@ -73,12 +74,41 @@ instance FromHttpApiData ChainId where
 instance ToHttpApiData ChainId where
     toUrlPiece = chainIdToText
 
-instance FromHttpApiData (Key 'Unchecked, Key 'Unchecked) where
+instance FromHttpApiData MinRank where
+    parseUrlPiece = fmap (MinRank . Min) . parseUrlPiece
+
+instance ToHttpApiData MinRank where
+    toUrlPiece (MinRank (Min k)) = toUrlPiece k
+
+instance FromHttpApiData MaxRank where
+    parseUrlPiece = fmap (MaxRank . Max) . parseUrlPiece
+
+instance ToHttpApiData MaxRank where
+    toUrlPiece (MaxRank (Max k)) = toUrlPiece k
+
+instance FromHttpApiData Limit where
+    parseUrlPiece = fmap Limit . parseUrlPiece
+
+instance ToHttpApiData Limit where
+    toUrlPiece (Limit k) = toUrlPiece k
+
+instance FromHttpApiData (Bounds BlockHash) where
+    parseUrlPiece t =
+        let (a, b) = T.break (== ',') t
+        in (\a' b' -> Bounds (LowerBound a') (UpperBound b'))
+           <$> parseUrlPiece a
+           <*> parseUrlPiece (T.drop 1 b)
+
+instance ToHttpApiData (Bounds BlockHash) where
+    toUrlPiece (Bounds (LowerBound l) (UpperBound u)) = toUrlPiece l <> "," <> toUrlPiece u
+
+-- TODO remove?
+instance FromHttpApiData (BlockHash, BlockHash) where
     parseUrlPiece t =
         let (a, b) = T.break (== ',') t
         in (,) <$> parseUrlPiece a <*> parseUrlPiece (T.drop 1 b)
 
-instance ToHttpApiData (Key 'Unchecked, Key 'Unchecked) where
+instance ToHttpApiData (BlockHash, BlockHash) where
     toUrlPiece (a,b) = toUrlPiece a <> "," <> toUrlPiece b
 
 -- -------------------------------------------------------------------------- --
@@ -87,19 +117,43 @@ instance ToHttpApiData (Key 'Unchecked, Key 'Unchecked) where
 instance ToParamSchema PeerId where
     toParamSchema _ = toParamSchema (Proxy @V4.UUID)
 
-instance ToParamSchema (Key t) where
+instance ToParamSchema BlockHash where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & format ?~ "byte"
         & maxLength ?~ int blockHashBytesCount
         & minLength ?~ int blockHashBytesCount
 
-instance ToParamSchema (Entry t) where
+instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & format ?~ "byte"
 
-instance ToParamSchema (Key t, Key t) where
+instance ToParamSchema MinRank where
+  toParamSchema _ = mempty
+    & type_            .~ SwaggerInteger
+    & minimum_         ?~ 0
+    & exclusiveMinimum ?~ False
+
+instance ToParamSchema MaxRank where
+  toParamSchema _ = mempty
+    & type_            .~ SwaggerInteger
+    & minimum_         ?~ 0
+    & exclusiveMinimum ?~ False
+
+instance ToParamSchema Limit where
+  toParamSchema _ = mempty
+    & type_            .~ SwaggerInteger
+    & minimum_         ?~ 0
+    & exclusiveMinimum ?~ False
+
+instance ToParamSchema (Bounds BlockHash) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "key,key"
+
+-- TODO remove?
+instance ToParamSchema (BlockHash, BlockHash) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "key,key"
@@ -133,11 +187,10 @@ instance ToSchema HostAddress where
         & minLength ?~ 3
         & maxLength ?~ 258
 
-instance ToSchema (Key t) where
+instance ToSchema BlockHash where
     declareNamedSchema _ = return $ NamedSchema (Just "Key") $ byteSchema
         & minLength ?~ int blockHashBytesCount
         & maxLength ?~ int blockHashBytesCount
 
-instance ToSchema (Entry t) where
+instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
-
