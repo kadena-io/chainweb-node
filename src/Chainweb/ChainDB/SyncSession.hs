@@ -45,7 +45,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.RestAPI.Client
+import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB

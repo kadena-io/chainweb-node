@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.ChainDB.RestAPI.Client
+-- Module: Chainweb.BlockHeaderDB.RestAPI.Client
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -55,7 +55,7 @@
 --         liftIO $ print r
 -- @
 --
-module Chainweb.ChainDB.RestAPI.Client
+module Chainweb.BlockHeaderDB.RestAPI.Client
 ( headerClient_
 , headerClient
 , headerPutClient_
@@ -77,7 +77,7 @@ import Servant.Client
 
 -- internal modules
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.ChainDB.RestAPI
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils

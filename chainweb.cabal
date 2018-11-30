@@ -56,10 +56,10 @@ library
           Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.RestAPI
+        , Chainweb.BlockHeaderDB.RestAPI.Client
+        , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainDB
-        , Chainweb.ChainDB.RestAPI
-        , Chainweb.ChainDB.RestAPI.Client
-        , Chainweb.ChainDB.RestAPI.Server
         , Chainweb.ChainDB.Sync
         , Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId

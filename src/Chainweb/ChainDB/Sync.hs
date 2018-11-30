@@ -41,7 +41,7 @@ import qualified Streaming.Prelude as SP
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
-import Chainweb.ChainDB.RestAPI.Client (headersClient)
+import Chainweb.BlockHeaderDB.RestAPI.Client (headersClient)
 import Chainweb.RestAPI.Utils (Page(..))
 import Chainweb.TreeDB
 

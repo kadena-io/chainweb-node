@@ -39,7 +39,7 @@ module Chainweb.RestAPI
 -- * Chainweb API Client
 
 -- ** ChainDB API Client
-, module Chainweb.ChainDB.RestAPI.Client
+, module Chainweb.BlockHeaderDB.RestAPI.Client
 
 -- ** P2P API Client
 , module P2P.Node.RestAPI.Client
@@ -64,9 +64,9 @@ import Servant.Swagger
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.RestAPI
-import Chainweb.ChainDB.RestAPI.Client
-import Chainweb.ChainDB.RestAPI.Server
+import Chainweb.BlockHeaderDB.RestAPI
+import Chainweb.BlockHeaderDB.RestAPI.Client
+import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID

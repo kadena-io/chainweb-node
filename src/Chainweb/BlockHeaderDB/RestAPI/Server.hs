@@ -6,7 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 -- |
--- Module: Chainweb.ChainDB.RestAPI.Server
+-- Module: Chainweb.BlockHeaderDB.RestAPI.Server
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -14,7 +14,7 @@
 --
 -- TODO
 --
-module Chainweb.ChainDB.RestAPI.Server
+module Chainweb.BlockHeaderDB.RestAPI.Server
 (
   someBlockHeaderDbServer
 , someBlockHeaderDbServers
@@ -42,7 +42,7 @@ import Servant.Server
 
 -- internal modules
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.RestAPI
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
@@ -129,7 +129,7 @@ headerPutHandler :: TreeDb db => db -> DbEntry db -> Handler NoContent
 headerPutHandler db e = NoContent <$ liftIO (insert db e)
 
 -- -------------------------------------------------------------------------- --
--- ChainDB API Server
+-- BlockHeaderDB API Server
 
 blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
 blockHeaderDbServer (BlockHeaderDb_ db) =
@@ -140,7 +140,7 @@ blockHeaderDbServer (BlockHeaderDb_ db) =
     :<|> headerPutHandler db
 
 -- -------------------------------------------------------------------------- --
--- Application for a single ChainDB
+-- Application for a single BlockHeaderDB
 
 blockHeaderDbApp
     :: forall v c

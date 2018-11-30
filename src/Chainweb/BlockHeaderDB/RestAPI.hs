@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- |
--- Module: Chainweb.ChainDB.RestAPI
+-- Module: Chainweb.BlockHeaderDB.RestAPI
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -34,9 +34,9 @@
 --
 -- There are default values for @minheight@ and page @limit@ applied to some
 -- queries minrank. These can be discovered through
--- @GET chainweb/<ApiVersion>/<InstanceId>/api@
+-- @GET chainweb\/`ApiVersion`\/InstanceId\/api@
 --
-module Chainweb.ChainDB.RestAPI
+module Chainweb.BlockHeaderDB.RestAPI
 (
 -- * BlockHeaderDb with typelevel ChainId and ChainwebVersion parameters
   BlockHeaderDb_(..)
