@@ -23,7 +23,6 @@ module Chainweb.BlockHeaderDB
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , copy
-
 ) where
 
 import Control.Concurrent.MVar
