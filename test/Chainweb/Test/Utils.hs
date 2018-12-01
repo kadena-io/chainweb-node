@@ -51,7 +51,6 @@ module Chainweb.Test.Utils
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
-import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -175,7 +174,7 @@ withServer
     -> IO a
 withServer chainDbs peerDbs f = W.testWithApplication (pure app) work
   where
-    app = undefined -- chainwebApplication Test chainDbs peerDbs -- TODO restore! depends on RestAPI
+    app = chainwebApplication Test chainDbs peerDbs
     work port = do
       mgr <- HTTP.newManager HTTP.defaultManagerSettings
       f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -239,8 +238,7 @@ withChainwebServer
     -> TestTree
 withChainwebServer chainDbsIO peerDbsIO = withTestServer mkApp mkEnv
   where
-    -- TODO restore! depends on RestAPI
-    mkApp = undefined -- chainwebApplication Test <$> chainDbsIO <*> peerDbsIO
+    mkApp = chainwebApplication Test <$> chainDbsIO <*> peerDbsIO
     mkEnv port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         TestClientEnv (mkClientEnv mgr (BaseUrl Http testHost port ""))

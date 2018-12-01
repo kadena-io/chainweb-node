@@ -44,10 +44,10 @@ suite = testGroup "Unit Tests"
         -- , Chainweb.Test.ChainDB.Sync.tests  -- TODO restore all these
         ]
     , Chainweb.Test.Roundtrips.tests
-    -- , Chainweb.Test.RestAPI.tests
+    , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
-    -- , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
-    -- , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
-    -- , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
-    -- , testProperties "Data.DiGraph" Data.DiGraph.properties
+    , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.RestAPI.Utils.properties
+    , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+    , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
+    , testProperties "Data.DiGraph" Data.DiGraph.properties
     ]

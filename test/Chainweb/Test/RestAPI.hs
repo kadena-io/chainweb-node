@@ -27,8 +27,6 @@ import qualified Data.Text as T
 
 import Network.HTTP.Types.Status
 
-import Numeric.Natural
-
 import Servant.Client
 
 import qualified Streaming.Prelude as SP
@@ -51,6 +49,8 @@ import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries from Chainweb.ChainDB.Queries
+
+-- TODO remove these?
 
 hashes :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
 hashes db = liftIO . SP.toList_ $ keys db Nothing Nothing Nothing Nothing
@@ -93,19 +93,16 @@ tests = testGroup "REST API tests"
 -- Test all endpoints on each chain
 
 simpleSessionTests :: TestTree
-simpleSessionTests = testGroup "" [] -- TODO restore
--- simpleSessionTests = withChainDbsServer petersonGenesisChainDbs
---     $ \env -> testGroup "client session tests"
---         $ simpleClientSession env <$> toList (give peterson chainIds)
+simpleSessionTests = withBlockHeaderDbsServer petersonGenesisBlockHeaderDbs
+    $ \env -> testGroup "client session tests"
+        $ simpleClientSession env <$> toList (give peterson chainIds)
 
 simpleClientSession :: IO TestClientEnv -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        -- TODO RESTORE
-        -- ChainDbsTestClientEnv env _ <- envIO
-        -- res <- runClientM (session step) env
-        -- assertBool ("test failed: " <> sshow res) (isRight res)
-        return ()
+        BlockHeaderDbsTestClientEnv env _ <- envIO
+        res <- runClientM (session step) env
+        assertBool ("test failed: " <> sshow res) (isRight res)
   where
     gbh0 = genesisBlockHeader Test peterson cid
 
@@ -186,12 +183,10 @@ simpleTest
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
-    pure ()
-    -- TODO restore
-    -- ChainDbsTestClientEnv env [(_, db)] <- envIO
-    -- gbh <- dbEntry . head <$> headers db
-    -- res <- runClientM (session gbh) env
-    -- assertBool ("test failed with unexpected result: " <> sshow res) (p res)
+    BlockHeaderDbsTestClientEnv env [(_, db)] <- envIO
+    gbh <- head <$> headers db
+    res <- runClientM (session gbh) env
+    assertBool ("test failed with unexpected result: " <> sshow res) (p res)
 
 -- -------------------------------------------------------------------------- --
 -- Put Tests
@@ -226,27 +221,25 @@ put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
 putTests :: TestTree
-putTests = undefined -- TODO restore
--- putTests = withChainDbsServer singletonGenesisChainDbs
---     $ \env -> testGroup "put tests"
---         [ putNewBlockHeader env
---         , putExisting env
---         , putOnWrongChain env
---         , putMissingParent env
---         , put5NewBlockHeaders env
---         ]
+putTests = withBlockHeaderDbsServer singletonGenesisBlockHeaderDbs
+    $ \env -> testGroup "put tests"
+        [ putNewBlockHeader env
+        , putExisting env
+        , putOnWrongChain env
+        , putMissingParent env
+        , put5NewBlockHeaders env
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
 pagingTests :: TestTree
-pagingTests = undefined -- TODO restore
--- pagingTests = withChainDbsServer (starChainDbs 6 singletonGenesisChainDbs)
---     $ \env -> testGroup "paging tests"
---         [ testPageLimitHeadersClient env
---         , testPageLimitHashesClient env
---         , testPageLimitBranchesClient env
---         ]
+pagingTests = withBlockHeaderDbsServer (starBlockHeaderDbs 6 singletonGenesisBlockHeaderDbs)
+    $ \env -> testGroup "paging tests"
+        [ testPageLimitHeadersClient env
+        , testPageLimitHashesClient env
+        , testPageLimitBranchesClient env
+        ]
 
 pagingTest
     :: Eq a
@@ -264,54 +257,50 @@ pagingTest
     -> TestTree
 pagingTest name getDbItems getKey request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        pure () -- TODO restore
-        -- ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        -- entries <- getDbItems db
-        -- let l = len entries
-        -- res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
-        --     session step entries cid (Just i) Nothing
-        -- assertBool ("test of limit failed: " <> sshow res) (isRight res)
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
+        res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
+            session step ents cid (Just i) Nothing
+        assertBool ("test of limit failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test next parameter" $ \step -> do
-        pure () -- TODO restore
-        -- ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        -- entries <- getDbItems db
-        -- let l = len entries
-        -- res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
-        --     let es = drop i entries
-        --     session step es cid Nothing (Just . getKey . head $ es)
-        -- assertBool ("test limit and next failed: " <> sshow res) (isRight res)
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
+        res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
+            let es = drop i ents
+            session step es cid Nothing (Just . getKey . head $ es)
+        assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
-        pure () -- TODO restore
-        -- ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        -- entries <- getDbItems db
-        -- let l = len entries
-        -- res <- flip runClientM env
-        --     $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
-        --         let es = drop (int i) entries
-        --         session step es cid (Just j) (Just . getKey . head $ es)
-        -- assertBool ("test limit and next failed: " <> sshow res) (isRight res)
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
+        res <- flip runClientM env
+            $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
+                let es = drop (int i) ents
+                session step es cid (Just j) (Just . getKey . head $ es)
+        assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        pure () -- restore
-        -- ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        -- missing <- missingKey db
-        -- res <- flip runClientM env $ request cid Nothing (Just missing)
-        -- assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        missing <- missingKey db
+        res <- flip runClientM env $ request cid Nothing (Just missing)
+        assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
     ]
   where
-    session step entries cid n next = do
+    session step ents cid n next = do
         void $ liftIO $ step $ "limit " <> sshow n <> ", next " <> sshow next
         r <- request cid n next
         assertExpectation "result has wrong page 'limit' value"
-            (Expected . maybe id min n . int $ length entries)
+            (Expected . maybe id min n . int $ length ents)
             (Actual $ _pageLimit r)
         assertExpectation "result contains wrong page 'items'"
-            (Expected . maybe id (take . int) n $ entries)
+            (Expected . maybe id (take . int) n $ ents)
             (Actual $ _pageItems r)
         assertExpectation "result contains wrong page 'next' value"
-            (Expected . fmap getKey . listToMaybe . maybe (const []) (drop . int) n $ entries)
+            (Expected . fmap getKey . listToMaybe . maybe (const []) (drop . int) n $ ents)
             (Actual $ _pageNext r)
 
 testPageLimitHeadersClient :: IO TestClientEnv -> TestTree
