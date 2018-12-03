@@ -61,11 +61,20 @@ type E = BlockHeader
 type ChildrenMap = HM.HashMap K (HS.HashSet K)
 
 data Db = Db
-    { _dbEntries :: !(HM.HashMap K E)
+    { _dbEntries :: !(HM.HashMap K (E, Maybe K))
+        -- ^ The map with data base entries along with the a pointer to
+        -- the successor in the insertion order of the database.
+
     , _dbBranches :: !(HS.HashSet K)
+        -- ^ The set of leaf entries. Those are all entries that don't have
+        -- children.
+
     , _dbChildren :: !ChildrenMap
-    -- , _dbIdx :: !(HM.HashMap K Int)
-    -- , _dbEnumeration :: !(Seq.Seq K)
+        -- ^ The children relation, which allows to traverse the database
+        -- in the direction from the root to the leaves.
+
+    , _dbLast :: !K
+        -- ^ The last entry that was added to the database.
     }
 
 makeLenses ''Db
@@ -82,10 +91,13 @@ makeLenses ''Db
 -- * each item is included in children
 --
 dbAdd :: E -> Db -> Db
-dbAdd e
-    = over dbChildren (dbAddChildren e)
+dbAdd e db
+    = set dbLast (key e)
+    . over dbChildren (dbAddChildren e)
     . over dbBranches (dbAddBranch e)
-    . over dbEntries (HM.insert (key e) e)
+    . over dbEntries (HM.adjust (fmap $ const $ Just $ key e) (_dbLast db))
+    . over dbEntries (HM.insert (key e, Nothing) e)
+    $ db
 
 dbAddCheckedInternal :: MonadThrow m => E -> Db -> m Db
 dbAddCheckedInternal e db = case parent e of
@@ -136,11 +148,8 @@ data ChainDb = ChainDb
         -- their hash. The 'MVar' is used a s a lock to sequentialize concurrent
         -- access.
 
-    , _dbEnumeration :: !(TVar (Seq.Seq K))
-        -- ^ An index that provides sequential access to the entries in the
-        -- block header database in an order that is compatible with block
-        -- header dependencies. The `TVar` is used as a signal that allows
-        -- processes to subscribe to (await) new insertions.
+    , _dbNext :: !(TVar (Maybe K))
+        -- ^ The next pointer of the value that was added last to the database
     }
 
 instance HasChainId ChainDb where
@@ -151,7 +160,7 @@ instance HasChainId ChainDb where
 initChainDb :: Configuration -> IO ChainDb
 initChainDb config = ChainDb (_chainId root)
     <$> newMVar (dbAdd root emptyDb)
-    <*> newTVarIO (Seq.singleton (key root))
+    <*> newTVarIO Nothing
   where
     root = _configRoot config
     emptyDb = Db mempty mempty mempty
@@ -161,6 +170,7 @@ initChainDb config = ChainDb (_chainId root)
 closeChainDb :: ChainDb -> IO ()
 closeChainDb = void . takeMVar . _getDb
 
+{-
 -- | Make a copy of a `ChainDb` whose memory is independent of the original.
 -- Useful for duplicating chains within a testing environment.
 --
@@ -173,6 +183,7 @@ copy chain = do
     pure $ ChainDb (_chainId chain) mv' tv
   where
     mv = _getDb chain
+-}
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
@@ -180,15 +191,16 @@ copy chain = do
 instance TreeDb ChainDb where
     type DbEntry ChainDb = BlockHeader
 
-    lookup db k = HM.lookup k . _dbEntries <$> liftIO (readMVar $ _getDb db)
+    lookup db k = fmap fst . HM.lookup k . _dbEntries
+        <$> readMVar (_getDb db)
 
-    children db k = HM.lookup k. _dbChildren <$> liftIO (readMVar $ _getDb db)
-        >>= \case
+    children db k =
+        HM.lookup k . _dbChildren <$> lift (readMVar $ _getDb db) >>= \case
             Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb k
             Just c -> S.each c
 
-    leafEntries db n l mir mar = _dbBranches <$> liftIO (readMVar $ _getDb db) >>= \b -> do
-        (s :: Maybe (NextItem (HS.HashSet K))) <- liftIO $ start b n
+    leafEntries db n l mir mar = _dbBranches <$> lift (readMVar $ _getDb db) >>= \b -> do
+        (s :: Maybe (NextItem (HS.HashSet K))) <- lift $ start b n
         S.each b
             & seekStreamSet id s
             & lookupStreamM db
@@ -214,11 +226,13 @@ instance TreeDb ChainDb where
 
     allEntries db n =  lookupStreamM db $ allKeys db n
 
-    entries db k l mir mar = liftIO (readTVarIO $ _dbEnumeration db)
+    entries db k l mir mar = lift (readTVarIO $ _dbEnumeration db)
         >>= mapM (liftIO .lookupM db)
         >>= foldableEntries k l mir mar
 
     insert db e = liftIO $ insertChainDb db [e]
+
+foldAllEntries db = go
 
 -- -------------------------------------------------------------------------- --
 -- Updates
@@ -242,14 +256,18 @@ instance TreeDb ChainDb where
 --
 data Updates = Updates
     { _updatesCursor :: !(TVar Int)
-        -- ^ A cursor that tracks the position in the enumerations. The
+        -- ^ The cursort that tracks the position in the enumerations. The
         -- 'TVar' is only used in the context of a particular 'Updates'
         -- instance.
-    , _updatesEnum :: !(TVar (Seq K))
+    , _updatesSharedEnum :: !(TVar (Seq K))
         -- ^ The enumeration of all block headers in the data base. This 'TVar'
-        -- is only read in the context of an 'Updates' instances. It is used to
-        -- signal when a new value becomes available at the end of the
-        -- enumeration.
+        -- is only read in the context of a particualr 'Updates' instances. It
+        -- is used to signal when a new value becomes available at the end of
+        -- the enumeration.
+    , _updatesLocalEnum :: !(TVar (Seq K))
+        -- ^ A local reference of a prefix of the (append-only) shared
+        -- enumeration. This prevents lookups within the enumeration from
+        -- being affected by additions to the end of the enumeration.
     }
 
 -- | Creates a traversal from some recently added key
@@ -258,6 +276,7 @@ updates :: ChainDb -> IO Updates
 updates db = Updates
     <$> newTVarIO 0
     <*> pure (_dbEnumeration db)
+    <*> atomically (readTVar (_dbEnumeration db) >>= newTVar)
 
 -- FIXME improve performance
 --
@@ -272,6 +291,7 @@ updatesFrom db k = do
     Updates
         <$> newTVarIO idx
         <*> pure enumVar
+        <*> newTVarIO enumeration
   where
     enumVar = _dbEnumeration db
 
@@ -283,22 +303,53 @@ updatesFrom db k = do
 -- This transaction doesn't affect any transaction that doesn't involve the
 -- given 'Updates' instance. In only writes local variables.
 --
+-- If the lookup in the local enumeration failed, the transaction also retries
+-- if a block header is inserted before the transaction completes. This can
+-- cause 'updatesNext' function to race against additions to the data. However,
+-- that race is amortized, because each time the race is lost, a new blockHeader
+-- is added to the enumeration. One the race is eventually won, there won't be
+-- any race at least for as many lookups as there were lost races. In theaory,
+-- there is some small risk of permanently loosing the race, because adding a
+-- value to the enumeration takes time \(O(1)\) while looking up an index \(i\)
+-- takes time \(O(log(min(i, n-i)))\), which increases logarithmically with the
+-- number of lost races. However, access to the code for updating the data base
+-- is guarded by preciding code for updating the data base which runs under the
+-- database lock. The enumeration update is only executed exactly once for each
+-- successful addition to the database, which (beside being IO bound) is also
+-- bound by the block rate of the block chain.
+--
 updatesNext :: Updates -> STM K
 updatesNext u = do
-    xs <- readTVar (_updatesEnum u)
     c <- readTVar (_updatesCursor u)
-    case Seq.lookup c xs of
-        Nothing -> retry
+    lxs <- readTVar (_updatesLocalEnum u)
+    case Seq.lookup c lxs of
+        Nothing -> awaitUpdate c
         Just x -> do
             writeTVar (_updatesCursor u) (c + 1)
             return x
+  where
+    -- This is executed only if the requested index is missing in the local copy
+    -- of the enumeration.
+    awaitUpdate c = do
+        xs <- readTVar (_updatesSharedEnum u)
+        case Seq.lookup c xs of
+            Nothing -> retry
+            Just x -> do
+                writeTVar (_updatesLocalEnum u) xs
+                writeTVar (_updatesCursor u) (c + 1)
+                return x
 
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
 insertChainDb :: ChainDb -> [E] -> IO ()
 insertChainDb db es = do
-    -- insert entries to db and collect new keys
+
+    -- If an exception were raised in this function it could happen that
+    -- block headers are added to the database but not to the enumeration.
+
+    -- insert entries to db and collect new keys in the order they where
+    -- inserted.
     --
     news <- modifyMVar (_getDb db)
         $ \x -> foldM
@@ -306,7 +357,16 @@ insertChainDb db es = do
             (x, mempty)
             rankedAdditions
 
-    -- publish new keys to updates enumeration
+    -- Publish new keys to updates enumeration.
+    --
+    -- This code is not under the lock database lock. Concurrent process race to
+    -- insert block headers. That's fine because the rate of new blocks is bound
+    -- by IO and ultimately limited by the block rate of the block chain. Also,
+    -- new block headers can only be added after all of their dependencies had
+    -- been added, however the set of dependencies is finite and fixed, thus
+    -- guaranteeing progress. Also, note that appending to a sequence is
+    -- logarithmic in the number of added items, whereas the code under the lock
+    -- is linear in the number of added items.
     --
     atomically $ modifyTVar' (_dbEnumeration db) (<> news)
   where
