@@ -209,7 +209,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
     {-# MINIMAL
         lookup,
-        children,
+        (children | childrenEntries),
         (allEntries | entries),
         (leafKeys | leafEntries),
         (insert | insertStream) #-}
@@ -239,13 +239,17 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- The number is expected to be small enough to be returned in a single call
     -- even for remote backends. FIXME: this may be a DOS vulnerability.
     --
-    -- TODO: should we give a default implementation? It would be terribly
-    -- slow.
-    --
     children
         :: db
         -> DbKey db
         -> S.Stream (Of (DbKey db)) IO ()
+    children db = S.map key . childrenEntries db
+
+    childrenEntries
+        :: db
+        -> DbKey db
+        -> S.Stream (Of (DbEntry db)) IO ()
+    childrenEntries db = lookupStreamM db . children db
 
     -- TODO: add a function that takes a stream instead of a single key.
     -- TODO: implement limits
@@ -587,10 +591,11 @@ ascend db (MinRank (Min r)) = go
         | rank e < r = S.for (children db (key e) & lookupStreamM db) go
         | otherwise = S.yield e
 
--- | @ascencIntersect db s e@ returns the intersection of the successors of
+-- | @ascendIntersect db s e@ returns the intersection of the successors of
 -- @e@ with the set @s@.
 --
 -- TODO: use rank to prune the search
+-- FIXME: is this what we want if elements of @s@ are on the same branch?
 --
 ascendIntersect
     :: TreeDb db
@@ -602,7 +607,7 @@ ascendIntersect db s = go
   where
     go e
         | key e `HS.member` s = S.yield e
-        | otherwise = S.for (children db (key e) & lookupStreamM db) go
+        | otherwise = S.for (childrenEntries db (key e)) go
 
 -- -------------------------------------------------------------------------- --
 -- Limiting and Seeking a stream
