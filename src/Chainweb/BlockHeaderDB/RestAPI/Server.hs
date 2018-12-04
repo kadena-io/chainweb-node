@@ -41,6 +41,7 @@ import Prelude hiding (lookup)
 import Servant.API
 import Servant.Server
 
+
 -- internal modules
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
@@ -48,7 +49,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (reverseStream, sshow)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -83,6 +84,7 @@ setWrap = (HS.singleton *** HS.singleton) . (_lower &&& _upper)
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
+-- | All leaf nodes (i.e. the newest blocks on any given branch).
 branchesHandler
     :: TreeDb db
     => db
@@ -91,9 +93,12 @@ branchesHandler
     -> Maybe MinRank
     -> Maybe MaxRank
     -> Handler (Page (DbKey db) (DbKey db))
-branchesHandler db limit next minr maxr =
-    hashesHandler db limit next minr maxr Nothing
+branchesHandler db limit next minr maxr = do
+    nextChecked <- traverse (checkKey db) next
+    let ls = void $ leafKeys db (Inclusive <$> next) limit minr maxr
+    liftIO $ streamToPage id nextChecked limit ls
 
+-- | Every `TreeDb` key within a given range.
 hashesHandler
     :: TreeDb db
     => db
@@ -105,10 +110,15 @@ hashesHandler
     -> Handler (Page (DbKey db) (DbKey db))
 hashesHandler db limit next minr maxr range = do
     nextChecked <- traverse (checkKey db) next
-    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
-    let hs = void $ branchKeys db Nothing Nothing minr maxr low upp
+    hs <- s range
     liftIO $ streamToPage id nextChecked limit hs
+  where
+    s Nothing = pure . void $ keys db Nothing Nothing minr maxr
+    s (Just r) = do
+      (low, upp)  <- setWrap <$> checkBounds db r
+      pure . reverseStream . void $ branchKeys db Nothing Nothing minr maxr low upp
 
+-- | Every `TreeDb` entry within a given range.
 headersHandler
     :: TreeDb db
     => db
@@ -120,9 +130,13 @@ headersHandler
     -> Handler (Page (DbKey db) (DbEntry db))
 headersHandler db limit next minr maxr range = do
     nextChecked <- traverse (checkKey db) next
-    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
-    let hs = void $ branchEntries db Nothing Nothing minr maxr low upp
+    hs <- s range
     liftIO $ streamToPage key nextChecked limit hs
+  where
+    s Nothing = pure . void $ entries db Nothing Nothing minr maxr
+    s (Just r) = do
+      (low, upp)  <- setWrap <$>  checkBounds db r
+      pure . reverseStream . void $ branchEntries db Nothing Nothing minr maxr low upp
 
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
