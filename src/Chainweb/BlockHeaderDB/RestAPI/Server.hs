@@ -1,9 +1,9 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Server
@@ -24,11 +24,12 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 , blockHeaderDbApiLayout
 ) where
 
-import Control.Arrow ((***), (&&&))
-import Control.Monad (void)
-import Control.Monad.IO.Class
-import Control.Monad.Except (MonadError(..))
+import Control.Arrow ((&&&), (***))
 import Control.Lens
+import Control.Monad (void)
+import Control.Monad.Catch (try)
+import Control.Monad.Except (MonadError(..))
+import Control.Monad.IO.Class
 
 import Data.Hashable (Hashable)
 import qualified Data.HashSet as HS
@@ -47,6 +48,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -125,8 +127,10 @@ headersHandler db limit next minr maxr range = do
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
 
-headerPutHandler :: TreeDb db => db -> DbEntry db -> Handler NoContent
-headerPutHandler db e = NoContent <$ liftIO (insert db e)
+headerPutHandler :: forall db. (TreeDb db) => db -> DbEntry db -> Handler NoContent
+headerPutHandler db e = (liftIO $ try $ insert db e) >>= \case
+    Left (err :: TreeDbException db) -> throwError $ err400 { errBody = sshow err }
+    Right _ -> pure NoContent
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
