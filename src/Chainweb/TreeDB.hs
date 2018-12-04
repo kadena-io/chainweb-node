@@ -446,6 +446,27 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- ---------------------------------------------------------------------- --
     -- * Insertion
 
+    -- FIXME: defining semantics in the presence of insertion failures is
+    -- tricky. I think we should replace it either
+    --
+    -- @
+    -- insertList
+    --     :: db
+    --     -> HS.Set (DbEntry db)
+    --     -> IO (HM.HashMap (DbKey db) (Either SomeException ())
+    -- @
+    --
+    -- or just
+    --
+    -- @
+    -- insertList
+    --     :: db
+    --     -> HS.Set (DbEntry db)
+    --     -> IO ()
+    -- @
+    --
+    -- where the latter would insert all entries in a single atomic transaction.
+    --
     insertStream
         :: db
         -> S.Stream (Of (DbEntry db)) IO ()
