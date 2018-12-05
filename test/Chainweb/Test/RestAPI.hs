@@ -60,7 +60,7 @@ headers db = liftIO . SP.toList_ $ entries db Nothing Nothing Nothing Nothing
 
 dbBranches :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
 dbBranches db =
-    liftIO . SP.toList_ $ branchKeys db Nothing Nothing Nothing Nothing mempty mempty
+    liftIO . SP.toList_ $ leafKeys db Nothing Nothing Nothing Nothing
 
 -- -------------------------------------------------------------------------- --
 -- ChainDB Utils
@@ -264,6 +264,10 @@ pagingTest name getDbItems getKey request envIO = testGroup name
             session step ents cid (Just i) Nothing
         assertBool ("test of limit failed: " <> sshow res) (isRight res)
 
+    -- TODO Did a limit value of 0 mean something else previously?
+    -- The two last tests that are failing now are failing when
+    -- hitting `Limit 0`.
+
     , testCaseSteps "test next parameter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
         ents <- getDbItems db
@@ -272,6 +276,8 @@ pagingTest name getDbItems getKey request envIO = testGroup name
             let es = drop i ents
             session step es cid Nothing (Just . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
+
+    -- TODO This is also still failing, but may be fixed already on other branches.
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
