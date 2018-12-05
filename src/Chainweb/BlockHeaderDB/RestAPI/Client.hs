@@ -134,29 +134,32 @@ headersClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Maybe Limit
-    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
 headersClient_ = client (headersApi @v @c)
 
 headersClient
-    :: ChainwebVersion  -- ^ The remote chainweb that you wish to query from.
-    -> ChainId  -- ^ The remote chain within the web that you wish to query from.
-    -> Maybe Limit  -- ^ The number of responses per-`Page` to return.
-    -> Maybe (DbKey BlockHeaderDb)  -- ^ The first header you want to see within the `Page`.
-                               -- `Page` contains a field `_pageNext`, which can be used
-                               -- to produce the value needed for subsequent calls.
-    -> Maybe MinRank  -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
-    -> Maybe MaxRank  -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
-    -> Maybe (Bounds (DbKey BlockHeaderDb))  -- ^ Filter: only yield headers between two specific hashes,
-                                               -- i.e. a single, specific branch.
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
-headersClient v c limit start minr maxr range = runIdentity $ do
+    :: ChainwebVersion
+        -- ^ The remote chainweb that you wish to query from.
+    -> ChainId
+        -- ^ The remote chain within the web that you wish to query from.
+    -> Maybe Limit
+        -- ^ The number of responses per-`Page` to return.
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
+        -- ^ The first header you want to see within the `Page`.
+        -- `Page` contains a field `_pageNext`, which can be used
+        -- to produce the value needed for subsequent calls.
+    -> Maybe MinRank
+        -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
+    -> Maybe MaxRank
+        -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+headersClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ headersClient_ @v @c limit start minr maxr range
+    return $ headersClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
 -- Branches Client
@@ -166,24 +169,26 @@ branchesClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Maybe Limit
-    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 branchesClient_ = client (branchesApi @v @c)
 
 branchesClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe Limit
-    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
-branchesClient v c limit start minr maxr = runIdentity $ do
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+branchesClient v c limit start minr maxr range = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ branchesClient_ @v @c limit start minr maxr
+    return $ branchesClient_ @v @c limit start minr maxr range
 
 -- -------------------------------------------------------------------------- --
 -- Hashes Client
@@ -193,23 +198,21 @@ hashesClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Maybe Limit
-    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 hashesClient_ = client (hashesApi @v @c)
 
 hashesClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe Limit
-    -> Maybe (DbKey BlockHeaderDb)
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
-    -> ClientM (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
-hashesClient v c limit start minr maxr range = runIdentity $ do
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+hashesClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ hashesClient_ @v @c limit start minr maxr range
+    return $ hashesClient_ @v @c limit start minr maxr

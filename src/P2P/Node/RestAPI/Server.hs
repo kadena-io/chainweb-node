@@ -42,8 +42,6 @@ import qualified Data.Text.IO as T
 
 import Network.Wai.Handler.Warp hiding (Port)
 
-import Numeric.Natural
-
 import Servant.API
 import Servant.Server
 
@@ -56,7 +54,7 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
-import Chainweb.TreeDB (Limit)
+import Chainweb.TreeDB (Limit, NextItem)
 import Chainweb.Version
 
 import Data.Singletons
@@ -71,11 +69,11 @@ import P2P.Node.RestAPI
 peerGetHandler
     :: PeerDb
     -> Maybe Limit
-    -> Maybe PeerId
-    -> Handler (Page PeerId PeerInfo)
+    -> Maybe (NextItem PeerId)
+    -> Handler (Page (NextItem PeerId) PeerInfo)
 peerGetHandler db limit next = do
     sn <- liftIO $ peerDbSnapshot db
-    streamToPage _peerId next limit
+    seekLimitedStreamToPage _peerId next limit
         . SP.each
         $ toList sn
 
@@ -141,3 +139,4 @@ serveP2pOnPort
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
+

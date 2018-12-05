@@ -102,7 +102,7 @@ someBlockHeaderDbVal v cid db = case someChainwebVersionVal v of
 -- *   maxheight :: Natural
 -- *   branch :: BlockHash,BlockHash
 --
-type FilterParams = MinHeightParam :> MaxHeightParam :> BranchParam
+type FilterParams = MinHeightParam :> MaxHeightParam
 
 type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
@@ -113,10 +113,11 @@ type BranchParam = QueryParam "branch" (Bounds (DbKey BlockHeaderDb))
 --
 type BranchesApi_
     = "branch"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
     :> MaxHeightParam
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    :> BranchParam
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
 type BranchesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchesApi_
@@ -131,9 +132,9 @@ branchesApi = Proxy
 --
 type HashesApi_
     = "hash"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> FilterParams
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
 type HashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HashesApi_
@@ -148,9 +149,9 @@ hashesApi = Proxy
 --
 type HeadersApi_
     = "header"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> FilterParams
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
 
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_

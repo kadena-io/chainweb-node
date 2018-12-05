@@ -25,10 +25,10 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Arrow ((***), (&&&))
-import Control.Monad (void)
-import Control.Monad.IO.Class
-import Control.Monad.Except (MonadError(..))
+import Control.Monad.Catch (catch)
 import Control.Lens
+import Control.Monad.Except (MonadError(..))
+import Control.Monad.IO.Class
 
 import Data.Hashable (Hashable)
 import qualified Data.HashSet as HS
@@ -44,10 +44,12 @@ import Servant.Server
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils
 import Chainweb.Version
+
+import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -85,48 +87,54 @@ branchesHandler
     :: TreeDb db
     => db
     -> Maybe Limit
-    -> Maybe (DbKey db)  -- TODO use `NextItem` here and elsewhere?
+    -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (DbKey db) (DbKey db))
-branchesHandler db limit next minr maxr =
-    hashesHandler db limit next minr maxr Nothing
+    -> Maybe (Bounds (DbKey db))
+    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+branchesHandler db limit next minr maxr range = do
+    nextChecked <- traverse (traverse $ checkKey db) next
+    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
+    let hs = branchKeys db nextChecked limit minr maxr low upp
+    liftIO $ streamToPage id hs
 
 hashesHandler
     :: TreeDb db
     => db
     -> Maybe Limit
-    -> Maybe (DbKey db)
+    -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey db))
-    -> Handler (Page (DbKey db) (DbKey db))
-hashesHandler db limit next minr maxr range = do
-    nextChecked <- traverse (checkKey db) next
-    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
-    let hs = void $ branchKeys db Nothing Nothing minr maxr low upp
-    liftIO $ streamToPage id nextChecked limit hs
+    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+hashesHandler db limit next minr maxr = do
+    nextChecked <- traverse (traverse $ checkKey db) next
+    hashesHandler db limit nextChecked minr maxr
 
 headersHandler
     :: TreeDb db
     => db
     -> Maybe Limit
-    -> Maybe (DbKey db)
+    -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey db))
-    -> Handler (Page (DbKey db) (DbEntry db))
-headersHandler db limit next minr maxr range = do
-    nextChecked <- traverse (checkKey db) next
-    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
-    let hs = void $ branchEntries db Nothing Nothing minr maxr low upp
-    liftIO $ streamToPage key nextChecked limit hs
+    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+headersHandler db limit next minr maxr = do
+    nextChecked <- traverse (traverse $ checkKey db) next
+    let hs = entries db nextChecked limit minr maxr
+    liftIO $ streamToPage key hs
 
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
 
-headerPutHandler :: TreeDb db => db -> DbEntry db -> Handler NoContent
-headerPutHandler db e = NoContent <$ liftIO (insert db e)
+headerPutHandler
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbEntry db
+    -> Handler NoContent
+headerPutHandler db e = (NoContent <$ liftIO (insert db e))
+    `catch` \(err :: TreeDbException db) ->
+        throwError $ err400 { errBody = sshow err }
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server

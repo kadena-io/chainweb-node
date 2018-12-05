@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -114,7 +113,7 @@ simpleClientSession envIO cid =
             (Actual gen0)
 
         void $ liftIO $ step "headersClient: get genesis block header"
-        bhs1 <- headersClient Test cid Nothing Nothing Nothing Nothing Nothing
+        bhs1 <- headersClient Test cid Nothing Nothing Nothing Nothing
         gen1 <- case _pageItems bhs1 of
             [] -> liftIO $ assertFailure "headersClient did return empty result"
             (h:_) -> return h
@@ -123,7 +122,7 @@ simpleClientSession envIO cid =
             (Actual gen1)
 
         void $ liftIO $ step "branchesClient: get gensis block header"
-        brs <- branchesClient Test cid Nothing Nothing Nothing Nothing
+        brs <- branchesClient Test cid Nothing Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs)
@@ -138,13 +137,13 @@ simpleClientSession envIO cid =
             void $ headerPutClient Test cid h
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
-        bhs2 <- headersClient Test cid Nothing Nothing Nothing Nothing Nothing
+        bhs2 <- headersClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "headersClient returned wrong number of entries"
             (Expected 4)
             (Actual $ _pageLimit bhs2)
 
         void $ liftIO $ step "hashesClient: get all 4 block hashes"
-        hs2 <- hashesClient Test cid Nothing Nothing Nothing Nothing Nothing
+        hs2 <- hashesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "hashesClient returned wrong number of entries"
             (Expected $ _pageLimit bhs2)
             (Actual $ _pageLimit hs2)
@@ -153,7 +152,7 @@ simpleClientSession envIO cid =
             (Actual $ _pageItems hs2)
 
         void $ liftIO $ step "branchesClient: get latest branch"
-        brs2 <- branchesClient Test cid Nothing Nothing Nothing Nothing
+        brs2 <- branchesClient Test cid Nothing Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs2)
@@ -250,7 +249,7 @@ pagingTest
         -- ^ Get test items from database
     -> (a -> DbKey BlockHeaderDb)
         -- ^ Compute paging key from item
-    -> (ChainId -> Maybe Limit -> Maybe (DbKey BlockHeaderDb) -> ClientM (Page (DbKey BlockHeaderDb) a))
+    -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
     -> IO TestClientEnv
         -- ^ Test environment
@@ -270,7 +269,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
             let es = drop i ents
-            session step es cid Nothing (Just . getKey . head $ es)
+            session step es cid Nothing (Just . Exclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
@@ -280,13 +279,13 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         res <- flip runClientM env
             $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
                 let es = drop (int i) ents
-                session step es cid (Just j) (Just . getKey . head $ es)
+                session step es cid (Just j) (Just . Exclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
         BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
         missing <- missingKey db
-        res <- flip runClientM env $ request cid Nothing (Just missing)
+        res <- flip runClientM env $ request cid Nothing (Just $ Exclusive missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
     ]
   where
@@ -300,20 +299,28 @@ pagingTest name getDbItems getKey request envIO = testGroup name
             (Expected . maybe id (take . int) n $ ents)
             (Actual $ _pageItems r)
         assertExpectation "result contains wrong page 'next' value"
-            (Expected . fmap getKey . listToMaybe . maybe (const []) (drop . int) n $ ents)
+            (Expected $ expectedNext ents n)
             (Actual $ _pageNext r)
+
+    expectedNext ents n
+        = fmap (Exclusive . getKey) . listToMaybe
+        $ case n of
+            Nothing -> []
+            Just x
+                | x < 1 -> []
+                | otherwise -> drop (int $ x - 1) ents
 
 testPageLimitHeadersClient :: IO TestClientEnv -> TestTree
 testPageLimitHeadersClient = pagingTest "headersClient" headers key request
   where
-    request cid l n = headersClient Test cid l n Nothing Nothing Nothing
+    request cid l n = headersClient Test cid l n Nothing Nothing
 
 testPageLimitHashesClient :: IO TestClientEnv -> TestTree
 testPageLimitHashesClient = pagingTest "hashesClient" hashes id request
   where
-    request cid l n = hashesClient Test cid l n Nothing Nothing Nothing
+    request cid l n = hashesClient Test cid l n Nothing Nothing
 
 testPageLimitBranchesClient :: IO TestClientEnv -> TestTree
 testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id request
   where
-    request cid l n = branchesClient Test cid l n Nothing Nothing
+    request cid l n = branchesClient Test cid l n Nothing Nothing Nothing
