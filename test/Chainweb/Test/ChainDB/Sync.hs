@@ -11,10 +11,9 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.ChainDB (snapshot, height, copy, highest)
 import Chainweb.ChainDB.Sync
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (withServer, withDB, insertN)
+import Chainweb.Test.Utils (insertN, withDB, withServer)
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"

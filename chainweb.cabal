@@ -59,7 +59,6 @@ library
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
-        , Chainweb.ChainDB
         , Chainweb.ChainDB.Sync
         , Chainweb.ChainDB.SyncSession
         , Chainweb.ChainId
