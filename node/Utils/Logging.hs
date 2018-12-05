@@ -409,7 +409,7 @@ withExampleLogger
         -- ^ Sessions logger configuration
     -> (Logger -> IO α)
     -> IO α
-withExampleLogger port config sessionsConfig f = do
+withExampleLogger port config _sessionsConfig f = do
     staticDir <- (<> "/examples/static-html") <$> getDataDir
     withFileHandleBackend (L._logConfigBackend config)
         -- $ \baseBackend -> withJsonFileHandleBackend @P2pSessionInfo sessionsConfig

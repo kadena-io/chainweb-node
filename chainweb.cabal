@@ -229,9 +229,7 @@ executable chainweb-node
     main-is: ChainwebNode.hs
     ghc-options: -threaded
     other-modules:
-          Paths_chainweb
-        , Utils.Gexf
-        , Utils.Logging
+        Utils.Logging
     build-depends:
         -- internal
           chainweb
@@ -287,7 +285,6 @@ executable chainweb-node
         , warp >= 3.2
         , yet-another-logger >= 0.3.1
 -- Dependencies of Utils.*
-        , xmlgen >= 0.6
         , transformers >= 0.5
         , wai-app-static >= 3.1
         , wai-cors >= 0.2

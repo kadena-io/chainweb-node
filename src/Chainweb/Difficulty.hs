@@ -194,7 +194,7 @@ decodeHashTarget = HashTarget <$> decodeBlockHashNat
 -- | FIXME: make the overflow checks tight
 --
 -- this algorithm introduces a rounding error in the order of
--- the lenght of the input list. We could reduce the error
+-- the length of the input list. We could reduce the error
 -- at the cost of larger numbers (and thus more likely bound
 -- violations). We could also eliminate the risk of bound
 -- violations at the cost of larger rounding errors. The current

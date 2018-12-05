@@ -35,7 +35,6 @@ import Control.Monad.Catch
 import Control.Monad.STM
 
 import Data.Bifunctor (first)
-import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Function
 import qualified Data.HashSet as HS
@@ -50,9 +49,6 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import qualified Streaming.Prelude as SP
-
-import System.FilePath
 import qualified System.Logger as L
 import System.LogLevel
 import qualified System.Random.MWC as MWC
@@ -63,7 +59,6 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainDB
-import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -82,7 +77,6 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
 
-import Utils.Gexf
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
@@ -221,6 +215,11 @@ main = runWithConfiguration mainInfo $ \config ->
         (_sessionsLoggerConfig config)
         (runNodeWithConfig config)
 
+peerIdToNodeId :: HasChainId cid => cid -> UUID.UUID -> NodeId
+peerIdToNodeId cid uuid = NodeId (_chainId cid) (int a * 2^(32 :: Integer) + int b)
+  where
+    (a,b,_,_) = UUID.toWords uuid
+
 runNodeWithConfig :: P2pNodeConfig -> Logger -> IO ()
 runNodeWithConfig conf logger = do
     L.withLoggerLabel ("node", "init") logger $ \logger' -> do
@@ -229,11 +228,9 @@ runNodeWithConfig conf logger = do
           Nothing -> createPeerId
           Just x -> return x
         logfun Info $ T.pack (show myPeerId)
-        let peerIdNum = fromIntegral a * (2^(32 :: Integer)) + fromIntegral b where (a,b,_,_) = UUID.toWords peerUUID
-        node cid t logger conf (myConfig myPeerId) (NodeId cid peerIdNum) myPort
+        node cid logger conf (myConfig myPeerId) (peerIdToNodeId cid peerUUID) myPort
   where
     cid = _nodeChainId conf
-    t = _meanSessionSeconds conf
 
     -- P2P node configuration
     --
@@ -252,31 +249,17 @@ runNodeWithConfig conf logger = do
     myPort = fromIntegral (_nodePort conf)
 
 -- -------------------------------------------------------------------------- --
--- Example P2P Client Sessions
+-- P2P Client Sessions
 
-timer :: Natural -> IO ()
-timer t = do
-    gen <- MWC.createSystemRandom
-    timeout <- MWC.geometric1 (1 / (fromIntegral t * 1000000)) gen
-    threadDelay timeout
-
-chainDbSyncSession :: Natural -> ChainDb -> P2pSession
-chainDbSyncSession t db logFun env =
-    withAsync (timer t) $ \timerAsync ->
-    withAsync (syncSession db logFun env) $ \sessionAsync ->
-        waitEitherCatchCancel timerAsync sessionAsync >>= \case
-            Left (Left e) -> do
-                logg Info $ "session timer failed " <> sshow e
-                return False
-            Left (Right ()) -> do
-                logg Info "session killed by timer"
-                return False
-            Right (Left e) -> do
-                logg Warn $ "Session failed: " <> sshow e
-                return False
-            Right (Right a) -> do
-                logg Warn "Session succeeded"
-                return a
+chainDbSyncSession :: ChainDb -> P2pSession
+chainDbSyncSession db logFun env =
+    try (syncSession db logFun env) >>= \case
+      Left (e :: SomeException) -> do
+        logg Warn $ "Session failed: " <> sshow e
+        return False
+      Right a -> do
+        logg Warn "Session succeeded"
+        return a
   where
     logg :: LogFunctionText
     logg = logFun
@@ -286,20 +269,19 @@ chainDbSyncSession t db logFun env =
 
 node
     :: ChainId
-    -> Natural
     -> Logger
     -> P2pNodeConfig
     -> P2pConfiguration
     -> NodeId
     -> Port
     -> IO ()
-node cid t logger conf p2pConfig nid port =
+node cid logger conf p2pConfig nid port =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
         logfun Info $ "Start test node"
 
-        withChainDb cid nid $ \cdb ->
+        withChainDb cid $ \cdb ->
           withPeerDb p2pConfig $ \pdb ->
             withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, ChainDb)]
@@ -308,24 +290,20 @@ node cid t logger conf p2pConfig nid port =
                   logfun Info "started server"
                   runConcurrently
                       $ Concurrently (miner logger' conf nid cdb)
-                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
+                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
                       <> Concurrently (monitor logger' cdb)
                   wait server
 
-withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b
-withChainDb cid nid = bracket start stop
+withChainDb :: ChainId -> (ChainDb -> IO b) -> IO b
+withChainDb cid = bracket start stop
   where
     start = initChainDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
         }
     stop db = do
-        l <- SP.toList_ $ SP.map dbEntry $ chainDbHeaders db Nothing Nothing Nothing
-        B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
         closeChainDb db
 
     graph = toChainGraph (const cid) singleton
-
-    nidPath = T.unpack . T.replace "/" "." $ toText nid
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
@@ -339,16 +317,15 @@ syncer
     -> ChainDb
     -> PeerDb
     -> Port
-    -> Natural
     -> IO ()
-syncer cid logger conf cdb pdb port t =
+syncer cid logger conf cdb pdb port =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
+            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
@@ -382,7 +359,7 @@ miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \lo
 
         -- mine new block
         --
-        let n = 10
+        let n = 10 :: Integer
         d <- MWC.geometric1
             (1 / (fromIntegral n * fromIntegral (_meanBlockTimeSeconds conf) * 1000000))
             gen
@@ -400,7 +377,7 @@ miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \lo
 
         -- create new (test) block header
         --
-        let e = entry $ testBlockHeader nid adjs (Nonce 0) (dbEntry p)
+        let e = entry $ testBlockHeader nid (BlockHashRecord mempty) (Nonce 0) (dbEntry p)
 
         -- Add block header to the database
         --
@@ -411,9 +388,6 @@ miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \lo
         -- continue
         --
         go logg gen (i + 1)
-
-    adjs = BlockHashRecord mempty
-
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
