@@ -1,9 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -33,7 +31,7 @@ module Chainweb.TreeDB
 , MaxRank(..)
 , LowerBound(..)
 , UpperBound(..)
-, Bounds(..)
+, BranchBounds(..)
 
 -- * Tree Database
 , TreeDbEntry(..)
@@ -76,6 +74,7 @@ import Control.Monad.Catch
 import Control.Monad.Identity
 import Control.Monad.Trans
 
+import Data.Aeson
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -156,10 +155,27 @@ newtype UpperBound k = UpperBound { _getUpperBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
 
--- | A simple pair of bounds.
-data Bounds k = Bounds { _lower :: !(LowerBound k), _upper :: !(UpperBound k) }
-    deriving stock (Eq, Show, Ord, Generic)
-    deriving anyclass (Hashable)
+data BranchBounds db = BranchBounds
+    { _branchBoundsLower :: !(HS.HashSet (LowerBound (DbKey db)))
+    , _branchBoundsUpper :: !(HS.HashSet (UpperBound (DbKey db)))
+    }
+
+instance
+    (Hashable (Key (DbEntry db)), Eq (Key (DbEntry db)), ToJSON (DbKey db))
+    => ToJSON (BranchBounds db)
+  where
+    toJSON b = object
+        [ "lower" .= HS.map _getLowerBound (_branchBoundsLower b)
+        , "upper" .= HS.map _getUpperBound (_branchBoundsUpper b)
+        ]
+
+instance
+    (Hashable (Key (DbEntry db)), Eq (Key (DbEntry db)), FromJSON (DbKey db))
+    => FromJSON (BranchBounds db)
+  where
+    parseJSON = withObject "BranchBounds" $ \o -> BranchBounds
+        <$> (HS.map LowerBound <$> o .: "lower")
+        <*> (HS.map UpperBound <$> o .: "upper")
 
 -- -------------------------------------------------------------------------- --
 -- * TreeDbEntry
@@ -372,8 +388,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | @branchKeys n l mir mar lower upper@ returns all nodes within the given
     -- range of minimum rank @mir@ and maximun rank @mar@ that are predecessors
     -- of nodes in @upper@ and not predecessors of any node in @lower@, starting
-    -- at the entry after @n@. The number of itmes in the result is limited by
-    -- @l@. Items are returned in descending order.
+    -- at the entry @n@. The number of items in the result is limited by @l@.
+    -- Items are returned in descending order.
     --
     -- The result stream doesn't block. It may return less than the requested
     -- number of items.

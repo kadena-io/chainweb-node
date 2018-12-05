@@ -44,6 +44,7 @@ import Servant.API
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.TreeDB hiding (properties)
@@ -116,7 +117,8 @@ instance ToHttpApiData (NextItem PeerId) where
 instance FromHttpApiData (NextItem PeerId) where
     parseUrlPiece = first sshow . fromText
 
-instance FromHttpApiData (Bounds BlockHash) where
+{-
+instance FromHttpApiData (BranchBounds BlockHeaderDb) where
     parseUrlPiece t =
         let (a, b) = T.break (== ',') t
         in (\a' b' -> Bounds (LowerBound a') (UpperBound b'))
@@ -125,6 +127,7 @@ instance FromHttpApiData (Bounds BlockHash) where
 
 instance ToHttpApiData (Bounds BlockHash) where
     toUrlPiece (Bounds (LowerBound l) (UpperBound u)) = toUrlPiece l <> "," <> toUrlPiece u
+-}
 
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
@@ -166,10 +169,12 @@ instance ToParamSchema Eos where
     toParamSchema _ = mempty
         & type_ .~ SwaggerBoolean
 
+{-
 instance ToParamSchema (Bounds BlockHash) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "key,key"
+-}
 
 instance ToParamSchema (NextItem BlockHash) where
     toParamSchema _ = mempty
@@ -237,4 +242,15 @@ instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
                 , ("next", keySchema)
                 ]
             & required .~ [ "limit", "items" ]
+
+instance ToSchema (BranchBounds BlockHeaderDb) where
+    declareNamedSchema _ = do
+        setSchema <- declareSchemaRef (Proxy @[BlockHash])
+        return $ NamedSchema (Just "BranchBounds") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("upper", setSchema)
+                , ("lower", setSchema)
+                ]
+            & required .~ [ "upper", "lower" ]
 

@@ -23,14 +23,12 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 , blockHeaderDbApiLayout
 ) where
 
-import Control.Arrow ((***), (&&&))
-import Control.Monad.Catch (catch)
 import Control.Lens
+import Control.Monad.Catch (catch)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
-import Data.Hashable (Hashable)
-import qualified Data.HashSet as HS
+import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
 
@@ -64,41 +62,37 @@ checkKey
 checkKey db k = liftIO (lookup db k) >>= maybe (throwError err404) (pure . const k)
 
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
+--
 checkBounds
     :: MonadError ServantErr m
     => MonadIO m
     => TreeDb db
     => db
-    -> Bounds (DbKey db)
-    -> m (Bounds (DbKey db))
-checkBounds db (Bounds l u) = (\l' u' -> Bounds (LowerBound l') (UpperBound u'))
-    <$> checkKey db (_getLowerBound l)
-    <*> checkKey db (_getUpperBound u)
-
--- | Convenience function for rewrapping `Bounds` in a form preferred by
--- the handlers below.
-setWrap :: Hashable k => Bounds k -> (HS.HashSet (LowerBound k), HS.HashSet (UpperBound k))
-setWrap = (HS.singleton *** HS.singleton) . (_lower &&& _upper)
+    -> BranchBounds db
+    -> m (BranchBounds db)
+checkBounds db b = b
+    <$ traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
+    <* traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-{- FIXME
-branchesHandler
+branchesKeyHandler
     :: TreeDb db
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey db))
+    -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-branchesHandler db limit next minr maxr range = do
+branchesKeyHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    (low, upp)  <- maybe (pure (mempty, mempty)) (fmap setWrap . checkBounds db) range
-    let hs = leafKeys db nextChecked limit minr maxr low upp
-    liftIO $ streamToPage id hs
--}
+    checkedBounds <- checkBounds db bounds
+    liftIO $ streamToPage id $
+        branchKeys db nextChecked limit minr maxr
+            (_branchBoundsLower checkedBounds)
+            (_branchBoundsUpper checkedBounds)
 
 -- | All leaf nodes (i.e. the newest blocks on any given branch).
 leavesHandler
@@ -164,6 +158,7 @@ blockHeaderDbServer (BlockHeaderDb_ db) =
     :<|> headersHandler db
     :<|> headerHandler db
     :<|> headerPutHandler db
+    :<|> branchesKeyHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB

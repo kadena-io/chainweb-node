@@ -66,8 +66,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , headersClient
 , leavesClient_
 , leavesClient
--- , branchesClient_
--- , branchesClient
+, branchesClient_
+, branchesClient
 ) where
 
 import Control.Monad.Identity
@@ -190,7 +190,6 @@ leavesClient v c limit start minr maxr = runIdentity $ do
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ leavesClient_ @v @c limit start minr maxr
 
-{-
 -- -------------------------------------------------------------------------- --
 -- Branches Client
 
@@ -202,7 +201,7 @@ branchesClient_
     -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> BranchBounds BlockHeaderDb
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 branchesClient_ = client (branchesApi @v @c)
 
@@ -213,13 +212,12 @@ branchesClient
     -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
+    -> BranchBounds BlockHeaderDb
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-branchesClient v c limit start minr maxr range = runIdentity $ do
+branchesClient v c limit start minr maxr bounds = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ branchesClient_ @v @c limit start minr maxr range
--}
+    return $ branchesClient_ @v @c limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
 -- Hashes Client
