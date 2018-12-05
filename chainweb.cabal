@@ -372,10 +372,9 @@ executable single-chain-example
     hs-source-dirs: node examples
     main-is: SingleChainExample.hs
     other-modules:
-        Paths_chainweb
         Utils.Gexf
         Utils.Logging
-        Chainweb.Example.SingleChainMiner
+        Chainweb.Node.SingleChainMiner
 
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:

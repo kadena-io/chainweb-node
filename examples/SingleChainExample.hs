@@ -62,7 +62,7 @@ import Chainweb.ChainDB
 import Chainweb.ChainDB.Queries
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
-import Chainweb.Example.SingleChainMiner
+import Chainweb.Node.SingleChainMiner
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.NodeId
@@ -289,8 +289,7 @@ node cid t logger conf p2pConfig nid port =
                 wait server
   where
     minerConfig = SingleChainMinerConfig
-        (_numberOfNodes conf)
-        (_meanBlockTimeSeconds conf)
+        (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
         cid
 
 withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b

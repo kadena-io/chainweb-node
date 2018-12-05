@@ -26,7 +26,6 @@ module Main
 
 import Configuration.Utils hiding (Error, (<.>))
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
@@ -51,12 +50,9 @@ import Numeric.Natural
 
 import qualified System.Logger as L
 import System.LogLevel
-import qualified System.Random.MWC as MWC
-import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainDB
 import Chainweb.ChainDB.SyncSession
@@ -68,6 +64,8 @@ import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
+
+import Chainweb.Node.SingleChainMiner
 
 import Data.DiGraph
 import Data.LogMessage
@@ -349,45 +347,12 @@ syncer cid logger conf cdb pdb port =
 -- 'threadDelay' with an geometric distribution.
 --
 miner :: Logger -> P2pNodeConfig -> NodeId -> ChainDb -> IO ()
-miner logger conf nid db = L.withLoggerLabel ("component", "miner") logger $ \logger' -> do
-    let logg = loggerFunText logger'
-    logg Info "Started Miner"
-    gen <- MWC.createSystemRandom
-    go logg gen (1 :: Int)
-  where
-    go logg gen i = do
-
-        -- mine new block
-        --
-        let n = 10 :: Integer
-        d <- MWC.geometric1
-            (1 / (fromIntegral n * fromIntegral (_meanBlockTimeSeconds conf) * 1000000))
-            gen
-        threadDelay d
-
-        -- get db snapshot
-        --
-        s <- snapshot db
-
-        -- pick parent from longest branch
-        --
-        let bs = branches s
-        p <- maximumBy (compare `on` rank)
-            <$> mapM (`getEntryIO` s) (HS.toList bs)
-
-        -- create new (test) block header
-        --
-        let e = entry $ testBlockHeader nid (BlockHashRecord mempty) (Nonce 0) (dbEntry p)
-
-        -- Add block header to the database
-        --
-        s' <- insert e s
-        void $ syncSnapshot s'
-        _ <- logg Debug $ "published new block " <> sshow i
-
-        -- continue
-        --
-        go logg gen (i + 1)
+miner logger conf nid db = singleChainMiner logger conf' nid db
+    where
+        conf' = SingleChainMinerConfig
+            { _configMeanBlockTimeSeconds = _meanBlockTimeSeconds conf
+            , _configChainId = _nodeChainId conf
+            }
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
