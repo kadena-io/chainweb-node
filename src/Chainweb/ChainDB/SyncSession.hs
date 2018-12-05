@@ -73,7 +73,7 @@ runUnpaged env req = go Nothing
   where
     go k = lift (runClientThrowM (req k) env) >>= \page -> do
         SP.each (_pageItems page)
-        maybe (return ()) (go . Just) (_pageNext page)
+        when (_getEos $ _pageEos page) $ go $ _pageLastKey page
 
 runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req
@@ -82,27 +82,36 @@ getHashes
     :: ChainClientEnv
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
     -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getHashes (ChainClientEnv v cid env) minr maxr range = runUnpaged env $ \k ->
-    hashesClient v cid Nothing k minr maxr range
+getHashes (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
+    hashesClient v cid Nothing k minr maxr
 
+{-
 getBranches
     :: ChainClientEnv
     -> Maybe MinRank
     -> Maybe MaxRank
+    -> Maybe (Bounds (DbKey BlockHeaderDb))
     -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getBranches (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
-    branchesClient v cid Nothing k minr maxr
+getBranches (ChainClientEnv v cid env) minr maxr range = runUnpaged env $ \k ->
+    branchesClient v cid Nothing k minr maxr range
+-}
+
+getLeaves
+    :: ChainClientEnv
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Stream (Of (DbKey BlockHeaderDb)) IO ()
+getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
+    leavesClient v cid Nothing k minr maxr
 
 getHeaders
     :: ChainClientEnv
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
     -> Stream (Of (DbEntry BlockHeaderDb)) IO ()
-getHeaders (ChainClientEnv v cid env) minr maxr range = runUnpaged env $ \k ->
-    headersClient v cid Nothing k minr maxr range
+getHeaders (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
+    headersClient v cid Nothing k minr maxr
 
 putHeader
     :: ChainClientEnv

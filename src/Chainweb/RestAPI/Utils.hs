@@ -36,6 +36,8 @@ module Chainweb.RestAPI.Utils
 , Page(..)
 , PageParams
 , streamToPage
+, limitedStreamToPage
+, seekLimitedStreamToPage
 
 -- * API Version
 , Version
@@ -68,7 +70,6 @@ import Control.Lens hiding ((.=), (:>))
 import Data.Aeson
 import Data.Functor.Of
 import Data.Kind
-import Data.Maybe
 import Data.Proxy
 import qualified Data.Swagger as Swagger
 import Data.Swagger hiding (properties)
@@ -93,7 +94,8 @@ import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
 
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
-import Chainweb.TreeDB (Limit(..))
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.TreeDB (Limit(..), NextItem(..), Eos(..), isEos)
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
@@ -117,14 +119,14 @@ data Page k a = Page
     }
     deriving (Show, Eq, Ord, Generic)
 
-instance (ToJSON k, ToJSON a) => ToJSON (Page k a) where
+instance (HasTextRepresentation k, ToJSON k, ToJSON a) => ToJSON (Page k a) where
     toJSON p = object
         [ "limit" .= _getLimit (_pageLimit p)
         , "items" .= _pageItems p
         , "next" .= _pageNext p
         ]
 
-instance (FromJSON k, FromJSON a) => FromJSON (Page k a) where
+instance (HasTextRepresentation k, FromJSON k, FromJSON a) => FromJSON (Page k a) where
     parseJSON = withObject "page" $ \o -> Page
         <$> (Limit <$> (o .: "limit"))
         <*> o .: "items"
@@ -132,9 +134,9 @@ instance (FromJSON k, FromJSON a) => FromJSON (Page k a) where
 
 instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
     declareNamedSchema _ = do
-        naturalSchema <- declareSchemaRef (Proxy :: Proxy Natural)
-        keySchema <- declareSchemaRef (Proxy :: Proxy k)
-        itemsSchema <- declareSchemaRef (Proxy :: Proxy [a])
+        naturalSchema <- declareSchemaRef (Proxy @Natural)
+        keySchema <- declareSchemaRef (Proxy @(NextItem k))
+        itemsSchema <- declareSchemaRef (Proxy @[a])
         return $ NamedSchema (Just "Page") $ mempty
             & type_ .~ SwaggerObject
             & Swagger.properties .~
@@ -146,8 +148,8 @@ instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
 
 -- | Pages Parameters
 --
--- *   maxitems :: Natural
--- *   from :: BlockHash
+-- *   limit :: Natural
+-- *   next :: k
 --
 type PageParams k = LimitParam :> NextParam k
 
@@ -157,35 +159,55 @@ type NextParam k = QueryParam "next" k
 -- -------------------------------------------------------------------------- --
 -- Paging Tools
 
--- | Quick and dirty pagin implementation
---
 streamToPage
+    :: Monad m
+    => (a -> k)
+    -> SP.Stream (Of a) m (Natural, Eos)
+    -> m (Page (NextItem k) a)
+streamToPage k s = do
+    (items' :> lastKey :> (limit', eos)) <- SP.toList
+        . SP.last
+        . SP.copy
+        $ s
+    return $ Page (int limit') items' $
+        if isEos eos then Nothing else Exclusive . k <$> lastKey
+
+
+-- | Quick and dirty pagin implementation. Usage should be avoided.
+--
+limitedStreamToPage
+    :: Monad m
+    => (a -> k)
+    -> Maybe Limit
+    -> SP.Stream (Of a) m ()
+    -> m (Page (NextItem k) a)
+limitedStreamToPage k limit s = do
+    (items' :> limit' :> lastKey :> tailStream) <- SP.toList
+        . SP.length
+        . SP.copy
+        . SP.last
+        . SP.copy
+        . maybe (mempty <$) (\n -> SP.splitAt (int $ _getLimit n)) limit
+        $ s
+    eos <- (== 0) <$> SP.length_ tailStream
+    return $ Page (int limit') items' $
+        if eos then Nothing else Exclusive . k <$> lastKey
+
+-- | Quick and dirty pagin implementation. Usage should be avoided.
+--
+seekLimitedStreamToPage
     :: Monad m
     => Eq k
     => (a -> k)
-    -> Maybe k
+    -> Maybe (NextItem k)
     -> Maybe Limit
     -> SP.Stream (Of a) m ()
-    -> m (Page k a)
-streamToPage k next limit s = do
-    (items' :> limit' :> tailStream) <- id
-
-        -- count and collect items from first stream
-        . SP.toList
-        . SP.length
-        . SP.copy
-
-        -- split the stream
-        . maybe (SP.each ([]::[a]) <$) (SP.splitAt . int) limit
-
-        -- search for requested next item
-        . maybe id (\n -> SP.dropWhile (\x -> k x /= n)) next
-        $ s
-
-    -- get next item from the tail stream
-    next' <- SP.head_ tailStream
-
-    return $ Page (int limit') items' (k <$> next')
+    -> m (Page (NextItem k) a)
+seekLimitedStreamToPage k next limit = limitedStreamToPage k limit
+    . case next of
+        Nothing -> id
+        Just (Exclusive n) -> SP.drop 1 . SP.dropWhile (\x -> k x /= n)
+        Just (Inclusive n) -> SP.dropWhile (\x -> k x /= n)
 
 prop_streamToPage_limit :: [Int] -> Limit -> Property
 prop_streamToPage_limit l i = i <= len l ==> actual === expected
@@ -195,8 +217,10 @@ prop_streamToPage_limit l i = i <= len l ==> actual === expected
     & cover 1 (length l == 0) "length of stream == 0"
 #endif
   where
-    actual = runIdentity (streamToPage id Nothing (Just i) (SP.each l))
-    expected = Page i (take (int i) l) (listToMaybe $ drop (int i) l)
+    s = SP.each l
+    is = take (int i) l
+    actual = runIdentity $ limitedStreamToPage id (Just i) s
+    expected = Page i is (Exclusive <$> maybeLast is)
 
 prop_streamToPage_id :: [Int] -> Property
 prop_streamToPage_id l = actual === expected
@@ -204,8 +228,13 @@ prop_streamToPage_id l = actual === expected
     & cover 1 (length l == 0) "len l == 0"
 #endif
   where
-    actual = runIdentity (streamToPage id Nothing Nothing (SP.each l))
-    expected = Page (len l) l Nothing
+    s = SP.each l
+    actual = runIdentity $ limitedStreamToPage id Nothing s
+    expected = Page (len l) l (Exclusive <$> maybeLast l)
+
+maybeLast :: [a] -> Maybe a
+maybeLast [] = Nothing
+maybeLast l = Just $ last l
 
 -- -------------------------------------------------------------------------- --
 -- API Version

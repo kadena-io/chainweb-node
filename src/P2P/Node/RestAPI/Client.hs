@@ -18,8 +18,6 @@ module P2P.Node.RestAPI.Client
 , peerPutClient
 ) where
 
-import Numeric.Natural
-
 import Servant.API (NoContent(..))
 import Servant.Client
 
@@ -28,7 +26,7 @@ import Servant.Client
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (Limit)
+import Chainweb.TreeDB (Limit, NextItem)
 import Chainweb.Version
 
 import Data.Singletons
@@ -43,8 +41,8 @@ peerGetClient
     :: ChainwebVersion
     -> NetworkId
     -> Maybe Limit
-    -> Maybe PeerId
-    -> ClientM (Page PeerId PeerInfo)
+    -> Maybe (NextItem PeerId)
+    -> ClientM (Page (NextItem PeerId) PeerInfo)
 peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n

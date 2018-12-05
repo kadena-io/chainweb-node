@@ -52,8 +52,10 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApis
 
 -- * Sub APIs
-, BranchesApi
-, branchesApi
+, LeavesApi
+, leavesApi
+-- , BranchesApi
+-- , branchesApi
 , HeaderApi
 , headerApi
 , HeaderPutApi
@@ -102,38 +104,59 @@ someBlockHeaderDbVal v cid db = case someChainwebVersionVal v of
 -- *   maxheight :: Natural
 -- *   branch :: BlockHash,BlockHash
 --
-type FilterParams = MinHeightParam :> MaxHeightParam :> BranchParam
+type FilterParams = MinHeightParam :> MaxHeightParam
 
 type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
 type BranchParam = QueryParam "branch" (Bounds (DbKey BlockHeaderDb))
 
+{-
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
 --
-type BranchesApi_
+type LeavesApi_
     = "branch"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
     :> MaxHeightParam
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    :> BranchParam
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
-type BranchesApi (v :: ChainwebVersionT) (c :: ChainIdT)
+type LeavesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchesApi_
 
 branchesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (BranchesApi v c)
 branchesApi = Proxy
+-}
+
+-- -------------------------------------------------------------------------- --
+-- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
+--
+type LeavesApi_
+    = "branch"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+
+type LeavesApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc LeavesApi_
+
+leavesApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (LeavesApi v c)
+leavesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash@
 --
 type HashesApi_
     = "hash"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> FilterParams
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbKey BlockHeaderDb))
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
 type HashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HashesApi_
@@ -148,9 +171,9 @@ hashesApi = Proxy
 --
 type HeadersApi_
     = "header"
-    :> PageParams (DbKey BlockHeaderDb)
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> FilterParams
-    :> Get '[JSON] (Page (DbKey BlockHeaderDb) (DbEntry BlockHeaderDb))
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
 
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
@@ -196,7 +219,7 @@ headerPutApi = Proxy
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
-    = BranchesApi v c
+    = LeavesApi v c
     :<|> HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c

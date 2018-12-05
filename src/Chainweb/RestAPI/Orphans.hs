@@ -86,11 +86,29 @@ instance FromHttpApiData MaxRank where
 instance ToHttpApiData MaxRank where
     toUrlPiece (MaxRank (Max k)) = toUrlPiece k
 
+instance FromHttpApiData Eos where
+    parseUrlPiece = fmap Eos . parseUrlPiece
+
+instance ToHttpApiData Eos where
+    toUrlPiece (Eos b) = toUrlPiece b
+
 instance FromHttpApiData Limit where
     parseUrlPiece = fmap Limit . parseUrlPiece
 
 instance ToHttpApiData Limit where
     toUrlPiece (Limit k) = toUrlPiece k
+
+instance ToHttpApiData (NextItem BlockHash) where
+    toUrlPiece = toText
+
+instance FromHttpApiData (NextItem BlockHash) where
+    parseUrlPiece = first sshow . nextItemFromText
+
+instance ToHttpApiData (NextItem PeerId) where
+    toUrlPiece = toText
+
+instance FromHttpApiData (NextItem PeerId) where
+    parseUrlPiece = first sshow . fromText
 
 instance FromHttpApiData (Bounds BlockHash) where
     parseUrlPiece t =
@@ -121,27 +139,41 @@ instance ToParamSchema BlockHeader where
         & format ?~ "byte"
 
 instance ToParamSchema MinRank where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
 instance ToParamSchema MaxRank where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
 instance ToParamSchema Limit where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
+
+instance ToParamSchema Eos where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerBoolean
 
 instance ToParamSchema (Bounds BlockHash) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "key,key"
+
+instance ToParamSchema (NextItem BlockHash) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):key"
+
+instance ToParamSchema (NextItem PeerId) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema ChainId where
     toParamSchema _ = mempty
@@ -179,3 +211,9 @@ instance ToSchema BlockHash where
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
+
+instance ToSchema (NextItem k) where
+    declareNamedSchema _ = return $ NamedSchema (Just "next") $ mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):<Key>"
+        & minLength ?~ 10 + 1

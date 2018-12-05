@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -34,6 +35,8 @@ module Chainweb.TreeDB
 , NextItem(..)
 , isExclusive
 , isInclusive
+, nextItemToText
+, nextItemFromText
 , LowerBound(..)
 , UpperBound(..)
 , Bounds(..)
@@ -47,6 +50,7 @@ module Chainweb.TreeDB
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
+, isEos
 , limitStream
 , seekStream
 , seekStreamSet
@@ -78,6 +82,7 @@ import Control.Monad.Catch
 import Control.Monad.Identity
 import Control.Monad.Trans
 
+import Data.Aeson
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -85,6 +90,7 @@ import Data.Kind
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
+import qualified Data.Text as T
 import Data.Typeable
 
 import GHC.Generics
@@ -159,7 +165,7 @@ instance Arbitrary Limit where
 data NextItem k
     = Inclusive k
     | Exclusive k
-    deriving stock (Eq, Show, Ord, Functor)
+    deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable)
 
 isInclusive :: NextItem k -> Bool
 isInclusive Inclusive{} = True
@@ -169,11 +175,40 @@ isExclusive :: NextItem k -> Bool
 isExclusive Exclusive{} = True
 isExclusive _ = False
 
+nextItemToText :: HasTextRepresentation k => NextItem k -> T.Text
+nextItemToText (Inclusive k) = "inclusive:" <> toText k
+nextItemToText (Exclusive k) = "exclusive:" <> toText k
+
+nextItemFromText :: MonadThrow m => HasTextRepresentation k => T.Text -> m (NextItem k)
+nextItemFromText t = case T.break (== ':') t of
+    (a, b)
+        | a == "inclusive" -> Inclusive <$> fromText (T.drop 1 b)
+        | a == "exclusive" -> Exclusive <$> fromText (T.drop 1 b)
+        | T.null b -> throwM . TextFormatException $ "missing ':' in next item: \"" <> t <> "\"."
+        | otherwise -> throwM $ TextFormatException $ "unrecognized next item: \"" <> t <> "\"."
+
+instance HasTextRepresentation k => HasTextRepresentation (NextItem k) where
+    toText = nextItemToText
+    {-# INLINE toText #-}
+    fromText = nextItemFromText
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation k => ToJSON (NextItem k) where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance HasTextRepresentation k => FromJSON (NextItem k) where
+    parseJSON = parseJsonFromText "NextItem"
+    {-# INLINE parseJSON #-}
+
 -- | Data type to indicate end of stream
 --
 newtype Eos = Eos { _getEos :: Bool }
     deriving stock (Eq, Show, Ord, Generic)
-    deriving newtype (Enum, Bounded)
+    deriving newtype (Enum, Bounded, FromJSON, ToJSON)
+
+isEos :: Eos -> Bool
+isEos = _getEos
 
 -- -------------------------------------------------------------------------- --
 -- ** Branch Bounds
@@ -644,7 +679,7 @@ limitStream (Just limit) s = do
     -- FIXME this can be expensive for infinite/blocking streams. Skip this if
     -- the underlying stream is known to be infinite.
     --
-    eos <- lift (isEos tailStream)
+    eos <- lift (atEos tailStream)
     return (int limit', eos)
 
 seekStream
@@ -672,8 +707,8 @@ seekStreamSet k (Just (Exclusive s))
     = S.dropWhile (\a -> k a `HS.member` s)
     . S.dropWhile (\a -> not (k a `HS.member` s))
 
-isEos :: Monad m => S.Stream (Of a) m () -> m Eos
-isEos = fmap (Eos . isNothing) . S.head_
+atEos :: Monad m => S.Stream (Of a) m () -> m Eos
+atEos = fmap (Eos . isNothing) . S.head_
 
 prop_seekLimitStream_limit :: [Int] -> Natural -> Property
 prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
