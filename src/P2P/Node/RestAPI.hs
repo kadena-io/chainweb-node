@@ -43,7 +43,7 @@ import Servant
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (NextItem)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.Singletons

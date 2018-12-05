@@ -50,6 +50,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.LogMessage
@@ -73,7 +74,7 @@ runUnpaged env req = go Nothing
   where
     go k = lift (runClientThrowM (req k) env) >>= \page -> do
         SP.each (_pageItems page)
-        when (_getEos $ _pageEos page) $ go $ _pageLastKey page
+        maybe (return ()) (go . Just) (_pageNext page)
 
 runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req

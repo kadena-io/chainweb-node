@@ -74,6 +74,7 @@ library
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Persist
         , Chainweb.Utils
+        , Chainweb.Utils.Paging
         , Chainweb.Version
 
         , Data.DiGraph

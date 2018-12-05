@@ -3,8 +3,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -34,15 +36,19 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.UUID as V4
 
+import Numeric.Natural
+
 import Servant.API
 
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.ChainId
-import Chainweb.HostAddress
-import Chainweb.TreeDB
+import Chainweb.HostAddress hiding (properties)
+import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
+import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
 import P2P.Node.Configuration
@@ -217,3 +223,18 @@ instance ToSchema (NextItem k) where
         & type_ .~ SwaggerString
         & pattern ?~ "(inclusive|exclusive):<Key>"
         & minLength ?~ 10 + 1
+
+instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
+    declareNamedSchema _ = do
+        naturalSchema <- declareSchemaRef (Proxy @Natural)
+        keySchema <- declareSchemaRef (Proxy @(NextItem k))
+        itemsSchema <- declareSchemaRef (Proxy @[a])
+        return $ NamedSchema (Just "Page") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("limit", naturalSchema)
+                , ("items", itemsSchema)
+                , ("next", keySchema)
+                ]
+            & required .~ [ "limit", "items" ]
+

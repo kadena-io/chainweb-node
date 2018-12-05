@@ -40,10 +40,10 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI
-import Chainweb.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

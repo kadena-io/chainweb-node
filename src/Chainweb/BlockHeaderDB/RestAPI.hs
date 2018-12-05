@@ -75,11 +75,11 @@ import Servant.API
 -- internal modules
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
-
-import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed BlockHeaderDb

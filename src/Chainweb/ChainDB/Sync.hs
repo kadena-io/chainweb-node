@@ -42,7 +42,7 @@ import qualified Streaming.Prelude as SP
 
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client (headersClient)
-import Chainweb.RestAPI.Utils (Page(..))
+import Chainweb.Utils.Paging (Page(..))
 import Chainweb.TreeDB
 
 -- TODO The real version of this will be present elsewhere.

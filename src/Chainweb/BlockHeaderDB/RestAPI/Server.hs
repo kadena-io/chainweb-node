@@ -39,17 +39,17 @@ import Prelude hiding (lookup)
 import Servant.API
 import Servant.Server
 
-
 -- internal modules
+
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
-
-import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools

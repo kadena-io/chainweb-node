@@ -47,6 +47,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.ChainId
 import Chainweb.TreeDB
+import Chainweb.Utils.Paging
 
 -- -------------------------------------------------------------------------- --
 -- Internal

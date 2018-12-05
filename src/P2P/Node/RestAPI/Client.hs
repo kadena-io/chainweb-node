@@ -25,8 +25,7 @@ import Servant.Client
 
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
-import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (Limit, NextItem)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.Singletons
