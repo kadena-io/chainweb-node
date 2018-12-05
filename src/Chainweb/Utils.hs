@@ -568,4 +568,3 @@ streamToHashSet_
     => S.Stream (Of a) m r
     -> m (HS.HashSet a)
 streamToHashSet_ = fmap HS.fromList . S.toList_
-

@@ -1,10 +1,11 @@
 # To pin to a specific version of nixpkgs, you can substitute <nixpkgs> with:
 # `(builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/<nixpkgs_commit_hash>.tar.gz")`
-{ compiler ? "ghc843"
-, rev ? "9169ee6b588c8c7077645d3ab76948a3093e25cf"
-, sha ? "1wzbjh20vb7ykd4ysm7lg6m0g2icagxvpsy7hq94mpp6001cjqi1"
+{ compiler ? "ghc844"
+, owner ? "NixOS"
+, rev ? "7b54e50c085501c995e38130eb6f5e3b7a8c2523"
+, sha ? "1l3083b0fjhnx5lq89bxjvimp0ax4j8shra2z3h6xnp0bd2rjgvv"
 , pkgs ? import (builtins.fetchTarball {
-                   url = "https://github.com/kadena-io/nixpkgs/archive/${rev}.tar.gz";
+                   url = "https://github.com/${owner}/nixpkgs/archive/${rev}.tar.gz";
                    sha256 = sha; }) { config.allowUnfree = true; }
 }:
   pkgs.haskell.packages.${compiler}.developPackage {
