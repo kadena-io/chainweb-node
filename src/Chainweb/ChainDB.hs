@@ -144,7 +144,7 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight, computeBlockHash, isGenesisBlockHeader, genesisBlockTarget)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight, prop_block_difficulty, prop_block_hash, prop_block_genesis_parent, prop_block_genesis_target)
 import qualified Chainweb.ChainDB.Entry as E
 import Chainweb.Utils
 
@@ -642,12 +642,12 @@ instance FromJSON (Entry 'Unchecked) where
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
 
-data ValidationFailure = ValidationFailure E.Entry ValidationFailureType
+data ValidationFailure = ValidationFailure E.Entry [ValidationFailureType]
 
 instance Show ValidationFailure where
-    show (ValidationFailure e t) = "Validation failure: " ++ description ++ "\n" ++ show e
+    show (ValidationFailure e ts) = "Validation failure: " ++ unlines (map description ts) ++ "\n" ++ show e
         where
-            description = case t of
+            description t = case t of
                 MissingParent -> "Parent isn't in the database"
                 CreatedBeforeParent -> "Block claims to have been created before its parent"
                 VersionMismatch -> "Block uses a version of chainweb different from its parent"
@@ -673,7 +673,7 @@ data ValidationFailureType =
 
 instance Exception ValidationFailure
 
--- | Validate properties of the block header, throwing the first reason for validation failure as an exception in the monad.
+-- | Validate properties of the block header, throwing an exception detailing the failures if any.
 validateEntryM
     :: (MonadThrow m)
     => Snapshot
@@ -681,38 +681,34 @@ validateEntryM
     -> m ()
 validateEntryM s e = case validateEntry s e of
     [] -> return ()
-    (failure:_) -> throwM failure
+    failures -> throwM (ValidationFailure (dbEntry e) failures)
 
 -- | Validate properties of the block header, producing a list of the validation failures
 validateEntry
     :: Snapshot -- ^ A snapshot of the database
     -> Entry a -- ^ The block header to be checked
-    -> [ValidationFailure] -- ^ A list of ways in which the block header isn't valid
+    -> [ValidationFailureType] -- ^ A list of ways in which the block header isn't valid
 validateEntry s e = case e of
     UncheckedEntry b -> validateBlockHeaderIntrinsic b ++ validateBlockHeaderInductive s b
     CheckedEntry b -> validateBlockHeaderIntrinsic b ++ validateBlockHeaderInductive s b
         -- TODO: Consider returning an empty list immediately, since it's supposed to have already been checked.
 
--- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an empty list)
-isValidEntry :: Snapshot -> Entry a -> Bool
-isValidEntry s b = null (validateEntry s b)
-
 -- | Validates properties of a block with respect to its parent.
 validateBlockHeaderInductive
     :: Snapshot
     -> E.Entry
-    -> [ValidationFailure]
+    -> [ValidationFailureType]
 validateBlockHeaderInductive s b =
     case lookupEntry (UncheckedKey (_blockParent b)) s of
-        Nothing -> [ValidationFailure b MissingParent]
+        Nothing -> [MissingParent]
         Just (CheckedEntry p) -> validateParent p b
 
 -- | Validates properties of a block which are checkable from the block header without observing the remainder
 -- of the database.
 validateBlockHeaderIntrinsic
     :: E.Entry -- ^ block header to be validated
-    -> [ValidationFailure]
-validateBlockHeaderIntrinsic b = map (ValidationFailure b) $ concat
+    -> [ValidationFailureType]
+validateBlockHeaderIntrinsic b = concat
     [ [ IncorrectTarget | not (prop_block_difficulty b) ]
     , [ IncorrectHash | not (prop_block_hash b) ]
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
@@ -723,8 +719,8 @@ validateBlockHeaderIntrinsic b = map (ValidationFailure b) $ concat
 validateParent
     :: E.Entry -- ^ Parent block header
     -> E.Entry -- ^ Block header under scrutiny
-    -> [ValidationFailure]
-validateParent p b = map (ValidationFailure b) $ concat
+    -> [ValidationFailureType]
+validateParent p b = concat
     [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
     , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
     , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
@@ -733,14 +729,6 @@ validateParent p b = map (ValidationFailure b) $ concat
     -- target of block matches the calculate target for the branch
     ]
 
-prop_block_difficulty :: E.Entry -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
-
-prop_block_hash :: E.Entry -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
-
-prop_block_genesis_parent :: E.Entry -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
-
-prop_block_genesis_target :: E.Entry -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget
+-- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an empty list)
+isValidEntry :: Snapshot -> Entry a -> Bool
+isValidEntry s b = null (validateEntry s b)
