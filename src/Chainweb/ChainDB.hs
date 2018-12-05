@@ -591,7 +591,9 @@ insert e s
     | E.key dbe `HM.member` _dbEntries (_snapshotDb s) = return s
     | otherwise = do
         validateEntryM s e
-        snapshotDb (dbAddChecked dbe) . over snapshotAdditions (HM.insert (E.key dbe) dbe) $ s
+        snapshotDb (dbAddChecked dbe) 
+            . over snapshotAdditions (HM.insert (E.key dbe) dbe) 
+            $ s
   where
     dbe = dbEntry e
 
