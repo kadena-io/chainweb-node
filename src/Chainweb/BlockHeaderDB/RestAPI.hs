@@ -114,7 +114,7 @@ type BranchParam = QueryParam "branch" (Bounds (DbKey BlockHeaderDb))
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
 --
-type LeavesApi_
+type BranchApi_
     = "branch"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
@@ -132,10 +132,16 @@ branchesApi = Proxy
 -}
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
+-- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/leave@
+--
+-- Returns the hashes of the entries of the block header tree database. Querying
+-- the database isn't atomic entries may be added concurrently. Therefor the
+-- result of this query is a set of block hashes that represent a possible set
+-- of leaves at some point in the history of the database. The server is
+-- expected to try to return a large and recent set.
 --
 type LeavesApi_
-    = "branch"
+    = "leave"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
     :> MaxHeightParam
@@ -151,6 +157,13 @@ leavesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash@
+--
+-- Returns hashes in the block header tree database in ascending order with
+-- respect the children relation.
+--
+-- Note, for block hashes on different branches the order isn't determined.
+-- Therefor a block hash of higher block height can be returned before a block
+-- hash of lower block height.
 --
 type HashesApi_
     = "hash"
@@ -169,6 +182,13 @@ hashesApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header@
 --
+-- Returns block headers in the block header tree database in ascending order
+-- with respect to the children relation.
+--
+-- Note, for block headers on different branches the order isn't determined.
+-- Therefor a block header of higher block height can be returned before a block
+-- header of lower block height.
+--
 type HeadersApi_
     = "header"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
@@ -186,6 +206,8 @@ headersApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header/<BlockHash>@
 --
+-- Returns a single block headers for a given block hash.
+--
 type HeaderApi_
     = "header"
     :> Capture "BlockHash" (DbKey BlockHeaderDb)
@@ -201,6 +223,10 @@ headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | @PUT /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header@
+--
+-- Adds a block header to the block header tree database. Returns a failure with
+-- status code 400 if the block header can't be addded because of a validation
+-- failure or missing dependencies.
 --
 type HeaderPutApi_
     = "header"
