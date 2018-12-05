@@ -303,7 +303,7 @@ node cid t logger conf p2pConfig nid port =
           withPeerDb p2pConfig $ \pdb ->
             withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, ChainDb)]
-                [(ChainNetwork cid, pdb)] -- :: [(ChainId, PeerDb)]
+                [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 ) $ \server -> do
                   logfun Info "started server"
                   runConcurrently
