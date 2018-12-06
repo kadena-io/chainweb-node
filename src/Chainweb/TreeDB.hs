@@ -263,7 +263,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- cursor. Implementations should block on IO at most a constant amount of
     -- time.
     --
-    -- The default implementation is based on 'entries', which in most cases
+    -- The default implementation is based on 'entries', which in some cases
     -- doesn't give good performance.
     --
     keys
@@ -437,8 +437,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
     insertStream
         :: db
-        -> S.Stream (Of (DbEntry db)) IO ()
-        -> IO ()
+        -> S.Stream (Of (DbEntry db)) IO a
+        -> IO a
     insertStream = S.mapM_ . insert
     {-# INLINEABLE insertStream #-}
 
