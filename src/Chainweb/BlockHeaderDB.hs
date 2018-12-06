@@ -170,7 +170,7 @@ data Configuration = Configuration
 --
 data ChainDb = ChainDb
     { _chainDbId :: !ChainId
-    , _chainDbVar :: MVar Db
+    , _chainDbVar :: !(MVar Db)
         -- ^ Database that provides random access the block headers indexed by
         -- their hash. The 'MVar' is used as a lock to sequentialize concurrent
         -- access.
