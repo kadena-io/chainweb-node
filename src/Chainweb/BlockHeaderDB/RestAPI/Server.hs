@@ -77,6 +77,10 @@ checkBounds db b = b
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
+-- Query Branches of the database.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 branchesKeyHandler
     :: TreeDb db
     => db
@@ -95,6 +99,9 @@ branchesKeyHandler db limit next minr maxr bounds = do
             (_branchBoundsUpper checkedBounds)
 
 -- | All leaf nodes (i.e. the newest blocks on any given branch).
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 leavesHandler
     :: TreeDb db
     => db
@@ -109,6 +116,9 @@ leavesHandler db limit next minr maxr = do
         $ leafKeys db nextChecked limit minr maxr
 
 -- | Every `TreeDb` key within a given range.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 hashesHandler
     :: TreeDb db
     => db
@@ -122,6 +132,9 @@ hashesHandler db limit next minr maxr = do
     liftIO $ streamToPage id $ keys db nextChecked limit minr maxr
 
 -- | Every `TreeDb` entry within a given range.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 headersHandler
     :: TreeDb db
     => db
@@ -135,9 +148,17 @@ headersHandler db limit next minr maxr = do
     liftIO $ streamToPage key
         $ entries db nextChecked limit minr maxr
 
+-- Query a single 'BlockHeader' by its 'BlockHash'
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
 
+-- Add a new 'BlockHeader' to the database
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
 headerPutHandler
     :: forall db
     . TreeDb db
