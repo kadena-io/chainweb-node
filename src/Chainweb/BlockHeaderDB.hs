@@ -240,9 +240,10 @@ instance TreeDb ChainDb where
                 & limitStream l
       where
         start _ Nothing = return Nothing
-        start b (Just (Exclusive x)) = Just . Exclusive . HS.fromList . fmap key
-            <$> S.toList_ (ascendIntersect db (keySet b) =<< liftIO (lookupM db x))
-        start b (Just (Inclusive x)) = Just . Inclusive . HS.fromList . fmap key
+        start b (Just (Exclusive x)) = startSet b x Exclusive
+        start b (Just (Inclusive x)) = startSet b x Inclusive
+
+        startSet b x clusive = Just . clusive . HS.fromList . fmap key
             <$> S.toList_ (ascendIntersect db (keySet b) =<< liftIO (lookupM db x))
 
     allKeys db = S.map key . allEntries db
