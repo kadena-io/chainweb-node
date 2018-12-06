@@ -66,8 +66,10 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , headersClient
 , leavesClient_
 , leavesClient
-, branchesClient_
-, branchesClient
+, branchHashesClient_
+, branchHashesClient
+, branchHeadersClient_
+, branchHeadersClient
 ) where
 
 import Control.Monad.Identity
@@ -191,9 +193,9 @@ leavesClient v c limit start minr maxr = runIdentity $ do
     return $ leavesClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
--- Branches Client
+-- Branch Hashes Client
 
-branchesClient_
+branchHashesClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
@@ -203,9 +205,9 @@ branchesClient_
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-branchesClient_ = client (branchesApi @v @c)
+branchHashesClient_ = client (branchHashesApi @v @c)
 
-branchesClient
+branchHashesClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -214,10 +216,39 @@ branchesClient
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-branchesClient v c limit start minr maxr bounds = runIdentity $ do
+branchHashesClient v c limit start minr maxr bounds = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ branchesClient_ @v @c limit start minr maxr bounds
+    return $ branchHashesClient_ @v @c limit start minr maxr bounds
+
+-- -------------------------------------------------------------------------- --
+-- Branch Headers Client
+
+branchHeadersClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Maybe Limit
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+branchHeadersClient_ = client (branchHeadersApi @v @c)
+
+branchHeadersClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+branchHeadersClient v c limit start minr maxr bounds = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ branchHeadersClient_ @v @c limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
 -- Hashes Client

@@ -85,11 +85,11 @@ defaultKeyLimit = 4096
 defaultEntryLimit :: Num a => a
 defaultEntryLimit = 360
 
--- Query Branches of the database.
+-- Query Branch Hashes of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
-branchesKeyHandler
+branchHashesHandler
     :: TreeDb db
     => db
     -> Maybe Limit
@@ -98,11 +98,34 @@ branchesKeyHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-branchesKeyHandler db limit next minr maxr bounds = do
+branchHashesHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
     liftIO $ finiteStreamToPage id effectiveLimit $ void
         $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
+            (_branchBoundsLower checkedBounds)
+            (_branchBoundsUpper checkedBounds)
+  where
+    effectiveLimit = limit <|> Just defaultKeyLimit
+
+-- Query Branch Headers of the database.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+branchHeadersHandler
+    :: TreeDb db
+    => db
+    -> Maybe Limit
+    -> Maybe (NextItem (DbKey db))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds db
+    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+branchHeadersHandler db limit next minr maxr bounds = do
+    nextChecked <- traverse (traverse $ checkKey db) next
+    checkedBounds <- checkBounds db bounds
+    liftIO $ finiteStreamToPage key effectiveLimit $ void
+        $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
   where
@@ -197,7 +220,8 @@ blockHeaderDbServer (BlockHeaderDb_ db) =
     :<|> headersHandler db
     :<|> headerHandler db
     :<|> headerPutHandler db
-    :<|> branchesKeyHandler db
+    :<|> branchHashesHandler db
+    :<|> branchHeadersHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB

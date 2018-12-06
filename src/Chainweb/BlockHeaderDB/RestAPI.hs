@@ -54,8 +54,10 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * Sub APIs
 , LeavesApi
 , leavesApi
-, BranchesApi
-, branchesApi
+, BranchHashesApi
+, branchHashesApi
+, BranchHeadersApi
+, branchHeadersApi
 , HeaderApi
 , headerApi
 , HeaderPutApi
@@ -109,7 +111,7 @@ type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/branch@
+-- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash/branch@
 --
 -- Returns a set of branches. A branch is obtained by traversing the block
 -- header tree database starting at some entry along the parent relation, i.e.
@@ -126,21 +128,55 @@ type MaxHeightParam = QueryParam "maxheight" MaxRank
 -- is a sub-graph, but not necessarily a sub-tree, of the database tree. Search
 -- stops at the first matching lower bound.
 --
-type BranchesApi_
-    = "branch"
+type BranchHashesApi_
+    = "hash" :> "branch"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
-type BranchesApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchesApi_
+type BranchHashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHashesApi_
 
-branchesApi
+branchHashesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (BranchesApi v c)
-branchesApi = Proxy
+    . Proxy (BranchHashesApi v c)
+branchHashesApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header/branch@
+--
+-- Returns a set of branches. A branch is obtained by traversing the block
+-- header tree database starting at some entry along the parent relation, i.e.
+-- in direction towards the root or decending order with respect to the children
+-- relation.
+--
+-- If a lower bound for the traversal is given, then no node is returned that is in a
+-- branch (is equal to, parent, or grantparent) of the lower bound. This means
+-- the query stops at the fork point of the upper bound and the lower bound and
+-- returns all nodes between from the upper bound down to fork point. The fork
+-- point itself isn't included.
+--
+-- Simultaneously traversing more than a single branch results in a tree that
+-- is a sub-graph, but not necessarily a sub-tree, of the database tree. Search
+-- stops at the first matching lower bound.
+--
+type BranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+
+type BranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHeadersApi_
+
+branchHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (BranchHeadersApi v c)
+branchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/leave@
@@ -261,7 +297,8 @@ type BlockHeaderDbApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c
     :<|> HeaderPutApi v c
-    :<|> BranchesApi v c
+    :<|> BranchHashesApi v c
+    :<|> BranchHeadersApi v c
 
 blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
