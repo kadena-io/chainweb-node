@@ -56,7 +56,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce
 import Data.Hashable
-import Data.LargeWord
+import Data.DoubleWord
 
 import GHC.Generics
 import GHC.TypeNats
@@ -68,12 +68,6 @@ import Numeric.Additive
 import Data.Word.Encoding
 import Chainweb.Time
 import Chainweb.Utils
-
--- -------------------------------------------------------------------------- --
--- LargeWord Orphans
-
-instance (Hashable a, Hashable b) => Hashable (LargeKey a b) where
-    hashWithSalt s (LargeKey a b) = hashWithSalt s (a,b)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHashNat

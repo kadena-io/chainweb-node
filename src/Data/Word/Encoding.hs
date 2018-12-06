@@ -15,7 +15,7 @@ module Data.Word.Encoding
 
 import Data.Bytes.Get
 import Data.Bytes.Put
-import Data.LargeWord
+import Data.DoubleWord(Word128(..), Word256(..))
 import Data.Word
 
 class WordEncoding w where
@@ -65,13 +65,22 @@ instance WordEncoding Word64 where
     {-# INLINE encodeWordBe #-}
     {-# INLINE decodeWordBe #-}
 
-instance (WordEncoding a, WordEncoding b) => WordEncoding (LargeKey a b) where
-    encodeWordLe (LargeKey a b) = encodeWordLe a *> encodeWordLe b
-    decodeWordLe = LargeKey <$> decodeWordLe <*> decodeWordLe
-    encodeWordBe (LargeKey a b) = encodeWordBe b *> encodeWordBe a
-    decodeWordBe = flip LargeKey <$> decodeWordBe <*> decodeWordBe
+instance WordEncoding Word128 where
+    encodeWordLe (Word128 a b) = encodeWordLe a *> encodeWordLe b
+    decodeWordLe = Word128 <$> decodeWordLe <*> decodeWordLe
+    encodeWordBe (Word128 a b) = encodeWordBe b *> encodeWordBe a
+    decodeWordBe = flip Word128 <$> decodeWordBe <*> decodeWordBe
     {-# INLINE encodeWordLe #-}
     {-# INLINE decodeWordLe #-}
     {-# INLINE encodeWordBe #-}
     {-# INLINE decodeWordBe #-}
 
+instance WordEncoding Word256 where
+    encodeWordLe (Word256 a b) = encodeWordLe a *> encodeWordLe b
+    decodeWordLe = Word256 <$> decodeWordLe <*> decodeWordLe
+    encodeWordBe (Word256 a b) = encodeWordBe b *> encodeWordBe a
+    decodeWordBe = flip Word256 <$> decodeWordBe <*> decodeWordBe
+    {-# INLINE encodeWordLe #-}
+    {-# INLINE decodeWordLe #-}
+    {-# INLINE encodeWordBe #-}
+    {-# INLINE decodeWordBe #-}

@@ -15,12 +15,9 @@ module Chainweb.Test.Orphans.External
 (
 ) where
 
-import Data.LargeWord
-
+import Data.DoubleWord (Word256)
 import Test.QuickCheck
 
--- Why is this slow?
---
 instance Arbitrary Word256 where
     arbitrary = arbitrarySizedBoundedIntegral
     shrink = shrinkIntegral
