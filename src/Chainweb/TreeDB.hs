@@ -40,6 +40,9 @@ module Chainweb.TreeDB
 
 -- * Utils
 
+, root
+, maxHeader
+
 -- ** Limiting and Seeking a Stream
 , Eos(..)
 , isEos
@@ -75,6 +78,7 @@ import Control.Monad.Identity
 import Control.Monad.Trans
 
 import Data.Aeson
+import Data.Function
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -465,6 +469,15 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+maxHeader :: TreeDb db => db -> IO (DbEntry db)
+maxHeader db = do
+    r <- root db
+    S.fold_ (maxBy (compare `on` rank)) r id
+        $ leafEntries db Nothing Nothing Nothing Nothing
+
+root :: TreeDb db => db -> IO (DbEntry db)
+root db = fmap fromJust $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
