@@ -78,7 +78,7 @@ import Data.Singletons
 -- Exceptions
 
 data ChainIdException
-    = ChainIdMissmatch (Expected ChainId) (Actual ChainId)
+    = ChainIdMismatch (Expected ChainId) (Actual ChainId)
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception ChainIdException
@@ -143,7 +143,7 @@ checkChainId
     -> Actual actual
     -> m ChainId
 checkChainId expected actual = _chainId
-    <$> check ChainIdMissmatch (_chainId <$> expected) (_chainId <$> actual)
+    <$> check ChainIdMismatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
 
 chainIdToText :: ChainId -> T.Text

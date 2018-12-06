@@ -203,25 +203,25 @@ decodeNonce = Nonce <$> getWord64le
 
 -- | BlockHeader
 --
--- Some redunant, aggregated information is included in the block and the block
+-- Some redundant, aggregated information is included in the block and the block
 -- hash. This enables nodes to be checked inductively with respect to existing
 -- blocks without recalculating the aggregated value from the genesis block onward.
 --
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockParent :: !BlockHash
+        { _blockParent :: {-# UNPACK #-} !BlockHash
             -- ^ authoritative
 
         , _blockAdjacentHashes :: !BlockHashRecord
             -- ^ authoritative
 
-        , _blockTarget :: !HashTarget
+        , _blockTarget :: {-# UNPACK #-} !HashTarget
             -- ^ authoritative
 
-        , _blockPayloadHash :: !BlockPayloadHash
+        , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
             -- ^ authoritative
 
-        , _blockCreationTime :: !(Time Int64)
+        , _blockCreationTime :: {-# UNPACK #-} !(Time Int64)
             -- ^ the time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
             -- with in the chain of blocks. The smallest allowed increment is
@@ -253,18 +253,18 @@ data BlockHeader :: Type where
             -- this strategy doesn't give an advantage to an attacker that would
             -- increase the success probability for an attack.
 
-        , _blockNonce :: !Nonce
+        , _blockNonce :: {-# UNPACK #-} !Nonce
             -- ^ authoritative
 
-        , _blockChainId :: !ChainId
+        , _blockChainId :: {-# UNPACK #-} !ChainId
 
-        , _blockWeight :: !BlockWeight
+        , _blockWeight :: {-# UNPACK #-} !BlockWeight
             -- ^ the accumulated weight of the chain. It is redundant information
             -- that is subject to the inductive property that the block weight
             -- of a block is the block weight of the parent plus the difficulty
             -- of the block.
 
-        , _blockHeight :: !BlockHeight
+        , _blockHeight :: {-# UNPACK #-} !BlockHeight
             -- ^ block height records the length of the chain. It is redundant
             -- information and thus subject the inductive property that
             -- the block height of a block is the block height of its parent
@@ -277,13 +277,13 @@ data BlockHeader :: Type where
             -- that the Chainweb version of a block equals the Chainweb version
             -- of its parent.
 
-        , _blockMiner :: !NodeId
+        , _blockMiner :: {-# UNPACK #-} !NodeId
             -- ^ The public identifier of the miner of the block as self-idenfied
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
             -- enforced. This information is merely informational.
 
-        , _blockHash :: !BlockHash
+        , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
             -- The difficulty must match the block difficulty as stated in the respective
             -- property.
