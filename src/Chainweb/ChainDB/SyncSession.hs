@@ -1,10 +1,12 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.ChainDB.SyncSession
@@ -17,26 +19,23 @@
 --
 module Chainweb.ChainDB.SyncSession
 ( syncSession
+, type BlockHeaderTreeDb
 ) where
 
 import Control.Lens ((&))
 import Control.Monad
-import Control.Monad.STM
 
-import Data.Function
 import Data.Functor.Of
 import Data.Hashable
-import Data.Maybe (fromJust)
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
 import GHC.Generics
 
-import Numeric.Natural
-
 import Servant.Client
 
 import Streaming
-import qualified Streaming.Prelude as SP
+import qualified Streaming.Prelude as S
 
 import System.IO.Unsafe
 import System.LogLevel
@@ -47,7 +46,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId
-import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -60,6 +58,10 @@ import P2P.Session
 -- -------------------------------------------------------------------------- --
 -- ChainDB Utils
 
+type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
+
+-- TODO: add TreeDb instance
+--
 data ChainClientEnv = ChainClientEnv
     { _envChainwebVersion :: !ChainwebVersion
     , _envChainId :: !ChainId
@@ -69,50 +71,40 @@ data ChainClientEnv = ChainClientEnv
 
 -- | TODO: add retry logic
 --
-runUnpaged :: ClientEnv -> (Maybe k -> ClientM (Page k a)) -> Stream (Of a) IO ()
-runUnpaged env req = go Nothing
+runUnpaged
+    :: ClientEnv
+    -> Maybe k
+    -> Maybe Limit
+    -> (Maybe k -> Maybe Limit -> ClientM (Page k a))
+    -> Stream (Of a) IO ()
+runUnpaged env a b req = go a b
   where
-    go k = lift (runClientThrowM (req k) env) >>= \page -> do
-        SP.each (_pageItems page)
-        maybe (return ()) (go . Just) (_pageNext page)
+    go k l = lift (runClientThrowM (req k l) env) >>= \page -> do
+        let c = (\x -> x - _pageLimit page) <$> l
+        S.each (_pageItems page)
+        case c of
+            Just x | x <= 0 -> return ()
+            _ -> maybe (return ()) (\n -> go (Just n) c) (_pageNext page)
 
 runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req
 
-getHashes
+getBranchHeaders
     :: ChainClientEnv
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getHashes (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
-    hashesClient v cid Nothing k minr maxr
-
-{-
-getBranches
-    :: ChainClientEnv
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Maybe (Bounds (DbKey BlockHeaderDb))
-    -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getBranches (ChainClientEnv v cid env) minr maxr range = runUnpaged env $ \k ->
-    branchesClient v cid Nothing k minr maxr range
--}
+    -> BranchBounds BlockHeaderDb
+    -> Stream (Of (DbEntry BlockHeaderDb)) IO ()
+getBranchHeaders (ChainClientEnv v cid env) minr maxr range = runUnpaged env Nothing Nothing $ \k l ->
+    branchHeadersClient v cid l k minr maxr range
 
 getLeaves
     :: ChainClientEnv
     -> Maybe MinRank
     -> Maybe MaxRank
     -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
-    leavesClient v cid Nothing k minr maxr
-
-getHeaders
-    :: ChainClientEnv
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Stream (Of (DbEntry BlockHeaderDb)) IO ()
-getHeaders (ChainClientEnv v cid env) minr maxr = runUnpaged env $ \k ->
-    headersClient v cid Nothing k minr maxr
+getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env Nothing Nothing $ \k l ->
+    leavesClient v cid l k minr maxr
 
 putHeader
     :: ChainClientEnv
@@ -124,66 +116,46 @@ putHeader (ChainClientEnv v cid env) = void . flip runClientThrowM env
 -- -------------------------------------------------------------------------- --
 -- Sync
 
--- TODO prune branches by rank. Ideally, the REST API would return
--- branches sorted in decending order by rank.
---
--- If we dont' get any know branch we have to fetch the first branch
--- limited by the genesis block. That's potentially expensive. In
--- this case we should traverse the first branch in chunks until
--- we find a known block header
---
-fullSync :: BlockHeaderDb -> LogFunction -> ChainClientEnv -> IO ()
-fullSync db logFun env = do pure ()  -- TODO restore
+fullSync :: BlockHeaderTreeDb db => db -> LogFunction -> ChainClientEnv -> IO ()
+fullSync ldb logFun env = do
 
-    -- logg Debug "request branches"
-    -- sn <- snapshot db
-    -- (unknownBranches :> maxKnownBranch) <- getBranches env Nothing Nothing
-    --     & SP.map (\k -> maybe (Right k) Left $ lookupEntry k sn)
-    --     & SP.partitionEithers
-    --     & SP.fold_ (maxBy (compare `on` rank)) (chainDbGenesisEntry db) id
-    --     & SP.toList
+    logg Debug "get local leaves"
+    lLeaves <- streamToHashSet_ $ leafKeys ldb Nothing Nothing Nothing Nothing
 
-    -- logg Debug $ "got " <> sshow (length unknownBranches) <> " unknown branches"
-    -- logg Debug $ "maximum known branch is " <> sshow maxKnownBranch
+    logg Debug "get remote leaves"
+    rLeaves <- streamToHashSet_ $ getLeaves env Nothing Nothing
 
-    -- we break streaming here and buffer all branches, because we want
-    -- to continue with the maximum known branch. This can safe a lot of
-    -- data in the requests below.
+    let bounds = BranchBounds (HS.map LowerBound lLeaves) (HS.map UpperBound rLeaves)
 
-    -- logg Debug "request headers"
-    -- unknownBranches
-    --     & SP.each
-    --         -- note that the the order of branches is reversed
-    --     & SP.foldM_ fetchHeaders
-    --         (return . uncheckedEntry $ maxKnownBranch)
-    --         (void . return)
+    logg Debug "request remote branches limited by local leaves"
 
-    -- TODO count received headers
+    -- We get remote headers in reverse order, so we have to buffer
+    -- before we can start to insert in the local db. We could somewhat
+    -- better by starting insertion as soon as we got a complete branch,
+    -- but that's left as future optimization.
+    getBranchHeaders env Nothing Nothing bounds
+        & reverseStream
+        & chunksOf 64 -- TODO: ideally, this would align with response pages
+        & mapsM_ (insertStream ldb)
 
-  -- where
-  --   fetchHeaders :: DbEntry BlockHeaderDb -> DbKey BlockHeaderDb -> IO (DbEntry BlockHeaderDb)
-  --   fetchHeaders curMax b = getHeaders env Nothing Nothing (Just (key curMax, b))
-  --       & SP.copy
-  --       & SP.foldM
-  --           (\sn -> lift . flip insert sn)
-  --           (lift $ snapshot db)
-  --           (lift . syncSnapshot)
-  --       & SP.fold_ (maxBy (compare `on` rank)) curMax id
+        -- FIXME avoid insertStream because of its problematic behavior on failure.
+        -- FIXME add failure handling on a per block header basis
 
-  --   logg :: LogFunctionText
-  --   logg = logFun
+  where
+    logg :: LogFunctionText
+    logg = logFun
 
-chainDbGenesisBlock :: BlockHeaderDb -> DbEntry BlockHeaderDb
-chainDbGenesisBlock db = fromJust . unsafePerformIO $ do
-    SP.head_ $ entries db Nothing Nothing Nothing Nothing
+chainDbGenesisBlock :: BlockHeaderTreeDb db => db -> DbEntry db
+chainDbGenesisBlock db = unsafePerformIO $ root db
+{-# NOINLINE chainDbGenesisBlock #-}
 
-chainDbChainwebVersion :: BlockHeaderDb -> ChainwebVersion
+chainDbChainwebVersion :: BlockHeaderTreeDb db => db -> ChainwebVersion
 chainDbChainwebVersion = _blockChainwebVersion . chainDbGenesisBlock
 
-chainDbChainId :: BlockHeaderDb -> ChainId
+chainDbChainId :: BlockHeaderTreeDb db => db -> ChainId
 chainDbChainId = _blockChainId . chainDbGenesisBlock
 
-chainClientEnv :: BlockHeaderDb -> ClientEnv -> ChainClientEnv
+chainClientEnv :: BlockHeaderTreeDb db => db -> ClientEnv -> ChainClientEnv
 chainClientEnv db = ChainClientEnv
     (chainDbChainwebVersion db)
     (chainDbChainId db)
@@ -191,34 +163,26 @@ chainClientEnv db = ChainClientEnv
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: BlockHeaderDb -> P2pSession
-syncSession db logg env = pure True
-  -- TODO restore
-  -- where
-  --   cenv = chainClientEnv db env
+syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> P2pSession
+syncSession db logg env = do
+    receiveBlockHeaders
+    m <- maxHeader db
+    S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
 
-  --   go = do
-  --       hashes <- updates db
-  --       atomically $ drainUpdates hashes
-  --       receiveBlockHeaders
-  --       atomically $ drainUpdates hashes
-  --       sendAllBlockHeaders hashes
+    -- this code must not be reached
+    void $ logg @T.Text Error $ "unexpectedly exited sync session"
+    return False
+  where
+    cenv = chainClientEnv db env
 
-  --   sendAllBlockHeaders hashes = forever $ do
-  --       s <- atomically $ updatesNext hashes
-  --       dbs <- snapshot db
-  --       e <- getEntryIO s dbs
-  --       putHeader cenv (uncheckedEntry e)
-  --       logg Debug $ "put block header " <> showHash s
+    send h = do
+        putHeader cenv h
+        logg Debug $ "put block header " <> showHash h
 
-  --   receiveBlockHeaders = do
-  --       fullSync db logg cenv
-  --       logg @T.Text Debug "finished full sync"
-
--- drainUpdates :: Updates -> STM ()
--- drainUpdates u = go
---   where
---     go = updatesNext u *> go <|> return ()
+    receiveBlockHeaders = do
+        logg @T.Text Info "start full sync"
+        fullSync db logg cenv
+        logg @T.Text Debug "finished full sync"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
