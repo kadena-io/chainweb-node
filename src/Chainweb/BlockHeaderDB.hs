@@ -24,6 +24,7 @@ module Chainweb.BlockHeaderDB
 , ChainDb
 , initChainDb
 , closeChainDb
+, copy
 ) where
 
 import Control.Concurrent.MVar
@@ -175,7 +176,7 @@ data ChainDb = ChainDb
         -- access.
 
     , _chainDbEnumeration :: !(TVar (Seq.Seq E))
-        -- ^ The enumeration of the db wrapped in TVvar. It allows clients to
+        -- ^ The enumeration of the db wrapped in a 'TVar'. It allows clients to
         -- await additions to the database.
         --
         -- This TVar is updated under the database lock each time a value is
@@ -210,6 +211,12 @@ enumerationIO = readTVarIO . _chainDbEnumeration
 
 enumeration :: ChainDb -> STM (Seq.Seq E)
 enumeration = readTVar . _chainDbEnumeration
+
+copy :: ChainDb -> IO ChainDb
+copy db = withMVar (_chainDbVar db) $ \var ->
+    ChainDb (_chainDbId db)
+        <$> newMVar var
+        <*> (newTVarIO =<< readTVarIO (_chainDbEnumeration db))
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
