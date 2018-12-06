@@ -226,8 +226,6 @@ instance TreeDb ChainDb where
 
     lookup db k = fmap fst . HM.lookup k . _dbEntries <$> snapshot db
 
-    children db = S.map key . childrenEntries db
-
     childrenEntries db k =
         HM.lookup k . _dbChildren <$> lift (snapshot db) >>= \case
             Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb k
