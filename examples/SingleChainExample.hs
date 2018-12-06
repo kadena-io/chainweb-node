@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Main
@@ -32,12 +33,10 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.STM
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Function
-import qualified Data.HashSet as HS
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -58,8 +57,7 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainDB
-import Chainweb.ChainDB.Queries
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
 import Chainweb.Example.SingleChainMiner
@@ -68,6 +66,7 @@ import Chainweb.HostAddress
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -235,7 +234,7 @@ timer t = do
     timeout <- MWC.geometric1 (1 / (int t * 1000000)) gen
     threadDelay timeout
 
-chainDbSyncSession :: Natural -> ChainDb -> P2pSession
+chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
 chainDbSyncSession t db logFun env =
     withAsync (timer t) $ \timerAsync ->
     withAsync (syncSession db logFun env) $ \sessionAsync ->
@@ -293,16 +292,16 @@ node cid t logger conf p2pConfig nid port =
         (_meanBlockTimeSeconds conf)
         cid
 
-withChainDb :: ChainId -> NodeId -> (ChainDb -> IO b) -> IO b
+withChainDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b
 withChainDb cid nid = bracket start stop
   where
-    start = initChainDb Configuration
+    start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
         }
     stop db = do
-        l <- SP.toList_ $ SP.map dbEntry $ chainDbHeaders db Nothing Nothing Nothing
+        l <- SP.toList_ $ entries db Nothing Nothing Nothing Nothing
         B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
-        closeChainDb db
+        closeBlockHeaderDb db
 
     graph = toChainGraph (const cid) singleton
 
@@ -317,7 +316,7 @@ syncer
     :: ChainId
     -> Logger
     -> P2pConfiguration
-    -> ChainDb
+    -> BlockHeaderDb
     -> PeerDb
     -> Port
         -- This is the local port that is used in the local peer info
@@ -368,29 +367,25 @@ instance Monoid Stats where
 
 -- | Collects statistics about local block database copy
 --
-monitor :: Logger -> ChainDb -> IO ()
+monitor :: Logger -> BlockHeaderDb -> IO ()
 monitor logger db =
     L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
         let logg = loggerFun logger'
         logg Info $ TextLog "Initialized Monitor"
-        us <- updates db
-        go (loggerFun logger') us mempty
+        void $ allEntries db Nothing
+            & SP.foldM_ (\stat _ -> go (loggerFun logger') stat) mempty return
   where
-    go logg us stat = do
-        void $ atomically $ updatesNext us
-        s <- snapshot db
-
-        let bs = branches s
-        maxBranch <- maximumBy (compare `on` rank)
-            <$> mapM (`getEntryIO` s) (HS.toList bs)
+    go logg stat = do
+        bs <- SP.length_ $ leafEntries db Nothing Nothing Nothing Nothing
+        mh <- maxHeader db
 
         let stat' = stat <> Stats
-                { _chainHeight = rank maxBranch
-                , _branchCount = fromIntegral $ length bs
+                { _chainHeight = rank mh
+                , _branchCount = int bs
                 , _branchHeightHistogram = []
                 , _blockHeaderCount = 1
                 }
 
         void $ logg Info $ JsonLog stat'
-        go logg us stat'
+        return stat'
 
