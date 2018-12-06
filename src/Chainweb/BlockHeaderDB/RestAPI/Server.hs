@@ -105,8 +105,8 @@ leavesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 leavesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    let hs = leafKeys db nextChecked limit minr maxr
-    liftIO $ streamToPage id hs
+    liftIO $ streamToPage id
+        $ leafKeys db nextChecked limit minr maxr
 
 -- | Every `TreeDb` key within a given range.
 hashesHandler
@@ -119,7 +119,7 @@ hashesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    hashesHandler db limit nextChecked minr maxr
+    liftIO $ streamToPage id $ keys db nextChecked limit minr maxr
 
 -- | Every `TreeDb` entry within a given range.
 headersHandler
@@ -132,8 +132,8 @@ headersHandler
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    let hs = entries db nextChecked limit minr maxr
-    liftIO $ streamToPage key hs
+    liftIO $ streamToPage key
+        $ entries db nextChecked limit minr maxr
 
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
