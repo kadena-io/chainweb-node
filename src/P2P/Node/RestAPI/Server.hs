@@ -34,6 +34,7 @@ module P2P.Node.RestAPI.Server
 , serveP2pOnPort
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 
 import Data.Foldable
@@ -66,6 +67,9 @@ import P2P.Node.RestAPI
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
+defaultPeerInfoLimit :: Num a => a
+defaultPeerInfoLimit = 64
+
 peerGetHandler
     :: PeerDb
     -> Maybe Limit
@@ -73,9 +77,11 @@ peerGetHandler
     -> Handler (Page (NextItem PeerId) PeerInfo)
 peerGetHandler db limit next = do
     sn <- liftIO $ peerDbSnapshot db
-    seekLimitedStreamToPage _peerId next limit
+    seekFiniteStreamToPage _peerId next effectiveLimit
         . SP.each
         $ toList sn
+  where
+    effectiveLimit = limit <|> Just defaultPeerInfoLimit
 
 peerPutHandler
     :: PeerDb

@@ -159,6 +159,7 @@ data BranchBounds db = BranchBounds
     { _branchBoundsLower :: !(HS.HashSet (LowerBound (DbKey db)))
     , _branchBoundsUpper :: !(HS.HashSet (UpperBound (DbKey db)))
     }
+    deriving stock (Generic)
 
 instance
     (Hashable (Key (DbEntry db)), Eq (Key (DbEntry db)), ToJSON (DbKey db))
@@ -356,9 +357,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- Note that, if the minimum rank is zero, returning the genesis block is
     -- always a legal result, but implementations should try to return a large
     -- set.
-    --
-    -- The default implementation has poor performance if the maximum rank
-    -- parameter is not Nothing.
     --
     leafEntries
         :: db

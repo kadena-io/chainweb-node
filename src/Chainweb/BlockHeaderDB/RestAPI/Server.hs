@@ -23,7 +23,9 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 , blockHeaderDbApiLayout
 ) where
 
+import Control.Applicative
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch (catch)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
@@ -77,6 +79,12 @@ checkBounds db b = b
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
+defaultKeyLimit :: Num a => a
+defaultKeyLimit = 4096
+
+defaultEntryLimit :: Num a => a
+defaultEntryLimit = 360
+
 -- Query Branches of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -93,10 +101,12 @@ branchesKeyHandler
 branchesKeyHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
-    liftIO $ streamToPage id $
-        branchKeys db nextChecked limit minr maxr
+    liftIO $ finiteStreamToPage id effectiveLimit $ void
+        $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
+  where
+    effectiveLimit = limit <|> Just defaultKeyLimit
 
 -- | All leaf nodes (i.e. the newest blocks on any given branch).
 --
@@ -112,8 +122,11 @@ leavesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 leavesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ streamToPage id
-        $ leafKeys db nextChecked limit minr maxr
+    liftIO $ finiteStreamToPage id effectiveLimit $ void
+        $ leafKeys db nextChecked (succ <$> effectiveLimit) minr maxr
+  where
+    effectiveLimit = limit <|> Just defaultKeyLimit
+
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -129,7 +142,10 @@ hashesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ streamToPage id $ keys db nextChecked limit minr maxr
+    liftIO $ finitePrefixOfInfiniteStreamToPage id effectiveLimit $ void
+        $ keys db nextChecked (succ <$> effectiveLimit) minr maxr
+  where
+    effectiveLimit = limit <|> Just defaultKeyLimit
 
 -- | Every `TreeDb` entry within a given range.
 --
@@ -145,8 +161,10 @@ headersHandler
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ streamToPage key
-        $ entries db nextChecked limit minr maxr
+    liftIO $ finitePrefixOfInfiniteStreamToPage key effectiveLimit $ void
+        $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
+  where
+    effectiveLimit = limit <|> Just defaultEntryLimit
 
 -- Query a single 'BlockHeader' by its 'BlockHash'
 --

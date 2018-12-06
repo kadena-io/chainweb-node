@@ -38,9 +38,9 @@ module Chainweb.Utils.Paging
 , atEos
 
 -- * Tools for creating pages from streams
-, streamToPage
-, limitedStreamToPage
-, seekLimitedStreamToPage
+, finitePrefixOfInfiniteStreamToPage
+, finiteStreamToPage
+, seekFiniteStreamToPage
 
 -- * Properties
 , properties
@@ -174,29 +174,28 @@ atEos = fmap (Eos . isNothing) . S.head_
 -- -------------------------------------------------------------------------- --
 -- Tools for turning streams into pages
 
-streamToPage
-    :: Monad m
-    => (a -> k)
-    -> S.Stream (Of a) m (Natural, Eos)
-    -> m (Page (NextItem k) a)
-streamToPage k s = do
-    (items' :> lastKey :> (limit', eos)) <- S.toList
-        . S.last
-        . S.copy
-        $ s
-    return $ Page (int limit') items' $
-        if isEos eos then Nothing else Exclusive . k <$> lastKey
-
-
--- | Quick and dirty pagin implementation. Usage should be avoided.
+-- | Create page from a non-empty stream that is a non-blocking finite prefix of
+-- a possibly blocking infinite stream.
 --
-limitedStreamToPage
-    :: Monad m
+-- If the given stream contains more items than requested by the caller an
+-- 'Inclusive' cursor is added to the page. Otherwise the last item of the
+-- stream is added as 'Exclusive' cursor.
+--
+-- PRECONDITION: the input stream must not be empty, other-wise an exception
+-- is thrown.
+--
+-- For an empty input we can't return a next cursor. We can't return just
+-- 'Nothing' because that is used in a 'Page' to signal the end of the stream,
+-- which contradicts the assumption that the input stream is the prefix of an
+-- infinite stream.
+--
+finitePrefixOfInfiniteStreamToPage
+    :: MonadThrow m
     => (a -> k)
     -> Maybe Limit
     -> S.Stream (Of a) m ()
     -> m (Page (NextItem k) a)
-limitedStreamToPage k limit s = do
+finitePrefixOfInfiniteStreamToPage k limit s = do
     (items' :> limit' :> lastKey :> tailStream) <- S.toList
         . S.length
         . S.copy
@@ -204,13 +203,39 @@ limitedStreamToPage k limit s = do
         . S.copy
         . maybe (mempty <$) (\n -> S.splitAt (int $ _getLimit n)) limit
         $ s
-    eos <- (== 0) <$> S.length_ tailStream
-    return $ Page (int limit') items' $
-        if eos then Nothing else Exclusive . k <$> lastKey
+    maybeNext <- fmap k <$> S.head_ tailStream
+
+    -- check assumption
+    when (isNothing lastKey && isNothing maybeNext) $ throwM
+        $ InternalInvariantViolation "Chainweb.Utils.Paging.finitePrefixStreamToPage called on empty stream"
+
+    return $ Page (int limit') items' $ case maybeNext of
+        Nothing -> Exclusive . k <$> lastKey
+        Just next -> Just (Inclusive next)
+
+-- | Create 'Page' from a (possibly empty) prefix of a non-blocking finite
+-- stream. If the input stream has more than the requested number of items
+-- an 'Inclusive' cursor is added. Otherwise it is assumed that the stream
+-- has ended and 'Nothing' is returned as cursor.
+--
+finiteStreamToPage
+    :: Monad m
+    => (a -> k)
+    -> Maybe Limit
+    -> S.Stream (Of a) m ()
+    -> m (Page (NextItem k) a)
+finiteStreamToPage k limit s = do
+    (items' :> limit' :> tailStream) <- S.toList
+        . S.length
+        . S.copy
+        . maybe (mempty <$) (\n -> S.splitAt (int $ _getLimit n)) limit
+        $ s
+    next <- fmap (Inclusive . k) <$> S.head_ tailStream
+    return $ Page (int limit') items' next
 
 -- | Quick and dirty pagin implementation. Usage should be avoided.
 --
-seekLimitedStreamToPage
+seekFiniteStreamToPage
     :: Monad m
     => Eq k
     => (a -> k)
@@ -218,11 +243,14 @@ seekLimitedStreamToPage
     -> Maybe Limit
     -> S.Stream (Of a) m ()
     -> m (Page (NextItem k) a)
-seekLimitedStreamToPage k next limit = limitedStreamToPage k limit
+seekFiniteStreamToPage k next limit = finiteStreamToPage k limit
     . case next of
         Nothing -> id
         Just (Exclusive n) -> S.drop 1 . S.dropWhile (\x -> k x /= n)
         Just (Inclusive n) -> S.dropWhile (\x -> k x /= n)
+
+-- -------------------------------------------------------------------------- --
+-- Properties
 
 prop_streamToPage_limit :: [Int] -> Limit -> Property
 prop_streamToPage_limit l i = i <= len l ==> actual === expected
@@ -234,8 +262,8 @@ prop_streamToPage_limit l i = i <= len l ==> actual === expected
   where
     s = S.each l
     is = take (int i) l
-    actual = runIdentity $ limitedStreamToPage id (Just i) s
-    expected = Page i is (Exclusive <$> maybeLast is)
+    actual = runIdentity $ finiteStreamToPage id (Just i) s
+    expected = Page i is (Inclusive <$> listToMaybe (drop (int i) l))
 
 prop_streamToPage_id :: [Int] -> Property
 prop_streamToPage_id l = actual === expected
@@ -244,22 +272,12 @@ prop_streamToPage_id l = actual === expected
 #endif
   where
     s = S.each l
-    actual = runIdentity $ limitedStreamToPage id Nothing s
-    expected = Page (len l) l (Exclusive <$> maybeLast l)
-
--- -------------------------------------------------------------------------- --
--- Properties
+    actual = runIdentity $ finiteStreamToPage id Nothing s
+    expected = Page (len l) l Nothing
 
 properties :: [(String, Property)]
 properties =
     [ ("streamToPage_limit", property prop_streamToPage_limit)
     , ("streamToPage_id", property prop_streamToPage_id)
     ]
-
--- -------------------------------------------------------------------------- --
--- Utils
-
-maybeLast :: [a] -> Maybe a
-maybeLast [] = Nothing
-maybeLast l = Just $ last l
 
