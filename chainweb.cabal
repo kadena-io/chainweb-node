@@ -258,6 +258,7 @@ executable chaindb-example
         , lens >= 4.16
         , random >= 1.1
         , stm >= 2.4
+        , streaming >= 0.2.2
         , text >= 1.2
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1

@@ -23,14 +23,12 @@ module Main
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Lens
+import Control.Lens hiding (children)
 import Control.Monad
-import Control.Monad.STM
 
-import Data.Foldable
-import Data.Function
-import qualified Data.HashSet as HS
 import qualified Data.Text as T
+
+import qualified Streaming.Prelude as S
 
 import System.Logger hiding (logg)
 import System.Random
@@ -39,10 +37,11 @@ import System.Random
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import qualified Chainweb.ChainDB as DB
+import qualified Chainweb.BlockHeaderDB as DB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.NodeId
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -71,7 +70,7 @@ main = withHandleBackend (_logConfigBackend config)
 --
 example :: Logger T.Text -> IO ()
 example logger = do
-    db <- DB.initChainDb DB.Configuration
+    db <- DB.initBlockHeaderDb DB.Configuration
         { DB._configRoot = genesisBlockHeader Test graph exampleChainId
         }
     withAsync (observer logger db) $ \o -> do
@@ -84,28 +83,21 @@ example logger = do
 
 -- | A miner creates new entries with successive natural numbers as payload.
 --
-miner :: Logger T.Text -> DB.ChainDb -> NodeId -> IO ()
+miner :: Logger T.Text -> DB.BlockHeaderDb -> NodeId -> IO ()
 miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> do
     let logg = loggerFunIO logger'
     logg Info "Started Miner"
     go logg (1 :: Int)
   where
     go logg i = do
-        -- get db snapshot
-        s <- DB.snapshot db
-
         -- pick parent from random longest branch
-        let bs = DB.branches s
-        p <- maximumBy (compare `on` DB.rank) <$>
-            mapM (`DB.getEntryIO` s) (HS.toList bs)
+        p <- maxHeader db
 
         -- create entry
-        -- let e = DB.entry $ entry (DB.dbEntry p) i
-        let e = DB.entry $ testBlockHeader mid as (Nonce 0) (DB.dbEntry p)
+        let e = testBlockHeader mid as (Nonce 0) p
 
         -- Add entry to database
-        s' <- DB.insert e s
-        void $ DB.syncSnapshot s'
+        insert db e
         _ <- logg Debug $ "published new block " <> sshow i
 
         -- continue
@@ -122,47 +114,33 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
 -- also reads the number of branches and checks that the set of children is
 -- empty for the heads of branches.
 --
-observer :: Logger T.Text -> DB.ChainDb -> IO ()
+observer :: Logger T.Text -> DB.BlockHeaderDb -> IO ()
 observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
     let logg = loggerFunIO logger'
     logg Info "Initialized Observer"
     threadDelay $ 2 * 1000000
 
-    logg Info "Subscribed to updates"
-    us <- DB.updates db
-
-    threadDelay $ 3 * 1000000
     logg Info "Started observing entries"
-    forever $ do
-        s <- DB.snapshot db
-            -- taking the snapshot first increases the changes for an outdated
-            -- snapshot.
-        n <- atomically $ DB.updatesNext us
-
-        e <- DB.getEntryIO n s
+    S.mapM_ (go logg) $ allEntries db Nothing
+  where
+    go logg e = do
         logg Info $ "observed new entry: " <> sshow e
 
-        let encoded = DB.encodeEntry e
-        logg Debug $ "serialized Entry: " <> encodeB64UrlNoPaddingText encoded
+        bs <- leafEntries db Nothing Nothing Nothing Nothing
+            & S.mapM (checkBranch logg db)
+            & S.length_
 
-        decoded <- DB.decodeEntry encoded
-        logg Debug $ "deserialized Entry: " <> sshow (decoded :: DB.Entry 'DB.Unchecked)
-
-        let bs = DB.branches s
-        logg Info $ "branch count: " <> sshow (length bs)
-
-        mapM_ (checkBranch logg s) bs
+        logg Info $ "branch count: " <> sshow bs
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 checkBranch
     :: (LogLevel -> T.Text -> IO ())
-    -> DB.Snapshot
-    -> DB.Key 'DB.Checked
+    -> DB.BlockHeaderDb
+    -> BlockHeader
     -> IO ()
-checkBranch logg s bk = do
-    be <- DB.getEntryIO bk s
-    unless (HS.null $ DB.children bk s)
-        $ logg Error $ "branch " <> sshow be <> " has children"
+checkBranch logg db h = do
+    S.length_ (children db (key h)) >>= \x -> unless (x == 0)
+        $ logg Error $ "branch " <> sshow (key h) <> " has children"
 
