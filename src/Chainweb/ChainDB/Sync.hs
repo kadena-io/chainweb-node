@@ -22,7 +22,6 @@ module Chainweb.ChainDB.Sync
 
 import Control.Monad.Catch (throwM)
 
-import Data.Foldable (traverse_)
 import Data.Semigroup (Min(..))
 
 import Numeric.Natural (Natural)
@@ -41,7 +40,7 @@ import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client (headersClient)
 import Chainweb.TreeDB
-import Chainweb.Utils.Paging (NextItem, Page(..))
+import Chainweb.Utils.Paging (NextItem(..), Page(..))
 
 -- TODO The real version of this will be present elsewhere.
 -- | The diameter of the current chain graph.
@@ -55,7 +54,7 @@ sync :: Diameter -> ClientEnv -> BlockHeaderDb -> IO ()
 sync d env db = do
     h <- maxHeader db
     let m = minHeight (_blockHeight h) d
-    SP.mapM_ (insert db) $ headers env h m
+    insertStream db $ headers env h m
 
 -- | Given a `BlockHeight` that represents the highest rank of some `TreeDb`,
 -- find the lowest entry rank such that it's at most only
@@ -65,7 +64,7 @@ minHeight :: BlockHeight -> Diameter -> MinRank
 minHeight h d = MinRank $ Min m
   where
     m :: Natural
-    m = 1 + fromIntegral (max (high - low) 0)
+    m = fromIntegral (max (high - low) 0)
 
     -- | Using `Integer` prevents underflow errors.
     --
@@ -100,4 +99,6 @@ headers env h m = g $ client Nothing
     f :: Page (NextItem BlockHash) BlockHeader -> Stream (Of BlockHeader) IO ()
     f page = do
         SP.each $ _pageItems page
-        traverse_ (g . client . Just) $ _pageNext page
+        case _pageNext page of
+          n@(Just (Inclusive _)) -> g $ client n
+          _ -> pure ()
