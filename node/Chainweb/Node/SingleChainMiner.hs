@@ -6,14 +6,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- |
--- Module: Chainweb.Example.SingleChainMiner
+-- Module: Chainweb.Node.SingleChainMiner
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
 -- TODO
 --
-module Chainweb.Example.SingleChainMiner
+module Chainweb.Node.SingleChainMiner
 ( SingleChainMinerConfig(..)
 , defaultSingleChainMinerConfig
 , pSingleChainMinerConfig
@@ -53,8 +53,7 @@ import Utils.Logging
 -- Configuration of Example
 
 data SingleChainMinerConfig = SingleChainMinerConfig
-    { _configNumberOfNodes :: !Natural
-    , _configMeanBlockTimeSeconds :: !Natural
+    { _configMeanBlockTimeSeconds :: !Natural
     , _configChainId :: !ChainId
     }
     deriving (Show, Eq, Ord, Generic)
@@ -63,34 +62,27 @@ makeLenses ''SingleChainMinerConfig
 
 defaultSingleChainMinerConfig :: SingleChainMinerConfig
 defaultSingleChainMinerConfig = SingleChainMinerConfig
-    { _configNumberOfNodes = 10
-    , _configMeanBlockTimeSeconds = 10
+    { _configMeanBlockTimeSeconds = 10
     , _configChainId = testChainId 0
     }
 
 instance ToJSON SingleChainMinerConfig where
     toJSON o = object
-        [ "numberOfNodes" .= _configNumberOfNodes o
-        , "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
+        [ "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
         , "chainId" .= _configChainId o
         ]
 
 instance FromJSON (SingleChainMinerConfig -> SingleChainMinerConfig) where
     parseJSON = withObject "SingleChainMinerConfig" $ \o -> id
-        <$< configNumberOfNodes ..: "numberOfNodes" % o
-        <*< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
+        <$< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
         <*< configChainId ..: "chainId" % o
 
 pSingleChainMinerConfig :: MParser SingleChainMinerConfig
 pSingleChainMinerConfig = id
-    <$< configNumberOfNodes .:: option auto
-        % long "number-of-nodes"
-        <> short 'n'
-        <> help "number of nodes to run in the example"
-    <*< configMeanBlockTimeSeconds .:: option auto
+    <$< configMeanBlockTimeSeconds .:: option auto
         % long "mean-block-time"
         <> short 'b'
-        <> help "mean time for mining a block seconds"
+        <> help "the mean time for each node to mine a block, in seconds"
     <*< configChainId .:: option auto
         % long "chainid"
         <> short 'c'
@@ -120,7 +112,7 @@ singleChainMiner logger conf nid db =
         -- mine new block
         --
         d <- MWC.geometric1
-            (1 / (int (_configNumberOfNodes conf) * int (_configMeanBlockTimeSeconds conf) * 1000000))
+            (1 / (int (_configMeanBlockTimeSeconds conf) * 1000000))
             gen
         threadDelay d
 

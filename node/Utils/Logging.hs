@@ -402,18 +402,19 @@ withFileHandleLogger config f =
 -- Example Logger
 
 withExampleLogger
-    :: L.LogConfig
+    :: W.Port
+    -> L.LogConfig
         -- ^ Base logger configuration
     -> EnableConfig JsonLoggerConfig
         -- ^ Sessions logger configuration
     -> (Logger -> IO α)
     -> IO α
-withExampleLogger config sessionsConfig f = do
+withExampleLogger port config _sessionsConfig f = do
     staticDir <- (<> "/examples/static-html") <$> getDataDir
     withFileHandleBackend (L._logConfigBackend config)
         -- $ \baseBackend -> withJsonFileHandleBackend @P2pSessionInfo sessionsConfig
         -- $ \baseBackend -> withJsonEventSourceBackend @P2pSessionInfo 8000
-        $ \baseBackend -> withJsonEventSourceAppBackend @P2pSessionInfo 8000 staticDir
+        $ \baseBackend -> withJsonEventSourceAppBackend @P2pSessionInfo port staticDir
         $ \sessionsBackend -> do
             let loggerBackend = logHandles
                     [ logHandler sessionsBackend

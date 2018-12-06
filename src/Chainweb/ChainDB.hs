@@ -114,6 +114,11 @@ module Chainweb.ChainDB
 , entry
 , dbKey
 , dbEntry
+
+-- * Validation
+, isValidEntry
+, validateEntry
+, validateEntryM
 ) where
 
 import Control.Concurrent.MVar
@@ -139,9 +144,12 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight, prop_block_difficulty, prop_block_hash, prop_block_genesis_parent, prop_block_genesis_target)
 import qualified Chainweb.ChainDB.Entry as E
 import Chainweb.Utils
+
+-- validation
+import Chainweb.Difficulty
 
 -- -------------------------------------------------------------------------- --
 -- Internal DB Representation
@@ -564,6 +572,11 @@ highest s = maximumBy (compare `on` _blockHeight)
 -- | Inserts an 'Entry' in the database snapshots and performs all consistency
 -- checks.
 --
+-- Throws the first 'ValidationFailure' produced by 'validateEntry', if any.
+--
+-- In addition, there are some redundant checks that presently produce exceptions of
+-- other types:
+--
 -- Raises an 'ParentMissing' exception if the parent of the entry is not in the
 -- snapshot.
 --
@@ -576,9 +589,11 @@ highest s = maximumBy (compare `on` _blockHeight)
 insert :: MonadThrow m => Entry s -> Snapshot -> m Snapshot
 insert e s
     | E.key dbe `HM.member` _dbEntries (_snapshotDb s) = return s
-    | otherwise = s
-        & (snapshotAdditions %~ HM.insert (E.key dbe) dbe)
-        & snapshotDb (dbAddChecked dbe)
+    | otherwise = do
+        validateEntryM s e
+        snapshotDb (dbAddChecked dbe) 
+            . over snapshotAdditions (HM.insert (E.key dbe) dbe) 
+            $ s
   where
     dbe = dbEntry e
 
@@ -625,3 +640,97 @@ instance ToJSON (Entry 'Unchecked) where
 instance FromJSON (Entry 'Unchecked) where
     parseJSON = withText "entry" $ either (fail . sshow) return
         . (decodeEntry <=< decodeB64UrlNoPaddingText)
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Validation
+
+data ValidationFailure = ValidationFailure E.Entry [ValidationFailureType]
+
+instance Show ValidationFailure where
+    show (ValidationFailure e ts) = "Validation failure: " ++ unlines (map description ts) ++ "\n" ++ show e
+        where
+            description t = case t of
+                MissingParent -> "Parent isn't in the database"
+                CreatedBeforeParent -> "Block claims to have been created before its parent"
+                VersionMismatch -> "Block uses a version of chainweb different from its parent"
+                IncorrectHash -> "The hash of the block header does not match the one given"
+                IncorrectHeight -> "The given height is not one more than the parent height"
+                IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
+                IncorrectTarget -> "The given target difficulty for the following block is incorrect"
+                IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
+                IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
+
+-- | An enumeration of possible validation failures for a block header.
+data ValidationFailureType =
+      MissingParent -- ^ Parent isn't in the database
+    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
+    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
+    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
+    | IncorrectHeight -- ^ The given height is not one more than the parent height
+    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
+    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
+    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
+    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
+  deriving (Show, Eq, Ord)
+
+instance Exception ValidationFailure
+
+-- | Validate properties of the block header, throwing an exception detailing the failures if any.
+validateEntryM
+    :: (MonadThrow m)
+    => Snapshot
+    -> Entry a
+    -> m ()
+validateEntryM s e = case validateEntry s e of
+    [] -> return ()
+    failures -> throwM (ValidationFailure (dbEntry e) failures)
+
+-- | Validate properties of the block header, producing a list of the validation failures
+validateEntry
+    :: Snapshot -- ^ A snapshot of the database
+    -> Entry a -- ^ The block header to be checked
+    -> [ValidationFailureType] -- ^ A list of ways in which the block header isn't valid
+validateEntry s e = case e of
+    UncheckedEntry b -> validateBlockHeaderIntrinsic b ++ validateBlockHeaderInductive s b
+    CheckedEntry b -> validateBlockHeaderIntrinsic b ++ validateBlockHeaderInductive s b
+        -- TODO: Consider returning an empty list immediately, since it's supposed to have already been checked.
+
+-- | Validates properties of a block with respect to its parent.
+validateBlockHeaderInductive
+    :: Snapshot
+    -> E.Entry
+    -> [ValidationFailureType]
+validateBlockHeaderInductive s b =
+    case lookupEntry (UncheckedKey (_blockParent b)) s of
+        Nothing -> [MissingParent]
+        Just (CheckedEntry p) -> validateParent p b
+
+-- | Validates properties of a block which are checkable from the block header without observing the remainder
+-- of the database.
+validateBlockHeaderIntrinsic
+    :: E.Entry -- ^ block header to be validated
+    -> [ValidationFailureType]
+validateBlockHeaderIntrinsic b = concat
+    [ [ IncorrectTarget | not (prop_block_difficulty b) ]
+    , [ IncorrectHash | not (prop_block_hash b) ]
+    , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
+    , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
+    ]
+
+-- | Validate properties of a block with respect to a given parent.
+validateParent
+    :: E.Entry -- ^ Parent block header
+    -> E.Entry -- ^ Block header under scrutiny
+    -> [ValidationFailureType]
+validateParent p b = concat
+    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
+    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
+    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
+    , [ IncorrectWeight | not (_blockWeight b == fromIntegral (targetToDifficulty (_blockTarget b)) + _blockWeight p) ]
+    -- TODO:
+    -- target of block matches the calculate target for the branch
+    ]
+
+-- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an empty list)
+isValidEntry :: Snapshot -> Entry a -> Bool
+isValidEntry s b = null (validateEntry s b)

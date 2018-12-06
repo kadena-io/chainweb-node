@@ -82,17 +82,18 @@ module Chainweb.BlockHeader
 , genesisBlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
-
--- * BlockHeader Validation
-, prop_block_difficulty
-, prop_block_hash
-, prop_block_genesis_parent
-, prop_block_genesis_target
+, genesisBlockTarget
 
 -- * Testing
 , testBlockHeader
 , testBlockHeaders
 , testBlockHeadersWithNonce
+
+-- * Properties
+, prop_block_difficulty
+, prop_block_hash
+, prop_block_genesis_parent
+, prop_block_genesis_target
 ) where
 
 import Control.Arrow ((&&&))
@@ -203,32 +204,32 @@ decodeNonce = Nonce <$> getWord64le
 -- | BlockHeader
 --
 -- Some redunant, aggregated information is included in the block and the block
--- hash. This enables nodes to inductively with respective to existing blocks
--- without recalculating the aggregated value from the genesis block onward.
+-- hash. This enables nodes to be checked inductively with respect to existing
+-- blocks without recalculating the aggregated value from the genesis block onward.
 --
 data BlockHeader :: Type where
     BlockHeader ::
         { _blockParent :: !BlockHash
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockAdjacentHashes :: !BlockHashRecord
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockTarget :: !HashTarget
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockPayloadHash :: !BlockPayloadHash
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockCreationTime :: !(Time Int64)
             -- ^ the time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
             -- with in the chain of blocks. The smallest allowed increment is
             -- 'smallestBlockTimeIncrement'. Nodes are supposed to ignore blocks
-            -- with values that are in the future and reconsider a block when it's
+            -- with values that are in the future and reconsider a block when its
             -- value is in the past.
             --
-            -- The block creation time is used to determin the block difficulty for
+            -- The block creation time is used to determine the block difficulty for
             -- future blocks.
             --
             -- Nodes are not supposed to consider the creation time when choosing
@@ -239,21 +240,21 @@ data BlockHeader :: Type where
             -- with respect to a (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
-            -- It is possible that an miner always choses the smallest possible
+            -- It is possible that a miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
             -- gain from doing so, but attack models should consider and investigate
             -- such behavior.
             --
-            -- On the other hand miners may chose to compute forks with creation
-            -- time long the future. By doing so, the difficulty on such a fork
+            -- On the other hand miners may choose to compute forks with creation
+            -- time long in the future. By doing so, the difficulty on such a fork
             -- would decrease allowing the miner to compute very long chains very
             -- quickly. However, those chains would become valid only after a long
             -- time passed. The algorithm for computing the difficulty must ensure
             -- this strategy doesn't give an advantage to an attacker that would
-            -- increase the success propbability for an attack.
+            -- increase the success probability for an attack.
 
         , _blockNonce :: !Nonce
-            -- ^ authorative
+            -- ^ authoritative
 
         , _blockChainId :: !ChainId
 
@@ -280,7 +281,7 @@ data BlockHeader :: Type where
             -- ^ The public identifier of the miner of the block as self-idenfied
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
-            -- enfored. This information is merely informational.
+            -- enforced. This information is merely informational.
 
         , _blockHash :: !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
@@ -487,7 +488,7 @@ genesisBlockHeader
     -> p
     -> BlockHeader
 genesisBlockHeader v g p = BlockHeader
-    { _blockParent = genesisBlockHash v p
+    { _blockParent = genesisBlockHash v cid
     , _blockAdjacentHashes = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
     , _blockTarget = genesisBlockTarget
@@ -512,23 +513,6 @@ genesisBlockHeaders
     -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v g ps = HM.fromList
     $ (\cid -> (_chainId cid, genesisBlockHeader v g cid)) <$> HS.toList ps
-
--- -------------------------------------------------------------------------- --
--- BlockHeader Validation
-
-prop_block_difficulty :: BlockHeader -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
-
-prop_block_hash :: BlockHeader -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
-
-prop_block_genesis_parent :: BlockHeader -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b
-    ==> _blockParent b == _blockHash b
-
-prop_block_genesis_target :: BlockHeader -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -584,3 +568,14 @@ testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
 
+prop_block_difficulty :: BlockHeader -> Bool
+prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
+
+prop_block_hash :: BlockHeader -> Bool
+prop_block_hash b = _blockHash b == computeBlockHash b
+
+prop_block_genesis_parent :: BlockHeader -> Bool
+prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
+
+prop_block_genesis_target :: BlockHeader -> Bool
+prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget

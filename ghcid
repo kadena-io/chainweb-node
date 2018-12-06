@@ -1,0 +1,6 @@
+#! /bin/sh
+if [ 0 -eq $# ]
+  then echo "Usage: $0 <package>"
+       echo "where <package> is one of the packages defined in chainweb.cabal. Try 'chainweb' or 'chainweb-node' for example."
+  else nix-shell --run "ghcid -c cabal repl $1"
+fi
