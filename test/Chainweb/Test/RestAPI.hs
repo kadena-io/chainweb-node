@@ -249,12 +249,15 @@ pagingTest
         -- ^ Get test items from database
     -> (a -> DbKey BlockHeaderDb)
         -- ^ Compute paging key from item
+    -> Bool
+        -- ^ whether the result represents an finite (True) or infinite (False)
+        -- set
     -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
     -> IO TestClientEnv
         -- ^ Test environment
     -> TestTree
-pagingTest name getDbItems getKey request envIO = testGroup name
+pagingTest name getDbItems getKey fin request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
         ents <- getDbItems db
@@ -273,7 +276,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
             let es = drop i ents
-            session step es cid Nothing (Just . Exclusive . getKey . head $ es)
+            session step es cid Nothing (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     -- TODO This is also still failing, but may be fixed already on other branches.
@@ -285,7 +288,7 @@ pagingTest name getDbItems getKey request envIO = testGroup name
         res <- flip runClientM env
             $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
                 let es = drop (int i) ents
-                session step es cid (Just j) (Just . Exclusive . getKey . head $ es)
+                session step es cid (Just j) (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
@@ -308,25 +311,29 @@ pagingTest name getDbItems getKey request envIO = testGroup name
             (Expected $ expectedNext ents n)
             (Actual $ _pageNext r)
 
-    expectedNext ents n
-        = fmap (Exclusive . getKey) . listToMaybe
-        $ case n of
-            Nothing -> []
-            Just x
-                | x < 1 -> []
-                | otherwise -> drop (int $ x - 1) ents
+    expectedNext = if fin then expectedNextFin else expectedNextInf
+
+    -- Finite case
+    expectedNextFin _ Nothing = Nothing
+    expectedNextFin ents (Just n) = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
+
+    -- Infinite case
+    expectedNextInf ents Nothing = Exclusive . getKey <$> (Just $ last ents)
+    expectedNextInf ents (Just n)
+        | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
+        | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
 testPageLimitHeadersClient :: IO TestClientEnv -> TestTree
-testPageLimitHeadersClient = pagingTest "headersClient" headers key request
+testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient Test cid l n Nothing Nothing
 
 testPageLimitHashesClient :: IO TestClientEnv -> TestTree
-testPageLimitHashesClient = pagingTest "hashesClient" hashes id request
+testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient Test cid l n Nothing Nothing
 
 testPageLimitBranchesClient :: IO TestClientEnv -> TestTree
-testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id request
+testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
   where
     request cid l n = leavesClient Test cid l n Nothing Nothing
