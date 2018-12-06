@@ -25,8 +25,14 @@ module Chainweb.BlockHeaderDB
 , initChainDb
 , closeChainDb
 , copy
+
+-- * Validation
+, isValidEntry
+, validateEntry
+, validateEntryM
 ) where
 
+import Control.Arrow
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.DeepSeq
@@ -36,6 +42,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans
 
+import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
@@ -43,13 +50,16 @@ import qualified Data.Sequence as Seq
 
 import GHC.Generics
 
+import Prelude hiding (lookup)
+
 import qualified Streaming.Prelude as S
 
 -- internal imports
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Difficulty
 import Chainweb.TreeDB
 import Chainweb.Utils
 
@@ -277,10 +287,154 @@ instance TreeDb ChainDb where
 
 insertChainDb :: ChainDb -> [E] -> IO ()
 insertChainDb db es = do
+
+    -- Validate set of additions
+    validateAdditionsM db $ HM.fromList $ (key &&& id) <$> es
+
+    -- atomically add set of additions to database
     modifyMVar_ (_chainDbVar db) $ \x -> do
         x' <- foldM (flip dbAddChecked) x rankedAdditions
         atomically $ writeTVar (_chainDbEnumeration db) $ _dbEnumeration x'
         return $!! x'
   where
     rankedAdditions = L.sortOn rank es
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Validation
+
+data ValidationFailure = ValidationFailure BlockHeader [ValidationFailureType]
+
+instance Show ValidationFailure where
+    show (ValidationFailure e ts) = "Validation failure: " ++ unlines (map description ts) ++ "\n" ++ show e
+        where
+            description t = case t of
+                MissingParent -> "Parent isn't in the database"
+                CreatedBeforeParent -> "Block claims to have been created before its parent"
+                VersionMismatch -> "Block uses a version of chainweb different from its parent"
+                IncorrectHash -> "The hash of the block header does not match the one given"
+                IncorrectHeight -> "The given height is not one more than the parent height"
+                IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
+                IncorrectTarget -> "The given target difficulty for the following block is incorrect"
+                IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
+                IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
+
+-- | An enumeration of possible validation failures for a block header.
+--
+data ValidationFailureType =
+      MissingParent -- ^ Parent isn't in the database
+    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
+    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
+    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
+    | IncorrectHeight -- ^ The given height is not one more than the parent height
+    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
+    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
+    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
+    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
+  deriving (Show, Eq, Ord)
+
+instance Exception ValidationFailure
+
+-- | Validate a set of additions that are supposed to added atomically to
+-- the database.
+--
+validateAdditionsM :: ChainDb -> HM.HashMap BlockHash BlockHeader -> IO ()
+validateAdditionsM db as = traverse_ (validateEntryInternalM lookupParent) as
+  where
+    lookupParent h = case HM.lookup h as of
+        Nothing -> lookup db h
+        p -> return p
+
+-- | Validate properties of the block header, throwing an exception detailing
+-- the failures if any.
+--
+validateEntryInternalM
+    :: MonadThrow m
+    => (BlockHash -> m (Maybe BlockHeader))
+    -> BlockHeader
+    -> m ()
+validateEntryInternalM lookupParent e =
+    validateEntryInternal lookupParent e >>= \case
+        [] -> return ()
+        failures -> throwM (ValidationFailure e failures)
+
+-- | Validate properties of the block header, throwing an exception detailing
+-- the failures if any.
+--
+validateEntryM
+    :: ChainDb
+    -> BlockHeader
+    -> IO ()
+validateEntryM = validateEntryInternalM . lookup
+
+-- | Validate properties of the block header, producing a list of the validation
+-- failures
+--
+validateEntry
+    :: ChainDb
+        -- ^ the database
+    -> BlockHeader
+        -- ^ The block header to be checked
+    -> IO [ValidationFailureType]
+        -- ^ A list of ways in which the block header isn't valid
+validateEntry = validateEntryInternal . lookup
+
+-- | Validate properties of the block header, producing a list of the validation
+-- failures
+--
+validateEntryInternal
+    :: Monad m
+    => (BlockHash -> m (Maybe BlockHeader))
+        -- ^ parent lookup
+    -> BlockHeader
+        -- ^ The block header to be checked
+    -> m [ValidationFailureType]
+        -- ^ A list of ways in which the block header isn't valid
+validateEntryInternal lookupParent b = (validateBlockHeaderIntrinsic b ++)
+    <$> validateBlockHeaderInductiveInternal lookupParent b
+
+-- | Validates properties of a block with respect to its parent.
+--
+validateBlockHeaderInductiveInternal
+    :: Monad m
+    => (BlockHash -> m (Maybe BlockHeader))
+    -> BlockHeader
+    -> m [ValidationFailureType]
+validateBlockHeaderInductiveInternal lookupParent b =
+    lookupParent (_blockParent b) >>= \case
+        Nothing -> return [MissingParent]
+        Just p -> return $ validateParent p b
+
+-- | Validates properties of a block which are checkable from the block header
+-- without observing the remainder of the database.
+--
+validateBlockHeaderIntrinsic
+    :: BlockHeader -- ^ block header to be validated
+    -> [ValidationFailureType]
+validateBlockHeaderIntrinsic b = concat
+    [ [ IncorrectTarget | not (prop_block_difficulty b) ]
+    , [ IncorrectHash | not (prop_block_hash b) ]
+    , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
+    , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
+    ]
+
+-- | Validate properties of a block with respect to a given parent.
+--
+validateParent
+    :: BlockHeader -- ^ Parent block header
+    -> BlockHeader -- ^ Block header under scrutiny
+    -> [ValidationFailureType]
+validateParent p b = concat
+    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
+    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
+    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
+    , [ IncorrectWeight | not (_blockWeight b == fromIntegral (targetToDifficulty (_blockTarget b)) + _blockWeight p) ]
+    -- TODO:
+    -- target of block matches the calculate target for the branch
+    ]
+
+-- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an
+-- empty list)
+--
+isValidEntry :: ChainDb -> BlockHeader -> IO Bool
+isValidEntry s b = null <$> validateEntry s b
 
