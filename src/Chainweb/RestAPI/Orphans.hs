@@ -3,8 +3,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -34,15 +36,20 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.UUID as V4
 
+import Numeric.Natural
+
 import Servant.API
 
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.HostAddress
-import Chainweb.TreeDB
+import Chainweb.HostAddress hiding (properties)
+import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
+import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
 import P2P.Node.Configuration
@@ -86,13 +93,32 @@ instance FromHttpApiData MaxRank where
 instance ToHttpApiData MaxRank where
     toUrlPiece (MaxRank (Max k)) = toUrlPiece k
 
+instance FromHttpApiData Eos where
+    parseUrlPiece = fmap Eos . parseUrlPiece
+
+instance ToHttpApiData Eos where
+    toUrlPiece (Eos b) = toUrlPiece b
+
 instance FromHttpApiData Limit where
     parseUrlPiece = fmap Limit . parseUrlPiece
 
 instance ToHttpApiData Limit where
     toUrlPiece (Limit k) = toUrlPiece k
 
-instance FromHttpApiData (Bounds BlockHash) where
+instance ToHttpApiData (NextItem BlockHash) where
+    toUrlPiece = toText
+
+instance FromHttpApiData (NextItem BlockHash) where
+    parseUrlPiece = first sshow . nextItemFromText
+
+instance ToHttpApiData (NextItem PeerId) where
+    toUrlPiece = toText
+
+instance FromHttpApiData (NextItem PeerId) where
+    parseUrlPiece = first sshow . fromText
+
+{-
+instance FromHttpApiData (BranchBounds BlockHeaderDb) where
     parseUrlPiece t =
         let (a, b) = T.break (== ',') t
         in (\a' b' -> Bounds (LowerBound a') (UpperBound b'))
@@ -101,6 +127,7 @@ instance FromHttpApiData (Bounds BlockHash) where
 
 instance ToHttpApiData (Bounds BlockHash) where
     toUrlPiece (Bounds (LowerBound l) (UpperBound u)) = toUrlPiece l <> "," <> toUrlPiece u
+-}
 
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
@@ -121,27 +148,43 @@ instance ToParamSchema BlockHeader where
         & format ?~ "byte"
 
 instance ToParamSchema MinRank where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
 instance ToParamSchema MaxRank where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
 instance ToParamSchema Limit where
-  toParamSchema _ = mempty
-    & type_            .~ SwaggerInteger
-    & minimum_         ?~ 0
-    & exclusiveMinimum ?~ False
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
+instance ToParamSchema Eos where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerBoolean
+
+{-
 instance ToParamSchema (Bounds BlockHash) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "key,key"
+-}
+
+instance ToParamSchema (NextItem BlockHash) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):key"
+
+instance ToParamSchema (NextItem PeerId) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema ChainId where
     toParamSchema _ = mempty
@@ -179,3 +222,35 @@ instance ToSchema BlockHash where
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
+
+instance ToSchema (NextItem k) where
+    declareNamedSchema _ = return $ NamedSchema (Just "next") $ mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):<Key>"
+        & minLength ?~ 10 + 1
+
+instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
+    declareNamedSchema _ = do
+        naturalSchema <- declareSchemaRef (Proxy @Natural)
+        keySchema <- declareSchemaRef (Proxy @(NextItem k))
+        itemsSchema <- declareSchemaRef (Proxy @[a])
+        return $ NamedSchema (Just "Page") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("limit", naturalSchema)
+                , ("items", itemsSchema)
+                , ("next", keySchema)
+                ]
+            & required .~ [ "limit", "items" ]
+
+instance ToSchema (BranchBounds BlockHeaderDb) where
+    declareNamedSchema _ = do
+        setSchema <- declareSchemaRef (Proxy @[BlockHash])
+        return $ NamedSchema (Just "BranchBounds") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("upper", setSchema)
+                , ("lower", setSchema)
+                ]
+            & required .~ [ "upper", "lower" ]
+
