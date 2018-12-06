@@ -116,14 +116,14 @@ type MaxHeightParam = QueryParam "maxheight" MaxRank
 -- in direction towards the root or decending order with respect to the children
 -- relation.
 --
--- If lower bound for the traversal is given no node is returned that is in a
+-- If a lower bound for the traversal is given, then no node is returned that is in a
 -- branch (is equal to, parent, or grantparent) of the lower bound. This means
--- the query stops a the fork point of the upper bound and the lower bound and
+-- the query stops at the fork point of the upper bound and the lower bound and
 -- returns all nodes between from the upper bound down to fork point. The fork
 -- point itself isn't included.
 --
--- Simultaneously traversing more than a single branch results in a a tree that
--- is a sub-graph, but not necessarily a sub-tree, of the data base tree. Search
+-- Simultaneously traversing more than a single branch results in a tree that
+-- is a sub-graph, but not necessarily a sub-tree, of the database tree. Search
 -- stops at the first matching lower bound.
 --
 type BranchesApi_
@@ -146,7 +146,7 @@ branchesApi = Proxy
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/leave@
 --
 -- Returns the hashes of the entries of the block header tree database. Querying
--- the database isn't atomic entries may be added concurrently. Therefor the
+-- the database isn't atomic - entries may be added concurrently. Therefore the
 -- result of this query is a set of block hashes that represent a possible set
 -- of leaves at some point in the history of the database. The server is
 -- expected to try to return a large and recent set.
@@ -170,10 +170,10 @@ leavesApi = Proxy
 -- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash@
 --
 -- Returns hashes in the block header tree database in ascending order with
--- respect the children relation.
+-- respect to the children relation.
 --
--- Note, for block hashes on different branches the order isn't determined.
--- Therefor a block hash of higher block height can be returned before a block
+-- Note that for block hashes on different branches, the order isn't determined.
+-- Therefore a block hash of higher block height can be returned before a block
 -- hash of lower block height.
 --
 type HashesApi_
@@ -196,8 +196,8 @@ hashesApi = Proxy
 -- Returns block headers in the block header tree database in ascending order
 -- with respect to the children relation.
 --
--- Note, for block headers on different branches the order isn't determined.
--- Therefor a block header of higher block height can be returned before a block
+-- Note that for block headers on different branches, the order isn't determined.
+-- Therefore a block header of higher block height can be returned before a block
 -- header of lower block height.
 --
 type HeadersApi_
