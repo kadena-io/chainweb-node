@@ -75,8 +75,8 @@ import Control.Monad.Catch (Exception, MonadThrow, throwM)
 import Control.Monad.IO.Class (MonadIO(..))
 
 import Data.Aeson
-    (ToJSON(..), FromJSON(..), withText, ToJSONKey(..), FromJSONKey(..))
-import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
+    (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
+import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
@@ -84,6 +84,7 @@ import qualified Data.ByteString.Random as BR
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
+import Data.List (sort)
 import Data.Proxy
 import qualified Data.Text as T
 
@@ -97,8 +98,8 @@ import qualified "cryptohash-sha512" Crypto.Hash.SHA512 as SHA512
 -- internal imports
 
 import Chainweb.ChainId
-import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -279,6 +280,7 @@ instance HasTextRepresentation BlockHash where
 -- -------------------------------------------------------------------------- --
 -- BlockHashRecord
 
+-- TODO(greg): BlockHashRecord should be a sorted vector
 newtype BlockHashRecord = BlockHashRecord
     { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
     deriving stock (Show, Eq, Generic)
@@ -294,7 +296,9 @@ instance IxedGet BlockHashRecord where
 
 encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
 encodeBlockHashRecord (BlockHashRecord r) =
-    putWord16le (int $ length r) >> mapM_ encodeBlockHash r
+    putWord16le (int $ length r) >> mapM_ encodeBlockHash l
+  where
+    l = map snd $ sort (HM.toList r)
 
 decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
