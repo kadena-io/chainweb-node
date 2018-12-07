@@ -307,30 +307,46 @@ data ValidationFailure = ValidationFailure BlockHeader [ValidationFailureType]
 
 instance Show ValidationFailure where
     show (ValidationFailure e ts) = "Validation failure: " ++ unlines (map description ts) ++ "\n" ++ show e
-        where
-            description t = case t of
-                MissingParent -> "Parent isn't in the database"
-                CreatedBeforeParent -> "Block claims to have been created before its parent"
-                VersionMismatch -> "Block uses a version of chainweb different from its parent"
-                IncorrectHash -> "The hash of the block header does not match the one given"
-                IncorrectHeight -> "The given height is not one more than the parent height"
-                IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
-                IncorrectTarget -> "The given target difficulty for the following block is incorrect"
-                IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
-                IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
+      where
+        description t = case t of
+            MissingParent -> "Parent isn't in the database"
+            CreatedBeforeParent -> "Block claims to have been created before its parent"
+            VersionMismatch -> "Block uses a version of chainweb different from its parent"
+            IncorrectHash -> "The hash of the block header does not match the one given"
+            IncorrectHeight -> "The given height is not one more than the parent height"
+            IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
+            IncorrectTarget -> "The given target difficulty for the following block is incorrect"
+            IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
+            IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
 
 -- | An enumeration of possible validation failures for a block header.
 --
-data ValidationFailureType =
-      MissingParent -- ^ Parent isn't in the database
-    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
-    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
-    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
-    | IncorrectHeight -- ^ The given height is not one more than the parent height
-    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
-    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
-    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
-    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
+data ValidationFailureType
+    = MissingParent
+        -- ^ Parent isn't in the database
+    | CreatedBeforeParent
+        -- ^ Claims to be created at a time prior to its parent's creation
+    | VersionMismatch
+        -- ^ Claims to use a version of chainweb different from that of its
+        -- parent
+    | IncorrectHash
+        -- ^ The hash of the header properties as computed by computeBlockHash
+        -- does not match the hash given in the header
+    | IncorrectHeight
+        -- ^ The given height is not one more than the parent height
+    | IncorrectWeight
+        -- ^ The given weight is not the sum of the target difficulty and the
+        -- parent's weight
+    | IncorrectTarget
+        -- ^ The given target difficulty for the following block is not correct
+        -- (TODO: this isn't yet checked, but
+        -- Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
+    | IncorrectGenesisParent
+        -- ^ The block is a genesis block, but doesn't have its parent set to
+        -- its own hash.
+    | IncorrectGenesisTarget
+        -- ^ The block is a genesis block, but doesn't have the correct
+        -- difficulty target.
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
