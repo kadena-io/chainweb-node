@@ -47,6 +47,7 @@ module Chainweb.BlockHeader
 , BlockPayloadHash(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
+, hashPayload
 
 -- * Nonce
 , Nonce(..)
@@ -104,6 +105,7 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
+import Data.ByteString.Char8 (ByteString)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Function (on)
@@ -175,16 +177,16 @@ decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
 
-newtype BlockPayloadHash = BlockPayloadHash ()
+newtype BlockPayloadHash = BlockPayloadHash BlockHashBytes
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
 encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
-encodeBlockPayloadHash (BlockPayloadHash _) = return ()
+encodeBlockPayloadHash (BlockPayloadHash w) = encodeBlockHashBytes w
 
 decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
-decodeBlockPayloadHash = return $ BlockPayloadHash ()
+decodeBlockPayloadHash = BlockPayloadHash <$> decodeBlockHashBytes
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -476,8 +478,18 @@ genesisMiner Test p = NodeId (_chainId p) 0
 genesisMiner Simulation p = NodeId (_chainId p) 0
 genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 
+-- TODO: characterize genesis block payload. Should this be the value of
+-- chainId instead of empty string?
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash _ _ = BlockPayloadHash ()
+genesisBlockPayloadHash v c = hashPayload v s
+  where
+    s = runPutS $ do
+      putByteString "GENESIS:"
+      encodeChainwebVersion v
+      encodeChainId c
+
+hashPayload :: ChainwebVersion -> ByteString -> BlockPayloadHash
+hashPayload v b = BlockPayloadHash $! cryptoHash v b
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -545,7 +557,7 @@ testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
         { _blockParent = _blockHash b
         , _blockAdjacentHashes = adj
         , _blockTarget = target
-        , _blockPayloadHash = BlockPayloadHash ()
+        , _blockPayloadHash = hashPayload Test ""
         , _blockNonce = n
         , _blockWeight = _blockWeight b + BlockWeight (targetToDifficulty target)
         , _blockHeight = _blockHeight b + 1
