@@ -20,3 +20,7 @@ cabal.project.local
 .HTF/
 tags
 result
+.ghc.environment.*
+*~
+\#*
+.stylish-haskell.yaml
