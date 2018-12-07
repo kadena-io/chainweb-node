@@ -17,7 +17,7 @@
 --
 -- TODO
 --
-module Chainweb.ChainDB.SyncSession
+module Chainweb.TreeDB.SyncSession
 ( syncSession
 , type BlockHeaderTreeDb
 ) where

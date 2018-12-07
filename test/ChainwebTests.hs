@@ -20,11 +20,11 @@ import Test.Tasty.QuickCheck
 
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
-import qualified Chainweb.Test.ChainDB.Sync
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.TreeDB.Persistence
+import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
 
 import qualified P2P.Node.PeerDB (properties)
@@ -41,7 +41,7 @@ suite = testGroup "Unit Tests"
     [ testGroup "ChainDB"
         [ Chainweb.Test.BlockHeaderDB.tests
         , Chainweb.Test.TreeDB.Persistence.tests
-        , Chainweb.Test.ChainDB.Sync.tests
+        , Chainweb.Test.TreeDB.Sync.tests
         ]
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests

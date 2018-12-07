@@ -58,15 +58,15 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
-import Chainweb.Node.SingleChainMiner
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
+import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -387,4 +387,3 @@ monitor logger db =
 
         void $ logg Info $ JsonLog stat'
         return stat'
-

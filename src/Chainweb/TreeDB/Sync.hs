@@ -12,7 +12,7 @@
 -- Sync a local `ChainDb` with that of some remote peer.
 --
 
-module Chainweb.ChainDB.Sync
+module Chainweb.TreeDB.Sync
   ( -- * Syncronizing a Chain
     sync
   -- , headers
