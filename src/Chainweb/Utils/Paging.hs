@@ -181,13 +181,14 @@ atEos = fmap (Eos . isNothing) . S.head_
 -- 'Inclusive' cursor is added to the page. Otherwise the last item of the
 -- stream is added as 'Exclusive' cursor.
 --
--- PRECONDITION: the input stream must not be empty, other-wise an exception
--- is thrown.
+-- If the input stream is empty we assume that it is because of a limiting
+-- filter that results in a query for a finite stream. No cursor is returned.
 --
 -- For an empty input we can't return a next cursor. We can't return just
 -- 'Nothing' because that is used in a 'Page' to signal the end of the stream,
 -- which contradicts the assumption that the input stream is the prefix of an
--- infinite stream.
+-- infinite stream. So, when we see an empty stream we assume that it's empty
+-- because of some filter and return 'Nothing'
 --
 finitePrefixOfInfiniteStreamToPage
     :: MonadThrow m
@@ -205,12 +206,10 @@ finitePrefixOfInfiniteStreamToPage k limit s = do
         $ s
     maybeNext <- fmap k <$> S.head_ tailStream
 
-    -- check assumption
-    when (isNothing lastKey && isNothing maybeNext) $ throwM
-        $ InternalInvariantViolation "Chainweb.Utils.Paging.finitePrefixStreamToPage called on empty stream"
-
     return $ Page (int limit') items' $ case maybeNext of
-        Nothing -> Exclusive . k <$> lastKey
+        Nothing -> case lastKey of
+            Nothing -> Nothing
+            Just l -> Just (Exclusive $ k l)
         Just next -> Just (Inclusive next)
 
 -- | Create 'Page' from a (possibly empty) prefix of a non-blocking finite
