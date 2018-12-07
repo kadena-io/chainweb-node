@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -67,6 +68,7 @@ module Chainweb.BlockHash
 , BlockHashException(..)
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (Exception, MonadThrow, throwM)
@@ -123,6 +125,7 @@ blockHashBytesCount = natVal $ Proxy @BlockHashBytesCount
 newtype BlockHashBytes :: Type where
     BlockHashBytes :: B.ByteString -> BlockHashBytes
     deriving stock (Show, Read, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 -- | Smart constructor
 --
@@ -195,6 +198,7 @@ cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 data BlockHash = BlockHash {-# UNPACK #-} !ChainId
                            {-# UNPACK #-} !BlockHashBytes
     deriving stock (Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance Show BlockHash where
     show = T.unpack . encodeToText
@@ -277,7 +281,8 @@ instance HasTextRepresentation BlockHash where
 
 newtype BlockHashRecord = BlockHashRecord
     { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
-    deriving (Show, Eq, Hashable, Generic, ToJSON, FromJSON)
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
 makeLenses ''BlockHashRecord
 

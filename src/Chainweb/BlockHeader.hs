@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE EmptyCase #-}
@@ -97,6 +98,7 @@ module Chainweb.BlockHeader
 ) where
 
 import Control.Arrow ((&&&))
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
@@ -115,7 +117,6 @@ import Data.Reflection hiding (int)
 import Data.Word
 
 import GHC.Generics (Generic)
-
 
 -- Internal imports
 
@@ -137,6 +138,7 @@ import Numeric.AffineSpace
 --
 newtype BlockHeight = BlockHeight Word64
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
@@ -156,6 +158,7 @@ decodeBlockHeight = BlockHeight <$> getWord64le
 --
 newtype BlockWeight = BlockWeight HashDifficulty
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype
         ( Hashable
         , ToJSON, FromJSON, ToJSONKey, FromJSONKey
@@ -174,6 +177,7 @@ decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 
 newtype BlockPayloadHash = BlockPayloadHash ()
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
 encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
@@ -189,7 +193,8 @@ decodeBlockPayloadHash = return $ BlockPayloadHash ()
 -- sufficient for the current hashpower of the bitcoin network.
 --
 newtype Nonce = Nonce Word64
-    deriving stock (Show, Eq, Ord)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable)
 
 encodeNonce :: MonadPut m => Nonce -> m ()
@@ -290,6 +295,7 @@ data BlockHeader :: Type where
         }
         -> BlockHeader
         deriving (Show, Generic)
+        deriving anyclass (NFData)
 
 instance Eq BlockHeader where
      (==) = (==) `on` _blockHash
