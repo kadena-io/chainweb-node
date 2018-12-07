@@ -26,7 +26,7 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 import Control.Applicative
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (catch)
+import qualified Control.Monad.Catch as E (catches, Handler(..))
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
@@ -206,9 +206,12 @@ headerPutHandler
     => db
     -> DbEntry db
     -> Handler NoContent
-headerPutHandler db e = (NoContent <$ liftIO (insert db e))
-    `catch` \(err :: TreeDbException db) ->
+headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
+    [ E.Handler $ \(err :: TreeDbException db) ->
         throwError $ err400 { errBody = sshow err }
+    , E.Handler $ \(err :: ValidationFailure) ->
+        throwError $ err400 { errBody = sshow err }
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server

@@ -30,6 +30,8 @@ module Chainweb.BlockHeaderDB
 , isValidEntry
 , validateEntry
 , validateEntryM
+, ValidationFailure(..)
+, ValidationFailureType(..)
 ) where
 
 import Control.Arrow
