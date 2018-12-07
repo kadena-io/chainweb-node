@@ -1,8 +1,7 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.Test.ChainDB.Persistence
+-- Module: Chainweb.Test.TreeDB.Persistence
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -10,7 +9,7 @@
 --
 -- TODO
 --
-module Chainweb.Test.ChainDB.Persistence
+module Chainweb.Test.TreeDB.Persistence
 ( tests
 ) where
 
@@ -28,10 +27,10 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import qualified Chainweb.ChainDB as DB
-import Chainweb.ChainDB.Persist (persist, dbEntries, fileEntries)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (withDB, insertN)
+import Chainweb.Test.Utils (insertN, withDB)
+import Chainweb.TreeDB
+import Chainweb.TreeDB.Persist (fileEntries, persist)
 
 ---
 
@@ -41,19 +40,19 @@ chainId0 = testChainId 0
 tests :: TestTree
 tests = testGroup "Persistence"
     [ testGroup "Encoding round-trips"
-        [ testCase "Fresh ChainDb (only genesis)" onlyGenesis
+        [ testCase "Fresh TreeDb (only genesis)" onlyGenesis
         , testCase "Multiple Entries" manyBlocksWritten
         ]
     ]
 
--- | Persisting a freshly initialized `DB.ChainDb` will successfully read and
+-- | Persisting a freshly initialized `TreeDb` will successfully read and
 -- write its only block, the genesis block.
 --
 onlyGenesis :: Assertion
 onlyGenesis = withDB chainId0 $ \g db -> do
     persist fp db
     g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) fp
-    g' @?= Just (DB.entry g)
+    g' @?= Just g
   where
     fp = fromAbsoluteFilePath "/tmp/only-genesis"
 
@@ -67,8 +66,8 @@ manyBlocksWritten :: Assertion
 manyBlocksWritten = withDB chainId0 $ \g db -> do
     void $ insertN len g db
     persist fp db
-    fromDB <- S.toList_ . S.map DB.dbEntry $ dbEntries db
-    fromFi <- runResourceT . S.toList_ . S.map DB.dbEntry $ fileEntries fp
+    fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing
+    fromFi <- runResourceT . S.toList_ $ fileEntries fp
     length fromDB @?= len + 1
     length fromFi @?= len + 1
     head fromDB @?= g
@@ -76,5 +75,5 @@ manyBlocksWritten = withDB chainId0 $ \g db -> do
     let b = and $ padZipWith (==) fromDB fromFi
     assertBool "Couldn't write many blocks" b
   where
-    fp = fromAbsoluteFilePath "/tmp/many-blocks-written"
+    fp  = fromAbsoluteFilePath "/tmp/many-blocks-written"
     len = 10

@@ -13,18 +13,18 @@
 --
 module Chainweb.Test.Utils
 (
--- * ChainDb Generation
-  toyChainDB
+-- * BlockHeaderDb Generation
+  toyBlockHeaderDb
 , withDB
 , insertN
 
--- * Test ChainDBs Configurations
+-- * Test BlockHeaderDbs Configurations
 , peterson
-, testChainDbs
-, petersonGenesisChainDbs
-, singletonGenesisChainDbs
-, linearChainDbs
-, starChainDbs
+, testBlockHeaderDbs
+, petersonGenesisBlockHeaderDbs
+, singletonGenesisBlockHeaderDbs
+, linearBlockHeaderDbs
+, starBlockHeaderDbs
 
 -- * Toy Server Interaction
 , withServer
@@ -32,11 +32,11 @@ module Chainweb.Test.Utils
 -- * Tasty TestTree Server and ClientEnv
 , testHost
 , TestClientEnv(..)
-, pattern ChainDbsTestClientEnv
+, pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
 , withTestServer
 , withChainwebServer
-, withChainDbsServer
+, withBlockHeaderDbsServer
 , withPeerDbsServer
 
 -- * QuickCheck Properties
@@ -51,7 +51,6 @@ module Chainweb.Test.Utils
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
-import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -60,6 +59,7 @@ import Data.Bytes.Put
 import Data.Foldable
 import Data.Reflection (give)
 import qualified Data.Text as T
+import Data.Word (Word64)
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
@@ -68,7 +68,7 @@ import qualified Network.Wai.Handler.Warp as W
 
 import Numeric.Natural
 
-import Servant.Client (ClientEnv, mkClientEnv, BaseUrl(..), Scheme(..))
+import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import Test.QuickCheck
 import Test.Tasty
@@ -77,11 +77,12 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainDB
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI (chainwebApplication)
 import Chainweb.RestAPI.NetworkID
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -90,32 +91,31 @@ import qualified Data.DiGraph as G
 import qualified P2P.Node.PeerDB as P2P
 
 -- -------------------------------------------------------------------------- --
--- ChainDb Generation
+-- BlockHeaderDb Generation
 
--- | Initialize an length-1 `ChainDb` for testing purposes.
+-- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
 -- Borrowed from TrivialSync.hs
 --
-toyChainDB :: ChainId -> IO (BlockHeader, ChainDb)
-toyChainDB cid = (genesis,) <$> initChainDb (Configuration genesis)
+toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
+toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
   where
     graph = toChainGraph (const cid) singleton
     genesis = genesisBlockHeader Test graph cid
 
 -- | Given a function that accepts a Genesis Block and
--- an initialized `ChainDb`, perform some action
+-- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withDB :: ChainId -> (BlockHeader -> ChainDb -> IO ()) -> IO ()
-withDB cid = bracket (toyChainDB cid) (closeChainDb . snd) . uncurry
+withDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
 
--- | Populate a `ChainDb` with /n/ generated `BlockHeader`s.
+-- | Populate a `BlockHeaderDb` with /n/ generated `BlockHeader`s.
 --
-insertN :: Int -> BlockHeader -> ChainDb -> IO Snapshot
-insertN n g db = do
-    ss <- snapshot db
-    let bhs = map entry . take n $ testBlockHeaders g
-    foldlM (\ss' bh -> insert bh ss') ss bhs >>= syncSnapshot
+insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN n g db = traverse_ (insert db) bhs
+  where
+    bhs = take n $ testBlockHeaders g
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -126,47 +126,41 @@ peterson = toChainGraph (testChainId . int) G.petersonGraph
 singleton :: ChainGraph
 singleton = toChainGraph (testChainId . int) G.singleton
 
-testChainDbs :: ChainGraph -> ChainwebVersion -> IO [(ChainId, ChainDb)]
-testChainDbs g v = mapM (\c -> (c,) <$> db c) $ give g $ toList chainIds
+testBlockHeaderDbs :: ChainGraph -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
+testBlockHeaderDbs g v = mapM (\c -> (c,) <$> db c) $ give g $ toList chainIds
   where
-    db c = initChainDb . Configuration $ genesisBlockHeader v g c
+    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v g c
 
-petersonGenesisChainDbs :: IO [(ChainId, ChainDb)]
-petersonGenesisChainDbs = testChainDbs peterson Test
+petersonGenesisBlockHeaderDbs :: IO [(ChainId, BlockHeaderDb)]
+petersonGenesisBlockHeaderDbs = testBlockHeaderDbs peterson Test
 
-singletonGenesisChainDbs :: IO [(ChainId, ChainDb)]
-singletonGenesisChainDbs = testChainDbs singleton Test
+singletonGenesisBlockHeaderDbs :: IO [(ChainId, BlockHeaderDb)]
+singletonGenesisBlockHeaderDbs = testBlockHeaderDbs singleton Test
 
-linearChainDbs :: Natural -> IO [(ChainId, ChainDb)] -> IO [(ChainId, ChainDb)]
-linearChainDbs n genDbs = do
+linearBlockHeaderDbs :: Natural -> IO [(ChainId, BlockHeaderDb)] -> IO [(ChainId, BlockHeaderDb)]
+linearBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ (uncurry populateDb) dbs
     return dbs
   where
+    populateDb :: ChainId -> BlockHeaderDb -> IO ()
     populateDb cid db = do
         let gbh0 = genesisBlockHeader Test peterson cid
-        sn <- snapshot db
-        sn' <- foldM (flip insert) sn
-            . fmap entry
-            . take (int n)
-            $ testBlockHeaders gbh0
-        syncSnapshot sn'
+        traverse_ (insert db) . take (int n) $ testBlockHeaders gbh0
 
-starChainDbs :: Natural -> IO [(ChainId, ChainDb)] -> IO [(ChainId, ChainDb)]
-starChainDbs n genDbs = do
+starBlockHeaderDbs :: Natural -> IO [(ChainId, BlockHeaderDb)] -> IO [(ChainId, BlockHeaderDb)]
+starBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ (uncurry populateDb) dbs
     return dbs
   where
+    populateDb :: ChainId -> BlockHeaderDb -> IO ()
     populateDb cid db = do
         let gbh0 = genesisBlockHeader Test peterson cid
-        sn <- snapshot db
-        sn' <- foldM
-            (\s i -> insert (newEntry i gbh0) s)
-            sn
-            [0 .. (int n-1)]
-        syncSnapshot sn'
-    newEntry i h = entry . head $ testBlockHeadersWithNonce (Nonce i) h
+        traverse_ (\i -> insert db $ newEntry i gbh0) [0 .. (int n-1)]
+
+    newEntry :: Word64 -> BlockHeader -> BlockHeader
+    newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 
 -- -------------------------------------------------------------------------- --
 -- Toy Server Interaction
@@ -174,7 +168,7 @@ starChainDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withServer
-    :: [(ChainId, ChainDb)]
+    :: [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
@@ -193,16 +187,16 @@ testHost = "localhost"
 
 data TestClientEnv = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envChainDbs :: ![(ChainId, ChainDb)]
+    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
-pattern ChainDbsTestClientEnv
+pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, ChainDb)]
+    -> [(ChainId, BlockHeaderDb)]
     -> TestClientEnv
-pattern ChainDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvChainDbs }
-    = TestClientEnv _cdbEnvClientEnv _cdbEnvChainDbs []
+pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
+    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
@@ -238,7 +232,7 @@ withTestServer appIO envIO test = withResource start stop $ \x ->
         close sock
 
 withChainwebServer
-    :: IO [(ChainId, ChainDb)]
+    :: IO [(ChainId, BlockHeaderDb)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
@@ -257,11 +251,11 @@ withPeerDbsServer
     -> TestTree
 withPeerDbsServer = withChainwebServer (return [])
 
-withChainDbsServer
-    :: IO [(ChainId, ChainDb)]
+withBlockHeaderDbsServer
+    :: IO [(ChainId, BlockHeaderDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withChainDbsServer chainDbsIO = withChainwebServer chainDbsIO (return [])
+withBlockHeaderDbsServer chainDbsIO = withChainwebServer chainDbsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

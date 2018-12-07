@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -30,12 +29,9 @@ module Chainweb.TreeDB
 -- * Query Parameters
 , MinRank(..)
 , MaxRank(..)
-, Limit(..)
-, NextItem(..)
-, isExclusive
-, isInclusive
 , LowerBound(..)
 , UpperBound(..)
+, BranchBounds(..)
 
 -- * Tree Database
 , TreeDbEntry(..)
@@ -44,8 +40,12 @@ module Chainweb.TreeDB
 
 -- * Utils
 
+, root
+, maxHeader
+
 -- ** Limiting and Seeking a Stream
 , Eos(..)
+, isEos
 , limitStream
 , seekStream
 , seekStreamSet
@@ -77,6 +77,8 @@ import Control.Monad.Catch
 import Control.Monad.Identity
 import Control.Monad.Trans
 
+import Data.Aeson
+import Data.Function
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -96,11 +98,10 @@ import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
 
-import Test.QuickCheck.Instances ({- Arbitrary Natural -})
-
 -- internal modules
 
 import Chainweb.Utils hiding ((==>))
+import Chainweb.Utils.Paging hiding (properties)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -147,30 +148,6 @@ _getMaxRank (MaxRank (Max r)) = r
 -- -------------------------------------------------------------------------- --
 -- ** Page/Stream Limits
 
-newtype Limit = Limit { _getLimit :: Natural }
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (Hashable)
-    deriving newtype (Num, Real, Integral, Enum, Ord)
-
-data NextItem k
-    = Inclusive k
-    | Exclusive k
-    deriving stock (Eq, Show, Ord, Functor)
-
-isInclusive :: NextItem k -> Bool
-isInclusive Inclusive{} = True
-isInclusive _ = False
-
-isExclusive :: NextItem k -> Bool
-isExclusive Exclusive{} = True
-isExclusive _ = False
-
--- | Data type to indicate end of stream
---
-newtype Eos = Eos { _getEos :: Bool }
-    deriving stock (Eq, Show, Ord, Generic)
-    deriving newtype (Enum, Bounded)
-
 -- -------------------------------------------------------------------------- --
 -- ** Branch Bounds
 
@@ -181,6 +158,29 @@ newtype LowerBound k = LowerBound { _getLowerBound :: k }
 newtype UpperBound k = UpperBound { _getUpperBound :: k }
     deriving stock (Eq, Show, Ord, Generic)
     deriving anyclass (Hashable)
+
+data BranchBounds db = BranchBounds
+    { _branchBoundsLower :: !(HS.HashSet (LowerBound (DbKey db)))
+    , _branchBoundsUpper :: !(HS.HashSet (UpperBound (DbKey db)))
+    }
+    deriving stock (Generic)
+
+instance
+    (Hashable (Key (DbEntry db)), Eq (Key (DbEntry db)), ToJSON (DbKey db))
+    => ToJSON (BranchBounds db)
+  where
+    toJSON b = object
+        [ "lower" .= HS.map _getLowerBound (_branchBoundsLower b)
+        , "upper" .= HS.map _getUpperBound (_branchBoundsUpper b)
+        ]
+
+instance
+    (Hashable (Key (DbEntry db)), Eq (Key (DbEntry db)), FromJSON (DbKey db))
+    => FromJSON (BranchBounds db)
+  where
+    parseJSON = withObject "BranchBounds" $ \o -> BranchBounds
+        <$> (HS.map LowerBound <$> o .: "lower")
+        <*> (HS.map UpperBound <$> o .: "upper")
 
 -- -------------------------------------------------------------------------- --
 -- * TreeDbEntry
@@ -271,7 +271,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- cursor. Implementations should block on IO at most a constant amount of
     -- time.
     --
-    -- The default implementation is based on 'entries', which in most cases
+    -- The default implementation is based on 'entries', which in some cases
     -- doesn't give good performance.
     --
     keys
@@ -366,9 +366,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- always a legal result, but implementations should try to return a large
     -- set.
     --
-    -- The default implementation has poor performance if the maximum rank
-    -- parameter is not Nothing.
-    --
     leafEntries
         :: db
         -> Maybe (NextItem (DbKey db))
@@ -397,8 +394,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | @branchKeys n l mir mar lower upper@ returns all nodes within the given
     -- range of minimum rank @mir@ and maximun rank @mar@ that are predecessors
     -- of nodes in @upper@ and not predecessors of any node in @lower@, starting
-    -- at the entry after @n@. The number of itmes in the result is limited by
-    -- @l@. Items are returned in descending order.
+    -- at the entry @n@. The number of items in the result is limited by @l@.
+    -- Items are returned in descending order.
     --
     -- The result stream doesn't block. It may return less than the requested
     -- number of items.
@@ -460,8 +457,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     insertStream
         :: db
-        -> S.Stream (Of (DbEntry db)) IO ()
-        -> IO ()
+        -> S.Stream (Of (DbEntry db)) IO a
+        -> IO a
     insertStream = S.mapM_ . insert
     {-# INLINEABLE insertStream #-}
 
@@ -488,6 +485,15 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+maxHeader :: TreeDb db => db -> IO (DbEntry db)
+maxHeader db = do
+    r <- root db
+    S.fold_ (maxBy (compare `on` rank)) r id
+        $ leafEntries db Nothing Nothing Nothing Nothing
+
+root :: TreeDb db => db -> IO (DbEntry db)
+root db = fmap fromJust $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
@@ -652,7 +658,7 @@ limitStream (Just limit) s = do
     -- FIXME this can be expensive for infinite/blocking streams. Skip this if
     -- the underlying stream is known to be infinite.
     --
-    eos <- lift (isEos tailStream)
+    eos <- lift (atEos tailStream)
     return (int limit', eos)
 
 seekStream
@@ -679,9 +685,6 @@ seekStreamSet k (Just (Inclusive s)) = S.dropWhile (\a -> not (k a `HS.member` s
 seekStreamSet k (Just (Exclusive s))
     = S.dropWhile (\a -> k a `HS.member` s)
     . S.dropWhile (\a -> not (k a `HS.member` s))
-
-isEos :: Monad m => S.Stream (Of a) m () -> m Eos
-isEos = fmap (Eos . isNothing) . S.head_
 
 prop_seekLimitStream_limit :: [Int] -> Natural -> Property
 prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
@@ -799,4 +802,3 @@ properties =
     [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
     , ("seekLimitStream_id", property prop_seekLimitStream_id)
     ]
-

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Chainweb.Test.ChainDB.Sync ( tests ) where
+module Chainweb.Test.TreeDB.Sync ( tests ) where
 
 import Control.Monad (void)
 
@@ -11,10 +11,11 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.ChainDB (snapshot, height, copy, highest)
-import Chainweb.ChainDB.Sync
+import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (withServer, withDB, insertN)
+import Chainweb.Test.Utils (insertN, withDB, withServer)
+import Chainweb.TreeDB
+import Chainweb.TreeDB.Sync
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"
@@ -36,8 +37,7 @@ cid = testChainId 0
 noopSingletonSync :: Assertion
 noopSingletonSync = withDB cid $ \_ db -> withServer [(cid, db)] [] $ \env -> do
     sync diam env db
-    s <- snapshot db
-    height s @?= 0
+    maxRank db >>= (@?= 0)
 
 -- | Simulates an up-to-date node querying another for updates,
 -- and finding none.
@@ -48,7 +48,7 @@ noopLongSync = withDB cid $ \g db -> do
     peer <- copy db
     withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
-        snapshot db >>= \ss -> height ss @?= 10
+        maxRank db >>= (@?= 10)
 
 -- | Simulates a node that queries an /older/ node for updates.
 --
@@ -56,12 +56,12 @@ noopNewerNode :: Assertion
 noopNewerNode = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    h <- highest <$> snapshot peer
+    h <- maxHeader peer
     void $ insertN 90 h peer
     withServer [(cid, db)] [] $ \env -> do
         sync diam env peer
-        snapshot peer >>= \ss -> height ss @?= 100
-        snapshot db >>= \ss -> height ss @?= 10
+        maxRank peer >>= (@?= 100)
+        maxRank db   >>= (@?= 10)
 
 -- | Simulates a brand new node syncing everything from a peer.
 --
@@ -69,10 +69,10 @@ newNode :: Assertion
 newNode = withDB cid $ \g db -> do
     peer <- copy db
     void $ insertN 10 g peer
-    snapshot db >>= \ss -> height ss @?= 0
+    maxRank db >>= (@?= 0)
     withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
-        snapshot db >>= \ss -> height ss @?= 10
+        maxRank db >>= (@?= 10)
 
 -- | Simulates an older node that hasn't been sync'd in a while.
 --
@@ -80,8 +80,8 @@ oldNode :: Assertion
 oldNode = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    h <- highest <$> snapshot peer
+    h <- maxHeader peer
     void $ insertN 90 h peer
     withServer [(cid, peer)] [] $ \env -> do
         sync diam env db
-        snapshot db >>= \ss -> height ss @?= 100
+        maxRank db >>= (@?= 100)

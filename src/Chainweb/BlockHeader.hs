@@ -116,6 +116,7 @@ import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
 import Data.Reflection hiding (int)
+import Data.Serialize (Serialize(..))
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -316,6 +317,10 @@ instance HasChainId BlockHeader where
     {-# INLINE _chainId #-}
 
 makeLenses ''BlockHeader
+
+instance Serialize BlockHeader where
+    put = encodeBlockHeader
+    get = decodeBlockHeader
 
 encodeBlockHeaderNoHash
     :: MonadPut m
@@ -597,3 +602,4 @@ prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _bloc
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget
+

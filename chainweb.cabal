@@ -56,14 +56,9 @@ library
           Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeaderDB
-        , Chainweb.ChainDB
-        , Chainweb.ChainDB.Persist
-        , Chainweb.ChainDB.Queries
-        , Chainweb.ChainDB.RestAPI
-        , Chainweb.ChainDB.RestAPI.Client
-        , Chainweb.ChainDB.RestAPI.Server
-        , Chainweb.ChainDB.Sync
-        , Chainweb.ChainDB.SyncSession
+        , Chainweb.BlockHeaderDB.RestAPI
+        , Chainweb.BlockHeaderDB.RestAPI.Client
+        , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
         , Chainweb.Difficulty
         , Chainweb.Graph
@@ -75,7 +70,11 @@ library
         , Chainweb.RestAPI.Utils
         , Chainweb.Time
         , Chainweb.TreeDB
+        , Chainweb.TreeDB.Persist
+        , Chainweb.TreeDB.Sync
+        , Chainweb.TreeDB.SyncSession
         , Chainweb.Utils
+        , Chainweb.Utils.Paging
         , Chainweb.Version
 
         , Data.DiGraph
@@ -95,10 +94,6 @@ library
         , P2P.Node.RestAPI.Server
         , P2P.Node.RestAPI.Client
         , P2P.Session
-
-    other-modules:
-          Chainweb.ChainDB.Entry
-        , Paths_chainweb
 
     build-depends:
           QuickCheck >= 2.10
@@ -165,14 +160,14 @@ test-suite chainweb-tests
     main-is: ChainwebTests.hs
     ghc-options: -threaded -with-rtsopts=-N
     other-modules:
-        Chainweb.Test.ChainDB
-        Chainweb.Test.ChainDB.Persistence
-        Chainweb.Test.ChainDB.Sync
+        Chainweb.Test.BlockHeaderDB
         Chainweb.Test.DiGraph
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Roundtrips
         Chainweb.Test.RestAPI
+        Chainweb.Test.Roundtrips
+        Chainweb.Test.TreeDB.Persistence
+        Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
 
     build-depends:
@@ -294,10 +289,10 @@ executable chainweb-node
 
 
 -- -------------------------------------------------------------------------- --
--- Examples for ChainDB usage
+-- Examples for BlockHeaderDb usage
 -- -------------------------------------------------------------------------- --
 
-executable chaindb-example
+executable blockheaderdb-example
     default-language: Haskell2010
     ghc-options:
         -Wall
@@ -318,6 +313,7 @@ executable chaindb-example
         , lens >= 4.16
         , random >= 1.1
         , stm >= 2.4
+        , streaming >= 0.2.2
         , text >= 1.2
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
@@ -408,4 +404,3 @@ executable single-chain-example
         , yet-another-logger >= 0.3.1
 
     if flag(dev) { buildable: True } else { buildable: False }
-

@@ -115,6 +115,7 @@ module Chainweb.Utils
 , streamToHashSet_
 , nub
 , timeoutStream
+, reverseStream
 
 ) where
 
@@ -154,8 +155,8 @@ import Numeric.Natural
 
 import qualified Options.Applicative as O
 
+import qualified Streaming as S (concats, effect, maps)
 import qualified Streaming.Prelude as S
-import qualified Streaming as S (concats, maps)
 
 import System.Timeout
 
@@ -568,3 +569,26 @@ streamToHashSet_
     => S.Stream (Of a) m r
     -> m (HS.HashSet a)
 streamToHashSet_ = fmap HS.fromList . S.toList_
+
+-- | This function reverses the order of the items in a stream. In order to due
+-- so it store all items of the stream in a memory buffer before continuing to
+-- stream starting at the former end of the stream.
+--
+-- /THIS FUNCTION BREAKS STREAMING! USE WITH CARE!/
+--
+-- The function 'getBranch' returns the keys of the branch in the order such
+-- that an key of an entry is returned /before/ the keys of the dependencies of
+-- the entry are returned.
+--
+-- Public 'ChainDb' API functions require that items are returned in an order
+-- such that an item is returned /after/ all dependencies of the item are
+-- returned.
+--
+-- Storing the complete result of a stream query in memory is problematic for
+-- streams of unbounded length. It it is particularly problematic in a server
+-- application. Beside of potential long latencies and GC issue overhead it can
+-- also represent a DOS attack vulnerability. A server that uses this function
+-- should use paging aggressively.
+--
+reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
+reverseStream = S.effect . S.fold_ (flip (:)) [] S.each

@@ -85,9 +85,9 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
-import Chainweb.RestAPI.Utils
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.LogMessage

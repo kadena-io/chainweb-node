@@ -86,6 +86,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Data.List (sort)
 import Data.Proxy
+import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -211,6 +212,10 @@ instance HasChainId BlockHash where
 instance Hashable BlockHash where
     hashWithSalt s (BlockHash _ bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
+
+instance Serialize BlockHash where
+    put = encodeBlockHash
+    get = decodeBlockHash
 
 encodeBlockHash :: MonadPut m => BlockHash -> m ()
 encodeBlockHash (BlockHash cid bytes) = do

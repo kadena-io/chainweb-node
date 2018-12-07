@@ -34,6 +34,7 @@ module P2P.Node.RestAPI.Server
 , serveP2pOnPort
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 
 import Data.Foldable
@@ -41,8 +42,6 @@ import Data.Proxy
 import qualified Data.Text.IO as T
 
 import Network.Wai.Handler.Warp hiding (Port)
-
-import Numeric.Natural
 
 import Servant.API
 import Servant.Server
@@ -56,6 +55,7 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.Singletons
@@ -67,16 +67,21 @@ import P2P.Node.RestAPI
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
+defaultPeerInfoLimit :: Num a => a
+defaultPeerInfoLimit = 64
+
 peerGetHandler
     :: PeerDb
-    -> Maybe Natural
-    -> Maybe PeerId
-    -> Handler (Page PeerId PeerInfo)
+    -> Maybe Limit
+    -> Maybe (NextItem PeerId)
+    -> Handler (Page (NextItem PeerId) PeerInfo)
 peerGetHandler db limit next = do
     sn <- liftIO $ peerDbSnapshot db
-    streamToPage _peerId next limit
+    seekFiniteStreamToPage _peerId next effectiveLimit
         . SP.each
         $ toList sn
+  where
+    effectiveLimit = limit <|> Just defaultPeerInfoLimit
 
 peerPutHandler
     :: PeerDb

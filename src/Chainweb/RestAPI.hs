@@ -38,8 +38,8 @@ module Chainweb.RestAPI
 
 -- * Chainweb API Client
 
--- ** ChainDB API Client
-, module Chainweb.ChainDB.RestAPI.Client
+-- ** BlockHeaderDb API Client
+, module Chainweb.BlockHeaderDB.RestAPI.Client
 
 -- ** P2P API Client
 , module P2P.Node.RestAPI.Client
@@ -63,10 +63,10 @@ import Servant.Swagger
 
 -- internal modules
 
-import Chainweb.ChainDB
-import Chainweb.ChainDB.RestAPI
-import Chainweb.ChainDB.RestAPI.Client
-import Chainweb.ChainDB.RestAPI.Server
+import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.RestAPI
+import Chainweb.BlockHeaderDB.RestAPI.Client
+import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
@@ -84,7 +84,7 @@ import P2P.Node.RestAPI.Server
 
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
-    <> someChainDbApis v (selectChainIds cs)
+    <> someBlockHeaderDbApis v (selectChainIds cs)
     <> someP2pApis v cs
 
 selectChainIds :: [NetworkId] -> [ChainId]
@@ -130,16 +130,16 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 
 someChainwebServer
     :: ChainwebVersion
-    -> [(ChainId, ChainDb)]
+    -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> SomeServer
 someChainwebServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
-    <> someChainDbServers v chainDbs
+    <> someBlockHeaderDbServers v chainDbs
     <> someP2pServers v peerDbs
 
 chainwebApplication
     :: ChainwebVersion
-    -> [(ChainId, ChainDb)]
+    -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> Application
 chainwebApplication v chainDbs peerDbs = someServerApplication
@@ -148,7 +148,7 @@ chainwebApplication v chainDbs peerDbs = someServerApplication
 serveChainwebOnPort
     :: Port
     -> ChainwebVersion
-    -> [(ChainId, ChainDb)]
+    -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebOnPort p v chainDbs peerDbs = run (int p)
@@ -157,9 +157,8 @@ serveChainwebOnPort p v chainDbs peerDbs = run (int p)
 serveChainweb
     :: Settings
     -> ChainwebVersion
-    -> [(ChainId, ChainDb)]
+    -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainweb s v chainDbs peerDbs = runSettings s
     $ chainwebApplication v chainDbs peerDbs
-

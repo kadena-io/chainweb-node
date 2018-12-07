@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Node.SingleChainMiner
@@ -26,9 +27,6 @@ import Control.Concurrent
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Foldable
-import Data.Function
-
 import GHC.Generics (Generic)
 
 import Numeric.Natural
@@ -42,7 +40,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainDB
+import Chainweb.TreeDB
 import Chainweb.ChainId
 import Chainweb.NodeId
 import Chainweb.Utils
@@ -99,7 +97,14 @@ pSingleChainMinerConfig = id
 -- each nonce if accepted. Block creation is delayed through through
 -- 'threadDelay' with an geometric distribution.
 --
-singleChainMiner :: Logger -> SingleChainMinerConfig -> NodeId -> ChainDb -> IO ()
+singleChainMiner
+    :: TreeDb db
+    => (DbEntry db ~ BlockHeader)
+    => Logger
+    -> SingleChainMinerConfig
+    -> NodeId
+    -> db
+    -> IO ()
 singleChainMiner logger conf nid db =
     L.withLoggerLabel ("component", "miner") logger $ \logger' -> do
         let logg = loggerFunText logger'
@@ -116,25 +121,14 @@ singleChainMiner logger conf nid db =
             gen
         threadDelay d
 
-        -- get db snapshot
-        --
-        s <- snapshot db
-
         -- pick parent from longest branch
         --
-        let bs = branches s
-        p <- maximumBy (compare `on` rank)
-            <$> mapM (`getEntryIO` s) (toList bs)
+        p <- maxHeader db
 
-        -- create new (test) block header
+        -- create new (test) block header and add block header to the database
         --
-        let e = entry $ testBlockHeader nid adjs (Nonce 0) (dbEntry p)
-
-        -- Add block header to the database
-        --
-        s' <- insert e s
-        void $ syncSnapshot s'
-        _ <- logg Debug $ "published new block " <> sshow i
+        insert db $ testBlockHeader nid adjs (Nonce 0) p
+        void $ logg Debug $ "published new block " <> sshow i
 
         -- continue
         --

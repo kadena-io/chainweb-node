@@ -31,16 +31,13 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.STM
 
 import Data.Bifunctor (first)
-import Data.Foldable
 import Data.Function
-import qualified Data.HashSet as HS
 import Data.Maybe
 import qualified Data.Text as T
-import Data.Word
 import qualified Data.UUID as UUID
+import Data.Word
 
 import GHC.Generics
 
@@ -48,24 +45,26 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
+import qualified Streaming.Prelude as S
+
 import qualified System.Logger as L
 import System.LogLevel
 
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainDB
-import Chainweb.ChainDB.SyncSession
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.TreeDB
+import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
-
-import Chainweb.Node.SingleChainMiner
 
 import Data.DiGraph
 import Data.LogMessage
@@ -249,7 +248,7 @@ runNodeWithConfig conf logger = do
 -- -------------------------------------------------------------------------- --
 -- P2P Client Sessions
 
-chainDbSyncSession :: ChainDb -> P2pSession
+chainDbSyncSession :: BlockHeaderDb -> P2pSession
 chainDbSyncSession db logFun env =
     try (syncSession db logFun env) >>= \case
       Left (e :: SomeException) -> do
@@ -279,10 +278,10 @@ node cid logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info $ "Start test node"
 
-        withChainDb cid $ \cdb ->
+        withBlockHeaderDb cid $ \cdb ->
           withPeerDb p2pConfig $ \pdb ->
             withAsync (serveChainwebOnPort port Test
-                [(cid, cdb)] -- :: [(ChainId, ChainDb)]
+                [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 ) $ \server -> do
                   logfun Info "started server"
@@ -292,14 +291,14 @@ node cid logger conf p2pConfig nid port =
                       <> Concurrently (monitor logger' cdb)
                   wait server
 
-withChainDb :: ChainId -> (ChainDb -> IO b) -> IO b
-withChainDb cid = bracket start stop
+withBlockHeaderDb :: ChainId -> (BlockHeaderDb -> IO b) -> IO b
+withBlockHeaderDb cid = bracket start stop
   where
-    start = initChainDb Configuration
+    start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
         }
     stop db = do
-        closeChainDb db
+        closeBlockHeaderDb db
 
     graph = toChainGraph (const cid) singleton
 
@@ -312,7 +311,7 @@ syncer
     :: ChainId
     -> Logger
     -> P2pConfiguration
-    -> ChainDb
+    -> BlockHeaderDb
     -> PeerDb
     -> Port
     -> IO ()
@@ -346,7 +345,7 @@ syncer cid logger conf cdb pdb port =
 -- each nonce if accepted. Block creation is delayed through through
 -- 'threadDelay' with an geometric distribution.
 --
-miner :: Logger -> P2pNodeConfig -> NodeId -> ChainDb -> IO ()
+miner :: Logger -> P2pNodeConfig -> NodeId -> BlockHeaderDb -> IO ()
 miner logger conf nid db = singleChainMiner logger conf' nid db
     where
         conf' = SingleChainMinerConfig
@@ -380,29 +379,24 @@ instance Monoid Stats where
 
 -- | Collects statistics about local block database copy
 --
-monitor :: Logger -> ChainDb -> IO ()
+monitor :: Logger -> BlockHeaderDb -> IO ()
 monitor logger db =
     L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
         let logg = loggerFun logger'
         logg Info $ TextLog "Initialized Monitor"
-        us <- updates db
-        go (loggerFun logger') us mempty
+        void $ allEntries db Nothing
+            & S.foldM_ (\stat _ -> go (loggerFun logger') stat) mempty return
   where
-    go logg us stat = do
-        void $ atomically $ updatesNext us
-        s <- snapshot db
-
-        let bs = branches s
-        maxBranch <- maximumBy (compare `on` rank)
-            <$> mapM (`getEntryIO` s) (HS.toList bs)
+    go logg stat = do
+        bs <- S.length_ $ leafEntries db Nothing Nothing Nothing Nothing
+        mh <- maxHeader db
 
         let stat' = stat <> Stats
-                { _chainHeight = rank maxBranch
-                , _branchCount = fromIntegral $ length bs
+                { _chainHeight = rank mh
+                , _branchCount = int bs
                 , _branchHeightHistogram = []
                 , _blockHeaderCount = 1
                 }
 
         void $ logg Info $ JsonLog stat'
-        go logg us stat'
-
+        return stat'

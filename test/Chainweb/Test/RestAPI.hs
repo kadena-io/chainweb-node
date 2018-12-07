@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -27,8 +26,6 @@ import qualified Data.Text as T
 
 import Network.HTTP.Types.Status
 
-import Numeric.Natural
-
 import Servant.Client
 
 import qualified Streaming.Prelude as SP
@@ -39,43 +36,39 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainDB
-import Chainweb.ChainDB.Queries
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI
-import Chainweb.RestAPI.Utils
 import Chainweb.Test.Utils
+import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- ChainDb queries from Chainweb.ChainDB.Queries
+-- BlockHeaderDb queries
 
-hashes :: MonadIO m => ChainDb -> m [Key 'Checked]
-hashes db = SP.toList_ $ chainDbHashes db Nothing Nothing Nothing
+-- TODO remove these?
 
-headers :: MonadIO m => ChainDb -> m [Entry 'Checked]
-headers db = SP.toList_ $ chainDbHeaders db Nothing Nothing Nothing
+hashes :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
+hashes db = liftIO . SP.toList_ $ keys db Nothing Nothing Nothing Nothing
 
-dbBranches :: MonadIO m => ChainDb -> m [Key 'Checked]
-dbBranches db = do
-    sn <- liftIO $ snapshot db
-    SP.toList_ $ chainDbBranches sn Nothing Nothing
+headers :: MonadIO m => BlockHeaderDb -> m [DbEntry BlockHeaderDb]
+headers db = liftIO . SP.toList_ $ entries db Nothing Nothing Nothing Nothing
+
+dbBranches :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
+dbBranches db =
+    liftIO . SP.toList_ $ leafKeys db Nothing Nothing Nothing Nothing
 
 -- -------------------------------------------------------------------------- --
--- ChainDB Utils
+-- BlockHeaderDb Utils
 
-genesisBh :: MonadIO m => ChainDb -> m BlockHeader
-genesisBh db = dbEntry . head <$> headers db
+genesisBh :: MonadIO m => BlockHeaderDb -> m BlockHeader
+genesisBh db = head <$> headers db
 
-missingKey :: MonadIO m => ChainDb -> m (Key 'Unchecked)
-missingKey db = uncheckedKey
-    . key
-    . entry
-    . head
-    . testBlockHeadersWithNonce (Nonce 34523)
-    <$> genesisBh db
+missingKey :: MonadIO m => BlockHeaderDb -> m (DbKey BlockHeaderDb)
+missingKey db = key . head . testBlockHeadersWithNonce (Nonce 34523) <$> genesisBh db
 
 -- -------------------------------------------------------------------------- --
 -- Response Predicates
@@ -99,59 +92,58 @@ tests = testGroup "REST API tests"
 -- Test all endpoints on each chain
 
 simpleSessionTests :: TestTree
-simpleSessionTests = withChainDbsServer petersonGenesisChainDbs
+simpleSessionTests = withBlockHeaderDbsServer petersonGenesisBlockHeaderDbs
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (give peterson chainIds)
 
 simpleClientSession :: IO TestClientEnv -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        ChainDbsTestClientEnv env _ <- envIO
+        BlockHeaderDbsTestClientEnv env _ <- envIO
         res <- runClientM (session step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
-        return ()
   where
     gbh0 = genesisBlockHeader Test peterson cid
 
     session step = do
         void $ liftIO $ step "headerClient: get genesis block header"
-        gen0 <- headerClient Test cid (key $ entry gbh0)
+        gen0 <- headerClient Test cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
-            (Actual $ dbEntry gen0)
+            (Actual gen0)
 
         void $ liftIO $ step "headersClient: get genesis block header"
-        bhs1 <- headersClient Test cid Nothing Nothing Nothing Nothing Nothing
+        bhs1 <- headersClient Test cid Nothing Nothing Nothing Nothing
         gen1 <- case _pageItems bhs1 of
             [] -> liftIO $ assertFailure "headersClient did return empty result"
-            (h:_) -> return (dbEntry h)
+            (h:_) -> return h
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen1)
 
         void $ liftIO $ step "branchesClient: get gensis block header"
-        brs <- branchesClient Test cid Nothing Nothing Nothing Nothing
+        brs <- leavesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs)
         assertExpectation "branchesClient returned wrong entry"
             (Expected $ _blockHash gbh0)
-            (Actual . dbKey . head . _pageItems $ brs)
+            (Actual . head . _pageItems $ brs)
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders gbh0
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
-            void $ headerPutClient Test cid (entry h)
+            void $ headerPutClient Test cid h
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
-        bhs2 <- headersClient Test cid Nothing Nothing Nothing Nothing Nothing
+        bhs2 <- headersClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "headersClient returned wrong number of entries"
             (Expected 4)
             (Actual $ _pageLimit bhs2)
 
         void $ liftIO $ step "hashesClient: get all 4 block hashes"
-        hs2 <- hashesClient Test cid Nothing Nothing Nothing Nothing Nothing
+        hs2 <- hashesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "hashesClient returned wrong number of entries"
             (Expected $ _pageLimit bhs2)
             (Actual $ _pageLimit hs2)
@@ -160,20 +152,20 @@ simpleClientSession envIO cid =
             (Actual $ _pageItems hs2)
 
         void $ liftIO $ step "branchesClient: get latest branch"
-        brs2 <- branchesClient Test cid Nothing Nothing Nothing Nothing
+        brs2 <- leavesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs2)
         assertExpectation "branchesClient returned wrong entry"
             (Expected . _blockHash $ last newHeaders)
-            (Actual . dbKey . head $ _pageItems brs2)
+            (Actual . head $ _pageItems brs2)
 
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (_blockHash h))
-            r <- headerClient Test cid (key $ entry h)
+            r <- headerClient Test cid (key h)
             assertExpectation "header client returned wrong entry"
                 (Expected h)
-                (Actual $ dbEntry r)
+                (Actual r)
 
 -- -------------------------------------------------------------------------- --
 -- Test Client Session
@@ -190,8 +182,8 @@ simpleTest
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
-    ChainDbsTestClientEnv env [(_, db)] <- envIO
-    gbh <- dbEntry . head <$> headers db
+    BlockHeaderDbsTestClientEnv env [(_, db)] <- envIO
+    gbh <- head <$> headers db
     res <- runClientM (session gbh) env
     assertBool ("test failed with unexpected result: " <> sshow res) (p res)
 
@@ -201,18 +193,16 @@ simpleTest msg p session envIO = testCase msg $ do
 putNewBlockHeader :: IO TestClientEnv -> TestTree
 putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
     headerPutClient Test (_chainId h0)
-        . entry
         . head
         $ testBlockHeadersWithNonce (Nonce 1) h0
 
 putExisting :: IO TestClientEnv -> TestTree
 putExisting = simpleTest "put existing block header" isRight $ \h0 ->
-    headerPutClient Test (_chainId h0) (entry h0)
+    headerPutClient Test (_chainId h0) h0
 
 putOnWrongChain :: IO TestClientEnv -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
     $ \h0 -> headerPutClient Test (_chainId h0)
-        . entry
         . head
         . testBlockHeadersWithNonce (Nonce 2)
         $ genesisBlockHeader Test peterson (testChainId 1)
@@ -220,19 +210,17 @@ putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
 putMissingParent :: IO TestClientEnv -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
     headerPutClient Test (_chainId h0)
-        . entry
         . (!! 2)
         $ testBlockHeadersWithNonce (Nonce 3) h0
 
 put5NewBlockHeaders :: IO TestClientEnv -> TestTree
 put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
     mapM_ (headerPutClient Test (_chainId h0))
-        . fmap entry
         . take 5
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
 putTests :: TestTree
-putTests = withChainDbsServer singletonGenesisChainDbs
+putTests = withBlockHeaderDbsServer singletonGenesisBlockHeaderDbs
     $ \env -> testGroup "put tests"
         [ putNewBlockHeader env
         , putExisting env
@@ -245,7 +233,7 @@ putTests = withChainDbsServer singletonGenesisChainDbs
 -- Paging Tests
 
 pagingTests :: TestTree
-pagingTests = withChainDbsServer (starChainDbs 6 singletonGenesisChainDbs)
+pagingTests = withBlockHeaderDbsServer (starBlockHeaderDbs 6 singletonGenesisBlockHeaderDbs)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient env
         , testPageLimitHashesClient env
@@ -257,77 +245,95 @@ pagingTest
     => Show a
     => String
         -- ^ Test name
-    -> (ChainDb -> IO [a])
+    -> (BlockHeaderDb -> IO [a])
         -- ^ Get test items from database
-    -> (a -> Key 'Unchecked)
+    -> (a -> DbKey BlockHeaderDb)
         -- ^ Compute paging key from item
-    -> (ChainId -> Maybe Natural -> Maybe (Key 'Unchecked) -> ClientM (Page (Key 'Unchecked) a))
+    -> Bool
+        -- ^ whether the result represents an finite (True) or infinite (False)
+        -- set
+    -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
     -> IO TestClientEnv
         -- ^ Test environment
     -> TestTree
-pagingTest name getDbItems getKey request envIO = testGroup name
+pagingTest name getDbItems getKey fin request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        entries <- getDbItems db
-        let l = len entries
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
-            session step entries cid (Just i) Nothing
+            session step ents cid (Just i) Nothing
         assertBool ("test of limit failed: " <> sshow res) (isRight res)
 
+    -- TODO Did a limit value of 0 mean something else previously?
+    -- The two last tests that are failing now are failing when
+    -- hitting `Limit 0`.
+
     , testCaseSteps "test next parameter" $ \step -> do
-        ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        entries <- getDbItems db
-        let l = len entries
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
-            let es = drop i entries
-            session step es cid Nothing (Just . getKey . head $ es)
+            let es = drop i ents
+            session step es cid Nothing (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
+    -- TODO This is also still failing, but may be fixed already on other branches.
+
     , testCaseSteps "test limit and next paramter" $ \step -> do
-        ChainDbsTestClientEnv env [(cid, db)] <- envIO
-        entries <- getDbItems db
-        let l = len entries
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        ents <- getDbItems db
+        let l = len ents
         res <- flip runClientM env
             $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
-                let es = drop (int i) entries
-                session step es cid (Just j) (Just . getKey . head $ es)
+                let es = drop (int i) ents
+                session step es cid (Just j) (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        ChainDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
         missing <- missingKey db
-        res <- flip runClientM env $ request cid Nothing (Just missing)
+        res <- flip runClientM env $ request cid Nothing (Just $ Exclusive missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
     ]
   where
-    session step entries cid n next = do
+    session step ents cid n next = do
         void $ liftIO $ step $ "limit " <> sshow n <> ", next " <> sshow next
         r <- request cid n next
         assertExpectation "result has wrong page 'limit' value"
-            (Expected . maybe id min n . int $ length entries)
+            (Expected . maybe id min n . int $ length ents)
             (Actual $ _pageLimit r)
         assertExpectation "result contains wrong page 'items'"
-            (Expected . maybe id (take . int) n $ entries)
+            (Expected . maybe id (take . int) n $ ents)
             (Actual $ _pageItems r)
         assertExpectation "result contains wrong page 'next' value"
-            (Expected . fmap getKey . listToMaybe . maybe (const []) (drop . int) n $ entries)
+            (Expected $ expectedNext ents n)
             (Actual $ _pageNext r)
 
+    expectedNext = if fin then expectedNextFin else expectedNextInf
+
+    -- Finite case
+    expectedNextFin _ Nothing = Nothing
+    expectedNextFin ents (Just n) = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
+
+    -- Infinite case
+    expectedNextInf ents Nothing = Exclusive . getKey <$> (Just $ last ents)
+    expectedNextInf ents (Just n)
+        | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
+        | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
+
 testPageLimitHeadersClient :: IO TestClientEnv -> TestTree
-testPageLimitHeadersClient = pagingTest "headersClient" entries key request
+testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
-    entries = fmap (fmap uncheckedEntry) . headers
-    request cid l n = headersClient Test cid l n Nothing Nothing Nothing
+    request cid l n = headersClient Test cid l n Nothing Nothing
 
 testPageLimitHashesClient :: IO TestClientEnv -> TestTree
-testPageLimitHashesClient = pagingTest "hashesClient" entries id request
+testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
-    entries db = fmap uncheckedKey <$> hashes db
-    request cid l n = hashesClient Test cid l n Nothing Nothing Nothing
+    request cid l n = hashesClient Test cid l n Nothing Nothing
 
 testPageLimitBranchesClient :: IO TestClientEnv -> TestTree
-testPageLimitBranchesClient = pagingTest "branchesClient" entries id request
+testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
   where
-    entries db = fmap uncheckedKey <$> dbBranches db
-    request cid l n = branchesClient Test cid l n Nothing Nothing
+    request cid l n = leavesClient Test cid l n Nothing Nothing

@@ -32,16 +32,16 @@ module Chainweb.RestAPI.Utils
 -- * Servant Utils
   Reassoc
 
--- * Paging
-, Page(..)
-, PageParams
-, streamToPage
-
 -- * API Version
 , Version
 , ApiVersion(..)
 , apiVersion
 , prettyApiVersion
+
+-- * Paging
+, type PageParams
+, type LimitParam
+, type NextParam
 
 -- * Chainweb API Endpoints
 , ChainwebEndpoint(..)
@@ -59,41 +59,27 @@ module Chainweb.RestAPI.Utils
 , SomeServer(..)
 , someServerApplication
 
--- * Properties
-, properties
 ) where
 
-import Control.Lens hiding ((.=), (:>))
-
 import Data.Aeson
-import Data.Functor.Of
 import Data.Kind
-import Data.Maybe
 import Data.Proxy
-import qualified Data.Swagger as Swagger
-import Data.Swagger hiding (properties)
 import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeLits
-
-import Numeric.Natural
 
 import Servant.API
 import Servant.Client
 import Servant.Server
 import Servant.Swagger
 
-import qualified Streaming.Prelude as SP
-
-import Test.QuickCheck
-import Test.QuickCheck.Instances.Natural ({- Arbitrary Natural -})
-
 -- internal modules
 
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Utils hiding ((==>))
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -105,106 +91,6 @@ type family ReassocBranch (a :: s) (b :: [Type]) :: Type where
     ReassocBranch (a :> b) rest = ReassocBranch a (b ': rest)
     ReassocBranch a '[] = a
     ReassocBranch a (b ': rest) = a :> ReassocBranch b rest
-
--- -------------------------------------------------------------------------- --
--- Paging
-
-data Page k a = Page
-    { _pageLimit :: !Natural
-    , _pageItems :: ![a]
-    , _pageNext :: !(Maybe k)
-    }
-    deriving (Show, Eq, Ord, Generic)
-
-instance (ToJSON k, ToJSON a) => ToJSON (Page k a) where
-    toJSON p = object
-        [ "limit" .= _pageLimit p
-        , "items" .= _pageItems p
-        , "next" .= _pageNext p
-        ]
-
-instance (FromJSON k, FromJSON a) => FromJSON (Page k a) where
-    parseJSON = withObject "page" $ \o -> Page
-        <$> o .: "limit"
-        <*> o .: "items"
-        <*> o .: "next"
-
-instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
-    declareNamedSchema _ = do
-        naturalSchema <- declareSchemaRef (Proxy :: Proxy Natural)
-        keySchema <- declareSchemaRef (Proxy :: Proxy k)
-        itemsSchema <- declareSchemaRef (Proxy :: Proxy [a])
-        return $ NamedSchema (Just "Page") $ mempty
-            & type_ .~ SwaggerObject
-            & Swagger.properties .~
-                [ ("limit", naturalSchema)
-                , ("items", itemsSchema)
-                , ("next", keySchema)
-                ]
-            & required .~ [ "limit", "items" ]
-
--- | Pages Parameters
---
--- *   maxitems :: Natural
--- *   from :: BlockHash
---
-type PageParams k = LimitParam :> NextParam k
-
-type LimitParam = QueryParam "limit" Natural
-type NextParam k = QueryParam "next" k
-
--- -------------------------------------------------------------------------- --
--- Paging Tools
-
--- | Quick and dirty pagin implementation
---
-streamToPage
-    :: Monad m
-    => Eq k
-    => (a -> k)
-    -> Maybe k
-    -> Maybe Natural
-    -> SP.Stream (Of a) m ()
-    -> m (Page k a)
-streamToPage k next limit s = do
-    (items' :> limit' :> tailStream) <- id
-
-        -- count and collect items from first stream
-        . SP.toList
-        . SP.length
-        . SP.copy
-
-        -- split the stream
-        . maybe (SP.each ([]::[a]) <$) (SP.splitAt . int) limit
-
-        -- search for requested next item
-        . maybe id (\n -> SP.dropWhile (\x -> k x /= n)) next
-        $ s
-
-    -- get next item from the tail stream
-    next' <- SP.head_ tailStream
-
-    return $ Page (int limit') items' (k <$> next')
-
-prop_streamToPage_limit :: [Int] -> Natural -> Property
-prop_streamToPage_limit l i = i <= len l ==> actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
-    & cover 1 (i == len l) "limit == length of stream"
-    & cover 1 (i == 0) "limit == 0"
-    & cover 1 (length l == 0) "length of stream == 0"
-#endif
-  where
-    actual = runIdentity (streamToPage id Nothing (Just i) (SP.each l))
-    expected = Page i (take (int i) l) (listToMaybe $ drop (int i) l)
-
-prop_streamToPage_id :: [Int] -> Property
-prop_streamToPage_id l = actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
-    & cover 1 (length l == 0) "len l == 0"
-#endif
-  where
-    actual = runIdentity (streamToPage id Nothing Nothing (SP.each l))
-    expected = Page (len l) l Nothing
 
 -- -------------------------------------------------------------------------- --
 -- API Version
@@ -221,6 +107,19 @@ apiVersion = ApiVersion . T.pack $ symbolVal (Proxy @Version)
 prettyApiVersion :: T.Text
 prettyApiVersion = case apiVersion of
     ApiVersion t -> t
+
+-- -------------------------------------------------------------------------- --
+-- Paging Utils
+
+-- | Pages Parameters
+--
+-- *   limit :: Natural
+-- *   next :: k
+--
+type PageParams k = LimitParam :> NextParam k
+
+type LimitParam = QueryParam "limit" Limit
+type NextParam k = QueryParam "next" k
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb API Endpoints
@@ -380,13 +279,4 @@ instance Monoid SomeServer where
 
 someServerApplication :: SomeServer -> Application
 someServerApplication (SomeServer a server) = serve a server
-
--- -------------------------------------------------------------------------- --
--- Properties
-
-properties :: [(String, Property)]
-properties =
-    [ ("streamToPage_limit", property prop_streamToPage_limit)
-    , ("streamToPage_id", property prop_streamToPage_id)
-    ]
 

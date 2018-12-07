@@ -21,15 +21,17 @@ module Chainweb.BlockHeaderDB
 (
 -- * Chain Database Handle
   Configuration(..)
-, ChainDb
-, initChainDb
-, closeChainDb
+, BlockHeaderDb
+, initBlockHeaderDb
+, closeBlockHeaderDb
 , copy
 
 -- * Validation
 , isValidEntry
 , validateEntry
 , validateEntryM
+, ValidationFailure(..)
+, ValidationFailureType(..)
 ) where
 
 import Control.Arrow
@@ -61,6 +63,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.TreeDB
+import Chainweb.Utils.Paging
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -142,10 +145,10 @@ dbAddChecked e db
     dbAddCheckedInternal = case parent e of
         Nothing -> return dbAdd
         Just p -> case HM.lookup p (_dbEntries db) of
-            Nothing -> throwM $ TreeDbParentMissing @ChainDb e
+            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
             Just (pe, _) -> do
                 unless (rank e == rank pe + 1)
-                    $ throwM $ TreeDbInvalidRank @ChainDb e
+                    $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
                 return dbAdd
 
     dbAddBranch :: HM.HashMap K E -> HM.HashMap K E
@@ -178,7 +181,7 @@ data Configuration = Configuration
 -- The Constructors and record fields are private to this module in order to
 -- guarantee consistency of the database.
 --
-data ChainDb = ChainDb
+data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
     , _chainDbVar :: !(MVar Db)
         -- ^ Database that provides random access the block headers indexed by
@@ -194,51 +197,51 @@ data ChainDb = ChainDb
         -- enumeration in the database and it must not changed anywhere else.
     }
 
-instance HasChainId ChainDb where
+instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
 
 -- | Initialize a database handle
 --
-initChainDb :: Configuration -> IO ChainDb
-initChainDb config = do
-    initialDb <- dbAddChecked root emptyDb
-    ChainDb (_chainId root)
+initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
+initBlockHeaderDb config = do
+    initialDb <- dbAddChecked rootEntry emptyDb
+    BlockHeaderDb (_chainId rootEntry)
         <$> newMVar initialDb
         <*> newTVarIO (_dbEnumeration initialDb)
   where
-    root = _configRoot config
+    rootEntry = _configRoot config
 
 -- | Close a database handle and release all resources
 --
-closeChainDb :: ChainDb -> IO ()
-closeChainDb = void . takeMVar . _chainDbVar
+closeBlockHeaderDb :: BlockHeaderDb -> IO ()
+closeBlockHeaderDb = void . takeMVar . _chainDbVar
 
-snapshot :: ChainDb -> IO Db
+snapshot :: BlockHeaderDb -> IO Db
 snapshot = readMVar . _chainDbVar
 
-enumerationIO :: ChainDb -> IO (Seq.Seq E)
+enumerationIO :: BlockHeaderDb -> IO (Seq.Seq E)
 enumerationIO = readTVarIO . _chainDbEnumeration
 
-enumeration :: ChainDb -> STM (Seq.Seq E)
+enumeration :: BlockHeaderDb -> STM (Seq.Seq E)
 enumeration = readTVar . _chainDbEnumeration
 
-copy :: ChainDb -> IO ChainDb
+copy :: BlockHeaderDb -> IO BlockHeaderDb
 copy db = withMVar (_chainDbVar db) $ \var ->
-    ChainDb (_chainDbId db)
+    BlockHeaderDb (_chainDbId db)
         <$> newMVar var
         <*> (newTVarIO =<< readTVarIO (_chainDbEnumeration db))
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
 
-instance TreeDb ChainDb where
-    type DbEntry ChainDb = BlockHeader
+instance TreeDb BlockHeaderDb where
+    type DbEntry BlockHeaderDb = BlockHeader
 
     lookup db k = fmap fst . HM.lookup k . _dbEntries <$> snapshot db
 
     childrenEntries db k =
         HM.lookup k . _dbChildren <$> lift (snapshot db) >>= \case
-            Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb k
+            Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb k
             Just c -> S.each c
 
     leafEntries db n l mir mar
@@ -263,10 +266,10 @@ instance TreeDb ChainDb where
         case k of
             Nothing -> fromIdx 0
             Just (Exclusive x) -> case HM.lookup x (_dbEntries sn) of
-                Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb x
+                Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb x
                 Just (_, i) -> fromIdx (i + 1)
             Just (Inclusive x) -> case HM.lookup x (_dbEntries sn) of
-                Nothing -> lift $ throwM $ TreeDbKeyNotFound @ChainDb x
+                Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb x
                 Just (_, i) -> fromIdx i
       where
         fromIdx i = do
@@ -280,13 +283,13 @@ instance TreeDb ChainDb where
     entries db k l mir mar = lift (enumerationIO db)
         >>= foldableEntries k l mir mar
 
-    insert db e = liftIO $ insertChainDb db [e]
+    insert db e = liftIO $ insertBlockHeaderDb db [e]
 
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertChainDb :: ChainDb -> [E] -> IO ()
-insertChainDb db es = do
+insertBlockHeaderDb :: BlockHeaderDb -> [E] -> IO ()
+insertBlockHeaderDb db es = do
 
     -- Validate set of additions
     validateAdditionsM db $ HM.fromList $ (key &&& id) <$> es
@@ -306,30 +309,46 @@ data ValidationFailure = ValidationFailure BlockHeader [ValidationFailureType]
 
 instance Show ValidationFailure where
     show (ValidationFailure e ts) = "Validation failure: " ++ unlines (map description ts) ++ "\n" ++ show e
-        where
-            description t = case t of
-                MissingParent -> "Parent isn't in the database"
-                CreatedBeforeParent -> "Block claims to have been created before its parent"
-                VersionMismatch -> "Block uses a version of chainweb different from its parent"
-                IncorrectHash -> "The hash of the block header does not match the one given"
-                IncorrectHeight -> "The given height is not one more than the parent height"
-                IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
-                IncorrectTarget -> "The given target difficulty for the following block is incorrect"
-                IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
-                IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
+      where
+        description t = case t of
+            MissingParent -> "Parent isn't in the database"
+            CreatedBeforeParent -> "Block claims to have been created before its parent"
+            VersionMismatch -> "Block uses a version of chainweb different from its parent"
+            IncorrectHash -> "The hash of the block header does not match the one given"
+            IncorrectHeight -> "The given height is not one more than the parent height"
+            IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
+            IncorrectTarget -> "The given target difficulty for the following block is incorrect"
+            IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
+            IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
 
 -- | An enumeration of possible validation failures for a block header.
 --
-data ValidationFailureType =
-      MissingParent -- ^ Parent isn't in the database
-    | CreatedBeforeParent -- ^ Claims to be created at a time prior to its parent's creation
-    | VersionMismatch -- ^ Claims to use a version of chainweb different from that of its parent
-    | IncorrectHash -- ^ The hash of the header properties as computed by computeBlockHash does not match the hash given in the header
-    | IncorrectHeight -- ^ The given height is not one more than the parent height
-    | IncorrectWeight -- ^ The given weight is not the sum of the target difficulty and the parent's weight
-    | IncorrectTarget -- ^ The given target difficulty for the following block is not correct (TODO: this isn't yet checked, but Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
-    | IncorrectGenesisParent -- ^ The block is a genesis block, but doesn't have its parent set to its own hash.
-    | IncorrectGenesisTarget -- ^ The block is a genesis block, but doesn't have the correct difficulty target.
+data ValidationFailureType
+    = MissingParent
+        -- ^ Parent isn't in the database
+    | CreatedBeforeParent
+        -- ^ Claims to be created at a time prior to its parent's creation
+    | VersionMismatch
+        -- ^ Claims to use a version of chainweb different from that of its
+        -- parent
+    | IncorrectHash
+        -- ^ The hash of the header properties as computed by computeBlockHash
+        -- does not match the hash given in the header
+    | IncorrectHeight
+        -- ^ The given height is not one more than the parent height
+    | IncorrectWeight
+        -- ^ The given weight is not the sum of the target difficulty and the
+        -- parent's weight
+    | IncorrectTarget
+        -- ^ The given target difficulty for the following block is not correct
+        -- (TODO: this isn't yet checked, but
+        -- Chainweb.ChainDB.Difficulty.calculateTarget is relevant.)
+    | IncorrectGenesisParent
+        -- ^ The block is a genesis block, but doesn't have its parent set to
+        -- its own hash.
+    | IncorrectGenesisTarget
+        -- ^ The block is a genesis block, but doesn't have the correct
+        -- difficulty target.
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
@@ -337,7 +356,7 @@ instance Exception ValidationFailure
 -- | Validate a set of additions that are supposed to added atomically to
 -- the database.
 --
-validateAdditionsM :: ChainDb -> HM.HashMap BlockHash BlockHeader -> IO ()
+validateAdditionsM :: BlockHeaderDb -> HM.HashMap BlockHash BlockHeader -> IO ()
 validateAdditionsM db as = traverse_ (validateEntryInternalM lookupParent) as
   where
     lookupParent h = case HM.lookup h as of
@@ -361,7 +380,7 @@ validateEntryInternalM lookupParent e =
 -- the failures if any.
 --
 validateEntryM
-    :: ChainDb
+    :: BlockHeaderDb
     -> BlockHeader
     -> IO ()
 validateEntryM = validateEntryInternalM . lookup
@@ -370,7 +389,7 @@ validateEntryM = validateEntryInternalM . lookup
 -- failures
 --
 validateEntry
-    :: ChainDb
+    :: BlockHeaderDb
         -- ^ the database
     -> BlockHeader
         -- ^ The block header to be checked
@@ -399,8 +418,9 @@ validateBlockHeaderInductiveInternal
     => (BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
     -> m [ValidationFailureType]
-validateBlockHeaderInductiveInternal lookupParent b =
-    lookupParent (_blockParent b) >>= \case
+validateBlockHeaderInductiveInternal lookupParent b
+    | isGenesisBlockHeader b = return (validateParent b b)
+    | otherwise = lookupParent (_blockParent b) >>= \case
         Nothing -> return [MissingParent]
         Just p -> return $ validateParent p b
 
@@ -424,10 +444,10 @@ validateParent
     -> BlockHeader -- ^ Block header under scrutiny
     -> [ValidationFailureType]
 validateParent p b = concat
-    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
-    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
-    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
-    , [ IncorrectWeight | not (_blockWeight b == fromIntegral (targetToDifficulty (_blockTarget b)) + _blockWeight p) ]
+    [ [ IncorrectHeight | not (prop_block_height p b) ]
+    , [ VersionMismatch | not (prop_block_chainwebVersion p b) ]
+    , [ CreatedBeforeParent | not (prop_block_creationTime p b) ]
+    , [ IncorrectWeight | not (prop_block_weight p b) ]
     -- TODO:
     -- target of block matches the calculate target for the branch
     ]
@@ -435,6 +455,27 @@ validateParent p b = concat
 -- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an
 -- empty list)
 --
-isValidEntry :: ChainDb -> BlockHeader -> IO Bool
+isValidEntry :: BlockHeaderDb -> BlockHeader -> IO Bool
 isValidEntry s b = null <$> validateEntry s b
+
+-- -------------------------------------------------------------------------- --
+-- Inductive BlockHeader Properties
+
+prop_block_height :: BlockHeader -> BlockHeader -> Bool
+prop_block_height p b
+    | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
+    | otherwise = _blockHeight b == _blockHeight p + 1
+
+prop_block_chainwebVersion :: BlockHeader -> BlockHeader -> Bool
+prop_block_chainwebVersion p b = _blockChainwebVersion b == _blockChainwebVersion p
+
+prop_block_creationTime :: BlockHeader -> BlockHeader -> Bool
+prop_block_creationTime p b
+    | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
+    | otherwise = _blockCreationTime b > _blockCreationTime p
+
+prop_block_weight :: BlockHeader -> BlockHeader -> Bool
+prop_block_weight p b
+    | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
+    | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
