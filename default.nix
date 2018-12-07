@@ -7,7 +7,6 @@ let rp = builtins.fetchTarball {
       url = "https://github.com/reflex-frp/reflex-platform/archive/${rpRef}.tar.gz";
       sha256 = rpSha;
     };
-
 in
   (import rp { inherit system; }).project ({ pkgs, ... }:
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
