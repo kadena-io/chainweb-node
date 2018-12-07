@@ -224,6 +224,8 @@ executable chainweb-node
     main-is: ChainwebNode.hs
     ghc-options: -threaded
     other-modules:
+        Chainweb.Node.SingleChainMiner
+        Paths_chainweb
         Utils.Logging
     build-depends:
         -- internal
