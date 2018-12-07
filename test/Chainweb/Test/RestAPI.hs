@@ -47,7 +47,7 @@ import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- BlockHeaderDb queries from Chainweb.ChainDB.Queries
+-- BlockHeaderDb queries
 
 -- TODO remove these?
 
@@ -62,7 +62,7 @@ dbBranches db =
     liftIO . SP.toList_ $ leafKeys db Nothing Nothing Nothing Nothing
 
 -- -------------------------------------------------------------------------- --
--- ChainDB Utils
+-- BlockHeaderDb Utils
 
 genesisBh :: MonadIO m => BlockHeaderDb -> m BlockHeader
 genesisBh db = head <$> headers db

@@ -13,7 +13,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
--- Module: Chainweb.ChainDB.RestAPI.Orphan
+-- Module: Chainweb.RestAPI.Orphan
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -26,11 +26,11 @@ module Chainweb.RestAPI.Orphans () where
 import Control.Lens
 import Control.Monad
 
-import Data.Aeson hiding (encode, decode)
+import Data.Aeson hiding (decode, encode)
 import Data.Bifunctor
 import Data.Proxy
-import Data.Semigroup (Min(..), Max(..))
-import Data.Serialize (encode, decode)
+import Data.Semigroup (Max(..), Min(..))
+import Data.Serialize (decode, encode)
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -253,4 +253,3 @@ instance ToSchema (BranchBounds BlockHeaderDb) where
                 , ("lower", setSchema)
                 ]
             & required .~ [ "upper", "lower" ]
-

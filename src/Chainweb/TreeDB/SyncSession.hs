@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.ChainDB.SyncSession
+-- Module: Chainweb.TreeDB.SyncSession
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -17,7 +17,7 @@
 --
 -- TODO
 --
-module Chainweb.ChainDB.SyncSession
+module Chainweb.TreeDB.SyncSession
 ( syncSession
 , type BlockHeaderTreeDb
 ) where
@@ -56,7 +56,7 @@ import Data.LogMessage
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
--- ChainDB Utils
+-- BlockHeaderDb Utils
 
 type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 

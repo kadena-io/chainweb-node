@@ -54,7 +54,6 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -63,6 +62,7 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
+import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -400,4 +400,3 @@ monitor logger db =
 
         void $ logg Info $ JsonLog stat'
         return stat'
-

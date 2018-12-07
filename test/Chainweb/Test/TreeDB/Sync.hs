@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Chainweb.Test.ChainDB.Sync ( tests ) where
+module Chainweb.Test.TreeDB.Sync ( tests ) where
 
 import Control.Monad (void)
 
@@ -12,10 +12,10 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHeaderDB (copy)
-import Chainweb.ChainDB.Sync
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (insertN, withDB, withServer)
 import Chainweb.TreeDB
+import Chainweb.TreeDB.Sync
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"

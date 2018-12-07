@@ -58,15 +58,15 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
-import Chainweb.Node.SingleChainMiner
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
+import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -273,10 +273,10 @@ node cid t logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info "start test node"
 
-        withChainDb cid nid
+        withBlockHeaderDb cid nid
             $ \cdb -> withPeerDb p2pConfig
             $ \pdb -> withAsync (serveChainwebOnPort port Test
-                [(cid, cdb)] -- :: [(ChainId, ChainDb)]
+                [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 )
             $ \server -> do
@@ -291,8 +291,8 @@ node cid t logger conf p2pConfig nid port =
         (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
         cid
 
-withChainDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b
-withChainDb cid nid = bracket start stop
+withBlockHeaderDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b
+withBlockHeaderDb cid nid = bracket start stop
   where
     start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader Test graph cid
@@ -387,4 +387,3 @@ monitor logger db =
 
         void $ logg Info $ JsonLog stat'
         return stat'
-

@@ -38,7 +38,7 @@ module Chainweb.RestAPI
 
 -- * Chainweb API Client
 
--- ** ChainDB API Client
+-- ** BlockHeaderDb API Client
 , module Chainweb.BlockHeaderDB.RestAPI.Client
 
 -- ** P2P API Client
