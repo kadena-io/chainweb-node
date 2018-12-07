@@ -38,7 +38,7 @@ main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "Unit Tests"
-    [ testGroup "ChainDB"
+    [ testGroup "BlockHeaderDb"
         [ Chainweb.Test.BlockHeaderDB.tests
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
@@ -46,7 +46,7 @@ suite = testGroup "Unit Tests"
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
-    , testProperties "Chainweb.ChainDB.RestAPI.Server" Chainweb.Utils.Paging.properties
+    , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties

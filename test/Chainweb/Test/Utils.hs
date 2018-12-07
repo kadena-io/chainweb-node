@@ -14,11 +14,11 @@
 module Chainweb.Test.Utils
 (
 -- * BlockHeaderDb Generation
-  toyChainDB
+  toyBlockHeaderDb
 , withDB
 , insertN
 
--- * Test ChainDBs Configurations
+-- * Test BlockHeaderDbs Configurations
 , peterson
 , testBlockHeaderDbs
 , petersonGenesisBlockHeaderDbs
@@ -68,7 +68,7 @@ import qualified Network.Wai.Handler.Warp as W
 
 import Numeric.Natural
 
-import Servant.Client (ClientEnv, mkClientEnv, BaseUrl(..), Scheme(..))
+import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import Test.QuickCheck
 import Test.Tasty
@@ -97,8 +97,8 @@ import qualified P2P.Node.PeerDB as P2P
 --
 -- Borrowed from TrivialSync.hs
 --
-toyChainDB :: ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyChainDB cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
+toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
+toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
   where
     graph = toChainGraph (const cid) singleton
     genesis = genesisBlockHeader Test graph cid
@@ -108,7 +108,7 @@ toyChainDB cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
 -- and cleanly close the DB.
 --
 withDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
-withDB cid = bracket (toyChainDB cid) (closeBlockHeaderDb . snd) . uncurry
+withDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
 
 -- | Populate a `BlockHeaderDb` with /n/ generated `BlockHeader`s.
 --

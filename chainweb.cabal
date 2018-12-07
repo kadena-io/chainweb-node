@@ -289,10 +289,10 @@ executable chainweb-node
 
 
 -- -------------------------------------------------------------------------- --
--- Examples for ChainDB usage
+-- Examples for BlockHeaderDb usage
 -- -------------------------------------------------------------------------- --
 
-executable chaindb-example
+executable blockheaderdb-example
     default-language: Haskell2010
     ghc-options:
         -Wall

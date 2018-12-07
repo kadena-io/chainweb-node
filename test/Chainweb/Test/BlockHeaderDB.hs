@@ -1,11 +1,11 @@
 -- |
--- Module: Chainweb.Test.ChainDB
+-- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- Test the `ChainDb` API.
+-- Test the `BlockHeaderDb` API.
 --
 module Chainweb.Test.BlockHeaderDB
 ( tests
@@ -20,13 +20,13 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (toyChainDB, withDB, insertN)
+import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withDB)
 import Chainweb.TreeDB
 
 
 tests :: TestTree
 tests = testGroup "Basic Interaction"
-    [ testCase "Initialization + Shutdown" $ toyChainDB chainId0 >>= closeBlockHeaderDb . snd
+    [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb chainId0 >>= closeBlockHeaderDb . snd
     , testCase "10 Insertions + Sync" insertItems
     , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
     , testCase "height" correctHeight

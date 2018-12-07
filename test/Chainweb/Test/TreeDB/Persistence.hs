@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.Test.ChainDB.Persistence
+-- Module: Chainweb.Test.TreeDB.Persistence
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -28,9 +28,9 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (withDB, insertN)
+import Chainweb.Test.Utils (insertN, withDB)
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Persist (persist, fileEntries)
+import Chainweb.TreeDB.Persist (fileEntries, persist)
 
 ---
 
@@ -40,12 +40,12 @@ chainId0 = testChainId 0
 tests :: TestTree
 tests = testGroup "Persistence"
     [ testGroup "Encoding round-trips"
-        [ testCase "Fresh ChainDb (only genesis)" onlyGenesis
+        [ testCase "Fresh TreeDb (only genesis)" onlyGenesis
         , testCase "Multiple Entries" manyBlocksWritten
         ]
     ]
 
--- | Persisting a freshly initialized `DB.ChainDb` will successfully read and
+-- | Persisting a freshly initialized `TreeDb` will successfully read and
 -- write its only block, the genesis block.
 --
 onlyGenesis :: Assertion

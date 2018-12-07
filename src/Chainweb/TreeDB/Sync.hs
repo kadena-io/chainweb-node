@@ -3,13 +3,13 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- |
--- Module: Chainweb.ChainDB.Sync
+-- Module: Chainweb.TreeDB.Sync
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- Sync a local `ChainDb` with that of some remote peer.
+-- Sync a local `TreeDb` with that of some remote peer.
 --
 
 module Chainweb.TreeDB.Sync
@@ -48,7 +48,7 @@ import Chainweb.Utils.Paging (NextItem(..), Page(..))
 newtype Diameter = Diameter { diameter :: Refined (Positive && LessThan 10) Int }
 
 -- | Given a peer to connect to, fetch all `BlockHeader`s that exist
--- in the peer's chain but not our local given `ChainDb`, and sync them.
+-- in the peer's chain but not our local given `TreeDb`, and sync them.
 --
 sync :: Diameter -> ClientEnv -> BlockHeaderDb -> IO ()
 sync d env db = do
