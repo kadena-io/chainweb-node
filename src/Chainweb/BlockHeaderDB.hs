@@ -202,12 +202,12 @@ instance HasChainId BlockHeaderDb where
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
-    initialDb <- dbAddChecked root emptyDb
-    BlockHeaderDb (_chainId root)
+    initialDb <- dbAddChecked rootEntry emptyDb
+    BlockHeaderDb (_chainId rootEntry)
         <$> newMVar initialDb
         <*> newTVarIO (_dbEnumeration initialDb)
   where
-    root = _configRoot config
+    rootEntry = _configRoot config
 
 -- | Close a database handle and release all resources
 --
@@ -400,8 +400,9 @@ validateBlockHeaderInductiveInternal
     => (BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
     -> m [ValidationFailureType]
-validateBlockHeaderInductiveInternal lookupParent b =
-    lookupParent (_blockParent b) >>= \case
+validateBlockHeaderInductiveInternal lookupParent b
+    | isGenesisBlockHeader b = return (validateParent b b)
+    | otherwise = lookupParent (_blockParent b) >>= \case
         Nothing -> return [MissingParent]
         Just p -> return $ validateParent p b
 
@@ -425,10 +426,10 @@ validateParent
     -> BlockHeader -- ^ Block header under scrutiny
     -> [ValidationFailureType]
 validateParent p b = concat
-    [ [ IncorrectHeight | not (_blockHeight b == _blockHeight p + 1) ]
-    , [ VersionMismatch | not (_blockChainwebVersion b == _blockChainwebVersion p) ]
-    , [ CreatedBeforeParent | not (_blockCreationTime b > _blockCreationTime p) ]
-    , [ IncorrectWeight | not (_blockWeight b == fromIntegral (targetToDifficulty (_blockTarget b)) + _blockWeight p) ]
+    [ [ IncorrectHeight | not (prop_block_height p b) ]
+    , [ VersionMismatch | not (prop_block_chainwebVersion p b) ]
+    , [ CreatedBeforeParent | not (prop_block_creationTime p b) ]
+    , [ IncorrectWeight | not (prop_block_weight p b) ]
     -- TODO:
     -- target of block matches the calculate target for the branch
     ]
@@ -438,4 +439,25 @@ validateParent p b = concat
 --
 isValidEntry :: BlockHeaderDb -> BlockHeader -> IO Bool
 isValidEntry s b = null <$> validateEntry s b
+
+-- -------------------------------------------------------------------------- --
+-- Inductive BlockHeader Properties
+
+prop_block_height :: BlockHeader -> BlockHeader -> Bool
+prop_block_height p b
+    | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
+    | otherwise = _blockHeight b == _blockHeight p + 1
+
+prop_block_chainwebVersion :: BlockHeader -> BlockHeader -> Bool
+prop_block_chainwebVersion p b = _blockChainwebVersion b == _blockChainwebVersion p
+
+prop_block_creationTime :: BlockHeader -> BlockHeader -> Bool
+prop_block_creationTime p b
+    | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
+    | otherwise = _blockCreationTime b > _blockCreationTime p
+
+prop_block_weight :: BlockHeader -> BlockHeader -> Bool
+prop_block_weight p b
+    | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
+    | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
