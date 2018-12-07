@@ -98,11 +98,12 @@ destream = S.mapped BS.toStrict
 -- Throws a `TreeDbException` if either decoding step fails.
 --
 decoded
-    :: MonadThrow m
+    :: Monad m
     => Serialize e
     => Stream (Of B.ByteString) m r
     -> Stream (Of e) m r
 decoded = S.mapM (\e -> either die pure $ B64U.decode e >>= decode)
   where
-    die _ = error "bad!" -- throwM TreeDbBase64DeserializationFailed
+    -- TODO(colin): This should not just be `error`.
+    die = error "Base-64 deserialization of persisted data failed."
 {-# INLINE decoded #-}
