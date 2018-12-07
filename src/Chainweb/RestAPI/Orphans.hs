@@ -229,7 +229,7 @@ instance ToSchema (NextItem k) where
         & pattern ?~ "(inclusive|exclusive):<Key>"
         & minLength ?~ 10 + 1
 
-instance (ToSchema k, ToSchema a) => ToSchema (Page k a) where
+instance (ToSchema a) => ToSchema (Page k a) where
     declareNamedSchema _ = do
         naturalSchema <- declareSchemaRef (Proxy @Natural)
         keySchema <- declareSchemaRef (Proxy @(NextItem k))
