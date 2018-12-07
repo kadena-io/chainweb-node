@@ -60,7 +60,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainDB.SyncSession
 import Chainweb.ChainId
-import Chainweb.Example.SingleChainMiner
+import Chainweb.Node.SingleChainMiner
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.NodeId
@@ -180,7 +180,7 @@ mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config ->
-    withExampleLogger
+    withExampleLogger 8000
         (_logConfig config)
         (_sessionsLoggerConfig config)
         (example config)
@@ -205,7 +205,7 @@ example conf logger =
     p2pConfig = (defaultP2pConfiguration Test)
         { _p2pConfigMaxSessionCount = _maxSessionCount conf
         , _p2pConfigMaxPeerCount = _maxPeerCount conf
-        , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
+        , _p2pConfigSessionTimeout = fromIntegral $ _sessionTimeoutSeconds conf
         }
 
     -- Configuration for bootstrap node
@@ -220,8 +220,8 @@ example conf logger =
     -- Other nodes
     --
     nodePorts =
-        [ (NodeId cid i, bootstrapPort + int i)
-        | i <- [1 .. int (_numberOfNodes conf) - 1]
+        [ (NodeId cid i, bootstrapPort + fromIntegral i)
+        | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
         ]
 
 
@@ -231,7 +231,7 @@ example conf logger =
 timer :: Natural -> IO ()
 timer t = do
     gen <- MWC.createSystemRandom
-    timeout <- MWC.geometric1 (1 / (int t * 1000000)) gen
+    timeout <- MWC.geometric1 (1 / (fromIntegral t * 1000000)) gen
     threadDelay timeout
 
 chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
@@ -288,8 +288,7 @@ node cid t logger conf p2pConfig nid port =
                 wait server
   where
     minerConfig = SingleChainMinerConfig
-        (_numberOfNodes conf)
-        (_meanBlockTimeSeconds conf)
+        (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
         cid
 
 withChainDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b

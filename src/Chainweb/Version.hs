@@ -40,6 +40,7 @@ module Chainweb.Version
 
 ) where
 
+import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -75,7 +76,7 @@ data ChainwebVersion
     | Simulation
     | Testnet00
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
 encodeChainwebVersion Test = putWord32le 0x0

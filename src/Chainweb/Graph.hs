@@ -99,7 +99,7 @@ data ChainGraphException :: Type where
         :: Expected (HS.HashSet ChainId)
         -> Actual ChainId
         -> ChainGraphException
-    AdjacentChainMissmatch
+    AdjacentChainMismatch
         :: Expected (HS.HashSet ChainId)
         -> Actual (HS.HashSet ChainId)
         -> ChainGraphException
@@ -213,7 +213,7 @@ checkAdjacentChainIds
     -> m (HS.HashSet adj)
 checkAdjacentChainIds cid expectedAdj = do
     checkWebChainId cid
-    void $ check AdjacentChainMissmatch
+    void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
         (Actual $ adjacents (_chainId cid) given)
     return (getExpected expectedAdj)

@@ -48,6 +48,7 @@ module Chainweb.Difficulty
 , calculateTarget
 ) where
 
+import Control.DeepSeq
 import Control.Monad
 
 import Data.Aeson
@@ -56,7 +57,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce
 import Data.Hashable
-import Data.LargeWord
+import Data.DoubleWord
 
 import GHC.Generics
 import GHC.TypeNats
@@ -70,10 +71,10 @@ import Chainweb.Time
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
--- LargeWord Orphans
+-- Large Word Orphans
 
-instance (Hashable a, Hashable b) => Hashable (LargeKey a b) where
-    hashWithSalt s (LargeKey a b) = hashWithSalt s (a,b)
+instance NFData Word128
+instance NFData Word256
 
 -- -------------------------------------------------------------------------- --
 -- BlockHashNat
@@ -88,7 +89,7 @@ instance (Hashable a, Hashable b) => Hashable (LargeKey a b) where
 --
 newtype BlockHashNat = BlockHashNat Word256
     deriving (Show, Generic)
-    deriving anyclass (Hashable)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Eq, Ord, Bounded, Enum)
     deriving newtype (Num, Integral, Real)
         -- FIXME implement checked arithmetic
@@ -142,6 +143,7 @@ instance FromJSONKey BlockHashNat where
 --
 newtype HashDifficulty = HashDifficulty BlockHashNat
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Hashable, Bounded, Enum)
     deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
     deriving newtype (Num, Integral, Real)
@@ -166,6 +168,7 @@ decodeHashDifficulty = HashDifficulty <$> decodeBlockHashNat
 --
 newtype HashTarget = HashTarget BlockHashNat
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded, Enum)
 
 difficultyToTarget :: HashDifficulty -> HashTarget
@@ -194,7 +197,7 @@ decodeHashTarget = HashTarget <$> decodeBlockHashNat
 -- | FIXME: make the overflow checks tight
 --
 -- this algorithm introduces a rounding error in the order of
--- the lenght of the input list. We could reduce the error
+-- the length of the input list. We could reduce the error
 -- at the cost of larger numbers (and thus more likely bound
 -- violations). We could also eliminate the risk of bound
 -- violations at the cost of larger rounding errors. The current

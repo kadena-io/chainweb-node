@@ -38,7 +38,7 @@ module Numeric.Additive
 ) where
 
 import Data.Int
-import Data.LargeWord
+import Data.DoubleWord
 import Data.Word
 
 import Numeric.Natural

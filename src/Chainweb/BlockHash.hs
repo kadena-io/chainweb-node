@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -67,6 +68,7 @@ module Chainweb.BlockHash
 , BlockHashException(..)
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (Exception, MonadThrow, throwM)
@@ -103,7 +105,7 @@ import Chainweb.Utils
 -- Exceptions
 
 data BlockHashException
-    = BlockHashBytesCountMissmatch (Expected Natural) (Actual Natural)
+    = BlockHashBytesCountMismatch (Expected Natural) (Actual Natural)
     | BlockHashNatOverflow (Actual Integer)
     deriving (Show, Generic)
 
@@ -124,6 +126,7 @@ blockHashBytesCount = natVal $ Proxy @BlockHashBytesCount
 newtype BlockHashBytes :: Type where
     BlockHashBytes :: B.ByteString -> BlockHashBytes
     deriving stock (Show, Read, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 -- | Smart constructor
 --
@@ -131,7 +134,7 @@ blockHashBytes :: MonadThrow m => B.ByteString -> m BlockHashBytes
 blockHashBytes bytes
     | B.length bytes == int blockHashBytesCount = return (BlockHashBytes bytes)
     | otherwise = throwM
-        $ BlockHashBytesCountMissmatch (Expected blockHashBytesCount) (Actual . int $ B.length bytes)
+        $ BlockHashBytesCountMismatch (Expected blockHashBytesCount) (Actual . int $ B.length bytes)
 {-# INLINE blockHashBytes #-}
 
 encodeBlockHashBytes :: MonadPut m => BlockHashBytes -> m ()
@@ -191,11 +194,12 @@ cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 --     however that the chain id is included in the hash.
 -- *   Serialization as JSON property includes the chain id, because
 --     it can't be recovered from the hash. Including it gives extra
---     type safety accross serialization roundtrips.
+--     type safety across serialization roundtrips.
 --
-data BlockHash :: Type where
-    BlockHash :: ChainId -> BlockHashBytes -> BlockHash
+data BlockHash = BlockHash {-# UNPACK #-} !ChainId
+                           {-# UNPACK #-} !BlockHashBytes
     deriving stock (Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance Show BlockHash where
     show = T.unpack . encodeToText
@@ -282,7 +286,8 @@ instance HasTextRepresentation BlockHash where
 
 newtype BlockHashRecord = BlockHashRecord
     { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
-    deriving (Show, Eq, Hashable, Generic, ToJSON, FromJSON)
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
 makeLenses ''BlockHashRecord
 

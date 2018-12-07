@@ -29,6 +29,7 @@ module Chainweb.NodeId
 , nodeIdFromText
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
 
@@ -53,7 +54,7 @@ import Chainweb.Utils
 data NodeId :: Type where
     NodeId :: { _nodeIdChain :: !ChainId, _nodeIdId :: !Word64 } -> NodeId
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, FromJSON, ToJSON)
+    deriving anyclass (Hashable, NFData, FromJSON, ToJSON)
 
 makeLenses ''NodeId
 
