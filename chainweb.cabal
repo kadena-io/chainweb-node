@@ -95,10 +95,6 @@ library
         , P2P.Node.RestAPI.Client
         , P2P.Session
 
-    other-modules:
-          Chainweb.ChainDB.Entry
-        , Paths_chainweb
-
     build-depends:
           QuickCheck >= 2.10
         , aeson >= 1.4
