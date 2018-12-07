@@ -450,16 +450,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- tricky. I think we should replace it either
     --
     -- @
-    -- insertList
-    --     :: db
-    --     -> HS.Set (DbEntry db)
-    --     -> IO (HM.HashMap (DbKey db) (Either SomeException ())
-    -- @
-    --
-    -- or just
-    --
-    -- @
-    -- insertList
+    -- atomicInsertSet
     --     :: db
     --     -> HS.Set (DbEntry db)
     --     -> IO ()
