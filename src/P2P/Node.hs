@@ -320,11 +320,13 @@ findNextPeer conf node = do
     let checkPeer n = do
             check (int sessionCount < _p2pConfigMaxSessionCount conf)
             check (M.notMember (_peerId n) sessions)
+            check (_peerId n /= myPid)
             return n
     foldr (orElse . checkPeer) retry (toList b ++ toList a)
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
+    myPid = _peerId $ _p2pNodePeerInfo node
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
