@@ -117,18 +117,6 @@ instance ToHttpApiData (NextItem PeerId) where
 instance FromHttpApiData (NextItem PeerId) where
     parseUrlPiece = first sshow . fromText
 
-{-
-instance FromHttpApiData (BranchBounds BlockHeaderDb) where
-    parseUrlPiece t =
-        let (a, b) = T.break (== ',') t
-        in (\a' b' -> Bounds (LowerBound a') (UpperBound b'))
-           <$> parseUrlPiece a
-           <*> parseUrlPiece (T.drop 1 b)
-
-instance ToHttpApiData (Bounds BlockHash) where
-    toUrlPiece (Bounds (LowerBound l) (UpperBound u)) = toUrlPiece l <> "," <> toUrlPiece u
--}
-
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -168,13 +156,6 @@ instance ToParamSchema Limit where
 instance ToParamSchema Eos where
     toParamSchema _ = mempty
         & type_ .~ SwaggerBoolean
-
-{-
-instance ToParamSchema (Bounds BlockHash) where
-    toParamSchema _ = mempty
-        & type_ .~ SwaggerString
-        & pattern ?~ "key,key"
--}
 
 instance ToParamSchema (NextItem BlockHash) where
     toParamSchema _ = mempty
