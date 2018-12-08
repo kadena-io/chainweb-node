@@ -190,6 +190,8 @@ data P2pNode = P2pNode
     , _p2pNodeClientSession :: !P2pSession
     , _p2pNodeRng :: !(TVar R.StdGen)
     , _p2pNodeActive :: !(TVar Bool)
+        -- ^ Wether this node is active. If this is 'False' no new sessions
+        -- will be initialized.
     }
 
 showSessionId :: PeerId -> Async Bool -> T.Text
@@ -308,16 +310,34 @@ findNextPeer
     -> P2pNode
     -> STM PeerInfo
 findNextPeer conf node = do
+
+    -- check if this node is active. If not, don't create new sessions,
+    -- but retry until it becomes active.
+    --
     active <- readTVar (_p2pNodeActive node)
     check active
+
+    -- get all known peers and all active sessions
+    --
     peers <- peerDbSnapshotSTM peerDbVar
     sessions <- readTVar sessionsVar
     let peerCount = length peers
     let sessionCount = length sessions
+
+    -- Retry if there are already more active sessions than known peers.
+    --
     check (sessionCount < peerCount)
+
+    -- Create a new sessions with a random peer for which there is no active
+    -- sessions:
+
+    -- pick random starting point for linear search for a suitable peer.
+    -- Retry if no suitable peer can be found in the whole list of peers.
+    --
     i <- randomR node (0, peerCount - 1)
     let (a, b) = M.splitAt (fromIntegral i) peers
     let checkPeer n = do
+            -- can this check be moved out of the fold?
             check (int sessionCount < _p2pConfigMaxSessionCount conf)
             check (M.notMember (_peerId n) sessions)
             check (_peerId n /= myPid)
