@@ -96,7 +96,7 @@ pMinerConfig = id
 miner
     :: LogFunction
     -> MinerConfig
-    -> NodeId
+    -> ChainwebNodeId
     -> CutDb
     -> WebChainDb
     -> IO ()
@@ -134,8 +134,7 @@ miner logFun conf nid cutDb wcdb = do
                 cid <- randomChainId c
                 nonce <- MWC.uniform gen
 
-                -- FIXME: use the node id
-                testMine (Nonce nonce) cid c >>= \case
+                testMine (Nonce nonce) nid cid c >>= \case
                     Nothing -> mine
                     Just x -> return x
 
