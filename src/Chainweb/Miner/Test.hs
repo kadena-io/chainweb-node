@@ -45,18 +45,19 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Utils
 import Chainweb.WebChainDB
 
+import Data.DiGraph
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
 
 data MinerConfig = MinerConfig
-    { _configNumberOfNodes :: !Natural
-    , _configMeanBlockTimeSeconds :: !Natural
+    { _configMeanBlockTimeSeconds :: !Natural
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -64,28 +65,21 @@ makeLenses ''MinerConfig
 
 defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
-    { _configNumberOfNodes = 10
-    , _configMeanBlockTimeSeconds = 10
+    { _configMeanBlockTimeSeconds = 10
     }
 
 instance ToJSON MinerConfig where
     toJSON o = object
-        [ "numberOfNodes" .= _configNumberOfNodes o
-        , "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
+        [ "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
-        <$< configNumberOfNodes ..: "numberOfNodes" % o
-        <*< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
+        <$< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
 
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
-    <$< configNumberOfNodes .:: option auto
-        % long "number-of-nodes"
-        <> short 'n'
-        <> help "number of nodes to run in the example"
-    <*< configMeanBlockTimeSeconds .:: option auto
+    <$< configMeanBlockTimeSeconds .:: option auto
         % long "mean-block-time"
         <> short 'b'
         <> help "mean time for mining a block seconds"
@@ -109,13 +103,15 @@ miner logFun conf nid cutDb wcdb = do
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
+    graph = _chainGraph cutDb
+
     go :: Given WebChainDb => MWC.GenIO -> Int -> IO ()
     go gen i = do
 
         -- mine new block
         --
         d <- MWC.geometric1
-            (1 / (int (_configNumberOfNodes conf) * int (_configMeanBlockTimeSeconds conf) * 1000000))
+            (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
             gen
         threadDelay d
 
