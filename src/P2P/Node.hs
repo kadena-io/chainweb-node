@@ -51,6 +51,7 @@ module P2P.Node
 , p2pStatsActiveMax
 ) where
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
@@ -78,6 +79,7 @@ import Servant.Client
 
 import System.LogLevel
 import qualified System.Random as R
+import System.Timeout
 
 import Test.QuickCheck (Arbitrary(..), oneof)
 
@@ -138,7 +140,7 @@ instance Arbitrary P2pNodeStats where
 data P2pSessionResult
     = P2pSessionResult Bool
     | P2pSessionException T.Text
-    | P2pSessionTimeout (TimeSpan Int64)
+    | P2pSessionTimeout
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
@@ -150,7 +152,7 @@ instance Arbitrary P2pSessionResult where
     arbitrary = oneof
         [ P2pSessionResult <$> arbitrary
         , P2pSessionException <$> arbitrary
-        , P2pSessionTimeout <$> arbitrary
+        , pure P2pSessionTimeout
         ]
 
 data P2pSessionInfo = P2pSessionInfo
@@ -183,7 +185,7 @@ data P2pNode = P2pNode
     , _p2pNodeChainwebVersion :: !ChainwebVersion
     , _p2pNodePeerInfo :: !PeerInfo
     , _p2pNodePeerDb :: !PeerDb
-    , _p2pNodeSessions :: !(TVar (M.Map PeerId (P2pSessionInfo, Async Bool)))
+    , _p2pNodeSessions :: !(TVar (M.Map PeerId (P2pSessionInfo, Async (Maybe Bool))))
     , _p2pNodeManager :: !HTTP.Manager
     , _p2pNodeLogFunction :: !LogFunction
     , _p2pNodeStats :: !(TVar P2pNodeStats)
@@ -194,13 +196,18 @@ data P2pNode = P2pNode
         -- will be initialized.
     }
 
-showSessionId :: PeerId -> Async Bool -> T.Text
+showSessionId :: PeerId -> Async (Maybe Bool) -> T.Text
 showSessionId pid ses = showPid pid <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
 
 showPid :: PeerId -> T.Text
 showPid = T.take 8 . toText
 
-addSession :: P2pNode -> PeerInfo -> Async Bool -> Time Int64 -> STM P2pSessionInfo
+addSession
+    :: P2pNode
+    -> PeerInfo
+    -> Async (Maybe Bool)
+    -> Time Int64
+    -> STM P2pSessionInfo
 addSession node peer session start = do
     modifyTVar' (_p2pNodeSessions node) $ M.insert pid (info, session)
     return info
@@ -361,17 +368,24 @@ newSession conf node = do
     syncFromPeer node newPeer >>= \case
         False -> do
             logg node Warn $ "Failed to connect new peer " <> showPid newPeerId
+            threadDelay 500000
+                -- FIXME there are better ways to prevent the node from spinning
+                -- if no suitable (non-failing node) is available.
+                -- cf. GitHub issue #117
             newSession conf node
         True -> do
             logg node Debug $ "Connected to new peer " <> showPid newPeerId
             let env = peerClientEnv node newPeer
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
-                newSes <- async $ restore $ _p2pNodeClientSession node (loggFun node) env
+                newSes <- async $ restore $ timeout timeoutMs
+                    $ _p2pNodeClientSession node (loggFun node) env
                 info <- atomically $ addSession node newPeer newSes now
                 return (info, newSes)
             logg node Info $ "Started peer session " <> showSessionId newPeerId newSes
             loggFun node Info $ JsonLog info
+  where
+    TimeSpan timeoutMs = secondsToTimeSpan (_p2pConfigSessionTimeout conf)
 
 -- | Monitor and garbage collect sessions
 --
@@ -381,8 +395,9 @@ awaitSessions node = do
         (p, i, a, r) <- waitAnySession node
         removeSession node p
         result <- case r of
-            Right True -> P2pSessionResult True <$ countSuccess node
-            Right False -> P2pSessionResult False <$ countFailure node
+            Right Nothing -> P2pSessionTimeout <$ countTimeout node
+            Right (Just True) -> P2pSessionResult True <$ countSuccess node
+            Right (Just False) -> P2pSessionResult False <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
         return (p, i, a, result)
 
@@ -411,7 +426,9 @@ awaitSessions node = do
         readTVar (_p2pNodeStats node)
     loggFun node Info $ JsonLog stats
 
-waitAnySession :: P2pNode -> STM (PeerId, P2pSessionInfo, Async Bool, Either SomeException Bool)
+waitAnySession
+    :: P2pNode
+    -> STM (PeerId, P2pSessionInfo, Async (Maybe Bool), Either SomeException (Maybe Bool))
 waitAnySession node = do
     sessions <- readTVar $ _p2pNodeSessions node
     foldr orElse retry $ waitFor <$> M.toList sessions
