@@ -22,6 +22,8 @@ module Chainweb.TreeDB.SyncSession
 , type BlockHeaderTreeDb
 ) where
 
+import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Lens ((&))
 import Control.Monad
 
@@ -167,7 +169,10 @@ syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> P2pSession
 syncSession db logg env = do
     receiveBlockHeaders
     m <- maxHeader db
-    S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
+    race_
+        (S.mapM_ send $ allEntries db (Just $ Exclusive $ key m))
+        (forever $ receiveBlockHeaders >> threadDelay 5000000)
+            -- FIXME make this configurable or dynamic
 
     -- this code must not be reached
     void $ logg @T.Text Error "unexpectedly exited sync session"
