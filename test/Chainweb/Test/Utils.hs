@@ -27,15 +27,15 @@ module Chainweb.Test.Utils
 , starBlockHeaderDbs
 
 -- * Toy Server Interaction
-, withServer
+, withSingleChainServer
 
 -- * Tasty TestTree Server and ClientEnv
 , testHost
 , TestClientEnv(..)
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
-, withTestServer
-, withChainwebServer
+, withSingleChainTestServer
+, withSingleChainTestServer_
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 
@@ -80,7 +80,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.RestAPI (chainwebApplication)
+import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -167,14 +167,14 @@ starBlockHeaderDbs n genDbs = do
 
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
-withServer
+withSingleChainServer
     :: [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
-withServer chainDbs peerDbs f = W.testWithApplication (pure app) work
+withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
   where
-    app = chainwebApplication Test chainDbs peerDbs
+    app = singleChainApplication Test chainDbs peerDbs
     work port = do
       mgr <- HTTP.newManager HTTP.defaultManagerSettings
       f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -207,12 +207,12 @@ pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
-withTestServer
+withSingleChainTestServer
     :: IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withTestServer appIO envIO test = withResource start stop $ \x ->
+withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
@@ -231,14 +231,14 @@ withTestServer appIO envIO test = withResource start stop $ \x ->
         uninterruptibleCancel server
         close sock
 
-withChainwebServer
+withSingleChainTestServer_
     :: IO [(ChainId, BlockHeaderDb)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withChainwebServer chainDbsIO peerDbsIO = withTestServer mkApp mkEnv
+withSingleChainTestServer_ chainDbsIO peerDbsIO = withSingleChainTestServer mkApp mkEnv
   where
-    mkApp = chainwebApplication Test <$> chainDbsIO <*> peerDbsIO
+    mkApp = singleChainApplication Test <$> chainDbsIO <*> peerDbsIO
     mkEnv port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         TestClientEnv (mkClientEnv mgr (BaseUrl Http testHost port ""))
@@ -249,13 +249,13 @@ withPeerDbsServer
     :: IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withPeerDbsServer = withChainwebServer (return [])
+withPeerDbsServer = withSingleChainTestServer_ (return [])
 
 withBlockHeaderDbsServer
     :: IO [(ChainId, BlockHeaderDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer chainDbsIO = withChainwebServer chainDbsIO (return [])
+withBlockHeaderDbsServer chainDbsIO = withSingleChainTestServer_ chainDbsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

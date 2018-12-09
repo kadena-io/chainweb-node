@@ -54,6 +54,9 @@ library
         , Chainweb.ChainId
         , Chainweb.Cut
         , Chainweb.CutDB
+        , Chainweb.CutDB.RestAPI
+        , Chainweb.CutDB.RestAPI.Client
+        , Chainweb.CutDB.RestAPI.Server
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress

@@ -277,7 +277,7 @@ node cid t logger conf p2pConfig nid port =
 
         withBlockHeaderDbGexf Test singletonChainGraph cid nid
             $ \cdb -> withPeerDb p2pConfig
-            $ \pdb -> withAsync (serveChainwebOnPort port Test
+            $ \pdb -> withAsync (serveSingleChainOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 )

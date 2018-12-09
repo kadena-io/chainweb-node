@@ -14,7 +14,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (insertN, withDB, withServer)
+import Chainweb.Test.Utils (insertN, withDB, withSingleChainServer)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
@@ -37,7 +37,7 @@ cid = testChainId 0
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
 noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \g db -> withServer [(cid, db)] [] $ \env -> do
+noopSingletonSync = withDB cid $ \g db -> withSingleChainServer [(cid, db)] [] $ \env -> do
     sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
     maxRank db >>= (@?= 0)
 
@@ -48,7 +48,7 @@ noopLongSync :: Assertion
 noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    withServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer)] [] $ \env -> do
         sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
@@ -60,7 +60,7 @@ noopNewerNode = withDB cid $ \g peer -> do
     db <- copy peer
     h <- maxHeader db
     void $ insertN 90 h db
-    withServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer)] [] $ \env -> do
         let remote = RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         sync diam db remote
         maxRank db >>= (@?= 100)
@@ -73,7 +73,7 @@ newNode = withDB cid $ \g db -> do
     peer <- copy db
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
-    withServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer)] [] $ \env -> do
         sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
@@ -85,6 +85,6 @@ oldNode = withDB cid $ \g db -> do
     peer <- copy db
     h <- maxHeader peer
     void $ insertN 90 h peer
-    withServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer)] [] $ \env -> do
         sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)
