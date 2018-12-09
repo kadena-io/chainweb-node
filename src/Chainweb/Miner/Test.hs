@@ -136,7 +136,7 @@ miner logFun conf nid cutDb wcdb = do
 
         c' <- mine
 
-        _ <- logg Debug $ "created new block" <> sshow i
+        _ <- logg Info $ "created new block" <> sshow i
 
         -- public cut into CutDb (add to queue)
         --
