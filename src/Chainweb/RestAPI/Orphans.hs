@@ -28,6 +28,7 @@ import Control.Monad
 
 import Data.Aeson hiding (decode, encode)
 import Data.Bifunctor
+import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
 import Data.Serialize (decode, encode)
@@ -46,6 +47,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.CutDB
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
@@ -186,6 +188,8 @@ instance ToSchema Swagger where
 
 instance ToSchema PeerInfo
 
+instance ToSchema ChainId
+
 instance ToSchema PeerId where
     declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
 
@@ -203,6 +207,18 @@ instance ToSchema BlockHash where
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
+
+instance ToSchema CutHashes where
+    declareNamedSchema _ = do
+        mapSchema <- declareSchemaRef (Proxy @(HM.HashMap ChainId BlockHash))
+        peerSchema <- declareSchemaRef (Proxy @PeerInfo)
+        return $ NamedSchema (Just "CutHashes") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("hashes", mapSchema)
+                , ("origin", peerSchema)
+                ]
+            & required .~ [ "hashes" ]
 
 instance ToSchema (NextItem k) where
     declareNamedSchema _ = return $ NamedSchema (Just "next") $ mempty
