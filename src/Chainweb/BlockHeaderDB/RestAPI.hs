@@ -66,6 +66,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
+, ChildrenApi
+, childrenApi
 ) where
 
 import Control.Monad.Identity
@@ -269,6 +271,24 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- | @GET ...@ TODO
+--
+-- Returns the immediate children nodes of some given parent.
+--
+type ChildrenApi_
+    = "children"
+    :> Capture "BlockHash" (DbKey BlockHeaderDb)
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+
+type ChildrenApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildrenApi_
+
+childrenApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (ChildrenApi v c)
+childrenApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- | @PUT /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header@
 --
 -- Adds a block header to the block header tree database. Returns a failure with
@@ -299,6 +319,7 @@ type BlockHeaderDbApi v c
     :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> ChildrenApi v c
 
 blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
