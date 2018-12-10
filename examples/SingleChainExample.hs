@@ -73,6 +73,8 @@ import Chainweb.Version
 import Data.DiGraph
 import Data.LogMessage
 
+import Paths_chainweb
+
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -179,10 +181,12 @@ mainInfo :: ProgramInfo P2pExampleConfig
 mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \config ->
+main = runWithConfiguration mainInfo $ \config -> do
+    staticDir <- (<> "/examples/static-html") <$> getDataDir
     withExampleLogger 8000
         (_logConfig config)
         (_sessionsLoggerConfig config)
+        staticDir
         (example config)
 
 -- -------------------------------------------------------------------------- --

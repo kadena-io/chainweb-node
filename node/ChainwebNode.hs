@@ -74,6 +74,8 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
 
+import Paths_chainweb
+
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
@@ -206,10 +208,12 @@ mainInfo :: ProgramInfo P2pNodeConfig
 mainInfo = programInfo "ChainwebNode" pP2pNodeConfig defaultP2pNodeConfig
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \config ->
+main = runWithConfiguration mainInfo $ \config -> do
+    staticDir <- (<> "/examples/static-html") <$> getDataDir
     withExampleLogger (fromIntegral $ _telemetryPort config)
         (_logConfig config)
         (_sessionsLoggerConfig config)
+        staticDir
         (runNodeWithConfig config)
 
 peerIdToNodeId :: HasChainId cid => cid -> UUID.UUID -> NodeId
