@@ -60,9 +60,9 @@ instance TreeDb RemoteDb where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = leavesClient ver cid limit nxt minr maxr
 
-    -- | No-op.
-    --
-    insert _ _ = pure ()
+    insert (RemoteDb env ver cid) e = void $ runClientM client env
+      where
+        client = headerPutClient ver cid e
 
 -- | Given the proper arguments to initiate a remote request, perform said request
 -- and deconstruct consecutive pages into a `Stream`.
