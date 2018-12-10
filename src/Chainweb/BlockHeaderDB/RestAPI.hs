@@ -113,7 +113,15 @@ type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash/branch@
+type BranchHashesApi_
+    = "hash" :> "branch"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/branch@
 --
 -- Returns a set of branches. A branch is obtained by traversing the block
 -- header tree database starting at some entry along the parent relation, i.e.
@@ -130,14 +138,6 @@ type MaxHeightParam = QueryParam "maxheight" MaxRank
 -- is a sub-graph, but not necessarily a sub-tree, of the database tree. Search
 -- stops at the first matching lower bound.
 --
-type BranchHashesApi_
-    = "hash" :> "branch"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-
 type BranchHashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHashesApi_
 
@@ -147,7 +147,15 @@ branchHashesApi
 branchHashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header/branch@
+type BranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
 -- Returns a set of branches. A branch is obtained by traversing the block
 -- header tree database starting at some entry along the parent relation, i.e.
@@ -164,14 +172,6 @@ branchHashesApi = Proxy
 -- is a sub-graph, but not necessarily a sub-tree, of the database tree. Search
 -- stops at the first matching lower bound.
 --
-type BranchHeadersApi_
-    = "header" :> "branch"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
-
 type BranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHeadersApi_
 
@@ -181,7 +181,14 @@ branchHeadersApi
 branchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/leave@
+type LeavesApi_
+    = "leaf"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/leaf@
 --
 -- Returns the hashes of the entries of the block header tree database. Querying
 -- the database isn't atomic - entries may be added concurrently. Therefore the
@@ -189,13 +196,6 @@ branchHeadersApi = Proxy
 -- of leaves at some point in the history of the database. The server is
 -- expected to try to return a large and recent set.
 --
-type LeavesApi_
-    = "leave"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-
 type LeavesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc LeavesApi_
 
@@ -205,7 +205,13 @@ leavesApi
 leavesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/hash@
+type HashesApi_
+    = "hash"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> FilterParams
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash@
 --
 -- Returns hashes in the block header tree database in ascending order with
 -- respect to the children relation.
@@ -214,12 +220,6 @@ leavesApi = Proxy
 -- Therefore a block hash of higher block height can be returned before a block
 -- hash of lower block height.
 --
-type HashesApi_
-    = "hash"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
-    :> FilterParams
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-
 type HashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HashesApi_
 
@@ -229,7 +229,13 @@ hashesApi
 hashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header@
+type HeadersApi_
+    = "header"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> FilterParams
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
 -- Returns block headers in the block header tree database in ascending order
 -- with respect to the children relation.
@@ -238,12 +244,6 @@ hashesApi = Proxy
 -- Therefore a block header of higher block height can be returned before a block
 -- header of lower block height.
 --
-type HeadersApi_
-    = "header"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
-    :> FilterParams
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
-
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
 
@@ -253,15 +253,15 @@ headersApi
 headersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header/<BlockHash>@
---
--- Returns a single block headers for a given block hash.
---
 type HeaderApi_
     = "header"
     :> Capture "BlockHash" (DbKey BlockHeaderDb)
     :> Get '[JSON] (DbEntry BlockHeaderDb)
 
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
+--
+-- Returns a single block headers for a given block hash.
+--
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
 
@@ -271,15 +271,15 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @GET ...@ TODO
---
--- Returns the immediate children nodes of some given parent.
---
 type ChildrenApi_
     = "children"
     :> Capture "BlockHash" (DbKey BlockHeaderDb)
     :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
 
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/children\/\<BlockHash\>@
+--
+-- Returns the immediate children nodes of some given parent.
+--
 type ChildrenApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildrenApi_
 
@@ -289,17 +289,17 @@ childrenApi
 childrenApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- | @PUT /chainweb/<ApiVersion>/<InstanceId>/chain/<ChainId>/header@
---
--- Adds a block header to the block header tree database. Returns a failure with
--- status code 400 if the block header can't be addded because of a validation
--- failure or missing dependencies.
---
 type HeaderPutApi_
     = "header"
     :> ReqBody '[JSON] (DbEntry BlockHeaderDb)
     :> PutNoContent '[JSON] NoContent
 
+-- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
+--
+-- Adds a block header to the block header tree database. Returns a failure with
+-- status code 400 if the block header can't be addded because of a validation
+-- failure or missing dependencies.
+--
 type HeaderPutApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderPutApi_
 
