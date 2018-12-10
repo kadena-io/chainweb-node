@@ -74,6 +74,7 @@ module Chainweb.BlockHeader
 , decodeBlockHeader
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
+, ObjectEncoded(..)
 
 , getAdjacentHash
 , computeBlockHash
@@ -105,9 +106,9 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.ByteString.Char8 (ByteString)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.ByteString.Char8 (ByteString)
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -400,7 +401,53 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
-    toJSON b = object
+    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+
+instance FromJSON BlockHeader where
+    parseJSON = withText "BlockHeader" $ \t ->
+        case runGet decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
+            Left (e :: SomeException) -> fail (sshow e)
+            Right x -> return x
+
+_blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
+_blockAdjacentChainIds =
+    HS.fromList . HM.keys . _getBlockHashRecord . _blockAdjacentHashes
+
+blockAdjacentChainIds :: Getter BlockHeader (HS.HashSet ChainId)
+blockAdjacentChainIds = to _blockAdjacentChainIds
+
+getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
+getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
+    ??? ChainNotAdjacentException
+        (Expected $ _chainId p)
+        (Actual $ _blockAdjacentChainIds b)
+{-# INLINE getAdjacentHash #-}
+
+computeBlockHash :: BlockHeader -> BlockHash
+computeBlockHash b
+    | isGenesisBlockHeader b = genesisBlockHash (_blockChainwebVersion b) b
+    | otherwise = BlockHash (_chainId b)
+        $ cryptoHash (_blockChainwebVersion b) $ runPutS $ do
+            putLazyByteString "block"
+            encodeBlockHeaderNoHash b
+
+isGenesisBlockHeader :: BlockHeader -> Bool
+isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
+{-# INLINE isGenesisBlockHeader #-}
+
+-- -------------------------------------------------------------------------- --
+-- Object JSON encoding
+--
+-- By default a binary encoding of block headers is used as JSON encoding.
+-- In some circumstance, like logging and configuration files, a textual
+-- encoding is desired.
+
+newtype ObjectEncoded a = ObjectEncoded a
+    deriving (Show, Generic)
+    deriving newtype (Eq, Ord, Hashable, NFData)
+
+instance ToJSON (ObjectEncoded BlockHeader) where
+    toJSON (ObjectEncoded b) = object
         [ "parent" .= _blockParent b
         , "adjacents" .= _blockAdjacentHashes b
         , "target" .= _blockTarget b
@@ -430,35 +477,10 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "miner"
     <*> o .: "hash"
 
-instance FromJSON BlockHeader where
-    parseJSON = withObject "BlockHeader" parseBlockHeaderObject
+instance FromJSON (ObjectEncoded BlockHeader) where
+    parseJSON = withObject "BlockHeader"
+        $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
-
-_blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
-_blockAdjacentChainIds =
-    HS.fromList . HM.keys . _getBlockHashRecord . _blockAdjacentHashes
-
-blockAdjacentChainIds :: Getter BlockHeader (HS.HashSet ChainId)
-blockAdjacentChainIds = to _blockAdjacentChainIds
-
-getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
-getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
-    ??? ChainNotAdjacentException
-        (Expected $ _chainId p)
-        (Actual $ _blockAdjacentChainIds b)
-{-# INLINE getAdjacentHash #-}
-
-computeBlockHash :: BlockHeader -> BlockHash
-computeBlockHash b
-    | isGenesisBlockHeader b = genesisBlockHash (_blockChainwebVersion b) b
-    | otherwise = BlockHash (_chainId b)
-        $ cryptoHash (_blockChainwebVersion b) $ runPutS $ do
-            putLazyByteString "block"
-            encodeBlockHeaderNoHash b
-
-isGenesisBlockHeader :: BlockHeader -> Bool
-isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
-{-# INLINE isGenesisBlockHeader #-}
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader
