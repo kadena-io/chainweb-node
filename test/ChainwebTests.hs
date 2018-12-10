@@ -24,6 +24,7 @@ import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.TreeDB.Persistence
+import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
 
@@ -40,6 +41,7 @@ suite :: TestTree
 suite = testGroup "Unit Tests"
     [ testGroup "BlockHeaderDb"
         [ Chainweb.Test.BlockHeaderDB.tests
+        , Chainweb.Test.TreeDB.RemoteDB.tests
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]

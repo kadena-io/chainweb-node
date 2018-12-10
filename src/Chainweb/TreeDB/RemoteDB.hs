@@ -47,8 +47,10 @@ instance TreeDb RemoteDb where
       where
         client = headerClient ver cid k
 
-    -- TODO Needs a new endpoint to be written?
-    children = undefined
+    childrenEntries (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
+        client _ = childrenClient ver cid k
 
     entries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
