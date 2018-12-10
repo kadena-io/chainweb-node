@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -19,11 +20,13 @@
 --
 module Chainweb.TreeDB.SyncSession
 ( syncSession
+, chainSyncSession
 , type BlockHeaderTreeDb
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Exception (SomeException, try)
 import Control.Lens ((&))
 import Control.Monad
 
@@ -188,6 +191,21 @@ syncSession db logg env = do
         logg @T.Text Info "start full sync"
         fullSync db logg cenv
         logg @T.Text Debug "finished full sync"
+
+-- | Adds a little bit more logging to syncSession
+--
+chainSyncSession :: BlockHeaderTreeDb db => db -> P2pSession
+chainSyncSession db logFun env =
+    try (syncSession db logFun env) >>= \case
+        Left e -> do
+            logg Warn $ "Session failed: " <> sshow @SomeException e
+            return False
+        Right a -> do
+            logg Warn "Session succeeded"
+            return a
+  where
+    logg :: LogFunctionText
+    logg = logFun
 
 -- -------------------------------------------------------------------------- --
 -- Utils
