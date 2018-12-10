@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.ChainDB.RemoteDB
+-- Module: Chainweb.TreeDB.RemoteDB
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
@@ -13,6 +13,7 @@
 
 module Chainweb.TreeDB.RemoteDB ( RemoteDb(..) ) where
 
+import Control.Error.Util (hush)
 import Control.Monad.Catch (throwM)
 
 import Numeric.Natural
@@ -41,7 +42,12 @@ data RemoteDb = RemoteDb { clientEnv :: ClientEnv
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
 
-    lookup = undefined
+    -- If other default functions rely on this, it could be quite inefficient.
+    lookup (RemoteDb env ver cid) k = hush <$> runClientM client env
+      where
+        client = headerClient ver cid k
+
+    -- TODO Needs a new endpoint to be written?
     children = undefined
 
     entries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
