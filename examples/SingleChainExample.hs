@@ -56,7 +56,6 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -70,7 +69,6 @@ import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.DiGraph
 import Data.LogMessage
 
 import Paths_chainweb
@@ -277,7 +275,7 @@ node cid t logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info "start test node"
 
-        withBlockHeaderDb cid nid
+        withBlockHeaderDbGexf Test singletonChainGraph cid nid
             $ \cdb -> withPeerDb p2pConfig
             $ \pdb -> withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
@@ -295,19 +293,18 @@ node cid t logger conf p2pConfig nid port =
         (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
         cid
 
-withBlockHeaderDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b
-withBlockHeaderDb cid nid = bracket start stop
-  where
-    start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader Test graph cid
-        }
-    stop db = do
+withBlockHeaderDbGexf
+    :: ChainwebVersion
+    -> ChainGraph
+    -> ChainId
+    -> NodeId
+    -> (BlockHeaderDb -> IO b)
+    -> IO b
+withBlockHeaderDbGexf v graph cid nid f =
+    withBlockHeaderDb v graph cid $ \db -> f db `finally` do
         l <- SP.toList_ $ entries db Nothing Nothing Nothing Nothing
         B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
-        closeBlockHeaderDb db
-
-    graph = toChainGraph (const cid) singleton
-
+  where
     nidPath = T.unpack . T.replace "/" "." $ toText nid
 
 -- -------------------------------------------------------------------------- --

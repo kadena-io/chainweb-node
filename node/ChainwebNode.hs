@@ -52,7 +52,6 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -66,7 +65,6 @@ import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.DiGraph
 import Data.LogMessage
 
 import P2P.Node
@@ -282,7 +280,7 @@ node cid logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info $ "Start test node"
 
-        withBlockHeaderDb cid $ \cdb ->
+        withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
           withPeerDb p2pConfig $ \pdb ->
             withAsync (serveChainwebOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
@@ -294,17 +292,6 @@ node cid logger conf p2pConfig nid port =
                       <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
                       <> Concurrently (monitor logger' cdb)
                   wait server
-
-withBlockHeaderDb :: ChainId -> (BlockHeaderDb -> IO b) -> IO b
-withBlockHeaderDb cid = bracket start stop
-  where
-    start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader Test graph cid
-        }
-    stop db = do
-        closeBlockHeaderDb db
-
-    graph = toChainGraph (const cid) singleton
 
 -- -------------------------------------------------------------------------- --
 -- Syncer

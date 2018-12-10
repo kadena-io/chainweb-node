@@ -13,6 +13,7 @@
 --
 module Chainweb.WebChainDB
 ( WebChainDb
+, mkWebChainDb
 , initWebChainDb
 , getWebChainDb
 , webChainDb
@@ -80,6 +81,9 @@ initWebChainDb v = WebChainDb
     <*> pure given
   where
     conf cid = Configuration (genesisBlockHeader v given cid)
+
+mkWebChainDb :: ChainGraph -> HM.HashMap ChainId BlockHeaderDb -> WebChainDb
+mkWebChainDb graph m = WebChainDb m graph
 
 getWebChainDb
     :: MonadThrow m
