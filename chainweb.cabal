@@ -71,6 +71,7 @@ library
         , Chainweb.Time
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Persist
+        , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Sync
         , Chainweb.TreeDB.SyncSession
         , Chainweb.Utils
