@@ -104,7 +104,7 @@ getLeaves
     -> Maybe MaxRank
     -> Stream (Of (DbKey BlockHeaderDb)) IO ()
 getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env Nothing Nothing $ \k l ->
-    leavesClient v cid l k minr maxr
+    leafHashesClient v cid l k minr maxr
 
 putHeader
     :: ChainClientEnv

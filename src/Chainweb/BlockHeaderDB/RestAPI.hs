@@ -52,8 +52,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApis
 
 -- * Sub APIs
-, LeavesApi
-, leavesApi
+, LeafHashesApi
+, leafHashesApi
 , BranchHashesApi
 , branchHashesApi
 , BranchHeadersApi
@@ -181,14 +181,14 @@ branchHeadersApi
 branchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type LeavesApi_
-    = "leaf"
+type LeafHashesApi_
+    = "hash" :> "leaf"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
     :> MinHeightParam
     :> MaxHeightParam
     :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/leaf@
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/leaf@
 --
 -- Returns the hashes of the entries of the block header tree database. Querying
 -- the database isn't atomic - entries may be added concurrently. Therefore the
@@ -196,13 +196,13 @@ type LeavesApi_
 -- of leaves at some point in the history of the database. The server is
 -- expected to try to return a large and recent set.
 --
-type LeavesApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc LeavesApi_
+type LeafHashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc LeafHashesApi_
 
-leavesApi
+leafHashesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (LeavesApi v c)
-leavesApi = Proxy
+    . Proxy (LeafHashesApi v c)
+leafHashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HashesApi_
@@ -312,7 +312,7 @@ headerPutApi = Proxy
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
-    = LeavesApi v c
+    = LeafHashesApi v c
     :<|> HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c

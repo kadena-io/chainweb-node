@@ -64,8 +64,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , hashesClient
 , headersClient_
 , headersClient
-, leavesClient_
-, leavesClient
+, leafHashesClient_
+, leafHashesClient
 , branchHashesClient_
 , branchHashesClient
 , branchHeadersClient_
@@ -170,7 +170,7 @@ headersClient v c limit start minr maxr = runIdentity $ do
 -- -------------------------------------------------------------------------- --
 -- Branches Client
 
-leavesClient_
+leafHashesClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
@@ -179,9 +179,9 @@ leavesClient_
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leavesClient_ = client (leavesApi @v @c)
+leafHashesClient_ = client (leafHashesApi @v @c)
 
-leavesClient
+leafHashesClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -189,10 +189,10 @@ leavesClient
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leavesClient v c limit start minr maxr = runIdentity $ do
+leafHashesClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ leavesClient_ @v @c limit start minr maxr
+    return $ leafHashesClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
 -- Branch Hashes Client

@@ -71,7 +71,7 @@ instance TreeDb RemoteDb where
     leafKeys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = leavesClient ver cid limit nxt minr maxr
+        client nxt = leafHashesClient ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
       where
