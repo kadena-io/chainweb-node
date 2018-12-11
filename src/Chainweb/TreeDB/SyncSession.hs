@@ -170,7 +170,7 @@ syncSession db logg env = do
     S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
 
     -- this code must not be reached
-    void $ logg @T.Text Error $ "unexpectedly exited sync session"
+    void $ logg @T.Text Error "unexpectedly exited sync session"
     return False
   where
     cenv = chainClientEnv db env

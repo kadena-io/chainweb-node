@@ -10,7 +10,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -279,4 +278,3 @@ instance Monoid SomeServer where
 
 someServerApplication :: SomeServer -> Application
 someServerApplication (SomeServer a server) = serve a server
-
