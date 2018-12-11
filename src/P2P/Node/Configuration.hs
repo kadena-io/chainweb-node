@@ -64,6 +64,8 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural
 
+import qualified Options.Applicative as O
+
 import Test.QuickCheck
 
 import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
@@ -141,6 +143,23 @@ instance FromJSON PeerInfo where
         <*> o .: "address"
     {-# INLINE parseJSON #-}
 
+peerInfoToText :: PeerInfo -> T.Text
+peerInfoToText pinf = toText (_peerId pinf) <> "@" <> toText (_peerAddr pinf)
+
+peerInfoFromText :: MonadThrow m => T.Text -> m PeerInfo
+peerInfoFromText t = case T.break (== '@') t of
+    (a, b)
+        | T.null a -> throwM $ TextFormatException $ "missing peer id in peer info \"" <> t <> "\""
+        | T.null b -> throwM $ TextFormatException $ "missing '@' in peer info \"" <> t <> "\""
+        | T.length b == 1 -> throwM $ TextFormatException $ "missing host address in peer info \"" <> t <> "\""
+        | otherwise -> PeerInfo <$> fromText a <*> fromText (T.tail b)
+
+instance HasTextRepresentation PeerInfo where
+    toText = peerInfoToText
+    {-# INLINE toText #-}
+    fromText = peerInfoFromText
+    {-# INLINE fromText #-}
+
 arbitraryPeerInfo :: Gen PeerInfo
 arbitraryPeerInfo = PeerInfo <$> arbitrary <*> arbitrary
 
@@ -152,6 +171,14 @@ pPeerInfo service = id
     <$< peerId .:: pPeerId service
     <*< peerAddr %:: pHostAddress service
 {-# INLINE pPeerInfo #-}
+
+-- | Parser Peer Id as a single option
+--
+pPeerInfoCompact :: Maybe String -> O.Parser PeerInfo
+pPeerInfoCompact service = textOption
+    % prefixLong service "peer-info"
+    <> suffixHelp service "peer info"
+    <> metavar "<PEERID>:<HOSTADDRESS>"
 
 -- -------------------------------------------------------------------------- --
 -- P2P Configuration
@@ -248,7 +275,7 @@ pP2pConfiguration networkId = id
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
-    -- <*< p2pConfigKnownPeers .:: option auto
+    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate (pure <$> pPeerInfoCompact net)
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
