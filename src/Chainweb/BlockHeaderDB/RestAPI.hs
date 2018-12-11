@@ -68,8 +68,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
-, ChildrenApi
-, childrenApi
+, ChildHeadersApi
+, childHeadersApi
 ) where
 
 import Control.Monad.Identity
@@ -297,22 +297,22 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type ChildrenApi_
-    = "children"
+type ChildHeadersApi_
+    = "header" :> "children"
     :> Capture "BlockHash" (DbKey BlockHeaderDb)
     :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
 
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/children\/\<BlockHash\>@
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/children\/\<BlockHash\>@
 --
 -- Returns the immediate children nodes of some given parent.
 --
-type ChildrenApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildrenApi_
+type ChildHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildHeadersApi_
 
-childrenApi
+childHeadersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (ChildrenApi v c)
-childrenApi = Proxy
+    . Proxy (ChildHeadersApi v c)
+childHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HeaderPutApi_
@@ -346,7 +346,7 @@ type BlockHeaderDbApi v c
     :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
-    :<|> ChildrenApi v c
+    :<|> ChildHeadersApi v c
 
 blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

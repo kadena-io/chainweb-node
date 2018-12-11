@@ -233,8 +233,8 @@ headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
 
 -- | Fetch all the immediate children nodes of some given parent.
 --
-childrenHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-childrenHandler db k = do
+childHeadersHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+childHeadersHandler db k = do
     keyChecked <- checkKey db k
     liftIO . finiteStreamToPage key (Just defaultEntryLimit)
            . void
@@ -253,7 +253,7 @@ blockHeaderDbServer (BlockHeaderDb_ db) =
     :<|> headerPutHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db
-    :<|> childrenHandler db
+    :<|> childHeadersHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB

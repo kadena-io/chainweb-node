@@ -51,7 +51,7 @@ instance TreeDb RemoteDb where
     childrenEntries (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client _ = childrenClient ver cid k
+        client _ = childHeadersClient ver cid k
 
     keys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
