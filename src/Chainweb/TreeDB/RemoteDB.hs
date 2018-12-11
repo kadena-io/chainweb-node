@@ -35,9 +35,10 @@ import Chainweb.Version (ChainwebVersion)
 -- | A representation of a tree-like data store that can be queried across
 -- a network.
 --
-data RemoteDb = RemoteDb { clientEnv :: ClientEnv
-                         , version :: ChainwebVersion
-                         , chainId :: ChainId }
+data RemoteDb = RemoteDb
+    { _remoteEnv :: ClientEnv
+    , _remoteVersion :: ChainwebVersion
+    , _remoteChainId :: ChainId }
 
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
