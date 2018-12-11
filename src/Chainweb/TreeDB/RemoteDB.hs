@@ -66,7 +66,7 @@ instance TreeDb RemoteDb where
     leafEntries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = error "leafEntries: not implemented yet"
+        client nxt = leafHeadersClient ver cid limit nxt minr maxr
 
     leafKeys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where

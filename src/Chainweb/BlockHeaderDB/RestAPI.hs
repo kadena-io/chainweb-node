@@ -54,6 +54,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * Sub APIs
 , LeafHashesApi
 , leafHashesApi
+, LeafHeadersApi
+, leafHeadersApi
 , BranchHashesApi
 , branchHashesApi
 , BranchHeadersApi
@@ -205,6 +207,30 @@ leafHashesApi
 leafHashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+type LeafHeadersApi_
+    = "header" :> "leaf"
+    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/leaf@
+--
+-- Returns the entries of the block header tree database. Querying the database
+-- isn't atomic - entries may be added concurrently. Therefore the result of
+-- this query is a set of block headers that represent a possible set of leaves
+-- at some point in the history of the database. The server is expected to try
+-- to return a large and recent set.
+--
+type LeafHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc LeafHeadersApi_
+
+leafHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (LeafHeadersApi v c)
+leafHeadersApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 type HashesApi_
     = "hash"
     :> PageParams (NextItem (DbKey BlockHeaderDb))
@@ -313,6 +339,7 @@ headerPutApi = Proxy
 --
 type BlockHeaderDbApi v c
     = LeafHashesApi v c
+    :<|> LeafHeadersApi v c
     :<|> HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c
