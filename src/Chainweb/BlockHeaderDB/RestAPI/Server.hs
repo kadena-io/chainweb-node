@@ -218,7 +218,7 @@ headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
 childrenHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
 childrenHandler db k = do
     keyChecked <- checkKey db k
-    liftIO . finitePrefixOfInfiniteStreamToPage key (Just defaultEntryLimit)
+    liftIO . finiteStreamToPage key (Just defaultEntryLimit)
            . void
            $ childrenEntries db keyChecked
 
