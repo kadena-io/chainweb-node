@@ -102,6 +102,7 @@ module Chainweb.Utils
 , OptionParser
 , prefixLong
 , suffixHelp
+, textReader
 , textOption
 
 , EnableConfig(..)
@@ -442,8 +443,11 @@ prefixLong prefix l = long $ maybe "" ("-" <>) prefix <> l
 suffixHelp :: Maybe String -> String -> Mod f a
 suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix
 
+textReader :: HasTextRepresentation a => ReadM a
+textReader = eitherReader $ first show . fromText . T.pack
+
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
-textOption = option (eitherReader $ first show . fromText . T.pack)
+textOption = option textReader
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling
