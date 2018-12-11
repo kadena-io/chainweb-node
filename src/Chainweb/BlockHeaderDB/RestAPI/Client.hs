@@ -72,6 +72,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , branchHashesClient
 , branchHeadersClient_
 , branchHeadersClient
+, childHashesClient_
+, childHashesClient
 , childHeadersClient_
 , childHeadersClient
 ) where
@@ -309,7 +311,28 @@ hashesClient v c limit start minr maxr = runIdentity $ do
     return $ hashesClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
--- Children Client
+-- Children Hashes Client
+
+childHashesClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+childHashesClient_ = client (childHashesApi @v @c)
+
+childHashesClient
+    :: ChainwebVersion
+    -> ChainId
+    -> DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+childHashesClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ childHashesClient_ @v @c k
+
+-- -------------------------------------------------------------------------- --
+-- Children Headers Client
 
 childHeadersClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

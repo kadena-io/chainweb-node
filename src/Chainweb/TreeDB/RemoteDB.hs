@@ -32,8 +32,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version (ChainwebVersion)
 
--- | A representation of a tree-like data store that can be queried across
--- a network.
+-- | A representation of a tree-like data store that can be queried across a
+-- network.
 --
 data RemoteDb = RemoteDb
     { _remoteEnv :: ClientEnv
@@ -47,6 +47,11 @@ instance TreeDb RemoteDb where
     lookup (RemoteDb env ver cid) k = hush <$> runClientM client env
       where
         client = headerClient ver cid k
+
+    children (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
+        client _ = childHashesClient ver cid k
 
     childrenEntries (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
       where

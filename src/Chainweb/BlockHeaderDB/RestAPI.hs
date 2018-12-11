@@ -68,6 +68,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
+, ChildHashesApi
+, childHashesApi
 , ChildHeadersApi
 , childHeadersApi
 ) where
@@ -297,6 +299,24 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+type ChildHashesApi_
+    = "hash" :> "children"
+    :> Capture "BlockHash" (DbKey BlockHeaderDb)
+    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/children\/\<BlockHash\>@
+--
+-- Returns the hashes of the immediate children nodes of some given parent.
+--
+type ChildHashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildHashesApi_
+
+childHashesApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (ChildHashesApi v c)
+childHashesApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 type ChildHeadersApi_
     = "header" :> "children"
     :> Capture "BlockHash" (DbKey BlockHeaderDb)
@@ -346,6 +366,7 @@ type BlockHeaderDbApi v c
     :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> ChildHashesApi v c
     :<|> ChildHeadersApi v c
 
 blockHeaderDbApi
