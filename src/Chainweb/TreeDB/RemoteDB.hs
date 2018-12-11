@@ -53,15 +53,35 @@ instance TreeDb RemoteDb where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client _ = childrenClient ver cid k
 
+    keys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
+        client nxt = hashesClient ver cid limit nxt minr maxr
+
     entries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = headersClient ver cid limit nxt minr maxr
 
+    leafEntries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
+        client nxt = error "leafEntries: not implemented yet"
+
     leafKeys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = leavesClient ver cid limit nxt minr maxr
+
+    branchKeys (RemoteDb env ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
+        client nxt = branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+
+    branchEntries (RemoteDb env ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+      where
+        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
+        client nxt = branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     insert (RemoteDb env ver cid) e = void $ runClientM client env
       where
