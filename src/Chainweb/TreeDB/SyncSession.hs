@@ -104,7 +104,7 @@ getLeaves
     -> Maybe MaxRank
     -> Stream (Of (DbKey BlockHeaderDb)) IO ()
 getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env Nothing Nothing $ \k l ->
-    leavesClient v cid l k minr maxr
+    leafHashesClient v cid l k minr maxr
 
 putHeader
     :: ChainClientEnv
@@ -170,7 +170,7 @@ syncSession db logg env = do
     S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
 
     -- this code must not be reached
-    void $ logg @T.Text Error $ "unexpectedly exited sync session"
+    void $ logg @T.Text Error "unexpectedly exited sync session"
     return False
   where
     cenv = chainClientEnv db env

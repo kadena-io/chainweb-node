@@ -64,12 +64,18 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , hashesClient
 , headersClient_
 , headersClient
-, leavesClient_
-, leavesClient
+, leafHashesClient_
+, leafHashesClient
+, leafHeadersClient_
+, leafHeadersClient
 , branchHashesClient_
 , branchHashesClient
 , branchHeadersClient_
 , branchHeadersClient
+, childHashesClient_
+, childHashesClient
+, childHeadersClient_
+, childHeadersClient
 ) where
 
 import Control.Monad.Identity
@@ -166,9 +172,9 @@ headersClient v c limit start minr maxr = runIdentity $ do
     return $ headersClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
--- Branches Client
+-- Leaf Hashes Client
 
-leavesClient_
+leafHashesClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
@@ -177,9 +183,9 @@ leavesClient_
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leavesClient_ = client (leavesApi @v @c)
+leafHashesClient_ = client (leafHashesApi @v @c)
 
-leavesClient
+leafHashesClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -187,10 +193,37 @@ leavesClient
     -> Maybe MinRank
     -> Maybe MaxRank
     -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leavesClient v c limit start minr maxr = runIdentity $ do
+leafHashesClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ leavesClient_ @v @c limit start minr maxr
+    return $ leafHashesClient_ @v @c limit start minr maxr
+
+-- -------------------------------------------------------------------------- --
+-- Leaf Headers Client
+
+leafHeadersClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Maybe Limit
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+leafHeadersClient_ = client (leafHeadersApi @v @c)
+
+leafHeadersClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+leafHeadersClient v c limit start minr maxr = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ leafHeadersClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
 -- Branch Hashes Client
@@ -276,3 +309,45 @@ hashesClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ hashesClient_ @v @c limit start minr maxr
+
+-- -------------------------------------------------------------------------- --
+-- Children Hashes Client
+
+childHashesClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+childHashesClient_ = client (childHashesApi @v @c)
+
+childHashesClient
+    :: ChainwebVersion
+    -> ChainId
+    -> DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+childHashesClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ childHashesClient_ @v @c k
+
+-- -------------------------------------------------------------------------- --
+-- Children Headers Client
+
+childHeadersClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+childHeadersClient_ = client (childHeadersApi @v @c)
+
+childHeadersClient
+    :: ChainwebVersion
+    -> ChainId
+    -> DbKey BlockHeaderDb
+    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+childHeadersClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ childHeadersClient_ @v @c k

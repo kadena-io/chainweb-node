@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -88,7 +87,7 @@ someChainwebApi v cs = someSwaggerApi
     <> someP2pApis v cs
 
 selectChainIds :: [NetworkId] -> [ChainId]
-selectChainIds = catMaybes . fmap f
+selectChainIds = mapMaybe f
   where
     f (ChainNetwork c) = Just c
     f CutNetwork = Nothing

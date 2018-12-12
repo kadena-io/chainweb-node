@@ -24,9 +24,9 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Lens
+import Control.Lens hiding (children)
 import Control.Monad
-import qualified Control.Monad.Catch as E (catches, Handler(..))
+import qualified Control.Monad.Catch as E (Handler(..), catches)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
@@ -85,7 +85,7 @@ defaultKeyLimit = 4096
 defaultEntryLimit :: Num a => a
 defaultEntryLimit = 360
 
--- Query Branch Hashes of the database.
+-- | Query Branch Hashes of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
@@ -108,7 +108,7 @@ branchHashesHandler db limit next minr maxr bounds = do
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
--- Query Branch Headers of the database.
+-- | Query Branch Headers of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
@@ -135,7 +135,7 @@ branchHeadersHandler db limit next minr maxr bounds = do
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
-leavesHandler
+leafHashesHandler
     :: TreeDb db
     => db
     -> Maybe Limit
@@ -143,13 +143,31 @@ leavesHandler
     -> Maybe MinRank
     -> Maybe MaxRank
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-leavesHandler db limit next minr maxr = do
+leafHashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO $ finiteStreamToPage id effectiveLimit $ void
         $ leafKeys db nextChecked (succ <$> effectiveLimit) minr maxr
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
+-- | All leaf nodes (i.e. the newest blocks on any given branch).
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+leafHeadersHandler
+    :: TreeDb db
+    => db
+    -> Maybe Limit
+    -> Maybe (NextItem (DbKey db))
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+leafHeadersHandler db limit next minr maxr = do
+    nextChecked <- traverse (traverse $ checkKey db) next
+    liftIO $ finiteStreamToPage key effectiveLimit $ void
+        $ leafEntries db nextChecked (succ <$> effectiveLimit) minr maxr
+  where
+    effectiveLimit = limit <|> Just defaultKeyLimit
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -189,14 +207,14 @@ headersHandler db limit next minr maxr = do
   where
     effectiveLimit = limit <|> Just defaultEntryLimit
 
--- Query a single 'BlockHeader' by its 'BlockHash'
+-- | Query a single 'BlockHeader' by its 'BlockHash'
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
 
--- Add a new 'BlockHeader' to the database
+-- | Add a new 'BlockHeader' to the database
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
@@ -213,18 +231,39 @@ headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
         throwError $ err400 { errBody = sshow err }
     ]
 
+-- | Fetch all the immediate children nodes of some given parent.
+--
+childHashesHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+childHashesHandler db k = do
+    keyChecked <- checkKey db k
+    liftIO . finiteStreamToPage id (Just defaultEntryLimit)
+           . void
+           $ children db keyChecked
+
+-- | Fetch all the immediate children nodes of some given parent.
+--
+childHeadersHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+childHeadersHandler db k = do
+    keyChecked <- checkKey db k
+    liftIO . finiteStreamToPage key (Just defaultEntryLimit)
+           . void
+           $ childrenEntries db keyChecked
+
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 
 blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
 blockHeaderDbServer (BlockHeaderDb_ db) =
-    leavesHandler db
+    leafHashesHandler db
+    :<|> leafHeadersHandler db
     :<|> hashesHandler db
     :<|> headersHandler db
     :<|> headerHandler db
     :<|> headerPutHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db
+    :<|> childHashesHandler db
+    :<|> childHeadersHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB

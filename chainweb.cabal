@@ -71,6 +71,7 @@ library
         , Chainweb.Time
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Persist
+        , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Sync
         , Chainweb.TreeDB.SyncSession
         , Chainweb.Utils
@@ -112,6 +113,7 @@ library
         , cryptohash-sha512 >= 0.11
         , data-dword >= 0.3
         , deepseq >= 1.4
+        , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
         , http-client >= 0.5
@@ -166,6 +168,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
+        Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils

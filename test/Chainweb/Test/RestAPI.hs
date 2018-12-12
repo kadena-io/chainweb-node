@@ -122,7 +122,7 @@ simpleClientSession envIO cid =
             (Actual gen1)
 
         void $ liftIO $ step "branchesClient: get gensis block header"
-        brs <- leavesClient Test cid Nothing Nothing Nothing Nothing
+        brs <- leafHashesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs)
@@ -152,7 +152,7 @@ simpleClientSession envIO cid =
             (Actual $ _pageItems hs2)
 
         void $ liftIO $ step "branchesClient: get latest branch"
-        brs2 <- leavesClient Test cid Nothing Nothing Nothing Nothing
+        brs2 <- leafHashesClient Test cid Nothing Nothing Nothing Nothing
         assertExpectation "branchesClient returned wrong number of entries"
             (Expected 1)
             (Actual $ _pageLimit brs2)
@@ -336,4 +336,4 @@ testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
 testPageLimitBranchesClient :: IO TestClientEnv -> TestTree
 testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
   where
-    request cid l n = leavesClient Test cid l n Nothing Nothing
+    request cid l n = leafHashesClient Test cid l n Nothing Nothing

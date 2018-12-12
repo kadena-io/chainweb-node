@@ -11,10 +11,12 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (insertN, withDB, withServer)
 import Chainweb.TreeDB
+import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
 
 tests :: TestTree
@@ -35,8 +37,8 @@ cid = testChainId 0
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
 noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \_ db -> withServer [(cid, db)] [] $ \env -> do
-    sync diam env db
+noopSingletonSync = withDB cid $ \g db -> withServer [(cid, db)] [] $ \env -> do
+    sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
     maxRank db >>= (@?= 0)
 
 -- | Simulates an up-to-date node querying another for updates,
@@ -47,21 +49,22 @@ noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam env db
+        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates a node that queries an /older/ node for updates.
 --
 noopNewerNode :: Assertion
-noopNewerNode = withDB cid $ \g db -> do
-    void $ insertN 10 g db
-    peer <- copy db
-    h <- maxHeader peer
-    void $ insertN 90 h peer
-    withServer [(cid, db)] [] $ \env -> do
-        sync diam env peer
-        maxRank peer >>= (@?= 100)
-        maxRank db   >>= (@?= 10)
+noopNewerNode = withDB cid $ \g peer -> do
+    void $ insertN 10 g peer
+    db <- copy peer
+    h <- maxHeader db
+    void $ insertN 90 h db
+    withServer [(cid, peer)] [] $ \env -> do
+        let remote = RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        sync diam db remote
+        maxRank db >>= (@?= 100)
+        maxRank remote >>= (@?= 10)
 
 -- | Simulates a brand new node syncing everything from a peer.
 --
@@ -71,7 +74,7 @@ newNode = withDB cid $ \g db -> do
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam env db
+        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates an older node that hasn't been sync'd in a while.
@@ -83,5 +86,5 @@ oldNode = withDB cid $ \g db -> do
     h <- maxHeader peer
     void $ insertN 90 h peer
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam env db
+        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)
