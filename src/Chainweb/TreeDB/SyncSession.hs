@@ -62,7 +62,7 @@ type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 
 -- | Sync branches which could reasonably have been updated since a given local
 -- database was synced.
-branchSync :: BlockHeaderTreeDb db => db -> Diameter -> LogFunction -> RemoteDb -> IO ()
+branchSync :: BlockHeaderTreeDb db => db -> Depth -> LogFunction -> RemoteDb -> IO ()
 branchSync ldb d logFun env = do
 
     logg Debug "get local leaves"
@@ -114,7 +114,7 @@ chainClientEnv db env = RemoteDb env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> Diameter -> P2pSession
+syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> Depth -> P2pSession
 syncSession db d logg env = do
     receiveBlockHeaders
     m <- maxHeader db

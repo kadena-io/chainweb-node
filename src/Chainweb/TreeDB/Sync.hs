@@ -19,15 +19,13 @@ module Chainweb.TreeDB.Sync
     PeerTree(..)
   , sync
     -- * Utils
-  , Diameter(..)
+  , Depth(..)
   , minHeight
   ) where
 
 import Data.Semigroup (Min(..))
 
 import Numeric.Natural (Natural)
-
-import Refined hiding (NonEmpty)
 
 import Streaming
 
@@ -36,10 +34,9 @@ import Streaming
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.TreeDB
 
--- TODO The real version of this will be present elsewhere.
--- | The diameter of the current chain graph.
+-- | Some Rank depth in the past, past which we wouldn't want to sync.
 --
-newtype Diameter = Diameter { diameter :: Refined (Positive && LessThan 10) Int }
+newtype Depth = Depth Natural
 
 -- | A wrapper for things which have `TreeDb` instances.
 --
@@ -50,7 +47,7 @@ newtype PeerTree t = PeerTree { _peerTree :: t } deriving newtype (TreeDb)
 --
 sync
     :: (TreeDb local, TreeDb peer, DbEntry local ~ BlockHeader, DbEntry peer ~ BlockHeader)
-    => Diameter
+    => Depth
     -> local
     -> PeerTree peer
     -> IO ()
@@ -63,8 +60,8 @@ sync d local peer = do
 -- find the lowest entry rank such that it's at most only
 -- (diameter * 2) in height away.
 --
-minHeight :: BlockHeight -> Diameter -> MinRank
-minHeight h d = MinRank $ Min m
+minHeight :: BlockHeight -> Depth -> MinRank
+minHeight h (Depth d) = MinRank $ Min m
   where
     m :: Natural
     m = fromIntegral (max (high - low) 0)
@@ -75,4 +72,4 @@ minHeight h d = MinRank $ Min m
     high = fromIntegral h
 
     low :: Integer
-    low = fromIntegral $ 2 * unrefine (diameter d)
+    low = fromIntegral $ 2 * d

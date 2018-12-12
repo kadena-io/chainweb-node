@@ -6,8 +6,6 @@ import Control.Monad (void)
 
 import Data.Semigroup (Min(..))
 
-import Refined (refineTH)
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -37,8 +35,8 @@ tests = testGroup "Single-Chain Sync"
       ]
     ]
 
-diam :: Diameter
-diam = Diameter $$(refineTH 6)
+diam :: Depth
+diam = Depth 6
 
 cid :: ChainId
 cid = testChainId 0
