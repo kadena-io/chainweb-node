@@ -7,11 +7,11 @@ Read [our whitepaper](http://kadena.io/docs/chainweb-v15.pdf).
 
 Requirements:
 
-- Cabal >=2.0
-- GHC >=8.2
-- (optional) Stack >=1.6
+- Cabal >= 2.2
+- GHC >= 8.2
+- (optional) Stack >= 1.9
 
-For productions builds, run one of the following:
+To build the various Chainweb components, run one of the following:
 
 ```
 # To build with cabal
@@ -21,34 +21,19 @@ cabal install --enable-tests
 stack install --test
 ```
 
-This will build the chainweb library, the `chainweb-node` executable, and the main
-test suite.
-
-For development builds that include additional examples, you need to
-pass the `dev` flag:
-
-```bash
-# To build with cabal
-cabal configure -fdev --enable-tests
-cabal build
-
-# To build with stack
-stack build --flag chainweb:dev
-```
+This will build the chainweb library, the `chainweb-node` executable, the main
+test suite, and a few extra example executables.
 
 ## Running the Examples
 
 A simple end-to-end example for mining and synchronizing nodes for a single
-chain is provided in `chaindb-sync-trivial-example`. It demonstrates simple usage
-of the `P2P`, `Sync` and `ChainDB` modules of the `chainweb` library.
-
-Provided that you built `chainweb` with the `dev` flag as shown above, you can
-run the sync example with one of:
+chain is provided in `single-chain-example`. It demonstrates simple usage of the
+`P2P`, `Sync` and `BlockHeaderDB` modules of the `chainweb` library.
 
 ```bash
-cabal run chaindb-trivial-sync-example
+cabal run single-chain-example
 
-stack exec chaindb-trivial-sync-example
+stack exec single-chain-example
 ```
 
 ## Component Structure
@@ -67,12 +52,12 @@ The production components are:
 
 In addition, a number of example executables are also included:
 
-*   `chaindb-trivial-sync-example`: An simple end-to-end scenario for mining
+*   `single-chain-example`: An simple end-to-end scenario for mining
     and synchronizing nodes for a single chain.
 
-*   `chaindb-example`: Example for how to use the ChainDB API of chainweb.
+*   `blockheaderdb-example`: Example for how to use the BlockHeaderDB API of chainweb.
 
-*   `p2p-example-inprocess`: A simple p2p network implementation.
+*   `p2p-example`: A simple p2p network implementation.
 
 # Architecture Overview
 
