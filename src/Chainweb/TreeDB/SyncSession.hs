@@ -25,12 +25,9 @@ module Chainweb.TreeDB.SyncSession
 import Control.Lens ((&))
 import Control.Monad
 
-import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
-
-import GHC.Generics
 
 import Servant.Client
 
@@ -43,10 +40,9 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId
 import Chainweb.TreeDB
+import Chainweb.TreeDB.RemoteDB (RemoteDb(..))
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -60,72 +56,20 @@ import P2P.Session
 
 type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 
--- TODO: add TreeDb instance
---
-data ChainClientEnv = ChainClientEnv
-    { _envChainwebVersion :: !ChainwebVersion
-    , _envChainId :: !ChainId
-    , _envClientEnv :: !ClientEnv
-    }
-    deriving (Generic)
-
--- | TODO: add retry logic
---
-runUnpaged
-    :: ClientEnv
-    -> Maybe k
-    -> Maybe Limit
-    -> (Maybe k -> Maybe Limit -> ClientM (Page k a))
-    -> Stream (Of a) IO ()
-runUnpaged env a b req = go a b
-  where
-    go k l = lift (runClientThrowM (req k l) env) >>= \page -> do
-        let c = (\x -> x - _pageLimit page) <$> l
-        S.each (_pageItems page)
-        case c of
-            Just x | x <= 0 -> return ()
-            _ -> maybe (return ()) (\n -> go (Just n) c) (_pageNext page)
-
-runClientThrowM :: ClientM a -> ClientEnv -> IO a
-runClientThrowM req = fromEitherM <=< runClientM req
-
-getBranchHeaders
-    :: ChainClientEnv
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> BranchBounds BlockHeaderDb
-    -> Stream (Of (DbEntry BlockHeaderDb)) IO ()
-getBranchHeaders (ChainClientEnv v cid env) minr maxr range = runUnpaged env Nothing Nothing $ \k l ->
-    branchHeadersClient v cid l k minr maxr range
-
-getLeaves
-    :: ChainClientEnv
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Stream (Of (DbKey BlockHeaderDb)) IO ()
-getLeaves (ChainClientEnv v cid env) minr maxr = runUnpaged env Nothing Nothing $ \k l ->
-    leafHashesClient v cid l k minr maxr
-
-putHeader
-    :: ChainClientEnv
-    -> DbEntry BlockHeaderDb
-    -> IO ()
-putHeader (ChainClientEnv v cid env) = void . flip runClientThrowM env
-    . headerPutClient v cid
-
 -- -------------------------------------------------------------------------- --
 -- Sync
 
-fullSync :: BlockHeaderTreeDb db => db -> LogFunction -> ChainClientEnv -> IO ()
+fullSync :: BlockHeaderTreeDb db => db -> LogFunction -> RemoteDb -> IO ()
 fullSync ldb logFun env = do
 
     logg Debug "get local leaves"
     lLeaves <- streamToHashSet_ $ leafKeys ldb Nothing Nothing Nothing Nothing
 
     logg Debug "get remote leaves"
-    rLeaves <- streamToHashSet_ $ getLeaves env Nothing Nothing
+    rLeaves <- streamToHashSet_ $ leafKeys env Nothing Nothing Nothing Nothing
 
-    let bounds = BranchBounds (HS.map LowerBound lLeaves) (HS.map UpperBound rLeaves)
+    let lower = HS.map LowerBound lLeaves
+        upper = HS.map UpperBound rLeaves
 
     logg Debug "request remote branches limited by local leaves"
 
@@ -133,7 +77,8 @@ fullSync ldb logFun env = do
     -- before we can start to insert in the local db. We could somewhat
     -- better by starting insertion as soon as we got a complete branch,
     -- but that's left as future optimization.
-    getBranchHeaders env Nothing Nothing bounds
+    branchEntries env Nothing Nothing Nothing Nothing lower upper
+        & void
         & reverseStream
         & chunksOf 64 -- TODO: ideally, this would align with response pages
         & mapsM_ (insertStream ldb)
@@ -155,8 +100,8 @@ chainDbChainwebVersion = _blockChainwebVersion . chainDbGenesisBlock
 chainDbChainId :: BlockHeaderTreeDb db => db -> ChainId
 chainDbChainId = _blockChainId . chainDbGenesisBlock
 
-chainClientEnv :: BlockHeaderTreeDb db => db -> ClientEnv -> ChainClientEnv
-chainClientEnv db = ChainClientEnv
+chainClientEnv :: BlockHeaderTreeDb db => db -> ClientEnv -> RemoteDb
+chainClientEnv db env = RemoteDb env
     (chainDbChainwebVersion db)
     (chainDbChainId db)
 
@@ -173,10 +118,11 @@ syncSession db logg env = do
     void $ logg @T.Text Error "unexpectedly exited sync session"
     return False
   where
+    cenv :: RemoteDb
     cenv = chainClientEnv db env
 
     send h = do
-        putHeader cenv h
+        insert cenv h
         logg Debug $ "put block header " <> showHash h
 
     receiveBlockHeaders = do
