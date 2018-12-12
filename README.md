@@ -8,7 +8,7 @@ Read [our whitepaper](http://kadena.io/docs/chainweb-v15.pdf).
 Requirements:
 
 - Cabal >= 2.2
-- GHC >= 8.2
+- GHC >= 8.4
 - (optional) Stack >= 1.9
 
 To build the various Chainweb components, run one of the following:
@@ -50,7 +50,8 @@ The production components are:
 
 *   `chainweb-tests`: A test suite for the chainweb library and chainweb-node.
 
-In addition, a number of example executables are also included:
+In addition, the following example executables are included which demonstrate
+the use of individual sub-components:
 
 *   `single-chain-example`: An simple end-to-end scenario for mining
     and synchronizing nodes for a single chain.
