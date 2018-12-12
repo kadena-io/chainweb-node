@@ -39,6 +39,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.TreeDB.Sync
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.TreeDB
@@ -59,8 +60,10 @@ type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 -- -------------------------------------------------------------------------- --
 -- Sync
 
-fullSync :: BlockHeaderTreeDb db => db -> LogFunction -> RemoteDb -> IO ()
-fullSync ldb logFun env = do
+-- | Sync branches which could reasonably have been updated since a given local
+-- database was synced.
+branchSync :: BlockHeaderTreeDb db => db -> Diameter -> LogFunction -> RemoteDb -> IO ()
+branchSync ldb d logFun env = do
 
     logg Debug "get local leaves"
     lLeaves <- streamToHashSet_ $ leafKeys ldb Nothing Nothing Nothing Nothing
@@ -71,13 +74,16 @@ fullSync ldb logFun env = do
     let lower = HS.map LowerBound lLeaves
         upper = HS.map UpperBound rLeaves
 
+    h <- maxHeader ldb
+    let m = minHeight (_blockHeight h) d
+
     logg Debug "request remote branches limited by local leaves"
 
     -- We get remote headers in reverse order, so we have to buffer
     -- before we can start to insert in the local db. We could somewhat
     -- better by starting insertion as soon as we got a complete branch,
     -- but that's left as future optimization.
-    branchEntries env Nothing Nothing Nothing Nothing lower upper
+    branchEntries env Nothing Nothing (Just m) Nothing lower upper
         & void
         & reverseStream
         & chunksOf 64 -- TODO: ideally, this would align with response pages
@@ -108,8 +114,8 @@ chainClientEnv db env = RemoteDb env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> P2pSession
-syncSession db logg env = do
+syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> Diameter -> P2pSession
+syncSession db d logg env = do
     receiveBlockHeaders
     m <- maxHeader db
     S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
@@ -127,7 +133,7 @@ syncSession db logg env = do
 
     receiveBlockHeaders = do
         logg @T.Text Info "start full sync"
-        fullSync db logg cenv
+        branchSync db d logg cenv
         logg @T.Text Debug "finished full sync"
 
 -- -------------------------------------------------------------------------- --
