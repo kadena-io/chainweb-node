@@ -38,7 +38,7 @@ cid = testChainId 0
 --
 noopSingletonSync :: Assertion
 noopSingletonSync = withDB cid $ \g db -> withServer [(cid, db)] [] $ \env -> do
-    sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+    sync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
     maxRank db >>= (@?= 0)
 
 -- | Simulates an up-to-date node querying another for updates,
@@ -49,7 +49,7 @@ noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        sync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates a node that queries an /older/ node for updates.
@@ -61,7 +61,7 @@ noopNewerNode = withDB cid $ \g peer -> do
     h <- maxHeader db
     void $ insertN 90 h db
     withServer [(cid, peer)] [] $ \env -> do
-        let remote = RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        let remote = PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         sync diam db remote
         maxRank db >>= (@?= 100)
         maxRank remote >>= (@?= 10)
@@ -74,7 +74,7 @@ newNode = withDB cid $ \g db -> do
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        sync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates an older node that hasn't been sync'd in a while.
@@ -85,6 +85,8 @@ oldNode = withDB cid $ \g db -> do
     peer <- copy db
     h <- maxHeader peer
     void $ insertN 90 h peer
+    maxRank db >>= (@?= 10)
+    maxRank peer >>= (@?= 100)
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        sync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)

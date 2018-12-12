@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -14,7 +16,8 @@
 
 module Chainweb.TreeDB.Sync
   ( -- * Syncronizing a Chain
-    sync
+    PeerTree(..)
+  , sync
     -- * Temporary Export
   , Diameter(..)
   ) where
@@ -37,6 +40,10 @@ import Chainweb.TreeDB
 --
 newtype Diameter = Diameter { diameter :: Refined (Positive && LessThan 10) Int }
 
+-- | A wrapper for things which have `TreeDb` instances.
+--
+newtype PeerTree t = PeerTree { _peerTree :: t } deriving newtype (TreeDb)
+
 -- | Given a peer to connect to, fetch all `BlockHeader`s that exist
 -- in the peer's chain but not our local given `TreeDb`, and sync them.
 --
@@ -44,7 +51,7 @@ sync
     :: (TreeDb local, TreeDb peer, DbEntry local ~ BlockHeader, DbEntry peer ~ BlockHeader)
     => Diameter
     -> local
-    -> peer
+    -> PeerTree peer
     -> IO ()
 sync d local peer = do
     h <- maxHeader local
