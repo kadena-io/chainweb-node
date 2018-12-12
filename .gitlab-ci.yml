@@ -21,8 +21,3 @@ chainweb-cabal-ghc84:
   stage: build
   script:
     - nix-shell -p haskell.compiler.ghc844 cabal-install zlib --run "cabal new-build && cabal new-test"
-
-chainweb-cabal-ghc84-dev:
-  stage: build
-  script:
-    - nix-shell -p haskell.compiler.ghc844 cabal-install zlib --run "cabal new-build -fdev && cabal new-test -fdev"

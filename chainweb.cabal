@@ -16,8 +16,8 @@ build-type:   Simple
 
 tested-with:
     GHC == 8.6.1
-     GHC == 8.4.4
-     GHC == 8.4.3
+    GHC == 8.4.4
+    GHC == 8.4.3
 
 extra-source-files:
     CHANGELOG.md
@@ -32,13 +32,6 @@ data-files:
 source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
-
-flag dev
-    description:
-        Enable build of additional development components and perform
-        extra tests.
-    default: False
-    manual: True
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
@@ -322,7 +315,6 @@ executable blockheaderdb-example
         , text >= 1.2
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
-    if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- Single P2P Example
@@ -357,7 +349,6 @@ executable p2p-example
         , text >= 1.2
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
-    if flag(dev) { buildable: True } else { buildable: False }
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain End-To-End Example
@@ -407,5 +398,3 @@ executable single-chain-example
         , warp >= 3.2
         , xmlgen >= 0.6
         , yet-another-logger >= 0.3.1
-
-    if flag(dev) { buildable: True } else { buildable: False }
