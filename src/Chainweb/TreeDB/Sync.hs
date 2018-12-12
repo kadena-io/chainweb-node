@@ -11,15 +11,16 @@
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- Sync a local `TreeDb` with that of some remote peer.
+-- Sync a local `TreeDb` with that of some peer.
 --
 
 module Chainweb.TreeDB.Sync
   ( -- * Syncronizing a Chain
     PeerTree(..)
   , sync
-    -- * Temporary Export
+    -- * Utils
   , Diameter(..)
+  , minHeight
   ) where
 
 import Data.Semigroup (Min(..))

@@ -11,6 +11,8 @@ module Chainweb.Test.BlockHeaderDB
 ( tests
 ) where
 
+import Data.Semigroup (Min(..))
+
 import qualified Streaming.Prelude as S
 
 import Test.Tasty
@@ -31,6 +33,7 @@ tests = testGroup "Basic Interaction"
     , testCase "Reinserting the Genesis Block is a no-op" reinsertGenesis
     , testCase "height" correctHeight
     , testCase "copy" copyTest
+    , testCase "rank filtering" rankFiltering
     ]
 
 chainId0 :: ChainId
@@ -67,3 +70,9 @@ copyTest = withDB chainId0 $ \g db -> do
     insertN 20 g db
     maxRank db  >>= \r -> r @?= 20
     maxRank db' >>= \r -> r @?= 10
+
+rankFiltering :: Assertion
+rankFiltering = withDB chainId0 $ \g db -> do
+    insertN 100 g db
+    l <- S.length_ $ entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing
+    l @?= 11

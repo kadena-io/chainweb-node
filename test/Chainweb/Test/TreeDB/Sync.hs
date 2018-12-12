@@ -4,6 +4,8 @@ module Chainweb.Test.TreeDB.Sync ( tests ) where
 
 import Control.Monad (void)
 
+import Data.Semigroup (Min(..))
+
 import Refined (refineTH)
 
 import Test.Tasty
@@ -11,7 +13,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (insertN, withDB, withServer)
@@ -21,11 +23,18 @@ import Chainweb.TreeDB.Sync
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"
-    [ testCase "Two identical length-1 chains" noopSingletonSync
-    , testCase "Two identical length-N chains" noopLongSync
-    , testCase "Syncing a newer node (no-op)" noopNewerNode
-    , testCase "Syncing a fresh node" newNode
-    , testCase "Syncing an old node" oldNode
+    [ testGroup "Syncing from a RemoteDb"
+      [ testCase "Two identical length-1 chains" noopSingletonSync
+      , testCase "Two identical length-N chains" noopLongSync
+      , testCase "Syncing a newer node (no-op)" noopNewerNode
+      , testCase "Syncing a fresh node" newNode
+      , testCase "Syncing an old node" oldNode
+      ]
+    , testGroup "minHeight"
+      [ testCase "Just Genesis" $ minHeight (BlockHeight 0) diam @?= MinRank (Min 0)
+      , testCase "Short Chain"  $ minHeight (BlockHeight 5) diam @?= MinRank (Min 0)
+      , testCase "Long Chain"   $ minHeight (BlockHeight 1000) diam @?= MinRank (Min 988)
+      ]
     ]
 
 diam :: Diameter
