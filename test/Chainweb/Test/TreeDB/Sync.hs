@@ -4,14 +4,14 @@ module Chainweb.Test.TreeDB.Sync ( tests ) where
 
 import Control.Monad (void)
 
-import Refined (refineTH)
+import Data.Semigroup (Min(..))
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.Utils (insertN, withDB, withServer)
@@ -21,15 +21,22 @@ import Chainweb.TreeDB.Sync
 
 tests :: TestTree
 tests = testGroup "Single-Chain Sync"
-    [ testCase "Two identical length-1 chains" noopSingletonSync
-    , testCase "Two identical length-N chains" noopLongSync
-    , testCase "Syncing a newer node (no-op)" noopNewerNode
-    , testCase "Syncing a fresh node" newNode
-    , testCase "Syncing an old node" oldNode
+    [ testGroup "Syncing from a RemoteDb"
+      [ testCase "Two identical length-1 chains" noopSingletonSync
+      , testCase "Two identical length-N chains" noopLongSync
+      , testCase "Syncing a newer node (no-op)" noopNewerNode
+      , testCase "Syncing a fresh node" newNode
+      , testCase "Syncing an old node" oldNode
+      ]
+    , testGroup "minHeight"
+      [ testCase "Just Genesis" $ minHeight (BlockHeight 0) diam @?= MinRank (Min 0)
+      , testCase "Short Chain"  $ minHeight (BlockHeight 5) diam @?= MinRank (Min 0)
+      , testCase "Long Chain"   $ minHeight (BlockHeight 1000) diam @?= MinRank (Min 988)
+      ]
     ]
 
-diam :: Diameter
-diam = Diameter $$(refineTH 6)
+diam :: Depth
+diam = Depth 6
 
 cid :: ChainId
 cid = testChainId 0
@@ -38,7 +45,7 @@ cid = testChainId 0
 --
 noopSingletonSync :: Assertion
 noopSingletonSync = withDB cid $ \g db -> withServer [(cid, db)] [] $ \env -> do
-    sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+    linearSync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
     maxRank db >>= (@?= 0)
 
 -- | Simulates an up-to-date node querying another for updates,
@@ -49,7 +56,7 @@ noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        linearSync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates a node that queries an /older/ node for updates.
@@ -61,8 +68,8 @@ noopNewerNode = withDB cid $ \g peer -> do
     h <- maxHeader db
     void $ insertN 90 h db
     withServer [(cid, peer)] [] $ \env -> do
-        let remote = RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
-        sync diam db remote
+        let remote = PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        linearSync diam db remote
         maxRank db >>= (@?= 100)
         maxRank remote >>= (@?= 10)
 
@@ -74,7 +81,7 @@ newNode = withDB cid $ \g db -> do
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        linearSync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates an older node that hasn't been sync'd in a while.
@@ -85,6 +92,8 @@ oldNode = withDB cid $ \g db -> do
     peer <- copy db
     h <- maxHeader peer
     void $ insertN 90 h peer
+    maxRank db >>= (@?= 10)
+    maxRank peer >>= (@?= 100)
     withServer [(cid, peer)] [] $ \env -> do
-        sync diam db $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
+        linearSync diam db . PeerTree $ RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)
