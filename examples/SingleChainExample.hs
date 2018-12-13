@@ -67,8 +67,7 @@ import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB (remoteDb)
-import Chainweb.TreeDB.Sync (Depth(..), PeerTree(..))
-import Chainweb.TreeDB.SyncSession
+import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
