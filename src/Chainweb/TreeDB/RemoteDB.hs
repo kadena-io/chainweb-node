@@ -40,8 +40,8 @@ import Chainweb.Version (ChainwebVersion)
 --
 data RemoteDb = RemoteDb
     { _remoteEnv :: !ClientEnv
-    , _remoteVersion :: !ChainwebVersion
-    , _remoteChainId :: !ChainId }
+    , _remoteVersion :: {-# UNPACK #-} !ChainwebVersion
+    , _remoteChainId :: {-# UNPACK #-} !ChainId }
 
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
