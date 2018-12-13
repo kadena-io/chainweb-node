@@ -104,15 +104,18 @@ import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.TreeDB.SyncSession
+import Chainweb.TreeDB.RemoteDB
+import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebChainDB
 
+import Data.DiGraph
 import Data.LogMessage
 
 import P2P.Node
 import P2P.Node.Configuration
+import P2P.Session
 
 import Utils.Logging
 
@@ -186,6 +189,7 @@ data Chain = Chain
     , _chainPeerDb :: !PeerDb
     , _chainLogger :: !Logger
         -- do we need this here?
+    , _chainSyncDepth :: !Depth
     }
 
 makeLenses ''Chain
@@ -204,7 +208,7 @@ withChain v graph cid p2pConfig logger f =
     L.withLoggerLabel ("chain", toText cid) logger $ \logger' -> do
         withBlockHeaderDb Test graph cid $ \cdb ->
             withPeerDb p2pConfig $ \pdb ->
-                f $ Chain cid v graph p2pConfig cdb pdb logger'
+                f $ Chain cid v graph p2pConfig cdb pdb logger' (syncDepth graph)
 
 -- | Synchronize the local block database over the P2P network.
 --
@@ -230,7 +234,7 @@ runChainSyncClient mgr ha chain =
                 (_chainPeerDb chain)
                 ha
                 mgr
-                (chainSyncSession $ _chainBlockHeaderDb chain)
+                (chainSyncP2pSession (_chainSyncDepth chain) (_chainBlockHeaderDb chain))
 
         -- Run P2P client node
         syncLogg Info "initialized"
@@ -239,6 +243,17 @@ runChainSyncClient mgr ha chain =
             syncLogg Info "stopped"
   where
     netId = ChainNetwork (_chainChainId chain)
+
+chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
+chainSyncP2pSession depth db logg env = do
+    peer <- PeerTree <$> remoteDb db env
+    chainSyncSession db peer depth logg
+
+syncDepth :: ChainGraph -> Depth
+syncDepth g = case diameter g of
+    Nothing -> error "Failed to compute diameter of ChainGraph. Most likely the graph is not suitable as chainweb graph"
+    Just x -> Depth (2 * x)
+{-# NOINLINE syncDepth #-}
 
 -- -------------------------------------------------------------------------- --
 -- Miner

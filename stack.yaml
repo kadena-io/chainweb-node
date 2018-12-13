@@ -8,7 +8,6 @@ extra-deps:
   - configuration-tools-0.4.0
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
-  - refined-0.3.0.0@sha256:688f7fb1979acdcf3e99b096590d54c53ab2c3302b7dec15eb600911e05a578f,1240
   - yet-another-logger-0.3.1
 
   # QuickCheck-2.12

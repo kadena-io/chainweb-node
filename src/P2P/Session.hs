@@ -47,4 +47,3 @@ type LogFunctionText = LogLevel -> T.Text -> IO ()
 -- P2P Client Session
 
 type P2pSession = LogFunction -> ClientEnv -> IO Bool
-

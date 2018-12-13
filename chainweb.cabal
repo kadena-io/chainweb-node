@@ -71,7 +71,6 @@ library
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Sync
-        , Chainweb.TreeDB.SyncSession
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Version
@@ -129,7 +128,6 @@ library
         , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
-        , refined >= 0.3
         , resourcet >= 1.2
         , safeio >= 0.0
         , servant >= 0.13
@@ -197,7 +195,6 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , refined >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
@@ -237,52 +234,20 @@ executable chainweb-node
           chainweb
 
         -- external
-        , QuickCheck >= 2.10
         , aeson >= 1.4
-        , aeson-pretty >= 0.8
         , async >= 2.2
-        , attoparsec >= 0.13
         , base >= 4.11
-        , base64-bytestring >= 1.0
-        , bytes >= 0.15
         , bytestring >= 0.10
-        , case-insensitive >= 1.2
-        , cereal >= 0.5
         , configuration-tools >= 0.4
-        , containers >= 0.5
-        , cryptohash-sha512 >= 0.11
-        , data-dword >= 0.3
         , deepseq >= 1.4
         , exceptions >= 0.8
-        , filepath >= 1.4
-        , hashable >= 1.2
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , mtl >= 2.2
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
-        , paths >= 0.2
-        , quickcheck-instances >= 0.3
-        , random >= 1.1
-        , random-bytestring >= 0.1
-        , reflection >= 2.1
-        , refined >= 0.3
-        , resourcet >= 1.2
-        , safeio >= 0.0
-        , servant >= 0.13
-        , servant-client >= 0.13
-        , servant-server >= 0.13
-        , servant-swagger >= 1.1
-        , stm >= 2.4
         , streaming >= 0.2
-        , streaming-bytestring >= 0.1
-        , swagger2 >= 2.2
-        , temporary >= 1.3
         , text >= 1.2
-        , time >= 1.8
-        , transformers >= 0.5
-        , unordered-containers >= 0.2
         , uuid >= 1.3
         , warp >= 3.2
         , yet-another-logger >= 0.3.1
@@ -316,13 +281,10 @@ executable blockheaderdb-example
         -- external
         , async >= 2.2
         , base >= 4.11
-        , base64-bytestring >= 1.0
         , lens >= 4.16
         , random >= 1.1
-        , stm >= 2.4
         , streaming >= 0.2.2
         , text >= 1.2
-        , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --
@@ -347,16 +309,12 @@ executable p2p-example
         , async >= 2.2
         , base >= 4.11
         , configuration-tools >= 0.4
-        , deepseq >= 1.4
         , exceptions >= 0.8
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , monad-control >= 1.0
         , mwc-random >= 0.13
-        , stm >= 2.4
         , text >= 1.2
-        , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --
@@ -398,7 +356,6 @@ executable single-chain-example
         , loglevel >= 0.1
         , monad-control >= 1.0
         , mwc-random >= 0.13
-        , stm >= 2.4
         , streaming >= 0.2.2
         , text >= 1.2
         , unordered-containers >= 0.2

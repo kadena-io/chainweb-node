@@ -65,7 +65,8 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
-import Chainweb.TreeDB.SyncSession
+import Chainweb.TreeDB.RemoteDB (remoteDb)
+import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -172,6 +173,14 @@ pP2pExampleConfig = id
     <*< sessionsLoggerConfig %::
         pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
 
+-- | How deep in the past from the current highest block that we wish to sync.
+--
+-- This is a single chain, therefore a singleton graph of diameter 1, but we'd
+-- still like Sync to check a little deeper into the past.
+--
+syncDepth :: Depth
+syncDepth = Depth 6
+
 -- -------------------------------------------------------------------------- --
 -- Main
 
@@ -236,9 +245,10 @@ timer t = do
     threadDelay timeout
 
 chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
-chainDbSyncSession t db logFun env =
+chainDbSyncSession t db logFun env = do
+    peer <- PeerTree <$> remoteDb db env
     withAsync (timer t) $ \timerAsync ->
-    withAsync (syncSession db logFun env) $ \sessionAsync ->
+      withAsync (syncSession db peer syncDepth logFun) $ \sessionAsync ->
         waitEitherCatchCancel timerAsync sessionAsync >>= \case
             Left (Left e) -> do
                 logg Info $ "session timer failed " <> sshow e

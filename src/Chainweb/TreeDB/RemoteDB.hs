@@ -11,7 +11,10 @@
 -- A `TreeDb`-compatible interface to remote `BlockHeader` databases.
 --
 
-module Chainweb.TreeDB.RemoteDB ( RemoteDb(..) ) where
+module Chainweb.TreeDB.RemoteDB
+  ( RemoteDb(..)
+  , remoteDb
+  ) where
 
 import Control.Error.Util (hush)
 import Control.Monad.Catch (throwM)
@@ -36,9 +39,9 @@ import Chainweb.Version (ChainwebVersion)
 -- network.
 --
 data RemoteDb = RemoteDb
-    { _remoteEnv :: ClientEnv
-    , _remoteVersion :: ChainwebVersion
-    , _remoteChainId :: ChainId }
+    { _remoteEnv :: !ClientEnv
+    , _remoteVersion :: {-# UNPACK #-} !ChainwebVersion
+    , _remoteChainId :: {-# UNPACK #-} !ChainId }
 
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
@@ -112,3 +115,11 @@ callAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . th
         case _pageNext page of
             nxt@(Just (Inclusive _)) -> callAndPage f nxt total env
             _ -> pure (total, Eos True)
+
+-- | Given some connection configuration, form a `RemoteDb` interface to some
+-- `TreeDb`.
+--
+remoteDb :: (TreeDb db, DbEntry db ~ BlockHeader) => db -> ClientEnv -> IO RemoteDb
+remoteDb db env = do
+    h <- root db
+    pure $ RemoteDb env (_blockChainwebVersion h) (_blockChainId h)

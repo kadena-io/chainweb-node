@@ -61,7 +61,8 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
-import Chainweb.TreeDB.SyncSession
+import Chainweb.TreeDB.RemoteDB (remoteDb)
+import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -199,6 +200,16 @@ pP2pNodeConfig = id
     <*< sessionsLoggerConfig %::
         pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
 
+-- | How deep in the past from the current highest block that we wish to sync.
+--
+-- This is a single chain, therefore a singleton graph of diameter 1, but we'd
+-- still like Sync to check a little deeper into the past. This will have to be
+-- changed once we have real multi-chain mining, and the graph is made a
+-- Peterson graph.
+--
+syncDepth :: Depth
+syncDepth = Depth 6
+
 -- -------------------------------------------------------------------------- --
 -- Main
 
@@ -251,8 +262,9 @@ runNodeWithConfig conf logger = do
 -- P2P Client Sessions
 
 chainDbSyncSession :: BlockHeaderDb -> P2pSession
-chainDbSyncSession db logFun env =
-    try (syncSession db logFun env) >>= \case
+chainDbSyncSession db logFun env = do
+    peer <- PeerTree <$> remoteDb db env
+    try (syncSession db peer syncDepth logFun) >>= \case
       Left (e :: SomeException) -> do
         logg Warn $ "Session failed: " <> sshow e
         return False
