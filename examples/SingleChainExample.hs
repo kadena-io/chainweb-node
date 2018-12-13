@@ -198,6 +198,8 @@ example conf logger =
             wait bootstrap
 
   where
+    -- This is a single chain, therefore a singleton graph of diameter 1, but
+    -- we'd still like Sync to check a little deeper into the past.
     d = Depth 6
     cid = _exampleChainId conf
     t = _meanSessionSeconds conf
