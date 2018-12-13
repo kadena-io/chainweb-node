@@ -200,6 +200,16 @@ pP2pNodeConfig = id
     <*< sessionsLoggerConfig %::
         pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
 
+-- | How deep in the past from the current highest block that we wish to sync.
+--
+-- This is a single chain, therefore a singleton graph of diameter 1, but we'd
+-- still like Sync to check a little deeper into the past. This will have to be
+-- changed once we have real multi-chain mining, and the graph is made a
+-- Peterson graph.
+--
+syncDepth :: Depth
+syncDepth = Depth 6
+
 -- -------------------------------------------------------------------------- --
 -- Main
 
@@ -249,10 +259,10 @@ runNodeWithConfig conf logger = do
 -- -------------------------------------------------------------------------- --
 -- P2P Client Sessions
 
-chainDbSyncSession :: BlockHeaderDb -> Depth -> P2pSession
-chainDbSyncSession db d logFun env = do
+chainDbSyncSession :: BlockHeaderDb -> P2pSession
+chainDbSyncSession db logFun env = do
     peer <- PeerTree <$> remoteDb db env
-    try (syncSession db peer d logFun) >>= \case
+    try (syncSession db peer syncDepth logFun) >>= \case
       Left (e :: SomeException) -> do
         logg Warn $ "Session failed: " <> sshow e
         return False
@@ -278,11 +288,6 @@ node cid logger conf p2pConfig nid port =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
-            -- This is a single chain, therefore a singleton graph of diameter
-            -- 1, but we'd still like Sync to check a little deeper into the
-            -- past. This will have to be changed once we have real multi-chain
-            -- mining, and the graph is made a Peterson graph.
-            depth  = Depth 6
         logfun Info $ "Start test node"
 
         withBlockHeaderDb cid $ \cdb ->
@@ -294,7 +299,7 @@ node cid logger conf p2pConfig nid port =
                   logfun Info "started server"
                   runConcurrently
                       $ Concurrently (miner logger' conf nid cdb)
-                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port depth)
+                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
                       <> Concurrently (monitor logger' cdb)
                   wait server
 
@@ -321,16 +326,15 @@ syncer
     -> BlockHeaderDb
     -> PeerDb
     -> Port
-    -> Depth
     -> IO ()
-syncer cid logger conf cdb pdb port d =
+syncer cid logger conf cdb pdb port =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession cdb d)
+            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"

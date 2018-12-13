@@ -173,6 +173,14 @@ pP2pExampleConfig = id
     <*< sessionsLoggerConfig %::
         pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
 
+-- | How deep in the past from the current highest block that we wish to sync.
+--
+-- This is a single chain, therefore a singleton graph of diameter 1, but we'd
+-- still like Sync to check a little deeper into the past.
+--
+syncDepth :: Depth
+syncDepth = Depth 6
+
 -- -------------------------------------------------------------------------- --
 -- Main
 
@@ -192,15 +200,12 @@ main = runWithConfiguration mainInfo $ \config ->
 
 example :: P2pExampleConfig -> Logger -> IO ()
 example conf logger =
-    withAsync (node cid t logger conf bootstrapConfig d bootstrapNodeId bootstrapPort)
+    withAsync (node cid t logger conf bootstrapConfig bootstrapNodeId bootstrapPort)
         $ \bootstrap -> do
-            mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig d) nodePorts
+            mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
             wait bootstrap
 
   where
-    -- This is a single chain, therefore a singleton graph of diameter 1, but
-    -- we'd still like Sync to check a little deeper into the past.
-    d = Depth 6
     cid = _exampleChainId conf
     t = _meanSessionSeconds conf
 
@@ -238,11 +243,11 @@ timer t = do
     timeout <- MWC.geometric1 (1 / (fromIntegral t * 1000000)) gen
     threadDelay timeout
 
-chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> Depth -> db -> P2pSession
-chainDbSyncSession t d db logFun env = do
+chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
+chainDbSyncSession t db logFun env = do
     peer <- PeerTree <$> remoteDb db env
     withAsync (timer t) $ \timerAsync ->
-      withAsync (syncSession db peer d logFun) $ \sessionAsync ->
+      withAsync (syncSession db peer syncDepth logFun) $ \sessionAsync ->
         waitEitherCatchCancel timerAsync sessionAsync >>= \case
             Left (Left e) -> do
                 logg Info $ "session timer failed " <> sshow e
@@ -269,11 +274,10 @@ node
     -> Logger
     -> P2pExampleConfig
     -> P2pConfiguration
-    -> Depth
     -> NodeId
     -> Port
     -> IO ()
-node cid t logger conf p2pConfig d nid port =
+node cid t logger conf p2pConfig nid port =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
@@ -289,7 +293,7 @@ node cid t logger conf p2pConfig d nid port =
                 logfun Info "started server"
                 runConcurrently
                     $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
-                    <> Concurrently (syncer cid logger' p2pConfig d cdb pdb port t)
+                    <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
                     <> Concurrently (monitor logger' cdb)
                 wait server
   where
@@ -321,21 +325,20 @@ syncer
     :: ChainId
     -> Logger
     -> P2pConfiguration
-    -> Depth
     -> BlockHeaderDb
     -> PeerDb
     -> Port
         -- This is the local port that is used in the local peer info
     -> Natural
     -> IO ()
-syncer cid logger conf d cdb pdb port t =
+syncer cid logger conf cdb pdb port t =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger ->
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t d cdb)
+            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
