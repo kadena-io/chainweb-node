@@ -62,7 +62,8 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Sync (Depth(..))
+import Chainweb.TreeDB.RemoteDB (remoteDb)
+import Chainweb.TreeDB.Sync (Depth(..), PeerTree(..))
 import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
@@ -250,8 +251,9 @@ runNodeWithConfig conf logger = do
 -- P2P Client Sessions
 
 chainDbSyncSession :: BlockHeaderDb -> Depth -> P2pSession
-chainDbSyncSession db d logFun env =
-    try (syncSession db d logFun env) >>= \case
+chainDbSyncSession db d logFun env = do
+    peer <- PeerTree <$> remoteDb db env
+    try (syncSession db peer d logFun) >>= \case
       Left (e :: SomeException) -> do
         logg Warn $ "Session failed: " <> sshow e
         return False

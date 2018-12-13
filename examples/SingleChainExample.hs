@@ -66,7 +66,8 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Sync (Depth(..))
+import Chainweb.TreeDB.RemoteDB (remoteDb)
+import Chainweb.TreeDB.Sync (Depth(..), PeerTree(..))
 import Chainweb.TreeDB.SyncSession
 import Chainweb.Utils
 import Chainweb.Version
@@ -239,9 +240,10 @@ timer t = do
     threadDelay timeout
 
 chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> Depth -> db -> P2pSession
-chainDbSyncSession t d db logFun env =
+chainDbSyncSession t d db logFun env = do
+    peer <- PeerTree <$> remoteDb db env
     withAsync (timer t) $ \timerAsync ->
-    withAsync (syncSession db d logFun env) $ \sessionAsync ->
+      withAsync (syncSession db peer d logFun) $ \sessionAsync ->
         waitEitherCatchCancel timerAsync sessionAsync >>= \case
             Left (Left e) -> do
                 logg Info $ "session timer failed " <> sshow e
