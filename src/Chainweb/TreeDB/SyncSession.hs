@@ -18,9 +18,14 @@
 -- TODO
 --
 module Chainweb.TreeDB.SyncSession
-( syncSession
-, type BlockHeaderTreeDb
-) where
+  (
+    -- * Types
+    type BlockHeaderTreeDb
+    -- * Sync Algorithms
+  , branchSync
+    -- * Sync Session
+  , syncSession
+  ) where
 
 import Control.Lens ((&))
 import Control.Monad
@@ -29,24 +34,18 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
-import Servant.Client
-
 import Streaming
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe
 import System.LogLevel
 
 -- internal modules
 
 import Chainweb.TreeDB.Sync
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.TreeDB
-import Chainweb.TreeDB.RemoteDB (RemoteDb(..))
 import Chainweb.Utils
 import Chainweb.Utils.Paging
-import Chainweb.Version
 
 import Data.LogMessage
 
@@ -55,6 +54,9 @@ import P2P.Session
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Utils
 
+-- | An alias to be used in constraint lists, to enforce that the entry type
+-- stored in the given `TreeDb` is a `BlockHeader`.
+--
 type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 
 -- -------------------------------------------------------------------------- --
@@ -62,32 +64,40 @@ type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 
 -- | Sync branches which could reasonably have been updated since a given local
 -- database was synced.
-branchSync :: BlockHeaderTreeDb db => db -> Depth -> LogFunction -> RemoteDb -> IO ()
-branchSync ldb d logFun env = do
+--
+branchSync
+    :: BlockHeaderTreeDb local
+    => BlockHeaderTreeDb peer
+    => local
+    -> PeerTree peer
+    -> Depth
+    -> LogFunction
+    -> IO ()
+branchSync local peer d logFun = do
 
     logg Debug "get local leaves"
-    lLeaves <- streamToHashSet_ $ leafKeys ldb Nothing Nothing Nothing Nothing
+    lLeaves <- streamToHashSet_ $ leafKeys local Nothing Nothing Nothing Nothing
 
-    logg Debug "get remote leaves"
-    rLeaves <- streamToHashSet_ $ leafKeys env Nothing Nothing Nothing Nothing
+    logg Debug "get peer leaves"
+    rLeaves <- streamToHashSet_ $ leafKeys peer Nothing Nothing Nothing Nothing
 
     let lower = HS.map LowerBound lLeaves
         upper = HS.map UpperBound rLeaves
 
-    h <- maxHeader ldb
+    h <- maxHeader local
     let m = minHeight (_blockHeight h) d
 
-    logg Debug "request remote branches limited by local leaves"
+    logg Debug "request peer branches limited by local leaves"
 
     -- We get remote headers in reverse order, so we have to buffer
     -- before we can start to insert in the local db. We could somewhat
     -- better by starting insertion as soon as we got a complete branch,
     -- but that's left as future optimization.
-    branchEntries env Nothing Nothing (Just m) Nothing lower upper
+    branchEntries peer Nothing Nothing (Just m) Nothing lower upper
         & void
         & reverseStream
         & chunksOf 64 -- TODO: ideally, this would align with response pages
-        & mapsM_ (insertStream ldb)
+        & mapsM_ (insertStream local)
 
         -- FIXME avoid insertStream because of its problematic behavior on failure.
         -- FIXME add failure handling on a per block header basis
@@ -96,44 +106,37 @@ branchSync ldb d logFun env = do
     logg :: LogFunctionText
     logg = logFun
 
-chainDbGenesisBlock :: BlockHeaderTreeDb db => db -> DbEntry db
-chainDbGenesisBlock db = unsafePerformIO $ root db
-{-# NOINLINE chainDbGenesisBlock #-}
-
-chainDbChainwebVersion :: BlockHeaderTreeDb db => db -> ChainwebVersion
-chainDbChainwebVersion = _blockChainwebVersion . chainDbGenesisBlock
-
-chainDbChainId :: BlockHeaderTreeDb db => db -> ChainId
-chainDbChainId = _blockChainId . chainDbGenesisBlock
-
-chainClientEnv :: BlockHeaderTreeDb db => db -> ClientEnv -> RemoteDb
-chainClientEnv db env = RemoteDb env
-    (chainDbChainwebVersion db)
-    (chainDbChainId db)
-
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: TreeDb db => (DbEntry db ~ BlockHeader) => db -> Depth -> P2pSession
-syncSession db d logg env = do
+-- | Form a living sync process between two `TreeDb` instances. Once our local
+-- Db syncs to the peer, the local will send back all the new `BlockHeader`s
+-- that it finds.
+--
+syncSession
+    :: BlockHeaderTreeDb local
+    => BlockHeaderTreeDb peer
+    => local
+    -> PeerTree peer
+    -> Depth
+    -> LogFunction
+    -> IO Bool
+syncSession local peer d logg = do
     receiveBlockHeaders
-    m <- maxHeader db
-    S.mapM_ send $ allEntries db (Just $ Exclusive $ key m)
+    m <- maxHeader local
+    S.mapM_ send $ allEntries local (Just $ Exclusive $ key m)
 
     -- this code must not be reached
     void $ logg @T.Text Error "unexpectedly exited sync session"
     return False
   where
-    cenv :: RemoteDb
-    cenv = chainClientEnv db env
-
     send h = do
-        insert cenv h
+        insert peer h
         logg Debug $ "put block header " <> showHash h
 
     receiveBlockHeaders = do
         logg @T.Text Info "start full sync"
-        branchSync db d logg cenv
+        branchSync local peer d logg
         logg @T.Text Debug "finished full sync"
 
 -- -------------------------------------------------------------------------- --
