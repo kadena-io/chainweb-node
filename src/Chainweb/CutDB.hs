@@ -63,6 +63,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
+import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
@@ -263,8 +264,9 @@ cutHashesToBlockHeaderMap hs = do
         then return $ Right headers
         else return $ Left missing
   where
-    tryLookup (cid, h) = (Right <$> mapM lookupWebChainDb (cid, h)) `catch`
-        \(TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) -> return $ Left (cid, h)
+    tryLookup (cid, h) = (Right <$> mapM lookupWebChainDb (cid, h)) `catch` \case
+        (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) -> return $ Left (cid, h)
+        e -> throwM e
 
 -- -------------------------------------------------------------------------- --
 -- Some CutDB
