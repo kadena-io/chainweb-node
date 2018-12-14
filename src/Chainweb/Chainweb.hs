@@ -463,14 +463,14 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configChainwebNodeId .:: option auto
+    <*< configChainwebNodeId .:: textOption
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pMinerConfig
     <*< configLog %:: L.pLogConfig
     <*< configCutsLogger %::
-        pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
+        pEnableConfig "cuts-logger" % pJsonLoggerConfig (Just "cuts-")
     <*< configP2p %:: pP2pConfiguration Nothing
 
 -- -------------------------------------------------------------------------- --
