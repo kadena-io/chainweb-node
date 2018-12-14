@@ -148,7 +148,7 @@ import Chainweb.WebChainDB
 --
 -- * the graph is valid,
 -- * the graph corresponds to the 'ChainwebVersion',
--- * the set of 'ChainId's of the cut are the exactly the vertices of the graph,
+-- * the set of 'ChainId's of the cut are exactly the vertices of the graph,
 -- * all blockHeaders are valid (which is guaranteed by 'genesisBlockHeader')
 --   with respect to the graph.
 --
@@ -374,7 +374,7 @@ join
 join f = join_ f `on` _cutHeaders
 
 -- | This merges two maps from ChainIds to BlockHeaders such that the result
--- is a Cut. Note, however, that the cut will contains only the chain ids
+-- is a Cut. Note, however, that the resulting cut contains only the chain ids
 -- from the intersection of the input maps.
 --
 join_
