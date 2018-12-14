@@ -86,4 +86,4 @@ syncSession v db logg env = do
     receive db = do
         c <- getCut cenv
         logg @T.Text Debug $ "got cut " <> sshow c
-        (atomically (addCutHashes db c))
+        atomically $ addCutHashes db c

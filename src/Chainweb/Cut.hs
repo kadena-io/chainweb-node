@@ -148,7 +148,7 @@ import Chainweb.WebChainDB
 --
 -- * the graph is valid,
 -- * the graph corresponds to the 'ChainwebVersion',
--- * the set 'ChainId's of the cut are the exactly the vertices of the graph,
+-- * the set of 'ChainId's of the cut are the exactly the vertices of the graph,
 -- * all blockHeaders are valid (which is guaranteed by 'genesisBlockHeader')
 --   with respect to the graph.
 --
@@ -231,7 +231,7 @@ cutAdjs c cid = HM.intersection
 --
 -- * the graph is valid,
 -- * the graph corresponds to the 'ChainwebVersion',
--- * the set 'ChainId's of the cut are the exactly the vertices of the graph,
+-- * the set of 'ChainId's of the cut are the exactly the vertices of the graph,
 -- * all blockHeaders are valid (which is guaranteed by 'genesisBlockHeader').
 --
 -- These properties are maintained as inductive invariants for all Cuts.
@@ -275,7 +275,7 @@ checkBraidingOfCut
     -> m ()
 checkBraidingOfCut = checkBraidingOfCutPairs . _cutAdjPairs
 
--- | check that a set of adjacent pairs of a cut is correctly braided
+-- | Check that a set of adjacent pairs of a cut is correctly braided.
 --
 checkBraidingOfCutPairs
     :: MonadThrow m
@@ -291,7 +291,7 @@ checkBraidingOfCutPair
 checkBraidingOfCutPair p = unlessM (isBraidingOfCutPair p)
     $ throwM (InvalidCutPair p)
 
--- | Returns whether an adjacent pair in a cut is correctly braided
+-- | Returns whether an adjacent pair in a cut is correctly braided.
 --
 -- * throws 'ChainNotAdjacentException'
 --
@@ -626,7 +626,7 @@ arbitraryWebChainCut initialCut = do
 
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
-        nid <- T.pick $ T.arbitrary
+        nid <- T.pick T.arbitrary
         liftIO $ testMine n nid cid c
 
 arbitraryWebChainCut_
