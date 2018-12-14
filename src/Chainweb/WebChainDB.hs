@@ -2,6 +2,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.WebChainDB
 -- Copyright: Copyright © 2018 Kadena LLC.

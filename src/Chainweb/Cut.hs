@@ -16,6 +16,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.Cut
 -- Copyright: Copyright © 2018 Kadena LLC.
