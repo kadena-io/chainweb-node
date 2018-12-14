@@ -57,7 +57,7 @@ import Data.LogMessage
 -- Configuration of Example
 
 newtype MinerConfig = MinerConfig
-    { _configMeanBlockTimeSeconds :: !Natural
+    { _configMeanBlockTimeSeconds :: Natural
     }
     deriving (Show, Eq, Ord, Generic)
 
