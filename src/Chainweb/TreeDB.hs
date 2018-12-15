@@ -35,13 +35,14 @@ module Chainweb.TreeDB
 
 -- * Tree Database
 , TreeDbEntry(..)
-, type DbKey
+, DbKey
 , TreeDb(..)
 
 -- * Utils
 
 , root
 , maxHeader
+, toTree
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
@@ -76,7 +77,7 @@ module Chainweb.TreeDB
 ) where
 
 import Control.Arrow ((***))
-import Control.Lens ((&))
+import Control.Lens ((&), view, _1)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -85,6 +86,7 @@ import Control.Monad.Trans
 import Data.Aeson
 import Data.Function
 import Data.Functor.Of
+import Data.Graph
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
@@ -807,6 +809,16 @@ foldableEntries k l mir mar f = S.each f
     & applyRank mir mar
     & void
     & seekLimitStream key k l
+
+-- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
+-- used only for debugging purposes.
+--
+toTree :: (TreeDb db, Ord (DbKey db)) => db -> IO (Tree (DbEntry db))
+toTree db = do
+    let es = entries db Nothing Nothing Nothing Nothing
+    hs <- S.toList_ $ S.map (\h -> (h, key h, [maybe (key h) id $ parent h] )) es
+    let (g, vert, _) = graphFromEdges hs
+    pure . fmap (view _1 . vert) . head . dff $ transposeG g
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils

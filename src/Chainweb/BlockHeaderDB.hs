@@ -32,9 +32,6 @@ module Chainweb.BlockHeaderDB
 , validateEntryM
 , ValidationFailure(..)
 , ValidationFailureType(..)
-
--- * Utils
-, toTree
 ) where
 
 import Control.Arrow
@@ -48,7 +45,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans
 
 import Data.Foldable
-import Data.Graph
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
@@ -475,16 +471,6 @@ validateParent p b = concat
 --
 isValidEntry :: BlockHeaderDb -> BlockHeader -> IO Bool
 isValidEntry s b = null <$> validateEntry s b
-
--- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
--- used only for debugging purposes.
---
-toTree :: BlockHeaderDb -> IO (Tree BlockHeader)
-toTree db = do
-    let es = entries db Nothing Nothing Nothing Nothing
-    hs <- S.toList_ $ S.map (\h -> (h, _blockHash h, [_blockParent h] )) es
-    let (g, vert, _) = graphFromEdges hs
-    pure . fmap (view _1 . vert) . head . dff $ transposeG g
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
