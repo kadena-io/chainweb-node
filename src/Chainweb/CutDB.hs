@@ -150,6 +150,9 @@ cutToCutHashes peerInfo c = CutHashes (_blockHash <$> _cutMap c) peerInfo
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
+-- | This is a singleton DB that contains the latest chainweb cut as only
+-- entry.
+--
 data CutDb = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(TBQueue CutHashes)
@@ -180,9 +183,15 @@ cutDbWebChainDb = to _cutDbWebChainDb
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
+-- This the main API method of chainweb-consensus.
+--
 _cut :: CutDb -> IO Cut
 _cut = readTVarIO . _cutDbCut
 
+-- | Get the current 'Cut', which represent the latest chainweb state.
+--
+-- This the main API method of chainweb-consensus.
+--
 cut :: Getter CutDb (IO Cut)
 cut = to _cut
 
@@ -196,6 +205,10 @@ addCutHashes db = writeTBQueue (_cutDbQueue db)
 _cutStm :: CutDb -> STM Cut
 _cutStm = readTVar . _cutDbCut
 
+-- | An 'STM' version of 'cut'.
+--
+-- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
+--
 cutStm :: Getter CutDb (STM Cut)
 cutStm = to _cutStm
 
@@ -237,6 +250,11 @@ processCuts queue cutVar = queueToStream
     queueToStream =
         liftIO (atomically $ readTBQueue queue) >>= S.yield >> queueToStream
 
+-- | Stream of most recent cuts. This stream does not generally include the full
+-- history of cuts. When no cuts are demanded from the stream or new cuts are
+-- produced faster than they are consumed from the stream, the stream skips over
+-- cuts and always returns the latest cut in the db.
+--
 cutStream :: MonadIO m => CutDb -> S.Stream (Of Cut) m r
 cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
   where
