@@ -50,13 +50,13 @@ import Chainweb.Version
 
 -- | Every WebChain has the following properties
 --
--- * All ChainDbs have all ChainDB properties
+-- * All entires of _webChainDb are valid BlockHeaderDbs
 -- * There are no dangling adjacent parent hashes
 -- * The adjacent hashes of all block headers conform with the chain graph
 --   of the web chain.
 --
 --  TODO: in order to enforce these invariants the insertion to
---  the dbs must be guarded.
+--  the dbs must be guarded see issue #123.
 --
 data WebChainDb = WebChainDb
     { _webChainDb :: !(HM.HashMap ChainId BlockHeaderDb)
