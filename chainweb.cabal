@@ -211,20 +211,20 @@ test-suite chainweb-tests
         , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Node
+-- Single-Chain Node Application
 -- -------------------------------------------------------------------------- --
 
 -- The application that runs an chainweb node
 --
-executable chainweb-node
+executable single-chain-node
     default-language: Haskell2010
     ghc-options:
         -Wall
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
-    hs-source-dirs: node
-    main-is: ChainwebNode.hs
+    hs-source-dirs: node examples
+    main-is: SingleChainNode.hs
     ghc-options: -threaded
     other-modules:
         Chainweb.Node.SingleChainMiner
@@ -260,6 +260,54 @@ executable chainweb-node
         , monad-control >= 1.0
         , clock >= 0.7
 
+-- -------------------------------------------------------------------------- --
+-- Single Chain End-To-End Example (multiple nodes)
+-- -------------------------------------------------------------------------- --
+
+executable single-chain-example
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+    hs-source-dirs: node examples
+    main-is: SingleChainExample.hs
+    other-modules:
+        Chainweb.Node.SingleChainMiner
+        Paths_chainweb
+        Utils.Gexf
+        Utils.Logging
+
+    ghc-options: -threaded -with-rtsopts=-N
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , aeson >= 1.4
+        , async >= 2.2
+        , base >= 4.11
+        , bytestring >= 0.10
+        , clock >= 0.7
+        , configuration-tools >= 0.4
+        , deepseq >= 1.4
+        , exceptions >= 0.8
+        , filepath >= 1.4
+        , http-client >= 0.5
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , monad-control >= 1.0
+        , mwc-random >= 0.13
+        , streaming >= 0.2.2
+        , text >= 1.2
+        , unordered-containers >= 0.2
+        , wai-app-static >= 3.1
+        , wai-cors >= 0.2
+        , wai-extra >= 3.0
+        , warp >= 3.2
+        , xmlgen >= 0.6
+        , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --
 -- Examples for BlockHeaderDb usage
@@ -318,51 +366,3 @@ executable p2p-example
         , text >= 1.2
         , yet-another-logger >= 0.3.1
 
--- -------------------------------------------------------------------------- --
--- Single Chain End-To-End Example
--- -------------------------------------------------------------------------- --
-
-executable single-chain-example
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-    hs-source-dirs: node examples
-    main-is: SingleChainExample.hs
-    other-modules:
-        Chainweb.Node.SingleChainMiner
-        Paths_chainweb
-        Utils.Gexf
-        Utils.Logging
-
-    ghc-options: -threaded -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , aeson >= 1.4
-        , async >= 2.2
-        , base >= 4.11
-        , bytestring >= 0.10
-        , clock >= 0.7
-        , configuration-tools >= 0.4
-        , deepseq >= 1.4
-        , exceptions >= 0.8
-        , filepath >= 1.4
-        , http-client >= 0.5
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , monad-control >= 1.0
-        , mwc-random >= 0.13
-        , streaming >= 0.2.2
-        , text >= 1.2
-        , unordered-containers >= 0.2
-        , wai-app-static >= 3.1
-        , wai-cors >= 0.2
-        , wai-extra >= 3.0
-        , warp >= 3.2
-        , xmlgen >= 0.6
-        , yet-another-logger >= 0.3.1
