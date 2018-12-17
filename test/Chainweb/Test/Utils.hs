@@ -1,6 +1,8 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -17,6 +19,7 @@ module Chainweb.Test.Utils
   toyBlockHeaderDb
 , withDB
 , insertN
+, prettyTree
 
 -- * Test BlockHeaderDbs Configurations
 , peterson
@@ -59,6 +62,7 @@ import Data.Bytes.Put
 import Data.Foldable
 import Data.Reflection (give)
 import qualified Data.Text as T
+import Data.Tree (drawTree)
 import Data.Word (Word64)
 
 import qualified Network.HTTP.Client as HTTP
@@ -110,12 +114,15 @@ toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
 withDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
 withDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
 
--- | Populate a `BlockHeaderDb` with /n/ generated `BlockHeader`s.
+-- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
-insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN :: (TreeDb db, DbEntry db ~ BlockHeader) => Int -> BlockHeader -> db -> IO ()
 insertN n g db = traverse_ (insert db) bhs
   where
     bhs = take n $ testBlockHeaders g
+
+prettyTree :: (TreeDb db, Ord (DbKey db)) => db -> IO String
+prettyTree db = drawTree . fmap (take 16 . show . key) <$> toTree db
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
