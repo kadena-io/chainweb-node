@@ -818,7 +818,8 @@ toTree db = do
     let es = entries db Nothing Nothing Nothing Nothing
     hs <- S.toList_ $ S.map (\h -> (h, key h, [maybe (key h) id $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
-    pure . fmap (view _1 . vert) . head . dff $ transposeG g
+        g' = transposeG g
+    pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
