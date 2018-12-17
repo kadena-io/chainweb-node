@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -493,4 +492,3 @@ prop_block_weight :: BlockHeader -> BlockHeader -> Bool
 prop_block_weight p b
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
     | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
-
