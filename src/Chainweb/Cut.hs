@@ -265,7 +265,7 @@ instance Exception CutException
 -- | Check that a cut is correctly braided.
 --
 -- This check is only needed for external cuts. Note, that for
--- imported cuts thus must be checked recursively. This can
+-- imported cuts this must be checked recursively. This can
 -- be done by doing a join that starts with a meet with a local
 -- cut.
 --
@@ -533,7 +533,7 @@ forkDepth a b = do
 -- -------------------------------------------------------------------------- --
 
 -- -------------------------------------------------------------------------- --
--- Test Minining
+-- Test Mining
 
 testMine
     :: HasChainId cid
@@ -546,7 +546,7 @@ testMine
 testMine n nid i c = forM (testMineCut n nid i c) $ \(h, c') ->
     c' <$ insertWebChainDb h
 
--- | Only produce a new cut but doesn't insert it in the chain database
+-- | Only produces a new cut but doesn't insert it into the chain database
 --
 testMineCut
     :: HasChainId cid
