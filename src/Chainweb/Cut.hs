@@ -329,7 +329,7 @@ isMonotonicCutExtension
     -> m Bool
 isMonotonicCutExtension c h = give (_cutGraph c) $ do
     checkBlockHeaderGraph h
-    return $ monotonic &&  validBraiding
+    return $ monotonic && validBraiding
   where
     monotonic = _blockParent h == c ^?! ixg (_chainId h) . blockHash
     validBraiding = getAll $ foldMap
@@ -350,9 +350,10 @@ tryMonotonicCutExtension
     => Cut
     -> BlockHeader
     -> m (Maybe Cut)
-tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
-    True -> return . Just $ c & cutHeaders . ix (_chainId h) .~ h
-    False -> return Nothing
+tryMonotonicCutExtension c h = extendIf <$> isMonotonicCutExtension c h
+  where
+    extendIf True = Just $ set (cutHeaders . ix (_chainId h)) h c
+    extendIf False = Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Join
@@ -401,6 +402,10 @@ join_ prioFun a b = give (_chainGraph (given @WebChainDb)) $ do
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
     g q x = foldl' maybeInsert q $ zip (toList x) (toList (prioFun x))
 
+    maybeInsert
+        :: H.Heap (H.Entry (BlockHeight, a) BlockHeader)
+        -> (BlockHeader, Maybe a)
+        -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
     maybeInsert q (_, Nothing) = q
     maybeInsert q (h, Just p) = H.insert (H.Entry (_blockHeight h, p) h) q
 
