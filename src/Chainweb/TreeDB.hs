@@ -725,7 +725,7 @@ lookupM db k = lookup db k >>= \case
     Just x -> return x
 
 -- | Lookup all entries in a stream of database keys and return the stream
--- of entries. Throws is an entry is missing.
+-- of entries. Throws if an entry is missing.
 --
 lookupStreamM
     :: TreeDb db
