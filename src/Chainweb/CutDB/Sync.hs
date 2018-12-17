@@ -70,7 +70,7 @@ syncSession :: ChainwebVersion -> CutDb -> P2pSession
 syncSession v db logg env = do
     race_
         (void $ S.mapM_ send $ S.map (cutToCutHashes Nothing) $ cutStream db)
-        (forever $ receive db >> threadDelay 1000000)
+        (forever $ receive >> threadDelay 1000000)
             -- FIXME make this configurable or dynamic
 
     -- this code must not be reached
@@ -83,7 +83,7 @@ syncSession v db logg env = do
         putCut cenv c
         logg @T.Text Debug $ "put cut " <> sshow c
 
-    receive db = do
+    receive = do
         c <- getCut cenv
         logg @T.Text Debug $ "got cut " <> sshow c
         atomically $ addCutHashes db c
