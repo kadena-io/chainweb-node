@@ -56,7 +56,6 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -71,8 +70,9 @@ import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.DiGraph
 import Data.LogMessage
+
+import Paths_chainweb
 
 import P2P.Node
 import P2P.Node.Configuration
@@ -188,10 +188,12 @@ mainInfo :: ProgramInfo P2pExampleConfig
 mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \config ->
+main = runWithConfiguration mainInfo $ \config -> do
+    staticDir <- (<> "/examples/static-html") <$> getDataDir
     withExampleLogger 8000
         (_logConfig config)
         (_sessionsLoggerConfig config)
+        staticDir
         (example config)
 
 -- -------------------------------------------------------------------------- --
@@ -221,7 +223,7 @@ example conf logger =
     --
     bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
     bootstrapConfig = p2pConfig
-        & p2pConfigPeerId ?~ _peerId bootstrapPeer
+        & p2pConfigPeerId .~ _peerId bootstrapPeer
 
     bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
     bootstrapNodeId = NodeId cid 0
@@ -232,7 +234,6 @@ example conf logger =
         [ (NodeId cid i, bootstrapPort + fromIntegral i)
         | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
         ]
-
 
 -- -------------------------------------------------------------------------- --
 -- Example P2P Client Sessions
@@ -283,9 +284,9 @@ node cid t logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info "start test node"
 
-        withBlockHeaderDb cid nid
+        withBlockHeaderDbGexf Test singletonChainGraph cid nid
             $ \cdb -> withPeerDb p2pConfig
-            $ \pdb -> withAsync (serveChainwebOnPort port Test
+            $ \pdb -> withAsync (serveSingleChainOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 )
@@ -301,19 +302,18 @@ node cid t logger conf p2pConfig nid port =
         (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
         cid
 
-withBlockHeaderDb :: ChainId -> NodeId -> (BlockHeaderDb -> IO b) -> IO b
-withBlockHeaderDb cid nid = bracket start stop
-  where
-    start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader Test graph cid
-        }
-    stop db = do
+withBlockHeaderDbGexf
+    :: ChainwebVersion
+    -> ChainGraph
+    -> ChainId
+    -> NodeId
+    -> (BlockHeaderDb -> IO b)
+    -> IO b
+withBlockHeaderDbGexf v graph cid nid f =
+    withBlockHeaderDb v graph cid $ \db -> f db `finally` do
         l <- SP.toList_ $ entries db Nothing Nothing Nothing Nothing
         B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
-        closeBlockHeaderDb db
-
-    graph = toChainGraph (const cid) singleton
-
+  where
     nidPath = T.unpack . T.replace "/" "." $ toText nid
 
 -- -------------------------------------------------------------------------- --

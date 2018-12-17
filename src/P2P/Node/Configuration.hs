@@ -32,12 +32,12 @@ module P2P.Node.Configuration
 , peerId
 , peerAddr
 , pPeerInfo
+, pPeerInfoCompact
 , arbitraryPeerInfo
 
 -- * P2P Configuration
 , P2pConfiguration(..)
 , p2pConfigPeerId
-, p2pConfigNetworkId
 , p2pConfigHostAddress
 , p2pConfigMaxSessionCount
 , p2pConfigMaxPeerCount
@@ -64,13 +64,16 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural
 
+import qualified Options.Applicative as O
+
+import System.IO.Unsafe
+
 import Test.QuickCheck
 
 import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 -- Internal imports
 
-import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
@@ -141,6 +144,23 @@ instance FromJSON PeerInfo where
         <*> o .: "address"
     {-# INLINE parseJSON #-}
 
+peerInfoToText :: PeerInfo -> T.Text
+peerInfoToText pinf = toText (_peerId pinf) <> "@" <> toText (_peerAddr pinf)
+
+peerInfoFromText :: MonadThrow m => T.Text -> m PeerInfo
+peerInfoFromText t = case T.break (== '@') t of
+    (a, b)
+        | T.null a -> throwM $ TextFormatException $ "missing peer id in peer info \"" <> t <> "\""
+        | T.null b -> throwM $ TextFormatException $ "missing '@' in peer info \"" <> t <> "\""
+        | T.length b == 1 -> throwM $ TextFormatException $ "missing host address in peer info \"" <> t <> "\""
+        | otherwise -> PeerInfo <$> fromText a <*> fromText (T.tail b)
+
+instance HasTextRepresentation PeerInfo where
+    toText = peerInfoToText
+    {-# INLINE toText #-}
+    fromText = peerInfoFromText
+    {-# INLINE fromText #-}
+
 arbitraryPeerInfo :: Gen PeerInfo
 arbitraryPeerInfo = PeerInfo <$> arbitrary <*> arbitrary
 
@@ -153,6 +173,14 @@ pPeerInfo service = id
     <*< peerAddr %:: pHostAddress service
 {-# INLINE pPeerInfo #-}
 
+-- | Parser Peer Id as a single option
+--
+pPeerInfoCompact :: Maybe String -> O.Parser PeerInfo
+pPeerInfoCompact service = textOption
+    % prefixLong service "peer-info"
+    <> suffixHelp service "peer info"
+    <> metavar "<PEERID>:<HOSTADDRESS>"
+
 -- -------------------------------------------------------------------------- --
 -- P2P Configuration
 
@@ -161,17 +189,26 @@ pPeerInfo service = id
 -- TODO: add ChainwebVersion?
 --
 data P2pConfiguration = P2pConfiguration
-    { _p2pConfigPeerId :: !(Maybe PeerId)
+    { _p2pConfigPeerId :: !PeerId
+        -- ^ peer id of local peer.
+
     , _p2pConfigHostAddress :: !HostAddress
-    , _p2pConfigNetworkId :: !NetworkId
+        -- ^ Host address of local peer.
+
     , _p2pConfigMaxSessionCount :: !Natural
-        -- ^ number of active peers
+        -- ^ the number of active peers.
+
     , _p2pConfigMaxPeerCount :: !Natural
         -- ^ total number of peers
+
     , _p2pConfigSessionTimeout :: !Seconds
         -- ^ interval at which peers are rotated out of the active set
+
     , _p2pConfigKnownPeers :: ![PeerInfo]
+        -- ^ List of know peers. Must not be empty.
+
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
+        -- ^ the path where the peer database is persisted
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (Hashable, NFData)
@@ -181,13 +218,12 @@ makeLenses ''P2pConfiguration
 instance Arbitrary P2pConfiguration where
     arbitrary = P2pConfiguration
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 defaultP2pConfiguration Test = P2pConfiguration
-    { _p2pConfigPeerId = Nothing
+    { _p2pConfigPeerId = randomPeerId
     , _p2pConfigHostAddress = unsafeHostAddressFromText "localhost:1789"
-    , _p2pConfigNetworkId = ChainNetwork (testChainId 0)
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
@@ -201,11 +237,14 @@ defaultP2pConfiguration Test = P2pConfiguration
 
 defaultP2pConfiguration _ = error "TODO not implemented"
 
+randomPeerId :: PeerId
+randomPeerId = unsafePerformIO createPeerId
+{-# NOINLINE randomPeerId #-}
+
 instance ToJSON P2pConfiguration where
     toJSON o = object
         [ "peerId" .= _p2pConfigPeerId o
         , "hostAddress" .= _p2pConfigHostAddress o
-        , "networkId" .= _p2pConfigNetworkId o
         , "maxSessionCount" .= _p2pConfigMaxSessionCount o
         , "maxPeerCount" .= _p2pConfigMaxPeerCount o
         , "sessionTimeout" .= _p2pConfigSessionTimeout o
@@ -214,10 +253,9 @@ instance ToJSON P2pConfiguration where
         ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
-    parseJSON = withObject "P2pExampleConfig" $ \o -> id
+    parseJSON = withObject "P2pConfiguration" $ \o -> id
         <$< p2pConfigPeerId ..: "peerId" % o
         <*< p2pConfigHostAddress %.: "hostAddress" % o
-        <*< p2pConfigNetworkId ..: "networkId" % o
         <*< p2pConfigMaxSessionCount ..: "maxSessionCount" % o
         <*< p2pConfigMaxPeerCount ..: "maxPeerCount" % o
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
@@ -228,7 +266,6 @@ instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
         <$> o .: "peerId"
         <*> o .: "hostAddress"
-        <*> o .: "networkId"
         <*> o .: "maxSessionCount"
         <*> o .: "maxPeerCount"
         <*> o .: "sessionTimeout"
@@ -237,8 +274,14 @@ instance FromJSON P2pConfiguration where
 
 pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
-    <$< p2pConfigPeerId .:: fmap Just % pPeerId net
+    <$< p2pConfigPeerId .:: textOption
+        % prefixLong net "peer-id"
+        <> suffixHelp net "Id for the local node in the p2p network"
     <*< p2pConfigHostAddress %:: pHostAddress net
+    -- <*< p2pConfigHostAddress .:: fmap Just % textOption
+    --     % prefixLong net "hostaddress"
+    --     <> short 'a'
+    --     <> suffixHelp net "public hostaddress of the local node"
     <*< p2pConfigMaxSessionCount .:: option auto
         % prefixLong net "p2p-max-session-count"
         <> suffixHelp net "maximum number of sessions that are active at any time"
@@ -248,7 +291,7 @@ pP2pConfiguration networkId = id
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
-    -- <*< p2pConfigKnownPeers .:: option auto
+    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate (pure <$> pPeerInfoCompact net)
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"

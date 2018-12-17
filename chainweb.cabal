@@ -52,9 +52,16 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
+        , Chainweb.Cut
+        , Chainweb.CutDB
+        , Chainweb.CutDB.RestAPI
+        , Chainweb.CutDB.RestAPI.Client
+        , Chainweb.CutDB.RestAPI.Server
+        , Chainweb.CutDB.Sync
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
+        , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
@@ -68,6 +75,7 @@ library
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Version
+        , Chainweb.WebChainDB
 
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
@@ -89,6 +97,7 @@ library
 
     build-depends:
           QuickCheck >= 2.10
+        , QuickCheck-GenT >=0.2
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , async >= 2.2
@@ -107,11 +116,13 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
+        , heaps >= 0.3
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.2
         , mtl >= 2.2
+        , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , paths >= 0.2
         , quickcheck-instances >= 0.3
@@ -321,10 +332,10 @@ executable single-chain-example
     hs-source-dirs: node examples
     main-is: SingleChainExample.hs
     other-modules:
-        Utils.Gexf
-        Utils.Logging
         Chainweb.Node.SingleChainMiner
         Paths_chainweb
+        Utils.Gexf
+        Utils.Logging
 
     ghc-options: -threaded -with-rtsopts=-N
     build-depends:

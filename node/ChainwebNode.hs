@@ -52,7 +52,6 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -67,13 +66,14 @@ import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.DiGraph
 import Data.LogMessage
 
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
+
+import Paths_chainweb
 
 import Utils.Logging
 
@@ -217,10 +217,12 @@ mainInfo :: ProgramInfo P2pNodeConfig
 mainInfo = programInfo "ChainwebNode" pP2pNodeConfig defaultP2pNodeConfig
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \config ->
+main = runWithConfiguration mainInfo $ \config -> do
+    staticDir <- (<> "/examples/static-html") <$> getDataDir
     withExampleLogger (fromIntegral $ _telemetryPort config)
         (_logConfig config)
         (_sessionsLoggerConfig config)
+        staticDir
         (runNodeWithConfig config)
 
 peerIdToNodeId :: HasChainId cid => cid -> UUID.UUID -> NodeId
@@ -253,7 +255,7 @@ runNodeWithConfig conf logger = do
 
     -- Configuration for this node
     --
-    myConfig pid = p2pConfig & p2pConfigPeerId .~ Just pid
+    myConfig pid = p2pConfig & p2pConfigPeerId .~ pid
     myPort = fromIntegral (_nodePort conf)
 
 -- -------------------------------------------------------------------------- --
@@ -290,9 +292,9 @@ node cid logger conf p2pConfig nid port =
         let logfun = loggerFunText logger'
         logfun Info $ "Start test node"
 
-        withBlockHeaderDb cid $ \cdb ->
+        withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
           withPeerDb p2pConfig $ \pdb ->
-            withAsync (serveChainwebOnPort port Test
+            withAsync (serveSingleChainOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
                 ) $ \server -> do
@@ -302,17 +304,6 @@ node cid logger conf p2pConfig nid port =
                       <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
                       <> Concurrently (monitor logger' cdb)
                   wait server
-
-withBlockHeaderDb :: ChainId -> (BlockHeaderDb -> IO b) -> IO b
-withBlockHeaderDb cid = bracket start stop
-  where
-    start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader Test graph cid
-        }
-    stop db = do
-        closeBlockHeaderDb db
-
-    graph = toChainGraph (const cid) singleton
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
