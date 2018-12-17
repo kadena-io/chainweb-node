@@ -97,7 +97,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import qualified Chainweb.CutDB.SyncSession as C
+import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Miner.Test

@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.CutDB.SyncSession
+-- Module: Chainweb.CutDB.Sync
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,7 +12,7 @@
 --
 -- TODO
 --
-module Chainweb.CutDB.SyncSession
+module Chainweb.CutDB.Sync
 ( syncSession
 ) where
 
