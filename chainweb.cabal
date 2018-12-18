@@ -162,6 +162,7 @@ library
         , network >= 2.6
         , optparse-applicative >= 0.14
         , paths >= 0.2
+        , psqueues >= 0.2.7.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionHash
@@ -6,22 +9,30 @@ module Chainweb.Mempool.Mempool
   , Codec(..)
   , HashMeta(..)
   , Subscription(..)
+  , ValidationInfo(..)
+  , ValidatedTransaction(..)
   , finalizeSubscriptionImmediately
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM.TBMChan (TBMChan)
+import Control.DeepSeq (NFData)
+import Data.Bytes.Get (getWord64host, runGetS)
 import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as S
+import Data.Hashable (Hashable(..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import GHC.Generics (Generic)
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 
 
 ------------------------------------------------------------------------------
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
-
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -54,6 +65,12 @@ data MempoolBackend t = MempoolBackend {
     -- | mark the given hashes as being mined and validated.
   , _mempool_mark_validated :: Vector TransactionHash -> IO ()
 
+    -- | mark the given hashes as being past confirmation depth.
+  , _mempool_mark_confirmed :: Vector TransactionHash -> IO ()
+
+    -- | These transactions were on a losing fork. Reintroduce them.
+  , _mempool_reintroduce :: Vector TransactionHash -> IO ()
+
     -- | given a callback function, loops through the pending candidate
     -- transactions and supplies the hashes to the callback in chunks.
   , _mempool_get_pending_transactions
@@ -65,7 +82,19 @@ data MempoolBackend t = MempoolBackend {
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.
-type TransactionHash = ByteString
+--
+-- TODO: production versions of this kind of DB should salt with a
+-- runtime-generated constant to avoid collision attacks; see the \"hashing and
+-- security\" section of the hashable docs.
+newtype TransactionHash = TransactionHash ByteString
+  deriving stock (Show, Read, Eq, Ord, Generic)
+  deriving anyclass (NFData)
+
+instance Hashable TransactionHash where
+  hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
+    where
+      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (S.take 8 h)
+  {-# INLINE hashWithSalt #-}
 
 
 ------------------------------------------------------------------------------
@@ -103,6 +132,18 @@ data HashMeta = HashMeta {
 data Subscription t = Subscription {
     _mempool_sub_chan :: MVar (TBMChan t)
   , _mempool_sub_final :: Weak (MVar (TBMChan t))
+}
+
+
+------------------------------------------------------------------------------
+data ValidationInfo = ValidationInfo {
+    _validated_height :: !BlockHeight
+  , _validated_hash :: !BlockHash
+}
+
+data ValidatedTransaction t = ValidatedTransaction {
+    _validated_forks :: Vector ValidationInfo
+  , _validated_transaction :: t
 }
 
 
