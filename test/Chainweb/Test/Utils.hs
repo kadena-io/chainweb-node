@@ -20,6 +20,7 @@ module Chainweb.Test.Utils
 , withDB
 , insertN
 , prettyTree
+, SparseTree(..)
 
 -- * Test BlockHeaderDbs Configurations
 , peterson
@@ -62,8 +63,10 @@ import Data.Bytes.Put
 import Data.Foldable
 import Data.Reflection (give)
 import qualified Data.Text as T
-import Data.Tree (drawTree)
+import Data.Tree
 import Data.Word (Word64)
+
+import Fake
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
@@ -74,7 +77,7 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import Test.QuickCheck
+import Test.QuickCheck hiding (frequency)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -86,6 +89,8 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -123,6 +128,39 @@ insertN n g db = traverse_ (insert db) bhs
 
 prettyTree :: (TreeDb db, Ord (DbKey db)) => db -> IO String
 prettyTree db = drawTree . fmap (take 16 . show . key) <$> toTree db
+
+newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader }
+
+instance Fake SparseTree where
+    fake = SparseTree <$> (fake >>= tree)
+
+-- | Generate some new `BlockHeader` based on a parent.
+--
+header :: BlockHeader -> FGen BlockHeader
+header h = do
+    nonce <- fake
+    let (Time (TimeSpan ts)) = _blockCreationTime h
+        h' = h { _blockParent = _blockHash h
+               , _blockCreationTime = Time . TimeSpan $ ts + 10000000  -- 10 seconds
+               , _blockNonce = nonce
+               , _blockHeight = succ $ _blockHeight h }
+    pure $ h' { _blockHash = computeBlockHash h' }
+
+tree :: BlockHeader -> FGen (Tree BlockHeader)
+tree = tree' trunk
+
+tree' :: (BlockHeader -> FGen (Forest BlockHeader)) -> BlockHeader -> FGen (Tree BlockHeader)
+tree' f h = do
+    next <- header h
+    Node next <$> f next
+
+trunk :: BlockHeader -> FGen (Forest BlockHeader)
+trunk h = frequency [ (2, pure [])
+                    , (4, sequenceA [fork h, tree h])
+                    , (18, sequenceA [tree h]) ]
+
+fork :: BlockHeader -> FGen (Tree BlockHeader)
+fork = tree' (\h -> frequency [ (5, pure []), (5, sequenceA [fork h]) ])
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations

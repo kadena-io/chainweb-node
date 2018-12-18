@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeApplications #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -15,6 +18,10 @@ module Chainweb.Test.Orphans.Internal
 
 import qualified Data.ByteString as B
 import qualified Data.HashMap.Strict as HM
+import Data.Int
+import Data.Word
+
+import qualified Fake as F
 
 import Test.QuickCheck
 
@@ -25,6 +32,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.NodeId
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -80,3 +88,63 @@ instance Arbitrary BlockHeader where
         <*> arbitrary
         <*> arbitrary
 
+---
+
+instance F.Fake NodeId where
+    fake = NodeId
+      <$> pure (testChainId 0)
+      <*> F.fakeEnumFromTo 0 (fromIntegral (maxBound :: Int) :: Word64)
+
+instance F.Fake BlockHash where
+    fake = BlockHash <$> pure (testChainId 0) <*> F.fake
+
+instance F.Fake BlockHashBytes where
+    fake = BlockHashBytes . B.pack <$> F.vectorOf (int blockHashBytesCount) F.fakeEnum
+
+instance F.Fake BlockHeight where
+    fake = BlockHeight <$> F.fakeEnumFromTo 0 (fromIntegral (maxBound :: Int) :: Word64)
+
+instance F.Fake BlockWeight where
+    fake = BlockWeight <$> F.fake
+
+instance F.Fake HashDifficulty where
+    fake = HashDifficulty <$> F.fake
+
+instance F.Fake BlockHashNat where
+    fake = blockHashNat <$> F.fake
+
+instance F.Fake HashTarget where
+    fake = HashTarget <$> F.fake
+
+instance F.Fake BlockHashRecord where
+    fake = BlockHashRecord . HM.fromList . fmap (\x -> (_chainId x, x))
+        <$> F.listUpTo 5 F.fake
+
+instance F.Fake BlockPayloadHash where
+    fake = BlockPayloadHash <$> F.fake
+
+instance F.Fake Nonce where
+    fake = Nonce <$> F.fakeEnumFromTo 0 (fromIntegral (maxBound :: Int) :: Word64)
+
+instance F.Fake (Time Int64) where
+    fake = Time <$> F.fake
+
+instance F.Fake (TimeSpan Int64) where
+    fake = TimeSpan <$> F.fakeEnum
+
+instance F.Fake BlockHeader where
+    fake = do
+      h <- BlockHeader
+          <$> F.fake
+          <*> F.fake
+          <*> F.fake
+          <*> F.fake
+          <*> F.fake
+          <*> F.fake
+          <*> pure (testChainId 0)
+          <*> F.fake
+          <*> F.fake
+          <*> pure Test
+          <*> F.fake
+          <*> F.fake
+      pure $ h { _blockHash = computeBlockHash h }
