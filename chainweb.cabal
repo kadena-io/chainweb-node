@@ -124,6 +124,7 @@ library
         , massiv >= 0.2
         , mtl >= 2.2
         , mwc-random >= 0.13
+        , network >= 2.6
         , optparse-applicative >= 0.14
         , paths >= 0.2
         , quickcheck-instances >= 0.3

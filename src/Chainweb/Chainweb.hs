@@ -108,12 +108,14 @@ import Control.Monad.Catch
 import Data.Bifunctor
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.Reflection
+import Data.Reflection (give)
+import Data.String
 import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
+import Network.Wai.Handler.Warp
 
 import System.LogLevel
 
@@ -397,7 +399,9 @@ runChainweb cw = do
     -- collect server resources
     let chainDbsToServe = second _chainBlockHeaderDb <$> HM.toList (_chainwebChains cw)
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
-        serve = serveChainwebOnPort port (_chainwebVersion cw)
+
+        serverSettings = setPort (int port) . setHost host $ defaultSettings
+        serve = serveChainweb serverSettings (_chainwebVersion cw)
             cutDb
             chainDbsToServe
             ((CutNetwork, cutPeerDb) : chainP2pToServe)
@@ -423,6 +427,7 @@ runChainweb cw = do
 
         wait server
   where
+    host = fromString $ sshow $ _hostAddressHost myHostAddress
     port = _hostAddressPort myHostAddress
     myHostAddress = _chainwebHostAddress cw
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
