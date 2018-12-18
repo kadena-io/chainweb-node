@@ -400,11 +400,22 @@ runChainweb cw = do
     let chainDbsToServe = second _chainBlockHeaderDb <$> HM.toList (_chainwebChains cw)
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
-        serverSettings = setPort (int port) . setHost host $ defaultSettings
-        serve = serveChainweb serverSettings (_chainwebVersion cw)
-            cutDb
-            chainDbsToServe
-            ((CutNetwork, cutPeerDb) : chainP2pToServe)
+        serve = if port == 0
+            then do
+                (p, sock) <- openFreePort
+                let serverSettings = setPort (int p) . setHost host $ defaultSettings
+                serveChainwebSocket serverSettings sock
+                    (_chainwebVersion cw)
+                    cutDb
+                    chainDbsToServe
+                    ((CutNetwork, cutPeerDb) : chainP2pToServe)
+            else do
+                let serverSettings = setPort (int port) . setHost host $ defaultSettings
+                serveChainweb serverSettings
+                    (_chainwebVersion cw)
+                    cutDb
+                    chainDbsToServe
+                    ((CutNetwork, cutPeerDb) : chainP2pToServe)
 
     -- 1. start server
     --
@@ -427,7 +438,7 @@ runChainweb cw = do
 
         wait server
   where
-    host = fromString $ sshow $ _hostAddressHost myHostAddress
+    host = fromString . T.unpack . toText $ _hostAddressHost myHostAddress
     port = _hostAddressPort myHostAddress
     myHostAddress = _chainwebHostAddress cw
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
