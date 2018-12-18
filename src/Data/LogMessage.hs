@@ -7,11 +7,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -27,6 +24,8 @@ module Data.LogMessage
 
 -- * Log Function
 , LogFunction
+, ALogFunction(..)
+, alogFunction
 
 -- * LogMessage types
 , JsonLog(..)
@@ -104,6 +103,11 @@ instance LogMessage T.Text where
 -- LogFunction
 
 type LogFunction = forall a . LogMessage a => LogLevel -> a -> IO ()
+
+newtype ALogFunction = ALogFunction { _getLogFunction :: LogFunction }
+
+alogFunction :: forall a . LogMessage a => ALogFunction -> LogLevel -> a -> IO ()
+alogFunction (ALogFunction l) = l
 
 -- -------------------------------------------------------------------------- --
 -- LogMessage Types
