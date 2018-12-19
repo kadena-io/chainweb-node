@@ -202,7 +202,7 @@ main = runWithConfiguration mainInfo $ \config -> do
 
 example :: P2pExampleConfig -> Logger -> IO ()
 example conf logger =
-    withAsync (node cid t logger conf bootstrapConfig bootstrapNodeId bootstrapPort)
+    withAsync (node cid t logger conf bootstrapConfig bootstrapChainNodeId bootstrapPort)
         $ \bootstrap -> do
             mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
             wait bootstrap
@@ -226,12 +226,12 @@ example conf logger =
         & p2pConfigPeerId .~ _peerId bootstrapPeer
 
     bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
-    bootstrapNodeId = NodeId cid 0
+    bootstrapChainNodeId = ChainNodeId cid 0
 
     -- Other nodes
     --
     nodePorts =
-        [ (NodeId cid i, bootstrapPort + fromIntegral i)
+        [ (ChainNodeId cid i, bootstrapPort + fromIntegral i)
         | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
         ]
 
@@ -275,7 +275,7 @@ node
     -> Logger
     -> P2pExampleConfig
     -> P2pConfiguration
-    -> NodeId
+    -> ChainNodeId
     -> Port
     -> IO ()
 node cid t logger conf p2pConfig nid port =
@@ -306,7 +306,7 @@ withBlockHeaderDbGexf
     :: ChainwebVersion
     -> ChainGraph
     -> ChainId
-    -> NodeId
+    -> ChainNodeId
     -> (BlockHeaderDb -> IO b)
     -> IO b
 withBlockHeaderDbGexf v graph cid nid f =

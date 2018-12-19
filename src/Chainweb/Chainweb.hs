@@ -39,7 +39,7 @@ module Chainweb.Chainweb
 (
 -- * Configuration
   ChainwebConfiguration(..)
-, configChainwebNodeId
+, configNodeId
 , configChainwebVersion
 , configMiner
 , configP2p
@@ -85,7 +85,7 @@ module Chainweb.Chainweb
 , chainwebGraph
 , chainwebChains
 , chainwebCuts
-, chainwebChainwebNodeId
+, chainwebNodeId
 , chainwebHostAddress
 , chainwebMiner
 , chainwebLogFun
@@ -277,7 +277,7 @@ syncDepth g = case diameter g of
 
 data Miner = Miner
     { _minerLogFun :: !ALogFunction
-    , _minerNodeId :: !ChainwebNodeId
+    , _minerNodeId :: !NodeId
     , _minerCutDb :: !CutDb
     , _minerWebChainDb :: !WebChainDb
     , _minerConfig :: !MinerConfig
@@ -286,7 +286,7 @@ data Miner = Miner
 withMiner
     :: ALogFunction
     -> MinerConfig
-    -> ChainwebNodeId
+    -> NodeId
     -> CutDb
     -> WebChainDb
     -> (Miner -> IO a)
@@ -329,7 +329,7 @@ data Chainweb = Chainweb
     , _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId Chain)
     , _chainwebCuts :: !Cuts
-    , _chainwebChainwebNodeId :: !ChainwebNodeId
+    , _chainwebNodeId :: !NodeId
     , _chainwebMiner :: !Miner
     , _chainwebLogFun :: !ALogFunction
     }
@@ -366,13 +366,13 @@ withChainweb graph conf logFuns inner =
                     , _chainwebHostAddress = _p2pConfigHostAddress (_configP2p conf)
                     , _chainwebChains = cs
                     , _chainwebCuts = cuts
-                    , _chainwebChainwebNodeId = cwnid
+                    , _chainwebNodeId = cwnid
                     , _chainwebMiner = m
                     , _chainwebLogFun = _chainwebNodeLogFun logFuns
                     }
 
     v = _configChainwebVersion conf
-    cwnid = _configChainwebNodeId conf
+    cwnid = _configNodeId conf
     p2pConf = _configP2p conf
 
     -- FIXME: make this configurable
@@ -448,7 +448,7 @@ runChainweb cw = do
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configChainwebNodeId :: !ChainwebNodeId
+    , _configNodeId :: !NodeId
     , _configMiner :: !MinerConfig
     , _configP2p :: !P2pConfiguration
     }
@@ -459,7 +459,7 @@ makeLenses ''ChainwebConfiguration
 defaultChainwebConfiguration :: ChainwebConfiguration
 defaultChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion = Test
-    , _configChainwebNodeId = ChainwebNodeId 0 -- FIXME
+    , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultMinerConfig
     , _configP2p = defaultP2pConfiguration Test
     }
@@ -467,7 +467,7 @@ defaultChainwebConfiguration = ChainwebConfiguration
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
-        , "chainwebNodeId" .= _configChainwebNodeId o
+        , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
         ]
@@ -475,7 +475,7 @@ instance ToJSON ChainwebConfiguration where
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configChainwebNodeId ..: "chainwebNodeId" % o
+        <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
 
@@ -485,7 +485,7 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configChainwebNodeId .:: textOption
+    <*< configNodeId .:: textOption
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"

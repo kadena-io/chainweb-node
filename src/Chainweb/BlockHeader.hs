@@ -286,7 +286,7 @@ data BlockHeader :: Type where
             -- that the Chainweb version of a block equals the Chainweb version
             -- of its parent.
 
-        , _blockMiner :: {-# UNPACK #-} !NodeId
+        , _blockMiner :: {-# UNPACK #-} !ChainNodeId
             -- ^ The public identifier of the miner of the block as self-idenfied
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
@@ -338,7 +338,7 @@ encodeBlockHeaderNoHash b = do
     encodeBlockWeight (_blockWeight b)
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
-    encodeNodeId (_blockMiner b)
+    encodeChainNodeId (_blockMiner b)
 
 encodeBlockHeader
     :: MonadPut m
@@ -397,7 +397,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockWeight
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
-    <*> decodeNodeId
+    <*> decodeChainNodeId
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
@@ -500,9 +500,9 @@ genesisTime Test _ = epoche
 genesisTime Simulation _ = epoche
 genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
 
-genesisMiner :: HasChainId p => ChainwebVersion -> p -> NodeId
-genesisMiner Test p = NodeId (_chainId p) 0
-genesisMiner Simulation p = NodeId (_chainId p) 0
+genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
+genesisMiner Test p = ChainNodeId (_chainId p) 0
+genesisMiner Simulation p = ChainNodeId (_chainId p) 0
 genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 
 -- TODO: characterize genesis block payload. Should this be the value of
@@ -572,7 +572,7 @@ instance TreeDbEntry BlockHeader where
 -- Testing
 
 testBlockHeader
-    :: NodeId
+    :: ChainNodeId
     -> BlockHashRecord
     -> Nonce
     -> BlockHeader
