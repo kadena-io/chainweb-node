@@ -39,6 +39,7 @@ module Chainweb.RestAPI
 , chainwebApplication
 , serveChainwebOnPort
 , serveChainweb
+, serveChainwebSocket
 , Port
 
 -- * Chainweb API Client
@@ -60,6 +61,7 @@ import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
@@ -212,3 +214,15 @@ serveChainweb
     -> IO ()
 serveChainweb s v cutDb chainDbs peerDbs = runSettings s
     $ chainwebApplication v cutDb chainDbs peerDbs
+
+serveChainwebSocket
+    :: Settings
+    -> Socket
+    -> ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveChainwebSocket s sock v cutDb chainDbs peerDbs = runSettingsSocket s sock
+    $ chainwebApplication v cutDb chainDbs peerDbs
+

@@ -52,6 +52,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
+        , Chainweb.Chainweb
         , Chainweb.Cut
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -125,6 +126,7 @@ library
         , massiv >= 0.2
         , mtl >= 2.2
         , mwc-random >= 0.13
+        , network >= 2.6
         , optparse-applicative >= 0.14
         , pact >= 2.4
         , paths >= 0.2
@@ -161,10 +163,11 @@ test-suite chainweb-tests
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
-    ghc-options: -threaded -with-rtsopts=-N
     other-modules:
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.DiGraph
@@ -214,7 +217,7 @@ test-suite chainweb-tests
         , warp >= 3.2
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Node
+-- Chainweb Node Application
 -- -------------------------------------------------------------------------- --
 
 -- The application that runs an chainweb node
@@ -226,9 +229,52 @@ executable chainweb-node
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: node
     main-is: ChainwebNode.hs
-    ghc-options: -threaded
+    other-modules:
+        Paths_chainweb
+        Utils.Logging
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , async >= 2.2
+        , base >= 4.11
+        , bytestring >= 0.10
+        , clock >= 0.7
+        , configuration-tools >= 0.4
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , monad-control >= 1.0
+        , reflection >= 2.1
+        , streaming >= 0.2
+        , text >= 1.2
+        , unordered-containers >= 0.2
+        , wai-app-static >= 3.1
+        , wai-cors >= 0.2
+        , wai-extra >= 3.0
+        , warp >= 3.2
+        , yet-another-logger >= 0.3.1
+
+-- -------------------------------------------------------------------------- --
+-- Single-Chain Node Application
+-- -------------------------------------------------------------------------- --
+
+-- A node that runs only on a single chain
+--
+executable single-chain-node
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+        -threaded
+    hs-source-dirs: node examples
+    main-is: SingleChainNode.hs
     other-modules:
         Chainweb.Node.SingleChainMiner
         Paths_chainweb
@@ -255,74 +301,16 @@ executable chainweb-node
         , uuid >= 1.3
         , warp >= 3.2
         , yet-another-logger >= 0.3.1
--- Dependencies of Utils.*
-        , transformers >= 0.5
+
+        -- Dependencies of Utils.*
         , wai-app-static >= 3.1
         , wai-cors >= 0.2
         , wai-extra >= 3.0
         , monad-control >= 1.0
         , clock >= 0.7
 
-
 -- -------------------------------------------------------------------------- --
--- Examples for BlockHeaderDb usage
--- -------------------------------------------------------------------------- --
-
-executable blockheaderdb-example
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-    hs-source-dirs: examples
-    main-is: BlockHeaderChainDb.hs
-    ghc-options: -threaded -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , lens >= 4.16
-        , random >= 1.1
-        , streaming >= 0.2.2
-        , text >= 1.2
-        , yet-another-logger >= 0.3.1
-
--- -------------------------------------------------------------------------- --
--- Single P2P Example
--- -------------------------------------------------------------------------- --
-
-executable p2p-example
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-    hs-source-dirs: examples
-    main-is: P2pExample.hs
-    ghc-options: -threaded -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , configuration-tools >= 0.4
-        , exceptions >= 0.8
-        , http-client >= 0.5
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mwc-random >= 0.13
-        , text >= 1.2
-        , yet-another-logger >= 0.3.1
-
--- -------------------------------------------------------------------------- --
--- Single Chain End-To-End Example
+-- Single Chain End-To-End Example (multiple nodes)
 -- -------------------------------------------------------------------------- --
 
 executable single-chain-example
@@ -332,6 +320,8 @@ executable single-chain-example
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: node examples
     main-is: SingleChainExample.hs
     other-modules:
@@ -340,7 +330,6 @@ executable single-chain-example
         Utils.Gexf
         Utils.Logging
 
-    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -369,3 +358,63 @@ executable single-chain-example
         , warp >= 3.2
         , xmlgen >= 0.6
         , yet-another-logger >= 0.3.1
+
+-- -------------------------------------------------------------------------- --
+-- Examples for BlockHeaderDb usage
+-- -------------------------------------------------------------------------- --
+
+executable blockheaderdb-example
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
+    hs-source-dirs: examples
+    main-is: BlockHeaderChainDb.hs
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , async >= 2.2
+        , base >= 4.11
+        , lens >= 4.16
+        , random >= 1.1
+        , streaming >= 0.2.2
+        , text >= 1.2
+        , yet-another-logger >= 0.3.1
+
+-- -------------------------------------------------------------------------- --
+-- Single P2P Example
+-- -------------------------------------------------------------------------- --
+
+executable p2p-example
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
+    hs-source-dirs: examples
+    main-is: P2pExample.hs
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , async >= 2.2
+        , base >= 4.11
+        , configuration-tools >= 0.4
+        , exceptions >= 0.8
+        , http-client >= 0.5
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , mwc-random >= 0.13
+        , text >= 1.2
+        , yet-another-logger >= 0.3.1
+
