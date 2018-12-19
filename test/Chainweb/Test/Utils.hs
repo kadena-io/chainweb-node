@@ -2,6 +2,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -60,6 +61,7 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.Coerce (coerce)
 import Data.Foldable
 import Data.Reflection (give)
 import qualified Data.Text as T
@@ -80,6 +82,8 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 import Test.QuickCheck hiding (frequency)
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import Text.Printf (printf)
 
 -- internal modules
 
@@ -126,13 +130,29 @@ insertN n g db = traverse_ (insert db) bhs
   where
     bhs = take n $ testBlockHeaders g
 
-prettyTree :: (TreeDb db, Ord (DbKey db)) => db -> IO String
-prettyTree db = drawTree . fmap (take 16 . show . key) <$> toTree db
+-- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
+-- from any `TreeDb` via `toTree`.
+--
+prettyTree :: Tree BlockHeader -> String
+prettyTree = drawTree . fmap f
+  where
+    f h = printf "%d - %s"
+              (coerce @BlockHeight @Word64 $ _blockHeight h)
+              (take 12 . drop 1 . show $ _blockHash h)
 
+-- | A `Tree` which doesn't branch much. The `Fake` instance of this type
+-- ensures that other than the main trunk, branches won't ever be much longer
+-- than 4 nodes.
+--
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader }
 
 instance Fake SparseTree where
-    fake = SparseTree <$> (fake >>= tree)
+    fake = do
+        h <- fake
+        -- TODO(colin): What about _blockParent? Is it even possible to compute?
+        let h' = h { _blockHeight = 0 }
+            h'' = h' { _blockHash = computeBlockHash h' }
+        SparseTree <$> (Node h'' . (: []) <$> tree h'')
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
