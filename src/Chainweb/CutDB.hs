@@ -39,7 +39,7 @@ module Chainweb.CutDB
 
 -- * CutDb
 , CutDb
-, cutDbWebChainDb
+, cutDbWebBlockHeaderDb
 , cut
 , _cut
 , _cutStm
@@ -99,7 +99,7 @@ import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import Chainweb.WebChainDB
+import Chainweb.WebBlockHeaderDB
 
 import Data.Singletons
 
@@ -168,18 +168,18 @@ data CutDb = CutDb
         -- For now we treat all peers equal. A local miner is just another peer
         -- that provides new cuts.
 
-    , _cutDbWebChainDb :: !WebChainDb
+    , _cutDbWebBlockHeaderDb :: !WebBlockHeaderDb
     , _cutDbAsync :: !(Async ())
     }
 
 instance HasChainGraph CutDb where
-    _chainGraph = _chainGraph . _cutDbWebChainDb
+    _chainGraph = _chainGraph . _cutDbWebBlockHeaderDb
     {-# INLINE _chainGraph #-}
 
--- We export the 'WebChainDb' read-only
+-- We export the 'WebBlockHeaderDb' read-only
 --
-cutDbWebChainDb :: Getter CutDb WebChainDb
-cutDbWebChainDb = to _cutDbWebChainDb
+cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
+cutDbWebBlockHeaderDb = to _cutDbWebBlockHeaderDb
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
@@ -212,10 +212,10 @@ _cutStm = readTVar . _cutDbCut
 cutStm :: Getter CutDb (STM Cut)
 cutStm = to _cutStm
 
-withCutDb :: CutDbConfig -> WebChainDb -> (CutDb -> IO a) -> IO a
+withCutDb :: CutDbConfig -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
 withCutDb config wdb = bracket (startCutDb config wdb) stopCutDb
 
-startCutDb :: CutDbConfig -> WebChainDb -> IO CutDb
+startCutDb :: CutDbConfig -> WebBlockHeaderDb -> IO CutDb
 startCutDb config wdb = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     queue <- newTBQueueIO (int $ _cutDbConfigBufferSize config)
@@ -233,7 +233,7 @@ stopCutDb db = cancel (_cutDbAsync db)
 -- headers on indiviual chains.
 --
 processCuts
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => TBQueue CutHashes
     -> TVar Cut
     -> IO ()
@@ -267,7 +267,7 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
         go new
 
 cutHashesToBlockHeaderMap
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => CutHashes
     -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
@@ -282,9 +282,12 @@ cutHashesToBlockHeaderMap hs = do
         then return $ Right headers
         else return $ Left missing
   where
-    tryLookup (cid, h) = (Right <$> mapM lookupWebChainDb (cid, h)) `catch` \case
-        (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) -> return $ Left (cid, h)
-        e -> throwM e
+    tryLookup (cid, h) =
+        (Right <$> mapM lookupWebBlockHeaderDb (cid, h)) `catch` \case
+            (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
+                return $ Left (cid, h)
+            e ->
+                throwM e
 
 -- -------------------------------------------------------------------------- --
 -- Some CutDB

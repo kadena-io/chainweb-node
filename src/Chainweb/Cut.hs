@@ -134,7 +134,7 @@ import Chainweb.NodeId
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebChainDB
+import Chainweb.WebBlockHeaderDB
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -367,7 +367,7 @@ data Join a = Join
 
 join
     :: Ord a
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => (DiffItem BlockHeader -> DiffItem (Maybe a))
     -> Cut
     -> Cut
@@ -381,12 +381,12 @@ join f = join_ f `on` _cutHeaders
 join_
     :: forall a
     . Ord a
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => (DiffItem BlockHeader -> DiffItem (Maybe a))
     -> HM.HashMap ChainId BlockHeader
     -> HM.HashMap ChainId BlockHeader
     -> IO (Join a)
-join_ prioFun a b = give (_chainGraph (given @WebChainDb)) $ do
+join_ prioFun a b = give (_chainGraph (given @WebBlockHeaderDb)) $ do
     (m, h) <- foldM f (mempty, mempty) (zipChainIdMaps a b)
     return $ Join (Cut m given) h
   where
@@ -395,7 +395,7 @@ join_ prioFun a b = give (_chainGraph (given @WebChainDb)) $ do
         -> (ChainId, BlockHeader, BlockHeader)
         -> IO (HM.HashMap ChainId BlockHeader, JoinQueue a)
     f (m, q) (cid, x, y) = do
-        db <- getWebChainDb cid
+        db <- getWebBlockHeaderDb cid
         (q' :> h) <- S.fold g q id $ branchDiff_ db x y
         return (HM.insert cid h m, q')
 
@@ -444,14 +444,14 @@ applyJoin m = foldM
     (_joinQueue m)
 
 joinIntoHeavier
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => Cut
     -> Cut
     -> IO Cut
 joinIntoHeavier = joinIntoHeavier_ `on` _cutHeaders
 
 joinIntoHeavier_
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => HM.HashMap ChainId BlockHeader
     -> HM.HashMap ChainId BlockHeader
     -> IO Cut
@@ -503,20 +503,20 @@ prioritizeHeavier_ a b = f
 -- | Intersection of cuts
 --
 meet
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => Cut
     -> Cut
     -> IO Cut
 meet a b = do
     r <- HM.fromList <$> mapM f (zipCuts a b)
-    return $ Cut r (_chainGraph (given @WebChainDb))
+    return $ Cut r (_chainGraph (given @WebBlockHeaderDb))
   where
     f (cid, x, y) = (cid,) <$> do
-        db <- getWebChainDb cid
+        db <- getWebBlockHeaderDb cid
         forkEntry db x y
 
 forkDepth
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => Cut
     -> Cut
     -> IO Natural
@@ -537,14 +537,14 @@ forkDepth a b = do
 
 testMine
     :: HasChainId cid
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => Nonce
     -> ChainwebNodeId
     -> cid
     -> Cut
     -> IO (Maybe Cut)
 testMine n nid i c = forM (testMineCut n nid i c) $ \(h, c') ->
-    c' <$ insertWebChainDb h
+    c' <$ insertWebBlockHeaderDb h
 
 -- | Only produces a new cut but doesn't insert it into the chain database
 --
@@ -614,7 +614,7 @@ instance Given ChainGraph => T.Arbitrary Cut where
 arbitraryWebChainCut
     :: HasCallStack
     => Given ChainGraph
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => Cut
         -- @genesisCut Test@ is always a valid cut
     -> T.PropertyM IO Cut
@@ -637,7 +637,7 @@ arbitraryWebChainCut initialCut = do
 arbitraryWebChainCut_
     :: HasCallStack
     => Given ChainGraph
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => Cut
         -- @genesisCut Test@ is always a valid cut
     -> TT.GenT IO Cut
@@ -667,10 +667,10 @@ data TestFork = TestFork
     }
     deriving (Show, Eq, Ord, Generic)
 
-instance (Given ChainGraph, Given WebChainDb) => T.Arbitrary (IO TestFork) where
+instance (Given ChainGraph, Given WebBlockHeaderDb) => T.Arbitrary (IO TestFork) where
     arbitrary = TT.runGenT arbitraryFork_
 
-instance (Given ChainGraph, Given WebChainDb) => T.Arbitrary (IO (Join Int)) where
+instance (Given ChainGraph, Given WebBlockHeaderDb) => T.Arbitrary (IO (Join Int)) where
     arbitrary = TT.runGenT $ do
         TestFork _ cl cr <- arbitraryFork_
         liftIO $ join (prioritizeHeavier cl cr) cl cr
@@ -681,7 +681,7 @@ instance (Given ChainGraph, Given WebChainDb) => T.Arbitrary (IO (Join Int)) whe
 --
 arbitraryFork
     :: Given ChainGraph
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => T.PropertyM IO TestFork
 arbitraryFork = do
     base <- arbitraryWebChainCut (genesisCut Test)
@@ -691,7 +691,7 @@ arbitraryFork = do
 
 arbitraryFork_
     :: Given ChainGraph
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => TT.GenT IO TestFork
 arbitraryFork_ = do
     base <- arbitraryWebChainCut_ (genesisCut Test)
@@ -721,13 +721,19 @@ arbitraryFork_ = do
 
 -- Join
 
-prop_joinIdempotent :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_joinIdempotent
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_joinIdempotent = do
     c <- arbitraryWebChainCut (genesisCut Test)
     T.run $ (==) c <$> joinIntoHeavier c c
 
 -- FIXME!
-prop_joinCommutative :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_joinCommutative
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_joinCommutative = do
     TestFork _ cl cr <- arbitraryFork
     T.run $ (==)
@@ -736,7 +742,10 @@ prop_joinCommutative = do
 
 -- Fails for heuristic joins
 --
-prop_joinAssociative :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_joinAssociative
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_joinAssociative = do
     TestFork _ c0 c1 <- arbitraryFork
     TestFork _ c10 c11 <- TestFork c1
@@ -756,26 +765,38 @@ prop_joinAssociative = do
             <$> (m c0 =<< m c10 c11)
             <*> (m c0 c10 >>= \x -> m x c11)
 
-prop_joinIdentity :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_joinIdentity
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_joinIdentity = do
     c <- arbitraryWebChainCut (genesisCut Test)
     T.run $ (==) c <$> joinIntoHeavier (genesisCut Test) c
 
 -- Meet
 
-prop_meetIdempotent :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetIdempotent
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetIdempotent = do
     c <- arbitraryWebChainCut (genesisCut Test)
     T.run $ (==) c <$> meet c c
 
-prop_meetCommutative :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetCommutative
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetCommutative = do
     TestFork _ cl cr <- arbitraryFork
     T.run $ (==)
         <$> meet cl cr
         <*> meet cr cl
 
-prop_meetAssociative :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetAssociative
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetAssociative = do
     TestFork _ c0 c1 <- arbitraryFork
     TestFork _ c10 c11 <- TestFork c1
@@ -789,21 +810,30 @@ prop_meetAssociative = do
 
 -- | this a corollary of 'prop_joinIdentity' and 'prop_meetJoinAbsorption'
 --
-prop_meetZeroAbsorption :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetZeroAbsorption
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetZeroAbsorption = do
     c <- arbitraryWebChainCut (genesisCut Test)
     T.run $ do
         c' <- meet (genesisCut Test) c
         return (c == c')
 
-prop_joinMeetAbsorption :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_joinMeetAbsorption
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_joinMeetAbsorption = do
     TestFork _ c0 c1 <- arbitraryFork
     T.run $ do
         c0' <- joinIntoHeavier c0 =<< meet c0 c1
         return (c0' == c0)
 
-prop_meetJoinAbsorption :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetJoinAbsorption
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetJoinAbsorption = do
     TestFork _ c0 c1 <- arbitraryFork
     T.run $ do
@@ -865,7 +895,10 @@ properties_cut =
 -- -------------------------------------------------------------------------- --
 -- Meet Properties
 
-prop_meetGenesisCut :: Given ChainGraph => Given WebChainDb => T.PropertyM IO Bool
+prop_meetGenesisCut
+    :: Given ChainGraph
+    => Given WebBlockHeaderDb
+    => T.PropertyM IO Bool
 prop_meetGenesisCut = liftIO $ (==) c <$> meet c c
   where
     c = genesisCut Test
@@ -924,15 +957,15 @@ properties = give pairChainGraph
 giveNewWebChain
     :: MonadIO m
     => Given ChainGraph
-    => (Given WebChainDb => m a)
+    => (Given WebBlockHeaderDb => m a)
     -> m a
 giveNewWebChain f = do
-    db <- liftIO (initWebChainDb Test)
+    db <- liftIO (initWebBlockHeaderDb Test)
     give db f
 
 ioTest
     :: Given ChainGraph
-    => (Given WebChainDb => T.PropertyM IO Bool)
+    => (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
 ioTest f = T.monadicIO $ giveNewWebChain $ f >>= T.assert
 

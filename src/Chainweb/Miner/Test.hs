@@ -48,7 +48,7 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Utils
-import Chainweb.WebChainDB
+import Chainweb.WebBlockHeaderDB
 
 import Data.DiGraph
 import Data.LogMessage
@@ -92,7 +92,7 @@ miner
     -> MinerConfig
     -> ChainwebNodeId
     -> CutDb
-    -> WebChainDb
+    -> WebBlockHeaderDb
     -> IO ()
 miner logFun conf nid cutDb wcdb = do
     logg Info "Started Miner"
@@ -105,7 +105,7 @@ miner logFun conf nid cutDb wcdb = do
 
     graph = _chainGraph cutDb
 
-    go :: Given WebChainDb => MWC.GenIO -> Int -> IO ()
+    go :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> IO ()
     go gen i = do
 
         -- mine new block

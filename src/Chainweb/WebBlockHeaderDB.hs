@@ -5,7 +5,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
--- Module: Chainweb.WebChainDB
+-- Module: Chainweb.WebBlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -13,14 +13,14 @@
 --
 -- TODO
 --
-module Chainweb.WebChainDB
-( WebChainDb
-, mkWebChainDb
-, initWebChainDb
-, getWebChainDb
-, webChainDb
-, lookupWebChainDb
-, insertWebChainDb
+module Chainweb.WebBlockHeaderDB
+( WebBlockHeaderDb
+, mkWebBlockHeaderDb
+, initWebBlockHeaderDb
+, getWebBlockHeaderDb
+, webBlockHeaderDb
+, lookupWebBlockHeaderDb
+, insertWebBlockHeaderDb
 , blockAdjacentParentHeaders
 , checkBlockHeaderGraph
 , checkBlockAdjacentParents
@@ -50,7 +50,7 @@ import Chainweb.Version
 
 -- | Every WebChain has the following properties
 --
--- * All entires of _webChainDb are valid BlockHeaderDbs
+-- * All entires of _webBlockHeaderDb are valid BlockHeaderDbs
 -- * There are no dangling adjacent parent hashes
 -- * The adjacent hashes of all block headers conform with the chain graph
 --   of the web chain.
@@ -58,68 +58,74 @@ import Chainweb.Version
 --  TODO: in order to enforce these invariants the insertion to
 --  the dbs must be guarded see issue #123.
 --
-data WebChainDb = WebChainDb
-    { _webChainDb :: !(HM.HashMap ChainId BlockHeaderDb)
+data WebBlockHeaderDb = WebBlockHeaderDb
+    { _webBlockHeaderDb :: !(HM.HashMap ChainId BlockHeaderDb)
     , _webChainGraph :: !ChainGraph
     }
 
-webChainDb :: Getter WebChainDb (HM.HashMap ChainId BlockHeaderDb)
-webChainDb = to _webChainDb
+webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
+webBlockHeaderDb = to _webBlockHeaderDb
 
-type instance Index WebChainDb = ChainId
-type instance IxValue WebChainDb = BlockHeaderDb
+type instance Index WebBlockHeaderDb = ChainId
+type instance IxValue WebBlockHeaderDb = BlockHeaderDb
 
-instance IxedGet WebChainDb where
-    ixg i = webChainDb . ix i
+instance IxedGet WebBlockHeaderDb where
+    ixg i = webBlockHeaderDb . ix i
     {-# INLINE ixg #-}
 
-instance HasChainGraph WebChainDb where
+instance HasChainGraph WebBlockHeaderDb where
     _chainGraph = _webChainGraph
     {-# INLINE _chainGraph #-}
 
-initWebChainDb :: Given ChainGraph => ChainwebVersion -> IO WebChainDb
-initWebChainDb v = WebChainDb
+initWebBlockHeaderDb
+    :: Given ChainGraph
+    => ChainwebVersion
+    -> IO WebBlockHeaderDb
+initWebBlockHeaderDb v = WebBlockHeaderDb
     <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap chainIds)
     <*> pure given
   where
     conf cid = Configuration (genesisBlockHeader v given cid)
 
-mkWebChainDb :: ChainGraph -> HM.HashMap ChainId BlockHeaderDb -> WebChainDb
-mkWebChainDb graph m = WebChainDb m graph
+mkWebBlockHeaderDb
+    :: ChainGraph
+    -> HM.HashMap ChainId BlockHeaderDb
+    -> WebBlockHeaderDb
+mkWebBlockHeaderDb graph m = WebBlockHeaderDb m graph
 
-getWebChainDb
+getWebBlockHeaderDb
     :: MonadThrow m
     => HasChainId p
-    => Given WebChainDb
+    => Given WebBlockHeaderDb
     => p
     -> m BlockHeaderDb
-getWebChainDb p = do
-    give (_chainGraph (given @WebChainDb)) $ checkWebChainId p
-    return $ _webChainDb given HM.! _chainId p
+getWebBlockHeaderDb p = do
+    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId p
+    return $ _webBlockHeaderDb given HM.! _chainId p
 
-lookupWebChainDb
-    :: Given WebChainDb
+lookupWebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => BlockHash
     -> IO BlockHeader
-lookupWebChainDb h = do
-    give (_chainGraph (given @WebChainDb)) $ checkWebChainId h
-    db <- getWebChainDb h
+lookupWebBlockHeaderDb h = do
+    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
+    db <- getWebBlockHeaderDb h
     lookupM db h
 
 blockAdjacentParentHeaders
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
-blockAdjacentParentHeaders = traverse lookupWebChainDb
+blockAdjacentParentHeaders = traverse lookupWebBlockHeaderDb
     . _getBlockHashRecord
     . _blockAdjacentHashes
 
-insertWebChainDb
-    :: Given WebChainDb
+insertWebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => BlockHeader
     -> IO ()
-insertWebChainDb h = do
-    db <- getWebChainDb h
+insertWebBlockHeaderDb h = do
+    db <- getWebBlockHeaderDb h
     checkBlockAdjacentParents h
     insert db h
 
@@ -140,11 +146,11 @@ checkBlockHeaderGraph
 checkBlockHeaderGraph b = void
     $ checkAdjacentChainIds b $ Expected $ _blockAdjacentChainIds b
 
--- | Given a 'WebChainDb' @db@, @checkBlockAdjacentParents h@ checks that
+-- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
 -- all referenced adjacent parents block headers exist in @db@.
 --
 checkBlockAdjacentParents
-    :: Given WebChainDb
+    :: Given WebBlockHeaderDb
     => BlockHeader
     -> IO ()
 checkBlockAdjacentParents = void . blockAdjacentParentHeaders

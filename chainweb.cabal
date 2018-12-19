@@ -76,7 +76,7 @@ library
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Version
-        , Chainweb.WebChainDB
+        , Chainweb.WebBlockHeaderDB
 
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
