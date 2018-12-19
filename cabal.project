@@ -2,3 +2,21 @@ packages: chainweb.cabal
 
 package aeson
     flags: +cffi
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact.git
+    tag: 3316593a690444e0290dfc3605b55dc5aa7e43c9
+
+source-repository-package
+    type: git
+    location: https://github.com/LeventErkok/sbv.git
+    tag: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
+
+source-repository-package
+    type: git
+    location: git@github.com:kadena-io/thyme.git
+    tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
+
+constraints:
+    megaparsec <7.0
