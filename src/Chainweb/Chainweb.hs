@@ -135,7 +135,7 @@ import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebChainDB
+import Chainweb.WebBlockHeaderDB
 
 import Data.DiGraph
 import Data.LogMessage
@@ -164,7 +164,7 @@ withCuts
     -> CutDbConfig
     -> P2pConfiguration
     -> ALogFunction
-    -> WebChainDb
+    -> WebBlockHeaderDb
     -> (Cuts -> IO a)
     -> IO a
 withCuts v cutDbConfig p2pConfig logfun webchain f =
@@ -279,7 +279,7 @@ data Miner = Miner
     { _minerLogFun :: !ALogFunction
     , _minerNodeId :: !NodeId
     , _minerCutDb :: !CutDb
-    , _minerWebChainDb :: !WebChainDb
+    , _minerWebBlockHeaderDb :: !WebBlockHeaderDb
     , _minerConfig :: !MinerConfig
     }
 
@@ -288,14 +288,14 @@ withMiner
     -> MinerConfig
     -> NodeId
     -> CutDb
-    -> WebChainDb
+    -> WebBlockHeaderDb
     -> (Miner -> IO a)
     -> IO a
 withMiner logFun conf nid cutDb webDb inner = inner $ Miner
     { _minerLogFun = logFun
     , _minerNodeId = nid
     , _minerCutDb = cutDb
-    , _minerWebChainDb = webDb
+    , _minerWebBlockHeaderDb = webDb
     , _minerConfig = conf
     }
 
@@ -306,7 +306,7 @@ runMiner m =
         (_minerConfig m)
         (_minerNodeId m)
         (_minerCutDb m)
-        (_minerWebChainDb m)
+        (_minerWebBlockHeaderDb m)
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Log Functions
@@ -357,7 +357,7 @@ withChainweb graph conf logFuns inner =
 
     -- Initialize global resources
     go cs [] = do
-        let webchain = mkWebChainDb graph (HM.map _chainBlockHeaderDb cs)
+        let webchain = mkWebBlockHeaderDb graph (HM.map _chainBlockHeaderDb cs)
         withCuts v cutConfig p2pConf (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
                 inner Chainweb
