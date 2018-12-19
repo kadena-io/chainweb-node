@@ -171,7 +171,7 @@ chainwebLogFunctions cids logger = ChainwebLogFunctions
     compLogger l = addLabel ("component" , l) logger
 
 -- -------------------------------------------------------------------------- --
--- main (doens't belong here)
+-- main
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
