@@ -74,7 +74,7 @@ example logger = do
         { DB._configRoot = genesisBlockHeader Test graph exampleChainId
         }
     withAsync (observer logger db) $ \o -> do
-        mapConcurrently_ (miner logger db) $ NodeId exampleChainId <$> [0..5]
+        mapConcurrently_ (miner logger db) $ ChainNodeId exampleChainId <$> [0..5]
         wait o
     return ()
 
@@ -83,7 +83,7 @@ example logger = do
 
 -- | A miner creates new entries with successive natural numbers as payload.
 --
-miner :: Logger T.Text -> DB.BlockHeaderDb -> NodeId -> IO ()
+miner :: Logger T.Text -> DB.BlockHeaderDb -> ChainNodeId -> IO ()
 miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> do
     let logg = loggerFunIO logger'
     logg Info "Started Miner"

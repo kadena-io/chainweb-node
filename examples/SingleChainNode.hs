@@ -225,8 +225,8 @@ main = runWithConfiguration mainInfo $ \config -> do
         staticDir
         (runNodeWithConfig config)
 
-peerIdToNodeId :: HasChainId cid => cid -> UUID.UUID -> NodeId
-peerIdToNodeId cid uuid = NodeId (_chainId cid) (int a * 2^(32 :: Integer) + int b)
+peerIdToChainNodeId :: HasChainId cid => cid -> UUID.UUID -> ChainNodeId
+peerIdToChainNodeId cid uuid = ChainNodeId (_chainId cid) (int a * 2^(32 :: Integer) + int b)
   where
     (a,b,_,_) = UUID.toWords uuid
 
@@ -238,7 +238,7 @@ runNodeWithConfig conf logger = do
           Nothing -> createPeerId
           Just x -> return x
         logfun Info $ T.pack (show myPeerId)
-        node cid logger conf (myConfig myPeerId) (peerIdToNodeId cid peerUUID) myPort
+        node cid logger conf (myConfig myPeerId) (peerIdToChainNodeId cid peerUUID) myPort
   where
     cid = _nodeChainId conf
 
@@ -283,7 +283,7 @@ node
     -> Logger
     -> P2pNodeConfig
     -> P2pConfiguration
-    -> NodeId
+    -> ChainNodeId
     -> Port
     -> IO ()
 node cid logger conf p2pConfig nid port =
@@ -348,7 +348,7 @@ syncer cid logger conf cdb pdb port =
 -- each nonce if accepted. Block creation is delayed through through
 -- 'threadDelay' with an geometric distribution.
 --
-miner :: Logger -> P2pNodeConfig -> NodeId -> BlockHeaderDb -> IO ()
+miner :: Logger -> P2pNodeConfig -> ChainNodeId -> BlockHeaderDb -> IO ()
 miner logger conf nid db = singleChainMiner logger conf' nid db
     where
         conf' = SingleChainMinerConfig

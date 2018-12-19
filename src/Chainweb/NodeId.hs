@@ -22,14 +22,14 @@
 module Chainweb.NodeId
 (
 -- * Chain Node Id
-  NodeId(..)
-, nodeIdChain
-, nodeIdId
-, encodeNodeId
-, decodeNodeId
-, decodeNodeIdCheckedChain
-, nodeIdToText
-, nodeIdFromText
+  ChainNodeId(..)
+, chainNodeIdChain
+, chainNodeIdId
+, encodeChainNodeId
+, decodeChainNodeId
+, decodeChainNodeIdChecked
+, chainNodeIdToText
+, chainNodeIdFromText
 
 -- * Chainweb Node Id
 , ChainwebNodeId(..)
@@ -49,7 +49,6 @@ import Data.Aeson
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
-import Data.Kind
 import qualified Data.Text as T
 import Data.Word
 
@@ -63,51 +62,53 @@ import Chainweb.ChainId
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
--- NodeId
+-- Chain NodeId
 
-data NodeId :: Type where
-    NodeId :: { _nodeIdChain :: !ChainId, _nodeIdId :: !Word64 } -> NodeId
+data ChainNodeId = ChainNodeId
+    { _chainNodeIdChain :: !ChainId
+    , _chainNodeIdId :: !Word64
+    }
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, FromJSON, ToJSON)
 
-makeLenses ''NodeId
+makeLenses ''ChainNodeId
 
-instance HasChainId NodeId where
-    _chainId = _nodeIdChain
+instance HasChainId ChainNodeId where
+    _chainId = _chainNodeIdChain
     {-# INLINE _chainId #-}
 
-encodeNodeId :: MonadPut m => NodeId -> m ()
-encodeNodeId (NodeId cid i) = encodeChainId cid >> putWord64le i
-{-# INLINE encodeNodeId #-}
+encodeChainNodeId :: MonadPut m => ChainNodeId -> m ()
+encodeChainNodeId (ChainNodeId cid i) = encodeChainId cid >> putWord64le i
+{-# INLINE encodeChainNodeId #-}
 
-decodeNodeId :: MonadGet m => m NodeId
-decodeNodeId = NodeId <$> decodeChainId <*> getWord64le
-{-# INLINE decodeNodeId #-}
+decodeChainNodeId :: MonadGet m => m ChainNodeId
+decodeChainNodeId = ChainNodeId <$> decodeChainId <*> getWord64le
+{-# INLINE decodeChainNodeId #-}
 
-decodeNodeIdCheckedChain
+decodeChainNodeIdChecked
     :: MonadThrow m
     => MonadGet m
     => HasChainId p
     => Expected p
-    -> m NodeId
-decodeNodeIdCheckedChain p = NodeId <$> decodeChainIdChecked p <*> getWord64le
-{-# INLINE decodeNodeIdCheckedChain #-}
+    -> m ChainNodeId
+decodeChainNodeIdChecked p = ChainNodeId <$> decodeChainIdChecked p <*> getWord64le
+{-# INLINE decodeChainNodeIdChecked #-}
 
-nodeIdToText :: NodeId -> T.Text
-nodeIdToText (NodeId c i) = sshow i <> "/" <> chainIdToText c
-{-# INLINE nodeIdToText #-}
+chainNodeIdToText :: ChainNodeId -> T.Text
+chainNodeIdToText (ChainNodeId c i) = sshow i <> "/" <> chainIdToText c
+{-# INLINE chainNodeIdToText #-}
 
-nodeIdFromText :: MonadThrow m => T.Text -> m NodeId
-nodeIdFromText t = case T.break (== '/') t of
+chainNodeIdFromText :: MonadThrow m => T.Text -> m ChainNodeId
+chainNodeIdFromText t = case T.break (== '/') t of
     (a, b)
-        | not (T.null b) -> NodeId <$> fromText (T.drop 1 b) <*> treadM a
+        | not (T.null b) -> ChainNodeId <$> fromText (T.drop 1 b) <*> treadM a
         | otherwise -> throwM . TextFormatException
             $ "Missing '/' in \"" <> a <> "\"."
 
-instance HasTextRepresentation NodeId where
-    toText = nodeIdToText
+instance HasTextRepresentation ChainNodeId where
+    toText = chainNodeIdToText
     {-# INLINE toText #-}
-    fromText = nodeIdFromText
+    fromText = chainNodeIdFromText
     {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
@@ -143,7 +144,7 @@ instance HasTextRepresentation ChainwebNodeId where
     fromText = chainwebNodeIdFromText
     {-# INLINE fromText #-}
 
-nodeIdFromChainwebNodeId :: ChainwebNodeId -> ChainId -> NodeId
-nodeIdFromChainwebNodeId (ChainwebNodeId i) cid = NodeId cid i
+nodeIdFromChainwebNodeId :: ChainwebNodeId -> ChainId -> ChainNodeId
+nodeIdFromChainwebNodeId (ChainwebNodeId i) cid = ChainNodeId cid i
 {-# INLINE nodeIdFromChainwebNodeId #-}
 

@@ -31,8 +31,8 @@ import Chainweb.Version
 instance Arbitrary ChainwebVersion where
     arbitrary = elements [minBound .. maxBound]
 
-instance Arbitrary NodeId where
-    arbitrary = NodeId <$> arbitrary <*> arbitrary
+instance Arbitrary ChainNodeId where
+    arbitrary = ChainNodeId <$> arbitrary <*> arbitrary
 
 instance Arbitrary BlockHash where
     arbitrary = BlockHash <$> arbitrary <*> arbitrary

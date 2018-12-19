@@ -67,8 +67,8 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeChainwebVersion encodeChainwebVersion
     , testProperty "ChainId"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
-    , testProperty "NodeId"
-        $ prop_encodeDecodeRoundtrip decodeNodeId encodeNodeId
+    , testProperty "ChainNodeId"
+        $ prop_encodeDecodeRoundtrip decodeChainNodeId encodeChainNodeId
     , testProperty "BlockHashBytes"
         $ prop_encodeDecodeRoundtrip decodeBlockHashBytes encodeBlockHashBytes
     , testProperty "BlockHash"
@@ -113,7 +113,7 @@ jsonTestCases f =
     , testProperty "TimeSpan Int64" $ f @(TimeSpan Int64)
     , testProperty "Seconds" $ f @Seconds
     , testProperty "ChainId" $ f @ChainId
-    , testProperty "NodeId" $ f @NodeId
+    , testProperty "ChainNodeId" $ f @ChainNodeId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
@@ -184,7 +184,7 @@ showReadTestCases f =
     , testProperty "Either String Int" $ f @(Either String Int)
     , testProperty "Text" $ f @T.Text
     , testProperty "ChainId" $ f @ChainId
-    , testProperty "NodeId" $ f @NodeId
+    , testProperty "ChainNodeId" $ f @ChainNodeId
     ]
 
 showReadTests :: TestTree
@@ -218,7 +218,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
     , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
-    , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
+    , testProperty "ChainNodeId" $ prop_iso' @_ @ChainNodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText
