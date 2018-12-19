@@ -11,10 +11,10 @@ module Chainweb.Mempool.Mempool
   , Subscription(..)
   , ValidationInfo(..)
   , ValidatedTransaction(..)
+  , LookupResult(..)
   , finalizeSubscriptionImmediately
   ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
 import Data.Bytes.Get (getWord64host, runGetS)
@@ -25,8 +25,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import GHC.Generics (Generic)
-import System.Mem.Weak (Weak)
-import qualified System.Mem.Weak as Weak
 
 
 ------------------------------------------------------------------------------
@@ -34,49 +32,57 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 
+
+------------------------------------------------------------------------------
+data LookupResult t = Missing
+                    | Validated (ValidatedTransaction t)
+                    | Confirmed
+                    | Pending t
+
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
     -- | converting transactions to/from bytestring.
-    _mempool_tx_codec :: {-# UNPACK #-} !(Codec t)
+    _mempoolTxCodec :: {-# UNPACK #-} !(Codec t)
 
     -- | hash function to use when making transaction hashes.
-  , _mempool_hasher :: ByteString -> TransactionHash
+  , _mempoolHasher :: ByteString -> TransactionHash
 
     -- | hash function metadata.
-  , _mempool_hash_meta :: {-# UNPACK #-} !HashMeta
+  , _mempoolHashMeta :: {-# UNPACK #-} !HashMeta
 
     -- | getter for the transaction reward.
-  , _mempool_tx_reward :: t -> TransactionReward
+  , _mempoolTxReward :: t -> TransactionReward
 
     -- | getter for transaction size.
-  , _mempool_tx_size :: t -> Int64
+  , _mempoolTxSize :: t -> Int64
+  , _mempoolBlockSizeLimit :: Int64
 
-    -- | Lookup transactions by hash.
-  , _mempool_lookup :: Vector TransactionHash -> IO (Vector (Maybe t))
+    -- | Lookup transactions in the pending queue by hash.
+  , _mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , _mempool_insert :: Vector t -> IO ()
+  , _mempoolInsert :: Vector t -> IO ()
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
-  , _mempool_get_block :: Int64 -> IO (Vector t)
+  , _mempoolGetBlock :: Int64 -> IO (Vector t)
 
     -- | mark the given hashes as being mined and validated.
-  , _mempool_mark_validated :: Vector TransactionHash -> IO ()
+  , _mempoolMarkValidated :: Vector TransactionHash -> IO ()
 
     -- | mark the given hashes as being past confirmation depth.
-  , _mempool_mark_confirmed :: Vector TransactionHash -> IO ()
+  , _mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | These transactions were on a losing fork. Reintroduce them.
-  , _mempool_reintroduce :: Vector TransactionHash -> IO ()
+  , _mempoolReintroduce :: Vector TransactionHash -> IO ()
 
     -- | given a callback function, loops through the pending candidate
     -- transactions and supplies the hashes to the callback in chunks.
-  , _mempool_get_pending_transactions
+  , _mempoolGetPendingTransactions
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
-  , _mempool_subscribe :: IO (Subscription t)
+  , _mempoolSubscribe :: IO (Subscription t)
 }
 
 
@@ -106,23 +112,23 @@ type TransactionReward = Int64
 ------------------------------------------------------------------------------
 -- | TODO: maybe use Put/Get ?
 data Codec t = Codec {
-    _encode :: t -> ByteString
-  , _decode :: ByteString -> Maybe t
+    _codecEncode :: t -> ByteString
+  , _codecDecode :: ByteString -> Maybe t
 }
 
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
-    _meta_ingest_time :: {-# UNPACK #-} !(Time Int64)
-  , _meta_expiry_time :: {-# UNPACK #-} !(Time Int64)
+    _metaIngestTime :: {-# UNPACK #-} !(Time Int64)
+  , _metaExpiryTime :: {-# UNPACK #-} !(Time Int64)
 }
 
 
 ------------------------------------------------------------------------------
 -- | Mempools will check these values match in APIs
 data HashMeta = HashMeta {
-    _hashmeta_name :: {-# UNPACK #-} !Text
-  , _hashmeta_len_bytes :: {-# UNPACK #-} !Int
+    _hashmetaName :: {-# UNPACK #-} !Text
+  , _hashmetaLenBytes :: {-# UNPACK #-} !Int
 }
 
 
@@ -130,24 +136,25 @@ data HashMeta = HashMeta {
 -- | Clients can subscribe to a mempool to receive new transactions as soon as
 -- they appear.
 data Subscription t = Subscription {
-    _mempool_sub_chan :: MVar (TBMChan t)
-  , _mempool_sub_final :: Weak (MVar (TBMChan t))
+    _mempoolSubChan :: TBMChan (Vector t)
+  , _mempoolSubFinal :: IO ()
+  -- TODO: activity timer
 }
 
 
 ------------------------------------------------------------------------------
 data ValidationInfo = ValidationInfo {
-    _validated_height :: !BlockHeight
-  , _validated_hash :: !BlockHash
+    _validatedHeight :: !BlockHeight
+  , _validatedHash :: !BlockHash
 }
 
 data ValidatedTransaction t = ValidatedTransaction {
-    _validated_forks :: Vector ValidationInfo
-  , _validated_transaction :: t
+    _validatedForks :: Vector ValidationInfo
+  , _validatedTransaction :: t
 }
 
 
 ------------------------------------------------------------------------------
 finalizeSubscriptionImmediately :: Subscription t -> IO ()
-finalizeSubscriptionImmediately = Weak.finalize . _mempool_sub_final
+finalizeSubscriptionImmediately = _mempoolSubFinal
 
