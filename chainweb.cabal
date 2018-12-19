@@ -87,6 +87,8 @@ library
         , Numeric.Additive
         , Numeric.AffineSpace
 
+        , Pact.Execute
+
         , P2P.Node
         , P2P.Node.Configuration
         , P2P.Node.PeerDB
@@ -124,6 +126,7 @@ library
         , mtl >= 2.2
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
+        , pact >= 2.4
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1

@@ -1,23 +1,26 @@
-stages:
-  - prelude
-  - build
-
-cabal-setup:
-  stage: prelude
-  script:
-    - nix-shell -p haskell.compiler.ghc844 cabal-install zlib --run "cabal new-update"
-
-chainweb-nix-ghc84:
-  stage: build
+# build with -fdev
+chainweb-nix-macos:
   script:
     - nix-build
+    - nix-build -A ghc.chainweb.doc
+    - scripts/collectArtifacts.sh
+  artifacts:
+    paths:
+    - public/
+    expire_in: 1 week
+
+chainweb-nix-linux:
+  script:
+    - nix-build --argstr system x86_64-linux
 
 chainweb-stack:
-  stage: build
   script:
-    - nix-shell -p stack libiconv zlib --run "stack test --fast"
+    - nix-shell -p stack libiconv zlib ncurses --run "stack test --fast"
 
-chainweb-cabal-ghc84:
-  stage: build
+pages:
+  stage: deploy
   script:
-    - nix-shell -p haskell.compiler.ghc844 cabal-install zlib --run "cabal new-build && cabal new-test"
+  - echo 'Nothing to do...'
+  artifacts:
+    paths:
+    - public/
