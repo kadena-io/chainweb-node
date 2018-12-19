@@ -160,10 +160,11 @@ test-suite chainweb-tests
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
-    ghc-options: -threaded -with-rtsopts=-N
     other-modules:
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.DiGraph
@@ -225,9 +226,10 @@ executable chainweb-node
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: node
     main-is: ChainwebNode.hs
-    ghc-options: -threaded -with-rtsopts=-N
     other-modules:
         Paths_chainweb
         Utils.Logging
@@ -269,9 +271,9 @@ executable single-chain-node
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
     hs-source-dirs: node examples
     main-is: SingleChainNode.hs
-    ghc-options: -threaded
     other-modules:
         Chainweb.Node.SingleChainMiner
         Paths_chainweb
@@ -318,6 +320,8 @@ executable single-chain-example
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: node examples
     main-is: SingleChainExample.hs
     other-modules:
@@ -326,7 +330,6 @@ executable single-chain-example
         Utils.Gexf
         Utils.Logging
 
-    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -367,9 +370,10 @@ executable blockheaderdb-example
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: examples
     main-is: BlockHeaderChainDb.hs
-    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
@@ -394,9 +398,10 @@ executable p2p-example
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
     hs-source-dirs: examples
     main-is: P2pExample.hs
-    ghc-options: -threaded -with-rtsopts=-N
     build-depends:
         -- internal
           chainweb
