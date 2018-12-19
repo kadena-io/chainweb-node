@@ -539,7 +539,7 @@ testMine
     :: HasChainId cid
     => Given WebChainDb
     => Nonce
-    -> ChainwebNodeId
+    -> NodeId
     -> cid
     -> Cut
     -> IO (Maybe Cut)
@@ -551,7 +551,7 @@ testMine n nid i c = forM (testMineCut n nid i c) $ \(h, c') ->
 testMineCut
     :: HasChainId cid
     => Nonce
-    -> ChainwebNodeId
+    -> NodeId
     -> cid
     -> Cut
     -> Maybe (BlockHeader, Cut)
@@ -562,7 +562,7 @@ testMineCut n nid i c = do
     cid = _chainId i
     p = c ^?! ixg cid
 
-    newHeader as = testBlockHeader (nodeIdFromChainwebNodeId nid cid) as n p
+    newHeader as = testBlockHeader (nodeIdFromNodeId nid cid) as n p
 
     newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
         c ^?! ixg (_chainId x) . to (tryAdj (_blockHeight p))

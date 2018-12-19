@@ -32,13 +32,13 @@ module Chainweb.NodeId
 , chainNodeIdFromText
 
 -- * Chainweb Node Id
-, ChainwebNodeId(..)
-, chainwebNodeIdId
-, encodeChainwebNodeId
-, decodeChainwebNodeId
-, chainwebNodeIdToText
-, chainwebNodeIdFromText
-, nodeIdFromChainwebNodeId
+, NodeId(..)
+, nodeIdId
+, encodeNodeId
+, decodeNodeId
+, nodeIdToText
+, nodeIdFromText
+, nodeIdFromNodeId
 ) where
 
 import Control.DeepSeq
@@ -114,37 +114,37 @@ instance HasTextRepresentation ChainNodeId where
 -- -------------------------------------------------------------------------- --
 -- Chainweb NodeId
 
-newtype ChainwebNodeId = ChainwebNodeId
-    { _chainwebNodeIdId :: Word64
+newtype NodeId = NodeId
+    { _nodeIdId :: Word64
     }
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, FromJSON, ToJSON)
     deriving newtype (Arbitrary)
 
-makeLenses ''ChainwebNodeId
+makeLenses ''NodeId
 
-encodeChainwebNodeId :: MonadPut m => ChainwebNodeId -> m ()
-encodeChainwebNodeId (ChainwebNodeId i) = putWord64le i
-{-# INLINE encodeChainwebNodeId #-}
+encodeNodeId :: MonadPut m => NodeId -> m ()
+encodeNodeId (NodeId i) = putWord64le i
+{-# INLINE encodeNodeId #-}
 
-decodeChainwebNodeId :: MonadGet m => m ChainwebNodeId
-decodeChainwebNodeId = ChainwebNodeId <$> getWord64le
-{-# INLINE decodeChainwebNodeId #-}
+decodeNodeId :: MonadGet m => m NodeId
+decodeNodeId = NodeId <$> getWord64le
+{-# INLINE decodeNodeId #-}
 
-chainwebNodeIdToText :: ChainwebNodeId -> T.Text
-chainwebNodeIdToText (ChainwebNodeId i) = sshow i
-{-# INLINE chainwebNodeIdToText #-}
+nodeIdToText :: NodeId -> T.Text
+nodeIdToText (NodeId i) = sshow i
+{-# INLINE nodeIdToText #-}
 
-chainwebNodeIdFromText :: MonadThrow m => T.Text -> m ChainwebNodeId
-chainwebNodeIdFromText = fmap ChainwebNodeId . treadM
+nodeIdFromText :: MonadThrow m => T.Text -> m NodeId
+nodeIdFromText = fmap NodeId . treadM
 
-instance HasTextRepresentation ChainwebNodeId where
-    toText = chainwebNodeIdToText
+instance HasTextRepresentation NodeId where
+    toText = nodeIdToText
     {-# INLINE toText #-}
-    fromText = chainwebNodeIdFromText
+    fromText = nodeIdFromText
     {-# INLINE fromText #-}
 
-nodeIdFromChainwebNodeId :: ChainwebNodeId -> ChainId -> ChainNodeId
-nodeIdFromChainwebNodeId (ChainwebNodeId i) cid = ChainNodeId cid i
-{-# INLINE nodeIdFromChainwebNodeId #-}
+nodeIdFromNodeId :: NodeId -> ChainId -> ChainNodeId
+nodeIdFromNodeId (NodeId i) cid = ChainNodeId cid i
+{-# INLINE nodeIdFromNodeId #-}
 

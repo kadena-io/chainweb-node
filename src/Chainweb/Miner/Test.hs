@@ -90,7 +90,7 @@ pMinerConfig = id
 miner
     :: LogFunction
     -> MinerConfig
-    -> ChainwebNodeId
+    -> NodeId
     -> CutDb
     -> WebChainDb
     -> IO ()
