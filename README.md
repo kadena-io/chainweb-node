@@ -36,6 +36,21 @@ test suite, and a few extra example executables.
 
 ## Running a chainweb-node
 
+A chainweb-node has two identifiers:
+
+*   The node-id is a permanent identifier that is used for the `miner`
+    field in the header of newly mined blocks. In its current form it is a
+    placeholder for an identity, e.g. a public key, that in the future will be
+    provided by the pact layer. If such an identity doesn't exist or isn't
+    needed, the node-id may be removed completely or kept only for debugging
+    purposes. The user must provide each node with a unique node-id on startup.
+
+*   The peer-id is used to identify the node in the peer-to-peer network. It
+    is an ephemeral identifier that can be dropped and recreated at any time.
+    Since the peer-id is used in caches and for reputation management nodes are
+    incentivised to persist and reuse peer-ids. When on peer-id is provided a
+    node generates a new peer-id on startup.
+
 On startup a chainweb-node tries to connect to the P2P network. For that each
 chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
 chainweb-node, this is a single node with with peer-id
