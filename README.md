@@ -55,13 +55,13 @@ When the default bootstrap node is available additional chainweb-nodes can be
 started as
 
 ```sh
-chainweb-node --node-id=NID --port=0
+chainweb-node --node-id=NID
 ```
 
 where `NID` must be replaced with a unique node id.
 
-Specifying a port number of `0` causes the node to request a free port from the
-operating system.
+The default `--port` value is 0 which causes the node to request a free port
+from the operating system.
 
 If the `--peer-id` parameter is omitted a new peer-id is created on startup.
 

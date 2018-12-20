@@ -93,11 +93,12 @@ echo "started bootstrap node 0"
 # Start remaining nodes
 #
 # When no peer-id is configured a random peer-id is generated on startup.
-# A port number of 0 means that a some free port is assigned to the node.
+# Omitting the port argument is the same as using --port=0, which means 
+# that a some free port is assigned to the node.
 
 for ((i=1; i<N; i++)) ; do
     sleep 0.2
-    run-node $i --port=0 ""
+    run-node $i "" ""
     echo "started node $i"
 done
 
