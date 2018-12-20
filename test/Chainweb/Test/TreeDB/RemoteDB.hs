@@ -8,7 +8,7 @@ import Test.Tasty.HUnit
 -- internal modules
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (insertN, withDB, withServer)
+import Chainweb.Test.Utils (insertN, withDB, withSingleChainServer)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 
@@ -21,7 +21,7 @@ cid :: ChainId
 cid = testChainId 0
 
 childrenEntriesT :: Assertion
-childrenEntriesT = withDB cid $ \g db -> withServer [(cid, db)] [] $ \env -> do
+childrenEntriesT = withDB cid $ \g db -> withSingleChainServer [(cid, db)] [] $ \env -> do
     insertN 5 g db
     let remote = RemoteDb env (_blockChainwebVersion g) (_blockChainId g)
     l <- S.length_ $ childrenEntries remote (_blockHash g)

@@ -51,6 +51,7 @@ module P2P.Node
 , p2pStatsActiveMax
 ) where
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
@@ -78,6 +79,7 @@ import Servant.Client
 
 import System.LogLevel
 import qualified System.Random as R
+import System.Timeout
 
 import Test.QuickCheck (Arbitrary(..), oneof)
 
@@ -138,7 +140,7 @@ instance Arbitrary P2pNodeStats where
 data P2pSessionResult
     = P2pSessionResult Bool
     | P2pSessionException T.Text
-    | P2pSessionTimeout (TimeSpan Int64)
+    | P2pSessionTimeout
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
@@ -150,7 +152,7 @@ instance Arbitrary P2pSessionResult where
     arbitrary = oneof
         [ P2pSessionResult <$> arbitrary
         , P2pSessionException <$> arbitrary
-        , P2pSessionTimeout <$> arbitrary
+        , pure P2pSessionTimeout
         ]
 
 data P2pSessionInfo = P2pSessionInfo
@@ -183,22 +185,29 @@ data P2pNode = P2pNode
     , _p2pNodeChainwebVersion :: !ChainwebVersion
     , _p2pNodePeerInfo :: !PeerInfo
     , _p2pNodePeerDb :: !PeerDb
-    , _p2pNodeSessions :: !(TVar (M.Map PeerId (P2pSessionInfo, Async Bool)))
+    , _p2pNodeSessions :: !(TVar (M.Map PeerId (P2pSessionInfo, Async (Maybe Bool))))
     , _p2pNodeManager :: !HTTP.Manager
     , _p2pNodeLogFunction :: !LogFunction
     , _p2pNodeStats :: !(TVar P2pNodeStats)
     , _p2pNodeClientSession :: !P2pSession
     , _p2pNodeRng :: !(TVar R.StdGen)
     , _p2pNodeActive :: !(TVar Bool)
+        -- ^ Wether this node is active. If this is 'False' no new sessions
+        -- will be initialized.
     }
 
-showSessionId :: PeerId -> Async Bool -> T.Text
+showSessionId :: PeerId -> Async (Maybe Bool) -> T.Text
 showSessionId pid ses = showPid pid <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
 
 showPid :: PeerId -> T.Text
 showPid = T.take 8 . toText
 
-addSession :: P2pNode -> PeerInfo -> Async Bool -> Time Int64 -> STM P2pSessionInfo
+addSession
+    :: P2pNode
+    -> PeerInfo
+    -> Async (Maybe Bool)
+    -> Time Int64
+    -> STM P2pSessionInfo
 addSession node peer session start = do
     modifyTVar' (_p2pNodeSessions node) $ M.insert pid (info, session)
     return info
@@ -296,6 +305,16 @@ syncFromPeer node info = runClientM sync env >>= \case
     myPid = _peerId $ _p2pNodePeerInfo node
     pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
 
+{-
+-- | Get PeerInfo when only the HostAddress is known.
+--
+getPeerInfos :: ChainwebVersion -> NetworkId -> HTTP.Manager -> HostAddress -> IO PeerInfo
+getPeerInfos mgr nid ha = do
+    let env = mkClientEnv mgr $ peerBaseUrl ha
+    is <- runClientM $ peerGetClient v nid Nothing Nothing
+    L.find (\i -> _peerAddr == ha) (_pageItems
+-}
+
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
 
@@ -308,23 +327,43 @@ findNextPeer
     -> P2pNode
     -> STM PeerInfo
 findNextPeer conf node = do
+
+    -- check if this node is active. If not, don't create new sessions,
+    -- but retry until it becomes active.
+    --
     active <- readTVar (_p2pNodeActive node)
     check active
+
+    -- get all known peers and all active sessions
+    --
     peers <- peerDbSnapshotSTM peerDbVar
     sessions <- readTVar sessionsVar
     let peerCount = length peers
     let sessionCount = length sessions
+
+    -- Retry if there are already more active sessions than known peers.
+    --
     check (sessionCount < peerCount)
+
+    -- Create a new sessions with a random peer for which there is no active
+    -- sessions:
+
+    -- pick random starting point for linear search for a suitable peer.
+    -- Retry if no suitable peer can be found in the whole list of peers.
+    --
     i <- randomR node (0, peerCount - 1)
     let (a, b) = M.splitAt (fromIntegral i) peers
     let checkPeer n = do
+            -- can this check be moved out of the fold?
             check (int sessionCount < _p2pConfigMaxSessionCount conf)
             check (M.notMember (_peerId n) sessions)
+            check (_peerId n /= myPid)
             return n
     foldr (orElse . checkPeer) retry (toList b ++ toList a)
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
+    myPid = _peerId $ _p2pNodePeerInfo node
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
@@ -339,17 +378,24 @@ newSession conf node = do
     syncFromPeer node newPeer >>= \case
         False -> do
             logg node Warn $ "Failed to connect new peer " <> showPid newPeerId
+            threadDelay 500000
+                -- FIXME there are better ways to prevent the node from spinning
+                -- if no suitable (non-failing node) is available.
+                -- cf. GitHub issue #117
             newSession conf node
         True -> do
             logg node Debug $ "Connected to new peer " <> showPid newPeerId
             let env = peerClientEnv node newPeer
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
-                newSes <- async $ restore $ _p2pNodeClientSession node (loggFun node) env
+                newSes <- async $ restore $ timeout timeoutMs
+                    $ _p2pNodeClientSession node (loggFun node) env
                 info <- atomically $ addSession node newPeer newSes now
                 return (info, newSes)
             logg node Info $ "Started peer session " <> showSessionId newPeerId newSes
             loggFun node Info $ JsonLog info
+  where
+    TimeSpan timeoutMs = secondsToTimeSpan (_p2pConfigSessionTimeout conf)
 
 -- | Monitor and garbage collect sessions
 --
@@ -359,8 +405,9 @@ awaitSessions node = do
         (p, i, a, r) <- waitAnySession node
         removeSession node p
         result <- case r of
-            Right True -> P2pSessionResult True <$ countSuccess node
-            Right False -> P2pSessionResult False <$ countFailure node
+            Right Nothing -> P2pSessionTimeout <$ countTimeout node
+            Right (Just True) -> P2pSessionResult True <$ countSuccess node
+            Right (Just False) -> P2pSessionResult False <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
         return (p, i, a, result)
 
@@ -389,7 +436,9 @@ awaitSessions node = do
         readTVar (_p2pNodeStats node)
     loggFun node Info $ JsonLog stats
 
-waitAnySession :: P2pNode -> STM (PeerId, P2pSessionInfo, Async Bool, Either SomeException Bool)
+waitAnySession
+    :: P2pNode
+    -> STM (PeerId, P2pSessionInfo, Async (Maybe Bool), Either SomeException (Maybe Bool))
 waitAnySession node = do
     sessions <- readTVar $ _p2pNodeSessions node
     foldr orElse retry $ waitFor <$> M.toList sessions
@@ -433,11 +482,9 @@ p2pCreateNode
     -> HTTP.Manager
     -> P2pSession
     -> IO P2pNode
-p2pCreateNode cv cid conf logfun db addr mgr session = do
-    -- get node id
-    nid <-  maybe createPeerId return $ _p2pConfigPeerId conf
+p2pCreateNode cv nid conf logfun db addr mgr session = do
     let myInfo = PeerInfo
-            { _peerId = nid
+            { _peerId = _p2pConfigPeerId conf
             , _peerAddr = addr
             }
 
@@ -447,7 +494,7 @@ p2pCreateNode cv cid conf logfun db addr mgr session = do
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
     let s = P2pNode
-                { _p2pNodeNetworkId = cid
+                { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
                 , _p2pNodePeerDb = db

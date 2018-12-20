@@ -102,8 +102,6 @@ import Data.LogMessage
 import P2P.Node
 import P2P.Session
 
-import Paths_chainweb
-
 -- -------------------------------------------------------------------------- --
 -- Utils
 
@@ -407,10 +405,10 @@ withExampleLogger
         -- ^ Base logger configuration
     -> EnableConfig JsonLoggerConfig
         -- ^ Sessions logger configuration
+    -> FilePath
     -> (Logger -> IO α)
     -> IO α
-withExampleLogger port config _sessionsConfig f = do
-    staticDir <- (<> "/examples/static-html") <$> getDataDir
+withExampleLogger port config _sessionsConfig staticDir f = do
     withFileHandleBackend (L._logConfigBackend config)
         -- $ \baseBackend -> withJsonFileHandleBackend @P2pSessionInfo sessionsConfig
         -- $ \baseBackend -> withJsonEventSourceBackend @P2pSessionInfo 8000

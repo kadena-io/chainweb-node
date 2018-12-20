@@ -10,7 +10,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Main
@@ -27,18 +26,18 @@ module Main
 
 import Configuration.Utils hiding (Error, (<.>))
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
-import qualified Data.ByteString.Char8 as B8
-import Data.Foldable
+import Data.Bifunctor (first)
 import Data.Function
 import Data.Maybe
 import qualified Data.Text as T
+import qualified Data.UUID as UUID
+import Data.Word
 
 import GHC.Generics
 
@@ -46,13 +45,10 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import qualified Streaming.Prelude as SP
+import qualified Streaming.Prelude as S
 
-import System.FilePath
 import qualified System.Logger as L
 import System.LogLevel
-import qualified System.Random.MWC as MWC
-import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
@@ -72,80 +68,91 @@ import Chainweb.Version
 
 import Data.LogMessage
 
-import Paths_chainweb
-
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
 
-import Utils.Gexf
+import Paths_chainweb
+
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
 
-data P2pExampleConfig = P2pExampleConfig
-    { _numberOfNodes :: !Natural
-    , _maxSessionCount :: !Natural
+data P2pNodeConfig = P2pNodeConfig
+    { _maxSessionCount :: !Natural
     , _maxPeerCount :: !Natural
     , _sessionTimeoutSeconds :: !Natural
     , _meanSessionSeconds :: !Natural
     , _meanBlockTimeSeconds :: !Natural
-    , _exampleChainId :: !ChainId
+    , _nodeChainId :: !ChainId
+    , _nodePeerId :: !(Maybe PeerId)
+    , _nodePort :: !Word16
+    , _telemetryPort :: !Word16
+    , _remotePeerId :: !(Maybe PeerId)
+    , _remotePeerAddress :: !(Maybe HostAddress)
     , _logConfig :: !L.LogConfig
     , _sessionsLoggerConfig :: !(EnableConfig JsonLoggerConfig)
     }
     deriving (Show, Eq, Ord, Generic)
 
-makeLenses ''P2pExampleConfig
+makeLenses ''P2pNodeConfig
 
-defaultP2pExampleConfig :: P2pExampleConfig
-defaultP2pExampleConfig = P2pExampleConfig
-    { _numberOfNodes = 10
-    , _maxSessionCount =  6
+defaultP2pNodeConfig :: P2pNodeConfig
+defaultP2pNodeConfig = P2pNodeConfig
+    { _maxSessionCount =  6
     , _maxPeerCount = 50
     , _sessionTimeoutSeconds = 40
     , _meanSessionSeconds = 20
     , _meanBlockTimeSeconds = 10
-    , _exampleChainId = testChainId 0
+    , _nodeChainId = testChainId 0
+    , _nodePeerId = Nothing
+    , _nodePort = 45000
+    , _telemetryPort = 8000
+    , _remotePeerAddress = Nothing
+    , _remotePeerId = Nothing
     , _logConfig = L.defaultLogConfig
         & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _sessionsLoggerConfig = EnableConfig True defaultJsonLoggerConfig
     }
 
-instance ToJSON P2pExampleConfig where
+instance ToJSON P2pNodeConfig where
     toJSON o = object
-        [ "numberOfNodes" .= _numberOfNodes o
-        , "maxSessionCount" .= _maxSessionCount o
+        [ "maxSessionCount" .= _maxSessionCount o
         , "maxPeerCount" .= _maxPeerCount o
         , "sessionTimoutSeconds" .= _sessionTimeoutSeconds o
         , "meanSessionSeconds" .= _meanSessionSeconds o
         , "meanBlockTimeSeconds" .= _meanBlockTimeSeconds o
-        , "exampleChainId" .= _exampleChainId o
+        , "nodeChainId" .= _nodeChainId o
+        , "nodePeerId" .= _nodePeerId o
+        , "nodePort" .= _nodePort o
+        , "telemetryPort" .= _telemetryPort o
+        , "remotePeerAddress" .= _remotePeerAddress o
+        , "remotePeerId" .= _remotePeerId o
         , "logConfig" .= _logConfig o
         , "sessionsLoggerConfig" .= _sessionsLoggerConfig o
         ]
 
-instance FromJSON (P2pExampleConfig -> P2pExampleConfig) where
-    parseJSON = withObject "P2pExampleConfig" $ \o -> id
-        <$< numberOfNodes ..: "numberOfNodes" % o
-        <*< maxSessionCount ..: "maxSessionCount" % o
+instance FromJSON (P2pNodeConfig -> P2pNodeConfig) where
+    parseJSON = withObject "P2pNodeConfig" $ \o -> id
+        <$< maxSessionCount ..: "maxSessionCount" % o
         <*< maxPeerCount ..: "maxPeerCount" % o
         <*< sessionTimeoutSeconds ..: "sessionTimeoutSeconds" % o
         <*< meanSessionSeconds ..: "meanSessionSeconds" % o
         <*< meanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
-        <*< exampleChainId ..: "exampleChainId" % o
+        <*< nodeChainId ..: "nodeChainId" % o
+        <*< nodePeerId ..: "nodePeerId" % o
+        <*< nodePort ..: "nodePort" % o
+        <*< telemetryPort ..: "telemetryPort" % o
+        <*< remotePeerAddress ..: "remotePeerAddress" % o
+        <*< remotePeerId ..: "remotePeerId" % o
         <*< logConfig %.: "logConfig" % o
         <*< sessionsLoggerConfig %.: "sessionsLoggerConfig" % o
 
-pP2pExampleConfig :: MParser P2pExampleConfig
-pP2pExampleConfig = id
-    <$< numberOfNodes .:: option auto
-        % long "number-of-nodes"
-        <> short 'n'
-        <> help "number of nodes to run in the example"
-    <*< maxSessionCount .:: option auto
+pP2pNodeConfig :: MParser P2pNodeConfig
+pP2pNodeConfig = id
+    <$< maxSessionCount .:: option auto
         % long "max-session-count"
         <> short 'm'
         <> help "maximum number of sessions that are active at any time"
@@ -165,10 +172,30 @@ pP2pExampleConfig = id
         % long "mean-block-time"
         <> short 'b'
         <> help "mean time for mining a block seconds"
-    <*< exampleChainId .:: option auto
+    <*< nodeChainId .:: option auto
         % long "chainid"
         <> short 'c'
-        <> help "the chain id that is used in the example"
+        <> help "the chain id that the node runs on"
+    <*< nodePeerId .:: option (Just <$> eitherReader (first show . peerIdFromText . T.pack))
+        % long "peerid"
+        <> short 'i'
+        <> help "the peer id for this node"
+    <*< remotePeerId .:: option (Just <$> eitherReader (first show . peerIdFromText . T.pack))
+        % long "remote-peerid"
+        <> short 'r'
+        <> help "the peer id of an initial remote node to connect to"
+    <*< remotePeerAddress .:: option (Just <$> eitherReader (first show . hostAddressFromText . T.pack))
+        % long "remote-address"
+        <> short 'a'
+        <> help "the address of an initial remote node to connect to"
+    <*< nodePort .:: option auto
+        % long "port"
+        <> short 'p'
+        <> help "the TCP port that the node uses"
+    <*< telemetryPort .:: option auto
+        % long "telemetry-port"
+        <> short 't'
+        <> help "the TCP port used to serve telemetry"
     <*< logConfig %:: L.pLogConfig
     <*< sessionsLoggerConfig %::
         pEnableConfig "sessions-logger" % pJsonLoggerConfig (Just "sessions-")
@@ -176,7 +203,9 @@ pP2pExampleConfig = id
 -- | How deep in the past from the current highest block that we wish to sync.
 --
 -- This is a single chain, therefore a singleton graph of diameter 1, but we'd
--- still like Sync to check a little deeper into the past.
+-- still like Sync to check a little deeper into the past. This will have to be
+-- changed once we have real multi-chain mining, and the graph is made a
+-- Peterson graph.
 --
 syncDepth :: Depth
 syncDepth = Depth 6
@@ -184,32 +213,34 @@ syncDepth = Depth 6
 -- -------------------------------------------------------------------------- --
 -- Main
 
-mainInfo :: ProgramInfo P2pExampleConfig
-mainInfo = programInfo "P2P Example" pP2pExampleConfig defaultP2pExampleConfig
+mainInfo :: ProgramInfo P2pNodeConfig
+mainInfo = programInfo "ChainwebNode" pP2pNodeConfig defaultP2pNodeConfig
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
     staticDir <- (<> "/examples/static-html") <$> getDataDir
-    withExampleLogger 8000
+    withExampleLogger (fromIntegral $ _telemetryPort config)
         (_logConfig config)
         (_sessionsLoggerConfig config)
         staticDir
-        (example config)
+        (runNodeWithConfig config)
 
--- -------------------------------------------------------------------------- --
--- Example
-
-
-example :: P2pExampleConfig -> Logger -> IO ()
-example conf logger =
-    withAsync (node cid t logger conf bootstrapConfig bootstrapChainNodeId bootstrapPort)
-        $ \bootstrap -> do
-            mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
-            wait bootstrap
-
+peerIdToChainNodeId :: HasChainId cid => cid -> UUID.UUID -> ChainNodeId
+peerIdToChainNodeId cid uuid = ChainNodeId (_chainId cid) (int a * 2^(32 :: Integer) + int b)
   where
-    cid = _exampleChainId conf
-    t = _meanSessionSeconds conf
+    (a,b,_,_) = UUID.toWords uuid
+
+runNodeWithConfig :: P2pNodeConfig -> Logger -> IO ()
+runNodeWithConfig conf logger = do
+    L.withLoggerLabel ("node", "init") logger $ \logger' -> do
+        let logfun = loggerFunText logger'
+        myPeerId@(PeerId peerUUID) <- case _nodePeerId conf of
+          Nothing -> createPeerId
+          Just x -> return x
+        logfun Info $ T.pack (show myPeerId)
+        node cid logger conf (myConfig myPeerId) (peerIdToChainNodeId cid peerUUID) myPort
+  where
+    cid = _nodeChainId conf
 
     -- P2P node configuration
     --
@@ -217,51 +248,29 @@ example conf logger =
         { _p2pConfigMaxSessionCount = _maxSessionCount conf
         , _p2pConfigMaxPeerCount = _maxPeerCount conf
         , _p2pConfigSessionTimeout = fromIntegral $ _sessionTimeoutSeconds conf
+        , _p2pConfigKnownPeers = case (_remotePeerId conf, _remotePeerAddress conf) of
+            (Just pid, Just addr) -> [PeerInfo pid addr]
+            _ -> []
         }
 
-    -- Configuration for bootstrap node
+    -- Configuration for this node
     --
-    bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
-    bootstrapConfig = p2pConfig
-        & p2pConfigPeerId .~ _peerId bootstrapPeer
-
-    bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
-    bootstrapChainNodeId = ChainNodeId cid 0
-
-    -- Other nodes
-    --
-    nodePorts =
-        [ (ChainNodeId cid i, bootstrapPort + fromIntegral i)
-        | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
-        ]
+    myConfig pid = p2pConfig & p2pConfigPeerId .~ pid
+    myPort = fromIntegral (_nodePort conf)
 
 -- -------------------------------------------------------------------------- --
--- Example P2P Client Sessions
+-- P2P Client Sessions
 
-timer :: Natural -> IO ()
-timer t = do
-    gen <- MWC.createSystemRandom
-    timeout <- MWC.geometric1 (1 / (fromIntegral t * 1000000)) gen
-    threadDelay timeout
-
-chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
-chainDbSyncSession t db logFun env = do
+chainDbSyncSession :: BlockHeaderDb -> P2pSession
+chainDbSyncSession db logFun env = do
     peer <- PeerTree <$> remoteDb db env
-    withAsync (timer t) $ \timerAsync ->
-      withAsync (syncSession db peer syncDepth logFun) $ \sessionAsync ->
-        waitEitherCatchCancel timerAsync sessionAsync >>= \case
-            Left (Left e) -> do
-                logg Info $ "session timer failed " <> sshow e
-                return False
-            Left (Right ()) -> do
-                logg Info "session killed by timer"
-                return False
-            Right (Left e) -> do
-                logg Warn $ "Session failed: " <> sshow e
-                return False
-            Right (Right a) -> do
-                logg Warn "Session succeeded"
-                return a
+    try (syncSession db peer syncDepth logFun) >>= \case
+      Left (e :: SomeException) -> do
+        logg Warn $ "Session failed: " <> sshow e
+        return False
+      Right a -> do
+        logg Warn "Session succeeded"
+        return a
   where
     logg :: LogFunctionText
     logg = logFun
@@ -271,50 +280,30 @@ chainDbSyncSession t db logFun env = do
 
 node
     :: ChainId
-    -> Natural
     -> Logger
-    -> P2pExampleConfig
+    -> P2pNodeConfig
     -> P2pConfiguration
     -> ChainNodeId
     -> Port
     -> IO ()
-node cid t logger conf p2pConfig nid port =
+node cid logger conf p2pConfig nid port =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
-        logfun Info "start test node"
+        logfun Info $ "Start test node"
 
-        withBlockHeaderDbGexf Test singletonChainGraph cid nid
-            $ \cdb -> withPeerDb p2pConfig
-            $ \pdb -> withAsync (serveSingleChainOnPort port Test
+        withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
+          withPeerDb p2pConfig $ \pdb ->
+            withAsync (serveSingleChainOnPort port Test
                 [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
                 [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
-                )
-            $ \server -> do
-                logfun Info "started server"
-                runConcurrently
-                    $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
-                    <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
-                    <> Concurrently (monitor logger' cdb)
-                wait server
-  where
-    minerConfig = SingleChainMinerConfig
-        (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
-        cid
-
-withBlockHeaderDbGexf
-    :: ChainwebVersion
-    -> ChainGraph
-    -> ChainId
-    -> ChainNodeId
-    -> (BlockHeaderDb -> IO b)
-    -> IO b
-withBlockHeaderDbGexf v graph cid nid f =
-    withBlockHeaderDb v graph cid $ \db -> f db `finally` do
-        l <- SP.toList_ $ entries db Nothing Nothing Nothing Nothing
-        B8.writeFile ("headersgraph" <.> nidPath <.> "tmp.gexf") $ blockHeaders2gexf l
-  where
-    nidPath = T.unpack . T.replace "/" "." $ toText nid
+                ) $ \server -> do
+                  logfun Info "started server"
+                  runConcurrently
+                      $ Concurrently (miner logger' conf nid cdb)
+                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
+                      <> Concurrently (monitor logger' cdb)
+                  wait server
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
@@ -328,17 +317,15 @@ syncer
     -> BlockHeaderDb
     -> PeerDb
     -> Port
-        -- This is the local port that is used in the local peer info
-    -> Natural
     -> IO ()
-syncer cid logger conf cdb pdb port t =
+syncer cid logger conf cdb pdb port =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger ->
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
+        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
+            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
@@ -349,6 +336,25 @@ syncer cid logger conf cdb pdb port t =
   where
     nid = ChainNetwork cid
     ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
+
+-- -------------------------------------------------------------------------- --
+-- Miner
+
+-- | A miner creates new blocks headers on the top of the longest branch in
+-- the chain database with a mean rate of meanBlockTimeSeconds. Mind blocks
+-- are added to the database.
+--
+-- For testing the difficulty is trivial, so that the target is 'maxBound' and
+-- each nonce if accepted. Block creation is delayed through through
+-- 'threadDelay' with an geometric distribution.
+--
+miner :: Logger -> P2pNodeConfig -> ChainNodeId -> BlockHeaderDb -> IO ()
+miner logger conf nid db = singleChainMiner logger conf' nid db
+    where
+        conf' = SingleChainMinerConfig
+            { _configMeanBlockTimeSeconds = _meanBlockTimeSeconds conf
+            , _configChainId = _nodeChainId conf
+            }
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
@@ -382,10 +388,10 @@ monitor logger db =
         let logg = loggerFun logger'
         logg Info $ TextLog "Initialized Monitor"
         void $ allEntries db Nothing
-            & SP.foldM_ (\stat _ -> go (loggerFun logger') stat) mempty return
+            & S.foldM_ (\stat _ -> go (loggerFun logger') stat) mempty return
   where
     go logg stat = do
-        bs <- SP.length_ $ leafEntries db Nothing Nothing Nothing Nothing
+        bs <- S.length_ $ leafEntries db Nothing Nothing Nothing Nothing
         mh <- maxHeader db
 
         let stat' = stat <> Stats

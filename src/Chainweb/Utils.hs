@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -54,6 +57,10 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 
+-- * Diffs
+, DiffItem(..)
+, resolve
+
 -- * Encoding and Serialization
 , EncodingException(..)
 
@@ -102,6 +109,7 @@ module Chainweb.Utils
 , OptionParser
 , prefixLong
 , suffixHelp
+, textReader
 , textOption
 
 , EnableConfig(..)
@@ -254,7 +262,7 @@ whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
 
 -- -------------------------------------------------------------------------- --
--- Read only Ixed
+-- * Read only Ixed
 
 class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
@@ -262,6 +270,20 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg = ix
     {-# INLINE ixg #-}
+
+-- -------------------------------------------------------------------------- --
+-- * Diffs
+
+data DiffItem a
+    = LeftD a
+    | RightD a
+    | BothD a a
+    deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
+
+resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
+resolve l _ _ (LeftD a) = l a
+resolve _ r _ (RightD a) = r a
+resolve _ _ m (BothD a b) = m a b
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
@@ -442,8 +464,11 @@ prefixLong prefix l = long $ maybe "" ("-" <>) prefix <> l
 suffixHelp :: Maybe String -> String -> Mod f a
 suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix
 
+textReader :: HasTextRepresentation a => ReadM a
+textReader = eitherReader $ first show . fromText . T.pack
+
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
-textOption = option (eitherReader $ first show . fromText . T.pack)
+textOption = option textReader
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling

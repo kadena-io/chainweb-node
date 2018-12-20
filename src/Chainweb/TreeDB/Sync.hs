@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -31,16 +32,20 @@ module Chainweb.TreeDB.Sync
   , linearSync
     -- * Sync Session
   , syncSession
+  , chainSyncSession
     -- * Utils
   , minHeight
   ) where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
+import Control.Exception (SomeException, try)
 import Control.Lens ((&))
 import Control.Monad
 
 import Data.Hashable
 import qualified Data.HashSet as HS
-import Data.Semigroup (Min(..))
+import Data.Semigroup (Min(..), Max(..))
 import qualified Data.Text as T
 
 import Numeric.Natural
@@ -72,7 +77,8 @@ type BlockHeaderTreeDb db = (TreeDb db, DbEntry db ~ BlockHeader)
 -- | Some Rank depth in the past, beyond which we wouldn't want to sync.
 -- Branches that haven't progressed beyond this point are likely dead already.
 --
-newtype Depth = Depth Natural
+newtype Depth = Depth { _getDepth :: Natural }
+    deriving (Show, Eq, Ord)
 
 -- | A wrapper for things which have `TreeDb` instances.
 --
@@ -97,10 +103,22 @@ branchSync local peer d logFun = do
     logg Debug "get local leaves"
     lLeaves <- streamToHashSet_ $ leafKeys local Nothing Nothing Nothing Nothing
 
+    -- If the remote site doesn't know about a leave no lower bounds is applied
+    -- to the search and, in worst case, all entries down to the root are returned.
+    -- We prevent this by including an additional limit at at depth @d@. We high
+    -- probability the the remote site knows about that entry and thus the query
+    -- won't return blocks beyond that point.
+    --
+    lmax <- maxRank local
+    let minr = MinRank . Min $ lmax - min (_getDepth d) lmax
+    let maxr = MaxRank . Max $ lmax - min (_getDepth d) lmax
+    lLowerLeaves <- streamToHashSet_
+        $ branchKeys local Nothing Nothing (Just minr) (Just maxr) mempty (HS.map UpperBound lLeaves)
+
     logg Debug "get peer leaves"
     rLeaves <- streamToHashSet_ $ leafKeys peer Nothing Nothing Nothing Nothing
 
-    let lower = HS.map LowerBound lLeaves
+    let lower = HS.map LowerBound (lLeaves <> lLowerLeaves)
         upper = HS.map UpperBound rLeaves
 
     h <- maxHeader local
@@ -158,7 +176,10 @@ syncSession
 syncSession local peer d logg = do
     receiveBlockHeaders
     m <- maxHeader local
-    S.mapM_ send $ allEntries local (Just $ Exclusive $ key m)
+    race_
+        (S.mapM_ send $ allEntries local (Just $ Exclusive $ key m))
+        (forever $ receiveBlockHeaders >> threadDelay 5000000)
+            -- FIXME make this configurable or dynamic
 
     -- this code must not be reached
     void $ logg @T.Text Error "unexpectedly exited sync session"
@@ -172,6 +193,28 @@ syncSession local peer d logg = do
         logg @T.Text Info "start full sync"
         branchSync local peer d logg
         logg @T.Text Debug "finished full sync"
+
+-- | Adds a little bit more logging to syncSession
+--
+chainSyncSession
+    :: BlockHeaderTreeDb local
+    => BlockHeaderTreeDb peer
+    => local
+    -> PeerTree peer
+    -> Depth
+    -> LogFunction
+    -> IO Bool
+chainSyncSession local peer depth logFun =
+    try (syncSession local peer depth logFun) >>= \case
+        Left e -> do
+            logg Warn $ "Session failed: " <> sshow @SomeException e
+            return False
+        Right a -> do
+            logg Warn "Session succeeded"
+            return a
+  where
+    logg :: LogFunctionText
+    logg = logFun
 
 -- -------------------------------------------------------------------------- --
 -- Utils

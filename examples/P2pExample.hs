@@ -161,7 +161,7 @@ example conf logger = do
     --
     let bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
         bootstrapConfig = p2pConfig
-            { _p2pConfigPeerId = Just (_peerId bootstrapPeer)
+            { _p2pConfigPeerId = _peerId bootstrapPeer
             }
         bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
 

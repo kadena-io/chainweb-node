@@ -16,15 +16,17 @@ extra-deps:
 
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
+  - QuickCheck-GenT-0.2.0
   - hspec-2.5.8
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
   - git: https://github.com/kadena-io/pact.git
-    commit: dd02725e08ca45b17a0be2a111b027fb5a5a71da
+    commit: 3316593a690444e0290dfc3605b55dc5aa7e43c9
+  - git: https://github.com/LeventErkok/sbv.git
+    commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
   - git: git@github.com:kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-  - git: https://github.com/LeventErkok/sbv.git
-    commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf # with exposed registerKind
+
 flags:
   aeson:
     cffi: true

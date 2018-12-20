@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -24,6 +23,7 @@ module Chainweb.BlockHeaderDB
 , BlockHeaderDb
 , initBlockHeaderDb
 , closeBlockHeaderDb
+, withBlockHeaderDb
 , copy
 
 -- * Validation
@@ -62,9 +62,11 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.TreeDB
-import Chainweb.Utils.Paging
 import Chainweb.Utils
+import Chainweb.Utils.Paging
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Internal
@@ -230,6 +232,18 @@ copy db = withMVar (_chainDbVar db) $ \var ->
     BlockHeaderDb (_chainDbId db)
         <$> newMVar var
         <*> (newTVarIO =<< readTVarIO (_chainDbEnumeration db))
+
+withBlockHeaderDb
+    :: ChainwebVersion
+    -> ChainGraph
+    -> ChainId
+    -> (BlockHeaderDb -> IO b)
+    -> IO b
+withBlockHeaderDb v graph cid = bracket start closeBlockHeaderDb
+  where
+    start = initBlockHeaderDb Configuration
+        { _configRoot = genesisBlockHeader v graph cid
+        }
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
@@ -478,4 +492,3 @@ prop_block_weight :: BlockHeader -> BlockHeader -> Bool
 prop_block_weight p b
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
     | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
-

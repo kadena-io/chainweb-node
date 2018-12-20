@@ -5,6 +5,16 @@ Read [our whitepaper](http://kadena.io/docs/chainweb-v15.pdf).
 
 ## Building from Source
 
+### Building with Nix
+
+The most reliable way to build chainweb is to use the
+[Nix](https://nixos.org/nix/) package manager. Once you've installed Nix, use
+the command `nix-build` from the repository root to build chainweb. To do
+incremental builds, run `nix-shell` and then `cabal build` or `cabal new-build`
+inside the resulting shell.
+
+### Other Build Methods
+
 Requirements:
 
 - Cabal >= 2.2

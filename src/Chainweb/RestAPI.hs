@@ -28,11 +28,18 @@ module Chainweb.RestAPI
 , prettyChainwebSwagger
 , chainwebSwagger
 
+-- * Single Chain API Server
+, someSingleChainServer
+, singleChainApplication
+, serveSingleChainOnPort
+, serveSingleChain
+
 -- * Chainweb API Server
 , someChainwebServer
 , chainwebApplication
 , serveChainwebOnPort
 , serveChainweb
+, serveChainwebSocket
 , Port
 
 -- * Chainweb API Client
@@ -54,6 +61,7 @@ import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
@@ -67,6 +75,8 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
+import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
@@ -125,39 +135,94 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
     $ chainwebSwagger v cs
 
 -- -------------------------------------------------------------------------- --
--- Server
+-- Singel Chain Server
 
-someChainwebServer
+someSingleChainServer
     :: ChainwebVersion
     -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> SomeServer
-someChainwebServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
+someSingleChainServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
     <> someBlockHeaderDbServers v chainDbs
     <> someP2pServers v peerDbs
 
-chainwebApplication
+singleChainApplication
     :: ChainwebVersion
     -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> Application
-chainwebApplication v chainDbs peerDbs = someServerApplication
-    $ someChainwebServer v chainDbs peerDbs
+singleChainApplication v chainDbs peerDbs = someServerApplication
+    $ someSingleChainServer v chainDbs peerDbs
 
-serveChainwebOnPort
+serveSingleChainOnPort
     :: Port
     -> ChainwebVersion
     -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
-serveChainwebOnPort p v chainDbs peerDbs = run (int p)
-    $ chainwebApplication v chainDbs peerDbs
+serveSingleChainOnPort p v chainDbs peerDbs = run (int p)
+    $ singleChainApplication v chainDbs peerDbs
 
-serveChainweb
+serveSingleChain
     :: Settings
     -> ChainwebVersion
     -> [(ChainId, BlockHeaderDb)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
-serveChainweb s v chainDbs peerDbs = runSettings s
-    $ chainwebApplication v chainDbs peerDbs
+serveSingleChain s v chainDbs peerDbs = runSettings s
+    $ singleChainApplication v chainDbs peerDbs
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Server
+
+someChainwebServer
+    :: ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> SomeServer
+someChainwebServer v cutDb chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
+    <> someCutServer v cutDb
+    <> someBlockHeaderDbServers v chainDbs
+    <> someP2pServers v peerDbs
+
+chainwebApplication
+    :: ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> Application
+chainwebApplication v cutDb chainDbs peerDbs = someServerApplication
+    $ someChainwebServer v cutDb chainDbs peerDbs
+
+serveChainwebOnPort
+    :: Port
+    -> ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveChainwebOnPort p v cutDb chainDbs peerDbs = run (int p)
+    $ chainwebApplication v cutDb chainDbs peerDbs
+
+serveChainweb
+    :: Settings
+    -> ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveChainweb s v cutDb chainDbs peerDbs = runSettings s
+    $ chainwebApplication v cutDb chainDbs peerDbs
+
+serveChainwebSocket
+    :: Settings
+    -> Socket
+    -> ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveChainwebSocket s sock v cutDb chainDbs peerDbs = runSettingsSocket s sock
+    $ chainwebApplication v cutDb chainDbs peerDbs
+

@@ -102,7 +102,7 @@ singleChainMiner
     => (DbEntry db ~ BlockHeader)
     => Logger
     -> SingleChainMinerConfig
-    -> NodeId
+    -> ChainNodeId
     -> db
     -> IO ()
 singleChainMiner logger conf nid db =

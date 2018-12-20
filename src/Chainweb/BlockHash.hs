@@ -289,15 +289,21 @@ instance HasTextRepresentation BlockHash where
 newtype BlockHashRecord = BlockHashRecord
     { _getBlockHashRecord :: HM.HashMap ChainId BlockHash }
     deriving stock (Show, Eq, Generic)
-    deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
+    deriving anyclass (Hashable, NFData)
+    deriving newtype (ToJSON, FromJSON)
 
 makeLenses ''BlockHashRecord
 
 type instance Index BlockHashRecord = ChainId
 type instance IxValue BlockHashRecord = BlockHash
 
-instance IxedGet BlockHashRecord where
-    ixg i = getBlockHashRecord . ix i
+instance Ixed BlockHashRecord where
+    ix i = getBlockHashRecord . ix i
+
+instance IxedGet BlockHashRecord
+
+instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
+    each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
 encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
 encodeBlockHashRecord (BlockHashRecord r) =

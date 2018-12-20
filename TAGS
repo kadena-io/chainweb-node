@@ -1,0 +1,2498 @@
+
+./dist-newstyle/build/x86_64-linux/ghc-8.4.4/chainweb-0.1.0.0/build/autogen/Paths_chainweb.hs,1089
+module Paths_chainweb Paths_chainweb3,4
+catchIO catchIO17,18
+catchIO catchIO25,26
+version version27,28
+bindir, libdir, dynlibdir, datadir, libexecdir, sysconfdir sysconfdir29,30
+bindir, libdir, dynlibdir, datadir, libexecdir,libexecdir29,30
+bindir, libdir, dynlibdir, datadir,datadir29,30
+bindir, libdir, dynlibdir,dynlibdir29,30
+bindir, libdir,libdir29,30
+bindir,bindir29,30
+libdir libdir32,33
+dynlibdir dynlibdir33,34
+datadir datadir34,35
+libexecdir libexecdir35,36
+sysconfdir sysconfdir36,37
+getBinDir, getLibDir, getDynLibDir, getDataDir, getLibexecDir, getSysconfDir getSysconfDir38,39
+getBinDir, getLibDir, getDynLibDir, getDataDir, getLibexecDir,getLibexecDir38,39
+getBinDir, getLibDir, getDynLibDir, getDataDir,getDataDir38,39
+getBinDir, getLibDir, getDynLibDir,getDynLibDir38,39
+getBinDir, getLibDir,getLibDir38,39
+getBinDir,getBinDir38,39
+getLibDir getLibDir40,41
+getDynLibDir getDynLibDir41,42
+getDataDir getDataDir42,43
+getLibexecDir getLibexecDir43,44
+getSysconfDir getSysconfDir44,45
+getDataFileName getDataFileName46,47
+
+./examples/TrivialSync.hs,929
+module MainMain13,14
+logLevel logLevel60,61
+meanBlockTimeSeconds meanBlockTimeSeconds63,64
+numberOfNodes numberOfNodes66,67
+targetSessionCount targetSessionCount69,70
+maxSessionCount maxSessionCount72,73
+msgBufferSize msgBufferSize75,76
+meanTimeoutSeconds meanTimeoutSeconds85,86
+exampleChainId exampleChainId91,92
+graph graph94,95
+main main99,100
+example example112,113
+node node133,134
+miner miner162,163
+syncer syncer209,210
+data Stats Stats255,256
+data Stats = StatsStats255,256
+    { _chainHeight _chainHeight256,257
+    , _branchCount _branchCount257,258
+    , _branchHeightHistogram _branchHeightHistogram258,259
+    , _blockHeaderCount _blockHeaderCount259,260
+instance Semigroup Semigroup Stats263,264
+    a a264,265
+instance Monoid Monoid Stats271,272
+    mempty mempty272,273
+    mappend mappend273,274
+monitor monitor277,278
+sshow sshow306,307
+l2l l2l309,310
+
+./examples/Chainweb/Node/SingleChainMiner.hs,707
+module Chainweb.Node.SingleChainMinerChainweb.Node.SingleChainMiner16,17
+import import26,27
+data SingleChainMinerConfig SingleChainMinerConfig52,53
+data SingleChainMinerConfig = SingleChainMinerConfigSingleChainMinerConfig52,53
+    { _configMeanBlockTimeSeconds _configMeanBlockTimeSeconds53,54
+    , _configChainId _configChainId54,55
+defaultSingleChainMinerConfig defaultSingleChainMinerConfig60,61
+instance ToJSON ToJSON SingleChainMinerConfig66,67
+    toJSON toJSON67,68
+instance FromJSON FromJSON (SingleChainMinerConfig -> SingleChainMinerConfig)72,73
+    parseJSON parseJSON73,74
+pSingleChainMinerConfig pSingleChainMinerConfig77,78
+singleChainMiner singleChainMiner107,108
+
+./examples/BlockHeaderChainDb.hs,198
+module MainMain18,19
+exampleChainId exampleChainId52,53
+graph graph55,56
+main main60,61
+example example70,71
+miner miner85,86
+observer observer116,117
+checkBranch checkBranch142,143
+
+./examples/SingleChainExample.hs,1573
+module MainMain23,24
+import import32,33
+data P2pExampleConfig P2pExampleConfig87,88
+data P2pExampleConfig = P2pExampleConfigP2pExampleConfig87,88
+    { _numberOfNodes _numberOfNodes88,89
+    , _maxSessionCount _maxSessionCount89,90
+    , _maxPeerCount _maxPeerCount90,91
+    , _sessionTimeoutSeconds _sessionTimeoutSeconds91,92
+    , _meanSessionSeconds _meanSessionSeconds92,93
+    , _meanBlockTimeSeconds _meanBlockTimeSeconds93,94
+    , _exampleChainId _exampleChainId94,95
+    , _logConfig _logConfig95,96
+    , _sessionsLoggerConfig _sessionsLoggerConfig96,97
+defaultP2pExampleConfig defaultP2pExampleConfig102,103
+instance ToJSON ToJSON P2pExampleConfig116,117
+    toJSON toJSON117,118
+instance FromJSON FromJSON (P2pExampleConfig -> P2pExampleConfig)129,130
+    parseJSON parseJSON130,131
+pP2pExampleConfig pP2pExampleConfig141,142
+syncDepth syncDepth180,181
+mainInfo mainInfo186,187
+main main189,190
+example example202,203
+timer timer240,241
+chainDbSyncSession chainDbSyncSession246,247
+node node280,281
+withBlockHeaderDbGexf withBlockHeaderDbGexf311,312
+syncer syncer333,334
+data Stats Stats355,356
+data Stats = StatsStats355,356
+    { _chainHeight _chainHeight356,357
+    , _branchCount _branchCount357,358
+    , _branchHeightHistogram _branchHeightHistogram358,359
+    , _blockHeaderCount _blockHeaderCount359,360
+instance Semigroup Semigroup Stats364,365
+    a a365,366
+instance Monoid Monoid Stats372,373
+    mempty mempty373,374
+    mappend mappend374,375
+monitor monitor378,379
+
+./examples/P2pExample.hs,914
+module MainMain16,17
+import import24,25
+data P2pExampleConfig P2pExampleConfig61,62
+data P2pExampleConfig = P2pExampleConfigP2pExampleConfig61,62
+    { _numberOfNodes _numberOfNodes62,63
+    , _maxSessionCount _maxSessionCount63,64
+    , _maxPeerCount _maxPeerCount64,65
+    , _sessionTimeoutSeconds _sessionTimeoutSeconds65,66
+    , _meanSessionSeconds _meanSessionSeconds66,67
+    , _exampleChainId _exampleChainId67,68
+    , _logConfig _logConfig68,69
+defaultP2pExampleConfig defaultP2pExampleConfig74,75
+instance ToJSON ToJSON P2pExampleConfig85,86
+    toJSON toJSON86,87
+instance FromJSON FromJSON (P2pExampleConfig -> P2pExampleConfig)95,96
+    parseJSON parseJSON96,97
+pP2pExampleConfig pP2pExampleConfig105,106
+mainInfo mainInfo136,137
+main main139,140
+example example148,149
+noopSession noopSession183,184
+timer timer190,191
+node node199,200
+l2l l2l232,233
+
+./examples/SingleChainNode.hs,1709
+module MainMain22,23
+import import30,31
+data P2pNodeConfig P2pNodeConfig82,83
+data P2pNodeConfig = P2pNodeConfigP2pNodeConfig82,83
+    { _maxSessionCount _maxSessionCount83,84
+    , _maxPeerCount _maxPeerCount84,85
+    , _sessionTimeoutSeconds _sessionTimeoutSeconds85,86
+    , _meanSessionSeconds _meanSessionSeconds86,87
+    , _meanBlockTimeSeconds _meanBlockTimeSeconds87,88
+    , _nodeChainId _nodeChainId88,89
+    , _nodePeerId _nodePeerId89,90
+    , _nodePort _nodePort90,91
+    , _telemetryPort _telemetryPort91,92
+    , _remotePeerId _remotePeerId92,93
+    , _remotePeerAddress _remotePeerAddress93,94
+    , _logConfig _logConfig94,95
+    , _sessionsLoggerConfig _sessionsLoggerConfig95,96
+defaultP2pNodeConfig defaultP2pNodeConfig101,102
+instance ToJSON ToJSON P2pNodeConfig119,120
+    toJSON toJSON120,121
+instance FromJSON FromJSON (P2pNodeConfig -> P2pNodeConfig)136,137
+    parseJSON parseJSON137,138
+pP2pNodeConfig pP2pNodeConfig152,153
+syncDepth syncDepth209,210
+mainInfo mainInfo215,216
+main main218,219
+peerIdToChainNodeId peerIdToChainNodeId227,228
+runNodeWithConfig runNodeWithConfig232,233
+chainDbSyncSession chainDbSyncSession263,264
+node node288,289
+syncer syncer320,321
+miner miner350,351
+data Stats Stats361,362
+data Stats = StatsStats361,362
+    { _chainHeight _chainHeight362,363
+    , _branchCount _branchCount363,364
+    , _branchHeightHistogram _branchHeightHistogram364,365
+    , _blockHeaderCount _blockHeaderCount365,366
+instance Semigroup Semigroup Stats370,371
+    a a371,372
+instance Monoid Monoid Stats378,379
+    mempty mempty379,380
+    mappend mappend380,381
+monitor monitor384,385
+
+./src/Chainweb/NodeId.hs,1048
+module Chainweb.NodeIdChainweb.NodeId21,22
+data ChainNodeId ChainNodeId66,67
+data ChainNodeId = ChainNodeIdChainNodeId66,67
+    { _chainNodeIdChain _chainNodeIdChain67,68
+    , _chainNodeIdId _chainNodeIdId68,69
+instance HasChainId HasChainId ChainNodeId75,76
+    _chainId _chainId76,77
+encodeChainNodeId encodeChainNodeId79,80
+decodeChainNodeId decodeChainNodeId83,84
+decodeChainNodeIdChecked decodeChainNodeIdChecked93,94
+chainNodeIdToText chainNodeIdToText96,97
+chainNodeIdFromText chainNodeIdFromText100,101
+instance HasTextRepresentation HasTextRepresentation ChainNodeId107,108
+    toText toText108,109
+    fromText fromText110,111
+newtype NodeId NodeId116,117
+    { _nodeIdId _nodeIdId117,118
+encodeNodeId encodeNodeId125,126
+decodeNodeId decodeNodeId129,130
+nodeIdToText nodeIdToText133,134
+nodeIdFromText nodeIdFromText137,138
+instance HasTextRepresentation HasTextRepresentation NodeId140,141
+    toText toText141,142
+    fromText fromText143,144
+nodeIdFromNodeId nodeIdFromNodeId146,147
+
+./src/Chainweb/Utils.hs,4426
+module Chainweb.UtilsChainweb.Utils28,29
+, ,46,47
+import import131,132
+milli, micro, nano, pico, femto femto175,176
+milli, micro, nano, pico,pico175,176
+milli, micro, nano,nano175,176
+milli, micro,micro175,176
+milli,milli175,176
+micro micro177,178
+nano nano178,179
+pico pico179,180
+femto femto180,181
+kilo, mega, giga, tera, peta, exa exa182,183
+kilo, mega, giga, tera, peta,peta182,183
+kilo, mega, giga, tera,tera182,183
+kilo, mega, giga,giga182,183
+kilo, mega,mega182,183
+kilo,kilo182,183
+mega mega184,185
+giga giga185,186
+tera tera186,187
+peta peta187,188
+exa exa188,189
+int int193,194
+len len197,198
+(=(==>)201,202
+a a202,203
+infixr infixr203,204
+keySet keySet206,207
+minimumsOf minimumsOf210,211
+minimumsByOf minimumsByOf220,221
+maxBy maxBy230,231
+minBy minBy236,237
+allEqOn allEqOn245,246
+unlessM unlessM253,254
+whenM whenM259,260
+class IxedGet IxedGet266,267
+    ixg ixg267,268
+data DiffItem DiffItem276,277
+    = LeftD LeftD277,278
+    | RightD RightD278,279
+    | BothD BothD279,280
+resolve resolve282,283
+data EncodingException EncodingException293,294
+    EncodeException EncodeException294,295
+    DecodeException DecodeException295,296
+    Base64DecodeException Base64DecodeException296,297
+    ItemCountDecodeException ItemCountDecodeException297,298
+    TextFormatException TextFormatException298,299
+    JsonDecodeException JsonDecodeException299,300
+    EncodeException EncodeException294,295
+    DecodeException DecodeException295,296
+    Base64DecodeException Base64DecodeException296,297
+    ItemCountDecodeException ItemCountDecodeException297,298
+    TextFormatException TextFormatException298,299
+    JsonDecodeException JsonDecodeException299,300
+instance Exception Exception EncodingException302,303
+runGet runGet304,305
+runGetEither runGetEither308,309
+sshow sshow315,316
+tread tread319,320
+treadM treadM325,326
+class HasTextRepresentation HasTextRepresentation329,330
+    toText toText330,331
+    fromText fromText331,332
+instance HasTextRepresentation HasTextRepresentation T-Text333,334
+    toText toText334,335
+    fromText fromText336,337
+instance HasTextRepresentation HasTextRepresentation [Char]339,340
+    toText toText340,341
+    fromText fromText342,343
+eitherFromText eitherFromText349,350
+unsafeFromText unsafeFromText356,357
+decodeB64Text decodeB64Text363,364
+encodeB64Text encodeB64Text370,371
+decodeB64UrlText decodeB64UrlText374,375
+encodeB64UrlText encodeB64UrlText381,382
+decodeB64UrlNoPaddingText decodeB64UrlNoPaddingText385,386
+encodeB64UrlNoPaddingText encodeB64UrlNoPaddingText395,396
+encodeToText encodeToText402,403
+decodeStrictOrThrow decodeStrictOrThrow406,407
+decodeOrThrow decodeOrThrow412,413
+decodeFileStrictOrThrow decodeFileStrictOrThrow418,419
+decodeStrictOrThrow' decodeStrictOrThrow'424,425
+decodeOrThrow' decodeOrThrow'430,431
+decodeFileStrictOrThrow' decodeFileStrictOrThrow'443,444
+parseJsonFromText parseJsonFromText453,454
+type OptionParser OptionParser458,459
+prefixLong prefixLong460,461
+suffixHelp suffixHelp463,464
+textReader textReader466,467
+textOption textOption469,470
+newtype Expected Expected475,476
+newtype Expected a = Expected { getExpected getExpected475,476
+newtype Actual Actual478,479
+newtype Actual a = Actual { getActual getActual478,479
+unexpectedMsg unexpectedMsg481,482
+(=(==?)486,487
+check check497,498
+fromMaybeM fromMaybeM501,502
+(?(???)505,506
+fromEitherM fromEitherM510,511
+newtype InternalInvariantViolation InternalInvariantViolation514,515
+instance Exception Exception InternalInvariantViolation517,518
+leadingZeros leadingZeros522,523
+data EnableConfig EnableConfig532,533
+data EnableConfig a = EnableConfigEnableConfig532,533
+    { _enableConfigEnabled _enableConfigEnabled533,534
+    , _enableConfigConfig _enableConfigConfig534,535
+defaultEnableConfig defaultEnableConfig540,541
+instance ToJSON ToJSON a => ToJSON (EnableConfig a)546,547
+    toJSON toJSON547,548
+instance FromJSON FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a)552,553
+    parseJSON parseJSON553,554
+pEnableConfig pEnableConfig557,558
+timeoutStream timeoutStream571,572
+nub nub578,579
+streamToHashSet streamToHashSet587,588
+streamToHashSet_ streamToHashSet_595,596
+reverseStream reverseStream617,618
+
+./src/Chainweb/HostAddress.hs,2596
+module Chainweb.HostAddressChainweb.HostAddress52,53
+hostParser hostParser122,123
+hostNameParser hostNameParser127,128
+ipV4Parser ipV4Parser153,154
+portParser portParser162,163
+arbitraryIpV4 arbitraryIpV4172,173
+arbitraryIpV6 arbitraryIpV6176,177
+arbitraryDomainName arbitraryDomainName180,181
+arbitraryDomainLabel arbitraryDomainLabel189,190
+newtype Port Port207,208
+readPortBytes readPortBytes212,213
+arbitraryPort arbitraryPort217,218
+instance Arbitrary Arbitrary Port220,221
+    arbitrary arbitrary221,222
+portToText portToText223,224
+portFromText portFromText227,228
+instance HasTextRepresentation HasTextRepresentation Port231,232
+    toText toText232,233
+    fromText fromText234,235
+pPort pPort237,238
+newtype Hostname Hostname246,247
+readHostnameBytes readHostnameBytes251,252
+localhost localhost258,259
+hostnameBytes hostnameBytes262,263
+arbitraryHostname arbitraryHostname266,267
+hostnameToText hostnameToText276,277
+hostnameFromText hostnameFromText280,281
+unsafeHostnameFromText unsafeHostnameFromText284,285
+instance ToJSON ToJSON Hostname288,289
+    toJSON toJSON289,290
+instance FromJSON FromJSON Hostname292,293
+    parseJSON parseJSON293,294
+instance HasTextRepresentation HasTextRepresentation Hostname296,297
+    toText toText297,298
+    fromText fromText299,300
+pHostname pHostname302,303
+instance Arbitrary Arbitrary Hostname308,309
+    arbitrary arbitrary309,310
+prop_readHostnameBytes prop_readHostnameBytes311,312
+data HostAddress HostAddress317,318
+data HostAddress = HostAddressHostAddress317,318
+    { _hostAddressHost _hostAddressHost318,319
+    , _hostAddressPort _hostAddressPort319,320
+hostAddressBytes hostAddressBytes326,327
+readHostAddressBytes readHostAddressBytes331,332
+hostAddressToText hostAddressToText336,337
+hostAddressFromText hostAddressFromText340,341
+unsafeHostAddressFromText unsafeHostAddressFromText344,345
+instance HasTextRepresentation HasTextRepresentation HostAddress348,349
+    toText toText349,350
+    fromText fromText351,352
+instance ToJSON ToJSON HostAddress354,355
+    toJSON toJSON355,356
+instance FromJSON FromJSON HostAddress361,362
+    parseJSON parseJSON362,363
+instance FromJSON FromJSON (HostAddress -> HostAddress)367,368
+    parseJSON parseJSON368,369
+pHostAddress pHostAddress373,374
+arbitraryHostAddress arbitraryHostAddress378,379
+instance Arbitrary Arbitrary HostAddress381,382
+    arbitrary arbitrary382,383
+prop_readHostAddressBytes prop_readHostAddressBytes384,385
+properties properties390,391
+
+./src/Chainweb/RestAPI/Utils.hs,1362
+module Chainweb.RestAPI.UtilsChainweb.RestAPI.Utils28,29
+type Reassoc Reassoc86,87
+type family family88,89
+    ReassocBranch ReassocBranch89,90
+type Version Version96,97
+newtype ApiVersion ApiVersion98,99
+apiVersion apiVersion102,103
+prettyApiVersion prettyApiVersion105,106
+type PageParams PageParams117,118
+type LimitParam LimitParam119,120
+type NextParam NextParam120,121
+newtype ChainwebEndpoint ChainwebEndpoint125,126
+type ChainwebEndpointApi ChainwebEndpointApi127,128
+newtype NetworkEndpoint NetworkEndpoint162,163
+type ChainEndpoint ChainEndpoint164,165
+type CutEndpoint CutEndpoint165,166
+type family family167,168
+    NetworkEndpointApi NetworkEndpointApi168,169
+data SomeApi SomeApi244,245
+data SomeApi = forall forall244,245
+data SomeApi = forall (a a244,245
+instance Semigroup Semigroup SomeApi247,248
+    SomeApi SomeApi248,249
+instance Monoid Monoid SomeApi251,252
+    mappend mappend252,253
+    mempty mempty253,254
+someApi someApi262,263
+data SomeServer SomeServer267,268
+data SomeServer = forall forall267,268
+data SomeServer = forall (a a267,268
+instance Semigroup Semigroup SomeServer270,271
+    SomeServer SomeServer271,272
+instance Monoid Monoid SomeServer274,275
+    mappend mappend275,276
+    mempty mempty276,277
+someServerApplication someServerApplication278,279
+
+./src/Chainweb/RestAPI/Orphans.hs,3933
+module Chainweb.RestAPI.Orphans Chainweb.RestAPI.Orphans23,24
+instance FromHttpApiData FromHttpApiData HostAddress64,65
+    parseUrlPiece parseUrlPiece65,66
+instance FromHttpApiData FromHttpApiData BlockHash67,68
+    parseUrlPiece parseUrlPiece68,69
+instance ToHttpApiData ToHttpApiData BlockHash70,71
+    toUrlPiece toUrlPiece71,72
+instance FromHttpApiData FromHttpApiData ChainwebVersion73,74
+    parseUrlPiece parseUrlPiece74,75
+instance ToHttpApiData ToHttpApiData ChainwebVersion76,77
+    toUrlPiece toUrlPiece77,78
+instance FromHttpApiData FromHttpApiData ChainId79,80
+    parseUrlPiece parseUrlPiece80,81
+instance ToHttpApiData ToHttpApiData ChainId82,83
+    toUrlPiece toUrlPiece83,84
+instance FromHttpApiData FromHttpApiData MinRank85,86
+    parseUrlPiece parseUrlPiece86,87
+instance ToHttpApiData ToHttpApiData MinRank88,89
+    toUrlPiece toUrlPiece89,90
+instance FromHttpApiData FromHttpApiData MaxRank91,92
+    parseUrlPiece parseUrlPiece92,93
+instance ToHttpApiData ToHttpApiData MaxRank94,95
+    toUrlPiece toUrlPiece95,96
+instance FromHttpApiData FromHttpApiData Eos97,98
+    parseUrlPiece parseUrlPiece98,99
+instance ToHttpApiData ToHttpApiData Eos100,101
+    toUrlPiece toUrlPiece101,102
+instance FromHttpApiData FromHttpApiData Limit103,104
+    parseUrlPiece parseUrlPiece104,105
+instance ToHttpApiData ToHttpApiData Limit106,107
+    toUrlPiece toUrlPiece107,108
+instance ToHttpApiData ToHttpApiData (NextItem BlockHash)109,110
+    toUrlPiece toUrlPiece110,111
+instance FromHttpApiData FromHttpApiData (NextItem BlockHash)112,113
+    parseUrlPiece parseUrlPiece113,114
+instance ToHttpApiData ToHttpApiData (NextItem PeerId)115,116
+    toUrlPiece toUrlPiece116,117
+instance FromHttpApiData FromHttpApiData (NextItem PeerId)118,119
+    parseUrlPiece parseUrlPiece119,120
+instance ToParamSchema ToParamSchema PeerId124,125
+    toParamSchema toParamSchema125,126
+instance ToParamSchema ToParamSchema BlockHash127,128
+    toParamSchema toParamSchema128,129
+instance ToParamSchema ToParamSchema BlockHeader134,135
+    toParamSchema toParamSchema135,136
+instance ToParamSchema ToParamSchema MinRank139,140
+    toParamSchema toParamSchema140,141
+instance ToParamSchema ToParamSchema MaxRank145,146
+    toParamSchema toParamSchema146,147
+instance ToParamSchema ToParamSchema Limit151,152
+    toParamSchema toParamSchema152,153
+instance ToParamSchema ToParamSchema Eos157,158
+    toParamSchema toParamSchema158,159
+instance ToParamSchema ToParamSchema (NextItem BlockHash)161,162
+    toParamSchema toParamSchema162,163
+instance ToParamSchema ToParamSchema (NextItem PeerId)166,167
+    toParamSchema toParamSchema167,168
+instance ToParamSchema ToParamSchema ChainId171,172
+    toParamSchema toParamSchema172,173
+instance ToParamSchema ToParamSchema ChainwebVersion176,177
+    toParamSchema toParamSchema177,178
+instance ToSchema ToSchema Swagger184,185
+    declareNamedSchema declareNamedSchema185,186
+instance ToSchema ToSchema PeerInfo188,189
+instance ToSchema ToSchema ChainId190,191
+instance ToSchema ToSchema PeerId192,193
+    declareNamedSchema declareNamedSchema193,194
+instance ToSchema ToSchema HostAddress195,196
+    declareNamedSchema declareNamedSchema196,197
+instance ToSchema ToSchema BlockHash202,203
+    declareNamedSchema declareNamedSchema203,204
+instance ToSchema ToSchema BlockHeader207,208
+    declareNamedSchema declareNamedSchema208,209
+instance ToSchema ToSchema CutHashes210,211
+    declareNamedSchema declareNamedSchema211,212
+instance ToSchema ToSchema (NextItem k)222,223
+    declareNamedSchema declareNamedSchema223,224
+instance (T(ToSchema a) => ToSchema (Page k a)228,229
+    declareNamedSchema declareNamedSchema229,230
+instance ToSchema ToSchema (BranchBounds BlockHeaderDb)242,243
+    declareNamedSchema declareNamedSchema243,244
+
+./src/Chainweb/RestAPI/NetworkID.hs,1766
+module Chainweb.RestAPI.NetworkIDChainweb.RestAPI.NetworkID22,23
+data NetworkIdNetworkId69,70
+    = ChainNetwork ChainNetwork70,71
+    | CutNetworkCutNetwork71,72
+networkIdToText networkIdToText75,76
+networkIdFromText networkIdFromText80,81
+unsafeNetworkIdFromText unsafeNetworkIdFromText88,89
+instance ToJSON ToJSON NetworkId92,93
+    toJSON toJSON93,94
+instance FromJSON FromJSON NetworkId96,97
+    parseJSON parseJSON97,98
+instance HasTextRepresentation HasTextRepresentation NetworkId100,101
+    toText toText101,102
+    fromText fromText103,104
+pNetworkId pNetworkId106,107
+instance Arbitrary Arbitrary NetworkId110,111
+    arbitrary arbitrary111,112
+data NetworkIdTNetworkIdT119,120
+    = ChainNetworkT ChainNetworkT120,121
+    | CutNetworkTCutNetworkT121,122
+data SomeNetworkIdT SomeNetworkIdT127,128
+        :: forall (a a129,130
+        :: forall (a :: ChainIdT) (n n129,130
+class KnownNetworkId KnownNetworkId137,138
+    networkIdVal networkIdVal138,139
+instance KnownChainIdSymbol KnownChainIdSymbol c => KnownNetworkId ('ChainNetworkT c)140,141
+    networkIdVal networkIdVal141,142
+instance KnownNetworkId KnownNetworkId 'CutNetworkT143,144
+    networkIdVal networkIdVal144,145
+someNetworkIdVal someNetworkIdVal146,147
+data instance instance154,155
+data instance Sing (n n154,155
+    SChainNetwork SChainNetwork155,156
+    SCutNetwork SCutNetwork156,157
+type SNetwork SNetwork158,159
+instance SingI SingI c => SingI ('ChainNetworkT c :: NetworkIdT)160,161
+    sing sing161,162
+instance SingI SingI 'CutNetworkT163,164
+    sing sing164,165
+instance SingKind SingKind NetworkIdT166,167
+    type Demote Demote167,168
+    fromSing fromSing169,170
+    toSing toSing172,173
+
+./src/Chainweb/WebBlockHeaderDB.hs,932
+module Chainweb.WebBlockHeaderDBChainweb.WebBlockHeaderDB15,16
+data WebBlockHeaderDb WebBlockHeaderDb60,61
+data WebBlockHeaderDb = WebBlockHeaderDbWebBlockHeaderDb60,61
+    { _webBlockHeaderDb _webBlockHeaderDb61,62
+    , _webChainGraph _webChainGraph62,63
+webBlockHeaderDb webBlockHeaderDb65,66
+type instance instance68,69
+instance IxedGet IxedGet WebBlockHeaderDb71,72
+    ixg ixg72,73
+instance HasChainGraph HasChainGraph WebBlockHeaderDb75,76
+    _chainGraph _chainGraph76,77
+initWebBlockHeaderDb initWebBlockHeaderDb83,84
+mkWebBlockHeaderDb mkWebBlockHeaderDb93,94
+getWebBlockHeaderDb getWebBlockHeaderDb101,102
+lookupWebBlockHeaderDb lookupWebBlockHeaderDb109,110
+blockAdjacentParentHeaders blockAdjacentParentHeaders118,119
+insertWebBlockHeaderDb insertWebBlockHeaderDb126,127
+checkBlockHeaderGraph checkBlockHeaderGraph145,146
+checkBlockAdjacentParents checkBlockAdjacentParents155,156
+
+./src/Chainweb/CutDB.hs,1664
+module Chainweb.CutDBChainweb.CutDB24,25
+data CutDbConfig CutDbConfig110,111
+data CutDbConfig = CutDbConfigCutDbConfig110,111
+    { _cutDbConfigInitialCut _cutDbConfigInitialCut111,112
+    , _cutDbConfigInitialCutFile _cutDbConfigInitialCutFile112,113
+    , _cutDbConfigBufferSize _cutDbConfigBufferSize113,114
+    , _cutDbConfigLogLevel _cutDbConfigLogLevel114,115
+    , _cutDbConfigTelemetryLevel _cutDbConfigTelemetryLevel115,116
+defaultCutDbConfig defaultCutDbConfig121,122
+data CutHashes CutHashes134,135
+data CutHashes = CutHashesCutHashes134,135
+    { _cutHashes _cutHashes135,136
+    , _cutOrigin _cutOrigin136,137
+instance ToJSON ToJSON CutHashes142,143
+instance FromJSON FromJSON CutHashes143,144
+instance NFData NFData CutHashes144,145
+cutToCutHashes cutToCutHashes146,147
+data CutDb CutDb155,156
+data CutDb = CutDbCutDb155,156
+    { _cutDbCut _cutDbCut156,157
+    , _cutDbQueue _cutDbQueue157,158
+    , _cutDbWebBlockHeaderDb _cutDbWebBlockHeaderDb170,171
+    , _cutDbAsync _cutDbAsync171,172
+instance HasChainGraph HasChainGraph CutDb174,175
+    _chainGraph _chainGraph175,176
+cutDbWebBlockHeaderDb cutDbWebBlockHeaderDb180,181
+_cut _cut187,188
+cut cut194,195
+addCutHashes addCutHashes197,198
+_cutStm _cutStm204,205
+cutStm cutStm211,212
+withCutDb withCutDb214,215
+startCutDb startCutDb217,218
+stopCutDb stopCutDb224,225
+processCuts processCuts239,240
+cutStream cutStream257,258
+cutHashesToBlockHeaderMap cutHashesToBlockHeaderMap274,275
+newtype CutDbT CutDbT296,297
+data SomeCutDb SomeCutDb299,300
+data SomeCutDb = forall forall299,300
+someCutDbVal someCutDbVal301,302
+
+./src/Chainweb/ChainId.hs,2128
+module Chainweb.ChainIdChainweb.ChainId20,21
+data ChainIdExceptionChainIdException79,80
+    = ChainIdMismatch ChainIdMismatch80,81
+instance Exception Exception ChainIdException83,84
+newtype ChainId ChainId101,102
+instance ToJSONKey ToJSONKey ChainId106,107
+    toJSONKey toJSONKey107,108
+instance FromJSONKey FromJSONKey ChainId110,111
+    fromJSONKey fromJSONKey111,112
+class HasChainId HasChainId114,115
+    _chainId _chainId115,116
+    chainId chainId119,120
+instance HasChainId HasChainId ChainId125,126
+    _chainId _chainId126,127
+instance HasChainId HasChainId a => HasChainId (Expected a)129,130
+    _chainId _chainId130,131
+instance HasChainId HasChainId a => HasChainId (Actual a)133,134
+    _chainId _chainId134,135
+checkChainId checkChainId144,145
+chainIdToText chainIdToText148,149
+chainIdFromText chainIdFromText152,153
+instance HasTextRepresentation HasTextRepresentation ChainId156,157
+    toText toText157,158
+    fromText fromText159,160
+encodeChainId encodeChainId165,166
+decodeChainId decodeChainId169,170
+decodeChainIdChecked decodeChainIdChecked179,180
+newtype ChainIdT ChainIdT188,189
+data SomeChainIdT SomeChainIdT190,191
+data SomeChainIdT = forall forall190,191
+data SomeChainIdT = forall (a a190,191
+class KnownSymbol (ChainIdSymbol n) => KnownChainIdSymbol KnownChainIdSymbol193,194
+    type ChainIdSymbol ChainIdSymbol194,195
+    chainIdSymbolVal chainIdSymbolVal195,196
+instance KnownSymbol KnownSymbol n => KnownChainIdSymbol ('ChainIdT n)197,198
+    type ChainIdSymbol ChainIdSymbol198,199
+    chainIdSymbolVal chainIdSymbolVal199,200
+someChainIdVal someChainIdVal201,202
+data instance instance208,209
+data instance Sing (n n208,209
+    SChainId SChainId209,210
+instance KnownChainIdSymbol KnownChainIdSymbol n => SingI (n :: ChainIdT)213,214
+    sing sing214,215
+instance SingKind SingKind ChainIdT216,217
+    type Demote Demote217,218
+    fromSing fromSing218,219
+    toSing toSing219,220
+testChainId testChainId228,229
+instance Arbitrary Arbitrary ChainId232,233
+    arbitrary arbitrary233,234
+
+./src/Chainweb/BlockHeaderDB.hs,2851
+module Chainweb.BlockHeaderDBChainweb.BlockHeaderDB18,19
+type K K73,74
+type E E74,75
+data Db Db81,82
+data Db = DbDb81,82
+    { _dbEntries _dbEntries82,83
+    , _dbBranches _dbBranches86,87
+    , _dbChildren _dbChildren91,92
+    , _dbEnumeration _dbEnumeration98,99
+instance NFData NFData Db111,112
+dbAddChecked dbAddChecked117,118
+emptyDb emptyDb166,167
+data Configuration Configuration174,175
+data Configuration = ConfigurationConfiguration174,175
+    { _configRoot _configRoot175,176
+data BlockHeaderDb BlockHeaderDb185,186
+data BlockHeaderDb = BlockHeaderDbBlockHeaderDb185,186
+    { _chainDbId _chainDbId186,187
+    , _chainDbVar _chainDbVar187,188
+    , _chainDbEnumeration _chainDbEnumeration192,193
+instance HasChainId HasChainId BlockHeaderDb201,202
+    _chainId _chainId202,203
+initBlockHeaderDb initBlockHeaderDb206,207
+closeBlockHeaderDb closeBlockHeaderDb217,218
+snapshot snapshot220,221
+enumerationIO enumerationIO223,224
+enumeration enumeration226,227
+copy copy229,230
+withBlockHeaderDb withBlockHeaderDb241,242
+instance TreeDb TreeDb BlockHeaderDb250,251
+    type DbEntry DbEntry251,252
+    lookup lookup253,254
+    childrenEntries childrenEntries255,256
+    leafEntries leafEntries260,261
+    allKeys allKeys275,276
+    allEntries allEntries277,278
+    entries entries296,297
+    insert insert299,300
+insertBlockHeaderDb insertBlockHeaderDb304,305
+data ValidationFailure ValidationFailure321,322
+data ValidationFailure = ValidationFailure ValidationFailure321,322
+instance Show Show ValidationFailure323,324
+    show show324,325
+data ValidationFailureTypeValidationFailureType339,340
+    = MissingParentMissingParent340,341
+    | CreatedBeforeParentCreatedBeforeParent342,343
+    | VersionMismatchVersionMismatch344,345
+    | IncorrectHashIncorrectHash347,348
+    | IncorrectHeightIncorrectHeight350,351
+    | IncorrectWeightIncorrectWeight352,353
+    | IncorrectTargetIncorrectTarget355,356
+    | IncorrectGenesisParentIncorrectGenesisParent359,360
+    | IncorrectGenesisTargetIncorrectGenesisTarget362,363
+instance Exception Exception ValidationFailure367,368
+validateAdditionsM validateAdditionsM372,373
+validateEntryInternalM validateEntryInternalM387,388
+validateEntryM validateEntryM399,400
+validateEntry validateEntry411,412
+validateEntryInternal validateEntryInternal424,425
+validateBlockHeaderInductiveInternal validateBlockHeaderInductiveInternal434,435
+validateBlockHeaderIntrinsic validateBlockHeaderIntrinsic446,447
+validateParent validateParent459,460
+isValidEntry isValidEntry471,472
+prop_block_height prop_block_height477,478
+prop_block_chainwebVersion prop_block_chainwebVersion482,483
+prop_block_creationTime prop_block_creationTime485,486
+prop_block_weight prop_block_weight490,491
+
+./src/Chainweb/Difficulty.hs,1128
+module Chainweb.DifficultyChainweb.Difficulty27,28
+instance NFData NFData Word12875,76
+instance NFData NFData Word25676,77
+newtype BlockHashNat BlockHashNat89,90
+blockHashNat blockHashNat100,101
+blockHashBytesToWord256 blockHashBytesToWord256104,105
+encodeBlockHashNat encodeBlockHashNat108,109
+decodeBlockHashNat decodeBlockHashNat112,113
+instance ToJSON ToJSON BlockHashNat116,117
+    toJSON toJSON117,118
+instance FromJSON FromJSON BlockHashNat120,121
+    parseJSON parseJSON121,122
+instance ToJSONKey ToJSONKey BlockHashNat125,126
+    toJSONKey toJSONKey126,127
+instance FromJSONKey FromJSONKey BlockHashNat130,131
+    fromJSONKey fromJSONKey131,132
+newtype HashDifficulty HashDifficulty143,144
+encodeHashDifficulty encodeHashDifficulty150,151
+decodeHashDifficulty decodeHashDifficulty154,155
+newtype HashTarget HashTarget168,169
+difficultyToTarget difficultyToTarget173,174
+targetToDifficulty targetToDifficulty177,178
+checkTarget checkTarget181,182
+encodeHashTarget encodeHashTarget185,186
+decodeHashTarget decodeHashTarget189,190
+calculateTarget calculateTarget211,212
+
+./src/Chainweb/Time.hs,1582
+module Chainweb.TimeChainweb.Time26,27
+newtype TimeSpan TimeSpan96,97
+encodeTimeSpan encodeTimeSpan107,108
+decodeTimeSpan decodeTimeSpan111,112
+castTimeSpan castTimeSpan115,116
+maybeCastTimeSpan maybeCastTimeSpan119,120
+ceilingTimeSpan ceilingTimeSpan123,124
+floorTimeSpan floorTimeSpan127,128
+scaleTimeSpan scaleTimeSpan131,132
+addTimeSpan addTimeSpan135,136
+newtype Time Time144,145
+instance AdditiveGroup AdditiveGroup (TimeSpan a) => LeftTorsor (Time a)149,150
+    type Diff Diff150,151
+    add add151,152
+    diff diff152,153
+epoche epoche156,157
+getCurrentTimeIntegral getCurrentTimeIntegral160,161
+encodeTime encodeTime166,167
+decodeTime decodeTime170,171
+castTime castTime174,175
+maybeCastTime maybeCastTime178,179
+ceilingTime ceilingTime182,183
+floorTime floorTime186,187
+minTime minTime190,191
+maxTime maxTime194,195
+microsecond microsecond201,202
+millisecond millisecond205,206
+second second209,210
+minute minute213,214
+hour hour217,218
+day day221,222
+newtype Seconds Seconds228,229
+secondsToTimeSpan secondsToTimeSpan233,234
+secondsToText secondsToText237,238
+secondsFromText secondsFromText241,242
+instance HasTextRepresentation HasTextRepresentation Seconds245,246
+    toText toText246,247
+    fromText fromText248,249
+instance Arbitrary Arbitrary a => Arbitrary (Time a)254,255
+    arbitrary arbitrary255,256
+instance Arbitrary Arbitrary a => Arbitrary (TimeSpan a)257,258
+    arbitrary arbitrary258,259
+instance Arbitrary Arbitrary Seconds260,261
+    arbitrary arbitrary261,262
+
+./src/Chainweb/TreeDB/Persist.hs,238
+module Chainweb.TreeDB.PersistChainweb.TreeDB.Persist12,13
+persist persist42,43
+encoded encoded49,50
+separated separated57,58
+restore restore71,72
+fileEntries fileEntries85,86
+destream destream92,93
+decoded decoded104,105
+
+./src/Chainweb/TreeDB/RemoteDB.hs,691
+module Chainweb.TreeDB.RemoteDBChainweb.TreeDB.RemoteDB13,14
+data RemoteDb RemoteDb40,41
+data RemoteDb = RemoteDbRemoteDb40,41
+    { _remoteEnv _remoteEnv41,42
+    , _remoteVersion _remoteVersion42,43
+    , _remoteChainId _remoteChainId43,44
+instance TreeDb TreeDb RemoteDb45,46
+    type DbEntry DbEntry46,47
+    lookup lookup49,50
+    children children53,54
+    childrenEntries childrenEntries58,59
+    keys keys63,64
+    entries entries68,69
+    leafEntries leafEntries73,74
+    leafKeys leafKeys78,79
+    branchKeys branchKeys83,84
+    branchEntries branchEntries88,89
+    insert insert93,94
+callAndPage callAndPage106,107
+remoteDb remoteDb121,122
+
+./src/Chainweb/TreeDB/Sync.hs,467
+module Chainweb.TreeDB.SyncChainweb.TreeDB.Sync23,24
+type BlockHeaderTreeDb BlockHeaderTreeDb74,75
+newtype Depth Depth79,80
+newtype Depth = Depth { _getDepth _getDepth79,80
+newtype PeerTree PeerTree84,85
+newtype PeerTree t = PeerTree { _peerTree _peerTree84,85
+branchSync branchSync100,101
+linearSync linearSync155,156
+syncSession syncSession175,176
+chainSyncSession chainSyncSession206,207
+showHash showHash221,222
+minHeight minHeight228,229
+
+./src/Chainweb/Graph.hs,1076
+module Chainweb.GraphChainweb.Graph35,36
+data ChainGraphException ChainGraphException96,97
+instance Exception Exception ChainGraphException111,112
+type ChainGraph ChainGraph116,117
+toChainGraph toChainGraph118,119
+validChainGraph validChainGraph122,123
+adjacentChainIds adjacentChainIds131,132
+newtype AdjPair AdjPair137,138
+newtype AdjPair a = AdjPair { _getAdjPair _getAdjPair137,138
+pattern Adj Adj141,142
+pattern Adj a a142,143
+adjs adjs152,153
+adjsOfVertex adjsOfVertex160,161
+class HasChainGraph HasChainGraph165,166
+    _chainGraph _chainGraph166,167
+    chainGraph chainGraph167,168
+    _chainGraph _chainGraph169,170
+    chainGraph chainGraph172,173
+instance HasChainGraph HasChainGraph ChainGraph177,178
+    _chainGraph _chainGraph178,179
+chainIds chainIds184,185
+checkWebChainId checkWebChainId191,192
+isWebChain isWebChain197,198
+checkAdjacentChainIds checkAdjacentChainIds213,214
+singletonChainGraph singletonChainGraph223,224
+pairChainGraph pairChainGraph226,227
+petersonChainGraph petersonChainGraph229,230
+
+./src/Chainweb/TreeDB.hs,2701
+module Chainweb.TreeDBChainweb.TreeDB23,24
+import import110,111
+data TreeDbException TreeDbException116,117
+    = TreeDbParentMissing TreeDbParentMissing117,118
+    | TreeDbKeyNotFound TreeDbKeyNotFound118,119
+    | TreeDbInvalidRank TreeDbInvalidRank119,120
+instance (S(Show (DbEntry db), Show (DbKey db)) => Show (TreeDbException db)121,122
+    show show122,123
+newtype MinRank MinRank139,140
+_getMinRank _getMinRank144,145
+newtype MaxRank MaxRank147,148
+_getMaxRank _getMaxRank152,153
+newtype LowerBound LowerBound161,162
+newtype LowerBound k = LowerBound { _getLowerBound _getLowerBound161,162
+newtype UpperBound UpperBound165,166
+newtype UpperBound k = UpperBound { _getUpperBound _getUpperBound165,166
+data BranchBounds BranchBounds169,170
+data BranchBounds db = BranchBoundsBranchBounds169,170
+    { _branchBoundsLower _branchBoundsLower170,171
+    , _branchBoundsUpper _branchBoundsUpper171,172
+    => TreeDbEntry TreeDbEntry203,204
+    type family family205,206
+    key key206,207
+    rank rank207,208
+    parent parent208,209
+type DbKey DbKey210,211
+class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb TreeDb215,216
+    type family family224,225
+    children children253,254
+    childrenEntries childrenEntries259,260
+    keys keys291,292
+    allKeys allKeys301,302
+    entries entries330,331
+    allEntries allEntries347,348
+    leafEntries leafEntries383,384
+    leafKeys leafKeys394,395
+    branchKeys branchKeys421,422
+    branchEntries branchEntries443,444
+    insertStream insertStream467,468
+    insert insert474,475
+    maxRank maxRank485,486
+maxHeader maxHeader494,495
+root root500,501
+applyRank applyRank515,516
+getBranch getBranch530,531
+limitLeaves limitLeaves588,589
+descend descend599,600
+ascend ascend611,612
+ascendIntersect ascendIntersect629,630
+seekLimitStream seekLimitStream648,649
+limitStream limitStream655,656
+seekStream seekStream676,677
+seekStreamSet seekStreamSet688,689
+prop_seekLimitStream_limit prop_seekLimitStream_limit694,695
+prop_seekLimitStream_id prop_seekLimitStream_id705,706
+lookupM lookupM724,725
+lookupStreamM lookupStreamM736,737
+lookupStream lookupStream746,747
+data GenesisParentGenesisParent748,749
+    = GenesisParentThrowGenesisParentThrow749,750
+    | GenesisParentSelfGenesisParentSelf750,751
+    | GenesisParentNoneGenesisParentNone751,752
+lookupParentM lookupParentM766,767
+lookupParentStreamM lookupParentStreamM785,786
+foldableEntries foldableEntries807,808
+toTree toTree815,816
+forkEntry forkEntry832,833
+branchDiff branchDiff840,841
+branchDiff_ branchDiff_848,849
+properties properties870,871
+
+./src/Chainweb/Utils/Paging.hs,1698
+module Chainweb.Utils.PagingChainweb.Utils.Paging19,20
+import import68,69
+newtype Limit Limit75,76
+newtype Limit = Limit { _getLimit _getLimit75,76
+instance Arbitrary Arbitrary Limit80,81
+  arbitrary arbitrary81,82
+data Page Page86,87
+data Page k a = PagePage86,87
+    { _pageLimit _pageLimit87,88
+    , _pageItems _pageItems89,90
+    , _pageNext _pageNext91,92
+instance (H(HasTextRepresentation k, ToJSON k, ToJSON a) => ToJSON (Page k a)97,98
+    toJSON toJSON98,99
+instance (H(HasTextRepresentation k, FromJSON k, FromJSON a) => FromJSON (Page k a)104,105
+    parseJSON parseJSON105,106
+data NextItem NextItem119,120
+    = Inclusive Inclusive120,121
+    | Exclusive Exclusive121,122
+isInclusive isInclusive124,125
+isExclusive isExclusive128,129
+nextItemToText nextItemToText132,133
+nextItemFromText nextItemFromText136,137
+instance HasTextRepresentation HasTextRepresentation k => HasTextRepresentation (NextItem k)144,145
+    toText toText145,146
+    fromText fromText147,148
+instance HasTextRepresentation HasTextRepresentation k => ToJSON (NextItem k)150,151
+    toJSON toJSON151,152
+instance HasTextRepresentation HasTextRepresentation k => FromJSON (NextItem k)154,155
+    parseJSON parseJSON155,156
+newtype Eos Eos163,164
+newtype Eos = Eos { _getEos _getEos163,164
+isEos isEos167,168
+atEos atEos170,171
+finitePrefixOfInfiniteStreamToPage finitePrefixOfInfiniteStreamToPage198,199
+finiteStreamToPage finiteStreamToPage225,226
+seekFiniteStreamToPage seekFiniteStreamToPage244,245
+prop_streamToPage_limit prop_streamToPage_limit253,254
+prop_streamToPage_id prop_streamToPage_id266,267
+properties properties276,277
+
+./src/Chainweb/Pact/MapPureCheckpoint.hs,211
+module Chainweb.Pact.MapPureCheckpointChainweb.Pact.MapPureCheckpoint9,10
+makeCheckpoint makeCheckpoint20,21
+restoreCheckpoint restoreCheckpoint30,31
+initPactCheckpointStore initPactCheckpointStore44,45
+
+./src/Chainweb/Pact/PactService.hs,599
+module Chainweb.Pact.PactService Chainweb.Pact.PactService13,14
+initPactService initPactService42,43
+restorePactService restorePactService65,66
+mkCwPureEnv mkCwPureEnv88,89
+restoreDbEnv restoreDbEnv95,96
+mkCwSQLiteEnv mkCwSQLiteEnv100,101
+restoreSQLite restoreSQLite123,124
+applyCmd applyCmd139,140
+jsonResult jsonResult153,154
+exToTx exToTx156,157
+runPayload runPayload160,161
+applyExec applyExec175,176
+handlePactExec handlePactExec192,193
+applyContinuation applyContinuation203,204
+rollbackUpdate rollbackUpdate240,241
+continuationUpdate continuationUpdate249,250
+
+./src/Chainweb/Pact/HashtablePureCheckpoint.hs,223
+module Chainweb.Pact.HashtablePureCheckpointChainweb.Pact.HashtablePureCheckpoint9,10
+makeCheckpoint makeCheckpoint19,20
+restoreCheckpoint restoreCheckpoint28,29
+initPactCheckpointStore initPactCheckpointStore41,42
+
+./src/Chainweb/Pact/Types.hs,1737
+module Chainweb.Pact.TypesChainweb.Pact.Types12,13
+type CwPactDbType CwPactDbType57,58
+data Transaction Transaction60,61
+data Transaction = TransactionTransaction60,61
+  { _tTxId _tTxId61,62
+  , _tCmd _tCmd62,63
+data Block Block67,68
+data Block = BlockBlock67,68
+  { _bHash _bHash68,69
+  , _bParentHash _bParentHash69,70
+  , _bBlockHeight _bBlockHeight70,71
+  , _bTransactions _bTransactions71,72
+data PactDbState PactDbState76,77
+data PactDbState = PactDbStatePactDbState76,77
+  { _pdsCommandConfig _pdsCommandConfig77,78
+  , _pdbsDbEnv _pdbsDbEnv78,79
+  , _pdbsState _pdbsState79,80
+  , _pdbsLogger _pdbsLogger80,81
+  , _pdbsGasEnv _pdbsGasEnv81,82
+data PactDbStatePersist PactDbStatePersist86,87
+data PactDbStatePersist = PactDbStatePersistPactDbStatePersist86,87
+  { _pdbsRestoreFile _pdbsRestoreFile87,88
+  , _pdbsPactDbState _pdbsPactDbState88,89
+data PactDbConfig PactDbConfig93,94
+data PactDbConfig = PactDbConfig PactDbConfig93,94
+  _pdbcPersistDir _pdbcPersistDir94,95
+  _pdbcLogDir _pdbcLogDir95,96
+  _pdbcPragmas _pdbcPragmas96,97
+  _pdbcGasLimit _pdbcGasLimit97,98
+  _pdbcGasRate _pdbcGasRate98,99
+instance FromJSON FromJSON PactDbConfig100,101
+usage usage104,105
+type PactT PactT114,115
+data TransactionCriteria TransactionCriteria116,117
+data TransactionCriteria = TransactionCriteriaTransactionCriteria116,117
+type MapPurePactCheckpointStore MapPurePactCheckpointStore118,119
+type HashTable HashTable120,121
+type HashTablePurePactCheckpointStore HashTablePurePactCheckpointStore122,123
+data OnDiskPactCheckpointStore OnDiskPactCheckpointStore124,125
+data OnDiskPactCheckpointStore = OnDiskPactCheckpointStoreOnDiskPactCheckpointStore124,125
+
+./src/Chainweb/Pact/DiskCheckpoint.hs,206
+module Chainweb.Pact.DiskCheckpoint Chainweb.Pact.DiskCheckpoint9,10
+makeCheckpoint makeCheckpoint22,23
+restoreCheckpoint restoreCheckpoint25,26
+initPactCheckpointStore initPactCheckpointStore28,29
+
+./src/Chainweb/Chainweb.hs,2921
+module Chainweb.ChainwebChainweb.Chainweb37,38
+import import103,104
+data Cuts Cuts150,151
+data Cuts = CutsCuts150,151
+    { _cutsChainwebVersion _cutsChainwebVersion151,152
+    , _cutsCutConfig _cutsCutConfig152,153
+    , _cutsP2pConfig _cutsP2pConfig153,154
+    , _cutsCutDb _cutsCutDb154,155
+    , _cutsPeerDb _cutsPeerDb155,156
+    , _cutsLogFun _cutsLogFun156,157
+withCuts withCuts169,170
+runCutsSyncClient runCutsSyncClient179,180
+data Chain Chain203,204
+data Chain = ChainChain203,204
+    { _chainChainId _chainChainId204,205
+    , _chainChainwebVersion _chainChainwebVersion205,206
+    , _chainChainwebGraph _chainChainwebGraph206,207
+    , _chainP2pConfig _chainP2pConfig208,209
+    , _chainBlockHeaderDb _chainBlockHeaderDb209,210
+    , _chainPeerDb _chainPeerDb210,211
+    , _chainLogFun _chainLogFun211,212
+    , _chainSyncDepth _chainSyncDepth212,213
+withChain withChain227,228
+runChainSyncClient runChainSyncClient242,243
+chainSyncP2pSession chainSyncP2pSession263,264
+syncDepth syncDepth268,269
+data Miner Miner277,278
+data Miner = MinerMiner277,278
+    { _minerLogFun _minerLogFun278,279
+    , _minerNodeId _minerNodeId279,280
+    , _minerCutDb _minerCutDb280,281
+    , _minerWebBlockHeaderDb _minerWebBlockHeaderDb281,282
+    , _minerConfig _minerConfig282,283
+withMiner withMiner293,294
+runMiner runMiner301,302
+data ChainwebLogFunctions ChainwebLogFunctions313,314
+data ChainwebLogFunctions = ChainwebLogFunctionsChainwebLogFunctions313,314
+    { _chainwebNodeLogFun _chainwebNodeLogFun314,315
+    , _chainwebMinerLogFun _chainwebMinerLogFun315,316
+    , _chainwebCutLogFun _chainwebCutLogFun316,317
+    , _chainwebChainLogFuns _chainwebChainLogFuns317,318
+data Chainweb Chainweb325,326
+data Chainweb = ChainwebChainweb325,326
+    { _chainwebVersion _chainwebVersion326,327
+    , _chainwebGraph _chainwebGraph327,328
+    , _chainwebHostAddress _chainwebHostAddress328,329
+    , _chainwebChains _chainwebChains329,330
+    , _chainwebCuts _chainwebCuts330,331
+    , _chainwebNodeId _chainwebNodeId331,332
+    , _chainwebMiner _chainwebMiner332,333
+    , _chainwebLogFun _chainwebLogFun333,334
+withChainweb withChainweb346,347
+runChainweb runChainweb385,386
+data ChainwebConfiguration ChainwebConfiguration448,449
+data ChainwebConfiguration = ChainwebConfigurationChainwebConfiguration448,449
+    { _configChainwebVersion _configChainwebVersion449,450
+    , _configNodeId _configNodeId450,451
+    , _configMiner _configMiner451,452
+    , _configP2p _configP2p452,453
+defaultChainwebConfiguration defaultChainwebConfiguration458,459
+instance ToJSON ToJSON ChainwebConfiguration466,467
+    toJSON toJSON467,468
+instance FromJSON FromJSON (ChainwebConfiguration -> ChainwebConfiguration)474,475
+    parseJSON parseJSON475,476
+pChainwebConfiguration pChainwebConfiguration481,482
+
+./src/Chainweb/BlockHash.hs,2651
+module Chainweb.BlockHashChainweb.BlockHash35,36
+data BlockHashExceptionBlockHashException107,108
+    = BlockHashBytesCountMismatch BlockHashBytesCountMismatch108,109
+    | BlockHashNatOverflow BlockHashNatOverflow109,110
+instance Exception Exception BlockHashException112,113
+type BlockHashBytesCount BlockHashBytesCount120,121
+blockHashBytesCount blockHashBytesCount122,123
+newtype BlockHashBytes BlockHashBytes126,127
+blockHashBytes blockHashBytes133,134
+encodeBlockHashBytes encodeBlockHashBytes140,141
+decodeBlockHashBytes decodeBlockHashBytes144,145
+instance Hashable Hashable BlockHashBytes148,149
+    hashWithSalt hashWithSalt149,150
+nullHashBytes nullHashBytes155,156
+oneHashBytes oneHashBytes159,160
+randomBlockHashBytes randomBlockHashBytes166,167
+instance ToJSON ToJSON BlockHashBytes169,170
+    toJSON toJSON170,171
+instance FromJSON FromJSON BlockHashBytes173,174
+    parseJSON parseJSON174,175
+cryptoHash cryptoHash182,183
+data BlockHash BlockHash199,200
+data BlockHash = BlockHash BlockHash199,200
+instance Show Show BlockHash204,205
+    show show205,206
+instance HasChainId HasChainId BlockHash207,208
+    _chainId _chainId208,209
+instance Hashable Hashable BlockHash211,212
+    hashWithSalt hashWithSalt212,213
+instance Serialize Serialize BlockHash215,216
+    put put216,217
+    get get217,218
+encodeBlockHash encodeBlockHash219,220
+decodeBlockHash decodeBlockHash225,226
+decodeBlockHashChecked decodeBlockHashChecked237,238
+instance ToJSON ToJSON BlockHash242,243
+    toJSON toJSON243,244
+instance FromJSON FromJSON BlockHash246,247
+    parseJSON parseJSON247,248
+instance ToJSONKey ToJSONKey BlockHash251,252
+    toJSONKey toJSONKey252,253
+instance FromJSONKey FromJSONKey BlockHash256,257
+    fromJSONKey fromJSONKey257,258
+randomBlockHash randomBlockHash261,262
+nullBlockHash nullBlockHash265,266
+blockHashToText blockHashToText269,270
+blockHashFromText blockHashFromText273,274
+instance HasTextRepresentation HasTextRepresentation BlockHash278,279
+    toText toText279,280
+    fromText fromText281,282
+newtype BlockHashRecord BlockHashRecord288,289
+    { _getBlockHashRecord _getBlockHashRecord289,290
+type instance instance296,297
+instance Ixed Ixed BlockHashRecord299,300
+    ix ix300,301
+instance IxedGet IxedGet BlockHashRecord302,303
+instance Each Each BlockHashRecord BlockHashRecord BlockHash BlockHash304,305
+    each each305,306
+encodeBlockHashRecord encodeBlockHashRecord307,308
+decodeBlockHashRecord decodeBlockHashRecord313,314
+decodeBlockHashRecordChecked decodeBlockHashRecordChecked327,328
+
+./src/Chainweb/Version.hs,1774
+module Chainweb.VersionChainweb.Version23,24
+data ChainwebVersionChainwebVersion73,74
+    = TestTest74,75
+    | SimulationSimulation75,76
+    | Testnet00Testnet0076,77
+encodeChainwebVersion encodeChainwebVersion80,81
+decodeChainwebVersion decodeChainwebVersion86,87
+instance ToJSON ToJSON ChainwebVersion94,95
+    toJSON toJSON95,96
+instance FromJSON FromJSON ChainwebVersion98,99
+    parseJSON parseJSON99,100
+chainwebVersionToText chainwebVersionToText101,102
+chainwebVersionFromText chainwebVersionFromText107,108
+instance HasTextRepresentation HasTextRepresentation ChainwebVersion115,116
+    toText toText116,117
+    fromText fromText118,119
+newtype ChainwebVersionT ChainwebVersionT124,125
+data SomeChainwebVersionT SomeChainwebVersionT126,127
+data SomeChainwebVersionT = forall forall126,127
+data SomeChainwebVersionT = forall (a a126,127
+class KnownSymbol (ChainwebVersionSymbol n) => KnownChainwebVersionSymbol KnownChainwebVersionSymbol129,130
+    type ChainwebVersionSymbol ChainwebVersionSymbol130,131
+    chainwebVersionSymbolVal chainwebVersionSymbolVal131,132
+instance (K(KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n)133,134
+    type ChainwebVersionSymbol ChainwebVersionSymbol134,135
+    chainwebVersionSymbolVal chainwebVersionSymbolVal135,136
+someChainwebVersionVal someChainwebVersionVal137,138
+data instance instance144,145
+data instance Sing (v v144,145
+    SChainwebVersion SChainwebVersion145,146
+instance KnownChainwebVersionSymbol KnownChainwebVersionSymbol v => SingI (v :: ChainwebVersionT)149,150
+    sing sing150,151
+instance SingKind SingKind ChainwebVersionT152,153
+    type Demote Demote153,154
+    fromSing fromSing155,156
+    toSing toSing158,159
+
+./src/Chainweb/BlockHeaderDB/RestAPI/Client.hs,957
+module Chainweb.BlockHeaderDB.RestAPI.ClientChainweb.BlockHeaderDB.RestAPI.Client57,58
+headerClient_ headerClient_105,106
+headerClient headerClient112,113
+headerPutClient_ headerPutClient_126,127
+headerPutClient headerPutClient133,134
+headersClient_ headersClient_150,151
+headersClient headersClient168,169
+leafHashesClient_ leafHashesClient_185,186
+leafHashesClient leafHashesClient195,196
+leafHeadersClient_ leafHeadersClient_212,213
+leafHeadersClient leafHeadersClient222,223
+branchHashesClient_ branchHashesClient_240,241
+branchHashesClient branchHashesClient251,252
+branchHeadersClient_ branchHeadersClient_269,270
+branchHeadersClient branchHeadersClient280,281
+hashesClient_ hashesClient_297,298
+hashesClient hashesClient307,308
+childHashesClient_ childHashesClient_321,322
+childHashesClient childHashesClient328,329
+childHeadersClient_ childHeadersClient_342,343
+childHeadersClient childHeadersClient349,350
+
+./src/Chainweb/BlockHeaderDB/RestAPI/Server.hs,934
+module Chainweb.BlockHeaderDB.RestAPI.ServerChainweb.BlockHeaderDB.RestAPI.Server15,16
+checkKey checkKey63,64
+checkBounds checkBounds74,75
+defaultKeyLimit defaultKeyLimit81,82
+defaultEntryLimit defaultEntryLimit84,85
+branchHashesHandler branchHashesHandler100,101
+branchHeadersHandler branchHeadersHandler123,124
+leafHashesHandler leafHashesHandler145,146
+leafHeadersHandler leafHeadersHandler164,165
+hashesHandler hashesHandler183,184
+headersHandler headersHandler202,203
+headerHandler headerHandler213,214
+headerPutHandler headerPutHandler226,227
+childHashesHandler childHashesHandler235,236
+childHeadersHandler childHeadersHandler244,245
+blockHeaderDbServer blockHeaderDbServer254,255
+blockHeaderDbApp blockHeaderDbApp276,277
+blockHeaderDbApiLayout blockHeaderDbApiLayout284,285
+someBlockHeaderDbServer someBlockHeaderDbServer289,290
+someBlockHeaderDbServers someBlockHeaderDbServers293,294
+
+./src/Chainweb/BlockHeaderDB/RestAPI.hs,1790
+module Chainweb.BlockHeaderDB.RestAPIChainweb.BlockHeaderDB.RestAPI38,39
+newtype BlockHeaderDb_ BlockHeaderDb_94,95
+data SomeBlockHeaderDb SomeBlockHeaderDb96,97
+data SomeBlockHeaderDb = forall forall96,97
+someBlockHeaderDbVal someBlockHeaderDbVal100,101
+type FilterParams FilterParams113,114
+type MinHeightParam MinHeightParam115,116
+type MaxHeightParam MaxHeightParam116,117
+type BranchHashesApi_BranchHashesApi_119,120
+type BranchHashesApi BranchHashesApi144,145
+branchHashesApi branchHashesApi150,151
+type BranchHeadersApi_BranchHeadersApi_153,154
+type BranchHeadersApi BranchHeadersApi178,179
+branchHeadersApi branchHeadersApi184,185
+type LeafHashesApi_LeafHashesApi_187,188
+type LeafHashesApi LeafHashesApi202,203
+leafHashesApi leafHashesApi208,209
+type LeafHeadersApi_LeafHeadersApi_211,212
+type LeafHeadersApi LeafHeadersApi226,227
+leafHeadersApi leafHeadersApi232,233
+type HashesApi_HashesApi_235,236
+type HashesApi HashesApi250,251
+hashesApi hashesApi256,257
+type HeadersApi_HeadersApi_259,260
+type HeadersApi HeadersApi274,275
+headersApi headersApi280,281
+type HeaderApi_HeaderApi_283,284
+type HeaderApi HeaderApi292,293
+headerApi headerApi298,299
+type ChildHashesApi_ChildHashesApi_301,302
+type ChildHashesApi ChildHashesApi310,311
+childHashesApi childHashesApi316,317
+type ChildHeadersApi_ChildHeadersApi_319,320
+type ChildHeadersApi ChildHeadersApi328,329
+childHeadersApi childHeadersApi334,335
+type HeaderPutApi_HeaderPutApi_337,338
+type HeaderPutApi HeaderPutApi348,349
+headerPutApi headerPutApi354,355
+type BlockHeaderDbApi BlockHeaderDbApi359,360
+blockHeaderDbApi blockHeaderDbApi374,375
+someBlockHeaderDbApi someBlockHeaderDbApi379,380
+someBlockHeaderDbApis someBlockHeaderDbApis385,386
+
+./src/Chainweb/RestAPI.hs,827
+module Chainweb.RestAPIChainweb.RestAPI18,19
+someChainwebApi someChainwebApi93,94
+selectChainIds selectChainIds98,99
+prettyShowChainwebApi prettyShowChainwebApi104,105
+type SwaggerApi SwaggerApi116,117
+someSwaggerApi someSwaggerApi118,119
+someSwaggerServer someSwaggerServer121,122
+chainwebSwagger chainwebSwagger125,126
+prettyChainwebSwagger prettyChainwebSwagger132,133
+someSingleChainServer someSingleChainServer144,145
+singleChainApplication singleChainApplication153,154
+serveSingleChainOnPort serveSingleChainOnPort162,163
+serveSingleChain serveSingleChain171,172
+someChainwebServer someChainwebServer183,184
+chainwebApplication chainwebApplication194,195
+serveChainwebOnPort serveChainwebOnPort204,205
+serveChainweb serveChainweb214,215
+serveChainwebSocket serveChainwebSocket225,226
+
+./src/Chainweb/Cut.hs,3850
+module Chainweb.CutChainweb.Cut29,30
+data Cut Cut154,155
+data Cut = CutCut154,155
+    { _cutHeaders _cutHeaders155,156
+    , _cutGraph _cutGraph156,157
+instance HasChainGraph HasChainGraph Cut162,163
+    _chainGraph _chainGraph163,164
+type instance instance166,167
+instance IxedGet IxedGet Cut169,170
+    ixg ixg170,171
+_cutMap _cutMap173,174
+cutMap cutMap176,177
+lookupCutM lookupCutM185,186
+_cutWeight _cutWeight190,191
+cutWeight cutWeight193,194
+_cutHeight _cutHeight197,198
+cutHeight cutHeight200,201
+_cutAdjPairs _cutAdjPairs206,207
+cutAdjPairs cutAdjPairs209,210
+cutAdjs cutAdjs220,221
+genesisCut genesisCut242,243
+data CutExceptionCutException253,254
+    = InvalidCutPair InvalidCutPair254,255
+    | NonMonotonicCutExtension NonMonotonicCutExtension255,256
+    | InvalidCutExtension InvalidCutExtension256,257
+instance Exception Exception CutException259,260
+checkBraidingOfCut checkBraidingOfCut275,276
+checkBraidingOfCutPairs checkBraidingOfCutPairs284,285
+checkBraidingOfCutPair checkBraidingOfCutPair290,291
+isBraidingOfCutPair isBraidingOfCutPair301,302
+isMonotonicCutExtension isMonotonicCutExtension329,330
+monotonicCutExtension monotonicCutExtension343,344
+tryMonotonicCutExtension tryMonotonicCutExtension352,353
+type JoinQueue JoinQueue360,361
+data Join Join362,363
+data Join a = JoinJoin362,363
+    { _joinBase _joinBase363,364
+    , _joinQueue _joinQueue364,365
+join join374,375
+join_ join_388,389
+zipCuts zipCuts430,431
+applyJoin applyJoin439,440
+joinIntoHeavier joinIntoHeavier450,451
+joinIntoHeavier_ joinIntoHeavier_457,458
+prioritizeHeavier prioritizeHeavier461,462
+prioritizeHeavier_ prioritizeHeavier_477,478
+meet meet509,510
+forkDepth forkDepth522,523
+testMine testMine545,546
+testMineCut testMineCut557,558
+randomChainId randomChainId574,575
+arbitraryCut arbitraryCut586,587
+arbitraryChainGraphChainId arbitraryChainGraphChainId605,606
+instance Given Given ChainGraph => T-Arbitrary Cut608,609
+    arbitrary arbitrary609,610
+arbitraryWebChainCut arbitraryWebChainCut620,621
+arbitraryWebChainCut_ arbitraryWebChainCut_643,644
+data TestFork TestFork662,663
+data TestFork = TestForkTestFork662,663
+    { _testForkBase _testForkBase663,664
+    , _testForkLeft _testForkLeft664,665
+    , _testForkRight _testForkRight665,666
+instance (G(Given ChainGraph, Given WebBlockHeaderDb) => T-Arbitrary (IO TestFork)669,670
+    arbitrary arbitrary670,671
+instance (G(Given ChainGraph, Given WebBlockHeaderDb) => T-Arbitrary (IO (Join Int))672,673
+    arbitrary arbitrary673,674
+arbitraryFork arbitraryFork685,686
+arbitraryFork_ arbitraryFork_695,696
+prop_joinIdempotent prop_joinIdempotent727,728
+prop_joinCommutative prop_joinCommutative736,737
+prop_joinAssociative prop_joinAssociative748,749
+prop_joinIdentity prop_joinIdentity771,772
+prop_meetIdempotent prop_meetIdempotent781,782
+prop_meetCommutative prop_meetCommutative789,790
+prop_meetAssociative prop_meetAssociative799,800
+prop_meetZeroAbsorption prop_meetZeroAbsorption816,817
+prop_joinMeetAbsorption prop_joinMeetAbsorption826,827
+prop_meetJoinAbsorption prop_meetJoinAbsorption836,837
+properties_lattice properties_lattice842,843
+properties_lattice_passing properties_lattice_passing858,859
+prop_cutBraiding prop_cutBraiding874,875
+prop_cutBraidingGenesis prop_cutBraidingGenesis877,878
+properties_cut properties_cut888,889
+prop_meetGenesisCut prop_meetGenesisCut901,902
+prop_arbitraryForkBraiding prop_arbitraryForkBraiding908,909
+prop_joinBase prop_joinBase916,917
+prop_joinBaseMeet prop_joinBaseMeet925,926
+properties_testMining properties_testMining931,932
+properties_misc properties_misc935,936
+properties properties946,947
+giveNewWebChain giveNewWebChain961,962
+ioTest ioTest969,970
+
+./src/Chainweb/BlockHeader.hs,3462
+module Chainweb.BlockHeaderChainweb.BlockHeader33,34
+import import103,104
+newtype BlockHeight BlockHeight142,143
+encodeBlockHeight encodeBlockHeight151,152
+decodeBlockHeight decodeBlockHeight154,155
+newtype BlockWeight BlockWeight162,163
+encodeBlockWeight encodeBlockWeight172,173
+decodeBlockWeight decodeBlockWeight175,176
+newtype BlockPayloadHash BlockPayloadHash181,182
+encodeBlockPayloadHash encodeBlockPayloadHash186,187
+decodeBlockPayloadHash decodeBlockPayloadHash189,190
+newtype Nonce Nonce198,199
+encodeNonce encodeNonce203,204
+decodeNonce decodeNonce206,207
+data BlockHeader BlockHeader218,219
+    BlockHeader BlockHeader219,220
+        { _blockParent _blockParent220,221
+        , _blockAdjacentHashes _blockAdjacentHashes223,224
+        , _blockTarget _blockTarget226,227
+        , _blockPayloadHash _blockPayloadHash229,230
+        , _blockCreationTime _blockCreationTime232,233
+        , _blockNonce _blockNonce264,265
+        , _blockChainId _blockChainId267,268
+        , _blockWeight _blockWeight269,270
+        , _blockHeight _blockHeight275,276
+        , _blockChainwebVersion _blockChainwebVersion281,282
+        , _blockMiner _blockMiner288,289
+        , _blockHash _blockHash294,295
+instance Eq Eq BlockHeader303,304
+     (=(==)304,305
+instance Ord Ord BlockHeader307,308
+     compare compare308,309
+instance Hashable Hashable BlockHeader311,312
+    hashWithSalt hashWithSalt312,313
+instance HasChainId HasChainId BlockHeader315,316
+    _chainId _chainId316,317
+instance Serialize Serialize BlockHeader321,322
+    put put322,323
+    get get323,324
+encodeBlockHeaderNoHash encodeBlockHeaderNoHash329,330
+encodeBlockHeader encodeBlockHeader346,347
+decodeBlockHeaderChecked decodeBlockHeaderChecked360,361
+decodeBlockHeaderCheckedChainId decodeBlockHeaderCheckedChainId378,379
+decodeBlockHeader decodeBlockHeader388,389
+instance ToJSON ToJSON BlockHeader402,403
+    toJSON toJSON403,404
+instance FromJSON FromJSON BlockHeader405,406
+    parseJSON parseJSON406,407
+_blockAdjacentChainIds _blockAdjacentChainIds411,412
+blockAdjacentChainIds blockAdjacentChainIds415,416
+getAdjacentHash getAdjacentHash418,419
+computeBlockHash computeBlockHash425,426
+isGenesisBlockHeader isGenesisBlockHeader433,434
+newtype ObjectEncoded ObjectEncoded444,445
+instance ToJSON ToJSON (ObjectEncoded BlockHeader)448,449
+    toJSON toJSON449,450
+parseBlockHeaderObject parseBlockHeaderObject464,465
+instance FromJSON FromJSON (ObjectEncoded BlockHeader)479,480
+    parseJSON parseJSON480,481
+genesisBlockHash genesisBlockHash490,491
+genesisBlockTarget genesisBlockTarget494,495
+genesisTime genesisTime497,498
+genesisMiner genesisMiner502,503
+genesisBlockPayloadHash genesisBlockPayloadHash509,510
+hashPayload hashPayload517,518
+genesisBlockHeader genesisBlockHeader534,535
+genesisBlockHeaders genesisBlockHeaders558,559
+instance TreeDbEntry TreeDbEntry BlockHeader564,565
+    type Key Key565,566
+    key key566,567
+    rank rank567,568
+    parent parent568,569
+testBlockHeader testBlockHeader579,580
+testBlockHeaders testBlockHeaders600,601
+testBlockHeadersWithNonce testBlockHeadersWithNonce610,611
+prop_block_difficulty prop_block_difficulty615,616
+prop_block_hash prop_block_hash618,619
+prop_block_genesis_parent prop_block_genesis_parent621,622
+prop_block_genesis_target prop_block_genesis_target624,625
+
+./src/Chainweb/Miner/Test.hs,440
+module Chainweb.Miner.TestChainweb.Miner.Test18,19
+import import28,29
+newtype MinerConfig MinerConfig58,59
+    { _configMeanBlockTimeSeconds _configMeanBlockTimeSeconds59,60
+defaultMinerConfig defaultMinerConfig65,66
+instance ToJSON ToJSON MinerConfig70,71
+    toJSON toJSON71,72
+instance FromJSON FromJSON (MinerConfig -> MinerConfig)75,76
+    parseJSON parseJSON76,77
+pMinerConfig pMinerConfig79,80
+miner miner96,97
+
+./src/Chainweb/CutDB/RestAPI/Client.hs,139
+module Chainweb.CutDB.RestAPI.ClientChainweb.CutDB.RestAPI.Client12,13
+cutGetClient cutGetClient35,36
+cutPutClient cutPutClient44,45
+
+./src/Chainweb/CutDB/RestAPI/Server.hs,279
+module Chainweb.CutDB.RestAPI.ServerChainweb.CutDB.RestAPI.Server14,15
+cutGetHandler cutGetHandler57,58
+cutPutHandler cutPutHandler63,64
+cutServer cutServer72,73
+someCutServerT someCutServerT77,78
+someCutServer someCutServer81,82
+serveCutOnPort serveCutOnPort92,93
+
+./src/Chainweb/CutDB/RestAPI.hs,319
+module Chainweb.CutDB.RestAPIChainweb.CutDB.RestAPI15,16
+type CutGetApi_CutGetApi_48,49
+type CutGetApi CutGetApi52,53
+cutGetApi cutGetApi58,59
+type CutPutApi_CutPutApi_63,64
+type CutPutApi CutPutApi68,69
+cutPutApi cutPutApi74,75
+type CutApi CutApi79,80
+cutApi cutApi86,87
+someCutApi someCutApi91,92
+
+./src/Chainweb/CutDB/Sync.hs,349
+module Chainweb.CutDB.SyncChainweb.CutDB.Sync14,15
+data CutClientEnv CutClientEnv45,46
+data CutClientEnv = CutClientEnvCutClientEnv45,46
+    { _envChainwebVersion _envChainwebVersion46,47
+    , _envClientEnv _envClientEnv47,48
+runClientThrowM runClientThrowM51,52
+putCut putCut58,59
+getCut getCut63,64
+syncSession syncSession68,69
+
+./src/Data/DiGraph.hs,2027
+module Data.DiGraphData.DiGraph15,16
+int int100,101
+type DiEdge DiEdge106,107
+newtype DiGraph DiGraph118,119
+newtype DiGraph a = DiGraph { unGraph unGraph118,119
+instance (H(Hashable a, Eq a) => Semigroup (DiGraph a)121,122
+    (D(DiGrapha)122,123
+instance (H(Hashable a, Eq a) => Monoid (DiGraph a)124,125
+    mempty mempty125,126
+    mappend mappend126,127
+adjacencySets adjacencySets128,129
+isDiGraph isDiGraph134,135
+vertices vertices137,138
+order order140,141
+edges edges143,144
+diSize diSize148,149
+size size153,154
+adjacents adjacents156,157
+incidents incidents159,160
+fromList fromList164,165
+fromEdges fromEdges167,168
+union union170,171
+mapVertices mapVertices173,174
+transpose transpose176,177
+symmetric symmetric182,183
+insertEdge insertEdge188,189
+insertVertex insertVertex197,198
+emptyGraph emptyGraph203,204
+clique clique208,209
+singleton singleton215,216
+pair pair220,221
+triangle triangle225,226
+diCycle diCycle230,231
+cycle cycle235,236
+diLine diLine240,241
+line line245,246
+petersonGraph petersonGraph248,249
+twentyChainGraph twentyChainGraph262,263
+hoffmanSingleton hoffmanSingleton285,286
+isRegular isRegular316,317
+isSymmetric isSymmetric324,325
+isIrreflexive isIrreflexive329,330
+isVertex isVertex332,333
+isEdge isEdge335,336
+isAdjacent isAdjacent338,339
+outDegree outDegree341,342
+maxOutDegree maxOutDegree344,345
+minOutDegree minOutDegree347,348
+inDegree inDegree350,351
+maxInDegree maxInDegree353,354
+minInDegree minInDegree356,357
+diameter diameter362,363
+prefixProperties prefixProperties371,372
+properties_undirected properties_undirected374,375
+properties_emptyGraph properties_emptyGraph381,382
+properties_singletonGraph properties_singletonGraph389,390
+properties_petersonGraph properties_petersonGraph400,401
+properties_twentyChainGraph properties_twentyChainGraph411,412
+properties_hoffmanSingletonGraph properties_hoffmanSingletonGraph422,423
+properties properties433,434
+
+./src/Data/Word/Encoding.hs,1421
+module Data.Word.EncodingData.Word.Encoding11,12
+class WordEncoding WordEncoding20,21
+    encodeWordLe encodeWordLe21,22
+    decodeWordLe decodeWordLe22,23
+    encodeWordBe encodeWordBe24,25
+    decodeWordBe decodeWordBe25,26
+instance WordEncoding WordEncoding Word827,28
+    encodeWordLe encodeWordLe28,29
+    decodeWordLe decodeWordLe29,30
+    encodeWordBe encodeWordBe30,31
+    decodeWordBe decodeWordBe31,32
+instance WordEncoding WordEncoding Word1637,38
+    encodeWordLe encodeWordLe38,39
+    decodeWordLe decodeWordLe39,40
+    encodeWordBe encodeWordBe40,41
+    decodeWordBe decodeWordBe41,42
+instance WordEncoding WordEncoding Word3247,48
+    encodeWordLe encodeWordLe48,49
+    decodeWordLe decodeWordLe49,50
+    encodeWordBe encodeWordBe50,51
+    decodeWordBe decodeWordBe51,52
+instance WordEncoding WordEncoding Word6457,58
+    encodeWordLe encodeWordLe58,59
+    decodeWordLe decodeWordLe59,60
+    encodeWordBe encodeWordBe60,61
+    decodeWordBe decodeWordBe61,62
+instance WordEncoding WordEncoding Word12867,68
+    encodeWordLe encodeWordLe68,69
+    decodeWordLe decodeWordLe69,70
+    encodeWordBe encodeWordBe70,71
+    decodeWordBe decodeWordBe71,72
+instance WordEncoding WordEncoding Word25677,78
+    encodeWordLe encodeWordLe78,79
+    decodeWordLe decodeWordLe79,80
+    encodeWordBe encodeWordBe80,81
+    decodeWordBe decodeWordBe81,82
+
+./src/Data/LogMessage.hs,1820
+module Data.LogMessageData.LogMessage20,21
+data SomeLogMessage SomeLogMessage56,57
+data SomeLogMessage = forall forall56,57
+instance NFData NFData SomeLogMessage58,59
+    rnf rnf59,60
+instance Show Show SomeLogMessage62,63
+    show show63,64
+class (NFData a, Typeable a) => LogMessage LogMessage69,70
+    logText logText70,71
+    toLogMessage toLogMessage71,72
+    fromLogMessage fromLogMessage72,73
+    toLogMessage toLogMessage74,75
+    fromLogMessage fromLogMessage77,78
+    logText logText81,82
+instance LogMessage LogMessage SomeLogMessage84,85
+    logText logText85,86
+    toLogMessage toLogMessage88,89
+    fromLogMessage fromLogMessage91,92
+instance LogMessage LogMessage T-Text97,98
+    logText logText98,99
+type LogFunction LogFunction104,105
+newtype ALogFunction ALogFunction106,107
+newtype ALogFunction = ALogFunction { _getLogFunction _getLogFunction106,107
+alogFunction alogFunction108,109
+newtype JsonLog JsonLog114,115
+instance (T(Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a)117,118
+    logText logText118,119
+data SomeJsonLog SomeJsonLog121,122
+data SomeJsonLog = forall forall121,122
+instance NFData NFData SomeJsonLog123,124
+    rnf rnf124,125
+instance LogMessage LogMessage SomeJsonLog127,128
+    logText logText128,129
+newtype TextLog TextLog131,132
+data BinaryLogBinaryLog134,135
+    = BinaryLog BinaryLog135,136
+    | BinaryLogLazy BinaryLogLazy136,137
+instance LogMessage LogMessage BinaryLog140,141
+    logText logText141,142
+data SomeSymbolLog SomeSymbolLog145,146
+data SomeSymbolLog = forall forall145,146
+data SomeSymbolLog = forall (a a145,146
+instance NFData NFData SomeSymbolLog147,148
+    rnf rnf148,149
+instance LogMessage LogMessage SomeSymbolLog150,151
+    logText logText151,152
+
+./src/Data/Singletons.hs,910
+module Data.SingletonsData.Singletons27,28
+data family family58,59
+class SingI SingI60,61
+class SingI (a :: k) where sing sing60,61
+pattern Sing Sing62,63
+pattern Sing <- <-63,64
+class SingKind SingKind70,71
+    type Demote Demote71,72
+    fromSing fromSing72,73
+    toSing toSing73,74
+data SomeSing SomeSing75,76
+    SomeSing SomeSing76,77
+    SomeSing :: Sing (a a76,77
+pattern FromSing FromSing78,79
+pattern FromSing sng sng79,80
+data SingInstance SingInstance86,87
+data SingInstance (a a86,87
+    SingInstance SingInstance87,88
+data SingInstance (a a86,87
+newtype DI DI89,90
+newtype DI a = Don'tInstantiate Don'tInstantiate89,90
+singInstance singInstance91,92
+type KindOf KindOf100,101
+demote demote107,108
+withSomeSing withSomeSing115,116
+withSing withSing117,118
+withSingI withSingI120,121
+singThat singThat129,130
+singByProxy singByProxy131,132
+
+./src/Data/DiGraph/FloydWarshall.hs,359
+module Data.DiGraph.FloydWarshallData.DiGraph.FloydWarshall12,13
+type DenseAdjMatrix DenseAdjMatrix37,38
+type AdjacencySets AdjacencySets39,40
+fromAdjacencySets fromAdjacencySets49,50
+toAdjacencySets toAdjacencySets59,60
+distMatrix distMatrix73,74
+floydWarshall floydWarshall88,89
+shortestPaths shortestPaths102,103
+diameter diameter105,106
+
+./src/P2P/Session.hs,160
+module P2P.SessionP2P.Session13,14
+defaultLogFunction defaultLogFunction40,41
+type LogFunctionText LogFunctionText43,44
+type P2pSession P2pSession48,49
+
+./src/P2P/Node/RestAPI/Client.hs,131
+module P2P.Node.RestAPI.ClientP2P.Node.RestAPI.Client15,16
+peerGetClient peerGetClient44,45
+peerPutClient peerPutClient57,58
+
+./src/P2P/Node/RestAPI/Server.hs,405
+module P2P.Node.RestAPI.ServerP2P.Node.RestAPI.Server15,16
+defaultPeerInfoLimit defaultPeerInfoLimit69,70
+peerGetHandler peerGetHandler77,78
+peerPutHandler peerPutHandler89,90
+p2pServer p2pServer99,100
+chainP2pApp chainP2pApp112,113
+chainP2pApiLayout chainP2pApiLayout122,123
+someP2pServer someP2pServer129,130
+someP2pServers someP2pServers134,135
+serveP2pOnPort serveP2pOnPort146,147
+
+./src/P2P/Node/PeerDB.hs,847
+module P2P.Node.PeerDBP2P.Node.PeerDB19,20
+import import59,60
+type PeerMap PeerMap75,76
+peerMap peerMap77,78
+data PeerDb PeerDb80,81
+data PeerDb = PeerDb PeerDb80,81
+peerDbSnapshot peerDbSnapshot83,84
+peerDbSnapshotSTM peerDbSnapshotSTM87,88
+peerDbSize peerDbSize91,92
+peerDbSizeSTM peerDbSizeSTM95,96
+peerDbInsert peerDbInsert105,106
+fromPeerList fromPeerList113,114
+peerDbInsertList peerDbInsertList119,120
+peerDbInsertMap peerDbInsertMap124,125
+newEmptyPeerDb newEmptyPeerDb131,132
+storePeerDb storePeerDb140,141
+loadPeerDb loadPeerDb144,145
+loadIntoPeerDb loadIntoPeerDb151,152
+newtype PeerDbT PeerDbT158,159
+data SomePeerDb SomePeerDb161,162
+data SomePeerDb = forall forall161,162
+somePeerDbVal somePeerDbVal165,166
+prop_peerDbLoadStore prop_peerDbLoadStore174,175
+properties properties185,186
+
+./src/P2P/Node/Configuration.hs,2141
+module P2P.Node.ConfigurationP2P.Node.Configuration19,20
+import import53,54
+newtype PeerId PeerId85,86
+createPeerId createPeerId90,91
+peerIdToText peerIdToText94,95
+peerIdFromText peerIdFromText98,99
+unsafePeerIdFromText unsafePeerIdFromText103,104
+instance HasTextRepresentation HasTextRepresentation PeerId107,108
+    toText toText108,109
+    fromText fromText110,111
+pPeerId pPeerId113,114
+data PeerInfo PeerInfo124,125
+data PeerInfo = PeerInfoPeerInfo124,125
+    { _peerId _peerId125,126
+    , _peerAddr _peerAddr126,127
+instance ToJSON ToJSON PeerInfo133,134
+    toJSON toJSON134,135
+instance FromJSON FromJSON PeerInfo140,141
+    parseJSON parseJSON141,142
+peerInfoToText peerInfoToText146,147
+peerInfoFromText peerInfoFromText149,150
+instance HasTextRepresentation HasTextRepresentation PeerInfo157,158
+    toText toText158,159
+    fromText fromText160,161
+arbitraryPeerInfo arbitraryPeerInfo163,164
+instance Arbitrary Arbitrary PeerInfo166,167
+    arbitrary arbitrary167,168
+pPeerInfo pPeerInfo169,170
+pPeerInfoCompact pPeerInfoCompact177,178
+data P2pConfiguration P2pConfiguration190,191
+data P2pConfiguration = P2pConfigurationP2pConfiguration190,191
+    { _p2pConfigPeerId _p2pConfigPeerId191,192
+    , _p2pConfigHostAddress _p2pConfigHostAddress194,195
+    , _p2pConfigMaxSessionCount _p2pConfigMaxSessionCount197,198
+    , _p2pConfigMaxPeerCount _p2pConfigMaxPeerCount200,201
+    , _p2pConfigSessionTimeout _p2pConfigSessionTimeout203,204
+    , _p2pConfigKnownPeers _p2pConfigKnownPeers206,207
+    , _p2pConfigPeerDbFilePath _p2pConfigPeerDbFilePath209,210
+instance Arbitrary Arbitrary P2pConfiguration217,218
+    arbitrary arbitrary218,219
+defaultP2pConfiguration defaultP2pConfiguration222,223
+randomPeerId randomPeerId239,240
+instance ToJSON ToJSON P2pConfiguration243,244
+    toJSON toJSON244,245
+instance FromJSON FromJSON (P2pConfiguration -> P2pConfiguration)254,255
+    parseJSON parseJSON255,256
+instance FromJSON FromJSON P2pConfiguration264,265
+    parseJSON parseJSON265,266
+pP2pConfiguration pP2pConfiguration274,275
+
+./src/P2P/Node/RestAPI.hs,354
+module P2P.Node.RestAPIP2P.Node.RestAPI21,22
+type PeerGetApi_PeerGetApi_57,58
+type PeerGetApi PeerGetApi62,63
+peerGetApi peerGetApi68,69
+type PeerPutApi_PeerPutApi_73,74
+type PeerPutApi PeerPutApi78,79
+peerPutApi peerPutApi84,85
+type P2pApi P2pApi89,90
+p2pApi p2pApi96,97
+someP2pApi someP2pApi101,102
+someP2pApis someP2pApis107,108
+
+./src/P2P/Node.hs,3077
+module P2P.NodeP2P.Node20,21
+data P2pNodeStats P2pNodeStats104,105
+data P2pNodeStats = P2pNodeStatsP2pNodeStats104,105
+    { _p2pStatsSuccessCount _p2pStatsSuccessCount105,106
+    , _p2pStatsFailureCount _p2pStatsFailureCount106,107
+    , _p2pStatsTimeoutCount _p2pStatsTimeoutCount107,108
+    , _p2pStatsExceptionCount _p2pStatsExceptionCount108,109
+    , _p2pStatsKnownPeerCount _p2pStatsKnownPeerCount109,110
+    , _p2pStatsActiveLast _p2pStatsActiveLast110,111
+    , _p2pStatsActiveMax _p2pStatsActiveMax111,112
+emptyP2pNodeStats emptyP2pNodeStats119,120
+instance Arbitrary Arbitrary P2pNodeStats130,131
+    arbitrary arbitrary131,132
+data P2pSessionResultP2pSessionResult139,140
+    = P2pSessionResult P2pSessionResult140,141
+    | P2pSessionException P2pSessionException141,142
+    | P2pSessionTimeoutP2pSessionTimeout142,143
+isSuccess isSuccess146,147
+instance Arbitrary Arbitrary P2pSessionResult150,151
+    arbitrary arbitrary151,152
+data P2pSessionInfo P2pSessionInfo157,158
+data P2pSessionInfo = P2pSessionInfoP2pSessionInfo157,158
+    { _p2pSessionInfoId _p2pSessionInfoId158,159
+    , _p2pSessionInfoSource _p2pSessionInfoSource159,160
+    , _p2pSessionInfoTarget _p2pSessionInfoTarget160,161
+    , _p2pSessionInfoStart _p2pSessionInfoStart161,162
+    , _p2pSessionInfoEnd _p2pSessionInfoEnd162,163
+    , _p2pSessionInfoResult _p2pSessionInfoResult163,164
+instance Arbitrary Arbitrary P2pSessionInfo170,171
+    arbitrary arbitrary171,172
+data P2pNode P2pNode182,183
+data P2pNode = P2pNodeP2pNode182,183
+    { _p2pNodeNetworkId _p2pNodeNetworkId183,184
+    , _p2pNodeChainwebVersion _p2pNodeChainwebVersion184,185
+    , _p2pNodePeerInfo _p2pNodePeerInfo185,186
+    , _p2pNodePeerDb _p2pNodePeerDb186,187
+    , _p2pNodeSessions _p2pNodeSessions187,188
+    , _p2pNodeManager _p2pNodeManager188,189
+    , _p2pNodeLogFunction _p2pNodeLogFunction189,190
+    , _p2pNodeStats _p2pNodeStats190,191
+    , _p2pNodeClientSession _p2pNodeClientSession191,192
+    , _p2pNodeRng _p2pNodeRng192,193
+    , _p2pNodeActive _p2pNodeActive193,194
+showSessionId showSessionId198,199
+showPid showPid201,202
+addSession addSession210,211
+removeSession removeSession224,225
+modifyStats modifyStats228,229
+countSuccess countSuccess231,232
+countFailure countFailure234,235
+countTimeout countTimeout237,238
+countException countException240,241
+updateKnownPeerCount updateKnownPeerCount243,244
+updateActiveCount updateActiveCount248,249
+logg logg256,257
+loggFun loggFun259,260
+randomR randomR262,263
+setInactive setInactive268,269
+peerBaseUrl peerBaseUrl274,275
+peerClientEnv peerClientEnv280,281
+syncFromPeer syncFromPeer285,286
+findNextPeer findNextPeer328,329
+newSession newSession372,373
+awaitSessions awaitSessions401,402
+waitAnySession waitAnySession441,442
+startPeerDb startPeerDb453,454
+stopPeerDb stopPeerDb460,461
+withPeerDb withPeerDb469,470
+p2pCreateNode p2pCreateNode484,485
+p2pStartNode p2pStartNode515,516
+p2pStopNode p2pStopNode520,521
+
+./src/Numeric/Additive.hs,5515
+module Numeric.AdditiveNumeric.Additive20,21
+class AdditiveSemigroup AdditiveSemigroup50,51
+    plus plus51,52
+instance AdditiveSemigroup AdditiveSemigroup Integer53,54
+    plus plus54,55
+instance AdditiveSemigroup AdditiveSemigroup Rational57,58
+    plus plus58,59
+instance AdditiveSemigroup AdditiveSemigroup Natural61,62
+    plus plus62,63
+instance AdditiveSemigroup AdditiveSemigroup Int65,66
+    plus plus66,67
+instance AdditiveSemigroup AdditiveSemigroup Word69,70
+    plus plus70,71
+instance AdditiveSemigroup AdditiveSemigroup Word873,74
+    plus plus74,75
+instance AdditiveSemigroup AdditiveSemigroup Word1677,78
+    plus plus78,79
+instance AdditiveSemigroup AdditiveSemigroup Word3281,82
+    plus plus82,83
+instance AdditiveSemigroup AdditiveSemigroup Word6485,86
+    plus plus86,87
+instance AdditiveSemigroup AdditiveSemigroup Word12889,90
+    plus plus90,91
+instance AdditiveSemigroup AdditiveSemigroup Word25693,94
+    plus plus94,95
+instance AdditiveSemigroup AdditiveSemigroup Int897,98
+    plus plus98,99
+instance AdditiveSemigroup AdditiveSemigroup Int16101,102
+    plus plus102,103
+instance AdditiveSemigroup AdditiveSemigroup Int32105,106
+    plus plus106,107
+instance AdditiveSemigroup AdditiveSemigroup Int64109,110
+    plus plus110,111
+class AdditiveSemigroup g => AdditiveAbelianSemigroup AdditiveAbelianSemigroup118,119
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Integer120,121
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Rational121,122
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Natural122,123
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Int123,124
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Int8124,125
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Int16125,126
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Int32126,127
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Int64127,128
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word128,129
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word8129,130
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word16130,131
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word32131,132
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word64132,133
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word128133,134
+instance AdditiveAbelianSemigroup AdditiveAbelianSemigroup Word256134,135
+(^(^+^)137,138
+class AdditiveSemigroup g => AdditiveMonoid AdditiveMonoid147,148
+    zero zero148,149
+instance AdditiveMonoid AdditiveMonoid Integer150,151
+    zero zero151,152
+instance AdditiveMonoid AdditiveMonoid Rational154,155
+    zero zero155,156
+instance AdditiveMonoid AdditiveMonoid Natural158,159
+    zero zero159,160
+instance AdditiveMonoid AdditiveMonoid Int162,163
+    zero zero163,164
+instance AdditiveMonoid AdditiveMonoid Word166,167
+    zero zero167,168
+instance AdditiveMonoid AdditiveMonoid Word8170,171
+    zero zero171,172
+instance AdditiveMonoid AdditiveMonoid Word16174,175
+    zero zero175,176
+instance AdditiveMonoid AdditiveMonoid Word32178,179
+    zero zero179,180
+instance AdditiveMonoid AdditiveMonoid Word64182,183
+    zero zero183,184
+instance AdditiveMonoid AdditiveMonoid Word128186,187
+    zero zero187,188
+instance AdditiveMonoid AdditiveMonoid Word256190,191
+    zero zero191,192
+instance AdditiveMonoid AdditiveMonoid Int8194,195
+    zero zero195,196
+instance AdditiveMonoid AdditiveMonoid Int16198,199
+    zero zero199,200
+instance AdditiveMonoid AdditiveMonoid Int32202,203
+    zero zero203,204
+instance AdditiveMonoid AdditiveMonoid Int64206,207
+    zero zero207,208
+type AdditiveAbelianMonoid AdditiveAbelianMonoid210,211
+class AdditiveMonoid g => AdditiveGroup AdditiveGroup218,219
+    invert invert219,220
+    minus minus222,223
+instance AdditiveGroup AdditiveGroup Integer227,228
+    invert invert228,229
+    minus minus229,230
+instance AdditiveGroup AdditiveGroup Rational233,234
+    invert invert234,235
+    minus minus235,236
+instance AdditiveGroup AdditiveGroup Int239,240
+    invert invert240,241
+    minus minus241,242
+instance AdditiveGroup AdditiveGroup Word245,246
+    invert invert246,247
+    minus minus247,248
+instance AdditiveGroup AdditiveGroup Word8251,252
+    invert invert252,253
+    minus minus253,254
+instance AdditiveGroup AdditiveGroup Word16257,258
+    invert invert258,259
+    minus minus259,260
+instance AdditiveGroup AdditiveGroup Word32263,264
+    invert invert264,265
+    minus minus265,266
+instance AdditiveGroup AdditiveGroup Word64269,270
+    invert invert270,271
+    minus minus271,272
+instance AdditiveGroup AdditiveGroup Word128275,276
+    invert invert276,277
+    minus minus277,278
+instance AdditiveGroup AdditiveGroup Word256281,282
+    invert invert282,283
+    minus minus283,284
+instance AdditiveGroup AdditiveGroup Int8287,288
+    invert invert288,289
+    minus minus289,290
+instance AdditiveGroup AdditiveGroup Int16293,294
+    invert invert294,295
+    minus minus295,296
+instance AdditiveGroup AdditiveGroup Int32299,300
+    invert invert300,301
+    minus minus301,302
+instance AdditiveGroup AdditiveGroup Int64305,306
+    invert invert306,307
+    minus minus307,308
+type AdditiveAbelianGroup AdditiveAbelianGroup314,315
+(^(^-^)317,318
+
+./src/Numeric/AffineSpace.hs,795
+module Numeric.AffineSpaceNumeric.AffineSpace15,16
+class (AdditiveGroup (Diff t)) => LeftTorsor LeftTorsor51,52
+    type Diff Diff52,53
+    add add53,54
+    diff diff54,55
+instance LeftTorsor LeftTorsor Integer56,57
+    type Diff Diff57,58
+    add add58,59
+    diff diff59,60
+instance LeftTorsor LeftTorsor Rational63,64
+    type Diff Diff64,65
+    add add65,66
+    diff diff66,67
+(.(.-.)71,72
+(^(^+.)75,76
+(.(.+^)79,80
+(.(.-^)83,84
+class (AdditiveAbelianGroup v, Fractional (Scalar v)) => FractionalVectorSpace FractionalVectorSpace97,98
+    type Scalar Scalar98,99
+    scale scale99,100
+instance FractionalVectorSpace FractionalVectorSpace Rational101,102
+    type Scalar Scalar102,103
+    scale scale103,104
+type AffineSpace AffineSpace111,112
+
+./src/Numeric/Cast.hs,2272
+module Numeric.CastNumeric.Cast13,14
+class NumCast NumCast25,26
+    numCast numCast26,27
+instance NumCast NumCast a a28,29
+    numCast numCast29,30
+instance Integral Integral a => NumCast a Integer32,33
+    numCast numCast33,34
+instance Real Real a => NumCast a Rational36,37
+    numCast numCast37,38
+instance NumCast NumCast Int8 Int1643,44
+    numCast numCast44,45
+instance NumCast NumCast Int8 Int3247,48
+    numCast numCast48,49
+instance NumCast NumCast Int8 Int6451,52
+    numCast numCast52,53
+instance NumCast NumCast Int16 Int3255,56
+    numCast numCast56,57
+instance NumCast NumCast Int16 Int6459,60
+    numCast numCast60,61
+instance NumCast NumCast Int32 Int6463,64
+    numCast numCast64,65
+instance NumCast NumCast Int Int6469,70
+    numCast numCast70,71
+instance NumCast NumCast Int64 Int73,74
+    numCast numCast74,75
+instance NumCast NumCast Word8 Word1680,81
+    numCast numCast81,82
+instance NumCast NumCast Word8 Word3284,85
+    numCast numCast85,86
+instance NumCast NumCast Word8 Word6488,89
+    numCast numCast89,90
+instance NumCast NumCast Word8 Natural92,93
+    numCast numCast93,94
+instance NumCast NumCast Word16 Word3296,97
+    numCast numCast97,98
+instance NumCast NumCast Word16 Word64100,101
+    numCast numCast101,102
+instance NumCast NumCast Word16 Natural104,105
+    numCast numCast105,106
+instance NumCast NumCast Word32 Word64108,109
+    numCast numCast109,110
+instance NumCast NumCast Word32 Natural112,113
+    numCast numCast113,114
+instance NumCast NumCast Word64 Natural116,117
+    numCast numCast117,118
+instance NumCast NumCast Word Word64121,122
+    numCast numCast122,123
+instance NumCast NumCast Word64 Word125,126
+    numCast numCast126,127
+instance NumCast NumCast Float Double131,132
+    numCast numCast132,133
+class MaybeNumCast MaybeNumCast140,141
+class MaybeNumCast a b where maybeNumCast maybeNumCast140,141
+instance (I(Integral a) => MaybeNumCast a Integer144,145
+    maybeNumCast maybeNumCast145,146
+instance (I(Integral a) => MaybeNumCast a Natural148,149
+    maybeNumCast maybeNumCast149,150
+instance (I(Integral a, Integral b, Bounded b) => MaybeNumCast a b154,155
+    maybeNumCast maybeNumCast155,156
+
+./src/Pact/Execute.hs,53
+module Pact.Execute Pact.Execute0,1
+main main4,5
+
+./test/ChainwebTests.hs,60
+module Main Main13,14
+main main36,37
+suite suite39,40
+
+./test/Chainweb/Test/Utils.hs,1411
+module Chainweb.Test.UtilsChainweb.Test.Utils13,14
+toyBlockHeaderDb toyBlockHeaderDb99,100
+withDB withDB109,110
+insertN insertN114,115
+peterson peterson122,123
+singleton singleton125,126
+testBlockHeaderDbs testBlockHeaderDbs128,129
+petersonGenesisBlockHeaderDbs petersonGenesisBlockHeaderDbs133,134
+singletonGenesisBlockHeaderDbs singletonGenesisBlockHeaderDbs136,137
+linearBlockHeaderDbs linearBlockHeaderDbs139,140
+starBlockHeaderDbs starBlockHeaderDbs150,151
+withSingleChainServer withSingleChainServer174,175
+testHost testHost184,185
+data TestClientEnv TestClientEnv187,188
+data TestClientEnv = TestClientEnvTestClientEnv187,188
+    { _envClientEnv _envClientEnv188,189
+    , _envBlockHeaderDbs _envBlockHeaderDbs189,190
+    , _envPeerDbs _envPeerDbs190,191
+pattern BlockHeaderDbsTestClientEnvBlockHeaderDbsTestClientEnv193,194
+pattern BlockHeaderDbsTestClientEnv { {197,198
+pattern PeerDbsTestClientEnvPeerDbsTestClientEnv200,201
+pattern PeerDbsTestClientEnv { {204,205
+withSingleChainTestServer withSingleChainTestServer214,215
+withSingleChainTestServer_ withSingleChainTestServer_238,239
+withPeerDbsServer withPeerDbsServer251,252
+withBlockHeaderDbsServer withBlockHeaderDbsServer257,258
+prop_iso prop_iso262,263
+prop_iso' prop_iso'273,274
+prop_encodeDecodeRoundtrip prop_encodeDecodeRoundtrip282,283
+assertExpectation assertExpectation295,296
+
+./test/Chainweb/Test/DiGraph.hs,1471
+module Chainweb.Test.DiGraphChainweb.Test.DiGraph22,23
+type UniformRng UniformRng78,79
+rrgIO rrgIO87,88
+rrg rrg101,102
+uniformSample uniformSample124,125
+gnp gnp141,142
+type role role161,162
+newtype RegularGraph RegularGraph162,163
+newtype RegularGraph (d :: Nat) = RegularGraph { getRegularGraph getRegularGraph162,163
+instance KnownNat KnownNat d => Arbitrary (RegularGraph d)165,166
+    arbitrary arbitrary166,167
+type role role183,184
+newtype Gnp Gnp184,185
+newtype Gnp (n :: Nat) = Gnp { getGnp getGnp184,185
+instance KnownNat KnownNat n => Arbitrary (Gnp n)187,188
+    arbitrary arbitrary188,189
+newtype RandomGraph RandomGraph206,207
+newtype RandomGraph = RandomGraph { getRandomGraph getRandomGraph206,207
+instance Arbitrary Arbitrary RandomGraph209,210
+    arbitrary arbitrary210,211
+fglShortestPaths fglShortestPaths237,238
+fglDiameter fglDiameter244,245
+toFglGraph toFglGraph252,253
+collect_graphStats collect_graphStats268,269
+densityClass densityClass276,277
+diameterClass diameterClass287,288
+orderClass orderClass290,291
+sizeClass sizeClass295,296
+classifyByRange classifyByRange298,299
+graphProperty graphProperty313,314
+rrgProperty rrgProperty322,323
+gnpProperty gnpProperty335,336
+prop_shortestPaths prop_shortestPaths341,342
+prop_diameter prop_diameter347,348
+tests_randomGraph tests_randomGraph350,351
+tests_gnp tests_gnp358,359
+tests_rrg tests_rrg366,367
+tests tests375,376
+
+./test/Chainweb/Test/BlockHeaderDB.hs,277
+module Chainweb.Test.BlockHeaderDBChainweb.Test.BlockHeaderDB9,10
+tests tests28,29
+chainId0 chainId038,39
+insertItems insertItems41,42
+reinsertGenesis reinsertGenesis49,50
+correctHeight correctHeight55,56
+copyTest copyTest61,62
+rankFiltering rankFiltering73,74
+
+./test/Chainweb/Test/Roundtrips.hs,501
+module Chainweb.Test.RoundtripsChainweb.Test.Roundtrips12,13
+tests tests50,51
+encodeDecodeTests encodeDecodeTests63,64
+jsonTestCases jsonTestCases112,113
+jsonRoundtripTests jsonRoundtripTests143,144
+jsonKeyTestCases jsonKeyTestCases158,159
+jsonKeyRoundtripTests jsonKeyRoundtripTests167,168
+showReadTestCases showReadTestCases179,180
+showReadTests showReadTests193,194
+base64RoundtripTests base64RoundtripTests206,207
+hasTextRepresentationTests hasTextRepresentationTests219,220
+
+./test/Chainweb/Test/Orphans/External.hs,175
+module Chainweb.Test.Orphans.ExternalChainweb.Test.Orphans.External13,14
+instance Arbitrary Arbitrary Word25620,21
+    arbitrary arbitrary21,22
+    shrink shrink22,23
+
+./test/Chainweb/Test/Orphans/Internal.hs,1113
+module Chainweb.Test.Orphans.InternalChainweb.Test.Orphans.Internal11,12
+instance Arbitrary Arbitrary ChainwebVersion30,31
+    arbitrary arbitrary31,32
+instance Arbitrary Arbitrary ChainNodeId33,34
+    arbitrary arbitrary34,35
+instance Arbitrary Arbitrary BlockHash36,37
+    arbitrary arbitrary37,38
+instance Arbitrary Arbitrary BlockHashBytes39,40
+    arbitrary arbitrary40,41
+instance Arbitrary Arbitrary BlockHeight42,43
+    arbitrary arbitrary43,44
+instance Arbitrary Arbitrary BlockWeight45,46
+    arbitrary arbitrary46,47
+instance Arbitrary Arbitrary HashDifficulty48,49
+    arbitrary arbitrary49,50
+instance Arbitrary Arbitrary BlockHashNat51,52
+    arbitrary arbitrary52,53
+instance Arbitrary Arbitrary HashTarget54,55
+    arbitrary arbitrary55,56
+instance Arbitrary Arbitrary BlockHashRecord57,58
+    arbitrary arbitrary58,59
+instance Arbitrary Arbitrary BlockPayloadHash61,62
+    arbitrary arbitrary62,63
+instance Arbitrary Arbitrary Nonce64,65
+    arbitrary arbitrary65,66
+instance Arbitrary Arbitrary BlockHeader67,68
+    arbitrary arbitrary68,69
+
+./test/Chainweb/Test/TreeDB/Persistence.hs,197
+module Chainweb.Test.TreeDB.PersistenceChainweb.Test.TreeDB.Persistence11,12
+chainId0 chainId036,37
+tests tests39,40
+onlyGenesis onlyGenesis50,51
+manyBlocksWritten manyBlocksWritten64,65
+
+./test/Chainweb/Test/TreeDB/RemoteDB.hs,147
+module Chainweb.Test.TreeDB.RemoteDB Chainweb.Test.TreeDB.RemoteDB0,1
+tests tests14,15
+cid cid19,20
+childrenEntriesT childrenEntriesT22,23
+
+./test/Chainweb/Test/TreeDB/Sync.hs,272
+module Chainweb.Test.TreeDB.Sync Chainweb.Test.TreeDB.Sync2,3
+tests tests21,22
+diam diam37,38
+cid cid40,41
+noopSingletonSync noopSingletonSync45,46
+noopLongSync noopLongSync53,54
+noopNewerNode noopNewerNode63,64
+newNode newNode77,78
+oldNode oldNode88,89
+
+./test/Chainweb/Test/RestAPI.hs,850
+module Chainweb.Test.RestAPIChainweb.Test.RestAPI13,14
+hashes hashes53,54
+headers headers56,57
+dbBranches dbBranches59,60
+genesisBh genesisBh66,67
+missingKey missingKey69,70
+isErrorCode isErrorCode75,76
+tests tests83,84
+simpleSessionTests simpleSessionTests93,94
+simpleClientSession simpleClientSession98,99
+simpleTest simpleTest183,184
+putNewBlockHeader putNewBlockHeader192,193
+putExisting putExisting198,199
+putOnWrongChain putOnWrongChain202,203
+putMissingParent putMissingParent209,210
+put5NewBlockHeaders put5NewBlockHeaders215,216
+putTests putTests221,222
+pagingTests pagingTests234,235
+pagingTest pagingTest259,260
+testPageLimitHeadersClient testPageLimitHeadersClient325,326
+testPageLimitHashesClient testPageLimitHashesClient330,331
+testPageLimitBranchesClient testPageLimitBranchesClient335,336
+
+./node/Utils/Gexf.hs,1246
+module Utils.GexfUtils.Gexf16,17
+blockHeaders2gexf blockHeaders2gexf52,53
+blockMap2gexf blockMap2gexf59,60
+blocks2gexfDoc blocks2gexfDoc62,63
+readP2pSessions readP2pSessions68,69
+p2pInfo2edge p2pInfo2edge74,75
+timeSpanMs timeSpanMs91,92
+p2pEdges p2pEdges94,95
+p2p2graph p2p2graph97,98
+p2p2gexf p2p2gexf106,107
+p2p2gexfDoc p2p2gexfDoc109,110
+type NodeId NodeId115,116
+type EdgeId EdgeId116,117
+type Blocks Blocks117,118
+blocks2graph blocks2graph119,120
+nodes nodes135,136
+edges edges138,139
+block2node block2node143,144
+block2edges block2edges154,155
+mkEdgeId mkEdgeId173,174
+creationTimeMs creationTimeMs176,177
+creationTimeSeconds creationTimeSeconds181,182
+data GexfElemTypeGexfElemType189,190
+    = GexfNodeGexfNode190,191
+    | GexfEdgeGexfEdge191,192
+    | GexfNodesGexfNodes192,193
+    | GexfEdgesGexfEdges193,194
+    | GexfDiGraphGexfDiGraph194,195
+    | GexfAttributesGexfAttributes195,196
+newtype Gexf Gexf198,199
+newtype Gexf (a :: GexfElemType) = Gexf {xml xml198,199
+gexf gexf200,201
+gexfDiGraph gexfDiGraph215,216
+graphAttributes graphAttributes224,225
+gexfNodes gexfNodes244,245
+gexfEdges gexfEdges247,248
+gexfNode gexfNode260,261
+gexfEdge gexfEdge293,294
+
+./node/Utils/Logging.hs,2018
+module Utils.LoggingUtils.Logging20,21
+import import75,76
+l2l l2l107,108
+type Logger Logger115,116
+loggerFun loggerFun117,118
+loggerFunText loggerFunText120,121
+data JsonLoggerConfig JsonLoggerConfig126,127
+data JsonLoggerConfig = JsonLoggerConfigJsonLoggerConfig126,127
+    { _jsonLoggerConfigHandle _jsonLoggerConfigHandle127,128
+defaultJsonLoggerConfig defaultJsonLoggerConfig133,134
+instance ToJSON ToJSON JsonLoggerConfig136,137
+    toJSON toJSON137,138
+instance FromJSON FromJSON (JsonLoggerConfig -> JsonLoggerConfig)141,142
+    parseJSON parseJSON142,143
+pJsonLoggerConfig pJsonLoggerConfig145,146
+type BackendLogMessage BackendLogMessage153,154
+type GenericBackend GenericBackend159,160
+type SomeBackend SomeBackend164,165
+type BaseBackend BaseBackend168,169
+type Backend Backend173,174
+type TextBackend TextBackend174,175
+type JsonBackend JsonBackend175,176
+type SomeJsonBackend SomeJsonBackend176,177
+toBackendLogMessage toBackendLogMessage185,186
+fromBackendLogMessage fromBackendLogMessage193,194
+logHandle logHandle207,208
+maybeLogHandle maybeLogHandle219,220
+genericLogHandle genericLogHandle233,234
+data LogHandler LogHandler243,244
+data LogHandler = forall forall243,244
+logHandler logHandler250,251
+maybeLogHandler maybeLogHandler257,258
+logHandles logHandles262,263
+configureHandler configureHandler274,275
+withFileHandleBackend withFileHandleBackend284,285
+withTextFileHandleBackend withTextFileHandleBackend299,300
+newtype JsonLogMessage JsonLogMessage308,309
+    { _getJsonLogMessage _getJsonLogMessage309,310
+instance ToJSON ToJSON a => ToJSON (JsonLogMessage a)312,313
+    toJSON toJSON313,314
+timeSpecMs timeSpecMs320,321
+withJsonFileHandleBackend withJsonFileHandleBackend338,339
+withJsonEventSourceBackend withJsonEventSourceBackend351,352
+withJsonEventSourceAppBackend withJsonEventSourceAppBackend369,370
+withFileHandleLogger withFileHandleLogger394,395
+withExampleLogger withExampleLogger410,411
+
+./node/ChainwebNode.hs,905
+module MainMain17,18
+import import38,39
+data ChainwebNodeConfiguration ChainwebNodeConfiguration69,70
+data ChainwebNodeConfiguration = ChainwebNodeConfigurationChainwebNodeConfiguration69,70
+    { _nodeConfigChainweb _nodeConfigChainweb70,71
+    , _nodeConfigLog _nodeConfigLog71,72
+    , _nodeConfigCutsLogger _nodeConfigCutsLogger72,73
+defaultChainwebNodeConfiguration defaultChainwebNodeConfiguration78,79
+instance ToJSON ToJSON ChainwebNodeConfiguration87,88
+    toJSON toJSON88,89
+instance FromJSON FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration)94,95
+    parseJSON parseJSON95,96
+pChainwebNodeConfiguration pChainwebNodeConfiguration100,101
+type CutLog CutLog110,111
+runMonitor runMonitor112,113
+node node128,129
+withNodeLogger withNodeLogger137,138
+chainwebLogFunctions chainwebLogFunctions158,159
+mainInfo mainInfo175,176
+main main181,182

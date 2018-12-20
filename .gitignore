@@ -22,7 +22,9 @@ tags
 TAGS
 codex.tags
 result
+result-*
 .ghc.environment.*
 *~
 \#*
 .stylish-haskell.yaml
+public

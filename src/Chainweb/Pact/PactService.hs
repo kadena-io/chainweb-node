@@ -2,9 +2,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- {-# LANGUAGE FlexibleInstances #-}
--- {-# LANGUAGE ExistentialQuantification #-}
-
 -- |
 -- Module      :  Chainweb.Pact.PactService
 -- Copyright   :  (C) 2018 Mark NIchols
