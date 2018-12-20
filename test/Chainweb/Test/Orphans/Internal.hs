@@ -90,8 +90,8 @@ instance Arbitrary BlockHeader where
 
 ---
 
-instance F.Fake NodeId where
-    fake = NodeId
+instance F.Fake ChainNodeId where
+    fake = ChainNodeId
       <$> pure (testChainId 0)
       <*> F.fakeEnumFromTo 0 (fromIntegral (maxBound :: Int) :: Word64)
 
