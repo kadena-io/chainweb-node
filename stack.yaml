@@ -5,7 +5,11 @@ packages:
 
 extra-deps:
   - aeson-1.4.2.0
+  - compactable-0.1.2.2
   - configuration-tools-0.4.0
+  - crackNum-2.2
+  - ed25519-donna-0.1.1
+  - FloatingHex-0.4
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   - yet-another-logger-0.3.1
@@ -15,7 +19,12 @@ extra-deps:
   - hspec-2.5.8
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
-
+  - git: https://github.com/kadena-io/pact.git
+    commit: dd02725e08ca45b17a0be2a111b027fb5a5a71da
+  - git: git@github.com:kadena-io/thyme.git
+    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - git: https://github.com/LeventErkok/sbv.git
+    commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf # with exposed registerKind
 flags:
   aeson:
     cffi: true
