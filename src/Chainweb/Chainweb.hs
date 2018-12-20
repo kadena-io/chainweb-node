@@ -89,6 +89,7 @@ module Chainweb.Chainweb
 , chainwebHostAddress
 , chainwebMiner
 , chainwebLogFun
+, chainwebSocket
 
 , withChainweb
 , runChainweb
@@ -98,7 +99,7 @@ module Chainweb.Chainweb
 
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding (Lens')
 
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
@@ -115,7 +116,8 @@ import qualified Data.Text as T
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Wai.Handler.Warp
+import Network.Socket (Socket)
+import Network.Wai.Handler.Warp hiding (Port)
 
 import System.LogLevel
 
@@ -144,6 +146,55 @@ import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Session
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Configuration
+
+data ChainwebConfiguration = ChainwebConfiguration
+    { _configChainwebVersion :: !ChainwebVersion
+    , _configNodeId :: !NodeId
+    , _configMiner :: !MinerConfig
+    , _configP2p :: !P2pConfiguration
+    }
+    deriving (Show, Eq, Generic)
+
+makeLenses ''ChainwebConfiguration
+
+defaultChainwebConfiguration :: ChainwebConfiguration
+defaultChainwebConfiguration = ChainwebConfiguration
+    { _configChainwebVersion = Test
+    , _configNodeId = NodeId 0 -- FIXME
+    , _configMiner = defaultMinerConfig
+    , _configP2p = defaultP2pConfiguration Test
+    }
+
+instance ToJSON ChainwebConfiguration where
+    toJSON o = object
+        [ "chainwebVersion" .= _configChainwebVersion o
+        , "nodeId" .= _configNodeId o
+        , "miner" .= _configMiner o
+        , "p2p" .= _configP2p o
+        ]
+
+instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
+    parseJSON = withObject "ChainwebConfig" $ \o -> id
+        <$< configChainwebVersion ..: "chainwebVersion" % o
+        <*< configNodeId ..: "nodeId" % o
+        <*< configMiner %.: "miner" % o
+        <*< configP2p %.: "p2p" % o
+
+pChainwebConfiguration :: MParser ChainwebConfiguration
+pChainwebConfiguration = id
+    <$< configChainwebVersion .:: textOption
+        % long "chainweb-version"
+        <> short 'v'
+        <> help "the chainweb version that this node is using"
+    <*< configNodeId .:: textOption
+        % long "node-id"
+        <> short 'i'
+        <> help "unique id of the node that is used as miner id in new blocks"
+    <*< configMiner %:: pMinerConfig
+    <*< configP2p %:: pP2pConfiguration Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -332,6 +383,7 @@ data Chainweb = Chainweb
     , _chainwebNodeId :: !NodeId
     , _chainwebMiner :: !Miner
     , _chainwebLogFun :: !ALogFunction
+    , _chainwebSocket :: !(Maybe Socket)
     }
 
 makeLenses ''Chainweb
@@ -344,7 +396,28 @@ withChainweb
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb graph conf logFuns inner =
+withChainweb graph conf logFuns inner = do
+    if view confPort conf == 0
+        then do
+            (p, sock) <- openFreePort
+            let conf' = set confPort (int p) conf
+            withChainwebInternal graph conf' logFuns (Just sock) inner
+        else
+            withChainwebInternal graph conf logFuns Nothing inner
+  where
+    confPort :: Lens' ChainwebConfiguration Port
+    confPort = configP2p . p2pConfigHostAddress . hostAddressPort
+
+-- Intializes all local chainweb components but doesn't start any networking.
+--
+withChainwebInternal
+    :: ChainGraph
+    -> ChainwebConfiguration
+    -> ChainwebLogFunctions
+    -> Maybe Socket
+    -> (Chainweb -> IO a)
+    -> IO a
+withChainwebInternal graph conf logFuns maybeSocket inner = do
     give graph $ go mempty (toList chainIds)
   where
     -- Initialize chain resources
@@ -369,6 +442,7 @@ withChainweb graph conf logFuns inner =
                     , _chainwebNodeId = cwnid
                     , _chainwebMiner = m
                     , _chainwebLogFun = _chainwebNodeLogFun logFuns
+                    , _chainwebSocket = maybeSocket
                     }
 
     v = _configChainwebVersion conf
@@ -399,19 +473,16 @@ runChainweb cw = do
     -- collect server resources
     let chainDbsToServe = second _chainBlockHeaderDb <$> HM.toList (_chainwebChains cw)
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
-
-        serve = if port == 0
-            then do
-                (p, sock) <- openFreePort
-                let serverSettings = setPort (int p) . setHost host $ defaultSettings
-                serveChainwebSocket serverSettings sock
+        serverSettings = setPort (int port) . setHost host $ defaultSettings
+        serve = case _chainwebSocket cw of
+            Nothing ->
+                serveChainweb serverSettings
                     (_chainwebVersion cw)
                     cutDb
                     chainDbsToServe
                     ((CutNetwork, cutPeerDb) : chainP2pToServe)
-            else do
-                let serverSettings = setPort (int port) . setHost host $ defaultSettings
-                serveChainweb serverSettings
+            Just sock ->
+                serveChainwebSocket serverSettings sock
                     (_chainwebVersion cw)
                     cutDb
                     chainDbsToServe
@@ -442,53 +513,4 @@ runChainweb cw = do
     port = _hostAddressPort myHostAddress
     myHostAddress = _chainwebHostAddress cw
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
-
--- -------------------------------------------------------------------------- --
--- Chainweb Configuration
-
-data ChainwebConfiguration = ChainwebConfiguration
-    { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeId :: !NodeId
-    , _configMiner :: !MinerConfig
-    , _configP2p :: !P2pConfiguration
-    }
-    deriving (Show, Eq, Generic)
-
-makeLenses ''ChainwebConfiguration
-
-defaultChainwebConfiguration :: ChainwebConfiguration
-defaultChainwebConfiguration = ChainwebConfiguration
-    { _configChainwebVersion = Test
-    , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = defaultMinerConfig
-    , _configP2p = defaultP2pConfiguration Test
-    }
-
-instance ToJSON ChainwebConfiguration where
-    toJSON o = object
-        [ "chainwebVersion" .= _configChainwebVersion o
-        , "nodeId" .= _configNodeId o
-        , "miner" .= _configMiner o
-        , "p2p" .= _configP2p o
-        ]
-
-instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfig" $ \o -> id
-        <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeId ..: "nodeId" % o
-        <*< configMiner %.: "miner" % o
-        <*< configP2p %.: "p2p" % o
-
-pChainwebConfiguration :: MParser ChainwebConfiguration
-pChainwebConfiguration = id
-    <$< configChainwebVersion .:: textOption
-        % long "chainweb-version"
-        <> short 'v'
-        <> help "the chainweb version that this node is using"
-    <*< configNodeId .:: textOption
-        % long "node-id"
-        <> short 'i'
-        <> help "unique id of the node that is used as miner id in new blocks"
-    <*< configMiner %:: pMinerConfig
-    <*< configP2p %:: pP2pConfiguration Nothing
 
