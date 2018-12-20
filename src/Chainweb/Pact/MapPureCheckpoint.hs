@@ -41,6 +41,5 @@ restoreCheckpoint hash height store = do
       then Just (_pdbsPactDbState st)
       else Nothing
 
-
 initPactCheckpointStore :: IO MapPurePactCheckpointStore
 initPactCheckpointStore = newIORef Map.empty

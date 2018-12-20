@@ -6,17 +6,13 @@ module Chainweb.Pact.MemoryDb where
 
 import Chainweb.Pact.Types
 
-import Pact.Types.Command
-import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
 import Pact.Types.Logger
 import Pact.Gas
 import Pact.Interpreter
-import qualified Pact.Persist as P
 import Pact.Persist.SQLite ()
 import Pact.PersistPactDb
-import qualified Pact.Persist.SQLite as PSL
 import qualified Pact.Persist.Pure as Pure
 
 import qualified Data.Map.Strict as M

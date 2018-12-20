@@ -11,27 +11,39 @@
 {-# LANGUAGE StrictData #-}
 
 module Chainweb.Pact.Types
-  ( Block(..)
+  ( bBlockHeight
   , bHash
   , bParentHash
-  , bBlockHeight
   , bTransactions
-  , PactDbState(..)
-  , pdsCommandConfig
-  , pdbsDbEnv
-  , pdbsState
-  , pdbsLogger
-  , pdbsGasEnv
-  , PactDbStatePersist(..)
-  , pdbsRestoreFile
-  , pdbsPactDbState
+  , Block(..)
+  , CheckpointEnv(..)
+  , cpeCheckpointStore
+  , cpeCommandConfig
+  , HashTablePurePactCheckpointStore
   , MapPurePactCheckpointStore
-  , Transaction(..)
-  , tTxId
+  , OnDiskPactCheckpointStore(..)
+  , PactDbConfig(..)
+  , PactDbState(..)
+  , PactDbStatePersist(..)
+  , PactT
+  , pdbcGasLimit
+  , pdbcGasRate
+  , pdbcLogDir
+  , pdbcPersistDir
+  , pdbcPragmas
+  , pdbsCommandConfig
+  , pdbsDbEnv
+  , pdbsGasEnv
+  , pdbsLogger
+  , pdbsPactDbState
+  , pdbsRestoreFile
+  , pdbsState
   , tCmd
+  , tTxId
+  , Transaction(..)
   , TransactionCriteria(..)
-  , HashTablePurePactCheckpointStore)
-  where
+  , usage
+  ) where
 
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
@@ -43,16 +55,13 @@ import qualified Pact.PersistPactDb as P
 import qualified Pact.Persist.Pure as P
 
 import Data.Map.Strict (Map)
-import Data.Text (Text)
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.IORef
-import Control.Monad.Reader
 import qualified Data.HashTable.IO as H
 import GHC.Generics
-import qualified Database.SQLite3.Direct as SQ3
 import GHC.Word (Word64)
 
 -- | At least for now, compile-time change to change between in-memory db and Sqlite
@@ -103,6 +112,15 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
+type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist)) -- assumes that this PureDb is being used underneath the hood.
+
+data CheckpointEnv = CheckpointEnv
+  { _cpeCheckpointStore :: MapPurePactCheckpointStore
+  , _cpeCommandConfig :: P.CommandConfig
+  }
+
+makeLenses ''CheckpointEnv
+
 usage :: String
 usage =
   "Config file is YAML format with the following properties: \n\
@@ -113,11 +131,9 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-type PactT a = RWST PactDbConfig () PactDbState IO a
+type PactT a = RWST CheckpointEnv () PactDbState IO a
 
 data TransactionCriteria = TransactionCriteria
-
-type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist)) -- assumes that this PureDb is being used underneath the hood.
 
 type HashTable k v = H.LinearHashTable k v
 

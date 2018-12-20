@@ -96,8 +96,6 @@ library
         , Numeric.Additive
         , Numeric.AffineSpace
 
-        , Pact.Execute
-
         , P2P.Node
         , P2P.Node.Configuration
         , P2P.Node.PeerDB

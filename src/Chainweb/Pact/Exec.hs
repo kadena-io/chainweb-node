@@ -14,7 +14,7 @@ module Chainweb.Pact.Exec
   ( SQLite(..)
   , TableStmts(..)
   , TxStmts(..)
-  , initPact
+  , initPactService
   , newTransactionBlock
   , validateBlock
   ) where
@@ -26,11 +26,11 @@ import qualified Chainweb.Pact.MemoryDb as DB
 
 ----------------------------------------------------------------------------------------------------
 import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.Extra
 import Control.Monad.Trans.RWS.Lazy
 import qualified Data.Aeson as A
-import Data.Maybe
 import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 import qualified Database.SQLite3.Direct as SQ3
@@ -44,9 +44,10 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
+
+import Chainweb.Pact.MapPureCheckpoint
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-
 
 -- TODO: SQLite, TxStmts, TableStmts can be exported from Pact.Persist.SQLite and then these
 -- definitions of SQLite and TxStmts can be removed
@@ -71,12 +72,28 @@ data TableStmts = TableStmts
   , sRead :: SQ3.Statement
   }
 
+initPactService :: IO ()
+initPactService = do
+  pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
+  let cmdConfig = toCommandConfig pactCfg
+  theStore <- initPactCheckpointStore :: IO MapPurePactCheckpointStore
+  let env = CheckpointEnv {_cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig }
+  theState <- DB.initService cmdConfig P.neverLog
+  _ <- runRWST serviceRequests env theState
+  return ()
+
+serviceRequests :: PactT ()
+serviceRequests =
+  forever $ do
+  return () --TODO: get / service requests for new blocks and verification
+
 newTransactionBlock :: P.Hash -> Integer -> PactT Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
   unless (isFirstBlock parentHash blockHeight) $ do
-    mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight
-    whenJust restoredState put
+    checkpointStore <- view cpeCheckpointStore
+    mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight checkpointStore
+    whenJust mRestoredState put
   theState <- get
   cei <- liftIO $ restoreCEI theState
   results <- liftIO $ execTransactions cei newTrans
@@ -87,19 +104,13 @@ newTransactionBlock parentHash blockHeight = do
     , _bTransactions = zip newTrans results
     }
 
-initPact :: FilePath -> PactT ()
-initPact file = do
-  cfg <- liftIO $ setupConfig file
-  x <- liftIO $ DB.initService cfg P.neverLog -- :: PactDatabaseState Pact.Persist.Pure.PureDb
-  put x
-
-setupConfig :: FilePath -> IO P.CommandConfig
+setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
   Y.decodeFileEither configFile >>= \case
     Left e -> do
       putStrLn usage
       throwIO (userError ("Error loading config file: " ++ show e))
-    (Right v) -> return $ toCommandConfig v
+    (Right v) -> return  v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} =
@@ -122,18 +133,19 @@ isFirstBlock _hash _height = False
 
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
+  checkpointStore <- view cpeCheckpointStore
   case _bHash of
     Nothing -> liftIO $ putStrLn "Block to be validated is missing hash"  -- TBD log, throw, etc.
     Just theHash -> do
       unless (isFirstBlock _bParentHash _bBlockHeight) $ do
-        mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight
+        mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight checkpointStore
         whenJust mRestoredState put
       currentState <- get
       theCei <- liftIO $ restoreCEI currentState
       _results <- liftIO $ execTransactions theCei (fmap fst _bTransactions)
       newState <- buildCurrentPactState
       put newState
-      liftIO $ makeCheckpoint theHash _bBlockHeight newState
+      liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
       -- TODO: TBD what do we need to do for validation and what is the return type?
       return ()
 
@@ -155,15 +167,3 @@ _hashResults cmdResults =
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined
-
-----------------------------------------------------------------------------------------------------
---placeholder for makeCheckpoint
-makeCheckpoint :: P.Hash -> Integer -> PactDbState -> IO ()
-makeCheckpoint _hash _height _pactState = return ()
-
---placeholder for restoreCheckpoint
-restoreCheckpoint :: P.Hash -> Integer -> IO (Maybe PactDbState)
-restoreCheckpoint _theHash _height = undefined
-
-initPactCheckpointStore :: IO PurePactCheckpointStore
-initPactCheckpointStore = undefined

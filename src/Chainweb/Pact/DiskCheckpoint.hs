@@ -10,20 +10,21 @@
 module Chainweb.Pact.DiskCheckpoint where
 
 import Chainweb.Pact.Types
-import qualified Database.SQLite3.Direct as SQ3
+-- import qualified Database.SQLite3.Direct as SQ3
+--
+-- import qualified Pact.Interpreter as P
+-- import qualified Pact.Types.Command as P
+import qualified Pact.Types.Crypto as P
+-- import qualified Pact.Types.Hash as P
+-- import qualified Pact.Types.Logger as P
+-- import qualified Pact.Types.Runtime as P
+-- import qualified Pact.Types.Server as P
 
-import qualified Pact.Interpreter as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
+makeCheckpoint :: P.Hash -> Integer -> PactDbState -> OnDiskPactCheckpointStore -> IO ()
+makeCheckpoint _hash _height _pactDbState _store = return ()
 
--- makeCheckpoint ::P.Hash -> Integer -> PactDbState p -> OnDiskPactCheckpointStore -> IO ()
-makeCheckpoint hash height pactDbState = return ()
+restoreCheckpoint :: P.Hash -> Integer -> OnDiskPactCheckpointStore  -> IO (Maybe (PactDbState ))
+restoreCheckpoint _hash _height = undefined
 
--- restoreCheckpoint :: P.Hash -> Integer -> OnDiskPactCheckpointStore SQLite -> IO (Maybe (PactDbState SQLite))
-restoreCheckpoint hash height = undefined
-
--- initPactCheckpointStore :: IO (OnDiskPactCheckpointStore SQLite)
+initPactCheckpointStore :: IO (OnDiskPactCheckpointStore )
 initPactCheckpointStore = undefined
