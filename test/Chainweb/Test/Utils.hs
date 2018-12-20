@@ -22,6 +22,8 @@ module Chainweb.Test.Utils
 , insertN
 , prettyTree
 , SparseTree(..)
+, Growth(..)
+, tree
 
 -- * Test BlockHeaderDbs Configurations
 , peterson
@@ -147,12 +149,43 @@ prettyTree = drawTree . fmap f
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader }
 
 instance Fake SparseTree where
-    fake = do
-        h <- fake
-        -- TODO(colin): What about _blockParent? Is it even possible to compute?
-        let h' = h { _blockHeight = 0 }
-            h'' = h' { _blockHash = computeBlockHash h' }
-        SparseTree <$> (Node h'' . (: []) <$> tree h'')
+    fake = SparseTree <$> tree Randomly
+
+-- | A specification for how the trunk of the `SparseTree` should grow.
+--
+data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
+
+tree :: Growth -> FGen (Tree BlockHeader)
+tree g = do
+    h <- fake
+    -- TODO(colin): What about _blockParent? Is it even possible to compute?
+    let h' = h { _blockHeight = 0 }
+        h'' = h' { _blockHash = computeBlockHash h' }
+    Node h'' <$> forest g h''
+
+forest :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+forest Randomly h = randomTrunk h
+forest g@(AtMost n) h | n < _blockHeight h = pure []
+                      | otherwise = fixedTrunk g h
+
+fixedTrunk :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+fixedTrunk g h = frequency [ (1, sequenceA [fork h, trunk g h])
+                           , (5, sequenceA [trunk g h]) ]
+
+randomTrunk :: BlockHeader -> FGen (Forest BlockHeader)
+randomTrunk h = frequency [ (2, pure [])
+                          , (4, sequenceA [fork h, trunk Randomly h])
+                          , (18, sequenceA [trunk Randomly h]) ]
+
+fork :: BlockHeader -> FGen (Tree BlockHeader)
+fork h = do
+    next <- header h
+    Node next <$> frequency [ (1, pure []), (1, sequenceA [fork next]) ]
+
+trunk :: Growth -> BlockHeader -> FGen (Tree BlockHeader)
+trunk g h = do
+    next <- header h
+    Node next <$> forest g next
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
@@ -165,22 +198,6 @@ header h = do
                , _blockNonce = nonce
                , _blockHeight = succ $ _blockHeight h }
     pure $ h' { _blockHash = computeBlockHash h' }
-
-tree :: BlockHeader -> FGen (Tree BlockHeader)
-tree = tree' trunk
-
-tree' :: (BlockHeader -> FGen (Forest BlockHeader)) -> BlockHeader -> FGen (Tree BlockHeader)
-tree' f h = do
-    next <- header h
-    Node next <$> f next
-
-trunk :: BlockHeader -> FGen (Forest BlockHeader)
-trunk h = frequency [ (2, pure [])
-                    , (4, sequenceA [fork h, tree h])
-                    , (18, sequenceA [tree h]) ]
-
-fork :: BlockHeader -> FGen (Tree BlockHeader)
-fork = tree' (\h -> frequency [ (5, pure []), (5, sequenceA [fork h]) ])
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
