@@ -793,7 +793,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         Nothing -> throwM $ TreeDbParentMissing @db e
         Just x -> return $ Just x
 
--- | Create a stream from a foldable value
+-- | Create a `Stream` from a `Foldable` value.
 --
 foldableEntries
     :: forall e f

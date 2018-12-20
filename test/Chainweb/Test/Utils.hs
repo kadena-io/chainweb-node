@@ -92,6 +92,7 @@ import Text.Printf (printf)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Difficulty (HashTarget(..), targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
@@ -113,10 +114,10 @@ import qualified P2P.Node.PeerDB as P2P
 -- Borrowed from TrivialSync.hs
 --
 toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
+toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
   where
     graph = toChainGraph (const cid) singleton
-    genesis = genesisBlockHeader Test graph cid
+    g = genesisBlockHeader Test graph cid
 
 -- | Given a function that accepts a Genesis Block and
 -- an initialized `BlockHeaderDb`, perform some action
@@ -155,13 +156,27 @@ instance Fake SparseTree where
 --
 data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 
+-- | Randomly generate a `Tree BlockHeader` according some to `Growth` strategy.
+-- The values of the tree constitute a legal chain, i.e. block heights start
+-- from 0 and increment, parent hashes propagate properly, etc.
+--
 tree :: Growth -> FGen (Tree BlockHeader)
 tree g = do
+    h <- genesis
+    Node h <$> forest g h
+
+-- | Generate a sane, legal genesis block.
+--
+genesis :: FGen BlockHeader
+genesis = do
     h <- fake
-    -- TODO(colin): What about _blockParent? Is it even possible to compute?
     let h' = h { _blockHeight = 0 }
-        h'' = h' { _blockHash = computeBlockHash h' }
-    Node h'' <$> forest g h''
+        hsh = computeBlockHash h'
+    pure $ h' { _blockHash = hsh
+              , _blockParent = hsh
+              , _blockTarget = genesisBlockTarget
+              , _blockWeight = 0
+              }
 
 forest :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -192,10 +207,17 @@ trunk g h = do
 header :: BlockHeader -> FGen BlockHeader
 header h = do
     nonce <- fake
+    payload <- fake
+    miner <- fake
     let (Time (TimeSpan ts)) = _blockCreationTime h
+        target = HashTarget maxBound
         h' = h { _blockParent = _blockHash h
+               , _blockTarget = target
+               , _blockPayloadHash = payload
                , _blockCreationTime = Time . TimeSpan $ ts + 10000000  -- 10 seconds
                , _blockNonce = nonce
+               , _blockMiner = miner
+               , _blockWeight = BlockWeight (targetToDifficulty target) + _blockWeight h
                , _blockHeight = succ $ _blockHeight h }
     pure $ h' { _blockHash = computeBlockHash h' }
 

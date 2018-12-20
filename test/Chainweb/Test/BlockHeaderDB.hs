@@ -18,6 +18,9 @@ import Control.Exception (try)
 import Control.Monad (void)
 
 import Data.Semigroup (Min(..))
+import Data.Tree (rootLabel)
+
+import Fake (generate)
 
 import qualified Streaming.Prelude as S
 
@@ -29,7 +32,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withDB)
+import Chainweb.Test.Utils (Growth(..), insertN, toyBlockHeaderDb, tree, withDB)
 import Chainweb.TreeDB
 
 
@@ -37,6 +40,7 @@ tests :: TestTree
 tests = testGroup "Unit Tests"
     [ testGroup "Basic Interaction"
       [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb chainId0 >>= closeBlockHeaderDb . snd
+      , testCase "Conversion from Tree" $ fromATree
       ]
     , testGroup "Insertion"
       [ testCase "10 Insertions" insertItems
@@ -55,6 +59,17 @@ tests = testGroup "Unit Tests"
 
 chainId0 :: ChainId
 chainId0 = testChainId 0
+
+fromFoldable :: Foldable f => BlockHeaderDb -> f BlockHeader -> IO ()
+fromFoldable db = insertStream db . S.each
+
+fromATree :: Assertion
+fromATree = do
+    t <- generate . tree $ AtMost 10
+    db <- initBlockHeaderDb . Configuration $ rootLabel t
+    fromFoldable db t
+    len <- S.length_ $ entries db Nothing Nothing Nothing Nothing
+    len @?= fromIntegral (length t)
 
 insertItems :: Assertion
 insertItems = withDB chainId0 $ \g db -> insertN 10 g db
