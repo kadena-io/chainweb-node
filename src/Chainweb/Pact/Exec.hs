@@ -9,7 +9,6 @@
 
 {-#Language LambdaCase#-}
 {-#Language RecordWildCards#-}
-{-#Language TemplateHaskell#-}
 
 module Chainweb.Pact.Exec
   ( SQLite(..)
@@ -75,10 +74,9 @@ data TableStmts = TableStmts
 newTransactionBlock :: P.Hash -> Integer -> PactT Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
-  when (not (isFirstBlock parentHash blockHeight)) $ do
-    restoredState <- liftIO $ restoreCheckpoint parentHash blockHeight
-    when (isJust restoredState) $ do
-      put $ fromJust restoredState
+  unless (isFirstBlock parentHash blockHeight) $ do
+    mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight
+    whenJust restoredState put
   theState <- get
   cei <- liftIO $ restoreCEI theState
   results <- liftIO $ execTransactions cei newTrans
@@ -97,12 +95,11 @@ initPact file = do
 
 setupConfig :: FilePath -> IO P.CommandConfig
 setupConfig configFile = do
-  cfg <- Y.decodeFileEither configFile >>= \case
+  Y.decodeFileEither configFile >>= \case
     Left e -> do
       putStrLn usage
       throwIO (userError ("Error loading config file: " ++ show e))
     (Right v) -> return $ toCommandConfig v
-  return cfg
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} =
@@ -146,7 +143,7 @@ requestTransactions _crit = return []
 
 execTransactions :: P.CommandExecInterface (P.PactRPC P.ParsedCode)
                  -> [Transaction] -> IO [P.CommandResult]
-execTransactions P.CommandExecInterface {..} xs = do
+execTransactions P.CommandExecInterface {..} xs =
   forM xs (\Transaction {..} -> do
     let txId = P.TxId _tTxId
     liftIO $ _ceiApplyCmd (P.Transactional txId) _tCmd)

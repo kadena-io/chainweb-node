@@ -25,10 +25,10 @@ import Data.Maybe
 initService :: CommandConfig -> Loggers -> IO PactDbState
 initService cfg@CommandConfig {..} loggers = do
   let logger = newLogger loggers "PactService"
-  let klog s = logLog logger "INIT" s
+  let klog = logLog logger "INIT"
   let gasLimit = fromMaybe 0 _ccGasLimit
   let gasRate = fromMaybe 0 _ccGasRate
-  let gasEnv = (GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate)))
+  let gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
   klog "Initializing pure pact"
   env <- mkPureEnv loggers
   mkState env cfg logger gasEnv

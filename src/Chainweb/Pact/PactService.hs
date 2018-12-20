@@ -57,7 +57,7 @@ mkExec code mdata theKeys = do
   return $ mkCommand
     (map (\KeyPair {..} -> (ED25519,_kpSecret,_kpPublic)) theKeys)
     Nothing
-    (T.pack $ "") -- TODO: This is a nonce...what should we put here...
+    (T.pack "") -- TODO: This is a nonce...what should we put here...
     (Exec (ExecMsg (T.pack code) mdata))
 
 applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
@@ -121,7 +121,7 @@ handlePactExec em PactExec{..} = do
     throwCmdEx $ "handlePactExec: defpact execution must occur as a single command: " ++ show em
   case _ceMode of
     Local -> return Nothing
-    Transactional tid -> do
+    Transactional tid ->
       return $ Just $ CommandPact tid (head em) _peStepCount _peStep _peYield
 
 applyContinuation :: RequestKey -> ContMsg -> Command a -> CommandM p CommandResult
