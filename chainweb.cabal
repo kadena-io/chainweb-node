@@ -64,6 +64,10 @@ library
         , Chainweb.HostAddress
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.Pact.DiskCheckpoint
+        , Chainweb.Pact.HashtablePureCheckpoint
+        , Chainweb.Pact.MapPureCheckpoint
+        , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
@@ -119,6 +123,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
+        , hashtables >= 1.2.0.0
         , heaps >= 0.3
         , http-client >= 0.5
         , lens >= 4.16
@@ -140,6 +145,7 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , direct-sqlite >= 2.3
         , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-bytestring >= 0.1
@@ -417,4 +423,3 @@ executable p2p-example
         , mwc-random >= 0.13
         , text >= 1.2
         , yet-another-logger >= 0.3.1
-
