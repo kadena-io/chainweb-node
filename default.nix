@@ -40,6 +40,12 @@ in
         chainweb = doCoverage (doHaddock super.chainweb);
         configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
 
+        extra = dontCheck (callHackageDirect {
+          pkg = "extra";
+          ver = "1.6.13";
+          sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
+        });
+
         # pact-2.6.1
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
@@ -63,9 +69,6 @@ in
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;
-
-        # tests for extra were failing due to an import clash (`isWindows`)
-        extra = dontCheck super.extra;
 
         # tests try to use ghc-pkg and cabal (https://github.com/sol/doctest/issues/213)
         doctest = dontCheck (self.callHackage "doctest" "0.16.0" {});
