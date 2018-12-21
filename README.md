@@ -48,7 +48,7 @@ A chainweb-node has two identifiers:
 *   The peer-id is used to identify the node in the peer-to-peer network. It
     is an ephemeral identifier that can be dropped and recreated at any time.
     Since the peer-id is used in caches and for reputation management nodes are
-    incentivised to persist and reuse peer-ids. When on peer-id is provided a
+    incentivised to persist and reuse peer-ids. When no peer-id is provided a
     node generates a new peer-id on startup.
 
 On startup a chainweb-node tries to connect to the P2P network. For that each
