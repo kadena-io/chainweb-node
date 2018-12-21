@@ -14,9 +14,10 @@
 module Chainweb.Test.TreeDB ( treeDbInvariants ) where
 
 import Control.Exception (SomeException(..), try)
-import Control.Lens ((%~), (&))
+import Control.Lens (to, (%~), (&), (^.))
 
 import Data.Generics.Wrapped (_Unwrapped)
+import Data.List (sort, sortOn)
 import Data.Tree (Tree(..))
 
 import qualified Streaming.Prelude as S
@@ -40,6 +41,9 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
         , testGroup "Behaviour"
             [ testProperty "Reinsertion is a no-op" $ reinsertion_prop f
             , testProperty "Can't manipulate old nodes" $ handOfGod_prop f
+            , testProperty "All leaves are properly fetched" $ leafFetch_prop f
+            , testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
+            , testProperty "maxRank reports correct height" $ maxRank_prop f
             ]
         ]
     ]
@@ -71,6 +75,7 @@ reinsertion_prop
     => (BlockHeader -> IO db) -> SparseTree -> Property
 reinsertion_prop f (SparseTree t) = ioProperty $ do
     db <- f $ rootLabel t
+    fromFoldable db t
     fromFoldable db t
     l <- S.length_ $ entries db Nothing Nothing Nothing Nothing
     pure $ l == length t
@@ -104,3 +109,38 @@ rootParent_prop f (SparseTree t) = ioProperty $ do
     fromFoldable db t
     r <- root db
     pure $ _blockParent r == _blockHash r
+
+-- | Property: A `TreeDb` must be able to yield all of its leaves properly.
+--
+leafFetch_prop
+    :: (TreeDb db, DbEntry db ~ BlockHeader)
+    => (BlockHeader -> IO db) -> SparseTree -> Property
+leafFetch_prop f (SparseTree t) = ioProperty $ do
+    db <- f $ rootLabel t
+    fromFoldable db t
+    ls <- fmap sort . S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
+    pure $ ls == sort (treeLeaves t)
+
+-- | Property: `leafEntries` streams leaves in ascending order of `BlockHeight`.
+--
+leafOrder_prop
+    :: (TreeDb db, DbEntry db ~ BlockHeader)
+    => (BlockHeader -> IO db) -> SparseTree -> Property
+leafOrder_prop f (SparseTree t) = ioProperty $ do
+    db <- f $ rootLabel t
+    fromFoldable db t
+    ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
+    pure $ ls == sortOn _blockHeight ls
+
+-- | Property: `maxRank` correctly reports the `BlockHeight` of the highest node
+-- in the Tree.
+--
+maxRank_prop
+    :: (TreeDb db, DbEntry db ~ BlockHeader)
+    => (BlockHeader -> IO db) -> SparseTree -> Property
+maxRank_prop f (SparseTree t) = ioProperty $ do
+    db <- f $ rootLabel t
+    fromFoldable db t
+    r <- maxRank db
+    let h = (^. _Unwrapped . to fromIntegral) . maximum . map _blockHeight $ treeLeaves t
+    pure $ r == h

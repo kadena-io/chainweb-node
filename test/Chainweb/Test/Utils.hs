@@ -22,6 +22,7 @@ module Chainweb.Test.Utils
 , insertN
 , prettyTree
 , normalizeTree
+, treeLeaves
 , SparseTree(..)
 , Growth(..)
 , tree
@@ -59,6 +60,7 @@ module Chainweb.Test.Utils
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
+import Control.Lens (deep, filtered, (^..))
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -70,6 +72,7 @@ import Data.List (sortOn)
 import Data.Reflection (give)
 import qualified Data.Text as T
 import Data.Tree
+import qualified Data.Tree.Lens as LT
 import Data.Word (Word64)
 
 import qualified Network.HTTP.Client as HTTP
@@ -146,6 +149,11 @@ prettyTree = drawTree . fmap f
 normalizeTree :: Ord a => Tree a -> Tree a
 normalizeTree n@(Node _ []) = n
 normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
+
+-- | The leaf nodes of a `Tree`.
+--
+treeLeaves :: Tree a -> [a]
+treeLeaves t = t ^.. deep (filtered (null . subForest) . LT.root)
 
 -- | A `Tree` which doesn't branch much. The `Fake` instance of this type
 -- ensures that other than the main trunk, branches won't ever be much longer
