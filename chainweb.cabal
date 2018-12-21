@@ -196,6 +196,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
+        Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.Sync

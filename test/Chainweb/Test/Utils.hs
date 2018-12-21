@@ -21,6 +21,7 @@ module Chainweb.Test.Utils
 , withDB
 , insertN
 , prettyTree
+, normalizeTree
 , SparseTree(..)
 , Growth(..)
 , tree
@@ -65,6 +66,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce (coerce)
 import Data.Foldable
+import Data.List (sortOn)
 import Data.Reflection (give)
 import qualified Data.Text as T
 import Data.Tree
@@ -140,6 +142,10 @@ prettyTree = drawTree . fmap f
     f h = printf "%d - %s"
               (coerce @BlockHeight @Word64 $ _blockHeight h)
               (take 12 . drop 1 . show $ _blockHash h)
+
+normalizeTree :: Ord a => Tree a -> Tree a
+normalizeTree n@(Node _ []) = n
+normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
 
 -- | A `Tree` which doesn't branch much. The `Fake` instance of this type
 -- ensures that other than the main trunk, branches won't ever be much longer
