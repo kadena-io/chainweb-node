@@ -40,6 +40,10 @@ in
         chainweb = doCoverage (doHaddock super.chainweb);
         configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
 
+        # `callHackageDirect` doesn't handle revisions yet, so to work around an
+        # issue with `hspec` bounds in `fake`, we jailbreak it.
+        fake = doJailbreak super.fake;
+
         # pact-2.6.1
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";

@@ -193,6 +193,7 @@ test-suite chainweb-tests
         , bytestring >= 0.10
         , containers >= 0.5
         , data-dword >= 0.3
+        , fake >= 0.1
         , fgl >= 5.6
         , hashable >= 1.2
         , http-client >= 0.5

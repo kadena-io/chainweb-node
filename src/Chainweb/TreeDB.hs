@@ -793,7 +793,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         Nothing -> throwM $ TreeDbParentMissing @db e
         Just x -> return $ Just x
 
--- | Create a stream from a foldable value
+-- | Create a `Stream` from a `Foldable` value.
 --
 foldableEntries
     :: forall e f
@@ -818,7 +818,8 @@ toTree db = do
     let es = entries db Nothing Nothing Nothing Nothing
     hs <- S.toList_ $ S.map (\h -> (h, key h, [maybe (key h) id $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
-    pure . fmap (view _1 . vert) . head . dff $ transposeG g
+        g' = transposeG g
+    pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
