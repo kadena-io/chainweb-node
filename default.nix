@@ -115,7 +115,11 @@ in
 
       };
     packages = {
-      chainweb = gitignore.gitignoreSource [] ./.;
+      # Temporarily disable gitignoreSource due to https://github.com/siers/nix-gitignore/issues/14
+      # chainweb = gitignore.gitignoreSource [] ./.;
+      chainweb = builtins.filterSource
+        (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
+        ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
