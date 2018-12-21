@@ -17,22 +17,22 @@ module Chainweb.Test.BlockHeaderDB
 import Control.Exception (try)
 import Control.Monad (void)
 
+import Data.List (sortOn)
 import Data.Semigroup (Min(..))
-import Data.Tree (rootLabel)
-
-import Fake (generate)
+import Data.Tree (Tree(..))
 
 import qualified Streaming.Prelude as S
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck (Property, ioProperty, testProperty)
 
 -- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.Utils (Growth(..), insertN, toyBlockHeaderDb, tree, withDB)
+import Chainweb.Test.Utils (SparseTree(..), insertN, toyBlockHeaderDb, withDB)
 import Chainweb.TreeDB
 
 
@@ -40,7 +40,7 @@ tests :: TestTree
 tests = testGroup "Unit Tests"
     [ testGroup "Basic Interaction"
       [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb chainId0 >>= closeBlockHeaderDb . snd
-      , testCase "Conversion from Tree" $ fromATree
+      , testProperty "Conversion to/from Tree" treeIso_prop
       ]
     , testGroup "Insertion"
       [ testCase "10 Insertions" insertItems
@@ -63,16 +63,22 @@ chainId0 = testChainId 0
 fromFoldable :: Foldable f => BlockHeaderDb -> f BlockHeader -> IO ()
 fromFoldable db = insertStream db . S.each
 
-fromATree :: Assertion
-fromATree = do
-    t <- generate . tree $ AtMost 10
+-- | Property: There must exist an isomorphism between any `Tree BlockHeader`
+-- and a `TreeDb`.
+--
+treeIso_prop :: SparseTree -> Property
+treeIso_prop (SparseTree t) = ioProperty $ do
     db <- initBlockHeaderDb . Configuration $ rootLabel t
     fromFoldable db t
-    len <- S.length_ $ entries db Nothing Nothing Nothing Nothing
-    len @?= fromIntegral (length t)
+    t' <- toTree db
+    pure $ normalizeTree t == normalizeTree t'
 
 insertItems :: Assertion
 insertItems = withDB chainId0 $ \g db -> insertN 10 g db
+
+normalizeTree :: Ord a => Tree a -> Tree a
+normalizeTree n@(Node _ []) = n
+normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
 
 -- | This test represents a critical invariant: that reinserting the genesis block
 -- has no effect on the Database. In particular, the persistence function
