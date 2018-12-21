@@ -431,5 +431,3 @@ executable p2p-example
         , mwc-random >= 0.13
         , text >= 1.2
         , yet-another-logger >= 0.3.1
-
-    if flag(dev) { buildable: True } else { buildable: False }

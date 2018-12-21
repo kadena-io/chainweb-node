@@ -21,15 +21,9 @@ import Control.Monad.Reader
 import qualified Data.Set as S
 import Control.Lens
 import Data.Aeson as A
-import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as M
-import qualified Data.Text as T
 
-import Chainweb.Pact.Types
-
-import Pact.ApiReq
 import Pact.Types.Command
-import Pact.Types.Crypto
 import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
@@ -37,28 +31,6 @@ import Pact.Types.Logger
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
 
--- | Restore CommandExecInterface from checkpointed state
-restoreCEI :: PactDbState
-           -> IO (CommandExecInterface (PactRPC ParsedCode))
-restoreCEI pactState = do
-  let cmdState = view pdbsState pactState
-  newVar <-  newMVar cmdState
-  let logger = view pdbsLogger pactState
-  let gasEnv = view pdbsGasEnv pactState
-  let pactDbEnv = view pdbsDbEnv pactState
-  return CommandExecInterface
-    { _ceiApplyCmd = \eMode cmd ->
-        applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (verifyCommand cmd)
-    , _ceiApplyPPCmd = applyCmd logger Nothing pactDbEnv newVar gasEnv }
-
--- | Create Pact Command from JSON string
-mkExec :: String -> Value -> [KeyPair] -> IO (Command ByteString)
-mkExec code mdata theKeys = do
-  return $ mkCommand
-    (map (\KeyPair {..} -> (ED25519,_kpSecret,_kpPublic)) theKeys)
-    Nothing
-    (T.pack "") -- TODO: This is a nonce...what should we put here...
-    (Exec (ExecMsg (T.pack code) mdata))
 
 applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
          -> ExecutionMode -> Command a -> ProcessedCommand (PactRPC ParsedCode) -> IO CommandResult

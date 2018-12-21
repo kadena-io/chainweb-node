@@ -11,10 +11,7 @@
 {-#Language RecordWildCards#-}
 
 module Chainweb.Pact.Exec
-  ( SQLite(..)
-  , TableStmts(..)
-  , TxStmts(..)
-  , initPactService
+  ( initPactService
   , newTransactionBlock
   , validateBlock
   ) where
@@ -25,22 +22,21 @@ import qualified Chainweb.Pact.MemoryDb as DB
 -- import quaified Chainweb.Pact.SqliteDb as DB
 
 ----------------------------------------------------------------------------------------------------
+import Control.Concurrent
 import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.Extra
 import Control.Monad.Trans.RWS.Lazy
 import qualified Data.Aeson as A
+import Data.ByteString (ByteString)
 import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
-import qualified Database.SQLite3.Direct as SQ3
 import Control.Monad.IO.Class
-import Data.Map (Map)
 
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
-import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
@@ -48,29 +44,6 @@ import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
 import Chainweb.Pact.MapPureCheckpoint
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-
--- TODO: SQLite, TxStmts, TableStmts can be exported from Pact.Persist.SQLite and then these
--- definitions of SQLite and TxStmts can be removed
-data SQLite = SQLite
-  { conn :: SQ3.Database
-  , config :: P.SQLiteConfig
-  , logger :: P.Logger
-  , tableStmts :: Map SQ3.Utf8 TableStmts
-  , txStmts :: TxStmts
-  }
-
-data TxStmts = TxStmts
-  { tBegin :: SQ3.Statement
-  , tCommit :: SQ3.Statement
-  , tRollback :: SQ3.Statement
-  }
-
-data TableStmts = TableStmts
-  { sInsertReplace :: SQ3.Statement
-  , sInsert :: SQ3.Statement
-  , sReplace :: SQ3.Statement
-  , sRead :: SQ3.Statement
-  }
 
 initPactService :: IO ()
 initPactService = do
@@ -95,8 +68,7 @@ newTransactionBlock parentHash blockHeight = do
     mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight checkpointStore
     whenJust mRestoredState put
   theState <- get
-  cei <- liftIO $ restoreCEI theState
-  results <- liftIO $ execTransactions cei newTrans
+  results <- liftIO $ execTransactions theState newTrans
   return Block
     { _bHash = Nothing -- not yet computed
     , _bParentHash = parentHash
@@ -141,8 +113,7 @@ validateBlock Block {..} = do
         mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight checkpointStore
         whenJust mRestoredState put
       currentState <- get
-      theCei <- liftIO $ restoreCEI currentState
-      _results <- liftIO $ execTransactions theCei (fmap fst _bTransactions)
+      _results <- liftIO $ execTransactions currentState (fmap fst _bTransactions)
       newState <- buildCurrentPactState
       put newState
       liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
@@ -153,12 +124,20 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: P.CommandExecInterface (P.PactRPC P.ParsedCode)
-                 -> [Transaction] -> IO [P.CommandResult]
-execTransactions P.CommandExecInterface {..} xs =
+execTransactions :: PactDbState -> [Transaction] -> IO [P.CommandResult]
+execTransactions pactState xs =
   forM xs (\Transaction {..} -> do
-    let txId = P.TxId _tTxId
-    liftIO $ _ceiApplyCmd (P.Transactional txId) _tCmd)
+    let txId = (P.Transactional (P.TxId _tTxId))
+    liftIO $ applyPactCmd pactState txId _tCmd)
+
+applyPactCmd :: PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd pactState eMode cmd = do
+  let cmdState = view pdbsState pactState
+  newVar <-  newMVar cmdState
+  let logger = view pdbsLogger pactState
+  let gasEnv = view pdbsGasEnv pactState
+  let pactDbEnv = view pdbsDbEnv pactState
+  applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
 
 _hashResults :: [P.CommandResult] -> P.Hash
 _hashResults cmdResults =
