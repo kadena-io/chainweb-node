@@ -84,6 +84,8 @@ library
         , Data.Singletons
         , Data.Word.Encoding
 
+        , Network.X509.SelfSigned
+
         , Numeric.Cast
         , Numeric.Additive
         , Numeric.AffineSpace
@@ -153,6 +155,22 @@ library
         , uuid >= 1.3
         , warp >= 3.2
 
+        -- Network.X509.SelfSigned
+        , warp-tls >= 3.2
+        , asn1-encoding >=0.9
+        , asn1-types >=0.3
+        , connection >=0.2
+        , cryptonite >=0.25
+        , data-default >=0.7
+        , hourglass >=0.2
+        , http-client-tls >=0.3
+        , memory >=0.14
+        , pem >=0.2
+        , tls >=1.4
+        , x509 >=1.7
+        , x509-system >=1.6
+        , x509-validation >=1.6
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
@@ -180,6 +198,8 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
+
+        Network.X509.SelfSigned.Test
 
     build-depends:
         -- internal
@@ -217,6 +237,7 @@ test-suite chainweb-tests
         , unordered-containers >= 0.2
         , wai >= 3.2
         , warp >= 3.2
+        , warp-tls >= 3.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application

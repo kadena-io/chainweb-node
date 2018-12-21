@@ -301,6 +301,8 @@ data EncodingException where
     ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
     TextFormatException :: T.Text -> EncodingException
     JsonDecodeException :: T.Text -> EncodingException
+    X509CertificateDecodeException :: T.Text -> EncodingException
+    X509KeyDecodeException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
 
 instance Exception EncodingException
