@@ -20,7 +20,7 @@ module Chainweb.Pact.Exec
   ) where
 
 ----------------------------------------------------------------------------------------------------
--- | At least for now, compile-time change to change between in-memory db and Sqlite
+-- At least for now, compile-time change to change between in-memory db and Sqlite
 import qualified Chainweb.Pact.MemoryDb as DB
 -- import quaified Chainweb.Pact.SqliteDb as DB
 
