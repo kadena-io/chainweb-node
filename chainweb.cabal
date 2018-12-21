@@ -65,8 +65,7 @@ library
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.Pact.Exec
-        , Chainweb.Pact.MemoryDb
-        -- , Chainweb.Pact.SqliteDb
+        , Chainweb.Pact.MultiDb
         , Chainweb.Pact.PactService
         , Chainweb.Pact.DiskCheckpoint
         , Chainweb.Pact.HashtablePureCheckpoint

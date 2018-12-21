@@ -9,6 +9,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Pact.Types
   ( bBlockHeight
@@ -25,6 +26,7 @@ module Chainweb.Pact.Types
   , PactDbConfig(..)
   , PactDbState(..)
   , PactDbStatePersist(..)
+  , PactEnv
   , PactT
   , pdbcGasLimit
   , pdbcGasRate
@@ -50,6 +52,7 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
+import qualified Pact.Persist.SQLite as P
 import qualified Pact.Types.SQLite as P
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Persist.Pure as P
@@ -63,10 +66,6 @@ import Data.IORef
 import qualified Data.HashTable.IO as H
 import GHC.Generics
 import GHC.Word (Word64)
-
--- | At least for now, compile-time change to change between in-memory db and Sqlite
-type CwPactDbType = P.PureDb
--- type CwPactDbType = PSL.SQLite
 
 data Transaction = Transaction
   { _tTxId :: Word64
@@ -84,9 +83,14 @@ data Block = Block
 
 makeLenses ''Block
 
-data PactDbState = PactDbState
+data family PactEnv e
+
+data instance PactEnv P.PureDb
+data instance PactEnv P.SQLite
+
+data PactDbState e = PactDbState
   { _pdbsCommandConfig :: P.CommandConfig
-  , _pdbsDbEnv :: P.PactDbEnv (P.DbEnv CwPactDbType)
+  , _pdbsDbEnv :: P.PactDbEnv (P.DbEnv (PactEnv e))
   , _pdbsState :: P.CommandState
   , _pdbsLogger :: P.Logger
   , _pdbsGasEnv :: P.GasEnv
@@ -94,9 +98,9 @@ data PactDbState = PactDbState
 
 makeLenses ''PactDbState
 
-data PactDbStatePersist = PactDbStatePersist
+data PactDbStatePersist e = PactDbStatePersist
   { _pdbsRestoreFile :: Maybe FilePath
-  , _pdbsPactDbState :: PactDbState
+  , _pdbsPactDbState :: PactDbState (PactEnv e)
   }
 
 makeLenses ''PactDbStatePersist
@@ -112,10 +116,10 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
-type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist)) -- assumes that this PureDb is being used underneath the hood.
+type MapPurePactCheckpointStore e = IORef (Map Integer (P.Hash, PactDbStatePersist e)) -- assumes that this PureDb is being used underneath the hood.
 
-data CheckpointEnv = CheckpointEnv
-  { _cpeCheckpointStore :: MapPurePactCheckpointStore
+data CheckpointEnv e = CheckpointEnv
+  { _cpeCheckpointStore :: MapPurePactCheckpointStore (PactEnv e)
   , _cpeCommandConfig :: P.CommandConfig
   }
 
@@ -131,13 +135,13 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-type PactT a = RWST CheckpointEnv () PactDbState IO a
+type PactT e a = RWST (CheckpointEnv e) () (PactDbState e) IO a
 
 data TransactionCriteria = TransactionCriteria
 
 type HashTable k v = H.LinearHashTable k v
 
-type HashTablePurePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist) -- assumes that this PureDb is being used underneath the hood.
+type HashTablePurePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist P.PureDb) -- assumes that this PureDb is being used underneath the hood.
 
 data OnDiskPactCheckpointStore = OnDiskPactCheckpointStore
 
