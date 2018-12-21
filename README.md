@@ -109,6 +109,19 @@ configuration can be loaded with
 chainweb-node --config-file=chainweb-node.config
 ```
 
+The directory `scripts` contains a shell script for starting a network of
+chainweb-nodes and collecting the logs from all nodes:
+
+```sh
+# create directory for log files
+mkdir -p tmp/run-nodes-logs
+
+# the first argument is the path to the chainweb-node binary
+./scripts/run-nodes.sh ./chainweb-node 20 ./tmp/run-nodes-logs
+
+# stop all nodes with Ctrl-C
+```
+
 ## Running the Examples
 
 A simple end-to-end example for mining and synchronizing nodes for a single
