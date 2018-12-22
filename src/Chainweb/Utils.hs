@@ -75,6 +75,8 @@ module Chainweb.Utils
 , HasTextRepresentation(..)
 , eitherFromText
 , unsafeFromText
+, parseM
+, parseText
 
 -- ** Base64
 , encodeB64Text
@@ -137,6 +139,7 @@ import Control.Monad.Trans
 
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
+import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
 import Data.Bytes.Get
@@ -363,6 +366,15 @@ eitherFromText = either f return . fromText
 unsafeFromText :: HasTextRepresentation a => T.Text -> a
 unsafeFromText = fromJust . fromText
 {-# INLINE unsafeFromText #-}
+
+parseM :: MonadThrow m => A.Parser a -> T.Text -> m a
+parseM p = either (throwM . TextFormatException . T.pack) return
+    . A.parseOnly (p <* A.endOfInput)
+{-# INLINE parseM #-}
+
+parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
+parseText p = either (fail . sshow) return . fromText =<< p
+{-# INLINE parseText #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
