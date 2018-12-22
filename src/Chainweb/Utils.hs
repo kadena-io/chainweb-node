@@ -343,6 +343,12 @@ instance HasTextRepresentation [Char] where
     fromText = return . T.unpack
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Int where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 eitherFromText
     :: HasTextRepresentation a
     => T.Text
