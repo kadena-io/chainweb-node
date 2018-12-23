@@ -87,6 +87,10 @@ module Chainweb.HostAddress
 , arbitraryIpV4
 , arbitraryIpV6
 
+-- * HostPreference Utils
+, hostPreferenceToText
+, hostPreferenceFromText
+
 -- * Properties
 , properties
 ) where
@@ -104,6 +108,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.Hashable
 import qualified Data.List as L
 import Data.Maybe
+import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Word (Word8, Word16)
@@ -382,6 +387,33 @@ instance Arbitrary HostAddress where
 
 prop_readHostAddressBytes :: HostAddress -> Property
 prop_readHostAddressBytes a = readHostAddressBytes (hostAddressBytes a) === Just a
+
+-- -------------------------------------------------------------------------- --
+-- Host Preference Utils
+
+hostPreferenceToText :: HostPreference -> T.Text
+hostPreferenceToText HostAny = "*"
+hostPreferenceToText HostIPv4 = "*4"
+hostPreferenceToText HostIPv4Only = "!4"
+hostPreferenceToText HostIPv6 = "*6"
+hostPreferenceToText HostIPv6Only = "!6"
+hostPreferenceToText (Host s) = T.pack s
+
+hostPreferenceFromText :: MonadThrow m => T.Text -> m HostPreference
+hostPreferenceFromText "*" = return HostAny
+hostPreferenceFromText "*4" = return HostIPv4
+hostPreferenceFromText "!4" = return HostIPv4Only
+hostPreferenceFromText "*6" = return HostIPv6
+hostPreferenceFromText "!6" = return HostIPv6Only
+hostPreferenceFromText s = Host . T.unpack . toText <$> hostnameFromText s
+
+-- Orphan instance
+--
+instance HasTextRepresentation HostPreference where
+    toText = hostPreferenceToText
+    {-# INLINE toText #-}
+    fromText = hostPreferenceFromText
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Properties
