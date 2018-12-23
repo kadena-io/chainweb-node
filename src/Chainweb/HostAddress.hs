@@ -110,8 +110,6 @@ import Data.Word (Word8, Word16)
 
 import GHC.Generics
 
-import qualified Options.Applicative as O
-
 import Test.QuickCheck
 
 -- internal modules
@@ -235,7 +233,7 @@ instance HasTextRepresentation Port where
     fromText = portFromText
     {-# INLINE fromText #-}
 
-pPort :: Maybe String -> O.Parser Port
+pPort :: Maybe String -> OptionParser Port
 pPort service = textOption
     % prefixLong service "port"
     <> suffixHelp service "port number"
@@ -300,7 +298,7 @@ instance HasTextRepresentation Hostname where
     fromText = hostnameFromText
     {-# INLINE fromText #-}
 
-pHostname :: Maybe String -> O.Parser Hostname
+pHostname :: Maybe String -> OptionParser Hostname
 pHostname service = textOption
     % prefixLong service "hostname"
     <> suffixHelp service "hostname"
