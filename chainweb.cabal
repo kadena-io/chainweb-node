@@ -168,7 +168,7 @@ library
         , memory >=0.14
         , pem >=0.2
         , tls >=1.4
-        , x509 >=1.7
+        , x509 >=1.7.5
         , x509-system >=1.6
         , x509-validation >=1.6
 
