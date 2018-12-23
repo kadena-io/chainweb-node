@@ -98,6 +98,7 @@ library
         , P2P.Node.RestAPI
         , P2P.Node.RestAPI.Server
         , P2P.Node.RestAPI.Client
+        , P2P.Peer
         , P2P.Session
 
     build-depends:
@@ -192,6 +193,7 @@ test-suite chainweb-tests
         Chainweb.Test.DiGraph
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.TreeDB.RemoteDB
@@ -345,10 +347,11 @@ executable single-chain-example
         -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: node examples
+    hs-source-dirs: node examples test
     main-is: SingleChainExample.hs
     other-modules:
         Chainweb.Node.SingleChainMiner
+        Chainweb.Test.P2P.Peer.BootstrapConfig
         Paths_chainweb
         Utils.Gexf
         Utils.Logging
@@ -423,8 +426,10 @@ executable p2p-example
         -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: examples
+    hs-source-dirs: examples test
     main-is: P2pExample.hs
+    other-modules:
+        Chainweb.Test.P2P.Peer.BootstrapConfig
     build-depends:
         -- internal
           chainweb
@@ -432,6 +437,7 @@ executable p2p-example
         -- external
         , async >= 2.2
         , base >= 4.11
+        , bytestring >= 0.10
         , configuration-tools >= 0.4
         , exceptions >= 0.8
         , http-client >= 0.5

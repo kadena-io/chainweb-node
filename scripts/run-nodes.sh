@@ -50,8 +50,7 @@ trap onExit EXIT
 
 function run-node () {
     local NID=$1
-    local PORT_ARG=$2
-    local PEERID_ARG=$3
+    local CONFIG_FILE_ARG=$2
 
     if [[ -n "$LOG_DIR" ]] ; then
 
@@ -59,22 +58,21 @@ function run-node () {
         $RUN \
             --node-id=$NID \
             --mean-block-time=$((10 * N)) \
-            --hostname=127.0.0.1 \
+            --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
             --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
-            $PORT_ARG \
-            $PEERID_ARG &
+            $CONFIG_FILE_ARG &
     else
 
         # Run without LOG_DIR
         $RUN \
             --node-id=$NID \
             --mean-block-time=$((10 * N)) \
-            --hostname=127.0.0.1 \
+            --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \
-            $PEERID_ARG &
+            $CONFIG_FILE_ARG &
     fi
 }
 
@@ -87,18 +85,18 @@ echo "starting $N chainweb nodes"
 # chainweb-node application the bootstrap node peer-info is compiled
 # into the initial peer-database.
 
-run-node 0 --port=1789 --peer-id=525ff65f-9240-4ada-9c36-fe7da982b4b4
+run-node 0 "--config-file=scripts/test-boostrap-node.config"
 echo "started bootstrap node 0"
 
 # Start remaining nodes
 #
 # When no peer-id is configured a random peer-id is generated on startup.
-# Omitting the port argument is the same as using --port=0, which means 
+# Omitting the port argument is the same as using --port=0, which means
 # that a some free port is assigned to the node.
 
 for ((i=1; i<N; i++)) ; do
     sleep 0.2
-    run-node $i "" ""
+    run-node $i ""
     echo "started node $i"
 done
 

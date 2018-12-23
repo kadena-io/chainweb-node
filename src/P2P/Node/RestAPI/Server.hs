@@ -36,6 +36,7 @@ module P2P.Node.RestAPI.Server
 ) where
 
 import Control.Applicative
+import Control.Lens
 import Control.Monad.IO.Class
 
 import Data.Foldable
@@ -62,9 +63,9 @@ import Chainweb.Version
 
 import Data.Singletons
 
-import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
@@ -75,13 +76,14 @@ defaultPeerInfoLimit = 64
 peerGetHandler
     :: PeerDb
     -> Maybe Limit
-    -> Maybe (NextItem PeerId)
-    -> Handler (Page (NextItem PeerId) PeerInfo)
+    -> Maybe (NextItem Int)
+    -> Handler (Page (NextItem Int) PeerInfo)
 peerGetHandler db limit next = do
     sn <- liftIO $ peerDbSnapshot db
-    seekFiniteStreamToPage _peerId next effectiveLimit
+    page <- seekFiniteStreamToPage snd next effectiveLimit
         . SP.each
-        $ toList sn
+        $ toList sn `zip` [0..]
+    return $ over pageItems (fmap fst) page
   where
     effectiveLimit = limit <|> Just defaultPeerInfoLimit
 
