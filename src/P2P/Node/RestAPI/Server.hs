@@ -32,6 +32,7 @@ module P2P.Node.RestAPI.Server
 
 -- * Run server
 , serveP2pOnPort
+, serveP2pSocket
 ) where
 
 import Control.Applicative
@@ -41,6 +42,7 @@ import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
 
+import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
@@ -145,4 +147,12 @@ serveP2pOnPort
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
+
+serveP2pSocket
+    :: Settings
+    -> Socket
+    -> ChainwebVersion
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveP2pSocket s sock v = runSettingsSocket s sock . someServerApplication . someP2pServers v
 
