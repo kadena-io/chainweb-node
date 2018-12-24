@@ -69,8 +69,18 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
         ]
     ]
 
+-- | Insert the contents of any `Foldable` into a `TreeDb` "in place".
+--
 fromFoldable :: (TreeDb db, Foldable f) => db -> f (DbEntry db) -> IO ()
 fromFoldable db = insertStream db . S.each
+
+-- | Sugar for producing a populated `TreeDb` from a `Tree`.
+--
+withTreeDb :: TreeDb db => (DbEntry db -> IO db) -> Tree (DbEntry db) -> (db -> IO a) -> IO a
+withTreeDb f t g = do
+    db <- f $ rootLabel t
+    fromFoldable db t
+    g db
 
 -- | Property: There must exist an isomorphism between any `Tree BlockHeader`
 -- and a `TreeDb`.
@@ -78,9 +88,7 @@ fromFoldable db = insertStream db . S.each
 treeIso_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-treeIso_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+treeIso_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     t' <- toTree db
     pure $ normalizeTree t == normalizeTree t'
 
@@ -94,9 +102,7 @@ treeIso_prop f (SparseTree t) = ioProperty $ do
 reinsertion_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-reinsertion_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+reinsertion_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     fromFoldable db t
     l <- S.length_ $ entries db Nothing Nothing Nothing Nothing
     pure $ l == length t
@@ -110,9 +116,7 @@ reinsertion_prop f (SparseTree t) = ioProperty $ do
 handOfGod_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-handOfGod_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+handOfGod_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     h <- maxHeader db
     try (insert db $ (h & blockNonce . _Unwrapped %~ succ)) >>= \case
         Left (_ :: SomeException) -> pure True
@@ -125,9 +129,7 @@ handOfGod_prop f (SparseTree t) = ioProperty $ do
 rootParent_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-rootParent_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+rootParent_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     r <- root db
     pure $ _blockParent r == _blockHash r
 
@@ -140,9 +142,7 @@ streamCount_prop
     -> (db -> Stream (Of a) IO (Natural, Eos))
     -> SparseTree
     -> Property
-streamCount_prop f g (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+streamCount_prop f g (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     (ls :> (n, _)) <- S.toList $ g db
     pure $ length ls == fromIntegral n
 
@@ -151,9 +151,7 @@ streamCount_prop f g (SparseTree t) = ioProperty $ do
 leafFetch_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-leafFetch_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+leafFetch_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
     pure $ sort ls == sort (treeLeaves t)
 
@@ -162,9 +160,7 @@ leafFetch_prop f (SparseTree t) = ioProperty $ do
 leafOrder_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-leafOrder_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+leafOrder_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
     pure $ ls == sortOn _blockHeight ls
 
@@ -174,9 +170,7 @@ leafOrder_prop f (SparseTree t) = ioProperty $ do
 maxRank_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
-maxRank_prop f (SparseTree t) = ioProperty $ do
-    db <- f $ rootLabel t
-    fromFoldable db t
+maxRank_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     r <- maxRank db
     let h = (^. _Unwrapped . to fromIntegral) . maximum . map _blockHeight $ treeLeaves t
     pure $ r == h
