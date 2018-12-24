@@ -20,6 +20,9 @@ import Data.Generics.Wrapped (_Unwrapped)
 import Data.List (sort, sortOn)
 import Data.Tree (Tree(..))
 
+import Numeric.Natural (Natural)
+
+import Streaming (Of(..), Stream)
 import qualified Streaming.Prelude as S
 
 import Test.Tasty
@@ -38,10 +41,28 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
             [ testProperty "Conversion to/from Tree" $ treeIso_prop f
             , testProperty "Root node is its own parent" $ rootParent_prop f
             ]
+        , testGroup "Basic Streaming"
+              [ testGroup "Self-reported Stream Length"
+                    [ testProperty "keys"
+                          $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
+                    , testProperty "entries"
+                          $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
+                    , testProperty "leafEntries"
+                          $ streamCount_prop f (\db -> leafEntries db Nothing Nothing Nothing Nothing)
+                    , testProperty "leafKeys"
+                          $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
+                    , testProperty "branchKeys"
+                          $ streamCount_prop f (\db -> branchKeys db Nothing Nothing Nothing Nothing mempty mempty)
+                    , testProperty "branchEntries"
+                          $ streamCount_prop f (\db -> branchEntries db Nothing Nothing Nothing Nothing mempty mempty)
+                    ]
+              , testGroup "Misc."
+                    [ testProperty "All leaves are properly fetched" $ leafFetch_prop f
+                    ]
+              ]
         , testGroup "Behaviour"
             [ testProperty "Reinsertion is a no-op" $ reinsertion_prop f
             , testProperty "Can't manipulate old nodes" $ handOfGod_prop f
-            , testProperty "All leaves are properly fetched" $ leafFetch_prop f
             , testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
             , testProperty "maxRank reports correct height" $ maxRank_prop f
             ]
@@ -110,6 +131,21 @@ rootParent_prop f (SparseTree t) = ioProperty $ do
     r <- root db
     pure $ _blockParent r == _blockHash r
 
+-- | Property: A `Stream` should properly self-report the amount of items that
+-- were streamed at the end.
+--
+streamCount_prop
+    :: (TreeDb db, DbEntry db ~ BlockHeader)
+    => (BlockHeader -> IO db)
+    -> (db -> Stream (Of a) IO (Natural, Eos))
+    -> SparseTree
+    -> Property
+streamCount_prop f g (SparseTree t) = ioProperty $ do
+    db <- f $ rootLabel t
+    fromFoldable db t
+    (ls :> (n, _)) <- S.toList $ g db
+    pure $ length ls == fromIntegral n
+
 -- | Property: A `TreeDb` must be able to yield all of its leaves properly.
 --
 leafFetch_prop
@@ -118,8 +154,8 @@ leafFetch_prop
 leafFetch_prop f (SparseTree t) = ioProperty $ do
     db <- f $ rootLabel t
     fromFoldable db t
-    ls <- fmap sort . S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
-    pure $ ls == sort (treeLeaves t)
+    ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
+    pure $ sort ls == sort (treeLeaves t)
 
 -- | Property: `leafEntries` streams leaves in ascending order of `BlockHeight`.
 --
