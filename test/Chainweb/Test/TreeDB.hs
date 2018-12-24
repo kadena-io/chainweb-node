@@ -14,16 +14,19 @@
 module Chainweb.Test.TreeDB ( treeDbInvariants ) where
 
 import Control.Exception (SomeException(..), try)
-import Control.Lens (to, (%~), (&), (^.))
+import Control.Lens (to, view, (%~), (&))
 
+import Data.Bool (bool)
+import Data.Foldable (foldlM)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.List (sort, sortOn)
+import qualified Data.Set as S
 import Data.Tree (Tree(..))
 
 import Numeric.Natural (Natural)
 
 import Streaming (Of(..), Stream)
-import qualified Streaming.Prelude as S
+import qualified Streaming.Prelude as P
 
 import Test.Tasty
 import Test.Tasty.QuickCheck
@@ -64,6 +67,7 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
             [ testProperty "Reinsertion is a no-op" $ reinsertion_prop f
             , testProperty "Can't manipulate old nodes" $ handOfGod_prop f
             , testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
+            , testProperty "Entries are streamed in (roughly) ascending order" $ entryOrder_prop f
             , testProperty "maxRank reports correct height" $ maxRank_prop f
             ]
         ]
@@ -72,7 +76,7 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
 -- | Insert the contents of any `Foldable` into a `TreeDb` "in place".
 --
 fromFoldable :: (TreeDb db, Foldable f) => db -> f (DbEntry db) -> IO ()
-fromFoldable db = insertStream db . S.each
+fromFoldable db = insertStream db . P.each
 
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --
@@ -104,7 +108,7 @@ reinsertion_prop
     => (BlockHeader -> IO db) -> SparseTree -> Property
 reinsertion_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     fromFoldable db t
-    l <- S.length_ $ entries db Nothing Nothing Nothing Nothing
+    l <- P.length_ $ entries db Nothing Nothing Nothing Nothing
     pure $ l == length t
 
 -- | Property: It must be impossible to fetch an existing header, alter its
@@ -143,7 +147,7 @@ streamCount_prop
     -> SparseTree
     -> Property
 streamCount_prop f g (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
-    (ls :> (n, _)) <- S.toList $ g db
+    (ls :> (n, _)) <- P.toList $ g db
     pure $ length ls == fromIntegral n
 
 -- | Property: A `TreeDb` must be able to yield all of its leaves properly.
@@ -152,7 +156,7 @@ leafFetch_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
 leafFetch_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
-    ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
+    ls <- P.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
     pure $ sort ls == sort (treeLeaves t)
 
 -- | Property: `leafEntries` streams leaves in ascending order of `BlockHeight`.
@@ -161,7 +165,7 @@ leafOrder_prop
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => (BlockHeader -> IO db) -> SparseTree -> Property
 leafOrder_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
-    ls <- S.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
+    ls <- P.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
     pure $ ls == sortOn _blockHeight ls
 
 -- | Property: `maxRank` correctly reports the `BlockHeight` of the highest node
@@ -172,5 +176,17 @@ maxRank_prop
     => (BlockHeader -> IO db) -> SparseTree -> Property
 maxRank_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     r <- maxRank db
-    let h = (^. _Unwrapped . to fromIntegral) . maximum . map _blockHeight $ treeLeaves t
+    let h = view (_Unwrapped . to fromIntegral) . maximum . map _blockHeight $ treeLeaves t
     pure $ r == h
+
+-- | Property: No child is streamed before its parent.
+--
+entryOrder_prop
+    :: (TreeDb db, DbEntry db ~ BlockHeader)
+    => (BlockHeader -> IO db) -> SparseTree -> Property
+entryOrder_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
+    hs <- P.toList_ $ entries db Nothing Nothing Nothing Nothing
+    pure . maybe False (const True) $ foldlM g S.empty hs
+  where
+    g acc h = let acc' = S.insert (_blockHash h) acc
+              in bool Nothing (Just acc') $ S.member (_blockParent h) acc'
