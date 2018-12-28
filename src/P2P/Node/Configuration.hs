@@ -223,7 +223,7 @@ instance Arbitrary P2pConfiguration where
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 defaultP2pConfiguration Test = P2pConfiguration
     { _p2pConfigPeerId = randomPeerId
-    , _p2pConfigHostAddress = unsafeHostAddressFromText "localhost:1789"
+    , _p2pConfigHostAddress = unsafeHostAddressFromText "localhost:0"
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
@@ -278,10 +278,6 @@ pP2pConfiguration networkId = id
         % prefixLong net "peer-id"
         <> suffixHelp net "Id for the local node in the p2p network"
     <*< p2pConfigHostAddress %:: pHostAddress net
-    -- <*< p2pConfigHostAddress .:: fmap Just % textOption
-    --     % prefixLong net "hostaddress"
-    --     <> short 'a'
-    --     <> suffixHelp net "public hostaddress of the local node"
     <*< p2pConfigMaxSessionCount .:: option auto
         % prefixLong net "p2p-max-session-count"
         <> suffixHelp net "maximum number of sessions that are active at any time"

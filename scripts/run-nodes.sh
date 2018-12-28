@@ -3,103 +3,104 @@
 # ############################################################################ #
 # Usage
 
-# The build uses the ghc binary in the PATH. It assumes that all dependencies
-# are available in the user package database.
-
 function usage () {
-    echo "USAGE: run-nodes LOG_DIRECTORY [NUMBER_OF_NODES]"
+    echo "USAGE: run-nodes CHAINWEB_NODE_EXE NUMBER_OF_NODES [LOG_DIRECTORY]"
+    echo "stop nodes with Ctrl-C"
 }
-
-# FIXME: port allocation doesn't check if ports are already in use
-# this is better fixed by supporting passing port 0 to chainweb-node.
 
 # ############################################################################ #
 # Configuration
 
-[[ -f 'chainweb.cabal' ]] || { echo "script not called from chainweb project directory" 1>&2 ; exit -1 ; }
-[[ "$#" -ge 1 ]] || { echo "missing madatory argument" 1>&2 ; usage ; exit -1 ; }
+LOGLEVEL=info
 
-LOG_DIR=$1 && shift
+[ "$#" -ge 2 ] || { echo -e "Missing arguments:" 1>&2 ; usage 1>&2 ; exit -1 ; }
+
+# Chainweb-node application
+RUN=$1 && shift
 
 # Number of nodes
-N=${1:-10}
+N=$1 && shift
 
-rm -f $LOG_DIR/cuts.node*.json
-
-# gnu-sed binary (on linux use 'sed' on mac usually 'gsed')
-SED=gsed
-
-BUILD="cabal new-build exe:chainweb-node"
-
-RUN="cabal new-run exe:chainweb-node --"
+LOG_DIR=$1
 
 # ############################################################################ #
 # some sanity checks
 
-[[ "$N" -ge 1 ]] || { echo "number of nodes \"$N\" to small" 1>&2 ; exit -1 ; }
-[[ "$N" -le 100 ]] || { echo "number of nodes \"$N\" to big" 1>&2 ; exit -1 ; }
-[[ -d "$LOG_DIR" ]] || { echo "log directory \"$LOG_DIR\" doesn't exist" 1>&2 ; usage 1>&2 ; exit -1 ; }
-[[ -x `which ghc` ]] || { echo "no ghc executable" 1>&2 ; exit -1 ; }
-[[ -x `which $SED` ]] || { echo "no $SED executable" 1>&2 ; exit -1 ; }
+# Check chainweb-node application
+[ -x "$RUN" ] || { echo "chainweb-node \"$RUN\" can't be exectuted" 1>&1 ; usage 1>&2 ; exit -1 ; }
+
+# check number of nodes
+[ "$N" -ge 1 ] || { echo "number of nodes \"$N\" to small" 1>&2 ; exit -1 ; }
+[ "$N" -le 100 ] || { echo "number of nodes \"$N\" to big" 1>&2 ; exit -1 ; }
+
+# check logdir
+[ -z "$LOG_DIR" -o -d "$LOG_DIR" ] || { echo "log directory \"$LOG_DIR\" doesn't exist" 1>&2 ; usage 1>&2 ; exit -1 ; }
 
 # ############################################################################ #
-# functions
-
-function jsonLogs () {
-    for i in $LOG_DIR/cuts.node*.log ; do
-        ${SED} -e 's/^/,/;1s/^./[/;$a]' "$i" > "${i%.log}.json"
-    done
-}
-
-function build () {
-    $BUILD
-}
+# Kill all nodes on exit
 
 function onExit () {
     kill $(jobs -p)
-    jsonLogs
 }
 
 trap onExit EXIT
 
 # ############################################################################ #
-# Build
+# Run Node
 
-echo "build chainweb-node executable"
-build || { echo "build of chainweb-node failed" 1>&2 ; exit -1 ; }
+function run-node () {
+    local NID=$1
+    local PORT_ARG=$2
+    local PEERID_ARG=$3
 
-# ############################################################################ #
-# run nodes
+    if [[ -n "$LOG_DIR" ]] ; then
+
+        # Run with LOG_DIR
+        $RUN \
+            --node-id=$NID \
+            --mean-block-time=$((10 * N)) \
+            --hostname=127.0.0.1 \
+            --log-level=$LOGLEVEL \
+            --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
+            --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
+            $PORT_ARG \
+            $PEERID_ARG &
+    else
+
+        # Run without LOG_DIR
+        $RUN \
+            --node-id=$NID \
+            --mean-block-time=$((10 * N)) \
+            --hostname=127.0.0.1 \
+            --log-level=$LOGLEVEL \
+            $PORT_ARG \
+            $PEERID_ARG &
+    fi
+}
 
 echo "starting $N chainweb nodes"
 
-$RUN \
-    --peer-id=525ff65f-9240-4ada-9c36-fe7da982b4b4 \
-    --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node0.log" \
-    --logger-backend-handle="file:$LOG_DIR/node0.log" \
-    --mean-block-time=$((10 * N)) \
-    --log-level=info &
-echo "started node 0"
+# Start P2P bootstrap node
+#
+# a bootstrap node is a node with a well defined peer-info (peer-id and
+# hostaddress) that is know to all other nodes on startup. For the Test
+# chainweb-node application the bootstrap node peer-info is compiled
+# into the initial peer-database.
+
+run-node 0 --port=1789 --peer-id=525ff65f-9240-4ada-9c36-fe7da982b4b4
+echo "started bootstrap node 0"
+
+# Start remaining nodes
+#
+# When no peer-id is configured a random peer-id is generated on startup.
+# Omitting the port argument is the same as using --port=0, which means 
+# that a some free port is assigned to the node.
 
 for ((i=1; i<N; i++)) ; do
     sleep 0.2
-    $RUN \
-        --node-id=${i} \
-        --log-level=info \
-        --port=0 \
-        --hostname=127.0.0.1 \
-        --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node${i}.log" \
-        --logger-backend-handle="file:$LOG_DIR/node${i}.log" \
-        --mean-block-time=$((10 * N)) &
+    run-node $i "" ""
     echo "started node $i"
 done
 
-# ############################################################################ #
-# Periodically publish to notebook
-
-while true ; do
-    jsonLogs || { echo "failed to publish cut logs" 1>&2 ; exit -1 ; }
-    echo "published cut logs"
-    sleep 10
-done
+wait
 
