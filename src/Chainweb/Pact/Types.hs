@@ -24,7 +24,7 @@ module Chainweb.Pact.Types
   , HashTablePurePactCheckpointStore
   , MapPurePactCheckpointStore
   , OnDiskPactCheckpointStore(..)
-  , Pactable
+  , PactDbBackend
   , PactDbConfig(..)
   , PactDbState(..)
   , PactDbState'(..)
@@ -69,10 +69,10 @@ import GHC.Generics
 import GHC.Word (Word64)
 
 
-class Pactable e where
+class PactDbBackend e where
 
-instance Pactable P.PureDb where
-instance Pactable P.SQLite where
+instance PactDbBackend P.PureDb where
+instance PactDbBackend P.SQLite where
 
 data PactDbState e = PactDbState
   { _pdbsCommandConfig :: P.CommandConfig
@@ -83,7 +83,7 @@ data PactDbState e = PactDbState
   }
 makeLenses ''PactDbState
 
-data PactDbState' = forall a. Pactable a => PactDbState' (PactDbState a)
+data PactDbState' = forall a. PactDbBackend a => PactDbState' (PactDbState a)
 
 data Transaction = Transaction
   { _tTxId :: Word64
