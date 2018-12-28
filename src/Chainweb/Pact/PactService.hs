@@ -1,161 +1,153 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- |
--- Module      :  Chainweb.Pact.PactService
--- Copyright   :  (C) 2018 Mark NIchols
--- License     :  BSD-style (see the file LICENSE)
--- Maintainer  :  Mark Nichols <mark@kadena.io>
+-- Module: Chainweb.Pact.PactService
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: See LICENSE file
+-- Maintainer: Mark Nichols <mark@kadena.io>
+-- Stability: experimental
 --
--- Chainweb API for Pact
---
+-- Pact service for Chainweb
 
-module Chainweb.Pact.PactService where
+{-#Language LambdaCase#-}
+{-#Language RecordWildCards#-}
 
-import Prelude
+module Chainweb.Pact.PactService
+  ( initPactService
+  , newTransactionBlock
+  , validateBlock
+  ) where
+
 import Control.Concurrent
-import Control.Exception.Safe
-import Control.Monad.Except
-import Control.Monad.Reader
-import qualified Data.Set as S
+import Control.Exception
 import Control.Lens
-import Data.Aeson as A
-import qualified Data.Map.Strict as M
+import Control.Monad
+import Control.Monad.Extra
+import Control.Monad.Trans.RWS.Lazy
+import qualified Data.Aeson as A
+import Data.ByteString (ByteString)
+import Data.String.Conv (toS)
+import qualified Data.Yaml as Y
+import Control.Monad.IO.Class
 
-import Pact.Types.Command
-import Pact.Types.RPC
-import Pact.Types.Runtime hiding (PublicKey)
-import Pact.Types.Server
-import Pact.Types.Logger
-import Pact.Interpreter
-import Pact.Persist.SQLite ()
+import qualified Pact.Interpreter as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
+import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Runtime as P
+import Pact.Types.Server as P
+import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
 
-applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
-         -> ExecutionMode -> Command a -> ProcessedCommand (PactRPC ParsedCode) -> IO CommandResult
-applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
-applyCmd logger conf dbv cv gasEnv exMode _ (ProcSucc cmd) = do
-  r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd
-  case r of
-    Right cr -> do
-      logLog logger "DEBUG" $ "success for requestKey: " ++ show (cmdToRequestKey cmd)
-      return cr
+import Chainweb.Pact.MapPureCheckpoint
+import Chainweb.Pact.MemoryDb
+import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.SqliteDb
+import Chainweb.Pact.Types
+
+initPactService :: IO ()
+initPactService = do
+  let loggers = P.neverLog
+  let logger = P.newLogger loggers $ P.LogName "PactService"
+  pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
+  let cmdConfig = toCommandConfig pactCfg
+  theState' <- case _ccSqlite cmdConfig of
+    Nothing -> do
+      env <- P.mkPureEnv loggers
+      mkPureState env cmdConfig logger
+    Just sqlc -> do
+      env <- P.mkSQLiteEnv logger False sqlc loggers
+      mkSQLiteState env cmdConfig logger
+  theStore <- initPactCheckpointStore :: IO MapPurePactCheckpointStore
+  let env = CheckpointEnv {_cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig }
+  _ <- runRWST serviceRequests env theState'
+  return ()
+
+serviceRequests :: PactT ()
+serviceRequests =
+  forever $ do
+  return () --TODO: get / service requests for new blocks and verification
+
+newTransactionBlock :: P.Hash -> Integer -> PactT Block
+newTransactionBlock parentHash blockHeight = do
+  newTrans <- requestTransactions TransactionCriteria
+  unless (isFirstBlock parentHash blockHeight) $ do
+    checkpointStore <- view cpeCheckpointStore
+    mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight checkpointStore
+    whenJust mRestoredState put
+  theState <- get
+  results <- liftIO $ execTransactions theState newTrans
+  return Block
+    { _bHash = Nothing -- not yet computed
+    , _bParentHash = parentHash
+    , _bBlockHeight = blockHeight + 1
+    , _bTransactions = zip newTrans results
+    }
+
+setupConfig :: FilePath -> IO PactDbConfig
+setupConfig configFile = do
+  Y.decodeFileEither configFile >>= \case
     Left e -> do
-      logLog logger "ERROR" $ "tx failure for requestKey: " ++ show (cmdToRequestKey cmd)
-        ++ ": " ++ show e
-      return $ jsonResult exMode (cmdToRequestKey cmd) $
-               CommandError "Command execution failed" (Just $ show e)
+      putStrLn usage
+      throwIO (userError ("Error loading config file: " ++ show e))
+    (Right v) -> return  v
 
-jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> a -> CommandResult
-jsonResult ex cmd a = CommandResult cmd (exToTx ex) (toJSON a)
+toCommandConfig :: PactDbConfig -> P.CommandConfig
+toCommandConfig PactDbConfig {..} =
+  P.CommandConfig
+  { _ccSqlite = mkSqliteConfig _pdbcPersistDir _pdbcPragmas
+  , _ccEntity = Nothing
+  , _ccGasLimit = _pdbcGasLimit
+  , _ccGasRate = _pdbcGasRate
+  }
 
-exToTx :: ExecutionMode -> Maybe TxId
-exToTx (Transactional t) = Just t
-exToTx Local = Nothing
+-- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
+-- squlite databases -- hence this is here and not in the Sqlite specific module
+mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
+mkSqliteConfig (Just f) xs = Just (P.SQLiteConfig {dbFile = f, pragmas = xs})
+mkSqliteConfig _ _ = Nothing
 
-runPayload :: Command (Payload (PactRPC ParsedCode)) -> CommandM p CommandResult
-runPayload c@Command{..} = do
-  let runRpc (Exec pm) = applyExec (cmdToRequestKey c) pm c
-      runRpc (Continuation ym) = applyContinuation (cmdToRequestKey c) ym c
-      Payload{..} = _cmdPayload
-  case _pAddress of
-    Just Address{..} -> do
-      -- simulate fake blinding if not addressed to this entity or no entity specified
-      ent <- view ceEntity
-      mode <- view ceMode
-      case ent of
-        Just entName | entName == _aFrom || (entName `S.member` _aTo) -> runRpc _pPayload
-        _ -> return $ jsonResult mode (cmdToRequestKey c) $ CommandError "Private" Nothing
-    Nothing -> runRpc _pPayload
+-- TODO: determing correct way to check for the first block
+isFirstBlock :: P.Hash -> Integer -> Bool
+isFirstBlock _hash _height = False
 
-applyExec :: RequestKey -> ExecMsg ParsedCode -> Command a -> CommandM p CommandResult
-applyExec rk (ExecMsg parsedCode edata) Command{..} = do
-  CommandEnv {..} <- ask
-  when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
-  (CommandState refStore pacts) <- liftIO $ readMVar _ceState
-  let sigs = userSigsToPactKeySet _cmdSigs
-      evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                (MsgData sigs edata Nothing _cmdHash) refStore _ceGasEnv
-  pr <- liftIO $ evalExec evalEnv parsedCode
-  newCmdPact <- join <$> mapM (handlePactExec (erInput pr)) (erExec pr)
-  let newPacts = case newCmdPact of
-        Nothing -> pacts
-        Just cmdPact -> M.insert (_cpTxId cmdPact) cmdPact pacts
-  void $ liftIO $ swapMVar _ceState $ CommandState (erRefStore pr) newPacts
-  mapM_ (\p -> liftIO $ logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show p) newCmdPact
-  return $ jsonResult _ceMode rk $ CommandSuccess (last (erOutput pr))
+validateBlock :: Block -> PactT ()
+validateBlock Block {..} = do
+  checkpointStore <- view cpeCheckpointStore
+  case _bHash of
+    Nothing -> liftIO $ putStrLn "Block to be validated is missing hash"  -- TBD log, throw, etc.
+    Just theHash -> do
+      unless (isFirstBlock _bParentHash _bBlockHeight) $ do
+        mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight checkpointStore
+        whenJust mRestoredState put
+      currentState <- get
+      _results <- liftIO $ execTransactions currentState (fmap fst _bTransactions)
+      newState <- buildCurrentPactState
+      put newState
+      liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
+      -- TODO: TBD what do we need to do for validation and what is the return type?
+      return ()
 
-handlePactExec :: [Term Name] -> PactExec -> CommandM p (Maybe CommandPact)
-handlePactExec em PactExec{..} = do
-  CommandEnv{..} <- ask
-  unless (length em == 1) $
-    throwCmdEx $ "handlePactExec: defpact execution must occur as a single command: " ++ show em
-  case _ceMode of
-    Local -> return Nothing
-    Transactional tid ->
-      return $ Just $ CommandPact tid (head em) _peStepCount _peStep _peYield
+--placeholder - get transactions from mem pool
+requestTransactions :: TransactionCriteria -> PactT [Transaction]
+requestTransactions _crit = return []
 
-applyContinuation :: RequestKey -> ContMsg -> Command a -> CommandM p CommandResult
-applyContinuation rk msg@ContMsg{..} Command{..} = do
-  env@CommandEnv{..} <- ask
-  case _ceMode of
-    Local -> throwCmdEx "Local continuation exec not supported"
-    Transactional _ -> do
-      state@CommandState{..} <- liftIO $ readMVar _ceState
-      case M.lookup _cmTxId _csPacts of
-        Nothing -> throwCmdEx$ "applyContinuation: txid not found: " ++ show _cmTxId
-        Just pact@CommandPact{..} -> do
-          -- Verify valid ContMsg Step
-          when (_cmStep < 0 || _cmStep >= _cpStepCount) $
-            throwCmdEx $ "Invalid step value: " ++ show _cmStep
-          if _cmRollback
-            then when (_cmStep /= _cpStep) $
-                   throwCmdEx ("Invalid rollback step value: Received "
-                     ++ show _cmStep ++ " but expected " ++ show _cpStep)
-            else when (_cmStep /= (_cpStep + 1))
-                   (throwCmdEx $ "Invalid continuation step value: Received "
-                     ++ show _cmStep ++ " but expected " ++ show (_cpStep + 1))
-          -- Setup environement and get result
-          let sigs = userSigsToPactKeySet _cmdSigs
-              pactStep = Just $ PactStep _cmStep _cmRollback (PactId $ pack $ show _cmTxId) _cpYield
-              evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                        (MsgData sigs _cmData pactStep _cmdHash) _csRefStore
-                        _ceGasEnv
-          res <- tryAny (liftIO  $ evalContinuation evalEnv _cpContinuation)
+execTransactions :: PactDbState' -> [Transaction] -> IO [TransactionOutput]
+execTransactions pactState' xs =
+  forM xs (\Transaction {..} -> do
+    let txId = P.Transactional (P.TxId _tTxId)
+    liftIO $ TransactionOutput <$> applyPactCmd pactState' txId _tCmd)
 
-          -- Update pact's state
-          case res of
-            Left (SomeException ex) -> throwM ex
-            Right EvalResult{..} -> do
-              exec@PactExec{..} <- maybe (throwCmdEx "No pact execution in continuation exec!")
-                                   return erExec
-              if _cmRollback
-                then rollbackUpdate env msg state
-                else continuationUpdate env msg state pact exec
-              return $ jsonResult _ceMode rk $ CommandSuccess (last erOutput)
+applyPactCmd :: PactDbState' -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd (PactDbState' pactState) eMode cmd = do
+  let cmdState = view pdbsState pactState
+  newVar <-  newMVar cmdState
+  let logger = view pdbsLogger pactState
+  let gasEnv = view pdbsGasEnv pactState
+  let pactDbEnv = view pdbsDbEnv pactState
+  applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
 
-rollbackUpdate :: CommandEnv p -> ContMsg -> CommandState -> CommandM p ()
-rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
-  -- if step doesn't have a rollback function, no error thrown. Therefore, pact will be deleted
-  -- from state.
-  let newState = CommandState _csRefStore $ M.delete _cmTxId _csPacts
-  liftIO $ logLog _ceLogger "DEBUG" $ "applyContinuation: rollbackUpdate: reaping pact "
-    ++ show _cmTxId
-  void $ liftIO $ swapMVar _ceState newState
+_hashResults :: [P.CommandResult] -> P.Hash
+_hashResults cmdResults =
+  let bs = foldMap (A.encode . P._crResult ) cmdResults
+  in P.hash $ toS bs
 
-continuationUpdate :: CommandEnv p -> ContMsg -> CommandState -> CommandPact -> PactExec -> CommandM p ()
-continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} CommandPact{..} PactExec{..} = do
-  let nextStep = _cmStep + 1
-      isLast = nextStep >= _cpStepCount
-      updateState pacts = CommandState _csRefStore pacts -- never loading modules during continuations
-  if isLast
-    then do
-      liftIO $ logLog _ceLogger "DEBUG" $ "applyContinuation: continuationUpdate: reaping pact: "
-        ++ show _cmTxId
-      void $ liftIO $ swapMVar _ceState $ updateState $ M.delete _cmTxId _csPacts
-    else do
-      let newPact = CommandPact _cpTxId _cpContinuation _cpStepCount _cmStep _peYield
-      liftIO $ logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact "
-        ++ show _cmTxId ++ ": " ++ show newPact
-      void $ liftIO $ swapMVar _ceState $ updateState $ M.insert _cmTxId newPact _csPacts
+buildCurrentPactState :: PactT PactDbState'
+buildCurrentPactState = undefined

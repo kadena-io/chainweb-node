@@ -38,7 +38,7 @@ restoreCheckpoint hash height store = do
   return $ do
     (h, st) <- Map.lookup height m
     if h == hash
-      then Just (_pdbsPactDbState st)
+      then Just (_pdbspPactDbState st)
       else Nothing
 
 initPactCheckpointStore :: IO MapPurePactCheckpointStore

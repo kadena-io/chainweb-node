@@ -1,5 +1,5 @@
 -- |
--- Module: Chainweb.Pact.Exec
+-- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
@@ -8,82 +8,36 @@
 -- Pact Types module for Chainweb
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 
 module Chainweb.Pact.Types
-  ( bBlockHeight
-  , bHash
-  , bParentHash
-  , bTransactions
-  , Block(..)
-  , CheckpointEnv(..)
-  , cpeCheckpointStore
-  , cpeCommandConfig
+  ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
+  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig
   , HashTablePurePactCheckpointStore
   , MapPurePactCheckpointStore
   , OnDiskPactCheckpointStore(..)
-  , PactDbBackend
-  , PactDbConfig(..)
-  , PactDbState(..)
-  , PactDbState'(..)
-  , PactDbStatePersist(..)
+  , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
   , PactT
-  , pdbcGasLimit
-  , pdbcGasRate
-  , pdbcLogDir
-  , pdbcPersistDir
-  , pdbcPragmas
-  , pdbsCommandConfig
-  , pdbsDbEnv
-  , pdbsGasEnv
-  , pdbsLogger
-  , pdbsPactDbState
-  , pdbsRestoreFile
-  , pdbsState
-  , tCmd
-  , tTxId
-  , Transaction(..)
+  , Transaction(..), tCmd , tTxId
   , TransactionCriteria(..)
-  , usage
+  , TransactionOutput(..)
+  , module Chainweb.Pact.Backend.Types
   ) where
 
-import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
-import qualified Pact.Persist.SQLite as P
-import qualified Pact.PersistPactDb as P
-import qualified Pact.Persist.Pure as P
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
-import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.IORef
 import qualified Data.HashTable.IO as H
 import Data.Map.Strict (Map)
-import GHC.Generics
 import GHC.Word (Word64)
 
-
-class PactDbBackend e where
-
-instance PactDbBackend P.PureDb where
-instance PactDbBackend P.SQLite where
-
-data PactDbState e = PactDbState
-  { _pdbsCommandConfig :: P.CommandConfig
-  , _pdbsDbEnv :: P.PactDbEnv (P.DbEnv e)
-  , _pdbsState :: P.CommandState
-  , _pdbsLogger :: P.Logger
-  , _pdbsGasEnv :: P.GasEnv
-  }
-makeLenses ''PactDbState
-
-data PactDbState' = forall a. PactDbBackend a => PactDbState' (PactDbState a)
+import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
   { _tTxId :: Word64
@@ -91,31 +45,21 @@ data Transaction = Transaction
   }
 makeLenses ''Transaction
 
+newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandResult }
+
 data Block = Block
   { _bHash :: Maybe P.Hash
   , _bParentHash :: P.Hash
   , _bBlockHeight :: Integer
-  , _bTransactions :: [(Transaction, P.CommandResult)]
+  , _bTransactions :: [(Transaction, TransactionOutput)]
   }
 makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
-  { _pdbsRestoreFile :: Maybe FilePath
-  , _pdbsPactDbState :: PactDbState'
+  { _pdbspRestoreFile :: Maybe FilePath
+  , _pdbspPactDbState :: PactDbState'
   }
-
 makeLenses ''PactDbStatePersist
-
-data PactDbConfig = PactDbConfig {
-  _pdbcPersistDir :: Maybe FilePath,
-  _pdbcLogDir :: FilePath,
-  _pdbcPragmas :: [P.Pragma],
-  _pdbcGasLimit :: Maybe Int,
-  _pdbcGasRate :: Maybe Int
-  } deriving (Eq,Show,Generic)
-instance FromJSON PactDbConfig
-
-makeLenses ''PactDbConfig
 
 type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
 
@@ -123,18 +67,7 @@ data CheckpointEnv = CheckpointEnv
   { _cpeCheckpointStore :: MapPurePactCheckpointStore
   , _cpeCommandConfig :: P.CommandConfig
   }
-
 makeLenses ''CheckpointEnv
-
-usage :: String
-usage =
-  "Config file is YAML format with the following properties: \n\
-  \persistDir - Directory for database files. \n\
-  \logDir     - Directory for HTTP logs \n\
-  \pragmas    - SQLite pragmas to use with persistence DBs \n\
-  \gasLimit   - Gas limit for each transaction, defaults to 0 \n\
-  \gasRate    - Gas price per action, defaults to 0 \n\
-  \\n"
 
 type PactT a = RWST CheckpointEnv () PactDbState' IO a
 

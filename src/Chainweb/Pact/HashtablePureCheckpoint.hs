@@ -36,7 +36,7 @@ restoreCheckpoint hash height store = do
   return $ do
     (h, st) <- mvalue
     if h == hash
-      then Just (_pdbsPactDbState st)
+      then Just (_pdbspPactDbState st)
       else Nothing
 
 initPactCheckpointStore :: IO HashTablePurePactCheckpointStore
