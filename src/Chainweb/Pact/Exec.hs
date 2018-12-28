@@ -132,7 +132,7 @@ requestTransactions _crit = return []
 execTransactions :: PactDbState' -> [Transaction] -> IO [P.CommandResult]
 execTransactions pactState' xs =
   forM xs (\Transaction {..} -> do
-    let txId = (P.Transactional (P.TxId _tTxId))
+    let txId = P.Transactional (P.TxId _tTxId)
     liftIO $ applyPactCmd pactState' txId _tCmd)
 
 applyPactCmd :: PactDbState' -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
@@ -146,7 +146,7 @@ applyPactCmd (PactDbState' pactState) eMode cmd = do
 
 _hashResults :: [P.CommandResult] -> P.Hash
 _hashResults cmdResults =
-  let bs = foldMap (\cr -> A.encode (P._crResult cr)) cmdResults
+  let bs = foldMap (A.encode . P._crResult ) cmdResults
   in P.hash $ toS bs
 
 buildCurrentPactState :: PactT PactDbState'

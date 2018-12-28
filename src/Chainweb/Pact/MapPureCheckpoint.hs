@@ -26,7 +26,7 @@ makeCheckpoint ::
   -> IO ()
 makeCheckpoint hash height pactDbState store = atomicModifyIORef' store go
   where
-    go m = (Map.insert height (hash, (PactDbStatePersist Nothing pactDbState)) m, ())
+    go m = (Map.insert height (hash, PactDbStatePersist Nothing pactDbState) m, ())
 
 restoreCheckpoint ::
      P.Hash

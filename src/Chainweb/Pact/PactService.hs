@@ -110,7 +110,7 @@ applyContinuation rk msg@ContMsg{..} Command{..} = do
           when (_cmStep < 0 || _cmStep >= _cpStepCount) $
             throwCmdEx $ "Invalid step value: " ++ show _cmStep
           if _cmRollback
-            then when (_cmStep /= _cpStep) $ do
+            then when (_cmStep /= _cpStep) $
                    throwCmdEx ("Invalid rollback step value: Received "
                      ++ show _cmStep ++ " but expected " ++ show _cpStep)
             else when (_cmStep /= (_cpStep + 1))

@@ -6,13 +6,11 @@
 -- Stability: experimental
 --
 -- Pact Types module for Chainweb
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Pact.Types
   ( bBlockHeight
@@ -70,21 +68,7 @@ import Data.Map.Strict (Map)
 import GHC.Generics
 import GHC.Word (Word64)
 
-data Transaction = Transaction
-  { _tTxId :: Word64
-  , _tCmd :: P.Command ByteString
-  }
 
-makeLenses ''Transaction
-
-data Block = Block
-  { _bHash :: Maybe P.Hash
-  , _bParentHash :: P.Hash
-  , _bBlockHeight :: Integer
-  , _bTransactions :: [(Transaction, P.CommandResult)]
-  }
-
-makeLenses ''Block
 class Pactable e where
 
 instance Pactable P.PureDb where
@@ -100,6 +84,20 @@ data PactDbState e = PactDbState
 makeLenses ''PactDbState
 
 data PactDbState' = forall a. Pactable a => PactDbState' (PactDbState a)
+
+data Transaction = Transaction
+  { _tTxId :: Word64
+  , _tCmd :: P.Command ByteString
+  }
+makeLenses ''Transaction
+
+data Block = Block
+  { _bHash :: Maybe P.Hash
+  , _bParentHash :: P.Hash
+  , _bBlockHeight :: Integer
+  , _bTransactions :: [(Transaction, P.CommandResult)]
+  }
+makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
   { _pdbsRestoreFile :: Maybe FilePath

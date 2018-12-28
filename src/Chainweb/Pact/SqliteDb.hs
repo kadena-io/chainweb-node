@@ -1,6 +1,4 @@
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Pact.SqliteDb where
 
