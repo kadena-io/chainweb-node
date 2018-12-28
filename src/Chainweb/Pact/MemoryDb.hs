@@ -1,42 +1,35 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Pact.MemoryDb where
 
 import Chainweb.Pact.Types
 
+import qualified Pact.Gas as P
 import Pact.Types.Runtime hiding (PublicKey)
-import Pact.Types.Server
-import Pact.Types.Logger
-import Pact.Gas
-import Pact.Interpreter
-import Pact.Persist.SQLite ()
-import Pact.PersistPactDb
-import qualified Pact.Persist.Pure as Pure
+import Pact.Types.Server as P
+import qualified Pact.Types.Logger as P
+import qualified Pact.Persist.Pure as P
+import qualified Pact.PersistPactDb as P
+import qualified Pact.Interpreter as P
 
 import qualified Data.Map.Strict as M
 import Data.Maybe
 
-initService :: CommandConfig -> Loggers -> IO PactDbState
-initService cfg@CommandConfig {..} loggers = do
-  let logger = newLogger loggers "PactService"
-  let klog = logLog logger "INIT"
+mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> P.Logger -> IO PactDbState'
+mkPureState env cfg@CommandConfig {..} logger = do
+  P.initSchema env
   let gasLimit = fromMaybe 0 _ccGasLimit
   let gasRate = fromMaybe 0 _ccGasRate
-  let gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
-  klog "Initializing pure pact"
-  env <- mkPureEnv loggers
-  mkState env cfg logger gasEnv
-
-mkState :: PactDbEnv (DbEnv Pure.PureDb) -> CommandConfig -> Logger -> GasEnv
-            -> IO PactDbState
-mkState env cfg logger gasEnv = do
-  initSchema env
-  return PactDbState
-    { _pdbsCommandConfig = cfg
-    , _pdbsDbEnv = env
-    , _pdbsState = CommandState initRefStore M.empty
-    , _pdbsLogger = logger
-    , _pdbsGasEnv = gasEnv
-    }
+  let gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
+  let theState = PactDbState
+        { _pdbsCommandConfig = cfg
+        , _pdbsDbEnv = env
+        , _pdbsState = P.CommandState P.initRefStore M.empty
+        , _pdbsLogger = logger
+        , _pdbsGasEnv = gasEnv
+        }
+  return $ PactDbState' theState

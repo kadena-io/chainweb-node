@@ -64,12 +64,13 @@ library
         , Chainweb.HostAddress
         , Chainweb.Miner.Test
         , Chainweb.NodeId
-        , Chainweb.Pact.Exec
-        , Chainweb.Pact.MultiDb
-        , Chainweb.Pact.PactService
         , Chainweb.Pact.DiskCheckpoint
         , Chainweb.Pact.HashtablePureCheckpoint
+        , Chainweb.Pact.Exec
         , Chainweb.Pact.MapPureCheckpoint
+        , Chainweb.Pact.MemoryDb
+        , Chainweb.Pact.PactService
+        , Chainweb.Pact.SqliteDb
         , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID

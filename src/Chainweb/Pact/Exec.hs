@@ -16,12 +16,6 @@ module Chainweb.Pact.Exec
   , validateBlock
   ) where
 
-----------------------------------------------------------------------------------------------------
--- At least for now, compile-time change to change between in-memory db and Sqlite
--- import qualified Chainweb.Pact.MemoryDb as DB
--- import quaified Chainweb.Pact.SqliteDb as DB
-import Chainweb.Pact.MultiDb
-----------------------------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Exception
 import Control.Lens
@@ -34,25 +28,36 @@ import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 import Control.Monad.IO.Class
 
+import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
+import Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
 
 import Chainweb.Pact.MapPureCheckpoint
+import Chainweb.Pact.MemoryDb
 import Chainweb.Pact.PactService
+import Chainweb.Pact.SqliteDb
 import Chainweb.Pact.Types
 
 initPactService :: IO ()
 initPactService = do
+  let loggers = P.neverLog
+  let logger = P.newLogger loggers $ P.LogName "PactService"
   pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
   let cmdConfig = toCommandConfig pactCfg
+  theState' <- case _ccSqlite cmdConfig of
+    Nothing -> do
+      env <- P.mkPureEnv loggers
+      mkPureState env cmdConfig logger
+    Just sqlc -> do
+      env <- P.mkSQLiteEnv logger False sqlc loggers
+      mkSQLiteState env cmdConfig logger
   theStore <- initPactCheckpointStore :: IO MapPurePactCheckpointStore
   let env = CheckpointEnv {_cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig }
-  theState <- DB.initService cmdConfig P.neverLog
-  _ <- runRWST serviceRequests env theState
+  _ <- runRWST serviceRequests env theState'
   return ()
 
 serviceRequests :: PactT ()
@@ -124,14 +129,14 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: PactDbState -> [Transaction] -> IO [P.CommandResult]
-execTransactions pactState xs =
+execTransactions :: PactDbState' -> [Transaction] -> IO [P.CommandResult]
+execTransactions pactState' xs =
   forM xs (\Transaction {..} -> do
     let txId = (P.Transactional (P.TxId _tTxId))
-    liftIO $ applyPactCmd pactState txId _tCmd)
+    liftIO $ applyPactCmd pactState' txId _tCmd)
 
-applyPactCmd :: PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd pactState eMode cmd = do
+applyPactCmd :: PactDbState' -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd (PactDbState' pactState) eMode cmd = do
   let cmdState = view pdbsState pactState
   newVar <-  newMVar cmdState
   let logger = view pdbsLogger pactState
@@ -144,5 +149,5 @@ _hashResults cmdResults =
   let bs = foldMap (\cr -> A.encode (P._crResult cr)) cmdResults
   in P.hash $ toS bs
 
-buildCurrentPactState :: PactT PactDbState
+buildCurrentPactState :: PactT PactDbState'
 buildCurrentPactState = undefined

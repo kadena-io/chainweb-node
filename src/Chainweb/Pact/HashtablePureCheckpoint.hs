@@ -20,7 +20,7 @@ import qualified Pact.Types.Runtime as P
 makeCheckpoint ::
      P.Hash
   -> Integer
-  -> PactDbState
+  -> PactDbState'
   -> HashTablePurePactCheckpointStore
   -> IO ()
 makeCheckpoint hash height pactDbState table =
@@ -30,7 +30,7 @@ restoreCheckpoint ::
      P.Hash
   -> Integer
   -> HashTablePurePactCheckpointStore
-  -> IO (Maybe PactDbState)
+  -> IO (Maybe PactDbState')
 restoreCheckpoint hash height store = do
   mvalue <- H.lookup store height
   return $ do

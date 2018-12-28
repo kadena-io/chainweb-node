@@ -21,7 +21,7 @@ import qualified Data.Map.Strict as Map
 makeCheckpoint ::
      P.Hash
   -> Integer
-  -> PactDbState
+  -> PactDbState'
   -> MapPurePactCheckpointStore
   -> IO ()
 makeCheckpoint hash height pactDbState store = atomicModifyIORef' store go
@@ -32,7 +32,7 @@ restoreCheckpoint ::
      P.Hash
   -> Integer
   -> MapPurePactCheckpointStore
-  -> IO (Maybe PactDbState)
+  -> IO (Maybe PactDbState')
 restoreCheckpoint hash height store = do
   m <- readIORef store
   return $ do

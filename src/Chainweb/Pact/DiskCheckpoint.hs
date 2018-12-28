@@ -20,10 +20,10 @@ import qualified Pact.Types.Crypto as P
 -- import qualified Pact.Types.Runtime as P
 -- import qualified Pact.Types.Server as P
 
-makeCheckpoint :: P.Hash -> Integer -> PactDbState -> OnDiskPactCheckpointStore -> IO ()
+makeCheckpoint :: P.Hash -> Integer -> PactDbState' -> OnDiskPactCheckpointStore -> IO ()
 makeCheckpoint _hash _height _pactDbState _store = return ()
 
-restoreCheckpoint :: P.Hash -> Integer -> OnDiskPactCheckpointStore  -> IO (Maybe (PactDbState ))
+restoreCheckpoint :: P.Hash -> Integer -> OnDiskPactCheckpointStore  -> IO (Maybe (PactDbState'))
 restoreCheckpoint _hash _height = undefined
 
 initPactCheckpointStore :: IO (OnDiskPactCheckpointStore )

@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -30,7 +31,6 @@ import Pact.Types.Server
 import Pact.Types.Logger
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
-
 
 applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
          -> ExecutionMode -> Command a -> ProcessedCommand (PactRPC ParsedCode) -> IO CommandResult
@@ -124,7 +124,7 @@ applyContinuation rk msg@ContMsg{..} Command{..} = do
                         _ceGasEnv
           res <- tryAny (liftIO  $ evalContinuation evalEnv _cpContinuation)
 
-          -- Update pacts state
+          -- Update pact's state
           case res of
             Left (SomeException ex) -> throwM ex
             Right EvalResult{..} -> do
