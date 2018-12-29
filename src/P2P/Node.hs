@@ -278,7 +278,7 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 -- Sync Peers
 
 peerBaseUrl :: HostAddress -> BaseUrl
-peerBaseUrl a = BaseUrl Http
+peerBaseUrl a = BaseUrl Https
     (B8.unpack . hostnameBytes $ view hostAddressHost a)
     (int $ view hostAddressPort a)
     ""

@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -42,7 +43,7 @@ module Chainweb.Test.Utils
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
 , withSingleChainTestServer
-, withSingleChainTestServer_
+, clientEnvWithSingleChainTestServer
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 
@@ -76,6 +77,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
+import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 
 import Numeric.Natural
 
@@ -97,12 +99,15 @@ import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapCertificate, bootstrapKey)
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 import qualified Data.DiGraph as G
+
+import Network.X509.SelfSigned
 
 import qualified P2P.Node.PeerDB as P2P
 
@@ -280,8 +285,8 @@ withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
   where
     app = singleChainApplication Test chainDbs peerDbs
     work port = do
-      mgr <- HTTP.newManager HTTP.defaultManagerSettings
-      f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
 
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment
@@ -312,11 +317,12 @@ pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withSingleChainTestServer
-    :: IO W.Application
+    :: Bool
+    -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
+withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
@@ -325,7 +331,15 @@ withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
         readyVar <- newEmptyMVar
         server <- async $ do
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
-            W.runSettingsSocket settings sock app
+            if
+                | tls -> do
+                    let certBytes = bootstrapCertificate Test
+                    let keyBytes = bootstrapKey Test
+                    let tlsSettings = tlsServerSettings certBytes keyBytes
+                    W.runTLSSocket tlsSettings settings sock app
+                | otherwise ->
+                    W.runSettingsSocket settings sock app
+
         link server
         _ <- takeMVar readyVar
         env <- envIO port
@@ -335,31 +349,39 @@ withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
         uninterruptibleCancel server
         close sock
 
-withSingleChainTestServer_
-    :: IO [(ChainId, BlockHeaderDb)]
+clientEnvWithSingleChainTestServer
+    :: Bool
+    -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withSingleChainTestServer_ chainDbsIO peerDbsIO = withSingleChainTestServer mkApp mkEnv
+clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
+    = withSingleChainTestServer tls mkApp mkEnv
   where
     mkApp = singleChainApplication Test <$> chainDbsIO <*> peerDbsIO
     mkEnv port = do
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        TestClientEnv (mkClientEnv mgr (BaseUrl Http testHost port ""))
+        mgrSettings <- if
+            | tls -> certificateCacheManagerSettings TlsInsecure Nothing
+            | otherwise -> return HTTP.defaultManagerSettings
+        mgr <- HTTP.newManager mgrSettings
+        TestClientEnv (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
             <$> chainDbsIO
             <*> peerDbsIO
 
 withPeerDbsServer
-    :: IO [(NetworkId, P2P.PeerDb)]
+    :: Bool
+    -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withPeerDbsServer = withSingleChainTestServer_ (return [])
+withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return [])
 
 withBlockHeaderDbsServer
-    :: IO [(ChainId, BlockHeaderDb)]
+    :: Bool
+    -> IO [(ChainId, BlockHeaderDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer chainDbsIO = withSingleChainTestServer_ chainDbsIO (return [])
+withBlockHeaderDbsServer tls chainDbsIO
+    = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

@@ -115,9 +115,11 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Bifunctor
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.IxSet.Typed (getEQ, getOne)
 import Data.Reflection (give)
 import qualified Data.Text as T
 
@@ -150,6 +152,8 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.DiGraph
 import Data.LogMessage
+
+import Network.X509.SelfSigned
 
 import P2P.Node
 import P2P.Node.Configuration
@@ -508,7 +512,11 @@ runChainweb cw = do
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
-        serve = serveChainwebSocket serverSettings (_chainwebSocket cw)
+        serve = serveChainwebSocketTls
+            serverSettings
+            (_peerCertificate $ _chainwebPeer cw)
+            (_peerKey $ _chainwebPeer cw)
+            (_chainwebSocket cw)
             (_chainwebVersion cw)
             cutDb
             chainDbsToServe
@@ -519,10 +527,17 @@ runChainweb cw = do
     withAsync serve $ \server -> do
         logfun Info "started server"
 
+        -- Configure Clients
+        --
         -- FIXME: make sure the manager is configure properly for our
         -- usage scenario
         --
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        let cred = unsafeMakeCredential
+                (_peerCertificate $ _chainwebPeer cw)
+                (_peerKey $ _chainwebPeer cw)
+        mgr <- HTTP.newManager =<< certificateCacheManagerSettings
+                (TlsSecure True (certCacheLookup cutPeerDb))
+                (Just cred)
 
         -- 2. Run Clients
         --
@@ -536,4 +551,15 @@ runChainweb cw = do
         wait server
   where
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
+
+    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+
+    certCacheLookup :: PeerDb -> ServiceID -> IO (Maybe Fingerprint)
+    certCacheLookup peerDb si = do
+        ha <- serviceIdToHostAddress si
+        pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
+        return $ case pe of
+            Nothing -> Nothing
+            Just x -> peerIdToFingerprint <$> _peerId (_peerEntryInfo x)
+
 

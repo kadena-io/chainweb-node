@@ -17,8 +17,8 @@
 -- clientTest :: IO ()
 -- clientTest = do
 --     mgr <- HTTP.newManager HTTP.defaultManagerSettings
---     _ <- runClientM session (mkClientEnv mgr (BaseUrl Http "localhost" 8080 ""))
---     _ <- runClientM session_ (mkClientEnv mgr (BaseUrl Http "localhost" 8080 ""))
+--     _ <- runClientM session (mkClientEnv mgr (BaseUrl Https "localhost" 8080 ""))
+--     _ <- runClientM session_ (mkClientEnv mgr (BaseUrl Https "localhost" 8080 ""))
 --     return ()
 --   where
 --
