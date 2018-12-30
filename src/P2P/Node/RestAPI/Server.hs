@@ -39,6 +39,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.IO.Class
 
+import Data.Bifunctor
 import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
@@ -81,6 +82,7 @@ peerGetHandler
 peerGetHandler db limit next = do
     sn <- liftIO $ peerDbSnapshot db
     page <- seekFiniteStreamToPage snd next effectiveLimit
+        . SP.map (first _peerEntryInfo)
         . SP.each
         $ toList sn `zip` [0..]
     return $ over pageItems (fmap fst) page

@@ -67,7 +67,6 @@ import Data.Foldable
 import Data.Hashable
 import Data.Int
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -328,7 +327,7 @@ getPeerInfos mgr nid ha = do
 findNextPeer
     :: P2pConfiguration
     -> P2pNode
-    -> STM PeerInfo
+    -> STM PeerEntry
 findNextPeer conf node = do
 
     -- check if this node is active. If not, don't create new sessions,
@@ -355,14 +354,15 @@ findNextPeer conf node = do
     -- Retry if no suitable peer can be found in the whole list of peers.
     --
     i <- randomR node (0, peerCount - 1)
-    let (a, b) = S.splitAt (fromIntegral i) peers
-    let checkPeer n = do
+    let (a, b) = splitAt (fromIntegral i) $ toList peers
+    let checkPeer (n :: PeerEntry) = do
+            let pid = _peerId $ _peerEntryInfo n
             -- can this check be moved out of the fold?
             check (int sessionCount < _p2pConfigMaxSessionCount conf)
-            check (M.notMember n sessions)
-            check (_peerId n /= myPid)
+            check (M.notMember (_peerEntryInfo n) sessions)
+            check (pid /= myPid)
             return n
-    foldr (orElse . checkPeer) retry (toList b ++ toList a)
+    foldr (orElse . checkPeer) retry (b ++ a)
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
@@ -376,25 +376,26 @@ findNextPeer conf node = do
 newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
     newPeer <- atomically $ findNextPeer conf node
-    logg node Debug $ "Selected new peer " <> showInfo newPeer
-    syncFromPeer node newPeer >>= \case
+    let newPeerInfo = _peerEntryInfo newPeer
+    logg node Debug $ "Selected new peer " <> showInfo newPeerInfo
+    syncFromPeer node newPeerInfo >>= \case
         False -> do
-            logg node Warn $ "Failed to connect new peer " <> showInfo newPeer
+            logg node Warn $ "Failed to connect new peer " <> showInfo newPeerInfo
             threadDelay 500000
                 -- FIXME there are better ways to prevent the node from spinning
                 -- if no suitable (non-failing node) is available.
                 -- cf. GitHub issue #117
             newSession conf node
         True -> do
-            logg node Debug $ "Connected to new peer " <> showInfo newPeer
-            let env = peerClientEnv node newPeer
+            logg node Debug $ "Connected to new peer " <> showInfo newPeerInfo
+            let env = peerClientEnv node newPeerInfo
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
                 newSes <- async $ restore $ timeout timeoutMs
                     $ _p2pNodeClientSession node (loggFun node) env
-                info <- atomically $ addSession node newPeer newSes now
+                info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)
-            logg node Info $ "Started peer session " <> showSessionId newPeer newSes
+            logg node Info $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
     TimeSpan timeoutMs = secondsToTimeSpan (_p2pConfigSessionTimeout conf)

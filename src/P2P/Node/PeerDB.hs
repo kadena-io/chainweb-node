@@ -1,12 +1,19 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: P2P.Node.PeerDB
@@ -19,8 +26,14 @@
 --
 module P2P.Node.PeerDB
 (
+-- * Peer Entry
+  PeerEntry(..)
+, peerEntryInfo
+, peerEntrySuccessiveFailures
+, peerEntryLastSuccess
+
 -- * Peer Database
-  PeerDb(..)
+, PeerDb(..)
 , peerDbSnapshot
 , peerDbSnapshotSTM
 , peerDbSize
@@ -44,15 +57,22 @@ module P2P.Node.PeerDB
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
+import Control.Lens hiding (Indexable)
 import Control.Monad.STM
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
+import Data.Foldable (foldl')
+import qualified Data.Foldable as F
+import Data.IxSet.Typed
 import qualified Data.Set as S
+import Data.Time.Clock
 
 import GHC.Generics
 
 import Numeric.Natural
+
+import Prelude hiding (null)
 
 import System.IO.SafeWrite
 import System.IO.Temp
@@ -62,6 +82,7 @@ import Test.QuickCheck (Property, ioProperty, property, (===))
 -- internal modules
 
 import Chainweb.ChainId
+import Chainweb.HostAddress hiding (properties)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
@@ -71,12 +92,80 @@ import Data.Singletons
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
+-- Peer Database Entry
+
+newtype LastSuccess = LastSuccess { _getLastSuccess :: Maybe UTCTime }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON)
+
+newtype SuccessiveFailures = SuccessiveFailures{ _getSuccessiveFailures :: Natural }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON, Num)
+
+newtype AddedTime = AddedTime { _getAddedTime :: UTCTime }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON)
+
+data PeerEntry = PeerEntry
+    { _peerEntryInfo :: !PeerInfo
+    , _peerEntrySuccessiveFailures :: !SuccessiveFailures
+    , _peerEntryLastSuccess :: !LastSuccess
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+makeLenses ''PeerEntry
+
+newPeerEntry :: PeerInfo -> PeerEntry
+newPeerEntry i = PeerEntry i 0 (LastSuccess Nothing)
+
+-- -------------------------------------------------------------------------- --
+-- Peer Entry Set
+
+type PeerEntryIxs =
+    '[ HostAddress
+        -- a primary index
+    , Maybe PeerId
+        -- unique index in the 'Just' values, but not in the 'Nothing' values
+    , SuccessiveFailures
+    , LastSuccess
+    ]
+
+instance Indexable PeerEntryIxs PeerEntry where
+    indices = ixList
+        (ixFun $ \e -> [_peerAddr $ _peerEntryInfo e])
+        (ixFun $ \e -> [_peerId $ _peerEntryInfo e])
+        (ixFun $ \e -> [_peerEntrySuccessiveFailures e])
+        (ixFun $ \e -> [_peerEntryLastSuccess e])
+
+type PeerSet = IxSet PeerEntryIxs PeerEntry
+
+toPeerSet :: PeerSet -> S.Set PeerEntry
+toPeerSet = toSet
+
+-- | Create new 'PeerSet' from a list of 'PeerEntry's
+--
+fromPeerSet :: S.Set PeerEntry -> PeerSet
+fromPeerSet = fromSet
+
+-- | Add a 'PeerInfo' to an existing 'PeerSet'. Does nothing if the 'PeerAddr'
+-- already exist with the same 'PeerId'. Creates a new entry if the 'PeerAddr'
+-- exists with another 'PeerId' or doesn't exist in the database.
+--
+addPeerInfo :: PeerInfo -> PeerSet -> PeerSet
+addPeerInfo i m = if
+    | null addrs -> insert (newPeerEntry i) m
+    | null pids -> updateIx (_peerAddr i) (newPeerEntry i) m
+    | otherwise -> m
+  where
+    addrs = getEQ (_peerAddr i) m
+    pids = getEQ (_peerId i) m
+
+insertPeerInfoList :: [PeerInfo] -> PeerSet -> PeerSet
+insertPeerInfoList l m = foldl' (flip addPeerInfo) m l
+
+-- -------------------------------------------------------------------------- --
 -- Peer Database
-
-type PeerSet = S.Set PeerInfo
-
-peerSet :: [PeerInfo] -> PeerSet
-peerSet = S.fromList
 
 data PeerDb = PeerDb (MVar ()) (TVar PeerSet)
     deriving (Eq, Generic)
@@ -90,16 +179,16 @@ peerDbSnapshotSTM (PeerDb _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ var) = int . S.size <$> readTVarIO var
+peerDbSize (PeerDb _ var) = int . size <$> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ var) = int . S.size <$> readTVar var
+peerDbSizeSTM (PeerDb _ var) = int . size <$> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | If there is a conflict newly added entries get precedence.
 --
--- This function is fair. If there a multiple concurrent writers each writer
+-- This function is fair. If there are multiple concurrent writers each writer
 -- is guaranteed to eventually writer. It has also robust performance under
 -- contention.
 --
@@ -108,26 +197,27 @@ peerDbInsert (PeerDb lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
-    $ S.insert i
+    $ addPeerInfo i
 {-# INLINE peerDbInsert #-}
 
 fromPeerList :: [PeerInfo] -> IO PeerDb
-fromPeerList peers = PeerDb <$> newMVar () <*> newTVarIO (peerSet peers)
+fromPeerList peers = PeerDb
+    <$> newMVar ()
+    <*> newTVarIO (fromList $ newPeerEntry <$> peers)
 
--- | If there is a conflict newly added entries get precedence.
--- Left biased.
+-- | If there is a conflict newly added entries get precedence. Left biased.
 --
 peerDbInsertList :: [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertList = peerDbInsertSet . peerSet
+peerDbInsertList peers (PeerDb lock var) = withMVar lock
+    . const
+    . atomically
+    . modifyTVar var
+    $ insertPeerInfoList peers
 
 -- | If there is a conflict newly added entries get precedence.
 --
 peerDbInsertSet :: S.Set PeerInfo -> PeerDb -> IO ()
-peerDbInsertSet peers (PeerDb lock var) = withMVar lock
-    . const
-    . atomically
-    . modifyTVar var
-    $ S.union peers
+peerDbInsertSet = peerDbInsertList . F.toList
 
 newEmptyPeerDb :: IO PeerDb
 newEmptyPeerDb = PeerDb <$> newMVar () <*> newTVarIO mempty
@@ -140,12 +230,12 @@ newEmptyPeerDb = PeerDb <$> newMVar () <*> newTVarIO mempty
 --
 storePeerDb :: FilePath -> PeerDb -> IO ()
 storePeerDb f db = withOutputFile f $ \h ->
-    peerDbSnapshot db >>= \sn -> BL.hPutStr h (encode sn)
+    peerDbSnapshot db >>= \sn -> BL.hPutStr h (encode $ toPeerSet sn)
 
 loadPeerDb :: FilePath -> IO PeerDb
 loadPeerDb f = PeerDb
     <$> newMVar ()
-    <*> (newTVarIO =<< decodeFileStrictOrThrow' f)
+    <*> (newTVarIO . fromPeerSet =<< decodeFileStrictOrThrow' f)
 
 -- | New entries overwrite existing entries
 --

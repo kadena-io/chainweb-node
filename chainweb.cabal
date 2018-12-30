@@ -124,6 +124,7 @@ library
         , hashable >= 1.2
         , heaps >= 0.3
         , http-client >= 0.5
+        , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.2
