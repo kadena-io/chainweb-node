@@ -24,10 +24,12 @@ import Control.Monad.Extra
 import Control.Monad.Trans.RWS.Lazy
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
+import Data.Maybe
 import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 import Control.Monad.IO.Class
 
+import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -36,10 +38,10 @@ import qualified Pact.Types.Runtime as P
 import Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
 
-import Chainweb.Pact.MapPureCheckpoint
-import Chainweb.Pact.MemoryDb
+import Chainweb.Pact.Backend.MapCheckpoint
+import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.SqliteDb
+import Chainweb.Pact.Backend.SqliteDb
 import Chainweb.Pact.Types
 
 initPactService :: IO ()
@@ -48,15 +50,19 @@ initPactService = do
   let logger = P.newLogger loggers $ P.LogName "PactService"
   pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
   let cmdConfig = toCommandConfig pactCfg
+  let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
+  let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
+  let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
   theState' <- case _ccSqlite cmdConfig of
     Nothing -> do
       env <- P.mkPureEnv loggers
-      mkPureState env cmdConfig logger
+      mkPureState env
     Just sqlc -> do
       env <- P.mkSQLiteEnv logger False sqlc loggers
-      mkSQLiteState env cmdConfig logger
-  theStore <- initPactCheckpointStore :: IO MapPurePactCheckpointStore
-  let env = CheckpointEnv {_cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig }
+      mkSQLiteState env
+  theStore <- initPactCheckpointStore
+  let env = CheckpointEnv { _cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig
+                          , _cpeLogger = logger, _cpeGasEnv = gasEnv }
   _ <- runRWST serviceRequests env theState'
   return ()
 
@@ -73,7 +79,8 @@ newTransactionBlock parentHash blockHeight = do
     mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight checkpointStore
     whenJust mRestoredState put
   theState <- get
-  results <- liftIO $ execTransactions theState newTrans
+  cpEnv <- ask
+  results <- liftIO $ execTransactions cpEnv theState newTrans
   return Block
     { _bHash = Nothing -- not yet computed
     , _bParentHash = parentHash
@@ -118,7 +125,8 @@ validateBlock Block {..} = do
         mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight checkpointStore
         whenJust mRestoredState put
       currentState <- get
-      _results <- liftIO $ execTransactions currentState (fmap fst _bTransactions)
+      cpEnv <- ask
+      _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
       newState <- buildCurrentPactState
       put newState
       liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
@@ -129,18 +137,19 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: PactDbState' -> [Transaction] -> IO [TransactionOutput]
-execTransactions pactState' xs =
+execTransactions :: CheckpointEnv -> PactDbState' -> [Transaction] -> IO [TransactionOutput]
+execTransactions cpEnv pactState' xs =
   forM xs (\Transaction {..} -> do
     let txId = P.Transactional (P.TxId _tTxId)
-    liftIO $ TransactionOutput <$> applyPactCmd pactState' txId _tCmd)
+    liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState' txId _tCmd)
 
-applyPactCmd :: PactDbState' -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd (PactDbState' pactState) eMode cmd = do
+applyPactCmd :: CheckpointEnv -> PactDbState' -> P.ExecutionMode
+             -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd cpEnv (PactDbState' pactState) eMode cmd = do
   let cmdState = view pdbsState pactState
   newVar <-  newMVar cmdState
-  let logger = view pdbsLogger pactState
-  let gasEnv = view pdbsGasEnv pactState
+  let logger = _cpeLogger cpEnv
+  let gasEnv = _cpeGasEnv cpEnv
   let pactDbEnv = view pdbsDbEnv pactState
   applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
 

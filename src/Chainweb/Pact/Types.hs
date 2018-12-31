@@ -13,9 +13,9 @@
 
 module Chainweb.Pact.Types
   ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
-  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig
-  , HashTablePurePactCheckpointStore
-  , MapPurePactCheckpointStore
+  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeGasEnv, cpeLogger
+  , HashTablePactCheckpointStore
+  , MapPactCheckpointStore
   , OnDiskPactCheckpointStore(..)
   , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
   , PactT
@@ -26,6 +26,7 @@ module Chainweb.Pact.Types
   ) where
 
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
@@ -61,11 +62,13 @@ data PactDbStatePersist = PactDbStatePersist
   }
 makeLenses ''PactDbStatePersist
 
-type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
+type MapPactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
 
 data CheckpointEnv = CheckpointEnv
-  { _cpeCheckpointStore :: MapPurePactCheckpointStore
+  { _cpeCheckpointStore :: MapPactCheckpointStore
   , _cpeCommandConfig :: P.CommandConfig
+  , _cpeLogger :: P.Logger
+  , _cpeGasEnv :: P.GasEnv
   }
 makeLenses ''CheckpointEnv
 
@@ -75,10 +78,6 @@ data TransactionCriteria = TransactionCriteria
 
 type HashTable k v = H.LinearHashTable k v
 
-type HashTablePurePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist)
+type HashTablePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist)
 
 data OnDiskPactCheckpointStore = OnDiskPactCheckpointStore
-
--- type OnDiskPactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
--- type MapOnDiskPactCheckPointStore = IORef (Map Integer (P.Hash, FilePath))
--- type HashTableOnDiskPactCheckPointStore = HashTable Integer (P.Hash, FilePath)

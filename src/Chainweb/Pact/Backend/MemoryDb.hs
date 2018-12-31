@@ -1,0 +1,22 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+module Chainweb.Pact.Backend.MemoryDb where
+
+import Chainweb.Pact.Types
+
+import Pact.Types.Server as P
+import qualified Pact.Persist.Pure as P
+import qualified Pact.PersistPactDb as P
+import qualified Pact.Interpreter as P
+
+import qualified Data.Map.Strict as M
+
+mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> IO PactDbState'
+mkPureState env = do
+  P.initSchema env
+  let theState = PactDbState
+        { _pdbsDbEnv = env
+        , _pdbsState = P.CommandState P.initRefStore M.empty
+        }
+  return $ PactDbState' theState

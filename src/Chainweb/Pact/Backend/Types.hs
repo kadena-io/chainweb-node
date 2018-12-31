@@ -13,7 +13,7 @@
 
 module Chainweb.Pact.Backend.Types
   ( PactDbConfig(..) , pdbcGasLimit , pdbcGasRate , pdbcLogDir , pdbcPersistDir , pdbcPragmas
-  , PactDbState(..) , pdbsCommandConfig , pdbsDbEnv , pdbsGasEnv , pdbsLogger, pdbsState
+  , PactDbState(..), pdbsDbEnv ,pdbsState
   , PactDbState'(..)
   , usage
   ) where
@@ -22,8 +22,6 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
-import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Server as P
 
 import Control.Lens
@@ -36,11 +34,8 @@ instance PactDbBackend P.PureDb where
 instance PactDbBackend P.SQLite where
 
 data PactDbState e = PactDbState
-  { _pdbsCommandConfig :: P.CommandConfig
-  , _pdbsDbEnv :: P.PactDbEnv (P.DbEnv e)
+  { _pdbsDbEnv :: P.PactDbEnv (P.DbEnv e)
   , _pdbsState :: P.CommandState
-  , _pdbsLogger :: P.Logger
-  , _pdbsGasEnv :: P.GasEnv
   }
 makeLenses ''PactDbState
 

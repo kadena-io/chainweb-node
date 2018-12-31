@@ -1,14 +1,13 @@
 -- |
--- Module: Chainweb.Pact.MapPureCheckpoint
+-- Module: Chainweb.Pact.Backend.MapCheckpoint
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 
--- Pact PureDb checkpoint module for Chainweb
+-- Pact Db checkpoint module for Chainweb
 
-module Chainweb.Pact.MapPureCheckpoint
-  ( restoreCheckpoint
+module Chainweb.Pact.Backend.MapCheckpoint ( restoreCheckpoint
   , initPactCheckpointStore
   , makeCheckpoint
   ) where
@@ -22,7 +21,7 @@ makeCheckpoint ::
      P.Hash
   -> Integer
   -> PactDbState'
-  -> MapPurePactCheckpointStore
+  -> MapPactCheckpointStore
   -> IO ()
 makeCheckpoint hash height pactDbState store = atomicModifyIORef' store go
   where
@@ -31,7 +30,7 @@ makeCheckpoint hash height pactDbState store = atomicModifyIORef' store go
 restoreCheckpoint ::
      P.Hash
   -> Integer
-  -> MapPurePactCheckpointStore
+  -> MapPactCheckpointStore
   -> IO (Maybe PactDbState')
 restoreCheckpoint hash height store = do
   m <- readIORef store
@@ -41,5 +40,5 @@ restoreCheckpoint hash height store = do
       then Just (_pdbspPactDbState st)
       else Nothing
 
-initPactCheckpointStore :: IO MapPurePactCheckpointStore
+initPactCheckpointStore :: IO MapPactCheckpointStore
 initPactCheckpointStore = newIORef Map.empty

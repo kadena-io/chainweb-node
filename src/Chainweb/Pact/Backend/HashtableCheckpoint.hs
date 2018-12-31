@@ -1,13 +1,13 @@
 -- |
--- Module: Chainweb.Pact.PureCheckpoint
+-- Module: Chainweb.Pact.Backend.HashtableCheckpoint
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 
--- Pact PureDb checkpoint module for Chainweb with hashtable
+-- Pact Db checkpoint module for Chainweb with hashtable
 
-module Chainweb.Pact.HashtablePureCheckpoint
+module Chainweb.Pact.Backend.HashtableCheckpoint
   ( restoreCheckpoint
   , initPactCheckpointStore
   , makeCheckpoint
@@ -21,7 +21,7 @@ makeCheckpoint ::
      P.Hash
   -> Integer
   -> PactDbState'
-  -> HashTablePurePactCheckpointStore
+  -> HashTablePactCheckpointStore
   -> IO ()
 makeCheckpoint hash height pactDbState table =
   H.insert table height (hash, PactDbStatePersist Nothing pactDbState)
@@ -29,7 +29,7 @@ makeCheckpoint hash height pactDbState table =
 restoreCheckpoint ::
      P.Hash
   -> Integer
-  -> HashTablePurePactCheckpointStore
+  -> HashTablePactCheckpointStore
   -> IO (Maybe PactDbState')
 restoreCheckpoint hash height store = do
   mvalue <- H.lookup store height
@@ -39,5 +39,5 @@ restoreCheckpoint hash height store = do
       then Just (_pdbspPactDbState st)
       else Nothing
 
-initPactCheckpointStore :: IO HashTablePurePactCheckpointStore
+initPactCheckpointStore :: IO HashTablePactCheckpointStore
 initPactCheckpointStore = H.new

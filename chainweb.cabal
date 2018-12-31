@@ -66,12 +66,12 @@ library
         , Chainweb.NodeId
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.DiskCheckpoint
-        , Chainweb.Pact.HashtablePureCheckpoint
+        , Chainweb.Pact.Backend.HashtableCheckpoint
         , Chainweb.Pact.PactService
-        , Chainweb.Pact.MapPureCheckpoint
-        , Chainweb.Pact.MemoryDb
+        , Chainweb.Pact.Backend.MapCheckpoint
+        , Chainweb.Pact.Backend.MemoryDb
         , Chainweb.Pact.TransactionExec
-        , Chainweb.Pact.SqliteDb
+        , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
