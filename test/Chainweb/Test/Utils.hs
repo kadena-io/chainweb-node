@@ -155,7 +155,7 @@ normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
 treeLeaves :: Tree a -> [a]
 treeLeaves t = t ^.. deep (filtered (null . subForest) . LT.root)
 
--- | A `Tree` which doesn't branch much. The `Fake` instance of this type
+-- | A `Tree` which doesn't branch much. The `Arbitrary` instance of this type
 -- ensures that other than the main trunk, branches won't ever be much longer
 -- than 4 nodes.
 --

@@ -46,10 +46,6 @@ in
           sha256 = "13r0wdvhb0a9pda2j209j6jy02h59jwyz356jzw9qq2y9ld1ggy9";
         };
 
-        # `callHackageDirect` doesn't handle revisions yet, so to work around an
-        # issue with `hspec` bounds in `fake`, we jailbreak it.
-        fake = doJailbreak super.fake;
-
         generic-lens = callHackageDirect {
           pkg = "generic-lens";
           ver = "1.1.0.0";
