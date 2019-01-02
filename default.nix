@@ -38,7 +38,7 @@ in
         };
 
         chainweb = doCoverage (doHaddock super.chainweb);
-        configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
+        configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
         x509 = callHackageDirect {
           pkg = "x509";
@@ -49,6 +49,12 @@ in
         # `callHackageDirect` doesn't handle revisions yet, so to work around an
         # issue with `hspec` bounds in `fake`, we jailbreak it.
         fake = doJailbreak super.fake;
+
+        generic-lens = callHackageDirect {
+          pkg = "generic-lens";
+          ver = "1.1.0.0";
+          sha256 = "0h5nlwklha8kgcgxybcb5g2ldfs8x78paqr8riaja73ww7ydf496";
+        };
 
         # pact-2.6.1
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
