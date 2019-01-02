@@ -53,7 +53,7 @@ in
         generic-lens = callHackageDirect {
           pkg = "generic-lens";
           ver = "1.1.0.0";
-          sha256 = "0h5nlwklha8kgcgxybcb5g2ldfs8x78paqr8riaja73ww7ydf496";
+          sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
         };
 
         # pact-2.6.1
