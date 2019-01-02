@@ -24,6 +24,8 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+
+import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.TreeDB (treeDbInvariants)
@@ -46,8 +48,11 @@ tests = testGroup "Unit Tests"
       [ testCase "height" correctHeight
       , testCase "copy" copyTest
       ]
-    , treeDbInvariants (initBlockHeaderDb . Configuration)
+    , treeDbInvariants withDb
     ]
+
+withDb :: BlockHeader -> (BlockHeaderDb -> IO Bool) -> IO Bool
+withDb h f = initBlockHeaderDb (Configuration h) >>= \db -> f db <* closeBlockHeaderDb db
 
 chainId0 :: ChainId
 chainId0 = testChainId 0

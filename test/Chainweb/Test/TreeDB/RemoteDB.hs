@@ -7,15 +7,25 @@ import Test.Tasty.HUnit
 
 -- internal modules
 import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeaderDB (Configuration(..), initBlockHeaderDb)
 import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.Test.TreeDB (treeDbInvariants)
 import Chainweb.Test.Utils (insertN, withDB, withSingleChainServer)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
+import Chainweb.Version (ChainwebVersion(..))
 
 tests :: TestTree
 tests = testGroup "RemoteDB"
     [ testCase "childrenEntries"  childrenEntriesT
+    , treeDbInvariants withDb
     ]
+
+withDb :: BlockHeader -> (RemoteDb -> IO Bool) -> IO Bool
+withDb h f = do
+    db <- initBlockHeaderDb (Configuration h)
+    withSingleChainServer [(cid, db)] [] $ \env -> do
+        f $ RemoteDb env Test cid
 
 cid :: ChainId
 cid = testChainId 0
