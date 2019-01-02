@@ -117,6 +117,7 @@ import Control.Monad.Catch
 import Data.Bifunctor
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Reflection (give)
 import qualified Data.Text as T
 
@@ -250,14 +251,14 @@ withCuts
     -> CutDbConfig
     -> P2pConfiguration
     -> Peer
+    -> PeerDb
     -> ALogFunction
     -> WebBlockHeaderDb
     -> (Cuts -> IO a)
     -> IO a
-withCuts v cutDbConfig p2pConfig peer logfun webchain f =
+withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
     withCutDb cutDbConfig webchain $ \cutDb ->
-        withPeerDb p2pConfig $ \pdb ->
-            f $ Cuts v cutDbConfig p2pConfig peer cutDb pdb logfun
+        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
 
 runCutsSyncClient
     :: HTTP.Manager
@@ -309,13 +310,13 @@ withChain
     -> ChainId
     -> P2pConfiguration
     -> Peer
+    -> PeerDb
     -> ALogFunction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig peer logfun inner =
+withChain v graph cid p2pConfig peer peerDb logfun inner =
     withBlockHeaderDb Test graph cid $ \cdb ->
-        withPeerDb p2pConfig $ \pdb -> inner
-            $ Chain cid v graph p2pConfig peer cdb pdb logfun (syncDepth graph)
+        inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
 
 -- | Synchronize the local block database over the P2P network.
 --
@@ -447,21 +448,22 @@ withChainwebInternal
     -> Peer
     -> (Chainweb -> IO a)
     -> IO a
-withChainwebInternal graph conf logFuns socket peer inner =
-    give graph $ go mempty (toList chainIds)
+withChainwebInternal graph conf logFuns socket peer inner = give graph $ do
+    let nids = HS.map ChainNetwork chainIds `HS.union` HS.singleton CutNetwork
+    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList chainIds)
   where
     -- Initialize chain resources
-    go cs (cid : t) =
+    go peerDb cs (cid : t) =
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf peer logfun $ \c ->
-                go (HM.insert cid c cs) t
+            Just logfun -> withChain v graph cid p2pConf peer peerDb logfun $ \c ->
+                go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go cs [] = do
+    go peerDb cs [] = do
         let webchain = mkWebBlockHeaderDb graph (HM.map _chainBlockHeaderDb cs)
-        withCuts v cutConfig p2pConf peer (_chainwebCutLogFun logFuns) webchain $ \cuts ->
+        withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
                 inner Chainweb
                     { _chainwebVersion = v

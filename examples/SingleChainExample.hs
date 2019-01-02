@@ -36,6 +36,7 @@ import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Function
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -283,7 +284,7 @@ node cid t logger conf p2pConfig nid =
                 [(ChainNetwork cid, pdb)]
 
         withBlockHeaderDbGexf Test singletonChainGraph cid nid $ \cdb ->
-            withPeerDb p2pConfig' $ \pdb ->
+            withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
                 withAsync (serve cdb pdb) $ \server -> do
                     logfun Info "started server"
                     runConcurrently

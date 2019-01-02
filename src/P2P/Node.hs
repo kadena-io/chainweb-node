@@ -66,7 +66,9 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Hashable
 import Data.Int
+import Data.IxSet.Typed (getEQ)
 import qualified Data.Map.Strict as M
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -292,7 +294,10 @@ syncFromPeer node info = runClientM sync env >>= \case
         logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
         return False
     Right p -> do
-        peerDbInsertList (pageItemsWithoutMe p) (_p2pNodePeerDb node)
+        peerDbInsertPeerInfoList
+            (_p2pNodeNetworkId node)
+            (pageItemsWithoutMe p)
+            (_p2pNodePeerDb node)
         return True
   where
     env = peerClientEnv node info
@@ -306,16 +311,6 @@ syncFromPeer node info = runClientM sync env >>= \case
         return p
     myPid = _peerId $ _p2pNodePeerInfo node
     pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
-
-{-
--- | Get PeerInfo when only the HostAddress is known.
---
-getPeerInfos :: ChainwebVersion -> NetworkId -> HTTP.Manager -> HostAddress -> IO PeerInfo
-getPeerInfos mgr nid ha = do
-    let env = mkClientEnv mgr $ peerBaseUrl ha
-    is <- runClientM $ peerGetClient v nid Nothing Nothing
-    L.find (\i -> _peerAddr == ha) (_pageItems
--}
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
@@ -354,7 +349,9 @@ findNextPeer conf node = do
     -- Retry if no suitable peer can be found in the whole list of peers.
     --
     i <- randomR node (0, peerCount - 1)
-    let (a, b) = splitAt (fromIntegral i) $ toList peers
+    let (a, b) = splitAt (fromIntegral i)
+            $ toList
+            $ getEQ (_p2pNodeNetworkId node) peers
     let checkPeer (n :: PeerEntry) = do
             let pid = _peerId $ _peerEntryInfo n
             -- can this check be moved out of the fold?
@@ -451,26 +448,36 @@ waitAnySession node = do
 -- -------------------------------------------------------------------------- --
 -- Run Peer DB
 
+-- | Start a 'PeerDb' for the given set of NetworkIds
+--
 startPeerDb
-    :: P2pConfiguration
+    :: HS.HashSet NetworkId
+    -> P2pConfiguration
     -> IO PeerDb
-startPeerDb conf = do
-    peerDb <- fromPeerList (_p2pConfigKnownPeers conf)
+startPeerDb nids conf = do
+    peerDb <- newEmptyPeerDb
+    forM_ nids $ \nid ->
+        peerDbInsertPeerInfoList nid (_p2pConfigKnownPeers conf) peerDb
     case _p2pConfigPeerDbFilePath conf of
         Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
         Nothing -> return ()
     return peerDb
 
+-- | Stop a 'PeerDb', possibly persisting the db to a file.
+--
 stopPeerDb :: P2pConfiguration -> PeerDb -> IO ()
 stopPeerDb conf db = case _p2pConfigPeerDbFilePath conf of
     Just dbFilePath -> storePeerDb dbFilePath db
     Nothing -> return ()
 
+-- | Run a computation with a PeerDb
+--
 withPeerDb
-    :: P2pConfiguration
+    :: HS.HashSet NetworkId
+    -> P2pConfiguration
     -> (PeerDb -> IO a)
     -> IO a
-withPeerDb conf = bracket (startPeerDb conf) (stopPeerDb conf)
+withPeerDb nids conf = bracket (startPeerDb nids conf) (stopPeerDb conf)
 
 -- -------------------------------------------------------------------------- --
 -- Create
