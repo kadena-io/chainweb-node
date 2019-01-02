@@ -20,6 +20,7 @@ import Data.Bool (bool)
 import Data.Foldable (foldlM)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.List (sort, sortOn)
+import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Tree (Tree(..))
 
@@ -124,7 +125,7 @@ handOfGod_prop
     => (BlockHeader -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 handOfGod_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     h <- maxHeader db
-    try (insert db $ (h & blockNonce . _Unwrapped %~ succ)) >>= \case
+    try (insert db (h & blockNonce . _Unwrapped %~ succ)) >>= \case
         Left (_ :: SomeException) -> pure True
         Right _ -> do
             h' <- maxHeader db
@@ -188,7 +189,7 @@ entryOrder_prop
     => (BlockHeader -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 entryOrder_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     hs <- P.toList_ $ entries db Nothing Nothing Nothing Nothing
-    pure . maybe False (const True) $ foldlM g S.empty hs
+    pure . isJust $ foldlM g S.empty hs
   where
     g acc h = let acc' = S.insert (_blockHash h) acc
               in bool Nothing (Just acc') $ S.member (_blockParent h) acc'

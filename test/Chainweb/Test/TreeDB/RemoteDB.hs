@@ -24,8 +24,7 @@ tests = testGroup "RemoteDB"
 withDb :: BlockHeader -> (RemoteDb -> IO Bool) -> IO Bool
 withDb h f = do
     db <- initBlockHeaderDb (Configuration h)
-    withSingleChainServer [(cid, db)] [] $ \env -> do
-        f $ RemoteDb env Test cid
+    withSingleChainServer [(cid, db)] [] $ \env -> f $ RemoteDb env Test cid
 
 cid :: ChainId
 cid = testChainId 0
