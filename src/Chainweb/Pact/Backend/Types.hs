@@ -15,15 +15,14 @@
 module Chainweb.Pact.Backend.Types
   ( PactDbConfig(..) , pdbcGasLimit , pdbcGasRate , pdbcLogDir , pdbcPersistDir , pdbcPragmas
   , PactDbState(..) , pdbsCommandConfig , pdbsDbEnv , pdbsGasEnv , pdbsLogger, pdbsState
-  , PactDbState'(..)
+  -- , PactDbState'(..)
   , usage
   , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeCheckpointer
   , CheckpointData(..), cpPactDbEnv, cpRefStore, cpPacts
   , Checkpointer(..), cRestore, cPrepare, cSave
+  , Env'(..)
   , OpMode(..)
   , PactDbBackend
-  , initPactCheckpointStore
-  , initPactCheckpointer
   ) where
 
 import qualified Chainweb.BlockHeader as C
@@ -45,16 +44,16 @@ class PactDbBackend e where
 instance PactDbBackend P.PureDb where
 instance PactDbBackend P.SQLite where
 
-data PactDbState e = PactDbState
+data Env' = forall a. PactDbBackend a => Env' (P.PactDbEnv (P.DbEnv a))
+
+data PactDbState = PactDbState
   { _pdbsCommandConfig :: P.CommandConfig
-  , _pdbsDbEnv :: P.PactDbEnv (P.DbEnv e)
+  , _pdbsDbEnv :: Env'
   , _pdbsState :: P.CommandState
   , _pdbsLogger :: P.Logger
   , _pdbsGasEnv :: P.GasEnv
   }
 makeLenses ''PactDbState
-
-data PactDbState' = forall a. PactDbBackend a => PactDbState' (PactDbState a)
 
 data PactDbConfig = PactDbConfig {
   _pdbcPersistDir :: Maybe FilePath,
@@ -80,34 +79,28 @@ data OpMode
   = NewBlock
   | Validation
 
-data CheckpointData p = CheckpointData
-  { _cpPactDbEnv :: P.PactDbEnv (P.DbEnv p)
+data CheckpointData = CheckpointData
+  { _cpPactDbEnv :: Env'
   , _cpRefStore :: P.RefStore
   , _cpPacts :: Map P.TxId P.CommandPact
   }
 
 makeLenses ''CheckpointData
 
-data Checkpointer p c = Checkpointer
-  { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData p -> c -> IO ()
-  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData p -> c -> IO (Either String c)
-  , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData p -> c -> IO ()
+data Checkpointer c = Checkpointer
+  { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData -> c -> IO ()
+  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> c -> IO (Either String c)
+  , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> c -> IO ()
   }
 -- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
 
 
 makeLenses ''Checkpointer
 
-data CheckpointEnv p c = CheckpointEnv
-  { _cpeCheckpointer :: Checkpointer p c
-  , _cpeCommandConfig :: P.CommandConfig
+data CheckpointEnv c = CheckpointEnv
+  { _cpeCheckpointer    :: Checkpointer c
+  , _cpeCommandConfig   :: P.CommandConfig
   , _cpeCheckpointStore :: c
   }
 
 makeLenses ''CheckpointEnv
-
-initPactCheckpointer :: IO (Checkpointer p c)
-initPactCheckpointer = undefined
-
-initPactCheckpointStore :: IO c
-initPactCheckpointStore = undefined

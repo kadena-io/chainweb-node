@@ -16,7 +16,7 @@ import qualified Pact.Interpreter as P
 import qualified Data.Map.Strict as M
 import Data.Maybe
 
-mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> P.Logger -> IO PactDbState'
+mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> P.Logger -> IO PactDbState
 mkPureState env cfg@CommandConfig {..} logger = do
   P.initSchema env
   let gasLimit = fromMaybe 0 _ccGasLimit
@@ -24,9 +24,9 @@ mkPureState env cfg@CommandConfig {..} logger = do
   let gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
   let theState = PactDbState
         { _pdbsCommandConfig = cfg
-        , _pdbsDbEnv = env
+        , _pdbsDbEnv = Env' env
         , _pdbsState = P.CommandState P.initRefStore M.empty
         , _pdbsLogger = logger
         , _pdbsGasEnv = gasEnv
         }
-  return $ PactDbState' theState
+  return theState

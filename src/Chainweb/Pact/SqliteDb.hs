@@ -16,7 +16,7 @@ import qualified Pact.Persist.SQLite as P
 import qualified Data.Map.Strict as M
 import Data.Maybe
 
-mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> Logger -> IO PactDbState'
+mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> Logger -> IO PactDbState
 mkSQLiteState env cfg@CommandConfig {..} logger = do
   initSchema env
   let gasLimit = fromMaybe 0 _ccGasLimit
@@ -24,9 +24,9 @@ mkSQLiteState env cfg@CommandConfig {..} logger = do
   let gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
   let theState = PactDbState
         { _pdbsCommandConfig = cfg
-        , _pdbsDbEnv = env
+        , _pdbsDbEnv = Env' env
         , _pdbsState = CommandState initRefStore M.empty
         , _pdbsLogger = logger
         , _pdbsGasEnv = gasEnv
         }
-  return $ PactDbState' theState
+  return theState
