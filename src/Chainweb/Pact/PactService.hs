@@ -29,6 +29,7 @@ import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 import Control.Monad.IO.Class
 
+import qualified Chainweb.BlockHeader as C
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -67,7 +68,7 @@ serviceRequests =
   forever $ do
   return () --TODO: get / service requests for new blocks and verification
 
-newTransactionBlock :: P.Hash -> Integer -> PactT p c Block
+newTransactionBlock :: P.Hash -> C.BlockHeight -> PactT p c Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
   unless (isFirstBlock parentHash blockHeight) $ do
@@ -94,11 +95,11 @@ newTransactionBlock parentHash blockHeight = do
     Block
       { _bHash = Nothing -- not yet computed
       , _bParentHash = parentHash
-      , _bBlockHeight = blockHeight + 1
+      , _bBlockHeight = succ blockHeight
       , _bTransactions = zip newTrans results
       }
 
-getDbState :: Checkpointer p c -> Integer -> P.Hash -> c -> IO PactDbState'
+getDbState :: Checkpointer p c -> C.BlockHeight -> P.Hash -> c -> IO PactDbState'
 getDbState = undefined
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -125,7 +126,7 @@ mkSqliteConfig (Just f) xs = Just (P.SQLiteConfig {dbFile = f, pragmas = xs})
 mkSqliteConfig _ _ = Nothing
 
 -- TODO: determing correct way to check for the first block
-isFirstBlock :: P.Hash -> Integer -> Bool
+isFirstBlock :: P.Hash -> C.BlockHeight -> Bool
 isFirstBlock _hash _height = False
 
 validateBlock :: forall p c. PactDbBackend p => Block -> PactT p c ()

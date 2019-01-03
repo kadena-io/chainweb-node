@@ -23,6 +23,7 @@ module Chainweb.Pact.Types
 
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
+import qualified Chainweb.BlockHeader as C
 
 -- import Chainweb.Pact.Backend.CheckpointService
 
@@ -44,7 +45,7 @@ newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandRe
 data Block = Block
   { _bHash :: Maybe P.Hash
   , _bParentHash :: P.Hash
-  , _bBlockHeight :: Integer
+  , _bBlockHeight :: C.BlockHeight
   , _bTransactions :: [(Transaction, TransactionOutput)]
   }
 makeLenses ''Block

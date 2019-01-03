@@ -26,6 +26,7 @@ module Chainweb.Pact.Backend.Types
   , initPactCheckpointer
   ) where
 
+import qualified Chainweb.BlockHeader as C
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
@@ -75,9 +76,6 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-
-type Height = Integer
-
 data OpMode
   = NewBlock
   | Validation
@@ -91,9 +89,9 @@ data CheckpointData p = CheckpointData
 makeLenses ''CheckpointData
 
 data Checkpointer p c = Checkpointer
-  { _cRestore :: Height -> P.Hash -> CheckpointData p -> c -> IO ()
-  , _cPrepare :: Height -> P.Hash -> OpMode -> CheckpointData p -> c -> IO (Either String c)
-  , _cSave :: Height -> P.Hash -> OpMode -> CheckpointData p -> c -> IO ()
+  { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData p -> c -> IO ()
+  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData p -> c -> IO (Either String c)
+  , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData p -> c -> IO ()
   }
 -- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
 

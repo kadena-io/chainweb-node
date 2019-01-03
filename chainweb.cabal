@@ -65,7 +65,6 @@ library
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.Pact.Backend.Types
-        , Chainweb.Pact.Backend.CheckpointService
         , Chainweb.Pact.Backend.DiskCheckpointer
         , Chainweb.Pact.Backend.MapPureCheckpointer
         , Chainweb.Pact.PactService
