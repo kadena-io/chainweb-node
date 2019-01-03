@@ -68,8 +68,8 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
   , _mempoolGetBlock :: Int64 -> IO (Vector t)
 
-    -- | mark the given hashes as being mined and validated.
-  , _mempoolMarkValidated :: Vector TransactionHash -> IO ()
+    -- | mark the given transactions as being mined and validated.
+  , _mempoolMarkValidated :: Vector (ValidatedTransaction t) -> IO ()
 
     -- | mark the given hashes as being past confirmation depth.
   , _mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
