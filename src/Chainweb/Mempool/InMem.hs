@@ -4,11 +4,19 @@
 
 -- | A mock in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMem
-  ( InMemoryMempool
+  (
+    -- * Types
+    InMemoryMempool
   , InMemConfig(..)
+
+    -- * Initialization functions
   , withInMemoryMempool
+  , withTxBroadcaster
+
+    -- * Low-level create/destroy functions
   , makeInMemPool
-  , toMempoolBackend
+  , createTxBroadcaster
+  , destroyTxBroadcaster
   ) where
 
 ------------------------------------------------------------------------------
@@ -22,7 +30,7 @@ import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
-    handle, throwIO)
+    handle, mask_, throwIO)
 import Control.Monad (forever, join, void)
 import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (foldlM, for_, traverse_)
@@ -54,8 +62,6 @@ import Chainweb.Mempool.Mempool
 newtype NegatedReward = NegatedReward TransactionReward
   deriving (Ord, Eq)
 
-
-------------------------------------------------------------------------------
 _toNegated :: TransactionReward -> NegatedReward
 _toNegated t = NegatedReward (0 - t)
 _fromNegated :: NegatedReward -> TransactionReward
@@ -63,19 +69,26 @@ _fromNegated (NegatedReward t) = 0 - t
 
 
 ------------------------------------------------------------------------------
+-- | Priority search queue -- search by transaction hash in /O(log n)/ like a
+-- tree, find-min in /O(1)/ like a heap
 type PSQ t = HashPSQ TransactionHash NegatedReward t
 
+type SubscriptionId = Word64
 
 ------------------------------------------------------------------------------
-type SubscriptionId = Word64
+-- | Transaction edits -- these commands will be sent to the broadcast thread
+-- over an STM channel.
 data TxEdit t = Subscribe !SubscriptionId (Subscription t)
               | Unsubscribe !SubscriptionId
               | Transactions (Vector t)
               | Close
 
 
-------------------------------------------------------------------------------
 type TxSubscriberMap t = HashMap SubscriptionId (Weak (Subscription t))
+
+-- | The 'TxBroadcaster' is responsible for broadcasting new transactions out
+-- to any readers. Commands are posted to the channel and are executed by a
+-- helper thread.
 data TxBroadcaster t = TxBroadcaster {
     _txbSubIdgen :: {-# UNPACK #-} !(IORef SubscriptionId)
   , _txbThread :: MVar ThreadId
@@ -83,28 +96,37 @@ data TxBroadcaster t = TxBroadcaster {
   , _txbThreadDone :: MVar ()
 }
 
-
-------------------------------------------------------------------------------
+-- | Runs a user computation with a newly-created transaction broadcaster. The
+-- broadcaster is destroyed after the user function runs.
 withTxBroadcaster :: (TxBroadcaster t -> IO a) -> IO a
-withTxBroadcaster = bracket create destroy
-  where
-    defaultQueueLen = 64
+withTxBroadcaster = bracket createTxBroadcaster destroyTxBroadcaster
 
-    create = do
-        idgen <- newIORef 0
-        threadMV <- newEmptyMVar
-        doneMV <- newEmptyMVar
-        q <- atomically $ TBMChan.newTBMChan defaultQueueLen
-        let !tx = TxBroadcaster idgen threadMV q doneMV
-        forkIOWithUnmask (broadcasterThread tx) >>= putMVar threadMV
-        return tx
+_defaultTxQueueLen :: Int
+_defaultTxQueueLen = 64
 
-    destroy (TxBroadcaster _ _ q doneMV) = do
-        atomically $ TBMChan.writeTBMChan q Close
-        readMVar doneMV
+-- | Creates a 'TxBroadcaster' object. Normally 'withTxBroadcaster' should be
+-- used instead. Care should be taken in 'bracket'-style initialization
+-- functions to get the exception handling right; if 'destroyTxBroadcaster' is
+-- not called the broadcaster thread will leak.
+createTxBroadcaster :: IO (TxBroadcaster t)
+createTxBroadcaster = mask_ $ do
+    idgen <- newIORef 0
+    threadMV <- newEmptyMVar
+    doneMV <- newEmptyMVar
+    q <- atomically $ TBMChan.newTBMChan _defaultTxQueueLen
+    let !tx = TxBroadcaster idgen threadMV q doneMV
+    forkIOWithUnmask (broadcasterThread tx) >>= putMVar threadMV
+    return tx
+
+-- | Destroys a 'TxBroadcaster' object.
+destroyTxBroadcaster :: TxBroadcaster t -> IO ()
+destroyTxBroadcaster (TxBroadcaster _ _ q doneMV) = do
+    atomically $ TBMChan.writeTBMChan q Close
+    readMVar doneMV
 
 
 ------------------------------------------------------------------------------
+-- | Broadcast a group of new transactions via 'TxBroadcaster'.
 broadcastTxs :: Vector t -> TxBroadcaster t -> IO ()
 broadcastTxs txs (TxBroadcaster _ _ q _) =
     -- DECIDE: should this be "tryWrite"?
@@ -112,6 +134,7 @@ broadcastTxs txs (TxBroadcaster _ _ q _) =
 
 
 ------------------------------------------------------------------------------
+-- | Subscribe to a 'TxBroadcaster'.
 subscribeInMem :: TxBroadcaster t -> IO (Subscription t)
 subscribeInMem broadcaster = do
     let q = _txbQueue broadcaster
@@ -127,24 +150,49 @@ subscribeInMem broadcaster = do
 
 
 ------------------------------------------------------------------------------
+-- | The transcription broadcaster thread reads commands from its channel and
+-- dispatches them. Once a 'Close' command comes through, the broadcaster
+-- thread closes up shop and returns.
 broadcasterThread :: TxBroadcaster t -> (forall a . IO a -> IO a) -> IO ()
 broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
     eatExceptions (restore $ bracket init cleanup go)
       `finally` putMVar doneMV ()
   where
+    -- Initially we start with no subscribers.
     init :: IO (MVar (TxSubscriberMap t))
     init = newMVar HashMap.empty
 
+    -- Our cleanup action is to traverse the subscriber map and call
+    -- TBMChan.closeTBMChan on any valid subscriber references. Subscribers
+    -- should then be notified that the broadcaster is finished.
     cleanup mapMV = readMVar mapMV >>= traverse_ closeWeakChan
 
+    -- The main loop. Reads a command from the channel and dispatches it,
+    -- forever.
     go !mapMV = forever . void $ do
         cmd <- atomically $ TBMChan.readTBMChan q
         maybe goodbyeCruelWorld (processCmd mapMV) cmd
 
+    processCmd mv x = modifyMVarMasked_ mv $ flip processCmd' x
+
+    -- new subscriber: add it to the map
+    processCmd' hm (Subscribe sid s) = do
+        w <- Weak.mkWeakPtr s $! Just (_mempoolSubFinal s)
+        return $! HashMap.insert sid w hm
+    -- unsubscribe: call finalizer and delete from subscriber map
+    processCmd' hm (Unsubscribe sid) = do
+        (join <$> mapM Weak.deRefWeak (HashMap.lookup sid hm)) >>= mapM_ closeChan
+        return $! HashMap.delete sid hm
+    -- throw 'ThreadKilled' on receiving 'Close' -- cleanup will be called
+    processCmd' hm Close = goodbyeCruelWorld >> return hm
+    processCmd' hm (Transactions v) = do
+        broadcast v hm
+        return hm
+
+    -- ignore any exceptions received
     eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
 
     closeWeakChan w = Weak.deRefWeak w >>= maybe (return ()) closeChan
-
     closeChan = atomically . TBMChan.closeTBMChan . _mempoolSubChan
 
     broadcast txV = traverse_ (write txV)
@@ -156,21 +204,9 @@ broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
 
     goodbyeCruelWorld = throwIO ThreadKilled
 
-    processCmd mv x = modifyMVarMasked_ mv $ flip processCmd' x
-
-    processCmd' hm (Subscribe sid s) = do
-        w <- Weak.mkWeakPtr s $! Just (_mempoolSubFinal s)
-        return $! HashMap.insert sid w hm
-    processCmd' hm (Unsubscribe sid) = do
-        (join <$> mapM Weak.deRefWeak (HashMap.lookup sid hm)) >>= mapM_ closeChan
-        return $! HashMap.delete sid hm
-    processCmd' hm Close = goodbyeCruelWorld >> return hm
-    processCmd' hm (Transactions v) = do
-        broadcast v hm
-        return hm
-
 
 ------------------------------------------------------------------------------
+-- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
     _inmemCodec :: Codec t
   , _inmemHasher :: ByteString -> TransactionHash
@@ -235,6 +271,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig codec hasher hashMeta
 
 
 ------------------------------------------------------------------------------
+-- | A 'bracket' function for in-memory mempools.
 withInMemoryMempool :: InMemConfig t
                     -> (MempoolBackend t -> IO a)
                     -> IO a
