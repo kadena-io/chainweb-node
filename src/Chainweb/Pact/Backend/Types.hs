@@ -10,25 +10,34 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.Pact.Backend.Types
   ( PactDbConfig(..) , pdbcGasLimit , pdbcGasRate , pdbcLogDir , pdbcPersistDir , pdbcPragmas
   , PactDbState(..) , pdbsCommandConfig , pdbsDbEnv , pdbsGasEnv , pdbsLogger, pdbsState
   , PactDbState'(..)
   , usage
+  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeCheckpointer
+  , CheckpointData(..), cpPactDbEnv, cpRefStore, cpPacts
+  , Checkpointer(..), cRestore, cPrepare, cSave
+  , OpMode(..)
+  , PactDbBackend
+  , initPactCheckpointStore
+  , initPactCheckpointer
   ) where
 
+import qualified Pact.Types.Runtime as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
-import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Server as P
 
 import Control.Lens
 import Data.Aeson
 import GHC.Generics
+import Data.Map.Strict (Map)
 
 class PactDbBackend e where
 
@@ -65,3 +74,42 @@ usage =
   \gasLimit   - Gas limit for each transaction, defaults to 0 \n\
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
+
+
+type Height = Integer
+
+data OpMode
+  = NewBlock
+  | Validation
+
+data CheckpointData p = CheckpointData
+  { _cpPactDbEnv :: P.PactDbEnv (P.DbEnv p)
+  , _cpRefStore :: P.RefStore
+  , _cpPacts :: Map P.TxId P.CommandPact
+  }
+
+makeLenses ''CheckpointData
+
+data Checkpointer p c = Checkpointer
+  { _cRestore :: Height -> P.Hash -> CheckpointData p -> c -> IO ()
+  , _cPrepare :: Height -> P.Hash -> OpMode -> CheckpointData p -> c -> IO (Either String c)
+  , _cSave :: Height -> P.Hash -> OpMode -> CheckpointData p -> c -> IO ()
+  }
+-- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
+
+
+makeLenses ''Checkpointer
+
+data CheckpointEnv p c = CheckpointEnv
+  { _cpeCheckpointer :: Checkpointer p c
+  , _cpeCommandConfig :: P.CommandConfig
+  , _cpeCheckpointStore :: c
+  }
+
+makeLenses ''CheckpointEnv
+
+initPactCheckpointer :: IO (Checkpointer p c)
+initPactCheckpointer = undefined
+
+initPactCheckpointStore :: IO c
+initPactCheckpointStore = undefined

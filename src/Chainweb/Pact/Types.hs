@@ -13,10 +13,6 @@
 
 module Chainweb.Pact.Types
   ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
-  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig
-  , HashTablePurePactCheckpointStore
-  , MapPurePactCheckpointStore
-  , OnDiskPactCheckpointStore(..)
   , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
   , PactT
   , Transaction(..), tCmd , tTxId
@@ -27,14 +23,12 @@ module Chainweb.Pact.Types
 
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
+
+-- import Chainweb.Pact.Backend.CheckpointService
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
 import Data.ByteString (ByteString)
-import Data.IORef
-import qualified Data.HashTable.IO as H
-import Data.Map.Strict (Map)
 import GHC.Word (Word64)
 
 import Chainweb.Pact.Backend.Types
@@ -61,24 +55,15 @@ data PactDbStatePersist = PactDbStatePersist
   }
 makeLenses ''PactDbStatePersist
 
-type MapPurePactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
+type PactT p c a = RWST (CheckpointEnv p c) () PactDbState' IO a
 
-data CheckpointEnv = CheckpointEnv
-  { _cpeCheckpointStore :: MapPurePactCheckpointStore
-  , _cpeCommandConfig :: P.CommandConfig
-  }
-makeLenses ''CheckpointEnv
+-- type PactT c a = RWST (CheckpointEnv Somebackend c) () PactDbState' IO a
 
-type PactT a = RWST CheckpointEnv () PactDbState' IO a
+-- data Somebackend = Somebackend
 
 data TransactionCriteria = TransactionCriteria
 
-type HashTable k v = H.LinearHashTable k v
-
-type HashTablePurePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist)
-
-data OnDiskPactCheckpointStore = OnDiskPactCheckpointStore
-
+-- data OnDiskPactCheckpointStore = OnDiskPactCheckpointStore
 -- type OnDiskPactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
 -- type MapOnDiskPactCheckPointStore = IORef (Map Integer (P.Hash, FilePath))
 -- type HashTableOnDiskPactCheckPointStore = HashTable Integer (P.Hash, FilePath)

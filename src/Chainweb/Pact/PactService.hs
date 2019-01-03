@@ -9,6 +9,7 @@
 
 {-#Language LambdaCase#-}
 {-#Language RecordWildCards#-}
+{-#Language RankNTypes#-}
 
 module Chainweb.Pact.PactService
   ( initPactService
@@ -16,11 +17,11 @@ module Chainweb.Pact.PactService
   , validateBlock
   ) where
 
+import Control.Applicative
 import Control.Concurrent
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.Extra
 import Control.Monad.Trans.RWS.Lazy
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
@@ -36,7 +37,7 @@ import qualified Pact.Types.Runtime as P
 import Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (SQLiteConfig (..), Pragma(..))
 
-import Chainweb.Pact.MapPureCheckpoint
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.MemoryDb
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.SqliteDb
@@ -55,31 +56,50 @@ initPactService = do
     Just sqlc -> do
       env <- P.mkSQLiteEnv logger False sqlc loggers
       mkSQLiteState env cmdConfig logger
-  theStore <- initPactCheckpointStore :: IO MapPurePactCheckpointStore
-  let env = CheckpointEnv {_cpeCheckpointStore = theStore, _cpeCommandConfig = cmdConfig }
-  _ <- runRWST serviceRequests env theState'
+  checkpointer <- initPactCheckpointer
+  theStore <- initPactCheckpointStore
+  let env = CheckpointEnv {_cpeCheckpointer = checkpointer, _cpeCommandConfig = cmdConfig, _cpeCheckpointStore = theStore  }
+  void $ runRWST serviceRequests env theState'
   return ()
 
-serviceRequests :: PactT ()
+serviceRequests :: PactT p c ()
 serviceRequests =
   forever $ do
   return () --TODO: get / service requests for new blocks and verification
 
-newTransactionBlock :: P.Hash -> Integer -> PactT Block
+newTransactionBlock :: P.Hash -> Integer -> PactT p c Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
   unless (isFirstBlock parentHash blockHeight) $ do
+    checkpointer <- view cpeCheckpointer
     checkpointStore <- view cpeCheckpointStore
-    mRestoredState <- liftIO $ restoreCheckpoint parentHash blockHeight checkpointStore
-    whenJust mRestoredState put
+    st <- buildCurrentPactState
+    mRestoredState <-
+      liftIO $
+      _cPrepare
+        checkpointer
+        blockHeight
+        parentHash
+        NewBlock
+        (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
+        checkpointStore
+    either
+      error
+      (\s -> do dbstate <- liftIO $ getDbState checkpointer blockHeight parentHash s
+                put dbstate)
+      mRestoredState
   theState <- get
   results <- liftIO $ execTransactions theState newTrans
-  return Block
-    { _bHash = Nothing -- not yet computed
-    , _bParentHash = parentHash
-    , _bBlockHeight = blockHeight + 1
-    , _bTransactions = zip newTrans results
-    }
+  return
+    Block
+      { _bHash = Nothing -- not yet computed
+      , _bParentHash = parentHash
+      , _bBlockHeight = blockHeight + 1
+      , _bTransactions = zip newTrans results
+      }
+
+getDbState :: Checkpointer p c -> Integer -> P.Hash -> c -> IO PactDbState'
+getDbState = undefined
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -108,25 +128,53 @@ mkSqliteConfig _ _ = Nothing
 isFirstBlock :: P.Hash -> Integer -> Bool
 isFirstBlock _hash _height = False
 
-validateBlock :: Block -> PactT ()
+validateBlock :: forall p c. PactDbBackend p => Block -> PactT p c ()
 validateBlock Block {..} = do
-  checkpointStore <- view cpeCheckpointStore
+  checkpointer <- view cpeCheckpointer
   case _bHash of
-    Nothing -> liftIO $ putStrLn "Block to be validated is missing hash"  -- TBD log, throw, etc.
+    Nothing -> liftIO $ putStrLn "Block to be validated is missing hash" -- TBD log, throw, etc.
     Just theHash -> do
       unless (isFirstBlock _bParentHash _bBlockHeight) $ do
-        mRestoredState <- liftIO $ restoreCheckpoint theHash _bBlockHeight checkpointStore
-        whenJust mRestoredState put
+        st <- buildCurrentPactState
+        checkpointStore <- view cpeCheckpointStore
+        mRestoredState <-
+          liftIO $
+          _cPrepare
+            checkpointer
+            _bBlockHeight
+            theHash
+            Validation
+            (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
+            checkpointStore
+        either error (\s -> do dbstate <- liftIO $ getDbState checkpointer _bBlockHeight _bParentHash s
+                               put dbstate) mRestoredState
+          -- (put . _cGetPactDbState checkpointStore _bBlockHeight _bParentHash)
       currentState <- get
-      _results <- liftIO $ execTransactions currentState (fmap fst _bTransactions)
+      _results <-
+        liftIO $ execTransactions currentState (fmap fst _bTransactions)
       newState <- buildCurrentPactState
-      put newState
-      liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
+      put (PactDbState' newState)
+      st <- buildCurrentPactState
+      checkpointStore <- view cpeCheckpointStore
+      liftIO $
+        _cSave
+          checkpointer
+          _bBlockHeight
+          _bParentHash
+          Validation
+          (liftA3
+             CheckpointData
+             _pdbsDbEnv
+             (P._csRefStore . _pdbsState)
+             (P._csPacts . _pdbsState)
+             st)
+          checkpointStore
+
+      -- liftIO $ makeCheckpoint theHash _bBlockHeight newState checkpointStore
       -- TODO: TBD what do we need to do for validation and what is the return type?
-      return ()
 
 --placeholder - get transactions from mem pool
-requestTransactions :: TransactionCriteria -> PactT [Transaction]
+requestTransactions :: TransactionCriteria -> PactT p c [Transaction]
 requestTransactions _crit = return []
 
 execTransactions :: PactDbState' -> [Transaction] -> IO [TransactionOutput]
@@ -137,11 +185,11 @@ execTransactions pactState' xs =
 
 applyPactCmd :: PactDbState' -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
 applyPactCmd (PactDbState' pactState) eMode cmd = do
-  let cmdState = view pdbsState pactState
+  let cmdState = _pdbsState pactState
   newVar <-  newMVar cmdState
-  let logger = view pdbsLogger pactState
-  let gasEnv = view pdbsGasEnv pactState
-  let pactDbEnv = view pdbsDbEnv pactState
+  let logger = _pdbsLogger pactState
+  let gasEnv = _pdbsGasEnv pactState
+  let pactDbEnv = _pdbsDbEnv pactState
   applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
 
 _hashResults :: [P.CommandResult] -> P.Hash
@@ -149,5 +197,10 @@ _hashResults cmdResults =
   let bs = foldMap (A.encode . P._crResult ) cmdResults
   in P.hash $ toS bs
 
-buildCurrentPactState :: PactT PactDbState'
+buildCurrentPactState :: PactT p c (PactDbState p)
 buildCurrentPactState = undefined
+
+
+-- buildCurrentPactState :: forall p c. PactDbBackend p => PactT p c PactDbState'
+-- buildCurrentPactState = undefined
+-- -- this could be `get`

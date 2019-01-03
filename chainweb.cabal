@@ -65,10 +65,10 @@ library
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.Pact.Backend.Types
-        , Chainweb.Pact.DiskCheckpoint
-        , Chainweb.Pact.HashtablePureCheckpoint
+        , Chainweb.Pact.Backend.CheckpointService
+        , Chainweb.Pact.Backend.DiskCheckpointer
+        , Chainweb.Pact.Backend.MapPureCheckpointer
         , Chainweb.Pact.PactService
-        , Chainweb.Pact.MapPureCheckpoint
         , Chainweb.Pact.MemoryDb
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.SqliteDb
