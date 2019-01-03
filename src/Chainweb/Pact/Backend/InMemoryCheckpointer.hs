@@ -28,6 +28,7 @@ initInMemoryCheckpointer =
     , _cSave = save
     }
 
+
 initInMemoryStore :: HashMap (BlockHeight, P.Hash) CheckpointData
 initInMemoryStore = HMS.empty
 
