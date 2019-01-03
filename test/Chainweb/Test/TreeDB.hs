@@ -11,7 +11,7 @@
 --
 -- Test the invariants of the `TreeDb` typeclass.
 --
-module Chainweb.Test.TreeDB ( treeDbInvariants ) where
+module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
 
 import Control.Exception (SomeException(..), try)
 import Control.Lens (to, view, (%~), (&))
@@ -38,31 +38,41 @@ import Chainweb.BlockHeader
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
 
+
+-- | Used with `schedule` to define how these properties should be tested.
+--
+data RunStyle = Sequential | Parallel
+
+schedule :: RunStyle -> String -> TestTree -> TestTree
+schedule Parallel _ = id
+schedule Sequential patt = after AllFinish patt
+
 treeDbInvariants
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     -- ^ Given a generic entry, should yield a database for testing, and then
     -- safely close it after use.
     => (DbEntry db -> (db -> IO Bool) -> IO Bool)
+    -> RunStyle
     -> TestTree
-treeDbInvariants f = testGroup "TreeDb Invariants"
+treeDbInvariants f rs = testGroup "TreeDb Invariants"
     [ testGroup "Properties"
         [ testGroup "Shape"
-            [ testProperty "Conversion to/from Tree" $ treeIso_prop f
-            , testProperty "Root node is its own parent" $ rootParent_prop f
+            [ testProperty "Conversion to and from Tree" $ treeIso_prop f
+            , schedule rs "Conversion to and from Tree" $
+                  testProperty "Root node is its own parent" $ rootParent_prop f
             ]
         , testGroup "Basic Streaming"
               [ testGroup "Self-reported Stream Length"
-                    [ testProperty "keys"
-                          $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
-                    , testProperty "entries"
+                    [ testProperty "keys" $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
+                    , schedule rs "keys" $ testProperty "entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
                     , testProperty "leafEntries"
                           $ streamCount_prop f (\db -> leafEntries db Nothing Nothing Nothing Nothing)
-                    , testProperty "leafKeys"
+                    , schedule rs "leafEntries" $ testProperty "leafKeys"
                           $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
                     , testProperty "branchKeys"
                           $ streamCount_prop f (\db -> branchKeys db Nothing Nothing Nothing Nothing mempty mempty)
-                    , testProperty "branchEntries"
+                    , schedule rs "branchKeys" $ testProperty "branchEntries"
                           $ streamCount_prop f (\db -> branchEntries db Nothing Nothing Nothing Nothing mempty mempty)
                     ]
               , testGroup "Misc."
@@ -70,11 +80,14 @@ treeDbInvariants f = testGroup "TreeDb Invariants"
                     ]
               ]
         , testGroup "Behaviour"
-            [ testProperty "Reinsertion is a no-op" $ reinsertion_prop f
-            , testProperty "Can't manipulate old nodes" $ handOfGod_prop f
-            , testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
-            , testProperty "Entries are streamed in (roughly) ascending order" $ entryOrder_prop f
-            , testProperty "maxRank reports correct height" $ maxRank_prop f
+            [ schedule rs "All leaves are properly fetched" $
+                  testProperty "Reinsertion is a no-op" $ reinsertion_prop f
+            , testProperty "Cannot manipulate old nodes" $ handOfGod_prop f
+            , schedule rs "Cannot manipulate old nodes" $
+                  testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
+            , testProperty "Entries are streamed in ascending order" $ entryOrder_prop f
+            , schedule rs "Entries are streamed in ascending order" $
+                  testProperty "maxRank reports correct height" $ maxRank_prop f
             ]
         ]
     ]

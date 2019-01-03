@@ -27,7 +27,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.TreeDB (treeDbInvariants)
+import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withDB)
 import Chainweb.TreeDB
 
@@ -47,7 +47,7 @@ tests = testGroup "Unit Tests"
       [ testCase "height" correctHeight
       , testCase "copy" copyTest
       ]
-    , treeDbInvariants withDb
+    , treeDbInvariants withDb Parallel
     ]
 
 withDb :: BlockHeader -> (BlockHeaderDb -> IO Bool) -> IO Bool

@@ -9,7 +9,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB (Configuration(..), initBlockHeaderDb)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Test.TreeDB (treeDbInvariants)
+import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (insertN, withDB, withSingleChainServer)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
@@ -18,7 +18,7 @@ import Chainweb.Version (ChainwebVersion(..))
 tests :: TestTree
 tests = testGroup "RemoteDB"
     [ testCase "childrenEntries"  childrenEntriesT
-    , treeDbInvariants withDb
+    , treeDbInvariants withDb Sequential
     ]
 
 withDb :: BlockHeader -> (RemoteDb -> IO Bool) -> IO Bool
