@@ -13,10 +13,6 @@
 
 module Chainweb.Pact.Types
   ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
-  , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeGasEnv, cpeLogger
-  , HashTablePactCheckpointStore
-  , MapPactCheckpointStore
-  , OnDiskPactCheckpointStore(..)
   , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
   , PactT
   , Transaction(..), tCmd , tTxId
@@ -28,14 +24,11 @@ module Chainweb.Pact.Types
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
+import qualified Chainweb.BlockHeader as C
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
 import Data.ByteString (ByteString)
-import Data.IORef
-import qualified Data.HashTable.IO as H
-import Data.Map.Strict (Map)
 import GHC.Word (Word64)
 
 import Chainweb.Pact.Backend.Types
@@ -51,33 +44,17 @@ newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandRe
 data Block = Block
   { _bHash :: Maybe P.Hash
   , _bParentHash :: P.Hash
-  , _bBlockHeight :: Integer
+  , _bBlockHeight :: C.BlockHeight
   , _bTransactions :: [(Transaction, TransactionOutput)]
   }
 makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
   { _pdbspRestoreFile :: Maybe FilePath
-  , _pdbspPactDbState :: PactDbState'
+  , _pdbspPactDbState :: PactDbState
   }
 makeLenses ''PactDbStatePersist
 
-type MapPactCheckpointStore = IORef (Map Integer (P.Hash, PactDbStatePersist))
-
-data CheckpointEnv = CheckpointEnv
-  { _cpeCheckpointStore :: MapPactCheckpointStore
-  , _cpeCommandConfig :: P.CommandConfig
-  , _cpeLogger :: P.Logger
-  , _cpeGasEnv :: P.GasEnv
-  }
-makeLenses ''CheckpointEnv
-
-type PactT a = RWST CheckpointEnv () PactDbState' IO a
+type PactT c a = RWST (CheckpointEnv c) () PactDbState IO a
 
 data TransactionCriteria = TransactionCriteria
-
-type HashTable k v = H.LinearHashTable k v
-
-type HashTablePactCheckpointStore = HashTable Integer (P.Hash, PactDbStatePersist)
-
-data OnDiskPactCheckpointStore = OnDiskPactCheckpointStore
