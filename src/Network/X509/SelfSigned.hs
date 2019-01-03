@@ -27,7 +27,7 @@ module Network.X509.SelfSigned
 , AltName(..)
 
 -- * Certificate Fingerprints
-, type FingerprintByteCount
+, FingerprintByteCount
 , fingerprintByteCount
 , Fingerprint(..)
 , fingerprint
