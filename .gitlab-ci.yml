@@ -1,4 +1,10 @@
-# build with -fdev
+ulimit:
+  script:
+    - ulimit -Hn
+    - ulimit -Sn
+    - nix-shell --run "ulimit -Hn"
+    - nix-shell --run "ulimit -Sn"
+
 chainweb-nix-macos:
   script:
     - nix-build
