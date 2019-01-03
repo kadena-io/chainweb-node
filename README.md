@@ -46,11 +46,11 @@ A chainweb-node has two identifiers:
     purposes. The user must provide each node with a unique node-id on startup.
 
 *   The peer-id is used to identify the node in the peer-to-peer network. It is
-    fingerprint of an ephemeral X509 certificate that, if not provided in
+    a fingerprint of an ephemeral X509 certificate that, if not provided in
     the configuration, is created automatically and  can be dropped and
     recreated at any time. Since the peer-id is used in caches and for
-    reputation management nodes are incentivised to persist and reuse peer-ids.
-    When no peer-id is provided a node generates a new peer-id on startup.
+    reputation management, nodes are incentivised to persist and reuse peer-ids.
+    When no peer-id is provided, a node generates a new peer-id on startup.
 
 On startup a chainweb-node tries to connect to the P2P network. For that each
 chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
