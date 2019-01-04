@@ -49,6 +49,7 @@ module Chainweb.Chainweb
 
 -- * Peer Resources
 , allocatePeer
+, withPeer
 , peerServerSettings
 
 -- * Cut Resources
@@ -126,7 +127,7 @@ import qualified Data.Text as T
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket)
+import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setPort, setHost)
 
 import System.LogLevel
@@ -234,6 +235,9 @@ peerServerSettings peer
     = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . setHost (_peerInterface peer)
     $ defaultSettings
+
+withPeer :: PeerConfig -> ((PeerConfig, Socket, Peer) -> IO a) -> IO a
+withPeer conf = bracket (allocatePeer conf) (\(_, sock, _) -> close sock)
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -435,8 +439,7 @@ withChainweb
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb graph conf logFuns inner = do
-    (c, sock, peer) <- allocatePeer (view confLens conf)
+withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
     withChainwebInternal graph (set confLens c conf) logFuns sock peer inner
   where
     confLens :: Lens' ChainwebConfiguration PeerConfig
