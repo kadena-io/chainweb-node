@@ -40,6 +40,10 @@ in
         chainweb = doCoverage (doHaddock super.chainweb);
         configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
 
+        # `callHackageDirect` doesn't handle revisions yet, so to work around an
+        # issue with `hspec` bounds in `fake`, we jailbreak it.
+        fake = doJailbreak super.fake;
+
         extra = dontCheck (callHackageDirect {
           pkg = "extra";
           ver = "1.6.13";
@@ -115,7 +119,11 @@ in
 
       };
     packages = {
-      chainweb = gitignore.gitignoreSource [] ./.;
+      # Temporarily disable gitignoreSource due to https://github.com/siers/nix-gitignore/issues/14
+      # chainweb = gitignore.gitignoreSource [] ./.;
+      chainweb = builtins.filterSource
+        (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
+        ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

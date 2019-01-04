@@ -64,13 +64,13 @@ library
         , Chainweb.HostAddress
         , Chainweb.Miner.Test
         , Chainweb.NodeId
-        , Chainweb.Pact.Exec
-        , Chainweb.Pact.MemoryDb
-        -- , Chainweb.Pact.SqliteDb
+        , Chainweb.Pact.Backend.Types
+        , Chainweb.Pact.Backend.SQLiteCheckpointer
+        , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.PactService
-        , Chainweb.Pact.DiskCheckpoint
-        , Chainweb.Pact.HashtablePureCheckpoint
-        , Chainweb.Pact.MapPureCheckpoint
+        , Chainweb.Pact.Backend.MemoryDb
+        , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
@@ -206,6 +206,7 @@ test-suite chainweb-tests
         , bytestring >= 0.10
         , containers >= 0.5
         , data-dword >= 0.3
+        , fake >= 0.1
         , fgl >= 5.6
         , hashable >= 1.2
         , http-client >= 0.5
@@ -431,5 +432,3 @@ executable p2p-example
         , mwc-random >= 0.13
         , text >= 1.2
         , yet-another-logger >= 0.3.1
-
-    if flag(dev) { buildable: True } else { buildable: False }

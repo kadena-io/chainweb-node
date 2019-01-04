@@ -1,6 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -17,6 +20,10 @@ module Chainweb.Test.Utils
   toyBlockHeaderDb
 , withDB
 , insertN
+, prettyTree
+, SparseTree(..)
+, Growth(..)
+, tree
 
 -- * Test BlockHeaderDbs Configurations
 , peterson
@@ -56,10 +63,14 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.Coerce (coerce)
 import Data.Foldable
 import Data.Reflection (give)
 import qualified Data.Text as T
+import Data.Tree
 import Data.Word (Word64)
+
+import Fake
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
@@ -70,18 +81,23 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import Test.QuickCheck
+import Test.QuickCheck hiding (frequency)
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import Text.Printf (printf)
 
 -- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Difficulty (HashTarget(..), targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -98,10 +114,10 @@ import qualified P2P.Node.PeerDB as P2P
 -- Borrowed from TrivialSync.hs
 --
 toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
+toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
   where
     graph = toChainGraph (const cid) singleton
-    genesis = genesisBlockHeader Test graph cid
+    g = genesisBlockHeader Test graph cid
 
 -- | Given a function that accepts a Genesis Block and
 -- an initialized `BlockHeaderDb`, perform some action
@@ -110,12 +126,100 @@ toyBlockHeaderDb cid = (genesis,) <$> initBlockHeaderDb (Configuration genesis)
 withDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
 withDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
 
--- | Populate a `BlockHeaderDb` with /n/ generated `BlockHeader`s.
+-- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
-insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN :: (TreeDb db, DbEntry db ~ BlockHeader) => Int -> BlockHeader -> db -> IO ()
 insertN n g db = traverse_ (insert db) bhs
   where
     bhs = take n $ testBlockHeaders g
+
+-- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
+-- from any `TreeDb` via `toTree`.
+--
+prettyTree :: Tree BlockHeader -> String
+prettyTree = drawTree . fmap f
+  where
+    f h = printf "%d - %s"
+              (coerce @BlockHeight @Word64 $ _blockHeight h)
+              (take 12 . drop 1 . show $ _blockHash h)
+
+-- | A `Tree` which doesn't branch much. The `Fake` instance of this type
+-- ensures that other than the main trunk, branches won't ever be much longer
+-- than 4 nodes.
+--
+newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader }
+
+instance Fake SparseTree where
+    fake = SparseTree <$> tree Randomly
+
+-- | A specification for how the trunk of the `SparseTree` should grow.
+--
+data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
+
+-- | Randomly generate a `Tree BlockHeader` according some to `Growth` strategy.
+-- The values of the tree constitute a legal chain, i.e. block heights start
+-- from 0 and increment, parent hashes propagate properly, etc.
+--
+tree :: Growth -> FGen (Tree BlockHeader)
+tree g = do
+    h <- genesis
+    Node h <$> forest g h
+
+-- | Generate a sane, legal genesis block.
+--
+genesis :: FGen BlockHeader
+genesis = do
+    h <- fake
+    let h' = h { _blockHeight = 0 }
+        hsh = computeBlockHash h'
+    pure $ h' { _blockHash = hsh
+              , _blockParent = hsh
+              , _blockTarget = genesisBlockTarget
+              , _blockWeight = 0
+              }
+
+forest :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+forest Randomly h = randomTrunk h
+forest g@(AtMost n) h | n < _blockHeight h = pure []
+                      | otherwise = fixedTrunk g h
+
+fixedTrunk :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+fixedTrunk g h = frequency [ (1, sequenceA [fork h, trunk g h])
+                           , (5, sequenceA [trunk g h]) ]
+
+randomTrunk :: BlockHeader -> FGen (Forest BlockHeader)
+randomTrunk h = frequency [ (2, pure [])
+                          , (4, sequenceA [fork h, trunk Randomly h])
+                          , (18, sequenceA [trunk Randomly h]) ]
+
+fork :: BlockHeader -> FGen (Tree BlockHeader)
+fork h = do
+    next <- header h
+    Node next <$> frequency [ (1, pure []), (1, sequenceA [fork next]) ]
+
+trunk :: Growth -> BlockHeader -> FGen (Tree BlockHeader)
+trunk g h = do
+    next <- header h
+    Node next <$> forest g next
+
+-- | Generate some new `BlockHeader` based on a parent.
+--
+header :: BlockHeader -> FGen BlockHeader
+header h = do
+    nonce <- fake
+    payload <- fake
+    miner <- fake
+    let (Time (TimeSpan ts)) = _blockCreationTime h
+        target = HashTarget maxBound
+        h' = h { _blockParent = _blockHash h
+               , _blockTarget = target
+               , _blockPayloadHash = payload
+               , _blockCreationTime = Time . TimeSpan $ ts + 10000000  -- 10 seconds
+               , _blockNonce = nonce
+               , _blockMiner = miner
+               , _blockWeight = BlockWeight (targetToDifficulty target) + _blockWeight h
+               , _blockHeight = succ $ _blockHeight h }
+    pure $ h' { _blockHash = computeBlockHash h' }
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
