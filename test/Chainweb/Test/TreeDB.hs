@@ -77,7 +77,8 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
                           $ streamCount_prop f (\db -> branchEntries db Nothing Nothing Nothing Nothing mempty mempty)
                     ]
               , testGroup "Misc."
-                    [ testProperty "All leaves are properly fetched" $ leafFetch_prop f
+                    [ schedule rs "branchEntries" $
+                          testProperty "All leaves are properly fetched" $ leafFetch_prop f
                     ]
               ]
         , testGroup "Behaviour"
