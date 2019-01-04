@@ -18,6 +18,7 @@ module Chainweb.Test.Orphans.Internal
 import qualified Data.ByteString as B
 
 import Test.QuickCheck
+import Test.QuickCheck.Gen (chooseAny)
 
 -- internal modules
 
@@ -77,11 +78,11 @@ instance Arbitrary BlockHeader where
           <*> arbitrary
           <*> arbitrary
           <*> arbitrary
-          <*> arbitrary
+          <*> (Nonce <$> chooseAny)
           <*> pure (testChainId 0)
           <*> arbitrary
           <*> arbitrary
           <*> pure Test
           <*> arbitrary
           <*> arbitrary
-      pure $ h { _blockHash = computeBlockHash h }
+      pure $! h { _blockHash = computeBlockHash h }

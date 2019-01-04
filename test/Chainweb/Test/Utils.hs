@@ -85,6 +85,7 @@ import Numeric.Natural
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import Test.QuickCheck
+import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -184,11 +185,11 @@ genesis = do
     h <- arbitrary
     let h' = h { _blockHeight = 0 }
         hsh = computeBlockHash h'
-    pure $ h' { _blockHash = hsh
-              , _blockParent = hsh
-              , _blockTarget = genesisBlockTarget
-              , _blockWeight = 0
-              }
+    pure $! h' { _blockHash = hsh
+               , _blockParent = hsh
+               , _blockTarget = genesisBlockTarget
+               , _blockWeight = 0
+               }
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -218,7 +219,7 @@ trunk g h = do
 --
 header :: BlockHeader -> Gen BlockHeader
 header h = do
-    nonce <- arbitrary
+    nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary
     let (Time (TimeSpan ts)) = _blockCreationTime h
@@ -231,7 +232,7 @@ header h = do
                , _blockMiner = miner
                , _blockWeight = BlockWeight (targetToDifficulty target) + _blockWeight h
                , _blockHeight = succ $ _blockHeight h }
-    pure $ h' { _blockHash = computeBlockHash h' }
+    pure $! h' { _blockHash = computeBlockHash h' }
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
