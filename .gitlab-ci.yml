@@ -1,9 +1,10 @@
+# This is small check to confirm that the shell's limits for opening file
+# descriptors is sufficiently high. This is relevant for our property tests, in
+# which some tests rapidly create and destroy HTTP servers.
 ulimit:
   script:
     - ulimit -Hn
     - ulimit -Sn
-    - nix-shell --run "ulimit -Hn"
-    - nix-shell --run "ulimit -Sn"
 
 chainweb-nix-macos:
   script:

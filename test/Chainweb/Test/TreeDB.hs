@@ -63,14 +63,15 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
             ]
         , testGroup "Basic Streaming"
               [ testGroup "Self-reported Stream Length"
-                    [ testProperty "keys" $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
+                    [ schedule rs "Root node is its own parent" $ testProperty "keys"
+                          $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
                     , schedule rs "keys" $ testProperty "entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
-                    , testProperty "leafEntries"
+                    , schedule rs "entries" $ testProperty "leafEntries"
                           $ streamCount_prop f (\db -> leafEntries db Nothing Nothing Nothing Nothing)
                     , schedule rs "leafEntries" $ testProperty "leafKeys"
                           $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
-                    , testProperty "branchKeys"
+                    , schedule rs "leafKeys" $ testProperty "branchKeys"
                           $ streamCount_prop f (\db -> branchKeys db Nothing Nothing Nothing Nothing mempty mempty)
                     , schedule rs "branchKeys" $ testProperty "branchEntries"
                           $ streamCount_prop f (\db -> branchEntries db Nothing Nothing Nothing Nothing mempty mempty)
@@ -82,10 +83,12 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
         , testGroup "Behaviour"
             [ schedule rs "All leaves are properly fetched" $
                   testProperty "Reinsertion is a no-op" $ reinsertion_prop f
-            , testProperty "Cannot manipulate old nodes" $ handOfGod_prop f
+            , schedule rs "Reinsertion is a no-op" $
+                  testProperty "Cannot manipulate old nodes" $ handOfGod_prop f
             , schedule rs "Cannot manipulate old nodes" $
                   testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
-            , testProperty "Entries are streamed in ascending order" $ entryOrder_prop f
+            , schedule rs "Leaves are streamed in ascending order" $
+                  testProperty "Entries are streamed in ascending order" $ entryOrder_prop f
             , schedule rs "Entries are streamed in ascending order" $
                   testProperty "maxRank reports correct height" $ maxRank_prop f
             ]

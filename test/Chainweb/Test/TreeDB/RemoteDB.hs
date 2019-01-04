@@ -1,5 +1,6 @@
 module Chainweb.Test.TreeDB.RemoteDB ( tests ) where
 
+
 import qualified Streaming.Prelude as S
 
 import Test.Tasty
@@ -17,7 +18,7 @@ import Chainweb.Version (ChainwebVersion(..))
 
 tests :: TestTree
 tests = testGroup "RemoteDB"
-    [ testCase "childrenEntries"  childrenEntriesT
+    [ testCase "childrenEntries" childrenEntriesT
     , treeDbInvariants withDb Sequential
     ]
 
