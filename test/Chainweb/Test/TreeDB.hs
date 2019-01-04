@@ -14,7 +14,7 @@
 module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
 
 import Control.Exception (SomeException(..), try)
-import Control.Lens (to, view, (%~), (&))
+import Control.Lens (over, to, view)
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM)
@@ -37,19 +37,30 @@ import Test.Tasty.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils (len)
 
 
 -- | Used with `schedule` to define how these properties should be tested.
 --
 data RunStyle = Sequential | Parallel
 
+-- | PR #157 introduces property-based testing of `TreeDb` invariants. These
+-- properties create a new DB from scratch upon each run. One `TreeDb` instance,
+-- `RemoteDb` requires spawning a full Warp `Application` for this to occur.
+--
+-- Unfortunately, the rapid spawning, requesting, and closing of these servers
+-- seems to occasionally create issues with dangling sockets in the underlying
+-- system. This can hang the tests, so `schedule` here allows us to optionally
+-- thread all these properties sequentially, so that they won't be ran in
+-- parallel as is usual for Tasty-based tests.
+--
 schedule :: RunStyle -> String -> TestTree -> TestTree
 schedule Parallel _ = id
 schedule Sequential patt = after AllFinish patt
 
 treeDbInvariants
     :: (TreeDb db, DbEntry db ~ BlockHeader)
-    -- ^ Given a generic entry, should yield a database for testing, and then
+    -- | Given a generic entry, should yield a database for testing, and then
     -- safely close it after use.
     => (DbEntry db -> (db -> IO Bool) -> IO Bool)
     -> RunStyle
@@ -142,7 +153,7 @@ handOfGod_prop
     => (BlockHeader -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 handOfGod_prop f (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     h <- maxHeader db
-    try (insert db (h & blockNonce . _Unwrapped %~ succ)) >>= \case
+    try (insert db (over (blockNonce . _Unwrapped) succ h)) >>= \case
         Left (_ :: SomeException) -> pure True
         Right _ -> do
             h' <- maxHeader db
@@ -168,7 +179,7 @@ streamCount_prop
     -> Property
 streamCount_prop f g (SparseTree t) = ioProperty . withTreeDb f t $ \db -> do
     (ls :> (n, _)) <- P.toList $ g db
-    pure $ length ls == fromIntegral n
+    pure $ len ls == n
 
 -- | Property: A `TreeDb` must be able to yield all of its leaves properly.
 --

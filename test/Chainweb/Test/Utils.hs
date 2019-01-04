@@ -60,7 +60,7 @@ module Chainweb.Test.Utils
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
-import Control.Lens (deep, filtered, (^..))
+import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -153,7 +153,7 @@ normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
 -- | The leaf nodes of a `Tree`.
 --
 treeLeaves :: Tree a -> [a]
-treeLeaves t = t ^.. deep (filtered (null . subForest) . LT.root)
+treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 
 -- | A `Tree` which doesn't branch much. The `Arbitrary` instance of this type
 -- ensures that other than the main trunk, branches won't ever be much longer
