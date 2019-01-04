@@ -561,8 +561,5 @@ runChainweb cw = do
     certCacheLookup peerDb si = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
-        return $ case pe of
-            Nothing -> Nothing
-            Just x -> peerIdToFingerprint <$> _peerId (_peerEntryInfo x)
-
+        return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
