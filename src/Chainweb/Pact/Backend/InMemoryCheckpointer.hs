@@ -20,12 +20,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.IORef
 import Data.Maybe
 
-type StoreKey = (BlockHeight, P.Hash)
-
-type Store = HashMap StoreKey CheckpointData
-
-initInMemoryCheckpointer :: Checkpointer Store
-initInMemoryCheckpointer =
+initInMemoryCheckpointer :: Checkpointer'
+initInMemoryCheckpointer = Checkpointer'
   Checkpointer {_cRestore = restore, _cPrepare = prepare, _cSave = save}
 
 initInMemoryStore :: IO (IORef Store)

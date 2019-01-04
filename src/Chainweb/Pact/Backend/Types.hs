@@ -9,6 +9,7 @@
 
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -19,9 +20,11 @@ module Chainweb.Pact.Backend.Types
   , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeCheckpointer, cpeLogger, cpeGasEnv
   , CheckpointData(..), cpPactDbEnv, cpRefStore, cpPacts
   , Checkpointer(..), cRestore, cPrepare, cSave
+  , Checkpointer'(..)
   , Env'(..)
   , OpMode(..)
   , PactDbBackend
+  , Store
   ) where
 
 import qualified Chainweb.BlockHeader as C
@@ -37,6 +40,8 @@ import Control.Lens
 import Data.Aeson
 import GHC.Generics
 import Data.Map.Strict (Map)
+import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
+import Data.HashMap.Strict (HashMap)
 import Data.IORef
 
 class PactDbBackend e where
@@ -44,7 +49,10 @@ class PactDbBackend e where
 instance PactDbBackend P.PureDb where
 instance PactDbBackend P.SQLite where
 
+type StoreKey = (C.BlockHeight, P.Hash)
+
 data Env' = forall a. PactDbBackend a => Env' (P.PactDbEnv (P.DbEnv a))
+
 
 data PactDbState = PactDbState
   { _pdbsCommandConfig :: P.CommandConfig
@@ -103,3 +111,12 @@ data CheckpointEnv c = CheckpointEnv
   }
 
 makeLenses ''CheckpointEnv
+
+class CheckpointService c where
+
+instance CheckpointService (HashMap StoreKey CheckpointData) where
+instance CheckpointService ([FilePath]) where
+
+data Checkpointer' = forall c. CheckpointService c => Checkpointer' (Checkpointer c)
+
+type Store = HashMap StoreKey CheckpointData

@@ -65,6 +65,9 @@ initPactService = do
      Just sqlc -> do
        env <- P.mkSQLiteEnv logger False sqlc loggers
        liftA2  (initSQLiteCheckpointer,,) initSQLiteStore(mkSQLiteState env cmdConfig)
+  -- let hx = checkpointer `asTypeOf` _ -- :: Checkpointer Chainweb.Pact.Backend.InMemoryCheckpointer.Store
+  -- let hy = theStore `asTypeOf` _ -- :: GHC.IORef.IORef Chainweb.Pact.Backend.InMemoryCheckpointer.Store
+  -- let hz = theState `asTypeOf` _ -- :: PactDbState
   let env =
         CheckpointEnv
           { _cpeCheckpointer = checkpointer
