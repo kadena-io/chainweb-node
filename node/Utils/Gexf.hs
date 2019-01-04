@@ -31,8 +31,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import qualified Data.Text as T
 
-import P2P.Node.Configuration
-
 import Text.XML.Generator
 
 -- internal modules
@@ -46,6 +44,7 @@ import Chainweb.Utils
 import Numeric.AffineSpace
 
 import P2P.Node
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Exported
@@ -83,9 +82,9 @@ p2pInfo2edge i = gexfEdge (_p2pSessionInfoId i)
     end
   where
     pid pinfo = toText (_hostAddressPort $ _peerAddr pinfo)
-        <> "/" <> T.take 8 (toText $ _peerId pinfo)
+        <> "/" <> T.take 8 (maybe "?" toText $ _peerId pinfo)
     start = Just $ timeMs (_p2pSessionInfoStart i)
-    end = timeMs <$> (_p2pSessionInfoEnd i)
+    end = timeMs <$> _p2pSessionInfoEnd i
 
     timeMs t = int . timeSpanMs $ t `diff` epoche
 

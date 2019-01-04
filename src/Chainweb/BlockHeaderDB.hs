@@ -261,7 +261,9 @@ instance TreeDb BlockHeaderDb where
     leafEntries db n l mir mar
         = _dbBranches <$> lift (snapshot db) >>= \b -> do
             (s :: Maybe (NextItem (HS.HashSet K))) <- lift $ start b n
-            S.each b
+            HM.elems b
+                & L.sortOn _blockHeight
+                & S.each
                 & seekStreamSet key s
                 & limitLeaves db mir mar
                 & limitStream l

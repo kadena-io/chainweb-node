@@ -27,7 +27,7 @@ module P2P.Node.PeerDB
 , peerDbSizeSTM
 , peerDbInsert
 , peerDbInsertList
-, peerDbInsertMap
+, peerDbInsertSet
 , newEmptyPeerDb
 , fromPeerList
 , storePeerDb
@@ -48,7 +48,7 @@ import Control.Monad.STM
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 
 import GHC.Generics
 
@@ -68,33 +68,33 @@ import Chainweb.Version
 
 import Data.Singletons
 
-import P2P.Node.Configuration
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Peer Database
 
-type PeerMap = M.Map PeerId PeerInfo
+type PeerSet = S.Set PeerInfo
 
-peerMap :: [PeerInfo] -> PeerMap
-peerMap = M.fromList . fmap (\i -> (_peerId i, i))
+peerSet :: [PeerInfo] -> PeerSet
+peerSet = S.fromList
 
-data PeerDb = PeerDb (MVar ()) (TVar PeerMap)
+data PeerDb = PeerDb (MVar ()) (TVar PeerSet)
     deriving (Eq, Generic)
 
-peerDbSnapshot :: PeerDb -> IO PeerMap
+peerDbSnapshot :: PeerDb -> IO PeerSet
 peerDbSnapshot (PeerDb _ var) = readTVarIO var
 {-# INLINE peerDbSnapshot #-}
 
-peerDbSnapshotSTM :: PeerDb -> STM PeerMap
+peerDbSnapshotSTM :: PeerDb -> STM PeerSet
 peerDbSnapshotSTM (PeerDb _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ var) = int . M.size <$> readTVarIO var
+peerDbSize (PeerDb _ var) = int . S.size <$> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ var) = int . M.size <$> readTVar var
+peerDbSizeSTM (PeerDb _ var) = int . S.size <$> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | If there is a conflict newly added entries get precedence.
@@ -108,26 +108,26 @@ peerDbInsert (PeerDb lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
-    $ M.insert (_peerId i) i
+    $ S.insert i
 {-# INLINE peerDbInsert #-}
 
 fromPeerList :: [PeerInfo] -> IO PeerDb
-fromPeerList peers = PeerDb <$> newMVar () <*> newTVarIO (peerMap peers)
+fromPeerList peers = PeerDb <$> newMVar () <*> newTVarIO (peerSet peers)
 
 -- | If there is a conflict newly added entries get precedence.
 -- Left biased.
 --
 peerDbInsertList :: [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertList = peerDbInsertMap . peerMap
+peerDbInsertList = peerDbInsertSet . peerSet
 
 -- | If there is a conflict newly added entries get precedence.
 --
-peerDbInsertMap :: M.Map PeerId PeerInfo -> PeerDb -> IO ()
-peerDbInsertMap peers (PeerDb lock var) = withMVar lock
+peerDbInsertSet :: S.Set PeerInfo -> PeerDb -> IO ()
+peerDbInsertSet peers (PeerDb lock var) = withMVar lock
     . const
     . atomically
     . modifyTVar var
-    $ M.union peers
+    $ S.union peers
 
 newEmptyPeerDb :: IO PeerDb
 newEmptyPeerDb = PeerDb <$> newMVar () <*> newTVarIO mempty
@@ -152,7 +152,7 @@ loadPeerDb f = PeerDb
 loadIntoPeerDb :: FilePath -> PeerDb -> IO ()
 loadIntoPeerDb f db = do
     peers <- decodeFileStrictOrThrow' f
-    peerDbInsertMap peers db
+    peerDbInsertSet peers db
 
 -- | 'PeerDb' with type level 'ChainwebVersion' and 'ChainIdT' indexes
 --

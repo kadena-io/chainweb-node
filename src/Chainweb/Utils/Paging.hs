@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Utils.Paging
@@ -24,6 +25,9 @@ module Chainweb.Utils.Paging
 
 -- * Page
 , Page(..)
+, pageLimit
+, pageItems
+, pageNext
 
 -- * Next Item
 , NextItem(..)
@@ -46,6 +50,7 @@ module Chainweb.Utils.Paging
 , properties
 ) where
 
+import Control.Lens.TH
 import Control.Monad.Catch
 import Control.Monad.Identity
 
@@ -94,6 +99,8 @@ data Page k a = Page
         -- is given the next parameter of the respective query interface.
     }
     deriving (Show, Eq, Ord, Generic)
+
+makeLenses ''Page
 
 instance (HasTextRepresentation k, ToJSON k, ToJSON a) => ToJSON (Page k a) where
     toJSON p = object
