@@ -41,6 +41,7 @@ module Chainweb.RestAPI
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
+, serveChainwebSocketTls
 , Port
 
 -- * Chainweb API Client
@@ -64,6 +65,7 @@ import qualified Data.Text.Encoding as T
 
 import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
+import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
 
 import Servant.API
 import Servant.Server
@@ -83,6 +85,8 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
+
+import Network.X509.SelfSigned
 
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI
@@ -236,4 +240,20 @@ serveChainwebSocket
     -> IO ()
 serveChainwebSocket s sock v cutDb chainDbs peerDbs = runSettingsSocket s sock
     $ chainwebApplication v cutDb chainDbs peerDbs
+
+serveChainwebSocketTls
+    :: Settings
+    -> X509CertPem
+    -> X509KeyPem
+    -> Socket
+    -> ChainwebVersion
+    -> CutDb
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveChainwebSocketTls settings certBytes keyBytes sock v cutDb chainDbs peerDbs
+    = runTLSSocket tlsSettings settings sock app
+  where
+    tlsSettings = tlsServerSettings certBytes keyBytes
+    app = chainwebApplication v cutDb chainDbs peerDbs
 

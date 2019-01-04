@@ -39,7 +39,9 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.IO.Class
 
+import Data.Bifunctor
 import Data.Foldable
+import Data.IxSet.Typed (getEQ)
 import Data.Proxy
 import qualified Data.Text.IO as T
 
@@ -75,23 +77,28 @@ defaultPeerInfoLimit = 64
 
 peerGetHandler
     :: PeerDb
+    -> NetworkId
     -> Maybe Limit
     -> Maybe (NextItem Int)
     -> Handler (Page (NextItem Int) PeerInfo)
-peerGetHandler db limit next = do
+peerGetHandler db nid limit next = do
     sn <- liftIO $ peerDbSnapshot db
-    page <- seekFiniteStreamToPage snd next effectiveLimit
+    page <- seekFiniteStreamToPage fst next effectiveLimit
+        . SP.map (second _peerEntryInfo)
+        . SP.zip (SP.each [0..])
         . SP.each
-        $ toList sn `zip` [0..]
-    return $ over pageItems (fmap fst) page
+        . toList
+        $ getEQ nid sn
+    return $ over pageItems (fmap snd) page
   where
     effectiveLimit = limit <|> Just defaultPeerInfoLimit
 
 peerPutHandler
     :: PeerDb
+    -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db e = liftIO $ NoContent <$ peerDbInsert db e
+peerPutHandler db nid e = liftIO $ NoContent <$ peerDbInsert db nid e
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server
@@ -102,8 +109,12 @@ p2pServer
     => PeerDbT v n
     -> Server (P2pApi v n)
 p2pServer (PeerDbT db) = case sing @_ @n of
-    SCutNetwork -> peerGetHandler db :<|> peerPutHandler db
-    SChainNetwork _ -> peerGetHandler db :<|> peerPutHandler db
+    SCutNetwork
+        -> peerGetHandler db CutNetwork
+        :<|> peerPutHandler db CutNetwork
+    SChainNetwork cid
+        -> peerGetHandler db (ChainNetwork $ FromSing cid)
+        :<|> peerPutHandler db (ChainNetwork $ FromSing cid)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network

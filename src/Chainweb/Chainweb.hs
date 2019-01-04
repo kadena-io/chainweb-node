@@ -49,6 +49,7 @@ module Chainweb.Chainweb
 
 -- * Peer Resources
 , allocatePeer
+, withPeer
 , peerServerSettings
 
 -- * Cut Resources
@@ -115,15 +116,18 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Bifunctor
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import Data.IxSet.Typed (getEQ, getOne)
 import Data.Reflection (give)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket)
+import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setPort, setHost)
 
 import System.LogLevel
@@ -149,6 +153,8 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.DiGraph
 import Data.LogMessage
+
+import Network.X509.SelfSigned
 
 import P2P.Node
 import P2P.Node.Configuration
@@ -230,6 +236,9 @@ peerServerSettings peer
     . setHost (_peerInterface peer)
     $ defaultSettings
 
+withPeer :: PeerConfig -> ((PeerConfig, Socket, Peer) -> IO a) -> IO a
+withPeer conf = bracket (allocatePeer conf) (\(_, sock, _) -> close sock)
+
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
@@ -250,14 +259,14 @@ withCuts
     -> CutDbConfig
     -> P2pConfiguration
     -> Peer
+    -> PeerDb
     -> ALogFunction
     -> WebBlockHeaderDb
     -> (Cuts -> IO a)
     -> IO a
-withCuts v cutDbConfig p2pConfig peer logfun webchain f =
+withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
     withCutDb cutDbConfig webchain $ \cutDb ->
-        withPeerDb p2pConfig $ \pdb ->
-            f $ Cuts v cutDbConfig p2pConfig peer cutDb pdb logfun
+        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
 
 runCutsSyncClient
     :: HTTP.Manager
@@ -309,13 +318,13 @@ withChain
     -> ChainId
     -> P2pConfiguration
     -> Peer
+    -> PeerDb
     -> ALogFunction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig peer logfun inner =
+withChain v graph cid p2pConfig peer peerDb logfun inner =
     withBlockHeaderDb Test graph cid $ \cdb ->
-        withPeerDb p2pConfig $ \pdb -> inner
-            $ Chain cid v graph p2pConfig peer cdb pdb logfun (syncDepth graph)
+        inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
 
 -- | Synchronize the local block database over the P2P network.
 --
@@ -430,8 +439,7 @@ withChainweb
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb graph conf logFuns inner = do
-    (c, sock, peer) <- allocatePeer (view confLens conf)
+withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
     withChainwebInternal graph (set confLens c conf) logFuns sock peer inner
   where
     confLens :: Lens' ChainwebConfiguration PeerConfig
@@ -447,21 +455,22 @@ withChainwebInternal
     -> Peer
     -> (Chainweb -> IO a)
     -> IO a
-withChainwebInternal graph conf logFuns socket peer inner =
-    give graph $ go mempty (toList chainIds)
+withChainwebInternal graph conf logFuns socket peer inner = give graph $ do
+    let nids = HS.map ChainNetwork chainIds `HS.union` HS.singleton CutNetwork
+    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList chainIds)
   where
     -- Initialize chain resources
-    go cs (cid : t) =
+    go peerDb cs (cid : t) =
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf peer logfun $ \c ->
-                go (HM.insert cid c cs) t
+            Just logfun -> withChain v graph cid p2pConf peer peerDb logfun $ \c ->
+                go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go cs [] = do
+    go peerDb cs [] = do
         let webchain = mkWebBlockHeaderDb graph (HM.map _chainBlockHeaderDb cs)
-        withCuts v cutConfig p2pConf peer (_chainwebCutLogFun logFuns) webchain $ \cuts ->
+        withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
                 inner Chainweb
                     { _chainwebVersion = v
@@ -506,7 +515,11 @@ runChainweb cw = do
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
-        serve = serveChainwebSocket serverSettings (_chainwebSocket cw)
+        serve = serveChainwebSocketTls
+            serverSettings
+            (_peerCertificate $ _chainwebPeer cw)
+            (_peerKey $ _chainwebPeer cw)
+            (_chainwebSocket cw)
             (_chainwebVersion cw)
             cutDb
             chainDbsToServe
@@ -517,10 +530,17 @@ runChainweb cw = do
     withAsync serve $ \server -> do
         logfun Info "started server"
 
+        -- Configure Clients
+        --
         -- FIXME: make sure the manager is configure properly for our
         -- usage scenario
         --
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        let cred = unsafeMakeCredential
+                (_peerCertificate $ _chainwebPeer cw)
+                (_peerKey $ _chainwebPeer cw)
+        mgr <- HTTP.newManager =<< certificateCacheManagerSettings
+                (TlsSecure True (certCacheLookup cutPeerDb))
+                (Just cred)
 
         -- 2. Run Clients
         --
@@ -534,4 +554,12 @@ runChainweb cw = do
         wait server
   where
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
+
+    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+
+    certCacheLookup :: PeerDb -> ServiceID -> IO (Maybe Fingerprint)
+    certCacheLookup peerDb si = do
+        ha <- serviceIdToHostAddress si
+        pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
+        return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
