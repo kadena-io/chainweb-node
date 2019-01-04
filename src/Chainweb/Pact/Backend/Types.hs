@@ -18,16 +18,16 @@ module Chainweb.Pact.Backend.Types
   , PactDbState(..) , pdbsCommandConfig , pdbsDbEnv, pdbsState
   , usage
   , CheckpointEnv(..), cpeCheckpointStore , cpeCommandConfig, cpeCheckpointer, cpeLogger, cpeGasEnv
+  , CheckpointEnv'(..)
   , CheckpointData(..), cpPactDbEnv, cpRefStore, cpPacts
   , Checkpointer(..), cRestore, cPrepare, cSave
-  , Checkpointer'(..)
   , Env'(..)
   , OpMode(..)
   , PactDbBackend
-  , Store
   ) where
 
 import qualified Chainweb.BlockHeader as C
+
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
@@ -38,18 +38,15 @@ import qualified Pact.Types.Server as P
 
 import Control.Lens
 import Data.Aeson
-import GHC.Generics
-import Data.Map.Strict (Map)
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
+import Data.Map.Strict (Map)
+import GHC.Generics
 
 class PactDbBackend e where
 
 instance PactDbBackend P.PureDb where
 instance PactDbBackend P.SQLite where
-
-type StoreKey = (C.BlockHeight, P.Hash)
 
 data Env' = forall a. PactDbBackend a => Env' (P.PactDbEnv (P.DbEnv a))
 
@@ -102,6 +99,11 @@ data Checkpointer c = Checkpointer
 
 makeLenses ''Checkpointer
 
+class CheckpointServiceStore c where
+
+instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) CheckpointData) where
+instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) FilePath) where
+
 data CheckpointEnv c = CheckpointEnv
   { _cpeCheckpointer    :: Checkpointer c
   , _cpeCommandConfig   :: P.CommandConfig
@@ -112,11 +114,4 @@ data CheckpointEnv c = CheckpointEnv
 
 makeLenses ''CheckpointEnv
 
-class CheckpointService c where
-
-instance CheckpointService (HashMap StoreKey CheckpointData) where
-instance CheckpointService ([FilePath]) where
-
-data Checkpointer' = forall c. CheckpointService c => Checkpointer' (Checkpointer c)
-
-type Store = HashMap StoreKey CheckpointData
+data CheckpointEnv' = forall c. CheckpointServiceStore c => CheckpointEnv' (CheckpointEnv c)

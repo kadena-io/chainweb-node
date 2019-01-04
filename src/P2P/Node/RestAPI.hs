@@ -48,7 +48,7 @@ import Chainweb.Version
 
 import Data.Singletons
 
-import P2P.Node.Configuration
+import P2P.Peer
 
 import Chainweb.RestAPI.Orphans ()
 
@@ -57,8 +57,8 @@ import Chainweb.RestAPI.Orphans ()
 
 type PeerGetApi_
     = "peer"
-    :> PageParams (NextItem PeerId)
-    :> Get '[JSON] (Page (NextItem PeerId) PeerInfo)
+    :> PageParams (NextItem Int)
+    :> Get '[JSON] (Page (NextItem Int) PeerInfo)
 
 type PeerGetApi (v :: ChainwebVersionT) (n :: NetworkIdT)
     = 'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerGetApi_

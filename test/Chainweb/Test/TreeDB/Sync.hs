@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Chainweb.Test.TreeDB.Sync ( tests ) where
 
 import Control.Monad (void)

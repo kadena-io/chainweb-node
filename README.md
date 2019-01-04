@@ -45,25 +45,27 @@ A chainweb-node has two identifiers:
     needed, the node-id may be removed completely or kept only for debugging
     purposes. The user must provide each node with a unique node-id on startup.
 
-*   The peer-id is used to identify the node in the peer-to-peer network. It
-    is an ephemeral identifier that can be dropped and recreated at any time.
-    Since the peer-id is used in caches and for reputation management nodes are
-    incentivised to persist and reuse peer-ids. When no peer-id is provided a
-    node generates a new peer-id on startup.
+*   The peer-id is used to identify the node in the peer-to-peer network. It is
+    a fingerprint of an ephemeral X509 certificate that, if not provided in
+    the configuration, is created automatically and  can be dropped and
+    recreated at any time. Since the peer-id is used in caches and for
+    reputation management, nodes are incentivised to persist and reuse peer-ids.
+    When no peer-id is provided, a node generates a new peer-id on startup.
 
 On startup a chainweb-node tries to connect to the P2P network. For that each
 chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
-chainweb-node, this is a single node with with peer-id
-`525ff65f-9240-4ada-9c36-fe7da982b4b4`, host-name `localhost`, and port `1789`.
+chainweb-node, this is a single node with host-name `localhost`, and port
+`1789`. The hard-coded certificate for the *Test* bootstrap node is defined in
+the bootstrap configuration file `scripts/test-boostrap-node.config`.
 
 In order for a chainweb-node to be useful it must be able to connect to the
 bootstrap node. The *Test* bootstrap node can be started as follows:
 
 ```sh
-chainweb-node --node-id=0 --peer-id=525ff65f-9240-4ada-9c36-fe7da982b4b4 --host=localhost --port=1798
+chainweb-node --node-id=0 --config-file=./scripts/test-boostrap-node.config`
 ```
 
-(`--host=127.0.0.1` can be used to restrict availability of the node to the
+(`--interface=127.0.0.1` can be used to restrict availability of a node to the
 loopback network.)
 
 When the default bootstrap node is available additional chainweb-nodes can be
@@ -77,8 +79,6 @@ where `NID` must be replaced with a unique node id.
 
 The default `--port` value is 0 which causes the node to request a free port
 from the operating system.
-
-If the `--peer-id` parameter is omitted a new peer-id is created on startup.
 
 ## Configuring a chainweb-node
 

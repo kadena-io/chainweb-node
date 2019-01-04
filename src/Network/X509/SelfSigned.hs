@@ -1,0 +1,647 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+-- |
+-- Module: Network.X509.SelfSigned
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Kadena Chainweb Team <chainweb-dev@kadena.io>
+-- Stability: experimental
+--
+-- TODO
+--
+module Network.X509.SelfSigned
+(
+-- * Distinguished Name and Alt Names
+  name
+, org
+, AltName(..)
+
+-- * Certificate Fingerprints
+, FingerprintByteCount
+, fingerprintByteCount
+, Fingerprint(..)
+, fingerprint
+, fingerprintToText
+, fingerprintFromText
+, unsafeFingerprintFromText
+, fingerprintPem
+, unsafeFingerprintPem
+
+-- * PEM encoded Certificate
+, X509CertPem(..)
+, x509CertPemToText
+, x509CertPemFromText
+, pX509CertPem
+, unsafeX509CertPemFromText
+, validateX509CertPem
+, decodePemX509Cert
+
+-- * PEM encoded Key
+
+, X509KeyPem(..)
+, x509KeyPemToText
+, x509KeyPemFromText
+, pX509KeyPem
+, unsafeX509KeyPemFromText
+, validateX509KeyPem
+, decodePemX509Key
+
+-- * Generate PEM encoded Certificates
+, generateSelfSignedCertificateRsa
+, generateLocalhostCertificateRsa
+
+-- * Client
+, TlsPolicy(..)
+, unsafeMakeCredential
+, certificateCacheManagerSettings
+
+-- * Server
+, tlsServerSettings
+
+-- * Support for Non-RSA Certificates
+, X509Key(..)
+, makeCertificate
+, generateSelfSignedCertificate
+, generateLocalhostCertificate
+
+) where
+
+import Configuration.Utils
+
+import Control.DeepSeq
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.Error.Class
+
+import Crypto.Hash.Algorithms (SHA512(..))
+import qualified Crypto.Number.Serialize as EC (i2ospOf_)
+import qualified Crypto.PubKey.ECC.ECDSA as EC
+import qualified Crypto.PubKey.ECC.Generate as EC (generate)
+import qualified Crypto.PubKey.ECC.Types as EC
+import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
+import qualified Crypto.PubKey.RSA as RSA
+import qualified Crypto.PubKey.RSA.PKCS15 as RSA (signSafer)
+import qualified Crypto.PubKey.RSA.Types as RSA (KeyPair(..), toPublicKey)
+import Crypto.Random.Types (MonadRandom)
+
+import Data.ASN1.BinaryEncoding (DER(..))
+import Data.ASN1.Encoding (encodeASN1', decodeASN1')
+import Data.ASN1.Types
+import Data.ByteArray (ByteArray, convert)
+import qualified Data.ByteString as B (ByteString, pack, length)
+import qualified Data.ByteString.Char8 as B8 (unpack)
+import Data.Bifunctor
+import Data.Default (def)
+import Data.Foldable (toList)
+import Data.Hashable
+import Data.Hourglass (DateTime, durationHours, timeAdd)
+import qualified Data.List.NonEmpty as NE
+import Data.Maybe
+import Data.PEM (PEM(..), pemWriteBS, pemParseBS)
+import Data.Proxy
+import Data.String (fromString)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import Data.X509
+import Data.X509.Validation (ServiceID, Fingerprint(..), getFingerprint, ValidationCacheQueryCallback)
+
+import GHC.Generics
+import GHC.Stack
+import GHC.TypeNats
+
+import Network.Connection (TLSSettings(..))
+import Network.HTTP.Client (ManagerSettings)
+import Network.HTTP.Client.TLS (mkManagerSettings)
+import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
+import Network.TLS.Extra (ciphersuite_default)
+import Network.Wai.Handler.WarpTLS as WARP (TLSSettings(..), tlsSettingsMemory)
+
+import Numeric.Natural (Natural)
+
+import System.Hourglass (dateCurrent)
+import System.X509 (getSystemCertificateStore)
+
+-- internal modules
+
+import Chainweb.Utils
+
+-- -------------------------------------------------------------------------- --
+-- EC
+
+serializePoint :: HasCallStack => EC.Curve -> EC.Point -> SerializedPoint
+serializePoint _ EC.PointO = error "can't serialize EC point at infinity"
+serializePoint curve (EC.Point x y) = SerializedPoint
+    $ B.pack [4] <> EC.i2ospOf_ bytes x <> EC.i2ospOf_ bytes y
+  where
+    bits  = EC.curveSizeBits curve
+    bytes = (bits + 7) `div` 8
+
+ecCurveName :: EC.CurveName
+ecCurveName = EC.SEC_p521r1
+
+-- -------------------------------------------------------------------------- --
+-- Ciphers
+
+-- | Currently onl RSA is supported
+--
+class X509Key k where
+    type PK k
+
+    generateKey :: IO k
+    publicKey :: k -> PK k
+    getPubKey :: k -> PubKey
+    getPrivKey :: k -> PrivKey
+    sigAlg :: SignatureALG
+
+    signIO
+        :: MonadRandom m
+        => ByteArray a
+        => k
+        -> B.ByteString
+        -> m (a, SignatureALG)
+
+-- | EC
+--
+instance X509Key EC.KeyPair where
+    type PK EC.KeyPair = EC.PublicPoint
+
+    generateKey = uncurry f <$> EC.generate (EC.getCurveByName ecCurveName)
+      where
+        f pk sk = EC.KeyPair
+            (EC.getCurveByName ecCurveName)
+            (EC.public_q pk)
+            (EC.private_d sk)
+
+    publicKey (EC.KeyPair _ pk _) = pk
+
+    getPubKey (EC.KeyPair _ pk _) = PubKeyEC
+        $ PubKeyEC_Named ecCurveName
+        $ serializePoint (EC.getCurveByName ecCurveName) pk
+
+    getPrivKey (EC.KeyPair _ _ sk) = PrivKeyEC
+        $ PrivKeyEC_Named ecCurveName sk
+
+    sigAlg = SignatureALG HashSHA512 PubKeyALG_EC
+
+    signIO sk bytes = do
+        sig <- encodeEcSignatureDer <$> EC.sign (EC.toPrivateKey sk) SHA512 bytes
+        return (convert sig, sigAlg @Ed25519.SecretKey)
+
+-- | Ed25519
+--
+instance X509Key Ed25519.SecretKey where
+    type PK Ed25519.SecretKey = Ed25519.PublicKey
+
+    generateKey = Ed25519.generateSecretKey
+    publicKey = Ed25519.toPublic
+    getPubKey = PubKeyEd25519 . publicKey
+    getPrivKey = PrivKeyEd25519
+    sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed25519
+
+    signIO sk bytes = return (convert sig, sigAlg @Ed25519.SecretKey)
+      where
+        sig = Ed25519.sign sk (publicKey sk) bytes
+
+-- | Ed448
+--
+instance X509Key Ed448.SecretKey where
+    type PK Ed448.SecretKey = Ed448.PublicKey
+
+    generateKey = Ed448.generateSecretKey
+    publicKey = Ed448.toPublic
+    getPubKey = PubKeyEd448 . publicKey
+    getPrivKey = PrivKeyEd448
+    sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed448
+
+    signIO sk bytes = return (convert sig, sigAlg @Ed448.SecretKey)
+      where
+        sig = Ed448.sign sk (publicKey sk) bytes
+
+-- RSA (4096 bit keys size)
+--
+instance X509Key RSA.PrivateKey where
+    type PK RSA.PrivateKey = RSA.PublicKey
+
+    generateKey = snd <$> RSA.generate 512 0x10001
+    publicKey = RSA.toPublicKey . RSA.KeyPair
+    getPubKey = PubKeyRSA . publicKey
+    getPrivKey = PrivKeyRSA
+
+    signIO sk bytes = do
+        sig <- RSA.signSafer (Just SHA512) sk bytes >>= \case
+            Left e -> error $ "Network.X509.SelfSigned: X509Key instance for RSA.PrivateKey: signIO: " <>  show e
+            Right x -> return x
+        return (convert sig, sigAlg @RSA.PrivateKey)
+
+    sigAlg = SignatureALG HashSHA512 PubKeyALG_RSA
+
+-- -------------------------------------------------------------------------- --
+-- Unsigned tbs Certificate
+
+makeCertificate
+    :: forall k
+    . X509Key k
+    => DateTime
+    -> DateTime
+    -> DistinguishedName
+    -> DistinguishedName
+    -> Maybe (NE.NonEmpty AltName)
+        -- ^ the list of altnames must include the CN name from the subject
+        -- distinguished name.
+    -> PubKey
+    -> Certificate
+makeCertificate start end issuer subject altNames pk = Certificate
+    { certVersion = 2
+    , certSerial = 1
+    , certSignatureAlg = sigAlg @k
+    , certIssuerDN = issuer
+    , certValidity = (start, end)
+    , certSubjectDN = subject
+    , certPubKey = pk
+    , certExtensions = Extensions $ Just $ rawExtensions altNames
+    }
+
+name :: String -> DistinguishedName
+name n = DistinguishedName [(getObjectID DnCommonName, fromString n)]
+
+org :: String -> DistinguishedName
+org n = DistinguishedName [(getObjectID DnOrganization, fromString n)]
+
+-- -------------------------------------------------------------------------- --
+-- Signed Certificate
+
+signedCertIO :: X509Key k => k -> Certificate -> IO (SignedExact Certificate)
+signedCertIO sk = objectToSignedExactF (signIO sk)
+
+-- -------------------------------------------------------------------------- --
+-- Extensions
+
+keyUsage :: ExtKeyUsage
+keyUsage = ExtKeyUsage
+    [ KeyUsage_digitalSignature
+    , KeyUsage_keyCertSign
+    , KeyUsage_keyAgreement
+    , KeyUsage_keyEncipherment
+    , KeyUsage_dataEncipherment
+    , KeyUsage_nonRepudiation
+    ]
+
+keyPurpose :: ExtExtendedKeyUsage
+keyPurpose = ExtExtendedKeyUsage
+    [ KeyUsagePurpose_ServerAuth
+    , KeyUsagePurpose_ClientAuth
+    ]
+
+{-
+subjectKeyId :: B.ByteString -> ExtSubjectKeyId
+subjectKeyId k = ExtSubjectKeyId k
+-}
+
+basicConstraints :: ExtBasicConstraints
+basicConstraints = ExtBasicConstraints
+    True {- CA flag -}
+    (Just 0) {- path length -}
+
+rawExtensions :: Maybe (NE.NonEmpty AltName) -> [ExtensionRaw]
+rawExtensions altNames =
+    [ extensionEncode False keyUsage
+    , extensionEncode False keyPurpose
+    , extensionEncode False basicConstraints
+    ]
+    <>
+    maybe [] (return . extensionEncode False . ExtSubjectAltName . toList) altNames
+
+-- -------------------------------------------------------------------------- --
+-- Certificate Fingerprint
+
+type FingerprintByteCount = 32
+
+fingerprintByteCount :: Natural
+fingerprintByteCount = natVal (Proxy @FingerprintByteCount)
+
+fingerprint :: SignedExact Certificate -> Fingerprint
+fingerprint = flip getFingerprint HashSHA256
+    -- The TLS package uses SHA256 for certifcate fingerprints, so we do the
+    -- same here. If this changes in the TLS package, we'd have to change
+    -- our fingerprint format or compute SHA256 fingerprints in certificate
+    -- cache queries from the provided certificate.
+
+fingerprintToText :: Fingerprint -> T.Text
+fingerprintToText (Fingerprint b) = encodeB64UrlNoPaddingText b
+{-# INLINE fingerprintToText #-}
+
+fingerprintFromText :: MonadThrow m => T.Text -> m Fingerprint
+fingerprintFromText t = do
+    bytes <- decodeB64UrlNoPaddingText t
+    unless (B.length bytes == int fingerprintByteCount) $ throwM
+        $ TextFormatException
+        $ "wrong certificate fingerprint length: expected "
+        <> sshow fingerprintByteCount <> " bytes, got "
+        <> sshow (B.length bytes) <> " bytes."
+    return $ Fingerprint bytes
+{-# INLINE fingerprintFromText #-}
+
+unsafeFingerprintFromText :: String -> Fingerprint
+unsafeFingerprintFromText = fromJust . fingerprintFromText . T.pack
+{-# INLINE unsafeFingerprintFromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- PEM Encoded Certificate
+
+newtype X509CertPem = X509CertPem B.ByteString
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
+
+x509CertPemToText :: X509CertPem -> T.Text
+x509CertPemToText (X509CertPem b) = T.decodeUtf8 b
+{-# INLINE x509CertPemToText #-}
+
+x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
+x509CertPemFromText t = return . X509CertPem $ T.encodeUtf8 t
+{-# INLINE x509CertPemFromText #-}
+
+unsafeX509CertPemFromText :: String -> X509CertPem
+unsafeX509CertPemFromText = fromJust . x509CertPemFromText . T.pack
+{-# INLINE unsafeX509CertPemFromText #-}
+
+instance HasTextRepresentation X509CertPem where
+    toText = x509CertPemToText
+    {-# INLINE toText #-}
+    fromText = x509CertPemFromText
+    {-# INLINE fromText #-}
+
+instance ToJSON X509CertPem where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON X509CertPem where
+    parseJSON = parseJsonFromText "X509CertPem"
+    {-# INLINE parseJSON #-}
+
+pX509CertPem :: Maybe String -> OptionParser X509CertPem
+pX509CertPem service = textOption
+    % prefixLong service "certificate"
+    <> suffixHelp service "PEM encoded X509 certificate of the local peer"
+{-# INLINE pX509CertPem #-}
+
+validateX509CertPem :: MonadError T.Text m => X509CertPem -> m ()
+validateX509CertPem pemCert = do
+    void $ case decodePemX509Cert pemCert of
+        Left e -> throwError $ sshow e
+        Right _ -> return ()
+    return ()
+
+decodePemX509Cert :: MonadThrow m => X509CertPem -> m (SignedExact Certificate)
+decodePemX509Cert (X509CertPem bytes) =
+    either (throwM . X509CertificateDecodeException . T.pack) return $ do
+        der <- pemParseBS bytes >>= \case
+            [] -> Left "no PEM encoded object found."
+            (h:_) -> Right $ pemContent h
+        decodeSignedObject der
+
+fingerprintPem :: MonadThrow m => X509CertPem -> m Fingerprint
+fingerprintPem = fmap fingerprint . decodePemX509Cert
+
+unsafeFingerprintPem :: HasCallStack => X509CertPem -> Fingerprint
+unsafeFingerprintPem = either (error . sshow) id . fingerprintPem
+
+encodeCertDer :: SignedExact Certificate -> B.ByteString
+encodeCertDer = encodeSignedObject
+
+encodeCertPem :: SignedExact Certificate -> X509CertPem
+encodeCertPem c = X509CertPem . pemWriteBS $ PEM
+    { pemName = "CERTIFICATE"
+    , pemHeader = []
+    , pemContent = encodeCertDer c
+    }
+
+encodeEcSignatureDer :: EC.Signature -> B.ByteString
+encodeEcSignatureDer (EC.Signature r s) = encodeASN1' DER
+    [ Start Sequence
+    , IntVal r
+    , IntVal s
+    , End Sequence
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- PEM Encoded Key
+
+newtype X509KeyPem = X509KeyPem B.ByteString
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
+
+x509KeyPemToText :: X509KeyPem -> T.Text
+x509KeyPemToText (X509KeyPem b) = T.decodeUtf8 b
+{-# INLINE x509KeyPemToText #-}
+
+x509KeyPemFromText :: MonadThrow m => T.Text -> m X509KeyPem
+x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
+{-# INLINE x509KeyPemFromText #-}
+
+unsafeX509KeyPemFromText :: String -> X509KeyPem
+unsafeX509KeyPemFromText = fromJust . x509KeyPemFromText . T.pack
+{-# INLINE unsafeX509KeyPemFromText #-}
+
+instance HasTextRepresentation X509KeyPem where
+    toText = x509KeyPemToText
+    {-# INLINE toText #-}
+    fromText = x509KeyPemFromText
+    {-# INLINE fromText #-}
+
+instance ToJSON X509KeyPem where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON X509KeyPem where
+    parseJSON = parseJsonFromText "X509KeyPem"
+    {-# INLINE parseJSON #-}
+
+pX509KeyPem :: Maybe String -> OptionParser X509KeyPem
+pX509KeyPem service = textOption
+    % prefixLong service "key"
+    <> suffixHelp service "PEM encoded X509 certificate key of the local peer"
+{-# INLINE pX509KeyPem #-}
+
+encodeKeyDer :: X509Key k => k -> B.ByteString
+encodeKeyDer sk = encodeASN1' DER $ (toASN1 $ getPrivKey sk) []
+
+encodeKeyPem :: X509Key k => k -> X509KeyPem
+encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
+    { pemName = "PRIVATE KEY"
+    , pemHeader = []
+    , pemContent = encodeKeyDer sk
+    }
+
+validateX509KeyPem :: MonadError T.Text m => X509KeyPem -> m ()
+validateX509KeyPem pemKey = do
+    void $ case decodePemX509Key pemKey of
+        Left e -> throwError $ sshow e
+        Right _ -> return ()
+    return ()
+
+decodePemX509Key :: MonadThrow m => X509KeyPem -> m PrivKey
+decodePemX509Key (X509KeyPem bytes) =
+    either (throwM . X509KeyDecodeException . T.pack) return $ do
+        der <- pemParseBS bytes >>= \case
+            [] -> Left "no PEM encoded object found."
+            (h:_) -> Right $ pemContent h
+        asn1 <- first sshow $ decodeASN1' DER der
+        fst <$> fromASN1 asn1
+
+-- -------------------------------------------------------------------------- --
+-- Generate Self Signed Certificate
+
+generateSelfSignedCertificate
+    :: forall k
+    . X509Key k
+    => Natural
+        -- ^ days of validity
+    -> DistinguishedName
+        -- ^ the subject of the certificate. This should include at least the CN
+        -- name, which can be created with 'name'.
+
+    -> Maybe (NE.NonEmpty AltName)
+        -- ^ For self-signed certificates it's usually fine to leave this empty.
+        -- If it's not empty it should include the CN value from
+        -- the distinguished name.
+
+    -> IO (Fingerprint, X509CertPem, X509KeyPem)
+generateSelfSignedCertificate days dn altNames = do
+    sk <- generateKey @k
+    start <- dateCurrent
+    let end = start `timeAdd` mempty { durationHours = 24 * fromIntegral days }
+        c = makeCertificate @k start end dn dn altNames (getPubKey sk)
+    sc <- signedCertIO sk c
+    return (fingerprint sc, encodeCertPem sc, encodeKeyPem sk)
+
+-- | Generate a self-signed Certificate for a given distinguished name and
+-- optionally additional alternative names. Note, however, that for a most uses
+-- of a self-signed cerificate the names don't matter. Instead the certificate
+-- is authenticated by checking its fingerprint.
+--
+generateSelfSignedCertificateRsa
+    :: Natural
+    -> DistinguishedName
+    -> Maybe (NE.NonEmpty AltName)
+    -> IO (Fingerprint, X509CertPem, X509KeyPem)
+generateSelfSignedCertificateRsa = generateSelfSignedCertificate @RSA.PrivateKey
+
+-- -------------------------------------------------------------------------- --
+-- Generate Self Signed Certificate for Localhost
+
+generateLocalhostCertificate
+    :: forall k
+    . X509Key k
+    => Natural
+        -- ^ days of validity
+    -> IO (Fingerprint, X509CertPem, X509KeyPem)
+generateLocalhostCertificate days
+    = generateSelfSignedCertificate @k days (name "localhost") $ Just
+        $ AltNameDNS "localhost" NE.:| [AltNameIP "127.0.0.1"]
+
+-- | Generate a self-signed Certificate for localhost. Note, however, that for a
+-- most uses of a self-signed cerificate the names don't matter. Instead the
+-- certificate is authenticated by checking its fingerprint.
+--
+generateLocalhostCertificateRsa
+    :: Natural
+    -> IO (Fingerprint, X509CertPem, X509KeyPem)
+generateLocalhostCertificateRsa = generateLocalhostCertificate @RSA.PrivateKey
+
+-- -------------------------------------------------------------------------- --
+-- Client
+
+-- | Create a client credential for a certificate
+--
+unsafeMakeCredential :: HasCallStack => X509CertPem -> X509KeyPem -> Credential
+unsafeMakeCredential (X509CertPem certBytes) (X509KeyPem keyBytes) =
+    case credentialLoadX509FromMemory certBytes keyBytes of
+        Left e -> error $ "failed to read certificate or key: " <> e
+        Right x -> x
+
+-- | A certificate policy for using self-signed certifcates with a connection
+-- manager
+--
+data TlsPolicy
+    = TlsInsecure
+    | TlsSecure Bool (ServiceID -> IO (Maybe Fingerprint))
+
+-- | Create a connection manager for a given 'TlsPolicy'.
+--
+certificateCacheManagerSettings
+    :: TlsPolicy
+    -> Maybe Credential
+    -> IO ManagerSettings
+certificateCacheManagerSettings policy credential = do
+    certstore <- getCertStore policy
+    return $ mkManagerSettings
+        (TLSSettings (settings certstore))
+        Nothing
+  where
+    -- It is safe to pass empty strings for host and port since 'connectFromHandle'
+    -- and 'connectTo' are going to overwrite this anyways.
+    --
+    settings certstore = (defaultParamsClient "" "")
+        { clientSupported = def { supportedCiphers = ciphersuite_default }
+        , clientShared = def
+            { sharedCAStore = certstore
+            , sharedValidationCache = validationCache policy
+            , sharedCredentials = Credentials $ maybeToList credential
+            }
+
+        }
+
+    validationCache TlsInsecure = ValidationCache
+        (\_ _ _ -> return ValidationCachePass)
+        (\_ _ _ -> return ())
+
+    validationCache (TlsSecure _ query) = certificateCache query
+
+    getCertStore TlsInsecure = return mempty
+    getCertStore (TlsSecure False _) = return mempty
+    getCertStore (TlsSecure True _) = getSystemCertificateStore
+
+-- -------------------------------------------------------------------------- --
+-- Certifcate Fingerprint Cache
+
+-- NOTE: the validation cache supports only a single peer-id/fingerprint per
+-- host-address/serviceid.
+--
+certificateCache :: (ServiceID -> IO (Maybe Fingerprint)) -> ValidationCache
+certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
+  where
+    queryCallback :: ValidationCacheQueryCallback
+    queryCallback serviceID fp _cert = query serviceID >>= \case
+        Nothing -> return ValidationCacheUnknown
+        Just f
+            | fp == f -> return ValidationCachePass
+            | otherwise -> return $ ValidationCacheDenied
+                $ "for host: " <> fst serviceID <> ":" <> B8.unpack (snd serviceID)
+                <> " expected fingerprint: " <> T.unpack (fingerprintToText f)
+                <> " but got fingerprint: " <> T.unpack (fingerprintToText fp)
+
+-- -------------------------------------------------------------------------- --
+-- Server Settings
+
+-- | TLS server settings
+--
+tlsServerSettings
+    :: X509CertPem
+    -> X509KeyPem
+    -> WARP.TLSSettings
+tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
+    = (tlsSettingsMemory certBytes keyBytes)
+        { tlsCiphers = ciphersuite_default
+        }
+
