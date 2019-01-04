@@ -21,16 +21,16 @@ module Chainweb.Pact.Types
   , module Chainweb.Pact.Backend.Types
   ) where
 
+import qualified Chainweb.BlockHeader as C
+import Chainweb.Pact.Backend.Types
+
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
-import qualified Chainweb.BlockHeader as C
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
 import Data.ByteString (ByteString)
 import GHC.Word (Word64)
-
-import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
   { _tTxId :: Word64

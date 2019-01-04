@@ -27,6 +27,7 @@ module Chainweb.Pact.Backend.Types
   ) where
 
 import qualified Chainweb.BlockHeader as C
+
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
@@ -37,11 +38,10 @@ import qualified Pact.Types.Server as P
 
 import Control.Lens
 import Data.Aeson
-import GHC.Generics
-import Data.Map.Strict (Map)
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
+import Data.Map.Strict (Map)
+import GHC.Generics
 
 class PactDbBackend e where
 

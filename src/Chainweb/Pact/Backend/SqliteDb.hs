@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module Chainweb.Pact.Backend.SqliteDb where
 
 import Chainweb.Pact.Types

@@ -9,8 +9,6 @@
 
 {-#language LambdaCase#-}
 {-#language RecordWildCards#-}
-{-#language RankNTypes#-}
-{-# language TupleSections #-}
 module Chainweb.Pact.PactService
   ( initPactService
   , newTransactionBlock
@@ -20,7 +18,6 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Exception
-import Control.Lens
 import Control.Monad
 import Control.Monad.Trans.RWS.Lazy
 import qualified Data.Aeson as A
@@ -121,7 +118,7 @@ toCommandConfig PactDbConfig {..} =
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
 -- squlite databases -- hence this is here and not in the Sqlite specific module
 mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
-mkSqliteConfig (Just f) xs = Just (P.SQLiteConfig {dbFile = f, pragmas = xs})
+mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
 isFirstBlock :: P.Hash -> C.BlockHeight -> Bool

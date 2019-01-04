@@ -10,12 +10,10 @@
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Chainweb.Pact.Types
-import Chainweb.Pact.Backend.Types
 import qualified Chainweb.BlockHeader as C
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Gas as P
 
 import Data.IORef
 import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
@@ -26,7 +24,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
   theStore <- newIORef HMS.empty
   return $
     CheckpointEnv'
-      (CheckpointEnv
+      CheckpointEnv
          { _cpeCheckpointer =
              Checkpointer
                {_cRestore = restore, _cPrepare = prepare, _cSave = save}
@@ -34,7 +32,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
          , _cpeCheckpointStore = theStore
          , _cpeLogger = logger
          , _cpeGasEnv = gasEnv
-         })
+         }
 
 restore ::
      C.BlockHeight
