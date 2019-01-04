@@ -9,7 +9,7 @@ let rp = builtins.fetchTarball {
     };
 
 in
-  (import rp {}).project ({ pkgs, ... }:
+  (import rp { inherit system; }).project ({ pkgs, ... }:
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
         owner = "siers";
         repo = "nix-gitignore";
