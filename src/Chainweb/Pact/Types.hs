@@ -22,7 +22,6 @@ module Chainweb.Pact.Types
   ) where
 
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Chainweb.BlockHeader as C
 

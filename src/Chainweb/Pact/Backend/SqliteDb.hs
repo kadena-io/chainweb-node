@@ -12,11 +12,12 @@ import qualified Pact.Persist.SQLite as P
 
 import qualified Data.Map.Strict as M
 
-mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> IO PactDbState'
-mkSQLiteState env = do
+mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> IO PactDbState
+mkSQLiteState env cmdCfg = do
   initSchema env
   let theState = PactDbState
-        { _pdbsDbEnv = env
+        { _pdbsCommandConfig = cmdCfg
+        , _pdbsDbEnv = Env' env
         , _pdbsState = CommandState initRefStore M.empty
         }
-  return $ PactDbState' theState
+  return theState

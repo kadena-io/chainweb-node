@@ -54,17 +54,17 @@ initPactService = do
   let logger = P.newLogger loggers $ P.LogName "PactService"
   pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
   let cmdConfig = toCommandConfig pactCfg
-  let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
-  let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
+  let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
+  let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
   let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
   (checkpointer,theStore, theState) <-
    case P._ccSqlite cmdConfig of
      Nothing -> do
        env <- P.mkPureEnv loggers
-       fmap (initInMemoryCheckpointer,initInMemoryStore,) (mkPureState env cmdConfig logger)
+       liftA2 (initInMemoryCheckpointer,,) initInMemoryStore (mkPureState env cmdConfig)
      Just sqlc -> do
        env <- P.mkSQLiteEnv logger False sqlc loggers
-       fmap  (initSQLiteCheckpointer, initSQLiteStore,) (mkSQLiteState env cmdConfig logger)
+       liftA2  (initSQLiteCheckpointer,,) initSQLiteStore(mkSQLiteState env cmdConfig)
   let env =
         CheckpointEnv
           { _cpeCheckpointer = checkpointer
@@ -74,7 +74,6 @@ initPactService = do
           , _cpeGasEnv = gasEnv
           }
   void $ runRWST serviceRequests env theState
-  return ()
 
 serviceRequests :: PactT c ()
 serviceRequests =
@@ -167,13 +166,13 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT c [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-execTransactions cpEnv pactState' xs =
+execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions cpEnv pactState xs =
   forM xs (\Transaction {..} -> do
     let txId = P.Transactional (P.TxId _tTxId)
-    liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState' txId _tCmd)
+    liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd :: CheckpointEnv c -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
 applyPactCmd cpEnv pactState eMode cmd = do
   let cmdState = _pdbsState pactState
   newVar <-  newMVar cmdState

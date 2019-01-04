@@ -12,11 +12,12 @@ import qualified Pact.Interpreter as P
 
 import qualified Data.Map.Strict as M
 
-mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> IO PactDbState'
-mkPureState env = do
+mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
+mkPureState env cmdCfg = do
   P.initSchema env
   let theState = PactDbState
-        { _pdbsDbEnv = env
+        {  _pdbsCommandConfig = cmdCfg
+        ,  _pdbsDbEnv = Env' env
         , _pdbsState = P.CommandState P.initRefStore M.empty
         }
-  return $ PactDbState' theState
+  return theState
