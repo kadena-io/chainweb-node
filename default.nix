@@ -38,7 +38,7 @@ in
         };
 
         chainweb = doCoverage (doHaddock super.chainweb);
-        configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
+        configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
         x509 = callHackageDirect {
           pkg = "x509";
@@ -46,9 +46,56 @@ in
           sha256 = "13r0wdvhb0a9pda2j209j6jy02h59jwyz356jzw9qq2y9ld1ggy9";
         };
 
-        # `callHackageDirect` doesn't handle revisions yet, so to work around an
-        # issue with `hspec` bounds in `fake`, we jailbreak it.
-        fake = doJailbreak super.fake;
+        generic-lens = callHackageDirect {
+          pkg = "generic-lens";
+          ver = "1.1.0.0";
+          sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
+        };
+
+        # --- tasty and its downstream dependants --- #
+        # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
+        tasty = callHackageDirect {
+          pkg = "tasty";
+          ver = "1.2";
+          sha256 = "00pbf8rnissqd0nzykhq9szqdl56mylwqwyci7irmsb78ky1y2dh";
+        };
+
+        tasty-ant-xml = callHackageDirect {
+          pkg = "tasty-ant-xml";
+          ver = "1.1.5";
+          sha256 = "05c0fa26ga7n84sidv189ik900p8ngx96v0asyz313hsnfx966y5";
+        };
+
+        tasty-hedgehog = doJailbreak (callHackageDirect {
+          pkg = "tasty-hedgehog";
+          ver = "0.2.0.0";
+          sha256 = "0nhjxjj5dsh9h8yff9np6pj48a6lx5cd1zv50xlyfvvribyf6qvk";
+        });
+
+        natural-transformation = doJailbreak (callHackageDirect {
+          pkg = "natural-transformation";
+          ver = "0.4";
+          sha256 = "124dabxss40angramlhcid9wbm878vgkfgqf6hrfl3n3dispkbnd";
+        });
+
+        aeson-compat = doJailbreak (callHackageDirect {
+          pkg = "aeson-compat";
+          ver = "0.3.9";
+          sha256 = "07xw0chynnwr8i8jzn6ffvh732g9qi15mzj2nbyg685japkwwcrq";
+        });
+
+        these = doJailbreak (callHackageDirect {
+          pkg = "these";
+          ver = "0.7.5";
+          sha256 = "0m9d9n7dy7plq20pxbl8pdgq4w2xskx2rbg9d4qnac14412bfcmf";
+        });
+
+        insert-ordered-containers = doJailbreak (callHackageDirect {
+          pkg = "insert-ordered-containers";
+          ver = "0.2.1.0";
+          sha256 = "1ys02jz4xg94g8z78cgafi24vjp7fyhf0slcyrhs1ffbhr8gqwm3";
+        });
+        # --- end of `tasty` dependants --- #
 
         # pact-2.6.1
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {

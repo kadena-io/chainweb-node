@@ -485,8 +485,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     maxRank :: HasCallStack => db -> IO Natural
     maxRank db = fmap (rank . fromJust)
-        $ S.head_
-        $ leafEntries db Nothing (Just 1) Nothing Nothing
+        $ S.last_
+        $ leafEntries db Nothing Nothing Nothing Nothing
     {-# INLINEABLE maxRank #-}
 
 -- -------------------------------------------------------------------------- --
