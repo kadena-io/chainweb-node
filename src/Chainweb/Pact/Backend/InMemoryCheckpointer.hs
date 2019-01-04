@@ -5,29 +5,39 @@
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 -- Pact PureDb checkpoint module for Chainweb
-module Chainweb.Pact.Backend.InMemoryCheckpointer
-  ( initInMemoryCheckpointer
-  , initInMemoryStore
-  ) where
+module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
-import Chainweb.BlockHeader
+import qualified Chainweb.BlockHeader as C
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Types
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.Server as P
+import qualified Pact.Types.Logger as P
 
 import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
-import Data.Maybe
 
-initInMemoryCheckpointer :: Checkpointer'
-initInMemoryCheckpointer = Checkpointer'
-  Checkpointer {_cRestore = restore, _cPrepare = prepare, _cSave = save}
+initInMemoryCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
+initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
+  theStore <- newIORef HMS.empty
+  return $
+    CheckpointEnv'
+      (CheckpointEnv
+         { _cpeCheckpointer =
+             Checkpointer
+               {_cRestore = restore, _cPrepare = prepare, _cSave = save}
+         , _cpeCommandConfig = cmdConfig
+         , _cpeCheckpointStore = theStore
+         , _cpeLogger = logger
+         , _cpeGasEnv = gasEnv
+         })
 
-initInMemoryStore :: IO (IORef Store)
-initInMemoryStore = newIORef HMS.empty
-
-restore :: BlockHeight -> P.Hash -> CheckpointData -> IORef Store -> IO ()
+restore ::
+     C.BlockHeight
+  -> P.Hash
+  -> CheckpointData
+  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+  -> IO ()
 restore height hash cdata store = do
   s <- readIORef store
   maybe (return ()) (validate cdata) (HMS.lookup (height, hash) s)
@@ -35,14 +45,19 @@ restore height hash cdata store = do
     validate = undefined
 
 prepare ::
-     BlockHeight
+     C.BlockHeight
   -> P.Hash
   -> OpMode
   -> CheckpointData
-  -> IORef Store
-  -> IO (Either String Store)
+  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) CheckpointData))
 prepare _ _ _ _ = fmap Right . readIORef
 
 save ::
-     BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef Store -> IO ()
-save height hash opmode cdata store = undefined
+     C.BlockHeight
+  -> P.Hash
+  -> OpMode
+  -> CheckpointData
+  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+  -> IO ()
+save _height _hash _opmode _cdata _store = return ()

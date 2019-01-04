@@ -54,6 +54,6 @@ data PactDbStatePersist = PactDbStatePersist
   }
 makeLenses ''PactDbStatePersist
 
-type PactT c a = RWST (CheckpointEnv c) () PactDbState IO a
+type PactT a = RWST (CheckpointEnv') () PactDbState IO a
 
 data TransactionCriteria = TransactionCriteria

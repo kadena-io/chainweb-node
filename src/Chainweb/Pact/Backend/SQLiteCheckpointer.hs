@@ -11,34 +11,53 @@ module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Types
-import Data.IORef
-import Chainweb.BlockHeader
+import qualified Chainweb.BlockHeader as C
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.Server as P
+import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Gas as P
 
+import Data.IORef
+import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
+import Data.HashMap.Strict (HashMap)
 
-type DiskStore = IO [FilePath]
+initSQLiteCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
+initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
+  theStore <- newIORef HMS.empty
+  return $
+    CheckpointEnv'
+      (CheckpointEnv
+         { _cpeCheckpointer =
+             Checkpointer
+               {_cRestore = restore, _cPrepare = prepare, _cSave = save}
+         , _cpeCommandConfig = cmdConfig
+         , _cpeCheckpointStore = theStore
+         , _cpeLogger = logger
+         , _cpeGasEnv = gasEnv
+         })
 
-initSQLiteCheckpointer :: Checkpointer'
-initSQLiteCheckpointer = undefined
-  -- Checkpointer'
-    -- { Checkpointer
-      -- { _cRestore = restore, _cPrepare = prepare, _cSave = save} }
-
-initSQLiteStore :: IO (IORef DiskStore)
-initSQLiteStore =  newIORef undefined
-
-restore :: BlockHeight -> P.Hash -> CheckpointData -> IORef DiskStore -> IO ()
+restore ::
+     C.BlockHeight
+  -> P.Hash
+  -> CheckpointData
+  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+  -> IO ()
 restore _height _hash _cdata _store = undefined
 
 prepare ::
-     BlockHeight
+     C.BlockHeight
   -> P.Hash
   -> OpMode
   -> CheckpointData
-  -> IORef DiskStore
-  -> IO (Either String DiskStore)
-prepare _ _ _ _ _ = undefined
+  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) FilePath))
+prepare _height _hash _opmode _cdata _store = undefined
 
 save ::
-     BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef DiskStore -> IO ()
+     C.BlockHeight
+  -> P.Hash
+  -> OpMode
+  -> CheckpointData
+  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+  -> IO ()
 save _height _hash _opmode _cdata _store = undefined
