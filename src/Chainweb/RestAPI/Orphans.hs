@@ -54,13 +54,16 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import P2P.Node.Configuration
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
 
-deriving newtype instance ToHttpApiData PeerId
-deriving newtype instance FromHttpApiData PeerId
+instance ToHttpApiData PeerId where
+    toUrlPiece = toText
+
+instance FromHttpApiData PeerId where
+    parseUrlPiece = first T.pack . eitherFromText
 
 instance FromHttpApiData HostAddress where
     parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
@@ -119,6 +122,12 @@ instance ToHttpApiData (NextItem PeerId) where
 instance FromHttpApiData (NextItem PeerId) where
     parseUrlPiece = first sshow . fromText
 
+instance ToHttpApiData (NextItem Int) where
+    toUrlPiece = toText
+
+instance FromHttpApiData (NextItem Int) where
+    parseUrlPiece = first sshow . fromText
+
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -165,6 +174,11 @@ instance ToParamSchema (NextItem BlockHash) where
         & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema (NextItem PeerId) where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & pattern ?~ "(inclusive|exclusive):key"
+
+instance ToParamSchema (NextItem Int) where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & pattern ?~ "(inclusive|exclusive):key"

@@ -33,6 +33,7 @@ module Chainweb.RestAPI
 , singleChainApplication
 , serveSingleChainOnPort
 , serveSingleChain
+, serveSingleChainSocket
 
 -- * Chainweb API Server
 , someChainwebServer
@@ -170,6 +171,16 @@ serveSingleChain
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveSingleChain s v chainDbs peerDbs = runSettings s
+    $ singleChainApplication v chainDbs peerDbs
+
+serveSingleChainSocket
+    :: Settings
+    -> Socket
+    -> ChainwebVersion
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(NetworkId, PeerDb)]
+    -> IO ()
+serveSingleChainSocket s sock v chainDbs peerDbs = runSettingsSocket s sock
     $ singleChainApplication v chainDbs peerDbs
 
 -- -------------------------------------------------------------------------- --

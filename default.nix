@@ -40,6 +40,12 @@ in
         chainweb = doCoverage (doHaddock super.chainweb);
         configuration-tools = self.callHackage "configuration-tools" "0.4.0" {};
 
+        x509 = callHackageDirect {
+          pkg = "x509";
+          ver = "1.7.5";
+          sha256 = "13r0wdvhb0a9pda2j209j6jy02h59jwyz356jzw9qq2y9ld1ggy9";
+        };
+
         # `callHackageDirect` doesn't handle revisions yet, so to work around an
         # issue with `hspec` bounds in `fake`, we jailbreak it.
         fake = doJailbreak super.fake;

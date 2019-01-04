@@ -23,11 +23,8 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
-import Control.Monad
 import Control.Monad.Catch
 
-import Data.Foldable
-import Data.Maybe
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -44,8 +41,9 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
+import Chainweb.Chainweb
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapPeerConfig)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -54,6 +52,7 @@ import Data.LogMessage
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.RestAPI.Server
+import P2P.Peer
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
@@ -147,33 +146,28 @@ main = runWithConfiguration mainInfo
 -- Example
 
 example :: P2pExampleConfig -> Logger SomeLogMessage -> IO ()
-example conf logger = do
+example conf logger =
+    withAsync (node cid t logger bootstrapConfig)
+        $ \bootstrap -> do
+            mapConcurrently_ (\_ -> node cid t logger p2pConfig)
+                [(1::Int) .. int (_numberOfNodes conf) - 1]
+            wait bootstrap
+
+  where
+    cid = _exampleChainId conf
+    t = _meanSessionSeconds conf
 
     -- P2P node configuration
     --
-    let p2pConfig = (defaultP2pConfiguration Test)
-            { _p2pConfigMaxSessionCount = _maxSessionCount conf
-            , _p2pConfigMaxPeerCount = _maxPeerCount conf
-            , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
-            }
+    p2pConfig = (defaultP2pConfiguration Test)
+        { _p2pConfigMaxSessionCount = _maxSessionCount conf
+        , _p2pConfigMaxPeerCount = _maxPeerCount conf
+        , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
+        }
 
     -- Configuration for bootstrap node
     --
-    let bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
-        bootstrapConfig = p2pConfig
-            { _p2pConfigPeerId = _peerId bootstrapPeer
-            }
-        bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
-
-    let cid = _exampleChainId conf
-        maxPort = bootstrapPort + int (_numberOfNodes conf) - 1
-        t = _meanSessionSeconds conf
-
-    -- run nodes concurrently
-    --
-    withAsync (node cid t logger bootstrapConfig bootstrapPort) $ \bootstrap -> do
-        mapConcurrently_ (node cid t logger p2pConfig) [bootstrapPort + 1 .. maxPort]
-        void $ wait bootstrap
+    bootstrapConfig = set p2pConfigPeer (head $ bootstrapPeerConfig Test) p2pConfig
 
 -- -------------------------------------------------------------------------- --
 -- Example P2P Client Sessions
@@ -197,18 +191,24 @@ timer seconds = do
 -- -------------------------------------------------------------------------- --
 -- Test Node
 
-node :: ChainId -> Natural -> Logger SomeLogMessage -> P2pConfiguration -> Port -> IO ()
-node cid t logger conf port =
-    withLoggerLabel ("node", sshow port) logger $ \logger' -> do
+node :: ChainId -> Natural -> Logger SomeLogMessage -> P2pConfiguration -> IO ()
+node cid t logger conf = do
+    (c, sock, peer) <- allocatePeer $ _p2pConfigPeer conf
+    withLoggerLabel ("node", sshow (_peerConfigPort c)) logger $ \logger' -> do
 
         let logfun l = loggerFunIO logger' (l2l l)
         logfun L.Info $ toLogMessage @T.Text "start test node"
 
+        let conf' = set p2pConfigPeer c conf
+        let settings = peerServerSettings peer
+        let serve pdb = serveP2pSocket settings sock Test
+                [(ChainNetwork cid, pdb)]
+
         -- initialize PeerDB
-        withPeerDb conf $ \pdb ->
+        withPeerDb conf' $ \pdb ->
 
             -- start P2P server
-            withAsync (serveP2pOnPort port Test [(ChainNetwork cid, pdb)]) $ \server -> do
+            withAsync (serve pdb) $ \server -> do
 
                 logfun L.Info $ toLogMessage @T.Text "started server"
 
@@ -216,16 +216,15 @@ node cid t logger conf port =
                 mgr <- HTTP.newManager HTTP.defaultManagerSettings
                 n <- withLoggerLabel ("session", "noopSession") logger' $ \sessionLogger -> do
                     let sessionLogFun l = loggerFunIO sessionLogger (l2l l) . toLogMessage
-                    p2pCreateNode Test nid conf sessionLogFun pdb ha mgr (noopSession t)
+                    p2pCreateNode Test nid peer sessionLogFun pdb mgr (noopSession t)
 
                 -- Run P2P client node
-                p2pStartNode conf n `finally` p2pStopNode n
+                p2pStartNode conf' n `finally` p2pStopNode n
 
                 wait server
 
   where
     nid = ChainNetwork cid
-    ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
 
 -- -------------------------------------------------------------------------- --
 -- Utils
