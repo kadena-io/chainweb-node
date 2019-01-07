@@ -62,6 +62,7 @@ module Network.X509.SelfSigned
 
 -- * Client
 , TlsPolicy(..)
+, ServiceID
 , unsafeMakeCredential
 , certificateCacheManagerSettings
 

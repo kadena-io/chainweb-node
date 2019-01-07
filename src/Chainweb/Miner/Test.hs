@@ -18,6 +18,7 @@
 --
 module Chainweb.Miner.Test
 ( MinerConfig(..)
+, configMeanBlockTimeSeconds
 , defaultMinerConfig
 , pMinerConfig
 , miner

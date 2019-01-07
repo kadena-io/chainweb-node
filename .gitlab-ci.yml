@@ -19,6 +19,7 @@ chainweb-nix-macos:
 chainweb-nix-linux:
   script:
     - nix-build --argstr system x86_64-linux
+  allow_failure: true
 
 chainweb-stack:
   script:

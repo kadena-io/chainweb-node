@@ -34,6 +34,7 @@ import Control.Monad.Catch
 
 import Data.Bifunctor (first)
 import Data.Function
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
@@ -294,7 +295,7 @@ node cid logger conf p2pConfig nid =
                 [(ChainNetwork cid, pdb)]
 
         withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
-            withPeerDb p2pConfig' $ \pdb ->
+            withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
                 withAsync (serve cdb pdb) $ \server -> do
                     logfun Info "started server"
                     runConcurrently

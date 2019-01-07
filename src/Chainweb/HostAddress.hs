@@ -8,6 +8,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- |
 -- Module: Chainweb.HostAddress
 -- Copyright: Copyright © 2018 Kadena LLC.
