@@ -46,9 +46,8 @@ import Data.Bytes.Get (runGetS)
 import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base58 as B58
 import Data.ByteString.Char8 (ByteString)
--- TODO BS
-import qualified Data.ByteString.Char8 as S
-import qualified Data.ByteString.Unsafe as S
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Unsafe as B
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -200,7 +199,7 @@ collectGarbage _ = return $! () -- TODO
 ------------------------------------------------------------------------------
 insertBlockHeaderIntoOdb :: GitStoreData -> BlockHeader -> IO GitHash
 insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
-    GitHash <$> S.unsafeUseAsCStringLen serializedBlockHeader write
+    GitHash <$> B.unsafeUseAsCStringLen serializedBlockHeader write
   where
     !serializedBlockHeader = runPutS $! encodeBlockHeader bh
 
@@ -228,7 +227,7 @@ tbInsert
     -> IO ()
 tbInsert tb mode h hs gh =
     withOid gh $ \oid ->
-    S.unsafeUseAsCString name $ \cname ->
+    B.unsafeUseAsCString name $ \cname ->
     throwOnGitError $ Git.c'git_treebuilder_insert nullPtr tb cname oid mode
   where
     name = mkTreeEntryName h hs
@@ -290,7 +289,7 @@ createBlockHeaderTag :: GitStoreData -> BlockHeader -> GitHash -> IO ()
 createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     withObject gs leafHash $ \obj ->
     alloca $ \pTagOid ->
-    S.unsafeUseAsCString tagName $ \cstr ->
+    B.unsafeUseAsCString tagName $ \cstr ->
     throwOnGitError (Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1)
   where
     height :: Int64
@@ -310,8 +309,8 @@ parseLeafTreeFileName fn = do
     bh <- BlockHashBytes <$> decodeB58 blockHash0
     return (height, bh)
   where
-    (heightStr, rest) = S.break (== '.') fn
-    blockHash0 = S.drop 1 rest
+    (heightStr, rest) = B.break (== '.') fn
+    blockHash0 = B.drop 1 rest
 
     decodeHeight :: ByteString -> Maybe Int64
     decodeHeight s = do
@@ -323,7 +322,7 @@ parseLeafTreeFileName fn = do
 ------------------------------------------------------------------------------
 withOid :: GitHash -> (Ptr Git.C'git_oid -> IO a) -> IO a
 withOid (GitHash strOid) f =
-    S.unsafeUseAsCStringLen strOid $ \(cstr, clen) -> alloca $ \pOid -> do
+    B.unsafeUseAsCStringLen strOid $ \(cstr, clen) -> alloca $ \pOid -> do
         throwOnGitError $ Git.c'git_oid_fromstrn pOid cstr (fromIntegral clen)
         f pOid
 
@@ -358,7 +357,7 @@ getBlob (GitStoreData repo _) gh = bracket lookup destroy readBlob
     readBlob blob = do
         content <- Git.c'git_blob_rawcontent blob
         size <- Git.c'git_blob_rawsize blob
-        S.packCStringLen (castPtr content, fromIntegral size)
+        B.packCStringLen (castPtr content, fromIntegral size)
 
 
 ------------------------------------------------------------------------------
@@ -385,7 +384,7 @@ withReference :: GitStoreData
 withReference (GitStoreData repo _) path0 f = bracket lookup destroy f
   where
     path :: ByteString
-    path = S.append "refs/" path0
+    path = B.append "refs/" path0
 
     destroy :: Ptr Git.C'git_reference -> IO ()
     destroy p = when (p /= nullPtr) $ Git.c'git_reference_free p
@@ -393,7 +392,7 @@ withReference (GitStoreData repo _) path0 f = bracket lookup destroy f
     lookup :: IO (Ptr Git.C'git_reference)
     lookup = mask $ \restore ->
              alloca $ \pRef ->
-             S.unsafeUseAsCString path $ \cstr -> do
+             B.unsafeUseAsCString path $ \cstr -> do
         code <- restore $ Git.c'git_reference_lookup pRef repo cstr
         if | code == Git.c'GIT_ENOTFOUND -> return nullPtr
            | code /= 0 -> throwGitError code
@@ -413,7 +412,7 @@ withTreeBuilder f =
 
 ------------------------------------------------------------------------------
 oidToByteString :: Ptr Git.C'git_oid -> IO ByteString
-oidToByteString pOid = bracket (Git.c'git_oid_allocfmt pOid) free S.packCString
+oidToByteString pOid = bracket (Git.c'git_oid_allocfmt pOid) free B.packCString
 
 
 ------------------------------------------------------------------------------
@@ -441,7 +440,7 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
     fromTreeEntryP :: Ptr Git.C'git_tree_entry -> IO TreeEntry
     fromTreeEntryP entryP = do
       name <- bracket (Git.c'git_tree_entry_name entryP) free
-                      S.packCString
+                      B.packCString
       oid  <- GitHash <$> bracket (Git.c'git_tree_entry_id entryP) free oidToByteString
       (h, bh) <- maybe (throwGitStoreFailure "invalid tree object!") return
                        (parseLeafTreeFileName name)
@@ -459,10 +458,10 @@ updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
     withObject store (_te_gitHash newLeaf) $ \obj ->
         alloca $ \pTagOid ->
-        S.unsafeUseAsCString (mkName newLeaf) $ \cstr ->
+        B.unsafeUseAsCString (mkName newLeaf) $ \cstr ->
         throwOnGitError $ Git.c'git_tag_create_lightweight pTagOid repo cstr
                                                            obj 1
-    S.unsafeUseAsCString (mkName oldLeaf) $ \cstr ->
+    B.unsafeUseAsCString (mkName oldLeaf) $ \cstr ->
         throwOnGitError $ Git.c'git_tag_delete repo cstr
 
   where
@@ -472,19 +471,19 @@ updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
 
 ------------------------------------------------------------------------------
 mkTreeEntryName :: Int64 -> BlockHashBytes -> ByteString
-mkTreeEntryName height hash = S.concat [ encHeight, ".", encBH ]
+mkTreeEntryName height hash = B.concat [ encHeight, ".", encBH ]
   where
     encBH = bsToB58 $! runPutS (encodeBlockHashBytes hash)
     encHeight = bsToB58 $! runPutS (encodeBlockHeight $ fromIntegral height)
 
 mkTagName :: Int64 -> BlockHashBytes -> ByteString
-mkTagName height hash = S.append "bh/" (mkTreeEntryName height hash)
+mkTagName height hash = B.append "bh/" (mkTreeEntryName height hash)
 
 mkLeafTagName :: Int64 -> BlockHashBytes -> ByteString
-mkLeafTagName height hash = S.append "leaf/" (mkTreeEntryName height hash)
+mkLeafTagName height hash = B.append "leaf/" (mkTreeEntryName height hash)
 
 mkTagRef :: Int64 -> BlockHashBytes -> ByteString
-mkTagRef height hash = S.append "tags/" (mkTagName height hash)
+mkTagRef height hash = B.append "tags/" (mkTagName height hash)
 
 
 ------------------------------------------------------------------------------
@@ -494,7 +493,7 @@ lookupRefTarget
     -> ByteString        -- ^ ref path, e.g. tags/foo
     -> IO (Maybe GitHash)
 lookupRefTarget (GitStoreData repo _) path0 =
-    S.unsafeUseAsCString path $ \cpath ->
+    B.unsafeUseAsCString path $ \cpath ->
     alloca $ \pOid -> do
         code <- Git.c'git_reference_name_to_id pOid repo cpath
         if code /= 0
@@ -503,7 +502,7 @@ lookupRefTarget (GitStoreData repo _) path0 =
 
   where
     path :: ByteString
-    path = S.append "refs/" path0
+    path = B.append "refs/" path0
 
 
 ------------------------------------------------------------------------------
