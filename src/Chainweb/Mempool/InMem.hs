@@ -43,6 +43,7 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Maybe (fromJust, isJust)
+import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -57,21 +58,17 @@ import Chainweb.Mempool.Mempool
 
 
 ------------------------------------------------------------------------------
--- | PSQ is a min-heap, this is a quick and dirty way of negating the priority
--- calculation
-newtype NegatedReward = NegatedReward TransactionReward
-  deriving (Ord, Eq)
+-- | Priority for the search queue
+type Priority = (Down TransactionReward, Int64)
 
-_toNegated :: TransactionReward -> NegatedReward
-_toNegated t = NegatedReward (0 - t)
-_fromNegated :: NegatedReward -> TransactionReward
-_fromNegated (NegatedReward t) = 0 - t
+toPriority :: TransactionReward -> Int64 -> Priority
+toPriority r s = (Down r, s)
 
 
 ------------------------------------------------------------------------------
 -- | Priority search queue -- search by transaction hash in /O(log n)/ like a
 -- tree, find-min in /O(1)/ like a heap
-type PSQ t = HashPSQ TransactionHash NegatedReward t
+type PSQ t = HashPSQ TransactionHash Priority t
 
 type SubscriptionId = Word64
 
@@ -82,8 +79,6 @@ data TxEdit t = Subscribe !SubscriptionId (Subscription t)
               | Unsubscribe !SubscriptionId
               | Transactions (Vector t)
               | Close
-
-
 type TxSubscriberMap t = HashMap SubscriptionId (Weak (Subscription t))
 
 -- | The 'TxBroadcaster' is responsible for broadcasting new transactions out
@@ -324,7 +319,9 @@ insertInMem broadcaster cfg lock txs = do
     -- TODO: validate transaction; transaction size and gas limit has to be
     -- below maximums
     isValid _ = True
-    getReward = NegatedReward . _inmemTxReward cfg
+    getPriority x = let r = _inmemTxReward cfg x
+                        s = _inmemTxSize cfg x
+                    in toPriority r s
     exists mdata txhash = do
         valMap <- readIORef $ _inmemValidated mdata
         confMap <- readIORef $ _inmemConfirmed mdata
@@ -334,7 +331,7 @@ insertInMem broadcaster cfg lock txs = do
         if not b && isValid tx
           then do
             modifyIORef' (_inmemPending mdata) $
-                PSQ.insert txhash (getReward tx) tx
+               PSQ.insert txhash (getPriority tx) tx
             return (tx, True)
           else return (tx, False)
       where
@@ -442,14 +439,17 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     broadcastTxs newOnes broadcaster
 
   where
-    getReward = NegatedReward . _inmemTxReward cfg
+    reward = _inmemTxReward cfg
+    size = _inmemTxSize cfg
+    getPriority x = let r = reward x
+                        s = size x
+                    in toPriority r s
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
         maybe (return Nothing) (reintroduceIt mdata txhash) m
     reintroduceIt mdata txhash (ValidatedTransaction _ tx) = do
         modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
-        modifyIORef' (_inmemPending mdata) $
-            PSQ.insert txhash (getReward tx) tx
+        modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
         return $! Just tx
 
 

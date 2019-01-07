@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionHash
@@ -13,6 +14,8 @@ module Chainweb.Mempool.Mempool
   , ValidatedTransaction(..)
   , LookupResult(..)
   , finalizeSubscriptionImmediately
+  , chainwebTestHasher
+  , chainwebTestHashMeta
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.STM.TBMChan (TBMChan)
@@ -31,6 +34,7 @@ import GHC.Generics (Generic)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
+import Chainweb.Version
 
 
 ------------------------------------------------------------------------------
@@ -38,6 +42,7 @@ data LookupResult t = Missing
                     | Validated (ValidatedTransaction t)
                     | Confirmed
                     | Pending t
+  deriving (Show)
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -131,6 +136,12 @@ data HashMeta = HashMeta {
   , _hashmetaLenBytes :: {-# UNPACK #-} !Int
 }
 
+chainwebTestHasher :: ByteString -> TransactionHash
+chainwebTestHasher s = let (BlockHashBytes b) = cryptoHash Test s
+                       in TransactionHash b
+
+chainwebTestHashMeta :: HashMeta
+chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
 
 ------------------------------------------------------------------------------
 -- | Clients can subscribe to a mempool to receive new transactions as soon as
@@ -144,14 +155,14 @@ data Subscription t = Subscription {
 
 ------------------------------------------------------------------------------
 data ValidationInfo = ValidationInfo {
-    _validatedHeight :: !BlockHeight
-  , _validatedHash :: !BlockHash
-}
+    _validatedHeight :: {-# UNPACK #-} !BlockHeight
+  , _validatedHash :: {-# UNPACK #-} !BlockHash
+} deriving (Show)
 
 data ValidatedTransaction t = ValidatedTransaction {
     _validatedForks :: Vector ValidationInfo
   , _validatedTransaction :: t
-}
+} deriving (Show)
 
 
 ------------------------------------------------------------------------------

@@ -80,6 +80,8 @@ library
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
+        , Chainweb.Mempool.Mempool
+        , Chainweb.Mempool.InMem
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.RestAPI
@@ -245,6 +247,8 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Mempool
+        Chainweb.Test.Mempool.InMem
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.TreeDB
@@ -291,6 +295,7 @@ test-suite chainweb-tests
         , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
+        , vector
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
