@@ -51,6 +51,12 @@ in
           sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
         };
 
+        vector-algorithms = callHackageDirect {
+          pkg = "vector-algorithms";
+          ver = "0.8.0.1";
+          sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
+        };
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
