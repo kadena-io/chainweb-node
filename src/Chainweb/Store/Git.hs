@@ -24,7 +24,7 @@ module Chainweb.Store.Git
 import qualified Bindings.Libgit2 as Git
 import Control.Concurrent.MVar
 import Control.Exception
-    (Exception, bracket, bracketOnError, finally, mask, throwIO)
+    (Exception, bracket, bracketOnError, bracket_, finally, mask, throwIO)
 import Control.Monad (void, when)
 import Data.Bits (complement, unsafeShiftL, (.&.), (.|.))
 import Data.Bytes.Get (runGetS)
@@ -93,11 +93,11 @@ data LeafTreeData = LeafTreeData {
 
 
 ------------------------------------------------------------------------------
-data GitFailure = GitFailure { gitFailureErrorCode :: !CInt }
+newtype GitFailure = GitFailure { gitFailureErrorCode :: CInt }
   deriving (Show)
 instance Exception GitFailure
 
-data GitStoreFailure = GitStoreFailure { gitStoreFailureReason :: !Text }
+newtype GitStoreFailure = GitStoreFailure { gitStoreFailureReason :: Text }
   deriving (Show)
 instance Exception GitStoreFailure
 
@@ -137,7 +137,7 @@ withGitStore (GitStoreConfig (FsPath root0)) f = Git.withLibGitDo $ do
       res <- restore (Git.c'git_repository_open_ext repoptr proot openFlags proot)
       if res == 0
         then Right <$> peek repoptr
-        else return $! Left res
+        else return (Left res)
 
     --------------------------------------------------------------------------
     initBare restore root =
@@ -189,7 +189,7 @@ collectGarbage _ = return $! () -- TODO
 
 ------------------------------------------------------------------------------
 insertBlockHeaderIntoOdb :: GitStoreData -> BlockHeader -> IO GitHash
-insertBlockHeaderIntoOdb (GitStoreData _ odb) bh = do
+insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
     S.unsafeUseAsCStringLen serializedBlockHeader write
   where
     !serializedBlockHeader = runPutS $! encodeBlockHeader bh
@@ -282,7 +282,7 @@ parseLeafTreeFileName :: ByteString -> Maybe (Int64, BlockHashBytes)
 parseLeafTreeFileName fn = do
     height <- decodeHeight heightStr
     bh <- BlockHashBytes <$> decodeB58 blockHash0
-    return $! (height, bh)
+    return (height, bh)
   where
     (heightStr, rest) = S.break (== '.') fn
     blockHash0 = S.drop 1 rest
@@ -370,9 +370,9 @@ withReference (GitStoreData repo _) path0 f =
 withTreeBuilder
   :: (Ptr Git.C'git_treebuilder -> IO a) -> IO a
 withTreeBuilder f =
-    alloca $ \pTB -> bracket (make pTB)
-                             (const (peek pTB >>= Git.c'git_treebuilder_free))
-                             (const (peek pTB >>= f))
+    alloca $ \pTB -> bracket_ (make pTB)
+                             (peek pTB >>= Git.c'git_treebuilder_free)
+                             (peek pTB >>= f)
   where
     make p = throwOnGitError (Git.c'git_treebuilder_create p nullPtr)
 
@@ -530,7 +530,7 @@ getSpectrum d0 = dedup $ startSpec ++ rlgs ++ recents
     -- reverse log spectrum should be quantized on the lower bits
     quantize !x = let !out = (d - x) .&. complement (x-1) in out
 
-    lgs = map quantize $ takeWhile (< diff) $ pow2s
+    lgs = map quantize $ takeWhile (< diff) pow2s
     rlgs = reverse lgs
 
     fs !dl !lst (x:zs) | x < d     = fs (dl . (x:)) x zs
@@ -541,7 +541,7 @@ getSpectrum d0 = dedup $ startSpec ++ rlgs ++ recents
 ------------------------------------------------------------------------------
 _isSorted :: Ord a => [a] -> Bool
 _isSorted [] = True
-_isSorted (_:[]) = True
+_isSorted [_] = True
 _isSorted (x:z@(y:_)) = x < y && _isSorted z
 
 
@@ -552,9 +552,9 @@ _prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: Int64]
 ------------------------------------------------------------------------------
 dedup :: Eq a => [a] -> [a]
 dedup [] = []
-dedup o@(_:[]) = o
-dedup (x:r@(y:_)) | x == y = (dedup r)
-                  | otherwise = x:(dedup r)
+dedup o@[_] = o
+dedup (x:r@(y:_)) | x == y = dedup r
+                  | otherwise = x : dedup r
 
 
 ------------------------------------------------------------------------------
@@ -594,4 +594,3 @@ genesisBlockGitHash _ = undefined
 
 genesisBlockHashes :: GitStoreData -> IO TreeEntry
 genesisBlockHashes = undefined
-
