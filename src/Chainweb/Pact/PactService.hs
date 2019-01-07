@@ -1,3 +1,6 @@
+{-#language LambdaCase#-}
+{-#language RecordWildCards#-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -7,8 +10,6 @@
 --
 -- Pact service for Chainweb
 
-{-#language LambdaCase#-}
-{-#language RecordWildCards#-}
 module Chainweb.Pact.PactService
   ( initPactService
   , newTransactionBlock
@@ -72,7 +73,7 @@ serviceRequests =
 newTransactionBlock :: P.Hash -> C.BlockHeight -> PactT Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
-  unless (isFirstBlock parentHash blockHeight) $ do
+  unless (isFirstBlock blockHeight) $ do
     CheckpointEnv' cpEnv <- ask
     let checkpointer    = _cpeCheckpointer cpEnv
         checkpointStore = _cpeCheckpointStore cpEnv
@@ -121,8 +122,8 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
-isFirstBlock :: P.Hash -> C.BlockHeight -> Bool
-isFirstBlock _hash height = height == 0
+isFirstBlock :: C.BlockHeight -> Bool
+isFirstBlock height = height == 0
 
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} =
@@ -132,7 +133,7 @@ validateBlock Block {..} =
       CheckpointEnv' cpEnv <- ask
       let checkpointer = _cpeCheckpointer cpEnv
           checkpointStore = _cpeCheckpointStore cpEnv
-      unless (isFirstBlock _bParentHash _bBlockHeight) $ do
+      unless (isFirstBlock _bBlockHeight) $ do
         st <- buildCurrentPactState
         mRestoredState <-
           liftIO $ _cPrepare checkpointer _bBlockHeight theHash Validation

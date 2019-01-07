@@ -14,9 +14,8 @@ import qualified Data.Map.Strict as M
 mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
 mkPureState env cmdCfg = do
   P.initSchema env
-  let theState = PactDbState
-        {  _pdbsCommandConfig = cmdCfg
-        ,  _pdbsDbEnv = Env' env
-        , _pdbsState = P.CommandState P.initRefStore M.empty
-        }
-  return theState
+  return $ PactDbState
+    {  _pdbsCommandConfig = cmdCfg
+    ,  _pdbsDbEnv = Env' env
+    , _pdbsState = P.CommandState P.initRefStore M.empty
+    }

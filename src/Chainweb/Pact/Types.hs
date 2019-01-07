@@ -1,3 +1,8 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StrictData #-}
+
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -6,10 +11,6 @@
 -- Stability: experimental
 --
 -- Pact Types module for Chainweb
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StrictData #-}
 
 module Chainweb.Pact.Types
   ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
@@ -54,6 +55,6 @@ data PactDbStatePersist = PactDbStatePersist
   }
 makeLenses ''PactDbStatePersist
 
-type PactT a = RWST (CheckpointEnv') () PactDbState IO a
+type PactT a = RWST CheckpointEnv' () PactDbState IO a
 
 data TransactionCriteria = TransactionCriteria

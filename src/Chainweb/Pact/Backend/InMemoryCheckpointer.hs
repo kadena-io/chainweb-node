@@ -5,9 +5,11 @@
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 -- Pact PureDb checkpoint module for Chainweb
+
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
 import qualified Chainweb.BlockHeader as C
+import Data.Foldable
 import Chainweb.Pact.Backend.Types
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -40,10 +42,9 @@ restore ::
   -> IO ()
 restore height hash cdata store = do
   s <- readIORef store
-  maybe (return ()) (validate cdata) (HMS.lookup (height, hash) s)
+  traverse_ (validate cdata) $ HMS.lookup (height, hash) s
   where
-    validate = undefined
-
+    validate = error "Checkpointer.restore: not yet implemented"
 prepare ::
      C.BlockHeight
   -> P.Hash

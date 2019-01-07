@@ -1,3 +1,9 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RankNTypes #-}
+
 -- |
 -- Module: Chainweb.Pact.Backend.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -6,12 +12,6 @@
 -- Stability: experimental
 --
 -- Chainweb / Pact Types module for various database backends
-
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.Pact.Backend.Types
   ( PactDbConfig(..) , pdbcGasLimit , pdbcGasRate , pdbcLogDir , pdbcPersistDir , pdbcPragmas
