@@ -36,28 +36,32 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
          , _cpeGasEnv = gasEnv
          })
 
-restore ::
-     C.BlockHeight
-  -> P.Hash
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
-  -> IO ()
-restore _height _hash _cdata _store = undefined
+restore = undefined
+prepare = undefined
+save = undefined
 
-prepare ::
-     C.BlockHeight
-  -> P.Hash
-  -> OpMode
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
-  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) FilePath))
-prepare _height _hash _opmode _cdata _store = undefined
+-- restore ::
+--      C.BlockHeight
+--   -> P.Hash
+--   -> CheckpointData
+--   -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+--   -> IO ()
+-- restore _height _hash _cdata _store = undefined
 
-save ::
-     C.BlockHeight
-  -> P.Hash
-  -> OpMode
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
-  -> IO ()
-save _height _hash _opmode _cdata _store = undefined
+-- prepare ::
+--      C.BlockHeight
+--   -> P.Hash
+--   -> OpMode
+--   -> CheckpointData
+--   -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+--   -> IO (Either String (HashMap (C.BlockHeight, P.Hash) FilePath))
+-- prepare _height _hash _opmode _cdata _store = undefined
+
+-- save ::
+--      C.BlockHeight
+--   -> P.Hash
+--   -> OpMode
+--   -> CheckpointData
+--   -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+--   -> IO ()
+-- save _height _hash _opmode _cdata _store = undefined

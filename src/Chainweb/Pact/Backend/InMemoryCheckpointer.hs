@@ -5,6 +5,7 @@
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 -- Pact PureDb checkpoint module for Chainweb
+{-# LANGUAGE TupleSections #-}
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
 import qualified Chainweb.BlockHeader as C
@@ -44,6 +45,7 @@ restore height hash cdata store = do
   where
     validate = undefined
 
+-- I'm going to leave this alone for now.
 prepare ::
      C.BlockHeight
   -> P.Hash
@@ -51,7 +53,10 @@ prepare ::
   -> CheckpointData
   -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
   -> IO (Either String (HashMap (C.BlockHeight, P.Hash) CheckpointData))
-prepare _ _ _ _ = fmap Right . readIORef
+prepare _ _ opmode _ =
+  case opmode of
+    NewBlock -> fmap Right . readIORef
+    Validation -> undefined
 
 save ::
      C.BlockHeight
@@ -60,4 +65,7 @@ save ::
   -> CheckpointData
   -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
   -> IO ()
-save _height _hash _opmode _cdata _store = return ()
+save height hash opmode cdata store =
+  case opmode of
+    Validation -> return () -- We are discarding the block.
+    NewBlock -> atomicModifyIORef store (\store' -> (HMS.insert (height,hash) cdata store', ()))

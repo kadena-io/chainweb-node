@@ -91,13 +91,21 @@ data CheckpointData = CheckpointData
 makeLenses ''CheckpointData
 
 data Checkpointer c = Checkpointer
-  { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData -> IORef c -> IO ()
-  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
+  { _cRestore :: C.BlockHeight -> P.Hash -> IO ()
+  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> IORef c -> IO (Either String CheckpointData)
   , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO ()
   }
--- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
 
 makeLenses ''Checkpointer
+
+-- data Checkpointer c = Checkpointer
+--   { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData -> IORef c -> IO ()
+--   , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
+--   , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO ()
+--   }
+-- -- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
+
+-- makeLenses ''Checkpointer
 
 class CheckpointServiceStore c where
 
