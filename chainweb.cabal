@@ -206,6 +206,7 @@ test-suite chainweb-tests
         Chainweb.Test.DiGraph
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Pact
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
