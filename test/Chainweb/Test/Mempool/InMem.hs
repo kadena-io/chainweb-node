@@ -7,7 +7,8 @@ import Test.Tasty
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
-import Chainweb.Mempool.Mempool (chainwebTestHashMeta, chainwebTestHasher)
+import Chainweb.Mempool.Mempool
+    (Codec(..), chainwebTestHashMeta, chainwebTestHasher)
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), MockTx(..), mockBlocksizeLimit, mockCodec)
 import qualified Chainweb.Test.Mempool
@@ -20,4 +21,4 @@ tests = testGroup "mempool/inMem" $ Chainweb.Test.Mempool.tests
   where
     cfg = InMemConfig mockCodec hasher hashmeta mockFees mockSize mockBlocksizeLimit
     hashmeta = chainwebTestHashMeta
-    hasher = chainwebTestHasher
+    hasher = chainwebTestHasher . _codecEncode mockCodec

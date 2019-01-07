@@ -133,7 +133,8 @@ library
             , Chainweb.Pact.Utils
 
     build-depends:
-          QuickCheck >= 2.10
+          Decimal >= 0.4.2 && < 0.6
+        , QuickCheck >= 2.10
         , QuickCheck-GenT >=0.2
         , aeson >= 1.4
         , aeson-pretty >= 0.8
@@ -263,6 +264,7 @@ test-suite chainweb-tests
           chainweb
 
         -- external
+        , Decimal >= 0.4.2 && < 0.6
         , QuickCheck >= 2.10
         , aeson >= 1.4
         , async >= 2.2

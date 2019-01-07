@@ -5,7 +5,7 @@
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionHash
-  , TransactionReward
+  , TransactionFees
   , TransactionMetadata(..)
   , Codec(..)
   , HashMeta(..)
@@ -23,6 +23,7 @@ import Control.DeepSeq (NFData)
 import Data.Bytes.Get (getWord64host, runGetS)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as S
+import Data.Decimal (Decimal)
 import Data.Hashable (Hashable(..))
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -51,13 +52,13 @@ data MempoolBackend t = MempoolBackend {
     _mempoolTxCodec :: {-# UNPACK #-} !(Codec t)
 
     -- | hash function to use when making transaction hashes.
-  , _mempoolHasher :: ByteString -> TransactionHash
+  , _mempoolHasher :: t -> TransactionHash
 
     -- | hash function metadata.
   , _mempoolHashMeta :: {-# UNPACK #-} !HashMeta
 
-    -- | getter for the transaction reward.
-  , _mempoolTxReward :: t -> TransactionReward
+    -- | getter for the transaction fees.
+  , _mempoolTxFees :: t -> TransactionFees
 
     -- | getter for transaction size.
   , _mempoolTxSize :: t -> Int64
@@ -83,7 +84,8 @@ data MempoolBackend t = MempoolBackend {
   , _mempoolReintroduce :: Vector TransactionHash -> IO ()
 
     -- | given a callback function, loops through the pending candidate
-    -- transactions and supplies the hashes to the callback in chunks.
+    -- transactions and supplies the hashes to the callback in chunks. No
+    -- ordering of hashes is presupposed.
   , _mempoolGetPendingTransactions
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
@@ -109,9 +111,8 @@ instance Hashable TransactionHash where
 
 
 ------------------------------------------------------------------------------
--- | For now, just use int64 as a metric for how much reward is to be gained
--- from a block. Higher is better
-type TransactionReward = Int64
+-- | Fees to be awarded to the miner for processing a transaction. Higher is better
+type TransactionFees = Decimal
 
 
 ------------------------------------------------------------------------------

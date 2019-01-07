@@ -32,7 +32,6 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
     handle, mask_, throwIO)
 import Control.Monad (forever, join, void)
-import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (foldlM, for_, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -48,9 +47,9 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Prelude
-    (Bool(..), Eq, IO, Int, Maybe(..), Monad(..), Num(..), Ord, flip, fmap,
-    fst, id, mapM, mapM_, maybe, not, snd, ($), ($!), (&&), (.), (<$>), (<*>),
-    (<=), (==), (>=), (||))
+    (Bool(..), IO, Int, Maybe(..), Monad(..), Num(..), flip, fmap, fst, id,
+    mapM, mapM_, maybe, not, snd, ($), ($!), (&&), (.), (<$>), (<*>), (<=),
+    (==), (>=), (||))
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 ------------------------------------------------------------------------------
@@ -59,9 +58,9 @@ import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
-type Priority = (Down TransactionReward, Int64)
+type Priority = (Down TransactionFees, Int64)
 
-toPriority :: TransactionReward -> Int64 -> Priority
+toPriority :: TransactionFees -> Int64 -> Priority
 toPriority r s = (Down r, s)
 
 
@@ -204,9 +203,9 @@ broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
 -- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
     _inmemCodec :: Codec t
-  , _inmemHasher :: ByteString -> TransactionHash
+  , _inmemHasher :: t -> TransactionHash
   , _inmemHashMeta :: HashMeta
-  , _inmemTxReward :: t -> TransactionReward
+  , _inmemTxFees :: t -> TransactionFees
   , _inmemTxSize :: t -> Int64
   , _inmemTxBlockSizeLimit :: Int64
 }
@@ -249,9 +248,9 @@ makeInMemPool cfg txB = do
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig codec hasher hashMeta
-                                       txRewardFunc txSizeFunc blockSizeLimit)
+                                       txFeesFunc txSizeFunc blockSizeLimit)
                                   lock broadcaster) =
-    MempoolBackend codec hasher hashMeta txRewardFunc txSizeFunc
+    MempoolBackend codec hasher hashMeta txFeesFunc txSizeFunc
                    blockSizeLimit lookup insert getBlock markValidated
                    markConfirmed reintroduce getPending subscribe
   where
@@ -313,13 +312,12 @@ insertInMem broadcaster cfg lock txs = do
     broadcastTxs newTxs broadcaster
 
   where
-    encode = _codecEncode $ _inmemCodec cfg
     hasher = _inmemHasher cfg
 
     -- TODO: validate transaction; transaction size and gas limit has to be
     -- below maximums
     isValid _ = True
-    getPriority x = let r = _inmemTxReward cfg x
+    getPriority x = let r = _inmemTxFees cfg x
                         s = _inmemTxSize cfg x
                     in toPriority r s
     exists mdata txhash = do
@@ -335,7 +333,7 @@ insertInMem broadcaster cfg lock txs = do
             return (tx, True)
           else return (tx, False)
       where
-        txhash = hasher $ encode tx
+        txhash = hasher tx
 
 
 ------------------------------------------------------------------------------
@@ -373,8 +371,7 @@ markValidatedInMem :: InMemConfig t
 markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata -> do
     V.mapM_ (validateOne mdata) txs
   where
-    encode = _codecEncode $ _inmemCodec cfg
-    hash = _inmemHasher cfg . encode
+    hash = _inmemHasher cfg
 
     validateOne mdata tx = do
         let txhash = hash $ _validatedTransaction tx
@@ -407,8 +404,7 @@ getPendingInMem cfg lock callback = do
 
   where
     initState = (id, 0)    -- difference list
-    encode = _codecEncode $ _inmemCodec cfg
-    hash = _inmemHasher cfg . encode
+    hash = _inmemHasher cfg
 
     go (dl, !sz) tx = do
         let txhash = hash tx
@@ -439,9 +435,9 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     broadcastTxs newOnes broadcaster
 
   where
-    reward = _inmemTxReward cfg
+    fees = _inmemTxFees cfg
     size = _inmemTxSize cfg
-    getPriority x = let r = reward x
+    getPriority x = let r = fees x
                         s = size x
                     in toPriority r s
     reintroduceOne mdata txhash = do
