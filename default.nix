@@ -13,8 +13,8 @@ in
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
         owner = "siers";
         repo = "nix-gitignore";
-        rev = "ee230196f4ce4778bfe0e84429966a343fcc5248";
-        sha256 = "10md0iaic858fvwvc71qs50w13240fwq5rvza9kd2la3s94mzawy";
+        rev = "4f2d85f2f1aa4c6bff2d9fcfd3caad443f35476e";
+        sha256 = "1vzfi3i3fpl8wqs1yq95jzdi6cpaby80n8xwnwa8h2jvcw3j7kdz";
       }) {};
   in
   {
@@ -172,11 +172,7 @@ in
 
       };
     packages = {
-      # Temporarily disable gitignoreSource due to https://github.com/siers/nix-gitignore/issues/14
-      # chainweb = gitignore.gitignoreSource [] ./.;
-      chainweb = builtins.filterSource
-        (path: type: !(builtins.elem (baseNameOf path) ["result" "dist" "dist-newstyle" ".git" ".stack-work"]))
-        ./.;
+      chainweb = gitignore.gitignoreSource [] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
