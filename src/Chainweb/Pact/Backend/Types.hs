@@ -44,6 +44,19 @@ module Chainweb.Pact.Backend.Types
     , PactDbBackend
     ) where
 
+import Control.Lens
+import Control.Monad.State
+
+import Data.Aeson
+import Data.HashMap.Strict (HashMap)
+import Data.IORef
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+
+import GHC.Generics
+
+-- internal modules
+
 import qualified Chainweb.BlockHeader as C
 
 import qualified Pact.Interpreter as P
@@ -53,15 +66,6 @@ import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
-
-import Control.Lens
-import Control.Monad.State
-import Data.Aeson
-import Data.HashMap.Strict (HashMap)
-import Data.IORef
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
-import GHC.Generics
 
 class PactDbBackend e
 

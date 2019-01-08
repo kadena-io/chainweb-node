@@ -23,6 +23,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Prelude
 
+-- internal modules
+
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
 import Pact.Types.Command

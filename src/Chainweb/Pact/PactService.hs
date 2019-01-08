@@ -22,12 +22,15 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State hiding (get, put)
 import Control.Monad.Trans.RWS.Lazy
+
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Maybe
 import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
+
+-- internal modules
 
 import qualified Chainweb.BlockHeader as C
 import qualified Pact.Gas as P

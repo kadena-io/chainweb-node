@@ -9,16 +9,17 @@
 
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
+import Data.IORef
+import qualified Data.HashMap.Strict as HMS
+import Data.HashMap.Strict (HashMap)
+
+-- internal modules
+
 import Chainweb.Pact.Types
 import qualified Chainweb.BlockHeader as C
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.Logger as P
-
-import Data.IORef
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
-import Data.HashMap.Strict (HashMap)
-
 
 initSQLiteCheckpointEnv = undefined
 
