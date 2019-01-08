@@ -48,12 +48,12 @@ import qualified Data.ByteString.Base58 as B58
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Unsafe as B
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Intro as V
+import Data.Word (Word64)
 
 import Foreign.C.String (withCString)
 import Foreign.C.Types (CInt, CSize, CUInt)
@@ -87,13 +87,13 @@ newtype GitStore = GitStore (MVar GitStoreData)
 newtype GitHash = GitHash ByteString deriving (Eq, Ord, Show)
 
 data TreeEntry = TreeEntry {
-    _te_blockHeight :: {-# UNPACK #-} !Int64  -- TODO Make `BlockHeight`
+    _te_blockHeight :: {-# UNPACK #-} !BlockHeight
   , _te_blockHash :: {-# UNPACK #-} !BlockHashBytes -- TODO Why not `BlockHash`?
   , _te_gitHash :: {-# UNPACK #-} !GitHash
 } deriving (Show, Eq, Ord)
 
 data LeafTreeData = LeafTreeData {
-    _ltd_blockHeight :: !Int64  -- TODO Make `BlockHeight`
+    _ltd_blockHeight :: !BlockHeight
   , _ltd_blockHash :: {-# UNPACK #-} !BlockHashBytes
   , _ltd_blockHeaderBlobHash :: !GitHash
   , _ltd_spectrum :: Vector TreeEntry
@@ -221,7 +221,7 @@ getBlockHashBytes (BlockHash _ bytes) = bytes
 tbInsert
     :: Ptr Git.C'git_treebuilder
     -> Git.C'git_filemode_t
-    -> Int64
+    -> BlockHeight
     -> BlockHashBytes
     -> GitHash
     -> IO ()
@@ -246,7 +246,7 @@ createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
                              return
     let parentTreeGitHash = _te_gitHash parentTreeEntry
     parentTreeData <- readLeafTree store parentTreeGitHash
-    treeEntries <- mapM (\h -> lookupTreeEntryByHeight' store parentTreeGitHash h parentTreeData)
+    treeEntries <- traverse (\h -> lookupTreeEntryByHeight' store parentTreeGitHash h parentTreeData)
                         spectrum
     newHeaderGitHash <- insertBlockHeaderIntoOdb store bh
     mapM_ (addTreeEntry treeB) treeEntries
@@ -265,8 +265,8 @@ createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
     return treeHash
 
   where
-    height :: Int64
-    height = fromIntegral $ _blockHeight bh
+    height :: BlockHeight
+    height = _blockHeight bh
 
     hash :: BlockHashBytes
     hash = getBlockHashBytes $ _blockHash bh
@@ -274,13 +274,13 @@ createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
     parentHash :: BlockHashBytes
     parentHash = getBlockHashBytes $ _blockParent bh
 
-    spectrum :: [Int64]
+    spectrum :: [BlockHeight]
     spectrum = getSpectrum height
 
     addTreeEntry :: Ptr Git.C'git_treebuilder -> TreeEntry -> IO ()
     addTreeEntry tb (TreeEntry h hs gh) = tbInsert tb Git.c'GIT_FILEMODE_TREE h hs gh
 
-    addSelfEntry :: Ptr Git.C'git_treebuilder -> Int64 -> BlockHashBytes -> GitHash -> IO ()
+    addSelfEntry :: Ptr Git.C'git_treebuilder -> BlockHeight -> BlockHashBytes -> GitHash -> IO ()
     addSelfEntry tb h hs gh = tbInsert tb Git.c'GIT_FILEMODE_BLOB h hs gh
 
 
@@ -292,8 +292,8 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     B.unsafeUseAsCString tagName $ \cstr ->
     throwOnGitError (Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1)
   where
-    height :: Int64
-    height = fromIntegral $ _blockHeight bh
+    height :: BlockHeight
+    height = _blockHeight bh
 
     hash :: BlockHashBytes
     hash = getBlockHashBytes $ _blockHash bh
@@ -303,7 +303,7 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 
 
 ------------------------------------------------------------------------------
-parseLeafTreeFileName :: ByteString -> Maybe (Int64, BlockHashBytes)
+parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
 parseLeafTreeFileName fn = do
     height <- decodeHeight heightStr
     bh <- BlockHashBytes <$> decodeB58 blockHash0
@@ -312,11 +312,10 @@ parseLeafTreeFileName fn = do
     (heightStr, rest) = B.break (== '.') fn
     blockHash0 = B.drop 1 rest
 
-    decodeHeight :: ByteString -> Maybe Int64
+    decodeHeight :: ByteString -> Maybe BlockHeight
     decodeHeight s = do
       s' <- decodeB58 s
       fromIntegral <$> hush (runGetS decodeBlockHeight s')
-
 
 
 ------------------------------------------------------------------------------
@@ -470,19 +469,19 @@ updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
 
 
 ------------------------------------------------------------------------------
-mkTreeEntryName :: Int64 -> BlockHashBytes -> ByteString
+mkTreeEntryName :: BlockHeight -> BlockHashBytes -> ByteString
 mkTreeEntryName height hash = B.concat [ encHeight, ".", encBH ]
   where
     encBH = bsToB58 $! runPutS (encodeBlockHashBytes hash)
-    encHeight = bsToB58 $! runPutS (encodeBlockHeight $ fromIntegral height)
+    encHeight = bsToB58 $! runPutS (encodeBlockHeight height)
 
-mkTagName :: Int64 -> BlockHashBytes -> ByteString
+mkTagName :: BlockHeight -> BlockHashBytes -> ByteString
 mkTagName height hash = B.append "bh/" (mkTreeEntryName height hash)
 
-mkLeafTagName :: Int64 -> BlockHashBytes -> ByteString
+mkLeafTagName :: BlockHeight -> BlockHashBytes -> ByteString
 mkLeafTagName height hash = B.append "leaf/" (mkTreeEntryName height hash)
 
-mkTagRef :: Int64 -> BlockHashBytes -> ByteString
+mkTagRef :: BlockHeight -> BlockHashBytes -> ByteString
 mkTagRef height hash = B.append "tags/" (mkTagName height hash)
 
 
@@ -509,7 +508,7 @@ lookupRefTarget (GitStoreData repo _) path0 =
 lookupTreeEntryByHash
     :: GitStoreData
     -> BlockHashBytes
-    -> Int64
+    -> BlockHeight
     -> IO (Maybe TreeEntry)
 lookupTreeEntryByHash gs bh height = do
     when (height == 0) $ throwGitStoreFailure "TODO: handle genesis block"
@@ -524,7 +523,7 @@ lookupTreeEntryByHash gs bh height = do
 lookupTreeEntryByHeight
     :: GitStoreData
     -> GitHash         -- ^ starting from this leaf tree
-    -> Int64           -- ^ desired blockheight
+    -> BlockHeight     -- ^ desired blockheight
     -> IO TreeEntry
 lookupTreeEntryByHeight gs leafTreeHash height =
     readLeafTree gs leafTreeHash >>=
@@ -535,7 +534,7 @@ lookupTreeEntryByHeight gs leafTreeHash height =
 lookupTreeEntryByHeight'
     :: GitStoreData
     -> GitHash
-    -> Int64           -- ^ desired blockheight
+    -> BlockHeight     -- ^ desired blockheight
     -> LeafTreeData
     -> IO TreeEntry
 lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData leafHeight leafBH _ spectrum) = do
@@ -558,8 +557,8 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData leafHeight leafBH 
 
 
 ------------------------------------------------------------------------------
-getSpectrum :: Int64 -> [Int64]
-getSpectrum d0 = dedup $ startSpec ++ rlgs ++ recents
+getSpectrum :: BlockHeight -> [BlockHeight]
+getSpectrum (BlockHeight d0) = map BlockHeight . dedup $ startSpec ++ rlgs ++ recents
   where
     numRecents = 4
     d = max 0 (d0 - numRecents)
@@ -571,13 +570,13 @@ getSpectrum d0 = dedup $ startSpec ++ rlgs ++ recents
     diff = d - lastSpec
 
     -- reverse log spectrum should be quantized on the lower bits
-    quantize :: Int64 -> Int64
+    quantize :: Word64 -> Word64
     quantize !x = let !out = (d - x) .&. complement (x-1) in out
 
     lgs = map quantize $ takeWhile (< diff) pow2s
     rlgs = reverse lgs
 
-    fs :: ([Int64] -> a) -> Int64 -> [Int64] -> (a, Int64)
+    fs :: ([Word64] -> a) -> Word64 -> [Word64] -> (a, Word64)
     fs !dl !lst (x:zs) | x < d     = fs (dl . (x:)) x zs
                        | otherwise = (dl [], lst)
     fs !dl !lst [] = (dl [], lst)
@@ -591,7 +590,7 @@ _isSorted (x:z@(y:_)) = x < y && _isSorted z
 
 
 _prop_spectra_sorted :: Bool
-_prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: Int64]
+_prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: BlockHeight]
 
 
 ------------------------------------------------------------------------------
