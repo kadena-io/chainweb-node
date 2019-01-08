@@ -6,6 +6,7 @@
 -- Stability: experimental
 -- Pact PureDb checkpoint module for Chainweb
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
 import qualified Chainweb.BlockHeader as C
@@ -17,10 +18,14 @@ import qualified Pact.Types.Logger as P
 import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
+import qualified Data.Map.Strict as M
+import Control.Monad.State
+import Control.Lens
 
 initInMemoryCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
   theStore <- newIORef HMS.empty
+  theIndex <- newIORef M.empty
   return $
     CheckpointEnv'
       (CheckpointEnv
@@ -29,43 +34,45 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                {_cRestore = restore, _cPrepare = prepare, _cSave = save}
          , _cpeCommandConfig = cmdConfig
          , _cpeCheckpointStore = theStore
+         , _cpeCheckpointStoreIndex = theIndex
          , _cpeLogger = logger
          , _cpeGasEnv = gasEnv
          })
 
-restore ::
-     C.BlockHeight
-  -> P.Hash
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
-  -> IO ()
-restore height hash cdata store = do
-  s <- readIORef store
-  maybe (return ()) (validate cdata) (HMS.lookup (height, hash) s)
-  where
-    validate = undefined
 
--- I'm going to leave this alone for now.
+type CIndex = M.Map (C.BlockHeight, P.Hash) Store
+type Store = HashMap (C.BlockHeight, P.Hash) CheckpointData
+type CheckM a = StateT (Store, CIndex) IO a
+
+restore :: C.BlockHeight -> P.Hash -> CheckM ()
+restore height hash = do
+  cindex <- snd <$> get
+  case M.lookup (height, hash) cindex of
+    Just snapshot -> _1 .= snapshot
+       -- This is just a placeholder for right now (the Nothing clause)
+    Nothing -> fail "There is no snapshot that can be restored."
+
 prepare ::
-     C.BlockHeight
-  -> P.Hash
-  -> OpMode
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
-  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) CheckpointData))
-prepare _ _ opmode _ =
-  case opmode of
-    NewBlock -> fmap Right . readIORef
-    Validation -> undefined
+     C.BlockHeight -> P.Hash -> OpMode -> CheckM (Either String CheckpointData)
+prepare height hash =
+  \case
+    Validation -> do
+      curStore <- fst <$> get
+      return $
+        maybe
+          (Left "InMemoryCheckpointer.prepare: No current store")
+          Right
+          (HMS.lookup (height, hash) curStore)
+    NewBlock -> do
+      cindex <- snd <$> get
+      case M.lookup (height, hash) cindex of
+        Just snapshot -> do
+          _1 .= snapshot
+          return $ Left "We only prepare an environment for new blocks"
+        Nothing -> return $ Left "Cannot prepare"
 
-save ::
-     C.BlockHeight
-  -> P.Hash
-  -> OpMode
-  -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
-  -> IO ()
-save height hash opmode cdata store =
-  case opmode of
-    Validation -> return () -- We are discarding the block.
-    NewBlock -> atomicModifyIORef store (\store' -> (HMS.insert (height,hash) cdata store', ()))
+save :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> CheckM ()
+save height hash cdata =
+  \case
+    Validation -> modifying _1 (HMS.insert (height, hash) cdata)
+    NewBlock -> return ()

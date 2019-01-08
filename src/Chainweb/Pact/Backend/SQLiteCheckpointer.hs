@@ -21,20 +21,22 @@ import Data.IORef
 import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
 
-initSQLiteCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
-initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
-  theStore <- newIORef HMS.empty
-  return $
-    CheckpointEnv'
-      (CheckpointEnv
-         { _cpeCheckpointer =
-             Checkpointer
-               {_cRestore = restore, _cPrepare = prepare, _cSave = save}
-         , _cpeCommandConfig = cmdConfig
-         , _cpeCheckpointStore = theStore
-         , _cpeLogger = logger
-         , _cpeGasEnv = gasEnv
-         })
+initSQLiteCheckpointEnv = undefined
+
+-- initSQLiteCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
+-- initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
+--   theStore <- newIORef HMS.empty
+--   return $
+--     CheckpointEnv'
+--       (CheckpointEnv
+--          { _cpeCheckpointer =
+--              Checkpointer
+--                {_cRestore = restore, _cPrepare = prepare, _cSave = save}
+--          , _cpeCommandConfig = cmdConfig
+--          , _cpeCheckpointStore = theStore
+--          , _cpeLogger = logger
+--          , _cpeGasEnv = gasEnv
+--          })
 
 restore = undefined
 prepare = undefined

@@ -39,9 +39,10 @@ import Control.Lens
 import Data.Aeson
 import GHC.Generics
 import Data.Map.Strict (Map)
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
+import qualified Data.Map.Strict as M
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
+import Control.Monad.State
 
 class PactDbBackend e where
 
@@ -91,21 +92,12 @@ data CheckpointData = CheckpointData
 makeLenses ''CheckpointData
 
 data Checkpointer c = Checkpointer
-  { _cRestore :: C.BlockHeight -> P.Hash -> IO ()
-  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> IORef c -> IO (Either String CheckpointData)
-  , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO ()
+  { _cRestore :: C.BlockHeight -> P.Hash -> StateT (c, M.Map (C.BlockHeight, P.Hash) c) IO ()
+  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> StateT (c, M.Map (C.BlockHeight, P.Hash) c) IO (Either String CheckpointData)
+  , _cSave :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> StateT (c, M.Map (C.BlockHeight, P.Hash) c) IO ()
   }
 
 makeLenses ''Checkpointer
-
--- data Checkpointer c = Checkpointer
---   { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData -> IORef c -> IO ()
---   , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
---   , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO ()
---   }
--- -- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
-
--- makeLenses ''Checkpointer
 
 class CheckpointServiceStore c where
 
@@ -116,6 +108,7 @@ data CheckpointEnv c = CheckpointEnv
   { _cpeCheckpointer    :: Checkpointer c
   , _cpeCommandConfig   :: P.CommandConfig
   , _cpeCheckpointStore :: IORef c
+  , _cpeCheckpointStoreIndex :: IORef (Map (C.BlockHeight, P.Hash) c)
   , _cpeLogger :: P.Logger
   , _cpeGasEnv :: P.GasEnv
   }
