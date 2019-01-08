@@ -19,6 +19,8 @@ cabal.sandbox.config
 cabal.project.local
 .HTF/
 tags
+**/TAGS
+codex.tags
 result
 result-*
 .ghc.environment.*

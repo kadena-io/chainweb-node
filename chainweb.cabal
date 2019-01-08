@@ -64,6 +64,14 @@ library
         , Chainweb.HostAddress
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.Pact.Backend.InMemoryCheckpointer
+        , Chainweb.Pact.Backend.MemoryDb
+        , Chainweb.Pact.Backend.SQLiteCheckpointer
+        , Chainweb.Pact.Backend.SqliteDb
+        , Chainweb.Pact.Backend.Types
+        , Chainweb.Pact.PactService
+        , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
@@ -89,8 +97,6 @@ library
         , Numeric.Cast
         , Numeric.Additive
         , Numeric.AffineSpace
-
-        , Pact.Execute
 
         , P2P.Node
         , P2P.Node.Configuration
@@ -139,15 +145,18 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
+        , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.13
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , direct-sqlite >= 2.3
         , stm >= 2.4
-        , streaming >= 0.2.2
+        , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
+        , string-conv
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
@@ -156,6 +165,7 @@ library
         , unordered-containers >= 0.2
         , uuid >= 1.3
         , warp >= 3.2
+        , yaml >= 0.8
 
         -- Network.X509.SelfSigned
         , warp-tls >= 3.2
@@ -169,7 +179,7 @@ library
         , memory >=0.14
         , pem >=0.2
         , tls >=1.4
-        , x509 >=1.7.5
+        , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
 
@@ -227,12 +237,13 @@ test-suite chainweb-tests
         , massiv >= 0.2
         , mwc-random >= 0.13
         , network >= 2.6
+        , pact == 2.6.*
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
-        , streaming >= 0.2.2
+        , streaming >= 0.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
