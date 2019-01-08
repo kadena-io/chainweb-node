@@ -29,7 +29,7 @@ module Chainweb.Store.Git
   , lookupByBlockHash
 
   -- * Utilities
-  , lockGitStore
+  -- , lockGitStore
   , getSpectrum
   ) where
 
@@ -61,7 +61,8 @@ import Foreign.Storable (peek)
 
 import Prelude hiding (lookup)
 
-import System.Path (FsPath(..), toAbsoluteFilePath)
+import System.Directory (doesPathExist)
+import System.Path (Absolute, Path, toFilePath)
 
 import UnliftIO.Exception
     (Exception, bracket, bracketOnError, bracket_, finally, mask, throwIO)
@@ -70,11 +71,17 @@ import UnliftIO.Exception
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Utils (whenM)
 
 ---
 
+-- | For opening an existing repository, or for initializing a new one.
+--
+-- INVARIANT: If `_getGenesis` is not `Nothing`, then the path given by
+-- `_gitStorePath` should not exist on the filesystem.
 data GitStoreConfig = GitStoreConfig {
-    _gitStorePath :: FsPath
+    _gitStorePath :: !(Path Absolute)
+  , _gitGenesis :: !(Maybe BlockHeader)
 }
 
 data GitStoreData = GitStoreData {
@@ -83,8 +90,13 @@ data GitStoreData = GitStoreData {
 }
 
 -- TODO So, this is to have the instance of `TreeDb`?
+-- | The fundamental git-based storage type. Can be initialized via
+-- `withGitStore` and then queried as needed.
+--
 newtype GitStore = GitStore (MVar GitStoreData)
 
+-- | A reference to a particular git object.
+--
 newtype GitHash = GitHash ByteString deriving (Eq, Ord, Show)
 
 data TreeEntry = TreeEntry {
@@ -113,16 +125,52 @@ instance Exception GitStoreFailure
 lockGitStore :: GitStore -> (GitStoreData -> IO a) -> IO a
 lockGitStore (GitStore m) f = withMVar m f
 
+-- | A bracket-pattern that gives access to a `GitStore`, the fundamental
+-- git-based storage type. Given a `GitStoreConfig`, this function first assumes
+-- an existing repository, and tries to open it. If no such repository exists,
+-- it will create a fresh one with the provided genesis `BlockHeader`.
+--
+-- Low-level pointers to the underlying git repository are freed automatically.
+--
 withGitStore :: GitStoreConfig -> (GitStore -> IO a) -> IO a
-withGitStore (GitStoreConfig (FsPath root0)) f = Git.withLibGitDo $ do
-    root <- toAbsoluteFilePath root0
+withGitStore (GitStoreConfig root0 mg) f = case mg of
+    Nothing -> withGitStore' root0 tryOpen f
+    Just g -> do
+        whenM (doesPathExist $ toFilePath root0) $
+            throwGitStoreFailure "Attempted to initialize a pre-existing Git store"
+        withGitStore' root0 initBare (\gs -> insertBlock gs g *> f gs)
+  where
+    -- | Attempt to open an existing git store.
+    tryOpen :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
+    tryOpen restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
+        throwOnGitError . restore $ Git.c'git_repository_open_ext repoPtr rootPtr openFlags rootPtr
+        peek repoPtr
+
+    -- | Initialize an empty git store.
+    initBare :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
+    initBare  restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
+        throwOnGitError . restore $ Git.c'git_repository_init repoPtr rootPtr 1
+        peek repoPtr
+
+    -- not sure why this flag is not in gitlab2 bindings
+    _FLAG_OPEN_BARE :: CUInt
+    _FLAG_OPEN_BARE = 4
+
+    openFlags :: CUInt
+    openFlags = Git.c'GIT_REPOSITORY_OPEN_NO_SEARCH .|. _FLAG_OPEN_BARE
+
+withGitStore'
+    :: Path Absolute
+    -> ((IO a -> IO a) -> String -> IO (Ptr Git.C'git_repository))
+    -> (GitStore -> IO b)
+    -> IO b
+withGitStore' root0 initR f = Git.withLibGitDo $ do
+    let root = toFilePath root0
     bracket (open root) close f
   where
     open :: String -> IO GitStore
-    open root =
-        mask $ \restore ->
-        bracketOnError (openRepo restore root) Git.c'git_repository_free $
-        \repo -> do
+    open root = mask $ \restore ->
+        bracketOnError (initR restore root) Git.c'git_repository_free $ \repo -> do
             odb <- openOdb restore repo
             m <- newMVar (GitStoreData repo odb)
             return $! GitStore m
@@ -132,38 +180,11 @@ withGitStore (GitStoreConfig (FsPath root0)) f = Git.withLibGitDo $ do
         Git.c'git_odb_free o `finally` Git.c'git_repository_free p
 
     --------------------------------------------------------------------------
-    openRepo :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
-    openRepo restore root =
-        tryOpen restore root >>= either (const $ initBare restore root) return
-
-    tryOpen :: (IO CInt -> IO CInt) -> String -> IO (Either CInt (Ptr Git.C'git_repository))
-    tryOpen restore root = withCString root $ \proot -> alloca $ \repoptr -> do
-        res <- restore (Git.c'git_repository_open_ext repoptr proot openFlags proot)
-        if res == 0
-          then Right <$> peek repoptr
-          else return (Left res)
-
-    --------------------------------------------------------------------------
-    initBare :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
-    initBare restore root =
-      withCString root $ \proot -> alloca $ \repoptr -> do
-        throwOnGitError (restore $ Git.c'git_repository_init repoptr proot 1)
-        peek repoptr
-
-    --------------------------------------------------------------------------
     -- c'git_repository_odb :: Ptr (Ptr C'git_odb) -> Ptr C'git_repository -> IO CInt
     openOdb :: (IO () -> IO a) -> Ptr Git.C'git_repository -> IO (Ptr Git.C'git_odb)
     openOdb restore repo = alloca $ \podb -> do
-        void $ restore $ throwOnGitError $ Git.c'git_repository_odb podb repo
+        void . restore . throwOnGitError $ Git.c'git_repository_odb podb repo
         peek podb
-
-    --------------------------------------------------------------------------
-    -- not sure why this flag is not in gitlab2 bindings
-    _FLAG_OPEN_BARE :: CUInt
-    _FLAG_OPEN_BARE = 4
-
-    openFlags :: CUInt
-    openFlags = Git.c'GIT_REPOSITORY_OPEN_NO_SEARCH .|. _FLAG_OPEN_BARE
 
 ------------------------------------------------------------------------------
 data InsertResult = Inserted | AlreadyExists
@@ -577,7 +598,7 @@ getSpectrum (BlockHeight d0) = map BlockHeight . dedup $ startSpec ++ rlgs ++ re
     lgs = map quantize $ takeWhile (< diff) pow2s
     rlgs = reverse lgs
 
-    fs :: ([Word64] -> a) -> Word64 -> [Word64] -> (a, Word64)
+    fs :: ([Word64] -> [Word64]) -> Word64 -> [Word64] -> ([Word64], Word64)
     fs !dl !lst (x:zs) | x < d     = fs (dl . (x:)) x zs
                        | otherwise = (dl [], lst)
     fs !dl !lst [] = (dl [], lst)
