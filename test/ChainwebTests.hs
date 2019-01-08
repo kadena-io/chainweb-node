@@ -26,6 +26,7 @@ import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
+import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
@@ -51,6 +52,7 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Sync.tests
         ]
     , Chainweb.Test.BlockPayloadDB.FS.tests
+    , Chainweb.Test.Store.Git.tests
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests

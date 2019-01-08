@@ -274,9 +274,10 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
+        Chainweb.Test.Store.Git
         Chainweb.Test.TreeDB
-        Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Persistence
+        Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
         Network.X509.SelfSigned.Test
