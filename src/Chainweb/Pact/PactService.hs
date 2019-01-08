@@ -187,6 +187,10 @@ validateBlock Block {..} =
           error
           ((liftIO . getDbState checkpointer _bBlockHeight _bParentHash) >=> put)
           mRestoredState
+        liftIO $
+          atomicModifyIORef' ref_checkpointStore (const (newstore, ()))
+        liftIO $
+          atomicModifyIORef' ref_checkpointStoreIndex (const (newindex, ()))
       currentState <- get
       _results <-
         liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
@@ -201,20 +205,21 @@ validateBlock Block {..} =
       (newstore, newindex) <-
         liftIO $
         execStateT
-                  (_cSave
-                     checkpointerNew
-                     _bBlockHeight
-                     _bParentHash
-                     (liftA3
-                        CheckpointData
-                        _pdbsDbEnv
-                        (P._csRefStore . _pdbsState)
-                        (P._csPacts . _pdbsState)
-                        st)
-                     Validation)
-                  (checkpointStoreNew, checkpointStoreIndexNew)
+          (_cSave
+             checkpointerNew
+             _bBlockHeight
+             _bParentHash
+             (liftA3
+                CheckpointData
+                _pdbsDbEnv
+                (P._csRefStore . _pdbsState)
+                (P._csPacts . _pdbsState)
+                st)
+             Validation)
+          (checkpointStoreNew, checkpointStoreIndexNew)
       liftIO $ atomicModifyIORef' ref_checkpointStoreNew (const (newstore, ()))
-      liftIO $ atomicModifyIORef' ref_checkpointStoreIndexNew (const (newindex, ()))
+      liftIO $
+        atomicModifyIORef' ref_checkpointStoreIndexNew (const (newindex, ()))
       -- TODO: TBD what do we need to do for validation and what is the return type?
 
 -- validateBlock :: Block -> PactT ()
