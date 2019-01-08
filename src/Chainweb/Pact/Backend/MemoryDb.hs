@@ -4,14 +4,14 @@ module Chainweb.Pact.Backend.MemoryDb where
 
 import qualified Data.Map.Strict as M
 
--- internal modules
-
-import Chainweb.Pact.Types
-
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.PersistPactDb as P
 import Pact.Types.Server as P
+
+-- internal modules
+
+import Chainweb.Pact.Types
 
 mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
 mkPureState env cmdCfg = do

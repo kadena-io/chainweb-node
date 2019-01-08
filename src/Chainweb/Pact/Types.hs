@@ -36,13 +36,13 @@ import Data.ByteString (ByteString)
 
 import GHC.Word (Word64)
 
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Runtime as P
+
 -- internal modules
 
 import qualified Chainweb.BlockHeader as C
 import Chainweb.Pact.Backend.Types
-
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Runtime as P
 
 data Transaction = Transaction
     { _tTxId :: Word64

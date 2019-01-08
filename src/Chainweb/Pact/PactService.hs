@@ -30,9 +30,6 @@ import Data.Maybe
 import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
--- internal modules
-
-import qualified Chainweb.BlockHeader as C
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
@@ -42,6 +39,9 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 import qualified Pact.Types.Server as P
 
+-- internal modules
+
+import qualified Chainweb.BlockHeader as C
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer

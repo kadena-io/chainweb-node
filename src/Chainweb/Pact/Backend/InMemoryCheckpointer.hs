@@ -20,13 +20,14 @@ import Data.IORef
 import qualified Data.HashMap.Strict as HMS
 import qualified Data.Map.Strict as M
 
+import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.Server as P
+
 -- internal modules
 
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.BlockHeader as C
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 
 initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do

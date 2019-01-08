@@ -23,8 +23,6 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Prelude
 
--- internal modules
-
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
 import Pact.Types.Command
@@ -32,6 +30,8 @@ import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
+
+-- internal modules
 
 applyCmd ::
        Logger
