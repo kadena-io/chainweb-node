@@ -37,8 +37,6 @@ import qualified Bindings.Libgit2 as Git
 
 import Control.Concurrent.MVar
 import Control.Error.Util (hush)
-import Control.Exception
-    (Exception, bracket, bracketOnError, bracket_, finally, mask, throwIO)
 import Control.Monad (void, when)
 
 import Data.Bits (complement, unsafeShiftL, (.&.), (.|.))
@@ -64,6 +62,9 @@ import Foreign.Storable (peek)
 import Prelude hiding (lookup)
 
 import System.Path (FsPath(..), toAbsoluteFilePath)
+
+import UnliftIO.Exception
+    (Exception, bracket, bracketOnError, bracket_, finally, mask, throwIO)
 
 -- internal modules
 
