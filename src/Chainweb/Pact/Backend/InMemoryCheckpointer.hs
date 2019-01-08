@@ -1,26 +1,26 @@
--- |
--- Module: Chainweb.Pact.MapPureCheckpoint
--- Copyright: Copyright © 2018 Kadena LLC.
--- License: See LICENSE file
--- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
--- Stability: experimental
--- Pact PureDb checkpoint module for Chainweb
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 
+-- |
+-- Module: Chainweb.Pact.InMemoryCheckpointer
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
+-- Stability: experimental
+--
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
 import qualified Chainweb.BlockHeader as C
 import Chainweb.Pact.Backend.Types
-import Data.Foldable
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
 import Control.Lens
 import Control.Monad.State
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
+import Data.Foldable
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HMS
 import Data.IORef
 import qualified Data.Map.Strict as M
 
@@ -44,9 +44,7 @@ type CIndex = M.Map (C.BlockHeight, P.Hash) Store
 
 type Store = HashMap (C.BlockHeight, P.Hash) CheckpointData
 
-type CheckM a = StateT (Store, CIndex) IO a
-
-restore :: C.BlockHeight -> P.Hash -> CheckM ()
+restore :: C.BlockHeight -> P.Hash -> StateT (Store, CIndex) IO ()
 restore height hash = do
     cindex <- snd <$> get
     case M.lookup (height, hash) cindex of
@@ -54,7 +52,8 @@ restore height hash = do
        -- This is just a placeholder for right now (the Nothing clause)
         Nothing -> fail "There is no snapshot that can be restored."
 
-prepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckM (Either String CheckpointData)
+prepare ::
+       C.BlockHeight -> P.Hash -> OpMode -> StateT (Store, CIndex) IO (Either String CheckpointData)
 prepare height hash =
     \case
         Validation -> do
@@ -72,7 +71,7 @@ prepare height hash =
                     return $ Left "We only prepare an environment for new blocks"
                 Nothing -> return $ Left "Cannot prepare"
 
-save :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> CheckM ()
+save :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> StateT (Store, CIndex) IO ()
 save height hash cdata =
     \case
         Validation -> modifying _1 (HMS.insert (height, hash) cdata)

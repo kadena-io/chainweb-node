@@ -106,31 +106,6 @@ newTransactionBlock parentHash blockHeight = do
             , _bTransactions = zip newTrans results
             }
 
--- newTransactionBlock :: P.Hash -> C.BlockHeight -> PactT Block
--- newTransactionBlock parentHash blockHeight = do
---   newTrans <- requestTransactions TransactionCriteria
---   unless (isFirstBlock parentHash blockHeight) $ do
---     CheckpointEnv' cpEnv <- ask
---     let checkpointer    = _cpeCheckpointer cpEnv
---         checkpointStore = _cpeCheckpointStore cpEnv
---     st <- buildCurrentPactState
---     mRestoredState <-
---       liftIO $
---       _cPrepare
---         checkpointer blockHeight parentHash NewBlock
---         (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
---         checkpointStore
---     either error (liftIO . getDbState checkpointer blockHeight parentHash >=> put) mRestoredState
---   theState <- get
---   CheckpointEnv' cpEnv <- ask
---   results <- liftIO $ execTransactions cpEnv theState newTrans
---   return
---     Block
---       { _bHash = Nothing -- not yet computed
---       , _bParentHash = parentHash
---       , _bBlockHeight = succ blockHeight
---       , _bTransactions = zip newTrans results
---       }
 getDbState = undefined
 
 -- -- this is maybe unnecessary
@@ -218,33 +193,6 @@ validateBlock Block {..} =
             liftIO $ atomicModifyIORef' ref_checkpointStoreIndexNew (const (newindex, ()))
       -- TODO: TBD what do we need to do for validation and what is the return type?
 
--- validateBlock :: Block -> PactT ()
--- validateBlock Block {..} =
---   case _bHash of
---     Nothing -> liftIO $ putStrLn "Block to be validated is missing hash" -- TBD log, throw, etc.
---     Just theHash -> do
---       CheckpointEnv' cpEnv <- ask
---       let checkpointer = _cpeCheckpointer cpEnv
---           checkpointStore = _cpeCheckpointStore cpEnv
---       unless (isFirstBlock _bParentHash _bBlockHeight) $ do
---         st <- buildCurrentPactState
---         mRestoredState <-
---           liftIO $ _cPrepare checkpointer _bBlockHeight theHash Validation
---             (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
---             checkpointStore
---         either error ((liftIO . getDbState checkpointer _bBlockHeight _bParentHash) >=> put) mRestoredState
---       currentState <- get
---       _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
---       buildCurrentPactState >>= put
---       st <- get
---       CheckpointEnv' cpEnvNew <- ask
---       let checkpointStoreNew = _cpeCheckpointStore cpEnvNew
---           checkpointerNew = _cpeCheckpointer cpEnvNew
---       liftIO $
---         _cSave checkpointerNew _bBlockHeight _bParentHash Validation
---           (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
---           checkpointStoreNew
---       -- TODO: TBD what do we need to do for validation and what is the return type?
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
@@ -276,7 +224,7 @@ applyPactCmd cpEnv pactState eMode cmd = do
 _hashResults :: [P.CommandResult] -> P.Hash
 _hashResults cmdResults =
     let bs = foldMap (A.encode . P._crResult) cmdResults
-     in P.hash $ toS bs
+    in P.hash $ toS bs
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined

@@ -4,18 +4,21 @@
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
+
 -- Pact SQLite checkpoint module for Chainweb
+
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
-import qualified Chainweb.BlockHeader as C
 import Chainweb.Pact.Types
-import qualified Pact.Types.Logger as P
+import qualified Chainweb.BlockHeader as C
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
+import qualified Pact.Types.Logger as P
 
+import Data.IORef
 import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
 import Data.HashMap.Strict (HashMap)
-import Data.IORef
+
 
 initSQLiteCheckpointEnv = undefined
 
@@ -33,11 +36,11 @@ initSQLiteCheckpointEnv = undefined
 --          , _cpeLogger = logger
 --          , _cpeGasEnv = gasEnv
 --          })
+
 restore = undefined
-
 prepare = undefined
-
 save = undefined
+
 -- restore ::
 --      C.BlockHeight
 --   -> P.Hash
@@ -45,6 +48,7 @@ save = undefined
 --   -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
 --   -> IO ()
 -- restore _height _hash _cdata _store = undefined
+
 -- prepare ::
 --      C.BlockHeight
 --   -> P.Hash
@@ -53,6 +57,7 @@ save = undefined
 --   -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
 --   -> IO (Either String (HashMap (C.BlockHeight, P.Hash) FilePath))
 -- prepare _height _hash _opmode _cdata _store = undefined
+
 -- save ::
 --      C.BlockHeight
 --   -> P.Hash
