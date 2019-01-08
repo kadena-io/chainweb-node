@@ -174,7 +174,7 @@ validateBlock Block {..} =
             let checkpointer = _cpeCheckpointer cpEnv
                 ref_checkpointStore = _cpeCheckpointStore cpEnv
                 ref_checkpointStoreIndex = _cpeCheckpointStoreIndex cpEnv
-            unless (isFirstBlock _bParentHash _bBlockHeight) $ do
+            unless (isFirstBlock _bBlockHeight) $ do
                 st <- buildCurrentPactState
                 checkpointStore <- liftIO $ readIORef ref_checkpointStore
                 checkpointStoreIndex <- liftIO $ readIORef ref_checkpointStoreIndex
