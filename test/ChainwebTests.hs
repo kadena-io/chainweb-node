@@ -47,6 +47,7 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
+    , Chainweb.Test.Pact.tests
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests

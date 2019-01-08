@@ -245,10 +245,12 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
+        , scientific >= 0.3
         , servant-client >= 0.13
         , streaming >= 0.2.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9
+        , tasty-hspec >= 1.1
         , tasty-quickcheck >= 0.9
         , text >= 1.2
         , these >= 0.7

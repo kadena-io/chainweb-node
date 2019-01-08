@@ -11,7 +11,12 @@
 {-#language RecordWildCards#-}
 module Chainweb.Pact.PactService
   ( initPactService
+  , mkPureState
+  , mkSQLiteState
   , newTransactionBlock
+  , serviceRequests
+  , setupConfig
+  , toCommandConfig
   , validateBlock
   ) where
 
