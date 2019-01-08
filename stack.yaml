@@ -10,9 +10,10 @@ extra-deps:
   - crackNum-2.2
   - ed25519-donna-0.1.1
   - FloatingHex-0.4
-  - fake-0.1.1.1
+  - generic-lens-1.1.0.0@sha256:caaab13ae4f2a68e43671d25fb56746ba14bc9d5d787d594a66c7f56eba3fa66
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
+  - tasty-1.2
   - yet-another-logger-0.3.1
 
   # QuickCheck-2.12

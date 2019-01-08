@@ -42,6 +42,7 @@ import Chainweb.Version
 
 import P2P.Node
 import P2P.Node.Configuration
+import P2P.Peer
 
 import Chainweb.Test.Orphans.Internal ()
 
@@ -135,11 +136,11 @@ jsonTestCases f =
     , testProperty "Hostname" $ f @Hostname
     , testProperty "Port" $ f @Port
     , testProperty "HostAddress" $ f @HostAddress
+    , testProperty "PeerConfig" $ f @PeerConfig
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
     , testProperty "P2pNetworkId" $ f @NetworkId
     ]
-
 
 jsonRoundtripTests :: TestTree
 jsonRoundtripTests = testGroup "JSON roundtrips"
@@ -232,6 +233,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "T.Text" $ prop_iso' @_ @T.Text fromText toText
     , testProperty "[Char]" $ prop_iso' @_ @[Char] fromText toText
     , testProperty "PeerId" $ prop_iso' @_ @PeerId fromText toText
+    , testProperty "Int" $ prop_iso' @_ @Int fromText toText
     , testProperty "P2pNetworkId" $ prop_iso' @_ @NetworkId fromText toText
     ]
 

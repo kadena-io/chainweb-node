@@ -34,9 +34,10 @@ import Control.Monad.Catch
 
 import Data.Bifunctor (first)
 import Data.Function
-import Data.Maybe
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 import Data.Word
 
 import GHC.Generics
@@ -54,6 +55,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Node.SingleChainMiner
@@ -71,6 +73,7 @@ import Data.LogMessage
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Peer
 import P2P.Session
 
 import Paths_chainweb
@@ -231,14 +234,12 @@ peerIdToChainNodeId cid uuid = ChainNodeId (_chainId cid) (int a * 2^(32 :: Inte
     (a,b,_,_) = UUID.toWords uuid
 
 runNodeWithConfig :: P2pNodeConfig -> Logger -> IO ()
-runNodeWithConfig conf logger = do
+runNodeWithConfig conf logger =
     L.withLoggerLabel ("node", "init") logger $ \logger' -> do
         let logfun = loggerFunText logger'
-        myPeerId@(PeerId peerUUID) <- case _nodePeerId conf of
-          Nothing -> createPeerId
-          Just x -> return x
-        logfun Info $ T.pack (show myPeerId)
-        node cid logger conf (myConfig myPeerId) (peerIdToChainNodeId cid peerUUID) myPort
+        uid <- UUID.nextRandom
+        logfun Info $ sshow uid
+        node cid logger conf p2pConfig (peerIdToChainNodeId cid uid)
   where
     cid = _nodeChainId conf
 
@@ -249,14 +250,9 @@ runNodeWithConfig conf logger = do
         , _p2pConfigMaxPeerCount = _maxPeerCount conf
         , _p2pConfigSessionTimeout = fromIntegral $ _sessionTimeoutSeconds conf
         , _p2pConfigKnownPeers = case (_remotePeerId conf, _remotePeerAddress conf) of
-            (Just pid, Just addr) -> [PeerInfo pid addr]
+            (Just pid, Just addr) -> [PeerInfo (Just pid) addr]
             _ -> []
         }
-
-    -- Configuration for this node
-    --
-    myConfig pid = p2pConfig & p2pConfigPeerId .~ pid
-    myPort = fromIntegral (_nodePort conf)
 
 -- -------------------------------------------------------------------------- --
 -- P2P Client Sessions
@@ -284,26 +280,29 @@ node
     -> P2pNodeConfig
     -> P2pConfiguration
     -> ChainNodeId
-    -> Port
     -> IO ()
-node cid logger conf p2pConfig nid port =
+node cid logger conf p2pConfig nid =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
         logfun Info $ "Start test node"
 
+        (c, sock, peer) <- allocatePeer $ _p2pConfigPeer p2pConfig
+        let p2pConfig' = set p2pConfigPeer c p2pConfig
+        let settings = peerServerSettings peer
+        let serve cdb pdb = serveSingleChainSocket settings sock Test
+                [(cid, cdb)]
+                [(ChainNetwork cid, pdb)]
+
         withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
-          withPeerDb p2pConfig $ \pdb ->
-            withAsync (serveSingleChainOnPort port Test
-                [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
-                [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
-                ) $ \server -> do
-                  logfun Info "started server"
-                  runConcurrently
-                      $ Concurrently (miner logger' conf nid cdb)
-                      <> Concurrently (syncer cid logger' p2pConfig cdb pdb port)
-                      <> Concurrently (monitor logger' cdb)
-                  wait server
+            withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
+                withAsync (serve cdb pdb) $ \server -> do
+                    logfun Info "started server"
+                    runConcurrently
+                        $ Concurrently (miner logger' conf nid cdb)
+                        <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb)
+                        <> Concurrently (monitor logger' cdb)
+                    wait server
 
 -- -------------------------------------------------------------------------- --
 -- Syncer
@@ -314,18 +313,18 @@ syncer
     :: ChainId
     -> Logger
     -> P2pConfiguration
+    -> Peer
     -> BlockHeaderDb
     -> PeerDb
-    -> Port
     -> IO ()
-syncer cid logger conf cdb pdb port =
+syncer cid logger conf peer cdb pdb =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger -> do
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession cdb)
+        n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger ->
+            p2pCreateNode Test nid peer (loggerFun sessionLogger) pdb mgr (chainDbSyncSession cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
@@ -335,7 +334,6 @@ syncer cid logger conf cdb pdb port =
 
   where
     nid = ChainNetwork cid
-    ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
 
 -- -------------------------------------------------------------------------- --
 -- Miner

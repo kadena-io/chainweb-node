@@ -83,16 +83,22 @@ isErrorCode _ _ = False
 
 tests :: TestTree
 tests = testGroup "REST API tests"
-    [ simpleSessionTests
-    , putTests
-    , pagingTests
+    [ testGroup "Http" (tests_ False)
+    , testGroup "Https" (tests_ True)
+    ]
+
+tests_ :: Bool -> [TestTree]
+tests_ tls =
+    [ simpleSessionTests tls
+    , putTests tls
+    , pagingTests tls
     ]
 
 -- -------------------------------------------------------------------------- --
 -- Test all endpoints on each chain
 
-simpleSessionTests :: TestTree
-simpleSessionTests = withBlockHeaderDbsServer petersonGenesisBlockHeaderDbs
+simpleSessionTests :: Bool -> TestTree
+simpleSessionTests tls = withBlockHeaderDbsServer tls petersonGenesisBlockHeaderDbs
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (give peterson chainIds)
 
@@ -219,8 +225,8 @@ put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
         . take 5
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
-putTests :: TestTree
-putTests = withBlockHeaderDbsServer singletonGenesisBlockHeaderDbs
+putTests :: Bool -> TestTree
+putTests tls = withBlockHeaderDbsServer tls singletonGenesisBlockHeaderDbs
     $ \env -> testGroup "put tests"
         [ putNewBlockHeader env
         , putExisting env
@@ -232,8 +238,8 @@ putTests = withBlockHeaderDbsServer singletonGenesisBlockHeaderDbs
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
-pagingTests :: TestTree
-pagingTests = withBlockHeaderDbsServer (starBlockHeaderDbs 6 singletonGenesisBlockHeaderDbs)
+pagingTests :: Bool -> TestTree
+pagingTests tls = withBlockHeaderDbsServer tls (starBlockHeaderDbs 6 singletonGenesisBlockHeaderDbs)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient env
         , testPageLimitHashesClient env

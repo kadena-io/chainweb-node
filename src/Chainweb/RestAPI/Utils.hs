@@ -58,15 +58,22 @@ module Chainweb.RestAPI.Utils
 , SomeServer(..)
 , someServerApplication
 
+-- * Misc Utils
+, bindPortTcp
+
 ) where
 
 import Data.Aeson
 import Data.Kind
 import Data.Proxy
+import Data.Streaming.Network (bindPortGen)
 import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeLits
+
+import qualified Network.Socket as N
+import Network.Wai.Handler.Warp (HostPreference)
 
 import Servant.API
 import Servant.Client
@@ -74,10 +81,11 @@ import Servant.Server
 import Servant.Swagger
 
 -- internal modules
-
 import Chainweb.ChainId
+import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
@@ -278,3 +286,16 @@ instance Monoid SomeServer where
 
 someServerApplication :: SomeServer -> Application
 someServerApplication (SomeServer a server) = serve a server
+
+-- -------------------------------------------------------------------------- --
+-- Misc Utils
+
+bindPortTcp :: Port -> HostPreference -> IO (Port, N.Socket)
+bindPortTcp p interface = do
+    (port, sock) <- do
+        socket <- bindPortGen N.Stream (int p) interface
+        port <- N.socketPort socket
+        return (int port, socket)
+    N.listen sock (max 2048 N.maxListenQueue)
+    return (port, sock)
+

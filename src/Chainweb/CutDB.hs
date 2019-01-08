@@ -103,7 +103,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.Singletons
 
-import P2P.Node.Configuration
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -145,7 +145,7 @@ instance FromJSON CutHashes
 instance NFData CutHashes
 
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
-cutToCutHashes peerInfo c = CutHashes (_blockHash <$> _cutMap c) peerInfo
+cutToCutHashes p c = CutHashes (_blockHash <$> _cutMap c) p
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB

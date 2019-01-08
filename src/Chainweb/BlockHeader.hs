@@ -624,4 +624,3 @@ prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _bloc
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget
-

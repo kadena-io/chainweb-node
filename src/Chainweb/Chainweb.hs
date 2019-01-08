@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -46,11 +47,17 @@ module Chainweb.Chainweb
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
+-- * Peer Resources
+, allocatePeer
+, withPeer
+, peerServerSettings
+
 -- * Cut Resources
 , Cuts(..)
 , cutsChainwebVersion
 , cutsCutConfig
 , cutsP2pConfig
+, cutsPeer
 , cutsCutDb
 , cutsPeerDb
 , cutsLogFun
@@ -64,6 +71,7 @@ module Chainweb.Chainweb
 , chainChainwebVersion
 , chainChainwebGraph
 , chainP2pConfig
+, chainPeer
 , chainBlockHeaderDb
 , chainPeerDb
 , chainLogFun
@@ -90,6 +98,7 @@ module Chainweb.Chainweb
 , chainwebMiner
 , chainwebLogFun
 , chainwebSocket
+, chainwebPeer
 
 , withChainweb
 , runChainweb
@@ -107,17 +116,19 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Bifunctor
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import Data.IxSet.Typed (getEQ, getOne)
 import Data.Reflection (give)
-import Data.String
 import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket)
-import Network.Wai.Handler.Warp hiding (Port)
+import Network.Socket (Socket, close)
+import Network.Wai.Handler.Warp (Settings, defaultSettings, setPort, setHost)
 
 import System.LogLevel
 
@@ -133,6 +144,7 @@ import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
 import Chainweb.Utils
@@ -142,9 +154,12 @@ import Chainweb.WebBlockHeaderDB
 import Data.DiGraph
 import Data.LogMessage
 
+import Network.X509.SelfSigned
+
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Peer
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
@@ -197,12 +212,41 @@ pChainwebConfiguration = id
     <*< configP2p %:: pP2pConfiguration Nothing
 
 -- -------------------------------------------------------------------------- --
+-- Allocate Peer Resources
+
+-- | Allocate Peer resources. All P2P networks of a chainweb node share the a
+-- single Peer and the associated underlying network resources.
+--
+-- The following resources are allocated:
+--
+-- * Resolve port and allocating a socket for the port,
+-- * Generate a new certifcate, if none is provided in the configuration, and
+-- * adjust the P2PConfig with the new values.
+--
+allocatePeer :: PeerConfig -> IO (PeerConfig, Socket, Peer)
+allocatePeer conf = do
+    (p, sock) <- bindPortTcp (_peerConfigPort conf) (_peerConfigInterface conf)
+    let conf' = set peerConfigPort p conf
+    peer <- unsafeCreatePeer conf'
+    return (conf', sock, peer)
+
+peerServerSettings :: Peer -> Settings
+peerServerSettings peer
+    = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
+    . setHost (_peerInterface peer)
+    $ defaultSettings
+
+withPeer :: PeerConfig -> ((PeerConfig, Socket, Peer) -> IO a) -> IO a
+withPeer conf = bracket (allocatePeer conf) (\(_, sock, _) -> close sock)
+
+-- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
 data Cuts = Cuts
     { _cutsChainwebVersion :: !ChainwebVersion
     , _cutsCutConfig :: !CutDbConfig
     , _cutsP2pConfig :: !P2pConfiguration
+    , _cutsPeer :: !Peer
     , _cutsCutDb :: !CutDb
     , _cutsPeerDb :: !PeerDb
     , _cutsLogFun :: !ALogFunction
@@ -214,29 +258,28 @@ withCuts
     :: ChainwebVersion
     -> CutDbConfig
     -> P2pConfiguration
+    -> Peer
+    -> PeerDb
     -> ALogFunction
     -> WebBlockHeaderDb
     -> (Cuts -> IO a)
     -> IO a
-withCuts v cutDbConfig p2pConfig logfun webchain f =
+withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
     withCutDb cutDbConfig webchain $ \cutDb ->
-        withPeerDb p2pConfig $ \pdb ->
-            f $ Cuts v cutDbConfig p2pConfig cutDb pdb logfun
+        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
 
 runCutsSyncClient
     :: HTTP.Manager
-    -> HostAddress
     -> Cuts
     -> IO ()
-runCutsSyncClient mgr ha cuts = do
+runCutsSyncClient mgr cuts = do
     -- Create P2P client node
     n <- p2pCreateNode
         v
         CutNetwork
-        (_cutsP2pConfig cuts)
+        (_cutsPeer cuts)
         (_getLogFunction $ _cutsLogFun cuts)
         (_cutsPeerDb cuts)
-        ha
         mgr
         (C.syncSession v (_cutsCutDb cuts))
 
@@ -258,6 +301,7 @@ data Chain = Chain
     , _chainChainwebGraph :: !ChainGraph
         -- ^ should both be part of a broader Chain configuration?
     , _chainP2pConfig :: !P2pConfiguration
+    , _chainPeer :: !Peer
     , _chainBlockHeaderDb :: !BlockHeaderDb
     , _chainPeerDb :: !PeerDb
     , _chainLogFun :: !ALogFunction
@@ -273,33 +317,31 @@ withChain
     -> ChainGraph
     -> ChainId
     -> P2pConfiguration
+    -> Peer
+    -> PeerDb
     -> ALogFunction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig logfun inner =
+withChain v graph cid p2pConfig peer peerDb logfun inner =
     withBlockHeaderDb Test graph cid $ \cdb ->
-        withPeerDb p2pConfig $ \pdb -> inner
-            $ Chain cid v graph p2pConfig cdb pdb logfun (syncDepth graph)
+        inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
 
 -- | Synchronize the local block database over the P2P network.
 --
 runChainSyncClient
     :: HTTP.Manager
         -- ^ HTTP connection pool
-    -> HostAddress
-        -- ^ public host address of the local node
     -> Chain
         -- ^ chain resources
     -> IO ()
-runChainSyncClient mgr ha chain = do
+runChainSyncClient mgr chain = do
     -- Create P2P client node
     n <- p2pCreateNode
         (_chainChainwebVersion chain)
         netId
-        (_chainP2pConfig chain)
+        (_chainPeer chain)
         (_getLogFunction $ _chainLogFun chain)
         (_chainPeerDb chain)
-        ha
         mgr
         (chainSyncP2pSession (_chainSyncDepth chain) (_chainBlockHeaderDb chain))
 
@@ -383,7 +425,8 @@ data Chainweb = Chainweb
     , _chainwebNodeId :: !NodeId
     , _chainwebMiner :: !Miner
     , _chainwebLogFun :: !ALogFunction
-    , _chainwebSocket :: !(Maybe Socket)
+    , _chainwebSocket :: !Socket
+    , _chainwebPeer :: !Peer
     }
 
 makeLenses ''Chainweb
@@ -396,17 +439,11 @@ withChainweb
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb graph conf logFuns inner = do
-    if view confPort conf == 0
-        then do
-            (p, sock) <- openFreePort
-            let conf' = set confPort (int p) conf
-            withChainwebInternal graph conf' logFuns (Just sock) inner
-        else
-            withChainwebInternal graph conf logFuns Nothing inner
+withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
+    withChainwebInternal graph (set confLens c conf) logFuns sock peer inner
   where
-    confPort :: Lens' ChainwebConfiguration Port
-    confPort = configP2p . p2pConfigHostAddress . hostAddressPort
+    confLens :: Lens' ChainwebConfiguration PeerConfig
+    confLens = configP2p . p2pConfigPeer
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -414,35 +451,38 @@ withChainwebInternal
     :: ChainGraph
     -> ChainwebConfiguration
     -> ChainwebLogFunctions
-    -> Maybe Socket
+    -> Socket
+    -> Peer
     -> (Chainweb -> IO a)
     -> IO a
-withChainwebInternal graph conf logFuns maybeSocket inner = do
-    give graph $ go mempty (toList chainIds)
+withChainwebInternal graph conf logFuns socket peer inner = give graph $ do
+    let nids = HS.map ChainNetwork chainIds `HS.union` HS.singleton CutNetwork
+    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList chainIds)
   where
     -- Initialize chain resources
-    go cs (cid : t) = do
+    go peerDb cs (cid : t) =
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf logfun $ \c ->
-                go (HM.insert cid c cs) t
+            Just logfun -> withChain v graph cid p2pConf peer peerDb logfun $ \c ->
+                go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go cs [] = do
+    go peerDb cs [] = do
         let webchain = mkWebBlockHeaderDb graph (HM.map _chainBlockHeaderDb cs)
-        withCuts v cutConfig p2pConf (_chainwebCutLogFun logFuns) webchain $ \cuts ->
+        withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
                 inner Chainweb
                     { _chainwebVersion = v
                     , _chainwebGraph = graph
-                    , _chainwebHostAddress = _p2pConfigHostAddress (_configP2p conf)
+                    , _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs
                     , _chainwebCuts = cuts
                     , _chainwebNodeId = cwnid
                     , _chainwebMiner = m
                     , _chainwebLogFun = _chainwebNodeLogFun logFuns
-                    , _chainwebSocket = maybeSocket
+                    , _chainwebSocket = socket
+                    , _chainwebPeer = peer
                     }
 
     v = _configChainwebVersion conf
@@ -473,30 +513,34 @@ runChainweb cw = do
     -- collect server resources
     let chainDbsToServe = second _chainBlockHeaderDb <$> HM.toList (_chainwebChains cw)
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
-        serverSettings = setPort (int port) . setHost host $ defaultSettings
-        serve = case _chainwebSocket cw of
-            Nothing ->
-                serveChainweb serverSettings
-                    (_chainwebVersion cw)
-                    cutDb
-                    chainDbsToServe
-                    ((CutNetwork, cutPeerDb) : chainP2pToServe)
-            Just sock ->
-                serveChainwebSocket serverSettings sock
-                    (_chainwebVersion cw)
-                    cutDb
-                    chainDbsToServe
-                    ((CutNetwork, cutPeerDb) : chainP2pToServe)
+
+        serverSettings = peerServerSettings (_chainwebPeer cw)
+        serve = serveChainwebSocketTls
+            serverSettings
+            (_peerCertificate $ _chainwebPeer cw)
+            (_peerKey $ _chainwebPeer cw)
+            (_chainwebSocket cw)
+            (_chainwebVersion cw)
+            cutDb
+            chainDbsToServe
+            ((CutNetwork, cutPeerDb) : chainP2pToServe)
 
     -- 1. start server
     --
     withAsync serve $ \server -> do
         logfun Info "started server"
 
+        -- Configure Clients
+        --
         -- FIXME: make sure the manager is configure properly for our
         -- usage scenario
         --
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        let cred = unsafeMakeCredential
+                (_peerCertificate $ _chainwebPeer cw)
+                (_peerKey $ _chainwebPeer cw)
+        mgr <- HTTP.newManager =<< certificateCacheManagerSettings
+                (TlsSecure True (certCacheLookup cutPeerDb))
+                (Just cred)
 
         -- 2. Run Clients
         --
@@ -504,13 +548,18 @@ runChainweb cw = do
             $ runMiner (_chainwebMiner cw)
                 -- FIXME: should we start mining with some delay, so that
                 -- the block header base is up to date?
-            : runCutsSyncClient mgr myHostAddress (_chainwebCuts cw)
-            : (runChainSyncClient mgr myHostAddress <$> HM.elems (_chainwebChains cw))
+            : runCutsSyncClient mgr (_chainwebCuts cw)
+            : (runChainSyncClient mgr <$> HM.elems (_chainwebChains cw))
 
         wait server
   where
-    host = fromString . T.unpack . toText $ _hostAddressHost myHostAddress
-    port = _hostAddressPort myHostAddress
-    myHostAddress = _chainwebHostAddress cw
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
+
+    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+
+    certCacheLookup :: PeerDb -> ServiceID -> IO (Maybe Fingerprint)
+    certCacheLookup peerDb si = do
+        ha <- serviceIdToHostAddress si
+        pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
+        return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 

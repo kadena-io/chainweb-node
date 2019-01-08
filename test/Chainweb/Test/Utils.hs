@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -21,6 +22,8 @@ module Chainweb.Test.Utils
 , withDB
 , insertN
 , prettyTree
+, normalizeTree
+, treeLeaves
 , SparseTree(..)
 , Growth(..)
 , tree
@@ -42,7 +45,7 @@ module Chainweb.Test.Utils
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
 , withSingleChainTestServer
-, withSingleChainTestServer_
+, clientEnvWithSingleChainTestServer
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 
@@ -58,6 +61,7 @@ module Chainweb.Test.Utils
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
+import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -65,23 +69,25 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce (coerce)
 import Data.Foldable
+import Data.List (sortOn)
 import Data.Reflection (give)
 import qualified Data.Text as T
 import Data.Tree
+import qualified Data.Tree.Lens as LT
 import Data.Word (Word64)
-
-import Fake
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
+import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 
 import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import Test.QuickCheck hiding (frequency)
+import Test.QuickCheck
+import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -97,12 +103,15 @@ import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapCertificate, bootstrapKey)
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 import qualified Data.DiGraph as G
+
+import Network.X509.SelfSigned
 
 import qualified P2P.Node.PeerDB as P2P
 
@@ -143,14 +152,23 @@ prettyTree = drawTree . fmap f
               (coerce @BlockHeight @Word64 $ _blockHeight h)
               (take 12 . drop 1 . show $ _blockHash h)
 
--- | A `Tree` which doesn't branch much. The `Fake` instance of this type
+normalizeTree :: Ord a => Tree a -> Tree a
+normalizeTree n@(Node _ []) = n
+normalizeTree (Node r f) = Node r . map normalizeTree $ sortOn rootLabel f
+
+-- | The leaf nodes of a `Tree`.
+--
+treeLeaves :: Tree a -> [a]
+treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
+
+-- | A `Tree` which doesn't branch much. The `Arbitrary` instance of this type
 -- ensures that other than the main trunk, branches won't ever be much longer
 -- than 4 nodes.
 --
-newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader }
+newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
-instance Fake SparseTree where
-    fake = SparseTree <$> tree Randomly
+instance Arbitrary SparseTree where
+    arbitrary = SparseTree <$> tree Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -160,55 +178,55 @@ data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 -- The values of the tree constitute a legal chain, i.e. block heights start
 -- from 0 and increment, parent hashes propagate properly, etc.
 --
-tree :: Growth -> FGen (Tree BlockHeader)
+tree :: Growth -> Gen (Tree BlockHeader)
 tree g = do
     h <- genesis
     Node h <$> forest g h
 
 -- | Generate a sane, legal genesis block.
 --
-genesis :: FGen BlockHeader
+genesis :: Gen BlockHeader
 genesis = do
-    h <- fake
+    h <- arbitrary
     let h' = h { _blockHeight = 0 }
         hsh = computeBlockHash h'
-    pure $ h' { _blockHash = hsh
-              , _blockParent = hsh
-              , _blockTarget = genesisBlockTarget
-              , _blockWeight = 0
-              }
+    pure $! h' { _blockHash = hsh
+               , _blockParent = hsh
+               , _blockTarget = genesisBlockTarget
+               , _blockWeight = 0
+               }
 
-forest :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
 forest g@(AtMost n) h | n < _blockHeight h = pure []
                       | otherwise = fixedTrunk g h
 
-fixedTrunk :: Growth -> BlockHeader -> FGen (Forest BlockHeader)
+fixedTrunk :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 fixedTrunk g h = frequency [ (1, sequenceA [fork h, trunk g h])
                            , (5, sequenceA [trunk g h]) ]
 
-randomTrunk :: BlockHeader -> FGen (Forest BlockHeader)
+randomTrunk :: BlockHeader -> Gen (Forest BlockHeader)
 randomTrunk h = frequency [ (2, pure [])
                           , (4, sequenceA [fork h, trunk Randomly h])
                           , (18, sequenceA [trunk Randomly h]) ]
 
-fork :: BlockHeader -> FGen (Tree BlockHeader)
+fork :: BlockHeader -> Gen (Tree BlockHeader)
 fork h = do
     next <- header h
     Node next <$> frequency [ (1, pure []), (1, sequenceA [fork next]) ]
 
-trunk :: Growth -> BlockHeader -> FGen (Tree BlockHeader)
+trunk :: Growth -> BlockHeader -> Gen (Tree BlockHeader)
 trunk g h = do
     next <- header h
     Node next <$> forest g next
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
-header :: BlockHeader -> FGen BlockHeader
+header :: BlockHeader -> Gen BlockHeader
 header h = do
-    nonce <- fake
-    payload <- fake
-    miner <- fake
+    nonce <- Nonce <$> chooseAny
+    payload <- arbitrary
+    miner <- arbitrary
     let (Time (TimeSpan ts)) = _blockCreationTime h
         target = HashTarget maxBound
         h' = h { _blockParent = _blockHash h
@@ -219,7 +237,7 @@ header h = do
                , _blockMiner = miner
                , _blockWeight = BlockWeight (targetToDifficulty target) + _blockWeight h
                , _blockHeight = succ $ _blockHeight h }
-    pure $ h' { _blockHash = computeBlockHash h' }
+    pure $! h' { _blockHash = computeBlockHash h' }
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -280,8 +298,8 @@ withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
   where
     app = singleChainApplication Test chainDbs peerDbs
     work port = do
-      mgr <- HTTP.newManager HTTP.defaultManagerSettings
-      f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
 
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment
@@ -312,11 +330,12 @@ pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withSingleChainTestServer
-    :: IO W.Application
+    :: Bool
+    -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
+withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
@@ -325,7 +344,15 @@ withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
         readyVar <- newEmptyMVar
         server <- async $ do
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
-            W.runSettingsSocket settings sock app
+            if
+                | tls -> do
+                    let certBytes = bootstrapCertificate Test
+                    let keyBytes = bootstrapKey Test
+                    let tlsSettings = tlsServerSettings certBytes keyBytes
+                    W.runTLSSocket tlsSettings settings sock app
+                | otherwise ->
+                    W.runSettingsSocket settings sock app
+
         link server
         _ <- takeMVar readyVar
         env <- envIO port
@@ -335,31 +362,39 @@ withSingleChainTestServer appIO envIO test = withResource start stop $ \x ->
         uninterruptibleCancel server
         close sock
 
-withSingleChainTestServer_
-    :: IO [(ChainId, BlockHeaderDb)]
+clientEnvWithSingleChainTestServer
+    :: Bool
+    -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withSingleChainTestServer_ chainDbsIO peerDbsIO = withSingleChainTestServer mkApp mkEnv
+clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
+    = withSingleChainTestServer tls mkApp mkEnv
   where
     mkApp = singleChainApplication Test <$> chainDbsIO <*> peerDbsIO
     mkEnv port = do
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        TestClientEnv (mkClientEnv mgr (BaseUrl Http testHost port ""))
+        mgrSettings <- if
+            | tls -> certificateCacheManagerSettings TlsInsecure Nothing
+            | otherwise -> return HTTP.defaultManagerSettings
+        mgr <- HTTP.newManager mgrSettings
+        TestClientEnv (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
             <$> chainDbsIO
             <*> peerDbsIO
 
 withPeerDbsServer
-    :: IO [(NetworkId, P2P.PeerDb)]
+    :: Bool
+    -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withPeerDbsServer = withSingleChainTestServer_ (return [])
+withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return [])
 
 withBlockHeaderDbsServer
-    :: IO [(ChainId, BlockHeaderDb)]
+    :: Bool
+    -> IO [(ChainId, BlockHeaderDb)]
     -> (IO TestClientEnv -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer chainDbsIO = withSingleChainTestServer_ chainDbsIO (return [])
+withBlockHeaderDbsServer tls chainDbsIO
+    = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

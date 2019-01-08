@@ -25,7 +25,7 @@ module Main
 ( main
 ) where
 
-import Configuration.Utils hiding (Error, (<.>))
+import Configuration.Utils hiding (Error, (<.>), Lens')
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -35,9 +35,8 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
-import Data.Foldable
 import Data.Function
-import Data.Maybe
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -58,12 +57,13 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapPeerConfig)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB (remoteDb)
 import Chainweb.TreeDB.Sync
@@ -72,12 +72,13 @@ import Chainweb.Version
 
 import Data.LogMessage
 
-import Paths_chainweb
-
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Peer
 import P2P.Session
+
+import Paths_chainweb
 
 import Utils.Gexf
 import Utils.Logging
@@ -199,12 +200,11 @@ main = runWithConfiguration mainInfo $ \config -> do
 -- -------------------------------------------------------------------------- --
 -- Example
 
-
 example :: P2pExampleConfig -> Logger -> IO ()
 example conf logger =
-    withAsync (node cid t logger conf bootstrapConfig bootstrapChainNodeId bootstrapPort)
+    withAsync (node cid t logger conf bootstrapConfig bootstrapChainNodeId)
         $ \bootstrap -> do
-            mapConcurrently_ (uncurry $ node cid t logger conf p2pConfig) nodePorts
+            mapConcurrently_ (node cid t logger conf p2pConfig) nodeIds
             wait bootstrap
 
   where
@@ -221,19 +221,12 @@ example conf logger =
 
     -- Configuration for bootstrap node
     --
-    bootstrapPeer = head . toList $ _p2pConfigKnownPeers p2pConfig
-    bootstrapConfig = p2pConfig
-        & p2pConfigPeerId .~ _peerId bootstrapPeer
-
-    bootstrapPort = view hostAddressPort $ _peerAddr bootstrapPeer
+    bootstrapConfig = set p2pConfigPeer (head $ bootstrapPeerConfig Test) p2pConfig
     bootstrapChainNodeId = ChainNodeId cid 0
 
     -- Other nodes
     --
-    nodePorts =
-        [ (ChainNodeId cid i, bootstrapPort + fromIntegral i)
-        | i <- [1 .. fromIntegral (_numberOfNodes conf) - 1]
-        ]
+    nodeIds = ChainNodeId cid <$> [1 .. int (_numberOfNodes conf) - 1]
 
 -- -------------------------------------------------------------------------- --
 -- Example P2P Client Sessions
@@ -276,30 +269,33 @@ node
     -> P2pExampleConfig
     -> P2pConfiguration
     -> ChainNodeId
-    -> Port
     -> IO ()
-node cid t logger conf p2pConfig nid port =
+node cid t logger conf p2pConfig nid =
     L.withLoggerLabel ("node", toText nid) logger $ \logger' -> do
 
         let logfun = loggerFunText logger'
         logfun Info "start test node"
 
-        withBlockHeaderDbGexf Test singletonChainGraph cid nid
-            $ \cdb -> withPeerDb p2pConfig
-            $ \pdb -> withAsync (serveSingleChainOnPort port Test
-                [(cid, cdb)] -- :: [(ChainId, BlockHeaderDb)]
-                [(ChainNetwork cid, pdb)] -- :: [(NetworkId, PeerDb)]
-                )
-            $ \server -> do
-                logfun Info "started server"
-                runConcurrently
-                    $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
-                    <> Concurrently (syncer cid logger' p2pConfig cdb pdb port t)
-                    <> Concurrently (monitor logger' cdb)
-                wait server
+        (c, sock, peer) <- allocatePeer $ _p2pConfigPeer p2pConfig
+        let p2pConfig' = set p2pConfigPeer c p2pConfig
+        let settings = peerServerSettings peer
+        let serve cdb pdb = serveSingleChainSocket settings sock Test
+                [(cid, cdb)]
+                [(ChainNetwork cid, pdb)]
+
+        withBlockHeaderDbGexf Test singletonChainGraph cid nid $ \cdb ->
+            withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
+                withAsync (serve cdb pdb) $ \server -> do
+                    logfun Info "started server"
+                    runConcurrently
+                        $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
+                        <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb t)
+                        <> Concurrently (monitor logger' cdb)
+                    wait server
   where
     minerConfig = SingleChainMinerConfig
-        (_numberOfNodes conf * _meanBlockTimeSeconds conf) -- We multiply these together, since this is now the mean time per node.
+        (_numberOfNodes conf * _meanBlockTimeSeconds conf)
+            -- We multiply these together, since this is now the mean time per node.
         cid
 
 withBlockHeaderDbGexf
@@ -325,20 +321,19 @@ syncer
     :: ChainId
     -> Logger
     -> P2pConfiguration
+    -> Peer
     -> BlockHeaderDb
     -> PeerDb
-    -> Port
-        -- This is the local port that is used in the local peer info
     -> Natural
     -> IO ()
-syncer cid logger conf cdb pdb port t =
+syncer cid logger conf peer cdb pdb t =
     L.withLoggerLabel ("component", "syncer") logger $ \syncLogger -> do
         let syncLogg = loggerFunText syncLogger
 
         -- Create P2P client node
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         n <- L.withLoggerLabel ("component", "syncer/p2p") logger $ \sessionLogger ->
-            p2pCreateNode Test nid conf (loggerFun sessionLogger) pdb ha mgr (chainDbSyncSession t cdb)
+            p2pCreateNode Test nid peer (loggerFun sessionLogger) pdb mgr (chainDbSyncSession t cdb)
 
         -- Run P2P client node
         syncLogg Info "initialized syncer"
@@ -348,7 +343,6 @@ syncer cid logger conf cdb pdb port t =
 
   where
     nid = ChainNetwork cid
-    ha = fromJust . readHostAddressBytes $ "localhost:" <> sshow port
 
 -- -------------------------------------------------------------------------- --
 -- Monitor

@@ -30,8 +30,8 @@ import Chainweb.Version
 
 import Data.Singletons
 
-import P2P.Node.Configuration
 import P2P.Node.RestAPI
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- GET Peer Client
@@ -40,8 +40,8 @@ peerGetClient
     :: ChainwebVersion
     -> NetworkId
     -> Maybe Limit
-    -> Maybe (NextItem PeerId)
-    -> ClientM (Page (NextItem PeerId) PeerInfo)
+    -> Maybe (NextItem Int)
+    -> ClientM (Page (NextItem Int) PeerInfo)
 peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
