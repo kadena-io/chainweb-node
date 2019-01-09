@@ -302,8 +302,8 @@ createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
     addTreeEntry :: Ptr Git.C'git_treebuilder -> TreeEntry -> IO ()
     addTreeEntry tb (TreeEntry h hs gh) = tbInsert tb Git.c'GIT_FILEMODE_TREE h hs gh
 
-    addSelfEntry :: Ptr Git.C'git_treebuilder -> BlockHeight -> BlockHashBytes -> GitHash -> IO ()
-    addSelfEntry tb h hs gh = tbInsert tb Git.c'GIT_FILEMODE_BLOB h hs gh
+addSelfEntry :: Ptr Git.C'git_treebuilder -> BlockHeight -> BlockHashBytes -> GitHash -> IO ()
+addSelfEntry tb h hs gh = tbInsert tb Git.c'GIT_FILEMODE_BLOB h hs gh
 
 
 ------------------------------------------------------------------------------
@@ -657,10 +657,14 @@ throwGitStoreFailure = throwIO . GitStoreFailure
 
 
 ------------------------------------------------------------------------------
--- TODO: needs more arguments here unless we put genesis block into
--- GitStoreData
+-- A simplified version of `createLeafTree`.
 insertGenesisBlock :: BlockHeader -> GitStoreData -> IO ()
-insertGenesisBlock g store = void $ createLeafTree store g
+insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> do
+    newHeaderGitHash <- insertBlockHeaderIntoOdb store g
+    addSelfEntry treeB (_blockHeight g) (getBlockHashBytes $ _blockHash g) newHeaderGitHash
+    alloca $ \oid -> throwOnGitError $ Git.c'git_treebuilder_write oid repo treeB
+    -- TODO needed?
+    -- createBlockHeaderTag store bh treeHash
 
 -- genesisBlockGitHash :: GitStoreData -> IO GitHash
 -- genesisBlockGitHash _ = undefined

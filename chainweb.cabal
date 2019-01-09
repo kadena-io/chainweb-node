@@ -313,6 +313,7 @@ test-suite chainweb-tests
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random-bytestring >= 0.1
+        , random >= 1.1
         , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
