@@ -50,7 +50,8 @@ import qualified Chainweb.Time as Time
 tests :: MempoolWithFunc -> [TestTree]
 tests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
-    , mempoolTestCase "overlarge transactions are rejected" testOverlarge
+    , mempoolProperty "overlarge transactions are rejected" (pick arbitrary)
+                      propOverlarge
     , mempoolProperty "insert + lookup + getBlock" (pick arbitrary) propTrivial
     , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
     , mempoolProperty "validate txs" (pick arbitrary) propValidate
@@ -167,14 +168,27 @@ testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
 
 
-testOverlarge :: MempoolBackend MockTx -> IO ()
-testOverlarge = const $ fail "overlarge transactions not yet rejected"
+propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
+propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
+    liftIO $ insert $ txs ++ overlarge
+    liftIO (lookup txs) >>= V.mapM_ lookupIsPending
+    liftIO (lookup overlarge) >>= V.mapM_ lookupIsMissing
+  where
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert = mempoolInsert mempool . V.fromList
+    lookup = mempoolLookup mempool . V.fromList . map hash
+    txs = uniq $ sortBy (compare `on` onFees) txs0
+    overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) txs0
+
+    setOverlarge = map (\x -> x { mockSize = mockBlocksizeLimit + 100 })
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
 
 
 propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propTrivial txs mempool = runExceptT $ do
     liftIO $ insert txs
-    liftIO (lookup txs) >>= V.mapM_ confirmLookupOK
+    liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     block <- liftIO getBlock
     when (not $ isSorted block) $
         fail ("getBlock didn't return a sorted block: " ++ show block)
@@ -190,9 +204,6 @@ propTrivial txs mempool = runExceptT $ do
 
     getBlock = mempoolGetBlock mempool (mempoolBlockSizeLimit mempool)
     onFees x = (Down (mockFees x), mockSize x)
-
-    confirmLookupOK (Pending _) = return ()
-    confirmLookupOK _ = fail "lookup failure"
 
 
 propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
@@ -257,12 +268,14 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
     -- TODO: empty forks here
     validate = ValidatedTransaction V.empty
 
-    lookupIsPending (Pending _) = return ()
-    lookupIsPending _ = fail "lookup failure: expected pending"
-    lookupIsConfirmed Confirmed = return ()
-    lookupIsConfirmed _ = fail "lookup failure: expected confirmed"
-    lookupIsValidated (Validated _) = return ()
-    lookupIsValidated _ = fail "lookup failure: expected validated"
+lookupIsPending (Pending _) = return ()
+lookupIsPending _ = fail "lookup failure: expected pending"
+lookupIsConfirmed Confirmed = return ()
+lookupIsConfirmed _ = fail "lookup failure: expected confirmed"
+lookupIsMissing Missing = return ()
+lookupIsMissing _ = fail "lookup failure: expected missing"
+lookupIsValidated (Validated _) = return ()
+lookupIsValidated _ = fail "lookup failure: expected validated"
 
 propSubscriptions :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propSubscriptions txs0 mempool = runExceptT $ do

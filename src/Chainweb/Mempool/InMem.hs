@@ -337,11 +337,13 @@ insertInMem broadcaster cfg lock txs = do
 
   where
     txcfg = _inmemTxCfg cfg
+    getSize = txSize txcfg
+    maxSize = _inmemTxBlockSizeLimit cfg
     hasher = txHasher txcfg
 
-    -- TODO: validate transaction; transaction size and gas limit has to be
-    -- below maximums
-    isValid _ = True
+    -- TODO: do more sophisticated transaction validation here (probably will
+    -- have to call out to pact)
+    isValid tx = getSize tx <= maxSize
     getPriority x = let r = txFees txcfg x
                         s = txSize txcfg x
                     in toPriority r s
