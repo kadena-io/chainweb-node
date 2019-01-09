@@ -7,7 +7,8 @@
 -- Pact PureDb checkpoint module for Chainweb
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -33,10 +34,10 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
          }
 
 restore ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+  -> IORef (HashMap (BlockHeight, BlockHash) CheckpointData)
   -> IO ()
 restore height hash cdata store = do
   s <- readIORef store
@@ -45,19 +46,19 @@ restore height hash cdata store = do
     validate = undefined
 
 prepare ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
-  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) CheckpointData))
+  -> IORef (HashMap (BlockHeight, BlockHash) CheckpointData)
+  -> IO (Either String (HashMap (BlockHeight, BlockHash) CheckpointData))
 prepare _ _ _ _ = fmap Right . readIORef
 
 save ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+  -> IORef (HashMap (BlockHeight, BlockHash) CheckpointData)
   -> IO ()
 save _height _hash _opmode _cdata _store = return ()

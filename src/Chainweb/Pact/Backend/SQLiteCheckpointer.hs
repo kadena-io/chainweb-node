@@ -1,6 +1,6 @@
 -- |
 -- Module: Chainweb.Pact.DiskCheckpoint
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2018 Kadena LL
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -10,7 +10,8 @@
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Chainweb.Pact.Types
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.Logger as P
@@ -35,27 +36,27 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
          }
 
 restore ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
   -> IO ()
 restore _height _hash _cdata _store = undefined
 
 prepare ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
-  -> IO (Either String (HashMap (C.BlockHeight, P.Hash) FilePath))
+  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
+  -> IO (Either String (HashMap (BlockHeight, BlockHash) FilePath))
 prepare _height _hash _opmode _cdata _store = undefined
 
 save ::
-     C.BlockHeight
-  -> P.Hash
+     BlockHeight
+  -> BlockHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (C.BlockHeight, P.Hash) FilePath)
+  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
   -> IO ()
 save _height _hash _opmode _cdata _store = undefined

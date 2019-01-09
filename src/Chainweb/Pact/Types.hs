@@ -21,7 +21,8 @@ module Chainweb.Pact.Types
   , module Chainweb.Pact.Backend.Types
   ) where
 
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 import qualified Pact.Types.Command as P
@@ -41,9 +42,9 @@ makeLenses ''Transaction
 newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandResult }
 
 data Block = Block
-  { _bHash :: Maybe P.Hash
-  , _bParentHash :: P.Hash
-  , _bBlockHeight :: C.BlockHeight
+  { _bHash :: Maybe BlockPayloadHash
+  , _bParentHash :: {-# UNPACK #-} !BlockHash
+  , _bBlockHeight :: BlockHeight
   , _bTransactions :: [(Transaction, TransactionOutput)]
   }
 makeLenses ''Block

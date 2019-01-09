@@ -9,6 +9,7 @@
 
 {-#language LambdaCase#-}
 {-#language RecordWildCards#-}
+
 module Chainweb.Pact.PactService
   ( initPactService
   , mkPureState
@@ -33,7 +34,8 @@ import qualified Data.Yaml as Y
 import Control.Monad.IO.Class
 
 import qualified Pact.Gas as P
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -74,7 +76,7 @@ serviceRequests =
   forever $ do
   return () --TODO: get / service requests for new blocks and verification
 
-newTransactionBlock :: P.Hash -> C.BlockHeight -> PactT Block
+newTransactionBlock :: BlockHash -> BlockHeight -> PactT Block
 newTransactionBlock parentHash blockHeight = do
   newTrans <- requestTransactions TransactionCriteria
   unless (isFirstBlock parentHash blockHeight) $ do
@@ -100,7 +102,7 @@ newTransactionBlock parentHash blockHeight = do
       , _bTransactions = zip newTrans results
       }
 
-getDbState :: Checkpointer c -> C.BlockHeight -> P.Hash -> c -> IO PactDbState
+getDbState :: Checkpointer c -> BlockHeight -> BlockHash -> c -> IO PactDbState
 getDbState = undefined
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -126,7 +128,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
-isFirstBlock :: P.Hash -> C.BlockHeight -> Bool
+isFirstBlock :: BlockHash -> BlockHeight -> Bool
 isFirstBlock _hash height = height == 0
 
 validateBlock :: Block -> PactT ()
@@ -177,7 +179,7 @@ applyPactCmd cpEnv pactState eMode cmd = do
   case pactDbEnv' of
     Env' pactDbEnv -> applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
 
-_hashResults :: [P.CommandResult] -> P.Hash
+_hashResults :: [P.CommandResult] -> BlockHash
 _hashResults cmdResults =
   let bs = foldMap (A.encode . P._crResult ) cmdResults
   in P.hash $ toS bs

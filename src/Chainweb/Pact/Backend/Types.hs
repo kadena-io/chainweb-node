@@ -26,7 +26,8 @@ module Chainweb.Pact.Backend.Types
   , PactDbBackend
   ) where
 
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Interpreter as P
@@ -91,9 +92,9 @@ data CheckpointData = CheckpointData
 makeLenses ''CheckpointData
 
 data Checkpointer c = Checkpointer
-  { _cRestore :: C.BlockHeight -> P.Hash -> CheckpointData -> IORef c -> IO ()
-  , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
-  , _cSave :: C.BlockHeight -> P.Hash -> OpMode -> CheckpointData -> IORef c -> IO ()
+  { _cRestore :: BlockHeight -> BlockHash -> CheckpointData -> IORef c -> IO ()
+  , _cPrepare :: BlockHeight -> BlockHash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
+  , _cSave :: BlockHeight -> BlockHash -> OpMode -> CheckpointData -> IORef c -> IO ()
   }
 -- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
 
@@ -101,8 +102,8 @@ makeLenses ''Checkpointer
 
 class CheckpointServiceStore c where
 
-instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) CheckpointData) where
-instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) FilePath) where
+instance CheckpointServiceStore (HashMap (BlockHeight, BlockHash) CheckpointData) where
+instance CheckpointServiceStore (HashMap (BlockHeight, BlockHash) FilePath) where
 
 data CheckpointEnv c = CheckpointEnv
   { _cpeCheckpointer    :: Checkpointer c
