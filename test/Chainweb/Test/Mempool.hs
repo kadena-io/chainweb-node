@@ -44,6 +44,7 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Chainweb.Mempool.Mempool
+import qualified Chainweb.Time as Time
 
 ------------------------------------------------------------------------------
 tests :: MempoolWithFunc -> [TestTree]
@@ -61,6 +62,7 @@ data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
   , mockFees :: {-# UNPACK #-} !Decimal
   , mockSize :: {-# UNPACK #-} !Int64
+  , mockMeta :: {-# UNPACK #-} !TransactionMetadata
 } deriving (Eq, Ord, Show, Generic)
 
 
@@ -83,6 +85,9 @@ instance Arbitrary MockTx where
               in MockTx <$> chooseAny
                         <*> arbitraryDecimal
                         <*> g mockBlocksizeLimit
+                        <*> pure emptyMeta
+    where
+      emptyMeta = TransactionMetadata Time.minTime Time.maxTime
 
 
 mockCodec :: Codec MockTx
@@ -90,10 +95,12 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx sz fees nonce) = runPutS $ do
+mockEncode (MockTx sz fees nonce meta) = runPutS $ do
     putWord64le $ fromIntegral sz
     putDecimal fees
     putWord64le $ fromIntegral nonce
+    Time.encodeTime $ txMetaCreationTime meta
+    Time.encodeTime $ txMetaExpiryTime meta
 
 
 putDecimal :: MonadPut m => Decimal -> m ()
@@ -130,9 +137,10 @@ getDecimal = do
 
 mockDecode :: ByteString -> Maybe MockTx
 mockDecode = either (const Nothing) Just .
-             runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64)
+             runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
   where
     getI64 = fromIntegral <$> getWord64le
+    getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
 
 
 data MempoolWithFunc = MempoolWithFunc (forall a . (MempoolBackend MockTx -> IO a) -> IO a)

@@ -63,6 +63,7 @@ data TransactionConfig t = TransactionConfig {
 
     -- | getter for transaction size.
   , txSize :: t -> Int64
+  , txMetadata :: t -> TransactionMetadata
   }
 
 ------------------------------------------------------------------------------
@@ -134,9 +135,9 @@ data Codec t = Codec {
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
-    txMetaIngestTime :: {-# UNPACK #-} !(Time Int64)
+    txMetaCreationTime :: {-# UNPACK #-} !(Time Int64)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Int64)
-}
+} deriving (Eq, Ord, Show)
 
 
 ------------------------------------------------------------------------------

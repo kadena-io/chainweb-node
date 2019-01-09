@@ -20,7 +20,7 @@ tests = testGroup "mempool/inMem" $ Chainweb.Test.Mempool.tests
                                   $ MempoolWithFunc
                                   $ InMem.withInMemoryMempool cfg
   where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
     cfg = InMemConfig txcfg mockBlocksizeLimit
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
