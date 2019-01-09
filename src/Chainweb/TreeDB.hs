@@ -752,8 +752,7 @@ toTree db = do
 -- Misc Utils
 
 forkEntry
-    :: HasCallStack
-    => TreeDb db
+    :: TreeDb db
     => db
     -> DbEntry db
     -> DbEntry db
