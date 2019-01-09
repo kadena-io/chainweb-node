@@ -5,7 +5,7 @@
 
 -- |
 -- Module: Chainweb.Store.Git
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Gregory Collins <greg@kadena.io>, Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -77,12 +77,8 @@ import Chainweb.Utils (whenM)
 
 -- | For opening an existing repository, or for initializing a new one.
 --
--- INVARIANT: If `_getGenesis` is not `Nothing`, then the path given by
--- `_gitStorePath` should not exist on the filesystem.
-data GitStoreConfig = GitStoreConfig {
-    _gitStorePath :: !(Path Absolute)
-  , _gitGenesis :: !(Maybe BlockHeader)
-}
+data GitStoreConfig = NewStore !(Path Absolute) !BlockHeader
+                    | ExistingStore !(Path Absolute)
 
 data GitStoreData = GitStoreData {
     _gitStore :: {-# UNPACK #-} !(Ptr Git.C'git_repository)
@@ -133,9 +129,9 @@ lockGitStore (GitStore m) f = withMVar m f
 -- Low-level pointers to the underlying git repository are freed automatically.
 --
 withGitStore :: GitStoreConfig -> (GitStore -> IO a) -> IO a
-withGitStore (GitStoreConfig root0 mg) f = case mg of
-    Nothing -> withGitStore' root0 tryOpen f
-    Just g -> do
+withGitStore conf f = case conf of
+    ExistingStore root0 -> withGitStore' root0 tryOpen f
+    NewStore root0 g -> do
         whenM (doesPathExist $ toFilePath root0) $
             throwGitStoreFailure "Attempted to initialize a pre-existing Git store"
         withGitStore' root0 initBare (\gs -> insertBlock gs g *> f gs)
@@ -148,7 +144,7 @@ withGitStore (GitStoreConfig root0 mg) f = case mg of
 
     -- | Initialize an empty git store.
     initBare :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
-    initBare  restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
+    initBare restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
         throwOnGitError . restore $ Git.c'git_repository_init repoPtr rootPtr 1
         peek repoPtr
 
