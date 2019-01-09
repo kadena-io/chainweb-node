@@ -175,11 +175,12 @@ propTrivial txs mempool = runExceptT $ do
     isSorted xs = let fs = V.map onFees xs
                       ffs = V.zipWith (<=) fs (V.drop 1 fs)
                   in V.and ffs
-    hash = _mempoolHasher mempool
-    insert = _mempoolInsert mempool . V.fromList
-    lookup = _mempoolLookup mempool . V.fromList . map hash
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert = mempoolInsert mempool . V.fromList
+    lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = _mempoolGetBlock mempool (_mempoolBlockSizeLimit mempool)
+    getBlock = mempoolGetBlock mempool (mempoolBlockSizeLimit mempool)
     onFees x = (Down (mockFees x), mockSize x)
 
     confirmLookupOK (Pending _) = return ()
@@ -205,9 +206,9 @@ propGetPending txs0 mempool = runExceptT $ do
         in fail msg
   where
     onFees x = (Down (mockFees x), mockSize x, mockNonce x)
-    hash = _mempoolHasher mempool
-    getPending = _mempoolGetPendingTransactions mempool
-    insert = _mempoolInsert mempool . V.fromList
+    hash = txHasher $ mempoolTxConfig mempool
+    getPending = mempoolGetPendingTransactions mempool
+    insert = mempoolInsert mempool . V.fromList
 
 
 uniq :: Eq a => [a] -> [a]
@@ -238,12 +239,12 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
   where
     ord = compare `on` onFees
     onFees x = (Down (mockFees x), mockSize x, mockNonce x)
-    hash = _mempoolHasher mempool
-    insert = liftIO . _mempoolInsert mempool . V.fromList
-    lookup = liftIO . _mempoolLookup mempool . V.fromList . map hash
-    markValidated = liftIO . _mempoolMarkValidated mempool . V.fromList . map validate
-    reintroduce = liftIO . _mempoolReintroduce mempool . V.fromList . map hash
-    markConfirmed = liftIO . _mempoolMarkConfirmed mempool . V.fromList . map hash
+    hash = txHasher $ mempoolTxConfig mempool
+    insert = liftIO . mempoolInsert mempool . V.fromList
+    lookup = liftIO . mempoolLookup mempool . V.fromList . map hash
+    markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
+    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
+    markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
 
     -- TODO: empty forks here
     validate = ValidatedTransaction V.empty
@@ -275,11 +276,11 @@ propSubscriptions txs0 mempool = runExceptT $ do
     numSubscribers = 7
     ord = compare `on` onFees
     onFees x = (Down (mockFees x), mockSize x, mockNonce x)
-    insert = liftIO . _mempoolInsert mempool . V.fromList
-    subscribe = liftIO $ _mempoolSubscribe mempool
+    insert = liftIO . mempoolInsert mempool . V.fromList
+    subscribe = liftIO $ mempoolSubscribe mempool
     insertThread = Concurrently $ do
         traverse_ insert $ map (:[]) txs
-        _mempoolShutdown mempool
+        mempoolShutdown mempool
 
     runSubscribers :: [IORef (Subscription MockTx)] -> Concurrently [[MockTx]]
     runSubscribers subscriptions =
@@ -288,7 +289,7 @@ propSubscriptions txs0 mempool = runExceptT $ do
     subscriber (subId, subRef) = do
         sub <- readIORef subRef
         ref <- newIORef []
-        go ref $ _mempoolSubChan sub
+        go ref $ mempoolSubChan sub
         out <- reverse <$> readIORef ref
         -- make sure we touch the ref so it isn't gc'ed
         writeIORef subRef sub

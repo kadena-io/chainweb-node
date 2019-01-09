@@ -32,8 +32,7 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
     handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
-import qualified Data.ByteString.Char8 as B
-import Data.Foldable (foldlM, for_, traverse_)
+import Data.Foldable (foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashPSQ (HashPSQ)
@@ -43,15 +42,12 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
     (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef)
-import Data.Maybe (fromJust, isJust, isNothing)
+import Data.Maybe (fromJust, isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import Prelude
-    (Bool(..), IO, Int, Maybe(..), Monad(..), Num(..), Show(show), String,
-    concat, const, flip, fmap, fst, id, mapM, mapM_, maybe, not, snd, ($),
-    ($!), (&&), (++), (.), (<$>), (<*>), (<=), (==), (>=), (||))
+import Prelude hiding (init, lookup)
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
@@ -87,9 +83,9 @@ type TxSubscriberMap t = HashMap SubscriptionId (Weak (IORef (Subscription t)))
 -- helper thread.
 data TxBroadcaster t = TxBroadcaster {
     _txbSubIdgen :: {-# UNPACK #-} !(IORef SubscriptionId)
-  , _txbThread :: MVar ThreadId
-  , _txbQueue :: TBMChan (TxEdit t)
-  , _txbThreadDone :: MVar ()
+  , _txbThread :: {-# UNPACK #-} !(MVar ThreadId)
+  , _txbQueue :: {-# UNPACK #-} !(TBMChan (TxEdit t))
+  , _txbThreadDone :: {-# UNPACK #-} !(MVar ())
 }
 
 -- | Runs a user computation with a newly-created transaction broadcaster. The
@@ -181,7 +177,7 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
     -- new subscriber: add it to the map
     processCmd' hm (Subscribe sid s done) = do
         ref <- newIORef s
-        w <- mkWeakIORef ref (_mempoolSubFinal s)
+        w <- mkWeakIORef ref (mempoolSubFinal s)
         putMVar done ref
         return $! HashMap.insert sid w hm
     -- unsubscribe: call finalizer and delete from subscriber map
@@ -200,7 +196,7 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
     closeWeakChan w = Weak.deRefWeak w >>=
                       maybe (return ()) (readIORef >=> closeChan)
     closeChan m = do
-        atomically . TBMChan.closeTBMChan $ _mempoolSubChan m
+        atomically . TBMChan.closeTBMChan $ mempoolSubChan m
 
     -- TODO: write to subscribers in parallel
     broadcast txV hm = do
@@ -215,9 +211,9 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
               return $! HashMap.delete sid hm
           (Just s) -> do
               m <- tout broadcaster $ atomically $ void $
-                   TBMChan.writeTBMChan (_mempoolSubChan s) txV
+                   TBMChan.writeTBMChan (mempoolSubChan s) txV
               -- close chan and delete mapping on timeout.
-              maybe (do atomically $ TBMChan.closeTBMChan (_mempoolSubChan s)
+              maybe (do atomically $ TBMChan.closeTBMChan (mempoolSubChan s)
                         return $! HashMap.delete sid hm)
                     (const $ return hm)
                     m
@@ -228,11 +224,7 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
-    _inmemCodec :: Codec t
-  , _inmemHasher :: t -> TransactionHash
-  , _inmemHashMeta :: HashMeta
-  , _inmemTxFees :: t -> TransactionFees
-  , _inmemTxSize :: t -> Int64
+    _inmemTxCfg :: TransactionConfig t
   , _inmemTxBlockSizeLimit :: Int64
 }
 
@@ -273,11 +265,9 @@ makeInMemPool cfg txB = do
 
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig codec hasher hashMeta
-                                       txFeesFunc txSizeFunc blockSizeLimit)
+toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit)
                                   lock broadcaster) =
-    MempoolBackend codec hasher hashMeta txFeesFunc txSizeFunc
-                   blockSizeLimit lookup insert getBlock markValidated
+    MempoolBackend tcfg blockSizeLimit lookup insert getBlock markValidated
                    markConfirmed reintroduce getPending subscribe shutdown
   where
     lookup = lookupInMem lock
@@ -346,13 +336,14 @@ insertInMem broadcaster cfg lock txs = do
     broadcastTxs newTxs broadcaster
 
   where
-    hasher = _inmemHasher cfg
+    txcfg = _inmemTxCfg cfg
+    hasher = txHasher txcfg
 
     -- TODO: validate transaction; transaction size and gas limit has to be
     -- below maximums
     isValid _ = True
-    getPriority x = let r = _inmemTxFees cfg x
-                        s = _inmemTxSize cfg x
+    getPriority x = let r = txFees txcfg x
+                        s = txSize txcfg x
                     in toPriority r s
     exists mdata txhash = do
         valMap <- readIORef $ _inmemValidated mdata
@@ -384,7 +375,7 @@ getBlockInMem cfg lock size0 = do
     -- try to find a smaller tx to fit in the block. DECIDE: exhaustive search
     -- of pending instead?
     maxSkip = 30 :: Int
-    getSize = _inmemTxSize cfg
+    getSize = txSize $ _inmemTxCfg cfg
 
     go (psq, sz) = lookahead sz maxSkip psq
 
@@ -405,10 +396,10 @@ markValidatedInMem :: InMemConfig t
 markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata -> do
     V.mapM_ (validateOne mdata) txs
   where
-    hash = _inmemHasher cfg
+    hash = txHasher $ _inmemTxCfg cfg
 
     validateOne mdata tx = do
-        let txhash = hash $ _validatedTransaction tx
+        let txhash = hash $ validatedTransaction tx
         modifyIORef' (_inmemPending mdata) $ PSQ.delete txhash
         modifyIORef' (_inmemValidated mdata) $ HashMap.insert txhash tx
 
@@ -438,7 +429,7 @@ getPendingInMem cfg lock callback = do
 
   where
     initState = (id, 0)    -- difference list
-    hash = _inmemHasher cfg
+    hash = txHasher $ _inmemTxCfg cfg
 
     go (dl, !sz) tx = do
         let txhash = hash tx
@@ -469,8 +460,9 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     broadcastTxs newOnes broadcaster
 
   where
-    fees = _inmemTxFees cfg
-    size = _inmemTxSize cfg
+    txcfg = _inmemTxCfg cfg
+    fees = txFees txcfg
+    size = txSize txcfg
     getPriority x = let r = fees x
                         s = size x
                     in toPriority r s
