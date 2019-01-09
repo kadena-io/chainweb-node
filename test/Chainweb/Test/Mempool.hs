@@ -11,6 +11,11 @@ module Chainweb.Test.Mempool
   , mockFeesLimit
   ) where
 
+import Control.Applicative
+import Control.Concurrent.Async (Concurrently(..))
+import qualified Control.Concurrent.Async as Async
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Monad (replicateM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
@@ -18,9 +23,14 @@ import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as B
 import Data.Decimal (Decimal, DecimalRaw(..))
+import Data.Foldable (traverse_)
+import Data.Function (on)
 import Data.Int (Int64)
-import Data.List (unfoldr)
+import Data.IORef
+import Data.List (sort, sortBy, unfoldr)
+import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -39,8 +49,13 @@ import Chainweb.Mempool.Mempool
 tests :: MempoolWithFunc -> [TestTree]
 tests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
+    , mempoolTestCase "overlarge transactions are rejected" testOverlarge
     , mempoolProperty "insert + lookup + getBlock" (pick arbitrary) propTrivial
+    , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
+    , mempoolProperty "validate txs" (pick arbitrary) propValidate
+    , mempoolProperty "subscriptions" (pick arbitrary) propSubscriptions
     ]
+
 
 data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
@@ -48,16 +63,20 @@ data MockTx = MockTx {
   , mockSize :: {-# UNPACK #-} !Int64
 } deriving (Eq, Ord, Show, Generic)
 
+
 mockBlocksizeLimit :: Int64
 mockBlocksizeLimit = 65535
 
+
 mockFeesLimit :: Decimal
 mockFeesLimit = fromIntegral mockBlocksizeLimit * 4
+
 
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
     i <- (arbitrary :: Gen Int64)
     return $! fromInteger $ toInteger i
+
 
 instance Arbitrary MockTx where
   arbitrary = let g x = choose (1, x)
@@ -65,8 +84,10 @@ instance Arbitrary MockTx where
                         <*> arbitraryDecimal
                         <*> g mockBlocksizeLimit
 
+
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
+
 
 mockEncode :: MockTx -> ByteString
 mockEncode (MockTx sz fees nonce) = runPutS $ do
@@ -90,6 +111,7 @@ putDecimal (Decimal places mantissa) = do
                                   !d' = d `shiftR` 64
                               in Just (a, d')
 
+
 getDecimal :: MonadGet m => m Decimal
 getDecimal = do
     !places <- fromIntegral <$> getWord8
@@ -105,19 +127,23 @@ getDecimal = do
             !s = shiftVal + 64
         in (i, s)
 
+
 mockDecode :: ByteString -> Maybe MockTx
 mockDecode = either (const Nothing) Just .
              runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64)
   where
     getI64 = fromIntegral <$> getWord64le
 
+
 data MempoolWithFunc = MempoolWithFunc (forall a . (MempoolBackend MockTx -> IO a) -> IO a)
+
 
 mempoolTestCase :: TestName
                 -> (MempoolBackend MockTx -> IO ())
                 -> MempoolWithFunc
                 -> TestTree
 mempoolTestCase name test (MempoolWithFunc withMempool) = testCase name $ withMempool test
+
 
 mempoolProperty :: TestName
                 -> PropertyM IO a
@@ -128,8 +154,14 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
   where
     go = monadicIO (gen >>= run . withMempool . test >>= either fail return)
 
+
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
+
+
+testOverlarge :: MempoolBackend MockTx -> IO ()
+testOverlarge = const $ fail "overlarge transactions not yet rejected"
+
 
 propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propTrivial txs mempool = runExceptT $ do
@@ -146,8 +178,126 @@ propTrivial txs mempool = runExceptT $ do
     hash = _mempoolHasher mempool
     insert = _mempoolInsert mempool . V.fromList
     lookup = _mempoolLookup mempool . V.fromList . map hash
-    confirmLookupOK (Pending _) = return ()
-    confirmLookupOK _ = fail "lookup failure"
 
     getBlock = _mempoolGetBlock mempool (_mempoolBlockSizeLimit mempool)
     onFees x = (Down (mockFees x), mockSize x)
+
+    confirmLookupOK (Pending _) = return ()
+    confirmLookupOK _ = fail "lookup failure"
+
+
+propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
+propGetPending txs0 mempool = runExceptT $ do
+    let txs = uniq $ sortBy (compare `on` onFees) txs0
+    liftIO $ insert txs
+    let txdata = sort $ map hash txs
+    pendingOps <- liftIO $ newIORef []
+    liftIO $ getPending $ \v -> modifyIORef' pendingOps (v:)
+    allPending <- sort . V.toList . V.concat
+                  <$> liftIO (readIORef pendingOps)
+
+    when (txdata /= allPending) $
+        let msg = concat [ "getPendingTransactions failure: expected pending "
+                         , "list:\n    "
+                         , show txdata
+                         , "\nbut got:\n    "
+                         , show allPending ]
+        in fail msg
+  where
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    hash = _mempoolHasher mempool
+    getPending = _mempoolGetPendingTransactions mempool
+    insert = _mempoolInsert mempool . V.fromList
+
+
+uniq :: Eq a => [a] -> [a]
+uniq [] = []
+uniq l@[_] = l
+uniq (x:ys@(y:rest)) | x == y    = uniq (x:rest)
+                     | otherwise = x : uniq ys
+
+propValidate :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
+propValidate (txs0', txs1') mempool = runExceptT $ do
+    let txs0 = uniq $ sortBy ord txs0'
+    let txs1 = OL.minusBy' ord (uniq $ sortBy ord txs1') txs0
+    insert txs0
+    insert txs1
+    lookup txs0 >>= V.mapM_ lookupIsPending
+    lookup txs1 >>= V.mapM_ lookupIsPending
+
+    markValidated txs1
+    lookup txs0 >>= V.mapM_ lookupIsPending
+    lookup txs1 >>= V.mapM_ lookupIsValidated
+
+    reintroduce txs1
+    lookup txs1 >>= V.mapM_ lookupIsPending
+
+    markConfirmed txs1
+    lookup txs1 >>= V.mapM_ lookupIsConfirmed
+
+  where
+    ord = compare `on` onFees
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    hash = _mempoolHasher mempool
+    insert = liftIO . _mempoolInsert mempool . V.fromList
+    lookup = liftIO . _mempoolLookup mempool . V.fromList . map hash
+    markValidated = liftIO . _mempoolMarkValidated mempool . V.fromList . map validate
+    reintroduce = liftIO . _mempoolReintroduce mempool . V.fromList . map hash
+    markConfirmed = liftIO . _mempoolMarkConfirmed mempool . V.fromList . map hash
+
+    -- TODO: empty forks here
+    validate = ValidatedTransaction V.empty
+
+    lookupIsPending (Pending _) = return ()
+    lookupIsPending _ = fail "lookup failure: expected pending"
+    lookupIsConfirmed Confirmed = return ()
+    lookupIsConfirmed _ = fail "lookup failure: expected confirmed"
+    lookupIsValidated (Validated _) = return ()
+    lookupIsValidated _ = fail "lookup failure: expected validated"
+
+propSubscriptions :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
+propSubscriptions txs0 mempool = runExceptT $ do
+    subscriptions <- replicateM numSubscribers subscribe
+    results <- liftIO $ Async.runConcurrently (insertThread *>
+                                               runSubscribers subscriptions)
+    mapM_ checkResult results
+
+  where
+    txs = uniq $ sortBy ord txs0
+    checkResult :: [MockTx] -> ExceptT String IO ()
+    checkResult r = when (r /= txs) $
+                        let msg = concat [ "subscription failed: expected sequence "
+                                         , show txs
+                                         , "got "
+                                         , show r
+                                         ]
+                        in fail msg
+    numSubscribers = 7
+    ord = compare `on` onFees
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    insert = liftIO . _mempoolInsert mempool . V.fromList
+    subscribe = liftIO $ _mempoolSubscribe mempool
+    insertThread = Concurrently $ do
+        traverse_ insert $ map (:[]) txs
+        _mempoolShutdown mempool
+
+    runSubscribers :: [IORef (Subscription MockTx)] -> Concurrently [[MockTx]]
+    runSubscribers subscriptions =
+        Concurrently $ Async.forConcurrently ([(1::Int)..] `zip` subscriptions) subscriber
+
+    subscriber (subId, subRef) = do
+        sub <- readIORef subRef
+        ref <- newIORef []
+        go ref $ _mempoolSubChan sub
+        out <- reverse <$> readIORef ref
+        -- make sure we touch the ref so it isn't gc'ed
+        writeIORef subRef sub
+        return out
+      where
+        go ref chan = do
+            m <- atomically $ TBMChan.readTBMChan chan
+            flip (maybe (return ())) m $ \el -> do
+                let l = reverse $ V.toList el
+                modifyIORef' ref (l ++)
+                go ref chan
+

@@ -26,6 +26,7 @@ import qualified Data.ByteString.Char8 as S
 import Data.Decimal (Decimal)
 import Data.Hashable (Hashable(..))
 import Data.Int (Int64)
+import Data.IORef (IORef)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import GHC.Generics (Generic)
@@ -89,7 +90,8 @@ data MempoolBackend t = MempoolBackend {
   , _mempoolGetPendingTransactions
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
-  , _mempoolSubscribe :: IO (Subscription t)
+  , _mempoolSubscribe :: IO (IORef (Subscription t))
+  , _mempoolShutdown :: IO ()
 }
 
 

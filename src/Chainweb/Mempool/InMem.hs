@@ -24,14 +24,15 @@ import Control.Applicative (pure, (<|>))
 import Control.Concurrent (ThreadId, forkIOWithUnmask)
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
-    withMVarMasked)
+    takeMVar, withMVarMasked)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
     handle, mask_, throwIO)
-import Control.Monad (forever, join, void)
+import Control.Monad (forever, join, void, (>=>))
+import qualified Data.ByteString.Char8 as B
 import Data.Foldable (foldlM, for_, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -40,21 +41,22 @@ import qualified Data.HashPSQ as PSQ
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
-import Data.Maybe (fromJust, isJust)
+import Data.IORef
+    (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef)
+import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Prelude
-    (Bool(..), IO, Int, Maybe(..), Monad(..), Num(..), flip, fmap, fst, id,
-    mapM, mapM_, maybe, not, snd, ($), ($!), (&&), (.), (<$>), (<*>), (<=),
-    (==), (>=), (||))
+    (Bool(..), IO, Int, Maybe(..), Monad(..), Num(..), Show(show), String,
+    concat, const, flip, fmap, fst, id, mapM, mapM_, maybe, not, snd, ($),
+    ($!), (&&), (++), (.), (<$>), (<*>), (<=), (==), (>=), (||))
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
+import System.Timeout (timeout)
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.Mempool
-
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -74,11 +76,11 @@ type SubscriptionId = Word64
 ------------------------------------------------------------------------------
 -- | Transaction edits -- these commands will be sent to the broadcast thread
 -- over an STM channel.
-data TxEdit t = Subscribe !SubscriptionId (Subscription t)
+data TxEdit t = Subscribe !SubscriptionId (Subscription t) (MVar (IORef (Subscription t)))
               | Unsubscribe !SubscriptionId
               | Transactions (Vector t)
               | Close
-type TxSubscriberMap t = HashMap SubscriptionId (Weak (Subscription t))
+type TxSubscriberMap t = HashMap SubscriptionId (Weak (IORef (Subscription t)))
 
 -- | The 'TxBroadcaster' is responsible for broadcasting new transactions out
 -- to any readers. Commands are posted to the channel and are executed by a
@@ -120,25 +122,31 @@ destroyTxBroadcaster (TxBroadcaster _ _ q doneMV) = do
 
 
 ------------------------------------------------------------------------------
--- | Broadcast a group of new transactions via 'TxBroadcaster'.
 broadcastTxs :: Vector t -> TxBroadcaster t -> IO ()
 broadcastTxs txs (TxBroadcaster _ _ q _) =
-    -- DECIDE: should this be "tryWrite"?
-    atomically $ TBMChan.writeTBMChan q (Transactions txs)
+    -- TODO: timeout here?
+    atomically $ void $ TBMChan.writeTBMChan q (Transactions txs)
+
+
+-- FIXME: read this from config
+tout :: TxBroadcaster t -> IO a -> IO (Maybe a)
+tout _ m = timeout 2000000 m
 
 
 ------------------------------------------------------------------------------
 -- | Subscribe to a 'TxBroadcaster'.
-subscribeInMem :: TxBroadcaster t -> IO (Subscription t)
+subscribeInMem :: TxBroadcaster t -> IO (IORef (Subscription t))
 subscribeInMem broadcaster = do
     let q = _txbQueue broadcaster
     subQ <- atomically $ TBMChan.newTBMChan defaultQueueLen
     subId <- nextTxId $! _txbSubIdgen broadcaster
     let final = atomically $ TBMChan.writeTBMChan q (Unsubscribe subId)
     let !sub = Subscription subQ final
-    let !item = Subscribe subId sub
+    done <- newEmptyMVar
+    let !item = Subscribe subId sub done
+    -- TODO: timeout here
     atomically $ TBMChan.writeTBMChan q item
-    return sub
+    takeMVar done
   where
     defaultQueueLen = 64
 
@@ -148,7 +156,7 @@ subscribeInMem broadcaster = do
 -- dispatches them. Once a 'Close' command comes through, the broadcaster
 -- thread closes up shop and returns.
 broadcasterThread :: TxBroadcaster t -> (forall a . IO a -> IO a) -> IO ()
-broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
+broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
     eatExceptions (restore $ bracket init cleanup go)
       `finally` putMVar doneMV ()
   where
@@ -159,7 +167,8 @@ broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
     -- Our cleanup action is to traverse the subscriber map and call
     -- TBMChan.closeTBMChan on any valid subscriber references. Subscribers
     -- should then be notified that the broadcaster is finished.
-    cleanup mapMV = readMVar mapMV >>= traverse_ closeWeakChan
+    cleanup mapMV = do
+        readMVar mapMV >>= traverse_ closeWeakChan
 
     -- The main loop. Reads a command from the channel and dispatches it,
     -- forever.
@@ -170,31 +179,48 @@ broadcasterThread (TxBroadcaster _ _ q doneMV) restore =
     processCmd mv x = modifyMVarMasked_ mv $ flip processCmd' x
 
     -- new subscriber: add it to the map
-    processCmd' hm (Subscribe sid s) = do
-        w <- Weak.mkWeakPtr s $! Just (_mempoolSubFinal s)
+    processCmd' hm (Subscribe sid s done) = do
+        ref <- newIORef s
+        w <- mkWeakIORef ref (_mempoolSubFinal s)
+        putMVar done ref
         return $! HashMap.insert sid w hm
     -- unsubscribe: call finalizer and delete from subscriber map
     processCmd' hm (Unsubscribe sid) = do
-        (join <$> mapM Weak.deRefWeak (HashMap.lookup sid hm)) >>= mapM_ closeChan
+        (join <$> mapM Weak.deRefWeak (HashMap.lookup sid hm)) >>=
+            mapM_ (readIORef >=> closeChan)
         return $! HashMap.delete sid hm
     -- throw 'ThreadKilled' on receiving 'Close' -- cleanup will be called
-    processCmd' hm Close = goodbyeCruelWorld >> return hm
-    processCmd' hm (Transactions v) = do
-        broadcast v hm
-        return hm
+    processCmd' hm Close = do
+        goodbyeCruelWorld >> return hm
+    processCmd' hm (Transactions v) = broadcast v hm
 
     -- ignore any exceptions received
     eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
 
-    closeWeakChan w = Weak.deRefWeak w >>= maybe (return ()) closeChan
-    closeChan = atomically . TBMChan.closeTBMChan . _mempoolSubChan
+    closeWeakChan w = Weak.deRefWeak w >>=
+                      maybe (return ()) (readIORef >=> closeChan)
+    closeChan m = do
+        atomically . TBMChan.closeTBMChan $ _mempoolSubChan m
 
-    broadcast txV = traverse_ (write txV)
+    -- TODO: write to subscribers in parallel
+    broadcast txV hm = do
+        let subs = HashMap.toList hm
+        foldlM (write txV) hm subs
 
-    write txV w = do
-        ms <- Weak.deRefWeak w
-        for_ ms $ \s -> atomically $ void $
-                        TBMChan.tryWriteTBMChan (_mempoolSubChan s) txV
+    write txV hm (sid, w) = do
+        ms <- Weak.deRefWeak w >>= mapM readIORef
+        case ms of
+          -- delete mapping if weak ref expires
+          Nothing -> do
+              return $! HashMap.delete sid hm
+          (Just s) -> do
+              m <- tout broadcaster $ atomically $ void $
+                   TBMChan.writeTBMChan (_mempoolSubChan s) txV
+              -- close chan and delete mapping on timeout.
+              maybe (do atomically $ TBMChan.closeTBMChan (_mempoolSubChan s)
+                        return $! HashMap.delete sid hm)
+                    (const $ return hm)
+                    m
 
     goodbyeCruelWorld = throwIO ThreadKilled
 
@@ -252,7 +278,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig codec hasher hashMeta
                                   lock broadcaster) =
     MempoolBackend codec hasher hashMeta txFeesFunc txSizeFunc
                    blockSizeLimit lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe
+                   markConfirmed reintroduce getPending subscribe shutdown
   where
     lookup = lookupInMem lock
     insert = insertInMem broadcaster cfg lock
@@ -262,6 +288,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig codec hasher hashMeta
     reintroduce = reintroduceInMem broadcaster cfg lock
     getPending = getPendingInMem cfg lock
     subscribe = subscribeInMem broadcaster
+    shutdown = shutdownInMem broadcaster
 
 
 ------------------------------------------------------------------------------
@@ -297,6 +324,13 @@ lookupInMem lock txs = do
         if HashSet.member txHash confirmed
           then Just Confirmed
           else Nothing
+
+
+------------------------------------------------------------------------------
+shutdownInMem :: TxBroadcaster t -> IO ()
+shutdownInMem broadcaster = atomically $ TBMChan.writeTBMChan q Close
+  where
+    q = _txbQueue broadcaster
 
 
 ------------------------------------------------------------------------------
