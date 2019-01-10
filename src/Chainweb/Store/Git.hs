@@ -307,12 +307,16 @@ addSelfEntry tb h hs gh = tbInsert tb Git.c'GIT_FILEMODE_BLOB h hs gh
 
 
 ------------------------------------------------------------------------------
+-- | Create a tag within @.git/refs/tags/bh/@ that matches the
+-- @blockheight.blockhash@ syntax, as say found in a stored `BlockHeader`'s
+-- "spectrum".
+--
 createBlockHeaderTag :: GitStoreData -> BlockHeader -> GitHash -> IO ()
 createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     withObject gs leafHash $ \obj ->
     alloca $ \pTagOid ->
     B.unsafeUseAsCString tagName $ \cstr ->
-    -- | @1@ forces libgit to overwrite this tag, should it already exist.
+    -- @1@ forces libgit to overwrite this tag, should it already exist.
     throwOnGitError (Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1)
   where
     height :: BlockHeight
@@ -485,17 +489,21 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
 ------------------------------------------------------------------------------
 updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
-    withObject store (_te_gitHash newLeaf) $ \obj ->
-        alloca $ \pTagOid ->
-        B.unsafeUseAsCString (mkName newLeaf) $ \cstr ->
-        throwOnGitError $ Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1
+    tagAsLeaf store newLeaf
     B.unsafeUseAsCString (mkName oldLeaf) $ \cstr ->
         throwOnGitError $ Git.c'git_tag_delete repo cstr
 
-  where
-    mkName :: TreeEntry -> ByteString
-    mkName (TreeEntry h bh _) = mkLeafTagName h bh
+-- | Tag a `TreeEntry` in @.git/refs/leaf/@.
+--
+tagAsLeaf :: GitStoreData -> TreeEntry -> IO ()
+tagAsLeaf store@(GitStoreData repo _) leaf = do
+    withObject store (_te_gitHash leaf) $ \obj ->
+        alloca $ \pTagOid ->
+        B.unsafeUseAsCString (mkName leaf) $ \cstr ->
+        throwOnGitError $ Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1
 
+mkName :: TreeEntry -> ByteString
+mkName (TreeEntry h bh _) = mkLeafTagName h bh
 
 ------------------------------------------------------------------------------
 mkTreeEntryName :: BlockHeight -> BlockHashBytes -> ByteString
@@ -657,14 +665,20 @@ throwGitStoreFailure = throwIO . GitStoreFailure
 
 
 ------------------------------------------------------------------------------
--- A simplified version of `createLeafTree`.
+-- | A simplified version of `createLeafTree`, specialized for the Genesis
+-- Block.
+--
 insertGenesisBlock :: BlockHeader -> GitStoreData -> IO ()
 insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> do
     newHeaderGitHash <- insertBlockHeaderIntoOdb store g
     addSelfEntry treeB (_blockHeight g) (getBlockHashBytes $ _blockHash g) newHeaderGitHash
-    alloca $ \oid -> throwOnGitError $ Git.c'git_treebuilder_write oid repo treeB
-    -- TODO needed?
-    -- createBlockHeaderTag store bh treeHash
+    treeHash <- alloca $ \oid -> do
+        throwOnGitError $ Git.c'git_treebuilder_write oid repo treeB
+        GitHash <$> oidToByteString oid
+    -- Store a tag in @.git/refs/tags/bh/@
+    createBlockHeaderTag store g treeHash
+    -- Mark this entry (it's the only entry!) as a "leaf" in @.git/refs/tags/leaf/@.
+    tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
 
 -- genesisBlockGitHash :: GitStoreData -> IO GitHash
 -- genesisBlockGitHash _ = undefined
