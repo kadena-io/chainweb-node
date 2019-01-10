@@ -231,7 +231,6 @@ library
 
     if flag(gitstore)
         build-depends: hlibgit2 >= 0.18.0.16,
-                       base58-bytestring >= 0.1.0
         exposed-modules: Chainweb.Store.Git
 
     if flag(with-pact)
