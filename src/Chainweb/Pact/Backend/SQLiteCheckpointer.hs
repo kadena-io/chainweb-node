@@ -10,7 +10,6 @@
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Chainweb.Pact.Types
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -37,26 +36,26 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
 
 restore ::
      BlockHeight
-  -> BlockHash
+  -> BlockPayloadHash
   -> CheckpointData
-  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
+  -> IORef (HashMap (BlockHeight, BlockPayloadHash) FilePath)
   -> IO ()
 restore _height _hash _cdata _store = undefined
 
 prepare ::
      BlockHeight
-  -> BlockHash
+  -> BlockPayloadHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
-  -> IO (Either String (HashMap (BlockHeight, BlockHash) FilePath))
+  -> IORef (HashMap (BlockHeight, BlockPayloadHash) FilePath)
+  -> IO (Either String (HashMap (BlockHeight, BlockPayloadHash) FilePath))
 prepare _height _hash _opmode _cdata _store = undefined
 
 save ::
      BlockHeight
-  -> BlockHash
+  -> BlockPayloadHash
   -> OpMode
   -> CheckpointData
-  -> IORef (HashMap (BlockHeight, BlockHash) FilePath)
+  -> IORef (HashMap (BlockHeight, BlockPayloadHash) FilePath)
   -> IO ()
 save _height _hash _opmode _cdata _store = undefined

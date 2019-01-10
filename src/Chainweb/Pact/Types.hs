@@ -12,21 +12,19 @@
 {-# LANGUAGE StrictData #-}
 
 module Chainweb.Pact.Types
-  ( Block(..), bBlockHeight, bHash , bParentHash , bTransactions
-  , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
-  , PactT
-  , Transaction(..), tCmd , tTxId
-  , TransactionCriteria(..)
-  , TransactionOutput(..)
-  , module Chainweb.Pact.Backend.Types
-  ) where
+    ( Block(..), bBlockHeight, bHash , bParentHeader , bTransactions
+    , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
+    , PactT
+    , Transaction(..), tCmd , tTxId
+    , TransactionCriteria(..)
+    , TransactionOutput(..)
+    , module Chainweb.Pact.Backend.Types
+    ) where
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Runtime as P
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
@@ -34,25 +32,25 @@ import Data.ByteString (ByteString)
 import GHC.Word (Word64)
 
 data Transaction = Transaction
-  { _tTxId :: Word64
-  , _tCmd :: P.Command ByteString
-  }
+    { _tTxId :: Word64
+    , _tCmd :: P.Command ByteString
+    }
 makeLenses ''Transaction
 
 newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandResult }
 
 data Block = Block
-  { _bHash :: Maybe BlockPayloadHash
-  , _bParentHash :: {-# UNPACK #-} !BlockHash
-  , _bBlockHeight :: BlockHeight
-  , _bTransactions :: [(Transaction, TransactionOutput)]
-  }
+    { _bHash :: Maybe BlockPayloadHash
+    , _bParentHeader :: BlockHeader
+    , _bBlockHeight :: BlockHeight
+    , _bTransactions :: [(Transaction, TransactionOutput)]
+    }
 makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
-  { _pdbspRestoreFile :: Maybe FilePath
-  , _pdbspPactDbState :: PactDbState
-  }
+    { _pdbspRestoreFile :: Maybe FilePath
+    , _pdbspPactDbState :: PactDbState
+    }
 makeLenses ''PactDbStatePersist
 
 type PactT a = RWST (CheckpointEnv') () PactDbState IO a
