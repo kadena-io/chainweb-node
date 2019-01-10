@@ -11,13 +11,20 @@ module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Chainweb.Pact.Types
 import Chainweb.BlockHeader
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HMS
+import Data.IORef
+
+import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
-import qualified Pact.Types.Logger as P
 
-import Data.IORef
-import qualified Data.HashMap.Strict as HMS -- as per Greg's suggestion
-import Data.HashMap.Strict (HashMap)
+-- internal modules
+
+import qualified Chainweb.BlockHeader as C
+import Chainweb.Pact.Types
+
+initSQLiteCheckpointEnv = undefined
 
 initSQLiteCheckpointEnv :: P.CommandConfig ->  P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initSQLiteCheckpointEnv cmdConfig logger gasEnv = do

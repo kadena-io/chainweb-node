@@ -1,21 +1,24 @@
 module Chainweb.Pact.Backend.SqliteDb where
 
-import Chainweb.Pact.Types
+import qualified Data.Map.Strict as M
 
-import Pact.Types.Server
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
-import Pact.PersistPactDb
 import qualified Pact.Persist.SQLite as P
+import Pact.PersistPactDb
+import Pact.Types.Server
 
-import qualified Data.Map.Strict as M
+-- internal modules
+
+import Chainweb.Pact.Types
 
 mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> IO PactDbState
 mkSQLiteState env cmdCfg = do
-  initSchema env
-  let theState = PactDbState
-        { _pdbsCommandConfig = cmdCfg
-        , _pdbsDbEnv = Env' env
-        , _pdbsState = CommandState initRefStore M.empty
-        }
-  return theState
+    initSchema env
+    let theState =
+            PactDbState
+                { _pdbsCommandConfig = cmdCfg
+                , _pdbsDbEnv = Env' env
+                , _pdbsState = CommandState initRefStore M.empty
+                }
+    return theState

@@ -25,6 +25,7 @@ import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -205,7 +206,7 @@ node cid t logger conf = do
                 [(ChainNetwork cid, pdb)]
 
         -- initialize PeerDB
-        withPeerDb conf' $ \pdb ->
+        withPeerDb (HS.singleton $ ChainNetwork cid) conf' $ \pdb ->
 
             -- start P2P server
             withAsync (serve pdb) $ \server -> do

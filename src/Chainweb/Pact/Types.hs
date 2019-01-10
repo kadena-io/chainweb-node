@@ -1,3 +1,8 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StrictData #-}
+
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -6,16 +11,19 @@
 -- Stability: experimental
 --
 -- Pact Types module for Chainweb
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StrictData #-}
-
 module Chainweb.Pact.Types
-    ( Block(..), bBlockHeight, bHash , bParentHeader , bTransactions
-    , PactDbStatePersist(..), pdbspRestoreFile , pdbspPactDbState
+    ( Block(..)
+    , bBlockHeight
+    , bHash
+    , bParentHash
+    , bTransactions
+    , PactDbStatePersist(..)
+    , pdbspRestoreFile
+    , pdbspPactDbState
     , PactT
-    , Transaction(..), tCmd , tTxId
+    , Transaction(..)
+    , tCmd
+    , tTxId
     , TransactionCriteria(..)
     , TransactionOutput(..)
     , module Chainweb.Pact.Backend.Types
@@ -28,8 +36,18 @@ import qualified Pact.Types.Command as P
 
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
+
 import Data.ByteString (ByteString)
+
 import GHC.Word (Word64)
+
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Runtime as P
+
+-- internal modules
+
+import qualified Chainweb.BlockHeader as C
+import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
     { _tTxId :: Word64
@@ -37,7 +55,9 @@ data Transaction = Transaction
     }
 makeLenses ''Transaction
 
-newtype TransactionOutput = TransactionOutput { _getCommandResult :: P.CommandResult }
+newtype TransactionOutput = TransactionOutput
+    { _getCommandResult :: P.CommandResult
+    }
 
 data Block = Block
     { _bHash :: Maybe BlockPayloadHash
@@ -53,6 +73,7 @@ data PactDbStatePersist = PactDbStatePersist
     }
 makeLenses ''PactDbStatePersist
 
-type PactT a = RWST (CheckpointEnv') () PactDbState IO a
+type PactT a = RWST CheckpointEnv' () PactDbState IO a
 
-data TransactionCriteria = TransactionCriteria
+data TransactionCriteria =
+    TransactionCriteria
