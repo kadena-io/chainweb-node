@@ -85,21 +85,22 @@ serviceRequests :: PactT ()
 serviceRequests =
     forever $ do return () --TODO: get / service requests for new blocks and verification
 
-newTransactionBlock :: P.Hash -> C.BlockHeight -> PactT Block
-newTransactionBlock parentHash blockHeight = do
+newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
+newTransactionBlock parentHeader bHeight = do
+    let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
-    unless (isFirstBlock blockHeight) $ do
+    unless (isFirstBlock bHeight) $ do
         CheckpointEnv' cpEnv <- ask
         let checkpointer = _cpeCheckpointer cpEnv
             ref_checkpointStore = _cpeCheckpointStore cpEnv
             ref_checkpointStoreIndex = _cpeCheckpointStoreIndex cpEnv
-        st <- buildCurrentPactState
+        -- st <- buildCurrentPactState
         checkpointStore <- liftIO $ readIORef ref_checkpointStore
         checkpointStoreIndex <- liftIO $ readIORef ref_checkpointStoreIndex
         (mRestoredState, (newstore, newindex)) <-
             liftIO $
             (runStateT
-                 (_cPrepare checkpointer blockHeight parentHash NewBlock)
+                 (_cPrepare checkpointer bHeight parentPayloadHash NewBlock)
                  (checkpointStore, checkpointStoreIndex))
         liftIO $ atomicModifyIORef' ref_checkpointStore (const (newstore, ()))
         liftIO $ atomicModifyIORef' ref_checkpointStoreIndex (const (newindex, ()))
@@ -115,15 +116,9 @@ newTransactionBlock parentHash blockHeight = do
             , _bTransactions = zip newTrans results
             }
 
-getDbState :: Checkpointer c -> BlockHeight -> BlockPayloadHash -> c -> IO PactDbState
+-- getDbState :: Checkpointer c -> BlockHeight -> BlockPayloadHash -> c -> IO PactDbState
 getDbState = undefined
 
--- -- this is maybe unnecessary
--- getDbState = views cpPactDbEnv go
---   where
---     go =
---       \case
---         Env' env -> undefined
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
     Y.decodeFileEither configFile >>= \case
@@ -151,56 +146,54 @@ isFirstBlock :: C.BlockHeight -> Bool
 isFirstBlock height = height == 0
 
 validateBlock :: Block -> PactT ()
-validateBlock Block {..} =
-    case _bHash of
-        Nothing -> liftIO $ putStrLn "Block to be validated is missing hash" -- TBD log, throw, etc.
-        Just theHash -> do
-            CheckpointEnv' cpEnv <- ask
-            let checkpointer = _cpeCheckpointer cpEnv
-                ref_checkpointStore = _cpeCheckpointStore cpEnv
-                ref_checkpointStoreIndex = _cpeCheckpointStoreIndex cpEnv
-            unless (isFirstBlock _bBlockHeight) $ do
-                st <- buildCurrentPactState
-                checkpointStore <- liftIO $ readIORef ref_checkpointStore
-                checkpointStoreIndex <- liftIO $ readIORef ref_checkpointStoreIndex
-                (mRestoredState, (newstore, newindex)) <-
-                    liftIO $
-                    runStateT
-                        (_cPrepare checkpointer _bBlockHeight theHash Validation)
-                        (checkpointStore, checkpointStoreIndex)
-                either
-                    error
-                    ((liftIO . getDbState checkpointer _bBlockHeight _bParentHash) >=> put)
-                    mRestoredState
-                liftIO $ atomicModifyIORef' ref_checkpointStore (const (newstore, ()))
-                liftIO $ atomicModifyIORef' ref_checkpointStoreIndex (const (newindex, ()))
-            currentState <- get
-            _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
-            buildCurrentPactState >>= put
-            st <- get
-            CheckpointEnv' cpEnvNew <- ask
-            let checkpointerNew = _cpeCheckpointer cpEnvNew
-                ref_checkpointStoreNew = _cpeCheckpointStore cpEnvNew
-                ref_checkpointStoreIndexNew = _cpeCheckpointStoreIndex cpEnvNew
-            checkpointStoreNew <- liftIO $ readIORef ref_checkpointStoreNew
-            checkpointStoreIndexNew <- liftIO $ readIORef ref_checkpointStoreIndexNew
-            (newstore, newindex) <-
-                liftIO $
-                execStateT
-                    (_cSave
-                         checkpointerNew
-                         _bBlockHeight
-                         _bParentHash
-                         (liftA3
-                              CheckpointData
-                              _pdbsDbEnv
-                              (P._csRefStore . _pdbsState)
-                              (P._csPacts . _pdbsState)
-                              st)
-                         Validation)
-                    (checkpointStoreNew, checkpointStoreIndexNew)
-            liftIO $ atomicModifyIORef' ref_checkpointStoreNew (const (newstore, ()))
-            liftIO $ atomicModifyIORef' ref_checkpointStoreIndexNew (const (newindex, ()))
+validateBlock Block {..} = do
+    let parentPayloadHash = _blockPayloadHash _bParentHeader
+    CheckpointEnv' cpEnv <- ask
+    let checkpointer = _cpeCheckpointer cpEnv
+        ref_checkpointStore = _cpeCheckpointStore cpEnv
+        ref_checkpointStoreIndex = _cpeCheckpointStoreIndex cpEnv
+    unless (isFirstBlock _bBlockHeight) $ do
+        st <- buildCurrentPactState
+        checkpointStore <- liftIO $ readIORef ref_checkpointStore
+        checkpointStoreIndex <- liftIO $ readIORef ref_checkpointStoreIndex
+        (mRestoredState, (newstore, newindex)) <-
+            liftIO $
+            runStateT
+                (_cPrepare checkpointer _bBlockHeight parentPayloadHash Validation)
+                (checkpointStore, checkpointStoreIndex)
+        either
+            error
+            ((liftIO . getDbState checkpointer _bBlockHeight parentPayloadHash) >=> put)
+            mRestoredState
+        liftIO $ atomicModifyIORef' ref_checkpointStore (const (newstore, ()))
+        liftIO $ atomicModifyIORef' ref_checkpointStoreIndex (const (newindex, ()))
+    currentState <- get
+    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
+    buildCurrentPactState >>= put
+    st <- get
+    CheckpointEnv' cpEnvNew <- ask
+    let checkpointerNew = _cpeCheckpointer cpEnvNew
+        ref_checkpointStoreNew = _cpeCheckpointStore cpEnvNew
+        ref_checkpointStoreIndexNew = _cpeCheckpointStoreIndex cpEnvNew
+    checkpointStoreNew <- liftIO $ readIORef ref_checkpointStoreNew
+    checkpointStoreIndexNew <- liftIO $ readIORef ref_checkpointStoreIndexNew
+    (newstore, newindex) <-
+        liftIO $
+        execStateT
+            (_cSave
+                  checkpointerNew
+                  _bBlockHeight
+                  parentPayloadHash
+                  (liftA3
+                      CheckpointData
+                      _pdbsDbEnv
+                      (P._csRefStore . _pdbsState)
+                      (P._csPacts . _pdbsState)
+                      st)
+                  Validation)
+            (checkpointStoreNew, checkpointStoreIndexNew)
+    liftIO $ atomicModifyIORef' ref_checkpointStoreNew (const (newstore, ()))
+    liftIO $ atomicModifyIORef' ref_checkpointStoreIndexNew (const (newindex, ()))
       -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool

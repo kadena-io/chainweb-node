@@ -120,17 +120,19 @@ data CheckpointData = CheckpointData
 makeLenses ''CheckpointData
 
 data Checkpointer c = Checkpointer
-  { _cRestore :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IORef c -> IO ()
-  , _cPrepare :: BlockHeight -> BlockPayloadHash -> OpMode -> CheckpointData -> IORef c -> IO (Either String c)
-  , _cSave :: BlockHeight -> BlockPayloadHash -> OpMode -> CheckpointData -> IORef c -> IO ()
-  }
--- _cGetPactDbState :: Height -> P.Hash -> c -> IO PactDbState' -- MAYBE ADD THIS
+    { _cRestore :: BlockHeight -> BlockPayloadHash
+                -> StateT (c, M.Map (BlockHeight, BlockPayloadHash) c) IO ()
+    , _cPrepare :: BlockHeight -> BlockPayloadHash -> OpMode
+                -> StateT (c, M.Map (BlockHeight, BlockPayloadHash) c) IO (Either String CheckpointData)
+    , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode
+             -> StateT ( c, M.Map ( BlockHeight, BlockPayloadHash) c) IO ()
+    }
 
 makeLenses ''Checkpointer
 
 class CheckpointServiceStore c
 
-instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) CheckpointData)
+instance CheckpointServiceStore (HashMap (BlockHeight, BlockPayloadHash) CheckpointData)
 
 instance CheckpointServiceStore (HashMap (BlockHeight, BlockPayloadHash) FilePath) where
 
@@ -138,7 +140,7 @@ data CheckpointEnv c = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer c
     , _cpeCommandConfig :: P.CommandConfig
     , _cpeCheckpointStore :: IORef c
-    , _cpeCheckpointStoreIndex :: IORef (Map (C.BlockHeight, P.Hash) c)
+    , _cpeCheckpointStoreIndex :: IORef (Map (BlockHeight, BlockPayloadHash) c)
     , _cpeLogger :: P.Logger
     , _cpeGasEnv :: P.GasEnv
     }

@@ -50,11 +50,11 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                 , _cpeGasEnv = gasEnv
                 }
 
-type CIndex = M.Map (C.BlockHeight, P.Hash) Store
+type CIndex = M.Map (BlockHeight, BlockPayloadHash) Store
 
-type Store = HashMap (C.BlockHeight, P.Hash) CheckpointData
+type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
 
-restore :: C.BlockHeight -> P.Hash -> StateT (Store, CIndex) IO ()
+restore :: BlockHeight -> BlockPayloadHash -> StateT (Store, CIndex) IO ()
 restore height hash = do
     cindex <- snd <$> get
     case M.lookup (height, hash) cindex of
@@ -63,7 +63,7 @@ restore height hash = do
         Nothing -> fail "There is no snapshot that can be restored."
 
 prepare ::
-       C.BlockHeight -> P.Hash -> OpMode -> StateT (Store, CIndex) IO (Either String CheckpointData)
+       BlockHeight -> BlockPayloadHash -> OpMode -> StateT (Store, CIndex) IO (Either String CheckpointData)
 prepare height hash =
     \case
         Validation -> do
@@ -81,7 +81,7 @@ prepare height hash =
                     return $ Left "We only prepare an environment for new blocks"
                 Nothing -> return $ Left "Cannot prepare"
 
-save :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> StateT (Store, CIndex) IO ()
+save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> StateT (Store, CIndex) IO ()
 save height hash cdata =
     \case
         Validation -> modifying _1 (HMS.insert (height, hash) cdata)

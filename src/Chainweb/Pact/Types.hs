@@ -15,7 +15,7 @@ module Chainweb.Pact.Types
     ( Block(..)
     , bBlockHeight
     , bHash
-    , bParentHash
+    , bParentHeader
     , bTransactions
     , PactDbStatePersist(..)
     , pdbspRestoreFile
