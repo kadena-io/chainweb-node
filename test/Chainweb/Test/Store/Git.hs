@@ -29,7 +29,7 @@ chainId0 = testChainId 0
 tests :: TestTree
 tests = testGroup "Git Store"
     [ testGroup "Basic Usage"
-          [ testCase "New Repository" $ withNewRepo (const $ pure ())
+          [ testCase "New Repository" $ withNewRepo legalGenesis
           -- , testCase "Single Insertion" _
           -- , testCase "Repeated Insertion" _
           ]
@@ -54,4 +54,7 @@ tempPath = do
 -- | Initialize a fresh Git store and perform some action over it.
 --
 withNewRepo :: (GitStore -> IO a) -> IO a
-withNewRepo f = tempPath >>= \tmp -> withGitStore (NewStore tmp $ toyGenesis chainId0) f
+withNewRepo f = tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp $ toyGenesis chainId0) f
+
+legalGenesis :: GitStore -> Assertion
+legalGenesis _ = pure ()

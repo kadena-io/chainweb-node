@@ -40,6 +40,7 @@ import Control.Error.Util (hush)
 import Control.Monad (void, when)
 
 import Data.Bits (complement, unsafeShiftL, (.&.), (.|.))
+import Data.Bool (bool)
 import Data.Bytes.Get (runGetS)
 import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base64.URL as B64U
@@ -63,7 +64,6 @@ import Foreign.Storable (peek)
 
 import Prelude hiding (lookup)
 
-import System.Directory (doesPathExist)
 import System.Path (Absolute, Path, toFilePath)
 
 import UnliftIO.Exception
@@ -73,14 +73,15 @@ import UnliftIO.Exception
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Utils (whenM)
 
 ---
 
 -- | For opening an existing repository, or for initializing a new one.
 --
-data GitStoreConfig = NewStore !(Path Absolute) !BlockHeader
-                    | ExistingStore !(Path Absolute)
+data GitStoreConfig = GitStoreConfig {
+    _gsc_path :: !(Path Absolute)
+  , _gsc_genesis :: !BlockHeader
+}
 
 data GitStoreData = GitStoreData {
     _gitStore :: {-# UNPACK #-} !(Ptr Git.C'git_repository)
@@ -134,24 +135,45 @@ lockGitStore (GitStore m) f = withMVar m f
 -- Low-level pointers to the underlying git repository are freed automatically.
 --
 withGitStore :: GitStoreConfig -> (GitStore -> IO a) -> IO a
-withGitStore conf f = case conf of
-    ExistingStore root0 -> withGitStore' root0 tryOpen f
-    NewStore root0 g -> do
-        whenM (doesPathExist $ toFilePath root0) $
-            throwGitStoreFailure "Attempted to initialize a pre-existing Git store"
-        withGitStore' root0 initBare (\gs -> lockGitStore gs (insertGenesisBlock g) *> f gs)
+withGitStore (GitStoreConfig root0 g) f = Git.withLibGitDo $ bracket open close f
   where
-    -- | Attempt to open an existing git store.
-    tryOpen :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
-    tryOpen restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
-        throwOnGitError . restore $ Git.c'git_repository_open_ext repoPtr rootPtr openFlags rootPtr
-        peek repoPtr
+    root :: String
+    root = toFilePath root0
+
+    open :: IO GitStore
+    open = mask $ \restore ->
+        bracketOnError (openRepo restore) Git.c'git_repository_free $ \repo -> do
+            odb <- openOdb restore repo
+            let gsd = GitStoreData repo odb
+            insertGenesisBlock g gsd  -- INVARIANT: Should be a no-op for an existing repo.
+            GitStore <$> newMVar gsd
+
+    close :: GitStore -> IO ()
+    close m = lockGitStore m $ \(GitStoreData p o) ->
+        Git.c'git_odb_free o `finally` Git.c'git_repository_free p
+
+    openRepo :: (IO CInt -> IO CInt) -> IO (Ptr Git.C'git_repository)
+    openRepo restore = tryOpen restore >>= maybe (initBare restore) pure
+
+    -- | Attempt to open a supposedly existing git store, and fail gracefully if
+    -- it doesn't.
+    --
+    tryOpen :: (IO CInt -> IO CInt) -> IO (Maybe (Ptr Git.C'git_repository))
+    tryOpen restore = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
+        res <- restore $ Git.c'git_repository_open_ext repoPtr rootPtr openFlags rootPtr
+        bool (pure Nothing) (Just <$> peek repoPtr) $ res == 0
 
     -- | Initialize an empty git store.
-    initBare :: (IO CInt -> IO CInt) -> String -> IO (Ptr Git.C'git_repository)
-    initBare restore root = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
+    --
+    initBare :: (IO CInt -> IO CInt) -> IO (Ptr Git.C'git_repository)
+    initBare restore = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
         throwOnGitError . restore $ Git.c'git_repository_init repoPtr rootPtr 1
         peek repoPtr
+
+    openOdb :: (IO () -> IO a) -> Ptr Git.C'git_repository -> IO (Ptr Git.C'git_odb)
+    openOdb restore repo = alloca $ \podb -> do
+        void . restore . throwOnGitError $ Git.c'git_repository_odb podb repo
+        peek podb
 
     -- not sure why this flag is not in gitlab2 bindings
     _FLAG_OPEN_BARE :: CUInt
@@ -160,32 +182,6 @@ withGitStore conf f = case conf of
     openFlags :: CUInt
     openFlags = Git.c'GIT_REPOSITORY_OPEN_NO_SEARCH .|. _FLAG_OPEN_BARE
 
-withGitStore'
-    :: Path Absolute
-    -> ((IO a -> IO a) -> String -> IO (Ptr Git.C'git_repository))
-    -> (GitStore -> IO b)
-    -> IO b
-withGitStore' root0 initR f = Git.withLibGitDo $ do
-    let root = toFilePath root0
-    bracket (open root) close f
-  where
-    open :: String -> IO GitStore
-    open root = mask $ \restore ->
-        bracketOnError (initR restore root) Git.c'git_repository_free $ \repo -> do
-            odb <- openOdb restore repo
-            m <- newMVar (GitStoreData repo odb)
-            pure $! GitStore m
-
-    close :: GitStore -> IO ()
-    close m = lockGitStore m $ \(GitStoreData p o) ->
-        Git.c'git_odb_free o `finally` Git.c'git_repository_free p
-
-    --------------------------------------------------------------------------
-    -- c'git_repository_odb :: Ptr (Ptr C'git_odb) -> Ptr C'git_repository -> IO CInt
-    openOdb :: (IO () -> IO a) -> Ptr Git.C'git_repository -> IO (Ptr Git.C'git_odb)
-    openOdb restore repo = alloca $ \podb -> do
-        void . restore . throwOnGitError $ Git.c'git_repository_odb podb repo
-        peek podb
 
 ------------------------------------------------------------------------------
 data InsertResult = Inserted | AlreadyExists
@@ -687,6 +683,10 @@ insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> d
     createBlockHeaderTag store g treeHash
     -- Mark this entry (it's the only entry!) as a "leaf" in @.git/refs/tags/leaf/@.
     tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
+
+-- TODO Can this be written to give `O(1)`?
+-- genesis :: GitStore -> IO BlockHeader
+-- genesis store = undefined
 
 -- genesisBlockGitHash :: GitStoreData -> IO GitHash
 -- genesisBlockGitHash _ = undefined
