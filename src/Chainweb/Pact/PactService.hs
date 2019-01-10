@@ -15,7 +15,6 @@
 
 module Chainweb.Pact.PactService
     ( initPactService
-    , execTransactions
     , mkPureState
     , mkSQLiteState
     , newTransactionBlock
@@ -149,7 +148,7 @@ validateBlock Block {..} = do
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv
     unless (isFirstBlock _bBlockHeight) $ do
-        st <- buildCurrentPactState
+        -- st <- buildCurrentPactState
         liftIO $ _cRestore checkpointer _bBlockHeight parentPayloadHash ref_checkpoint ref_checkpointStore
         -- either error ((liftIO . getDbState checkpointer _bBlockHeight parentPayloadHash) >=> put) mRestoredState
     currentState <- get
@@ -164,13 +163,13 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv' -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
     forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd :: CheckpointEnv c -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
 applyPactCmd cpEnv pactState eMode cmd = do
     let cmdState = _pdbsState pactState
     newVar <-  newMVar cmdState
