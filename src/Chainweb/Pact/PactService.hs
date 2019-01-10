@@ -14,7 +14,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Pact.PactService
-    ( initPactService
+    ( execTransactions
+    , initPactService
     , mkPureState
     , mkSQLiteState
     , newTransactionBlock
@@ -99,7 +100,8 @@ newTransactionBlock parentHeader bHeight = do
         liftIO $ _cRestore checkpointer bHeight parentPayloadHash ref_checkpoint ref_checkpointStore
         -- either error put (getDbState mRestoredState)
     theState <- get
-    CheckpointEnv' cpEnv <- ask
+    -- CheckpointEnv' cpEnv <- ask
+    cpEnv <- ask
     results <- liftIO $ execTransactions cpEnv theState newTrans
     liftIO $ _cSave checkpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock ref_checkpoint ref_checkpointStore
     return
@@ -143,7 +145,7 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    CheckpointEnv' cpEnv <- ask
+    cpEnv'@(CheckpointEnv' cpEnv) <- ask
     let checkpointer = _cpeCheckpointer cpEnv
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv
@@ -152,25 +154,25 @@ validateBlock Block {..} = do
         liftIO $ _cRestore checkpointer _bBlockHeight parentPayloadHash ref_checkpoint ref_checkpointStore
         -- either error ((liftIO . getDbState checkpointer _bBlockHeight parentPayloadHash) >=> put) mRestoredState
     currentState <- get
-    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
+    _results <- liftIO $ execTransactions cpEnv' currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
     liftIO $ _cSave checkpointer _bBlockHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st) Validation ref_checkpoint ref_checkpointStore
-
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+--execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions :: CheckpointEnv' -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
     forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv c -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd cpEnv pactState eMode cmd = do
+applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd cpEnv'@(CheckpointEnv' cpEnv) pactState eMode cmd = do
     let cmdState = _pdbsState pactState
     newVar <-  newMVar cmdState
     let logger = _cpeLogger cpEnv
