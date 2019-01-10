@@ -1,5 +1,5 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
@@ -12,17 +12,17 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
+import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
-import qualified Pact.Types.Logger as P
 
 import Control.Lens
 import Control.Monad.State
 
 import Data.Foldable
 import Data.HashMap.Strict (HashMap)
-import Data.IORef
 import qualified Data.HashMap.Strict as HMS
+import Data.IORef
 import qualified Data.Map.Strict as M
 
 import qualified Pact.Types.Logger as P
@@ -31,8 +31,8 @@ import qualified Pact.Types.Server as P
 
 -- internal modules
 
-import Chainweb.Pact.Backend.Types
 import qualified Chainweb.BlockHeader as C
+import Chainweb.Pact.Backend.Types
 
 initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
@@ -44,45 +44,53 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                 { _cpeCheckpointer =
                       Checkpointer {_cRestore = restore, _cPrepare = prepare, _cSave = save}
                 , _cpeCommandConfig = cmdConfig
-                , _cpeCheckpointStore = theStore
-                , _cpeCheckpointStoreIndex = theIndex
+                , _cpeCheckpoint = theStore
+                , _cpeCheckpointStore = theIndex
                 , _cpeLogger = logger
                 , _cpeGasEnv = gasEnv
                 }
 
-type CIndex = M.Map (BlockHeight, BlockPayloadHash) Store
+type Store = M.Map (BlockHeight, BlockPayloadHash) Checkpoint
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
+type Checkpoint = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
 
-restore :: BlockHeight -> BlockPayloadHash -> StateT (Store, CIndex) IO ()
-restore height hash = do
-    cindex <- snd <$> get
-    case M.lookup (height, hash) cindex of
-        Just snapshot -> _1 .= snapshot
+restore :: BlockHeight -> BlockPayloadHash -> IORef Checkpoint -> IORef Store -> IO ()
+restore height hash checkpoint store = do
+    store' <- readIORef store
+    case M.lookup (height, hash) store' of
+        Just newsnap -> atomicWriteIORef checkpoint newsnap
        -- This is just a placeholder for right now (the Nothing clause)
-        Nothing -> fail "There is no snapshot that can be restored."
+        Nothing -> fail "There is no checkpoint that can be restored."
 
 prepare ::
-       BlockHeight -> BlockPayloadHash -> OpMode -> StateT (Store, CIndex) IO (Either String CheckpointData)
-prepare height hash =
-    \case
+       BlockHeight -> BlockPayloadHash -> OpMode -> IORef Checkpoint ->  IORef Store ->  IO (Either String CheckpointData)
+prepare height hash opmode checkpoint store =
+    case opmode of
         Validation -> do
-            curStore <- fst <$> get
-            return $
-                maybe
-                    (Left "InMemoryCheckpointer.prepare: No current store")
-                    Right
-                    (HMS.lookup (height, hash) curStore)
+            cursnap <- readIORef checkpoint
+            return $ case HMS.lookup (height, hash) cursnap of
+                       Just v -> Right v
+                       Nothing -> Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
         NewBlock -> do
-            cindex <- snd <$> get
-            case M.lookup (height, hash) cindex of
-                Just snapshot -> do
-                    _1 .= snapshot
+            store' <- readIORef store
+            case M.lookup (height, hash) store' of
+                Just snap -> do
+                    atomicWriteIORef checkpoint snap
                     return $ Left "We only prepare an environment for new blocks"
                 Nothing -> return $ Left "Cannot prepare"
 
-save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> StateT (Store, CIndex) IO ()
-save height hash cdata =
-    \case
-        Validation -> modifying _1 (HMS.insert (height, hash) cdata)
-        NewBlock -> return ()
+save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IORef Checkpoint ->  IORef Store -> IO ()
+save height hash cdata opmode checkpoint store =
+  case opmode of
+    Validation -> do
+      atomicModifyIORef'
+        checkpoint
+        (flip (,) () . (HMS.insert (height, hash) cdata))
+      checkpoint' <- readIORef checkpoint
+      atomicModifyIORef'
+        store
+        (\m ->
+           case M.lookup (height, hash) m of
+             Nothing -> (M.insert (height, hash) checkpoint' m, ())
+             Just _ -> (m, ()))
+    NewBlock -> return ()
