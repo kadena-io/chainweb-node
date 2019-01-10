@@ -15,6 +15,7 @@
 
 module Chainweb.Pact.PactService
     ( initPactService
+    , execTransactions
     , mkPureState
     , mkSQLiteState
     , newTransactionBlock
@@ -163,13 +164,13 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions :: CheckpointEnv' -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
     forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv c -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
 applyPactCmd cpEnv pactState eMode cmd = do
     let cmdState = _pdbsState pactState
     newVar <-  newMVar cmdState

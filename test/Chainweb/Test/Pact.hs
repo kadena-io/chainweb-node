@@ -30,6 +30,7 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 import Control.Applicative
+import Control.Monad.IO.Class
 import Control.Monad.Trans.RWS.Lazy
 import Control.Monad.Zip
 import Data.Aeson (Value(..))
@@ -99,7 +100,80 @@ testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
 execCommands :: [P.Command ByteString] -> PactT [TransactionOutput]
-execCommands _cmds = undefined
+execCommands cmds = do
+    env <- ask
+    dbState <- get
+    output <- liftIO $ execTransactions env dbState cmds
+    forM_ output (\o -> do
+        let result = _getCommandResult o
+        (eval o) result )
+
+{-
+ _trEval :: TestResponse -> Assertion
+
+newtype TransactionOutput = TransactionOutput
+    { _getCommandResult :: P.CommandResult
+    }
+
+data CommandResult = CommandResult {
+  _crReqKey :: RequestKey,
+  _crTxId :: Maybe TxId,
+  _crResult :: Value
+  } deriving (Eq,Show)
+-}
+
+-- type PactT a = RWST CheckpointEnv' () PactDbState IO a
+-- execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+
+{-
+In Kadena tests:
+
+checkResults :: [TestResult] -> Expectation
+checkResults xs = mapM_ checkResult xs
+  where
+    checkResult result = do
+        let req = requestTr result
+        let resp = responseTr result
+        case resp of
+          Nothing -> expectationFailure $
+            failureMessage result "Response is missing"
+          Just rsp -> do
+            printPassed result
+            eval req rsp
+
+eval :: TestResponse -> Expectation
+
+-- example eval function:
+    checkScientific :: Scientific -> TestResponse -> Expectation
+    checkScientific sci tr = do
+      resultSuccess tr `shouldBe` True
+      parseScientific (_arResult $ apiResult tr) `shouldBe` Just sci
+
+    parseScientific :: AE.Value -> Maybe Scientific
+    parseScientific (AE.Object o) =
+      case HM.lookup "data" o of
+        Nothing -> Nothing
+        Just (AE.Number sci) -> Just sci
+        Just _ -> Nothing
+    parseScientific _ = Nothing
+
+data TestResult = TestResult
+  { requestTr :: TestRequest
+  , responseTr :: Maybe TestResponse
+  } deriving Show
+
+data TestResponse = TestResponse
+  { resultSuccess :: Bool
+  , apiResult :: ApiResult
+  , _batchCount :: Int64
+  } deriving (Eq, Generic)
+
+data ApiResult = ApiResult {
+  _arResult :: !Value,
+  _arTxId :: !(Maybe TxId),
+  _arMetaData :: !(Maybe Value)
+  } deriving (Eq,Show,Generic)
+-}
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci tr = do
