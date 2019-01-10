@@ -42,11 +42,12 @@ import Control.Monad (void, when)
 import Data.Bits (complement, unsafeShiftL, (.&.), (.|.))
 import Data.Bytes.Get (runGetS)
 import Data.Bytes.Put (runPutS)
-import qualified Data.ByteString.Base58 as B58
+import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable (traverse_)
+import Data.Functor (($>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -197,7 +198,7 @@ insertBlock gs bh = lockGitStore gs $ \store -> do
     maybe (go store) (const $ pure AlreadyExists) m
   where
     go :: GitStoreData -> IO InsertResult
-    go store = createLeafTree store bh *> pure Inserted
+    go store = createLeafTree store bh $> Inserted
 
 
 ------------------------------------------------------------------------------
@@ -250,10 +251,11 @@ tbInsert
     -> IO ()
 tbInsert tb mode h hs gh =
     withOid gh $ \oid ->
-    B.unsafeUseAsCString name $ \cname ->
+    B.unsafeUseAsCString (terminate name) $ \cname ->
     throwOnGitError $ Git.c'git_treebuilder_insert nullPtr tb cname oid mode
   where
-    name = mkTreeEntryName h hs
+    name :: NullTerminated
+    name = mkTreeEntryNameWith "" h hs
 
 
 ------------------------------------------------------------------------------
@@ -315,7 +317,7 @@ createBlockHeaderTag :: GitStoreData -> BlockHeader -> GitHash -> IO ()
 createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     withObject gs leafHash $ \obj ->
     alloca $ \pTagOid ->
-    B.unsafeUseAsCString tagName $ \cstr ->
+    B.unsafeUseAsCString (terminate tagName) $ \cstr ->
     -- @1@ forces libgit to overwrite this tag, should it already exist.
     throwOnGitError (Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1)
   where
@@ -325,7 +327,7 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     hash :: BlockHashBytes
     hash = getBlockHashBytes $ _blockHash bh
 
-    tagName :: ByteString
+    tagName :: NullTerminated
     tagName = mkTagName height hash
 
 
@@ -340,18 +342,18 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 -- @
 parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
 parseLeafTreeFileName fn = do
-    height <- decodeHeight heightStr
-    bh <- BlockHashBytes <$> decodeB58 blockHash0
+    height <- hush $ decodeHeight heightStr
+    bh <- BlockHashBytes <$> hush (B64U.decode blockHash0)
     pure (height, bh)
   where
     -- TODO if the `rest` is fixed-length, it would be faster to use `splitAt`.
     (heightStr, rest) = B.break (== '.') fn
     blockHash0 = B.drop 1 rest
 
-    decodeHeight :: ByteString -> Maybe BlockHeight
+    decodeHeight :: ByteString -> Either String BlockHeight
     decodeHeight s = do
-      s' <- decodeB58 s
-      fromIntegral <$> hush (runGetS decodeBlockHeight s')
+      s' <- B64U.decode s
+      fromIntegral <$> runGetS decodeBlockHeight s'
 
 
 ------------------------------------------------------------------------------
@@ -490,46 +492,63 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
 updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
     tagAsLeaf store newLeaf
-    B.unsafeUseAsCString (mkName oldLeaf) $ \cstr ->
+    B.unsafeUseAsCString (terminate $ mkName oldLeaf) $ \cstr ->
         throwOnGitError $ Git.c'git_tag_delete repo cstr
 
 -- | Tag a `TreeEntry` in @.git/refs/leaf/@.
 --
 tagAsLeaf :: GitStoreData -> TreeEntry -> IO ()
-tagAsLeaf store@(GitStoreData repo _) leaf = do
+tagAsLeaf store@(GitStoreData repo _) leaf =
     withObject store (_te_gitHash leaf) $ \obj ->
         alloca $ \pTagOid ->
-        B.unsafeUseAsCString (mkName leaf) $ \cstr ->
+        B.unsafeUseAsCString (terminate $ mkName leaf) $ \cstr ->
         throwOnGitError $ Git.c'git_tag_create_lightweight pTagOid repo cstr obj 1
 
-mkName :: TreeEntry -> ByteString
+mkName :: TreeEntry -> NullTerminated
 mkName (TreeEntry h bh _) = mkLeafTagName h bh
 
 ------------------------------------------------------------------------------
-mkTreeEntryName :: BlockHeight -> BlockHashBytes -> ByteString
-mkTreeEntryName height hash = B.concat [ encHeight, ".", encBH ]
+-- | A `ByteString` whose final byte is a @\0@. Don't try to be too clever with
+-- this.
+--
+newtype NullTerminated = NullTerminated { _unterminated :: [ByteString] }
+
+nappend :: ByteString -> NullTerminated -> NullTerminated
+nappend b (NullTerminated b') = NullTerminated $ b : b'
+{-# INLINE nappend #-}
+
+terminate :: NullTerminated -> ByteString
+terminate = B.concat . _unterminated
+{-# INLINE terminate #-}
+
+-- | Encode a `BlockHeight` and `BlockHashBytes` into the expected format,
+-- append some decorator to the front (likely a section of a filepath), and
+-- postpend a null-terminator.
+--
+mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
+mkTreeEntryNameWith b height hash = NullTerminated [ b, encHeight, ".", encBH, "\0" ]
   where
-    encBH = bsToB58 $! runPutS (encodeBlockHashBytes hash)
-    encHeight = bsToB58 $! runPutS (encodeBlockHeight height)
+    encBH = B64U.encode $! runPutS (encodeBlockHashBytes hash)
+    encHeight = B64U.encode $! runPutS (encodeBlockHeight height)
 
-mkTagName :: BlockHeight -> BlockHashBytes -> ByteString
-mkTagName height hash = B.append "bh/" (mkTreeEntryName height hash)
+mkTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagName = mkTreeEntryNameWith "bh/"
 
-mkLeafTagName :: BlockHeight -> BlockHashBytes -> ByteString
-mkLeafTagName height hash = B.append "leaf/" (mkTreeEntryName height hash)
+mkLeafTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkLeafTagName = mkTreeEntryNameWith "leaf/"
 
-mkTagRef :: BlockHeight -> BlockHashBytes -> ByteString
-mkTagRef height hash = B.append "tags/" (mkTagName height hash)
+mkTagRef :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagRef height hash = nappend "tags/" (mkTagName height hash)
 
 
 ------------------------------------------------------------------------------
 lookupRefTarget
     :: GitStoreData
     -- TODO Can this be a more rigorous path type?
-    -> ByteString        -- ^ ref path, e.g. tags/foo
+    -> NullTerminated      -- ^ ref path, e.g. tags/foo
     -> IO (Maybe GitHash)
 lookupRefTarget (GitStoreData repo _) path0 =
-    B.unsafeUseAsCString path $ \cpath ->
+    B.unsafeUseAsCString (terminate path) $ \cpath ->
     alloca $ \pOid -> do
         code <- Git.c'git_reference_name_to_id pOid repo cpath
         if code /= 0
@@ -537,8 +556,8 @@ lookupRefTarget (GitStoreData repo _) path0 =
           else Just . GitHash <$> oidToByteString pOid
 
   where
-    path :: ByteString
-    path = B.append "refs/" path0
+    path :: NullTerminated
+    path = nappend "refs/" path0
 
 
 ------------------------------------------------------------------------------
@@ -552,7 +571,7 @@ lookupTreeEntryByHash gs bh height = do
     lookupRefTarget gs tagRef >>=
       traverse (\gitHash -> pure $! TreeEntry height bh gitHash)
   where
-    tagRef :: ByteString
+    tagRef :: NullTerminated
     tagRef = mkTagRef height bh
 
 
@@ -636,17 +655,6 @@ dedup [] = []
 dedup o@[_] = o
 dedup (x:r@(y:_)) | x == y = dedup r
                   | otherwise = x : dedup r
-
-
-------------------------------------------------------------------------------
-bsToB58 :: ByteString -> ByteString
-bsToB58 = B58.encodeBase58 B58.bitcoinAlphabet
-
-decodeB58 :: ByteString -> Maybe ByteString
-decodeB58 = B58.decodeBase58 B58.bitcoinAlphabet
-
--- intToB58 :: Integer -> ByteString
--- intToB58 = B58.encodeBase58I B58.bitcoinAlphabet
 
 
 ------------------------------------------------------------------------------
