@@ -72,6 +72,7 @@ in
           sha256 = "0nhjxjj5dsh9h8yff9np6pj48a6lx5cd1zv50xlyfvvribyf6qvk";
         });
 
+        # 1.1.5 doesn't work with tasty-1.2 and has a hackage revision
         tasty-hspec = doJailbreak (callHackageDirect {
           pkg = "tasty-hspec";
           ver = "1.1.5.1";
