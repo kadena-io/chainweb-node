@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -21,7 +22,8 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
-import Control.Concurrent (ThreadId, forkIOWithUnmask)
+import Control.Concurrent
+    (ThreadId, forkIOWithUnmask, killThread, threadDelay, withMVar)
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
     takeMVar, withMVarMasked)
@@ -32,7 +34,7 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
     handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
-import Data.Foldable (foldlM, traverse_)
+import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashPSQ (HashPSQ)
@@ -53,6 +55,9 @@ import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.Mempool
+import qualified Chainweb.Time as Time
+
+import qualified Data.ByteString.Char8 as B
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -224,8 +229,9 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
-    _inmemTxCfg :: TransactionConfig t
-  , _inmemTxBlockSizeLimit :: Int64
+    _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
+  , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
+  , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
 }
 
 
@@ -234,6 +240,7 @@ data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: InMemConfig t
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
+  , _inmemReaper :: ThreadId
   -- TODO: reap expired transactions
 }
 
@@ -253,20 +260,43 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 
 ------------------------------------------------------------------------------
 makeInMemPool :: InMemConfig t -> TxBroadcaster t -> IO (InMemoryMempool t)
-makeInMemPool cfg txB = do
+makeInMemPool cfg txB = mask_ $ do
     dataLock <- newData >>= newMVar
-    return $! InMemoryMempool cfg dataLock txB
+    tid <- forkIOWithUnmask (reaperThread cfg dataLock)
+    return $! InMemoryMempool cfg dataLock txB tid
 
   where
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
                                   <*> newIORef HashMap.empty
                                   <*> newIORef HashSet.empty
 
+------------------------------------------------------------------------------
+reaperThread :: InMemConfig t
+             -> MVar (InMemoryMempoolData t)
+             -> (forall a . IO a -> IO a)
+             -> IO b
+reaperThread cfg dataLock restore = forever $ do
+    restore $ threadDelay interval
+    withMVar dataLock $ \mdata -> reap mdata
+  where
+    txcfg = _inmemTxCfg cfg
+    expiryTime = txMetaExpiryTime . (txMetadata txcfg)
+    interval = _inmemReaperIntervalMicros cfg
+    reap (InMemoryMempoolData pendingRef _ _) = do
+        now <- Time.getCurrentTimeIntegral
+        modifyIORef' pendingRef $ reapPending now
+
+    reapPending now pending =
+        let agg k _ !tx !txs = if expiryTime tx <= now
+                               then (k:txs) else txs
+            tooOld = PSQ.fold' agg [] pending
+        in foldl' (flip PSQ.delete) pending tooOld
+
 
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit)
-                                  lock broadcaster) =
+toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
+                                  lock broadcaster _) =
     MempoolBackend tcfg blockSizeLimit lookup insert getBlock markValidated
                    markConfirmed reintroduce getPending subscribe shutdown
   where
@@ -287,7 +317,15 @@ withInMemoryMempool :: InMemConfig t
                     -> (MempoolBackend t -> IO a)
                     -> IO a
 withInMemoryMempool cfg f = withTxBroadcaster $ \txB ->
-                            makeInMemPool cfg txB >>= (f . toMempoolBackend)
+                            bracket (init txB) destroyInMemPool go
+  where
+    init = makeInMemPool cfg
+    go = f . toMempoolBackend
+
+
+------------------------------------------------------------------------------
+destroyInMemPool :: InMemoryMempool t -> IO ()
+destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
 
 
 ------------------------------------------------------------------------------

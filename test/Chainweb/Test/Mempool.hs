@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 module Chainweb.Test.Mempool
   ( tests
   , MockTx(..)
@@ -12,6 +14,7 @@ module Chainweb.Test.Mempool
   ) where
 
 import Control.Applicative
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Concurrently(..))
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM (atomically)
@@ -37,7 +40,7 @@ import Data.Word (Word64)
 import GHC.Generics
 import Prelude hiding (lookup)
 import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Gen (Gen, chooseAny, generate, resize)
 import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -45,6 +48,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------
 tests :: MempoolWithFunc -> [TestTree]
@@ -56,6 +60,7 @@ tests withMempool = map ($ withMempool) [
     , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
     , mempoolProperty "validate txs" (pick arbitrary) propValidate
     , mempoolProperty "subscriptions" (pick arbitrary) propSubscriptions
+    , mempoolTestCase "old transactions are reaped" testTooOld
     ]
 
 
@@ -167,6 +172,37 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
 
+testTooOld :: MempoolBackend MockTx -> IO ()
+testTooOld mempool = do
+    -- TODO: improve this test. Testing via threadDelay is flaky.
+    --
+    -- We have to wait for pruning to run, so it's difficult to test this more
+    -- correctly without adding a method to trigger pruning manually (and wait
+    -- for prune to complete)
+    now <- Time.getCurrentTimeIntegral
+    txs <- sortTxs <$> generate (resize 1000 $ arbitrary :: Gen [MockTx])
+    tooOld <- overrideAge now <$> generate (resize 100 $ arbitrary :: Gen [MockTx])
+
+    insert $ txs ++ tooOld
+    threadDelay 1000000   -- 1 second should be enough to trigger pruning,
+                          -- expiry is set 75ms in the future and prune runs at
+                          -- 100Hz
+    runE "existing lookups still exist" $
+        (liftIO (lookup txs) >>= V.mapM_ lookupIsPending)
+    runE "too old lookups were pruned" $
+        (liftIO (lookup tooOld) >>= V.mapM_ lookupIsMissing)
+  where
+    runE msg m = runExceptT m >>=
+                 either (\s -> fail $ "expecting: " ++ msg ++ ": " ++ s) (const $ return ())
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert = mempoolInsert mempool . V.fromList
+    lookup = mempoolLookup mempool . V.fromList . map hash
+    sortTxs = uniq . sortBy (compare `on` onFees)
+    overrideAge now = sortTxs . map (setTooOld now)
+    extendTime now = Time.TimeSpan 75000 `AF.add` now
+    setTooOld now x = x { mockMeta = (mockMeta x) { txMetaExpiryTime = extendTime now } }
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
 
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
@@ -179,7 +215,7 @@ propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
     insert = mempoolInsert mempool . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
     txs = uniq $ sortBy (compare `on` onFees) txs0
-    overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) txs0
+    overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) overlarge0
 
     setOverlarge = map (\x -> x { mockSize = mockBlocksizeLimit + 100 })
     onFees x = (Down (mockFees x), mockSize x, mockNonce x)
@@ -268,12 +304,19 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
     -- TODO: empty forks here
     validate = ValidatedTransaction V.empty
 
+lookupIsPending :: Monad m => LookupResult t -> m ()
 lookupIsPending (Pending _) = return ()
 lookupIsPending _ = fail "lookup failure: expected pending"
+
+lookupIsConfirmed :: Monad m => LookupResult t -> m ()
 lookupIsConfirmed Confirmed = return ()
 lookupIsConfirmed _ = fail "lookup failure: expected confirmed"
+
+lookupIsMissing :: Monad m => LookupResult t -> m ()
 lookupIsMissing Missing = return ()
 lookupIsMissing _ = fail "lookup failure: expected missing"
+
+lookupIsValidated :: Monad m => LookupResult t -> m ()
 lookupIsValidated (Validated _) = return ()
 lookupIsValidated _ = fail "lookup failure: expected validated"
 
@@ -307,7 +350,7 @@ propSubscriptions txs0 mempool = runExceptT $ do
     runSubscribers subscriptions =
         Concurrently $ Async.forConcurrently ([(1::Int)..] `zip` subscriptions) subscriber
 
-    subscriber (subId, subRef) = do
+    subscriber (_, subRef) = do
         sub <- readIORef subRef
         ref <- newIORef []
         go ref $ mempoolSubChan sub

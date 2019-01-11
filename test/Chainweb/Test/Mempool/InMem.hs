@@ -21,6 +21,8 @@ tests = testGroup "mempool/inMem" $ Chainweb.Test.Mempool.tests
                                   $ InMem.withInMemoryMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
-    cfg = InMemConfig txcfg mockBlocksizeLimit
+    -- run the reaper @100Hz for testing
+    cfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
+    hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
