@@ -105,7 +105,7 @@ newtype GitHash = GitHash ByteString deriving (Eq, Ord, Show)
 -- See: https://github.com/fosskers/vectortiles/blob/ea1236a84a973e4b0517afeae903986736394a4b/lib/Geography/VectorTile/Geometry.hs#L44-L48
 data TreeEntry = TreeEntry {
     _te_blockHeight :: {-# UNPACK #-} !BlockHeight
-  , _te_blockHash :: {-# UNPACK #-} !BlockHashBytes -- TODO Why not `BlockHash`?
+  , _te_blockHash :: {-# UNPACK #-} !BlockHashBytes
   , _te_gitHash :: {-# UNPACK #-} !GitHash
 } deriving (Show, Eq, Ord)
 
@@ -210,7 +210,8 @@ lookupByBlockHash gs height bh = lockGitStore gs $ \store -> do
   where
     readBlob :: GitStoreData -> TreeEntry -> IO BlockHeader
     readBlob store (TreeEntry _ _ gh) = do
-        bs <- getBlob store gh
+        blobHash <- _te_gitHash . _ltd_treeEntry <$> readLeafTree store gh
+        bs <- getBlob store blobHash
         either (throwGitStoreFailure . T.pack) pure $
             runGetS decodeBlockHeader bs
 
@@ -382,8 +383,8 @@ withObject (GitStoreData repo _) hash f =
 
 ------------------------------------------------------------------------------
 
--- TODO Does this throw when the `GitHash` doesn't exist in the store?
 -- | Fetch the raw byte data of some object in the Git Store.
+--
 getBlob :: GitStoreData -> GitHash -> IO ByteString
 getBlob (GitStoreData repo _) gh = bracket lookup destroy readBlob
   where

@@ -16,15 +16,18 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.ChainId
 import Chainweb.Store.Git
-    (GitStore, GitStoreConfig(..), getSpectrum, withGitStore)
 import Chainweb.Test.Utils (toyGenesis)
 
 ---
 
 chainId0 :: ChainId
 chainId0 = testChainId 0
+
+genesis :: BlockHeader
+genesis = toyGenesis chainId0
 
 tests :: TestTree
 tests = testGroup "Git Store"
@@ -54,7 +57,9 @@ tempPath = do
 -- | Initialize a fresh Git store and perform some action over it.
 --
 withNewRepo :: (GitStore -> IO a) -> IO a
-withNewRepo f = tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp $ toyGenesis chainId0) f
+withNewRepo f = tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp genesis) f
 
 legalGenesis :: GitStore -> Assertion
-legalGenesis _ = pure ()
+legalGenesis gs = do
+    g' <- lookupByBlockHash gs (_blockHeight genesis) (_blockHash genesis)
+    g' @?= Just genesis
