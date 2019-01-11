@@ -18,10 +18,10 @@ import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
+
 import Data.Aeson as A
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Prelude
 
 import Pact.Interpreter
 import Pact.Persist.SQLite ()
@@ -31,18 +31,8 @@ import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
 
--- internal modules
-
-applyCmd ::
-       Logger
-    -> Maybe EntityName
-    -> PactDbEnv p
-    -> MVar CommandState
-    -> GasEnv
-    -> ExecutionMode
-    -> Command a
-    -> ProcessedCommand (PactRPC ParsedCode)
-    -> IO CommandResult
+applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
+         -> ExecutionMode -> Command a -> ProcessedCommand (PactRPC ParsedCode) -> IO CommandResult
 applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
 applyCmd logger conf dbv cv gasEnv exMode _ (ProcSucc cmd) = do
     r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd

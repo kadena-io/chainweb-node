@@ -1,7 +1,7 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Pact.Types
@@ -17,10 +17,12 @@ module Chainweb.Pact.Types
     , bHash
     , bParentHeader
     , bTransactions
+    , Checkpoint
     , PactDbStatePersist(..)
     , pdbspRestoreFile
     , pdbspPactDbState
     , PactT
+    , Store
     , Transaction(..)
     , tCmd
     , tTxId
@@ -29,24 +31,18 @@ module Chainweb.Pact.Types
     , module Chainweb.Pact.Backend.Types
     ) where
 
-import Chainweb.BlockHeader
-import Chainweb.Pact.Backend.Types
-
-import qualified Pact.Types.Command as P
-
 import Control.Lens
 import Control.Monad.Trans.RWS.Lazy
 
 import Data.ByteString (ByteString)
+import qualified Data.Map.Strict as M
+import Data.HashMap.Strict (HashMap)
 
-import GHC.Word (Word64)
+import GHC.Word
 
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Runtime as P
 
--- internal modules
-
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
@@ -77,3 +73,7 @@ type PactT a = RWST CheckpointEnv' () PactDbState IO a
 
 data TransactionCriteria =
     TransactionCriteria
+
+type Store = M.Map (BlockHeight, BlockPayloadHash) Checkpoint
+
+type Checkpoint = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
