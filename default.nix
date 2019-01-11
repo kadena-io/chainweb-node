@@ -72,6 +72,12 @@ in
           sha256 = "0nhjxjj5dsh9h8yff9np6pj48a6lx5cd1zv50xlyfvvribyf6qvk";
         });
 
+        tasty-hspec = doJailbreak (callHackageDirect {
+          pkg = "tasty-hspec";
+          ver = "1.1.5.1";
+          sha256 = "02fcyifsmp3d0d67crpgwn2q9arkpvf22p9x3fr9bvz152v5mmxr";
+        });
+
         natural-transformation = doJailbreak (callHackageDirect {
           pkg = "natural-transformation";
           ver = "0.4";
