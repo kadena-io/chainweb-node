@@ -114,8 +114,11 @@ data LeafTreeData = LeafTreeData {
   , _ltd_spectrum :: Vector TreeEntry
 } deriving (Show)
 
-newtype GitFailure = GitFailure { gitFailureErrorCode :: CInt }
-  deriving (Show)
+data GitFailure = GitFailure {
+    gitFailureHFun :: Text  -- ^ The Haskell function the error was thrown from.
+  , gitFailureCFun :: Text  -- ^ The C function that originated the error.
+  , gitFailureErrorCode :: CInt
+} deriving (Show)
 
 instance Exception GitFailure
 
@@ -167,12 +170,14 @@ withGitStore (GitStoreConfig root0 g) f = G.withLibGitDo $ bracket open close f
     --
     initBare :: (IO CInt -> IO CInt) -> IO (Ptr G.C'git_repository)
     initBare restore = withCString root $ \rootPtr -> alloca $ \repoPtr -> do
-        throwOnGitError . restore $ G.c'git_repository_init repoPtr rootPtr 1
+        throwOnGitError "initBare" "git_repository_init" . restore $
+            G.c'git_repository_init repoPtr rootPtr 1
         peek repoPtr
 
     openOdb :: (IO () -> IO a) -> Ptr G.C'git_repository -> IO (Ptr G.C'git_odb)
     openOdb restore repo = alloca $ \podb -> do
-        void . restore . throwOnGitError $ G.c'git_repository_odb podb repo
+        void . restore . throwOnGitError "openOdb" "git_repository_odb" $
+            G.c'git_repository_odb podb repo
         peek podb
 
     -- not sure why this flag is not in gitlab2 bindings
@@ -224,9 +229,10 @@ insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
 
     write :: (Ptr a, Int) -> IO GitHash
     write (cs, len) = alloca $ \oidPtr -> do
-       throwOnGitError $ G.c'git_odb_write oidPtr odb (castPtr cs)
-                                             (fromIntegral len)
-                                             G.c'GIT_OBJ_BLOB
+       throwOnGitError "insertBlockHeaderIntoOdb" "git_odb_write" $
+           G.c'git_odb_write oidPtr odb (castPtr cs)
+                                        (fromIntegral len)
+                                        G.c'GIT_OBJ_BLOB
        GitHash <$> oidToByteString oidPtr
 
 
@@ -248,7 +254,8 @@ tbInsert
 tbInsert tb mode h hs gh =
     withOid gh $ \oid ->
     B.unsafeUseAsCString (terminate name) $ \cname ->
-    throwOnGitError $ G.c'git_treebuilder_insert nullPtr tb cname oid mode
+    throwOnGitError "tbInsert" "git_treebuilder_insert" $
+        G.c'git_treebuilder_insert nullPtr tb cname oid mode
   where
     name :: NullTerminated
     name = mkTreeEntryNameWith "" h hs
@@ -273,7 +280,8 @@ createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
     addTreeEntry treeB parentTreeEntry
     addSelfEntry treeB height hash newHeaderGitHash
     treeHash <- alloca $ \oid -> do
-        throwOnGitError $ G.c'git_treebuilder_write oid repo treeB
+        throwOnGitError "createLeafTree" "git_treebuilder_write" $
+            G.c'git_treebuilder_write oid repo treeB
         GitHash <$> oidToByteString oid
     createBlockHeaderTag store bh treeHash
 
@@ -315,7 +323,8 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
     alloca $ \pTagOid ->
     B.unsafeUseAsCString (terminate tagName) $ \cstr ->
     -- @1@ forces libgit to overwrite this tag, should it already exist.
-    throwOnGitError (G.c'git_tag_create_lightweight pTagOid repo cstr obj 1)
+    throwOnGitError "createBlockHeaderTag" "git_tag_create_lightweight" $
+        G.c'git_tag_create_lightweight pTagOid repo cstr obj 1
   where
     height :: BlockHeight
     height = _blockHeight bh
@@ -356,7 +365,8 @@ parseLeafTreeFileName fn = do
 withOid :: GitHash -> (Ptr G.C'git_oid -> IO a) -> IO a
 withOid (GitHash strOid) f =
     B.unsafeUseAsCStringLen strOid $ \(cstr, clen) -> alloca $ \pOid -> do
-        throwOnGitError $ G.c'git_oid_fromstrn pOid cstr (fromIntegral clen)
+        throwOnGitError "withOid" "git_oid_fromstrn" $
+            G.c'git_oid_fromstrn pOid cstr (fromIntegral clen)
         f pOid
 
 
@@ -365,7 +375,8 @@ withObject :: GitStoreData -> GitHash -> (Ptr G.C'git_object -> IO a) -> IO a
 withObject (GitStoreData repo _) hash f =
     withOid hash $ \oid ->
     alloca $ \pobj -> do
-        throwOnGitError $ G.c'git_object_lookup pobj repo oid G.c'GIT_OBJ_ANY
+        throwOnGitError "withObject" "git_object_lookup" $
+            G.c'git_object_lookup pobj repo oid G.c'GIT_OBJ_ANY
         peek pobj >>= f
 
 
@@ -377,10 +388,9 @@ getBlob :: GitStoreData -> GitHash -> IO ByteString
 getBlob (GitStoreData repo _) gh = bracket lookup destroy readBlob
   where
     lookup :: IO (Ptr G.C'git_blob)
-    lookup = mask $ \restore ->
-             alloca $ \pBlob ->
-             withOid gh $ \oid -> do
-        throwOnGitError $ restore $ G.c'git_blob_lookup pBlob repo oid
+    lookup = mask $ \restore -> alloca $ \pBlob -> withOid gh $ \oid -> do
+        throwOnGitError "getBlob" "git_blob_lookup" $
+            restore $ G.c'git_blob_lookup pBlob repo oid
         peek pBlob
 
     destroy :: Ptr G.C'git_blob -> IO ()
@@ -405,7 +415,8 @@ withTreeObject (GitStoreData repo _) gitHash f = bracket getTree free f
   where
     getTree :: IO (Ptr G.C'git_tree)
     getTree = mask $ \restore -> alloca $ \ppTree -> withOid gitHash $ \oid -> do
-        throwOnGitError $ restore $ G.c'git_tree_lookup ppTree repo oid
+        throwOnGitError "withTreeObject" "git_tree_lookup" $
+            restore $ G.c'git_tree_lookup ppTree repo oid
         peek ppTree
 
 
@@ -442,7 +453,8 @@ withTreeBuilder f =
                               (peek pTB >>= f)
   where
     make :: Ptr (Ptr G.C'git_treebuilder) -> IO ()
-    make p = throwOnGitError (G.c'git_treebuilder_create p nullPtr)
+    make p = throwOnGitError "withTreeBuilder" "git_treebuilder_create" $
+        G.c'git_treebuilder_create p nullPtr
 
 
 ------------------------------------------------------------------------------
@@ -489,7 +501,8 @@ updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
     tagAsLeaf store newLeaf
     B.unsafeUseAsCString (terminate $ mkName oldLeaf) $ \cstr ->
-        throwOnGitError $ G.c'git_tag_delete repo cstr
+        throwOnGitError "updateLeafTags" "git_tag_delete" $
+            G.c'git_tag_delete repo cstr
 
 -- | Tag a `TreeEntry` in @.git/refs/leaf/@.
 --
@@ -498,7 +511,8 @@ tagAsLeaf store@(GitStoreData repo _) leaf =
     withObject store (_te_gitHash leaf) $ \obj ->
         alloca $ \pTagOid ->
         B.unsafeUseAsCString (terminate $ mkName leaf) $ \cstr ->
-        throwOnGitError $ G.c'git_tag_create_lightweight pTagOid repo cstr obj 1
+        throwOnGitError "tagAsLeaf" "git_tag_create_lightweight" $
+            G.c'git_tag_create_lightweight pTagOid repo cstr obj 1
 
 mkName :: TreeEntry -> NullTerminated
 mkName (TreeEntry h bh _) = mkLeafTagName h bh
@@ -540,17 +554,14 @@ mkTagRef height hash = nappend "tags/" (mkTagName height hash)
 ------------------------------------------------------------------------------
 lookupRefTarget
     :: GitStoreData
-    -- TODO Can this be a more rigorous path type?
     -> NullTerminated      -- ^ ref path, e.g. tags/foo
     -> IO (Maybe GitHash)
 lookupRefTarget (GitStoreData repo _) path0 =
     B.unsafeUseAsCString (terminate path) $ \cpath ->
     alloca $ \pOid -> do
         code <- G.c'git_reference_name_to_id pOid repo cpath
-        if code /= 0
-          then pure Nothing
-          else Just . GitHash <$> oidToByteString pOid
-
+        if | code /= 0 -> pure Nothing
+           | otherwise -> Just . GitHash <$> oidToByteString pOid
   where
     path :: NullTerminated
     path = nappend "refs/" path0
@@ -563,9 +574,8 @@ lookupTreeEntryByHash
     -> BlockHeight
     -> IO (Maybe TreeEntry)
 lookupTreeEntryByHash gs bh height = do
-    when (height == 0) $ throwGitStoreFailure "TODO: handle genesis block"
-    lookupRefTarget gs tagRef >>=
-      traverse (\gitHash -> pure $! TreeEntry height bh gitHash)
+    -- when (height == 0) $ throwGitStoreFailure "TODO: handle genesis block"
+    fmap (TreeEntry height bh) <$> lookupRefTarget gs tagRef
   where
     tagRef :: NullTerminated
     tagRef = mkTagRef height bh
@@ -602,10 +612,9 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHei
     search :: IO TreeEntry
     search = do
         let first = V.unsafeHead spec'
-        let gh = _te_gitHash first
-        if _te_blockHeight first == height
-          then pure first
-          else lookupTreeEntryByHeight gs gh height
+            gh = _te_gitHash first
+        if | _te_blockHeight first == height -> pure first
+           | otherwise -> lookupTreeEntryByHeight gs gh height
 
 
 ------------------------------------------------------------------------------
@@ -654,13 +663,13 @@ dedup (x:r@(y:_)) | x == y = dedup r
 
 
 ------------------------------------------------------------------------------
-throwOnGitError :: IO CInt -> IO ()
-throwOnGitError m = do
+throwOnGitError :: Text -> Text -> IO CInt -> IO ()
+throwOnGitError h c m = do
   code <- m
-  when (code /= 0) $ throwGitError code
+  when (code /= 0) $ throwGitError h c code
 
-throwGitError :: CInt -> IO a
-throwGitError = throwIO . GitFailure
+throwGitError :: Text -> Text -> CInt -> IO a
+throwGitError h c e = throwIO $ GitFailure h c e
 
 
 ------------------------------------------------------------------------------
@@ -677,7 +686,8 @@ insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> d
     newHeaderGitHash <- insertBlockHeaderIntoOdb store g
     addSelfEntry treeB (_blockHeight g) (getBlockHashBytes $ _blockHash g) newHeaderGitHash
     treeHash <- alloca $ \oid -> do
-        throwOnGitError $ G.c'git_treebuilder_write oid repo treeB
+        throwOnGitError "insertGenesisBlock" "git_treebuilder_write" $
+            G.c'git_treebuilder_write oid repo treeB
         GitHash <$> oidToByteString oid
     -- Store a tag in @.git/refs/tags/bh/@
     createBlockHeaderTag store g treeHash
