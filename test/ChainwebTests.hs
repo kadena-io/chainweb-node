@@ -21,6 +21,7 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
+import qualified Chainweb.Test.Pact
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.TreeDB.Persistence

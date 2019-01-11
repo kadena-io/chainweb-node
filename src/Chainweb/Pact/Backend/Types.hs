@@ -25,6 +25,7 @@ module Chainweb.Pact.Backend.Types
     , pdbsState
     , usage
     , CheckpointEnv(..)
+    , cpeCheckpoint
     , cpeCheckpointStore
     , cpeCommandConfig
     , cpeCheckpointer
@@ -45,7 +46,6 @@ module Chainweb.Pact.Backend.Types
     ) where
 
 import Control.Lens
-import Control.Monad.State
 
 import Data.Aeson
 import Data.HashMap.Strict (HashMap)
@@ -55,10 +55,6 @@ import qualified Data.Map.Strict as M
 
 import GHC.Generics
 
--- internal modules
-
-import Chainweb.BlockHeader
-
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
@@ -66,6 +62,9 @@ import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
+
+-- internal modules
+import Chainweb.BlockHeader
 
 class PactDbBackend e
 

@@ -21,7 +21,6 @@ import Chainweb.Pact.Types
 import qualified Pact.ApiReq as P (KeyPair(..))
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
-import qualified Pact.Types.API as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Gas as P
@@ -30,19 +29,19 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 import Control.Applicative
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.RWS.Lazy
 import Control.Monad.Zip
 import Data.Aeson (Value(..))
 import Data.ByteString (ByteString)
-import Data.Functor
 import qualified Data.HashMap.Strict as HM
-import Data.Int
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
+import Data.Time.Clock
 import qualified Data.Text as T
-import GHC.Generics
+import GHC.Word
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -72,20 +71,24 @@ pactExecTests = do
 
 execTests :: PactT ()
 execTests = do
-    let reqIds = [1000, 1001 ..] :: [Int64]
-    let textIds = fmap (T.pack . show) reqIds
+    -- create test nonce values of the form <current-time>:0, <current-time>:1, etc.
+    prefix <- liftIO $ (( ++ ":") . show <$> getCurrentTime)
+    let intSeq = [0, 1 ..] :: [Word64]
+    let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     let cmdStrs = fmap _trCmd testPactRequests
-    let cmds = zipWith (mkPactCommand testKeyPairs Null) textIds cmdStrs
-    _results <- execCommands cmds
-    return ()
+    let trans = zipWith3 (mkPactTransaction testKeyPairs Null) nonces intSeq cmdStrs
+    outputs <- execPactTransactions trans
+    let testResponses = zipWith TestResponse testPactRequests outputs
+    liftIO $ checkResponses testResponses
 
-mkPactCommand :: [P.KeyPair] -> Value -> Text -> String -> P.Command ByteString
-mkPactCommand keyPair theData reqId theCode =
-    P.mkCommand
-      (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
-      Nothing
-      reqId -- nonce
-      (P.Exec (P.ExecMsg (T.pack theCode) theData))
+mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
+mkPactTransaction keyPair theData nonce txId theCode =
+    let cmd = P.mkCommand
+          (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
+          Nothing
+          nonce
+          (P.Exec (P.ExecMsg (T.pack theCode) theData))
+    in Transaction {_tTxId = txId, _tCmd = cmd}
 
 testKeyPairs :: [P.KeyPair]
 testKeyPairs =
@@ -93,92 +96,29 @@ testKeyPairs =
         mKeyPair = fmap (\(sec, pub) -> P.KeyPair {_kpSecret = sec, _kpPublic = pub} ) mPair
     in maybeToList mKeyPair
 
+checkResponses :: [TestResponse] -> IO ()
+checkResponses responses =
+    forM_ responses (\resp -> do
+        let evalFn = _trEval $ _trRequest resp
+        -- evalFn $ _trOutput resp)
+        evalFn resp )
+
 testPrivateBs :: ByteString
 testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
 
 testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
-execCommands :: [P.Command ByteString] -> PactT [TransactionOutput]
-execCommands cmds = do
+execPactTransactions :: [Transaction] -> PactT [TransactionOutput]
+execPactTransactions trans = do
     env <- ask
     dbState <- get
-    output <- liftIO $ execTransactions env dbState cmds
-    forM_ output (\o -> do
-        let result = _getCommandResult o
-        (eval o) result )
-
-{-
- _trEval :: TestResponse -> Assertion
-
-newtype TransactionOutput = TransactionOutput
-    { _getCommandResult :: P.CommandResult
-    }
-
-data CommandResult = CommandResult {
-  _crReqKey :: RequestKey,
-  _crTxId :: Maybe TxId,
-  _crResult :: Value
-  } deriving (Eq,Show)
--}
-
--- type PactT a = RWST CheckpointEnv' () PactDbState IO a
--- execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-
-{-
-In Kadena tests:
-
-checkResults :: [TestResult] -> Expectation
-checkResults xs = mapM_ checkResult xs
-  where
-    checkResult result = do
-        let req = requestTr result
-        let resp = responseTr result
-        case resp of
-          Nothing -> expectationFailure $
-            failureMessage result "Response is missing"
-          Just rsp -> do
-            printPassed result
-            eval req rsp
-
-eval :: TestResponse -> Expectation
-
--- example eval function:
-    checkScientific :: Scientific -> TestResponse -> Expectation
-    checkScientific sci tr = do
-      resultSuccess tr `shouldBe` True
-      parseScientific (_arResult $ apiResult tr) `shouldBe` Just sci
-
-    parseScientific :: AE.Value -> Maybe Scientific
-    parseScientific (AE.Object o) =
-      case HM.lookup "data" o of
-        Nothing -> Nothing
-        Just (AE.Number sci) -> Just sci
-        Just _ -> Nothing
-    parseScientific _ = Nothing
-
-data TestResult = TestResult
-  { requestTr :: TestRequest
-  , responseTr :: Maybe TestResponse
-  } deriving Show
-
-data TestResponse = TestResponse
-  { resultSuccess :: Bool
-  , apiResult :: ApiResult
-  , _batchCount :: Int64
-  } deriving (Eq, Generic)
-
-data ApiResult = ApiResult {
-  _arResult :: !Value,
-  _arTxId :: !(Maybe TxId),
-  _arMetaData :: !(Maybe Value)
-  } deriving (Eq,Show,Generic)
--}
+    liftIO $ execTransactions env dbState trans
 
 checkScientific :: Scientific -> TestResponse -> Assertion
-checkScientific sci tr = do
-  _trResultSuccess tr @? "resultSuccess was not set to True"
-  parseScientific (P._arResult $ _trApiResult tr) @?= Just sci
+checkScientific sci resp = do
+  let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
+  (parseScientific resultValue) @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
 parseScientific (Object o) =
@@ -195,19 +135,16 @@ data TestRequest = TestRequest
     , _trDisplayStr :: String
     }
 
+data TestResponse = TestResponse
+    { _trRequest :: TestRequest
+    , _trOutput :: TransactionOutput
+    }
+
 instance Show TestRequest where
     show tr = "cmd: " ++ _trCmd tr ++ "\nDisplay string: " ++ _trDisplayStr tr
 
-data TestResponse = TestResponse
-    { _trResultSuccess :: Bool
-    , _trApiResult :: P.ApiResult
-    , _trBatchCount :: Int64
-    } deriving (Eq, Generic)
-
 instance Show TestResponse where
-    show tr = "resultSuccess: " ++ show (_trResultSuccess tr) ++ "\n"
-        ++ "Batch count: " ++ show (_trBatchCount tr) ++ "\n"
-        ++ take 100 (show (_trApiResult tr)) ++ "..."
+    show tr = take 100 (show (P._crResult $ (_getCommandResult (_trOutput tr))) ++ "...")
 
 ----------------------------------------------------------------------------------------------------
 testPactRequests :: [TestRequest]

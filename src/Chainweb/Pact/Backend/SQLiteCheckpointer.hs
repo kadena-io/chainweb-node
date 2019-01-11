@@ -6,26 +6,27 @@
 -- Stability: experimental
 
 -- Pact SQLite checkpoint module for Chainweb
-
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
-import Chainweb.Pact.Types
-import Chainweb.BlockHeader
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HMS
 import Data.IORef
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
--- internal modules
-
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHeader
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Types
 
+initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initSQLiteCheckpointEnv = undefined
 
+restore :: BlockHeight -> BlockPayloadHash -> IORef Checkpoint -> IORef Store -> IO ()
 restore = undefined
+
+prepare :: BlockHeight -> BlockPayloadHash -> OpMode -> IORef Checkpoint ->  IORef Store
+        -> IO (Either String CheckpointData)
 prepare = undefined
+
+save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IORef Checkpoint ->  IORef Store -> IO ()
 save = undefined

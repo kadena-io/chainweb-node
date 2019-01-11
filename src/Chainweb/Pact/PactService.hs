@@ -10,9 +10,6 @@
 --
 -- Pact service for Chainweb
 
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
-
 module Chainweb.Pact.PactService
     ( execTransactions
     , initPactService
@@ -30,14 +27,12 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State hiding (get, put)
 import Control.Monad.Trans.RWS.Lazy
+
 import Data.ByteString (ByteString)
-import Data.IORef
 import Data.Maybe
 import qualified Data.Yaml as Y
 
-import Chainweb.BlockHeader
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
@@ -47,8 +42,7 @@ import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 
 -- internal modules
-
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer
@@ -86,7 +80,6 @@ serviceRequests :: PactT ()
 serviceRequests =
     forever $ do return () --TODO: get / service requests for new blocks and verification
 
-
 newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
@@ -96,13 +89,10 @@ newTransactionBlock parentHeader bHeight = do
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv
     unless (isFirstBlock bHeight) $ do
-        -- st <- buildCurrentPactState
         liftIO $ _cRestore checkpointer bHeight parentPayloadHash ref_checkpoint ref_checkpointStore
-        -- either error put (getDbState mRestoredState)
     theState <- get
-    -- CheckpointEnv' cpEnv <- ask
-    cpEnv <- ask
-    results <- liftIO $ execTransactions cpEnv theState newTrans
+    env <- ask
+    results <- liftIO $ execTransactions env theState newTrans
     liftIO $ _cSave checkpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock ref_checkpoint ref_checkpointStore
     return
         Block
@@ -112,7 +102,6 @@ newTransactionBlock parentHeader bHeight = do
             , _bTransactions = zip newTrans results
             }
 
--- getDbState :: Checkpointer c -> BlockHeight -> BlockPayloadHash -> c -> IO PactDbState
 getDbState :: PactT PactDbState
 getDbState = undefined
 
@@ -139,7 +128,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
-isFirstBlock :: C.BlockHeight -> Bool
+isFirstBlock :: BlockHeight -> Bool
 isFirstBlock height = height == 0
 
 validateBlock :: Block -> PactT ()
@@ -150,9 +139,7 @@ validateBlock Block {..} = do
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv
     unless (isFirstBlock _bBlockHeight) $ do
-        -- st <- buildCurrentPactState
         liftIO $ _cRestore checkpointer _bBlockHeight parentPayloadHash ref_checkpoint ref_checkpointStore
-        -- either error ((liftIO . getDbState checkpointer _bBlockHeight parentPayloadHash) >=> put) mRestoredState
     currentState <- get
     _results <- liftIO $ execTransactions cpEnv' currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
@@ -171,8 +158,9 @@ execTransactions cpEnv pactState xs =
         let txId = P.Transactional (P.TxId _tTxId)
         liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd cpEnv'@(CheckpointEnv' cpEnv) pactState eMode cmd = do
+applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString
+             -> IO P.CommandResult
+applyPactCmd (CheckpointEnv' cpEnv) pactState eMode cmd = do
     let cmdState = _pdbsState pactState
     newVar <-  newMVar cmdState
     let logger = _cpeLogger cpEnv
