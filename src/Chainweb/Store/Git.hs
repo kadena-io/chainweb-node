@@ -412,7 +412,7 @@ withTreeObject
     -> GitHash
     -> (Ptr G.C'git_tree -> IO a)
     -> IO a
-withTreeObject (GitStoreData repo _) gitHash f = bracket getTree free f
+withTreeObject (GitStoreData repo _) gitHash f = bracket getTree G.c'git_tree_free f
   where
     getTree :: IO (Ptr G.C'git_tree)
     getTree = mask $ \restore -> alloca $ \ppTree -> withOid gitHash $ \oid -> do
@@ -484,8 +484,8 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
 
     fromTreeEntryP :: Ptr G.C'git_tree_entry -> IO TreeEntry
     fromTreeEntryP entryP = do
-      name <- bracket (G.c'git_tree_entry_name entryP) free B.packCString
-      oid  <- GitHash <$> bracket (G.c'git_tree_entry_id entryP) free oidToByteString
+      name <- G.c'git_tree_entry_name entryP >>= B.packCString
+      oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
       (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
                        (parseLeafTreeFileName name)
       pure $! TreeEntry h bh oid
