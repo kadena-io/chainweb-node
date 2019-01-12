@@ -52,7 +52,7 @@ pactExecTests :: IO ()
 pactExecTests = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
+    pactCfg <- setupConfig "test/config/pact.yaml" -- TODO: file name/location from configuration
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
@@ -97,10 +97,11 @@ testKeyPairs =
     in maybeToList mKeyPair
 
 checkResponses :: [TestResponse] -> IO ()
-checkResponses responses =
+checkResponses responses = do
+    putStrLn "TestResponses:"
     forM_ responses (\resp -> do
+        putStrLn (show resp)
         let evalFn = _trEval $ _trRequest resp
-        -- evalFn $ _trOutput resp)
         evalFn resp )
 
 testPrivateBs :: ByteString
@@ -152,6 +153,6 @@ testPactRequests = [testReq1]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest
-    { _trCmd = "exec (+ 1 1)"
+    { _trCmd = "(+ 1 1)"
     , _trEval = (\tr -> checkScientific (scientific 2 0) tr)
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }

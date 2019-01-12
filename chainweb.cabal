@@ -248,7 +248,6 @@ test-suite chainweb-tests
         , streaming >= 0.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9
-        , tasty-hspec >= 1.1
         , tasty-quickcheck >= 0.9
         , text >= 1.2
         , these >= 0.7
