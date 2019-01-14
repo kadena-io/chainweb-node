@@ -19,9 +19,6 @@ extra-deps:
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
-  - hspec-2.5.8
-  - hspec-core-2.5.8
-  - hspec-discover-2.5.8
   - git: https://github.com/kadena-io/pact.git
     commit: 3316593a690444e0290dfc3605b55dc5aa7e43c9
   - git: https://github.com/LeventErkok/sbv.git
