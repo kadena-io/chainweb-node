@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -71,6 +73,7 @@ module Data.DiGraph
 ) where
 
 import Control.Arrow
+import Control.DeepSeq
 import Control.Monad
 
 import Data.Foldable
@@ -118,6 +121,7 @@ type DiEdge a = (a, a)
 --
 newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance (Hashable a, Eq a) => Semigroup (DiGraph a) where
     (DiGraph a) <> (DiGraph b) = DiGraph (HM.unionWith (<>) a b)

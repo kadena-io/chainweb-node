@@ -91,6 +91,7 @@ module Chainweb.Cut
 
 ) where
 
+import Control.DeepSeq
 import Control.Exception hiding (catch)
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -157,6 +158,7 @@ data Cut = Cut
     , _cutGraph :: !ChainGraph
     }
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 makeLenses ''Cut
 
