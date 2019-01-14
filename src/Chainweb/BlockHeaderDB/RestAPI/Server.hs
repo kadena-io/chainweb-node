@@ -89,8 +89,7 @@ checkBounds
     -> BranchBounds db
     -> m (BranchBounds db)
 checkBounds db b = b
-    <$ traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
-    <* traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
+    <$ traverse_ (checkKey db . _getUpperBound) (_branchBoundsUpper b)
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
