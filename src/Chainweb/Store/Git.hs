@@ -483,35 +483,35 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
   where
     readTree :: Ptr G.C'git_tree -> IO LeafTreeData
     readTree pTree = do
-      numEntries <- G.c'git_tree_entrycount pTree
-      elist <- traverse (readTreeEntry pTree) [0..(numEntries-1)]
-      spectrum <- sortSpectrum elist
-      when (V.null spectrum) $ throwGitStoreFailure "impossible: empty tree"
-      let lastEntry = V.unsafeLast spectrum
-      pure $! LeafTreeData lastEntry (V.take (V.length spectrum - 1) spectrum)
+        numEntries <- G.c'git_tree_entrycount pTree
+        elist <- traverse (readTreeEntry pTree) [0..(numEntries-1)]
+        spectrum <- sortSpectrum elist
+        when (V.null spectrum) $ throwGitStoreFailure "impossible: empty tree"
+        let lastEntry = V.unsafeLast spectrum
+        pure $! LeafTreeData lastEntry (V.take (V.length spectrum - 1) spectrum)
 
     readTreeEntry :: Ptr G.C'git_tree -> CSize -> IO TreeEntry
-    readTreeEntry pTree idx =
-      bracket (G.c'git_tree_entry_byindex pTree idx)
-              G.c'git_tree_entry_free
-              fromTreeEntryP
+    readTreeEntry pTree idx = G.c'git_tree_entry_byindex pTree idx >>= fromTreeEntryP
 
     fromTreeEntryP :: Ptr G.C'git_tree_entry -> IO TreeEntry
     fromTreeEntryP entryP = do
-      name <- G.c'git_tree_entry_name entryP >>= B.packCString
-      oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
-      (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
-                       (parseLeafTreeFileName name)
-      pure $! TreeEntry h bh oid
+        name <- G.c'git_tree_entry_name entryP >>= B.packCString
+        oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
+        (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
+                         (parseLeafTreeFileName name)
+        pure $! TreeEntry h bh oid
 
     sortSpectrum :: [TreeEntry] -> IO (Vector TreeEntry)
     sortSpectrum l = do
-      mv <- V.unsafeThaw (V.fromList l)
-      V.sort mv
-      V.unsafeFreeze mv
+        mv <- V.unsafeThaw (V.fromList l)
+        V.sort mv
+        V.unsafeFreeze mv
 
 
 ------------------------------------------------------------------------------
+-- | The parent node upon which our new node was written is by definition no
+-- longer a leaf, and thus its entry in @.git/refs/leaf/@ must be removed.
+--
 updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
     tagAsLeaf store newLeaf
