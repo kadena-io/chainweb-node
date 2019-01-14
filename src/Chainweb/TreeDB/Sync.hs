@@ -39,7 +39,7 @@ module Chainweb.TreeDB.Sync
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, try, throw)
 import Control.Lens ((&))
 import Control.Monad
 
@@ -104,10 +104,10 @@ branchSync local peer d logFun = do
     lLeaves <- streamToHashSet_ $ leafKeys local Nothing Nothing Nothing Nothing
 
     -- If the remote site doesn't know about a leave no lower bounds is applied
-    -- to the search and, in worst case, all entries down to the root are returned.
-    -- We prevent this by including an additional limit at at depth @d@. We high
-    -- probability the the remote site knows about that entry and thus the query
-    -- won't return blocks beyond that point.
+    -- to the search and, in worst case, all entries down to the root are
+    -- returned. We prevent this by including an additional limit at at depth
+    -- @d@. With high probability the remote site knows about that entry and
+    -- thus the query won't return blocks beyond that point.
     --
     lmax <- maxRank local
     let minr = MinRank . Min $ lmax - min (_getDepth d) lmax
@@ -207,10 +207,13 @@ chainSyncSession
 chainSyncSession local peer depth logFun =
     try (syncSession local peer depth logFun) >>= \case
         Left e -> do
-            logg Warn $ "Session failed: " <> sshow @SomeException e
-            return False
+            case sshow @SomeException e of
+                "<<Timeout>>" -> logg Debug "Session timeout"
+                "AsyncCancelled" -> logg Debug "Session cancelled"
+                msg -> logg Debug $ "Session failed: " <> msg
+            throw e
         Right a -> do
-            logg Warn "Session succeeded"
+            logg Debug "Session succeeded"
             return a
   where
     logg :: LogFunctionText
