@@ -17,7 +17,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHash (BlockHashBytes(..))
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.ChainId
 import Chainweb.Store.Git
 import Chainweb.Test.Utils (toyGenesis)
@@ -34,8 +34,9 @@ tests :: TestTree
 tests = testGroup "Git Store"
     [ testGroup "Basic Usage"
           [ testCase "New Repository" $ withNewRepo legalGenesis
-          -- , testCase "Single Insertion" _
-          -- , testCase "Repeated Insertion" _
+          , testCase "Single Insertion" $ withNewRepo singleInsert
+          , testCase "Repeated Insertion" $ withNewRepo multiInsert
+          , testCase "Genesis Reinsertion" $ withNewRepo genesisReinsertion
           ]
     , testGroup "Utilities"
           [ testCase "getSpectrum" $ getSpectrum 123 @?= [32, 64, 119, 120, 121]
@@ -74,3 +75,24 @@ leafTreeParsing = parseLeafTreeFileName fn @?= Just (0, BlockHashBytes bs)
   where
     fn = "AAAAAAAAAAA=.7C1XaR2bLUAYKsVlAyBUt9eEupaxi8tb4LtOcOP7BB4="
     bs = "\236-Wi\GS\155-@\CAN*\197e\ETX T\183\215\132\186\150\177\139\203[\224\187Np\227\251\EOT\RS"
+
+genesisReinsertion :: GitStore -> Assertion
+genesisReinsertion gs = insertBlock gs genesis >>= (@?= AlreadyExists)
+
+singleInsert :: GitStore -> Assertion
+singleInsert gs = do
+    let next = head $ testBlockHeaders genesis
+    r <- insertBlock gs next
+    r @?= Inserted
+    ls <- leaves gs
+    length ls @?= 1
+    head ls @?= next
+
+multiInsert :: GitStore -> Assertion
+multiInsert gs = do
+    let nexts = take 5 $ testBlockHeaders genesis
+    r <- traverse (insertBlock gs) nexts
+    r @?= [Inserted, Inserted, Inserted, Inserted, Inserted]
+    ls <- leaves gs
+    length ls @?= 1
+    head ls @?= last nexts

@@ -54,13 +54,13 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable (traverse_)
 import Data.Functor (($>))
+import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Intro as V
 import Data.Witherable (wither)
-import Data.Word (Word64)
 
 import Foreign.C.String (CString, withCString)
 import Foreign.C.Types (CInt, CSize, CUInt)
@@ -199,12 +199,12 @@ withGitStore (GitStoreConfig root0 g) f = G.withLibGitDo $ bracket open close f
 
 
 ------------------------------------------------------------------------------
-data InsertResult = Inserted | AlreadyExists
+data InsertResult = Inserted | AlreadyExists deriving (Eq, Show)
 
 insertBlock :: GitStore -> BlockHeader -> IO InsertResult
 insertBlock gs bh = lockGitStore gs $ \store -> do
     let hash = getBlockHashBytes $ _blockHash bh
-    let height = fromIntegral $ _blockHeight bh
+        height = fromIntegral $ _blockHeight bh
     m <- lookupTreeEntryByHash store hash height
     maybe (go store) (const $ pure AlreadyExists) m
   where
@@ -572,11 +572,11 @@ lookupRefTarget
     -> NullTerminated      -- ^ ref path, e.g. tags/foo
     -> IO (Maybe GitHash)
 lookupRefTarget (GitStoreData repo _) path0 =
-    B.unsafeUseAsCString (terminate path) $ \cpath ->
-    alloca $ \pOid -> do
-        code <- G.c'git_reference_name_to_id pOid repo cpath
-        if | code /= 0 -> pure Nothing
-           | otherwise -> Just . GitHash <$> oidToByteString pOid
+    B.unsafeUseAsCString (terminate path)
+        $ \cpath -> alloca
+        $ \pOid -> runMaybeT $ do
+            maybeTGitError $ G.c'git_reference_name_to_id pOid repo cpath
+            GitHash <$> liftIO (oidToByteString pOid)
   where
     path :: NullTerminated
     path = nappend "refs/" path0
@@ -613,12 +613,10 @@ lookupTreeEntryByHeight'
     -> BlockHeight     -- ^ desired blockheight
     -> LeafTreeData
     -> IO TreeEntry
-lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHeight leafBH _) spectrum) = do
-    when (height < 0) $ throwGitStoreFailure "height must be non-negative"
-    if | height == leafHeight -> pure $! TreeEntry height leafBH leafTreeHash
-       | height == 0 -> genesisBlockHashes gs
-       | V.null spec' -> throwGitStoreFailure "lookup failure"
-       | otherwise -> search
+lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHeight leafBH _) spectrum)
+    | height == leafHeight = pure $! TreeEntry height leafBH leafTreeHash
+    | V.null spec' = throwGitStoreFailure "lookup failure"
+    | otherwise = search
   where
     spec' :: Vector TreeEntry
     spec' = V.filter (\t -> _te_blockHeight t >= height) spectrum
@@ -633,11 +631,14 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHei
 
 ------------------------------------------------------------------------------
 getSpectrum :: BlockHeight -> [BlockHeight]
-getSpectrum (BlockHeight d0) = map BlockHeight . dedup $ startSpec ++ rlgs ++ recents
+getSpectrum (BlockHeight d0) = map (BlockHeight . fromIntegral) . dedup $ startSpec ++ rlgs ++ recents
   where
+    d0' :: Int64
+    d0' = fromIntegral d0
+
     numRecents = 4
-    d = max 0 (d0 - numRecents)
-    recents = [d..(max 0 (d0-2))]       -- don't include d0 or its parent
+    d = max 0 (d0' - numRecents)
+    recents = [d..(max 0 (d0'-2))]       -- don't include d0 or its parent
 
     pow2s = [ 1 `unsafeShiftL` x | x <- [5..63] ]
 
@@ -645,13 +646,13 @@ getSpectrum (BlockHeight d0) = map BlockHeight . dedup $ startSpec ++ rlgs ++ re
     diff = d - lastSpec
 
     -- reverse log spectrum should be quantized on the lower bits
-    quantize :: Word64 -> Word64
+    quantize :: Int64 -> Int64
     quantize !x = let !out = (d - x) .&. complement (x-1) in out
 
     lgs = map quantize $ takeWhile (< diff) pow2s
     rlgs = reverse lgs
 
-    fs :: ([Word64] -> [Word64]) -> Word64 -> [Word64] -> ([Word64], Word64)
+    fs :: ([Int64] -> [Int64]) -> Int64 -> [Int64] -> ([Int64], Int64)
     fs !dl !lst (x:zs) | x < d     = fs (dl . (x:)) x zs
                        | otherwise = (dl [], lst)
     fs !dl !lst [] = (dl [], lst)
@@ -711,16 +712,6 @@ insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> d
     createBlockHeaderTag store g treeHash
     -- Mark this entry (it's the only entry!) as a "leaf" in @.git/refs/tags/leaf/@.
     tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
-
--- TODO Can this be written to give `O(1)`?
--- genesis :: GitStore -> IO BlockHeader
--- genesis store = undefined
-
--- genesisBlockGitHash :: GitStoreData -> IO GitHash
--- genesisBlockGitHash _ = undefined
-
-genesisBlockHashes :: GitStoreData -> IO TreeEntry
-genesisBlockHashes = undefined
 
 ------------------------------------------------------------------------------
 -- | The "leaves" - the tips of any branch.
