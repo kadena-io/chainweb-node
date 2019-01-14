@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -27,17 +28,21 @@ module Chainweb.Store.Git
 
   -- * Lookup
   , lookupByBlockHash
+  , leaves
 
   -- * Utilities
   -- , lockGitStore
   , getSpectrum
+  , parseLeafTreeFileName
   ) where
 
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar
-import Control.Error.Util (hush)
+import Control.Error.Util (hoistMaybe, hush, nothing)
 import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import Data.Bits (complement, unsafeShiftL, (.&.), (.|.))
 import Data.Bool (bool)
@@ -54,11 +59,13 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Intro as V
+import Data.Witherable (wither)
 import Data.Word (Word64)
 
-import Foreign.C.String (withCString)
+import Foreign.C.String (CString, withCString)
 import Foreign.C.Types (CInt, CSize, CUInt)
 import Foreign.Marshal.Alloc (alloca, free)
+import Foreign.Marshal.Array (peekArray)
 import Foreign.Ptr (Ptr, castPtr, nullPtr)
 import Foreign.Storable (peek)
 
@@ -114,6 +121,9 @@ data LeafTreeData = LeafTreeData {
   , _ltd_spectrum :: Vector TreeEntry
 } deriving (Show)
 
+-- | See here for all possible libgit2 errors:
+-- https://github.com/libgit2/libgit2/blob/99afd41f1c43c856d39e3b9572d7a2103875a771/include/git2/errors.h#L21
+--
 data GitFailure = GitFailure {
     gitFailureHFun :: Text  -- ^ The Haskell function the error was thrown from.
   , gitFailureCFun :: Text  -- ^ The C function that originated the error.
@@ -206,17 +216,21 @@ insertBlock gs bh = lockGitStore gs $ \store -> do
 lookupByBlockHash :: GitStore -> BlockHeight -> BlockHash -> IO (Maybe BlockHeader)
 lookupByBlockHash gs height bh = lockGitStore gs $ \store -> do
     m <- lookupTreeEntryByHash store (getBlockHashBytes bh) (fromIntegral height)
-    traverse (readBlob store) m
+    traverse (readHeader store) m
   where
-    readBlob :: GitStoreData -> TreeEntry -> IO BlockHeader
-    readBlob store (TreeEntry _ _ gh) = do
-        blobHash <- _te_gitHash . _ltd_treeEntry <$> readLeafTree store gh
-        bs <- getBlob store blobHash
-        either (throwGitStoreFailure . T.pack) pure $
-            runGetS decodeBlockHeader bs
+
+-- | Fetch the `BlockHeader` that corresponds to some `TreeEntry`.
+--
+readHeader :: GitStoreData -> TreeEntry -> IO BlockHeader
+readHeader store (TreeEntry _ _ gh) = do
+    blobHash <- _te_gitHash . _ltd_treeEntry <$> readLeafTree store gh
+    bs <- getBlob store blobHash
+    either (throwGitStoreFailure . T.pack) pure $
+        runGetS decodeBlockHeader bs
 
 
 ------------------------------------------------------------------------------
+-- TODO The contents of @.git/refs/tag/leaf/@ also needs to be manually cleared.
 -- collectGarbage :: GitStore -> IO ()
 -- collectGarbage _ = pure $! () -- TODO
 
@@ -343,8 +357,8 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 -- @
 -- 1023495.5e4fb6e0605385aee583035ae0db732e485715c8d26888d2a3571a26291fb58e
 -- ^       ^
--- |       `-- block hash
--- `-- block height
+-- |       `-- base64-encoded block hash
+-- `-- base64-encoded block height
 -- @
 parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
 parseLeafTreeFileName fn = do
@@ -574,8 +588,7 @@ lookupTreeEntryByHash
     -> BlockHashBytes
     -> BlockHeight
     -> IO (Maybe TreeEntry)
-lookupTreeEntryByHash gs bh height = do
-    -- when (height == 0) $ throwGitStoreFailure "TODO: handle genesis block"
+lookupTreeEntryByHash gs bh height =
     fmap (TreeEntry height bh) <$> lookupRefTarget gs tagRef
   where
     tagRef :: NullTerminated
@@ -666,12 +679,16 @@ dedup (x:r@(y:_)) | x == y = dedup r
 ------------------------------------------------------------------------------
 throwOnGitError :: Text -> Text -> IO CInt -> IO ()
 throwOnGitError h c m = do
-  code <- m
-  when (code /= 0) $ throwGitError h c code
+    code <- m
+    when (code /= 0) $ throwGitError h c code
 
 throwGitError :: Text -> Text -> CInt -> IO a
 throwGitError h c e = throwIO $ GitFailure h c e
 
+maybeTGitError :: IO CInt -> MaybeT IO ()
+maybeTGitError m = do
+    code <- liftIO m
+    when (code /= 0) nothing
 
 ------------------------------------------------------------------------------
 throwGitStoreFailure :: Text -> IO a
@@ -704,3 +721,49 @@ insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> d
 
 genesisBlockHashes :: GitStoreData -> IO TreeEntry
 genesisBlockHashes = undefined
+
+------------------------------------------------------------------------------
+-- | The "leaves" - the tips of any branch.
+--
+leaves :: GitStore -> IO [BlockHeader]
+leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
+
+-- TODO Proper freeing.
+leaves' :: GitStoreData -> IO [TreeEntry]
+leaves' (GitStoreData repo _) =
+    withCString "leaf/*"
+        $ \patt -> alloca
+        $ \namesP -> do
+            throwOnGitError "leaves" "git_tag_list_match" $
+                G.c'git_tag_list_match namesP patt repo
+            a <- peek namesP
+            names <- peekArray (fromIntegral $ G.c'git_strarray'count a) (G.c'git_strarray'strings a)
+            wither getEntry names  -- TODO Report malformed tag names instead of ignoring?
+ where
+   -- | Expected argument format:
+   --
+   -- @
+   -- leaf/AAAAAAAAAAA=.7C1XaR2bLUAYKsVlAyBUt9eEupaxi8tb4LtOcOP7BB4=
+   -- @
+   --
+   getEntry :: CString -> IO (Maybe TreeEntry)
+   getEntry name = do
+       name' <- B.packCString name
+       let tagName = B.drop 5 name'  -- Slice off "leaf/"
+           fullTagPath = B.concat [ "refs/tags/", name', "\0" ]
+       B.unsafeUseAsCString fullTagPath
+           $ \fullTagPath' -> alloca
+           $ \oidP -> runMaybeT $ do
+               (bh, bs) <- hoistMaybe $ parseLeafTreeFileName tagName
+               maybeTGitError $ G.c'git_reference_name_to_id oidP repo fullTagPath'
+               hash <- liftIO $ GitHash <$> oidToByteString oidP
+               pure $! TreeEntry bh bs hash
+
+---- TYPE NOTES
+--
+-- type CString = Ptr CChar
+-- c'git_tag_list_match :: Ptr C'git_strarray -> CString -> Ptr C'git_repository -> IO CInt
+-- c'git_reference_name_to_id :: Ptr C'git_oid -> Ptr C'git_repository -> CString -> IO CInt
+-- c'git_tag_lookup :: Ptr (Ptr C'git_tag) -> Ptr C'git_repository -> Ptr C'git_oid -> IO CInt
+--
+----

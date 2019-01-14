@@ -207,6 +207,7 @@ library
         , vector >= 0.12
         , vector-algorithms >= 0.8
         , warp >= 3.2
+        , witherable >= 0.2
         , yaml >= 0.8
 
         -- Network.X509.SelfSigned

@@ -16,6 +16,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHash (BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.ChainId
 import Chainweb.Store.Git
@@ -38,6 +39,7 @@ tests = testGroup "Git Store"
           ]
     , testGroup "Utilities"
           [ testCase "getSpectrum" $ getSpectrum 123 @?= [32, 64, 119, 120, 121]
+          , testCase "parseLeafTreeFileName" leafTreeParsing
           ]
     -- TODO Eventually the TreeDb invariant tests will need to be called here.
     ]
@@ -63,3 +65,12 @@ legalGenesis :: GitStore -> Assertion
 legalGenesis gs = do
     g' <- lookupByBlockHash gs (_blockHeight genesis) (_blockHash genesis)
     g' @?= Just genesis
+    ls <- leaves gs
+    length ls @?= 1
+    head ls @?= genesis
+
+leafTreeParsing :: Assertion
+leafTreeParsing = parseLeafTreeFileName fn @?= Just (0, BlockHashBytes bs)
+  where
+    fn = "AAAAAAAAAAA=.7C1XaR2bLUAYKsVlAyBUt9eEupaxi8tb4LtOcOP7BB4="
+    bs = "\236-Wi\GS\155-@\CAN*\197e\ETX T\183\215\132\186\150\177\139\203[\224\187Np\227\251\EOT\RS"
