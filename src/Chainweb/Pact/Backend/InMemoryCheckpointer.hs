@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
 -- |
@@ -70,7 +69,7 @@ save height hash cdata opmode checkpoint store =
     Validation -> do
       atomicModifyIORef'
         checkpoint
-        (flip (,) () . (HMS.insert (height, hash) cdata))
+        ((, ()) . HMS.insert (height, hash) cdata)
       checkpoint' <- readIORef checkpoint
       atomicModifyIORef'
         store

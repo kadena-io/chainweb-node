@@ -78,13 +78,14 @@ initPactService = do
 
 serviceRequests :: PactT ()
 serviceRequests =
-    forever $ do return () --TODO: get / service requests for new blocks and verification
+    forever $ return () --TODO: get / service requests for new blocks and verification
 
 newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv' cpEnv <- ask
+    -- TODO: to be replaced with mkCheckpointe outside this module
     let checkpointer = _cpeCheckpointer cpEnv
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv
@@ -135,6 +136,7 @@ validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     cpEnv'@(CheckpointEnv' cpEnv) <- ask
+    -- TODO: to be replaced with mkCheckpointe outside this module
     let checkpointer = _cpeCheckpointer cpEnv
         ref_checkpoint = _cpeCheckpoint cpEnv
         ref_checkpointStore = _cpeCheckpointStore cpEnv

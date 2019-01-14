@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -72,7 +71,7 @@ pactExecTests = do
 execTests :: PactT ()
 execTests = do
     -- create test nonce values of the form <current-time>:0, <current-time>:1, etc.
-    prefix <- liftIO $ (( ++ ":") . show <$> getCurrentTime)
+    prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]
     let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     let cmdStrs = fmap _trCmd testPactRequests
@@ -100,7 +99,7 @@ checkResponses :: [TestResponse] -> IO ()
 checkResponses responses = do
     putStrLn "TestResponses:"
     forM_ responses (\resp -> do
-        putStrLn (show resp)
+        print resp
         let evalFn = _trEval $ _trRequest resp
         evalFn resp )
 
@@ -119,7 +118,7 @@ execPactTransactions trans = do
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
   let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
-  (parseScientific resultValue) @?= Just sci
+  parseScientific resultValue @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
 parseScientific (Object o) =
@@ -145,7 +144,7 @@ instance Show TestRequest where
     show tr = "cmd: " ++ _trCmd tr ++ "\nDisplay string: " ++ _trDisplayStr tr
 
 instance Show TestResponse where
-    show tr = take 100 (show (P._crResult $ (_getCommandResult (_trOutput tr))) ++ "...")
+    show tr = take 100 (show (P._crResult $ _getCommandResult (_trOutput tr)) ++ "...")
 
 ----------------------------------------------------------------------------------------------------
 testPactRequests :: [TestRequest]
@@ -154,5 +153,5 @@ testPactRequests = [testReq1]
 testReq1 :: TestRequest
 testReq1 = TestRequest
     { _trCmd = "(+ 1 1)"
-    , _trEval = (\tr -> checkScientific (scientific 2 0) tr)
+    , _trEval = checkScientific (scientific 2 0)
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
