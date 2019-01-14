@@ -41,6 +41,7 @@ import Data.Text (Text)
 import Data.Time.Clock
 import qualified Data.Text as T
 import GHC.Word
+import System.IO.Extra
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -51,7 +52,7 @@ pactExecTests :: IO ()
 pactExecTests = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig "test/config/pact.yaml" -- TODO: file name/location from configuration
+    pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
@@ -74,11 +75,15 @@ execTests = do
     prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]
     let nonces = fmap (T.pack . (prefix ++) . show) intSeq
-    let cmdStrs = fmap _trCmd testPactRequests
+    cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     let trans = zipWith3 (mkPactTransaction testKeyPairs Null) nonces intSeq cmdStrs
     outputs <- execPactTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
+
+getPactCode :: TestSource -> IO String
+getPactCode (Code str) = return str
+getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
 mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
@@ -130,10 +135,13 @@ parseScientific _ = Nothing
 
 ----------------------------------------------------------------------------------------------------
 data TestRequest = TestRequest
-    { _trCmd :: String
+    { _trCmd :: TestSource
     , _trEval :: TestResponse -> Assertion
     , _trDisplayStr :: String
     }
+
+data TestSource = File FilePath | Code String
+  deriving Show
 
 data TestResponse = TestResponse
     { _trRequest :: TestRequest
@@ -141,17 +149,26 @@ data TestResponse = TestResponse
     }
 
 instance Show TestRequest where
-    show tr = "cmd: " ++ _trCmd tr ++ "\nDisplay string: " ++ _trDisplayStr tr
+    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: " ++ show (_trDisplayStr tr)
 
 instance Show TestResponse where
     show tr = take 100 (show (P._crResult $ _getCommandResult (_trOutput tr)) ++ "...")
 
 ----------------------------------------------------------------------------------------------------
+testPactFilesDir :: String
+testPactFilesDir = "test/config/"
+
 testPactRequests :: [TestRequest]
-testPactRequests = [testReq1]
+testPactRequests = [testReq1, testReq2]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest
-    { _trCmd = "(+ 1 1)"
+    { _trCmd = Code "(+ 1 1)"
+    , _trEval = checkScientific (scientific 2 0)
+    , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
+
+testReq2 :: TestRequest
+testReq2 = TestRequest
+    { _trCmd = File "pact-test-1.txt"
     , _trEval = checkScientific (scientific 2 0)
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
