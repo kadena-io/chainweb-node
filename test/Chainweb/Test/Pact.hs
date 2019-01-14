@@ -84,6 +84,18 @@ execTests = do
 getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
+{-
+data:
+  demo-admin-keyset:
+    "keys": ["demoadmin"]
+    "pred": ">"
+codeFile: demo.pact
+keyPairs:
+  - public: 06c9c56daa8a068e1f19f5578cdf1797b047252e1ef0eb4a1809aa3c2226f61e
+    secret: 7ce4bae38fccfe33b6344b8c260bffa21df085cf033b3dc99b4781b550e1e922
+batchCmd: |-
+  (demo.transfer "Acct1" "Acct2" 1.00)
+-}
 
 mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
