@@ -359,7 +359,7 @@ runChainSyncClient mgr chain = do
 
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
 chainSyncP2pSession depth db logg env = do
-    peer <- PeerTree <$> remoteDb db env
+    peer <- PeerTree <$> remoteDb db logg env
     chainSyncSession db peer depth logg
 
 syncDepth :: ChainGraph -> Depth
