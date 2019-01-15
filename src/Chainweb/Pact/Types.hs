@@ -17,12 +17,10 @@ module Chainweb.Pact.Types
     , bHash
     , bParentHeader
     , bTransactions
-    , Checkpoint
     , PactDbStatePersist(..)
     , pdbspRestoreFile
     , pdbspPactDbState
     , PactT
-    , Store
     , Transaction(..)
     , tCmd
     , tTxId
@@ -36,8 +34,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.ByteString (ByteString)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.Map.Strict as M
 
 import GHC.Word
 

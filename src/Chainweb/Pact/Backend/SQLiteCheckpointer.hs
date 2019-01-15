@@ -27,13 +27,22 @@ data SQLiteCheckpointData =
 restore :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO ()
 restore = undefined
 
-prepare ::
+prepareForValidBlock ::
+     SQLiteCheckpointData
+  -> BlockHeight
+  -> BlockPayloadHash
+  -> IO (Either String CheckpointData)
+prepareForValidBlock = undefined
+
+prepareForNewBlock ::
        SQLiteCheckpointData
     -> BlockHeight
     -> BlockPayloadHash
-    -> OpMode
     -> IO (Either String CheckpointData)
-prepare = undefined
+prepareForNewBlock = undefined
 
-save :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()
+save :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
 save = undefined
+
+discard :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+discard = undefined

@@ -35,8 +35,10 @@ module Chainweb.Pact.Backend.Types
     , cpPacts
     , Checkpointer(..)
     , cRestore
-    , cPrepare
+    , cPrepareForNewBlock
+    , cPrepareForValidBlock
     , cSave
+    , cDiscard
     , Env'(..)
     , OpMode(..)
     , PactDbBackend
@@ -114,8 +116,10 @@ makeLenses ''CheckpointData
 
 data Checkpointer = Checkpointer
     { _cRestore :: BlockHeight -> BlockPayloadHash -> IO ()
-    , _cPrepare :: BlockHeight -> BlockPayloadHash -> OpMode -> IO (Either String CheckpointData)
-    , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()
+    , _cPrepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+    , _cPrepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+    , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+    , _cDiscard :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
     }
 
 makeLenses ''Checkpointer

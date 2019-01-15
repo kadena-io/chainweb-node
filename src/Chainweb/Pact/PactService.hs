@@ -90,17 +90,16 @@ newTransactionBlock parentHeader bHeight = do
     env <- ask
     results <- liftIO $ execTransactions env theState newTrans
     liftIO $
-        _cSave
-            _cpeCheckpointer
-            bHeight
-            parentPayloadHash
-            (liftA3
-                 CheckpointData
-                 _pdbsDbEnv
-                 (P._csRefStore . _pdbsState)
-                 (P._csPacts . _pdbsState)
-                 theState)
-            NewBlock
+        _cDiscard
+                   _cpeCheckpointer
+                   bHeight
+                   parentPayloadHash
+                   (liftA3
+                        CheckpointData
+                        _pdbsDbEnv
+                        (P._csRefStore . _pdbsState)
+                        (P._csPacts . _pdbsState)
+                        theState)
     return
         Block
             { _bHash = Nothing -- not yet computed
@@ -160,7 +159,6 @@ validateBlock Block {..} = do
                  (P._csRefStore . _pdbsState)
                  (P._csPacts . _pdbsState)
                  st)
-            Validation
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
