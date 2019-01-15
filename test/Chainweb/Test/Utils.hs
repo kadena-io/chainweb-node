@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -56,6 +57,8 @@ module Chainweb.Test.Utils
 
 -- * Expectations
 , assertExpectation
+, assertGe
+, assertLe
 ) where
 
 import Control.Concurrent
@@ -424,6 +427,8 @@ prop_encodeDecodeRoundtrip d e = prop_iso' (runGetEither d) (runPutS . e)
 -- -------------------------------------------------------------------------- --
 -- Expectations
 
+-- | Assert that the actual value equals the expected value
+--
 assertExpectation
     :: MonadIO m
     => Eq a
@@ -435,3 +440,36 @@ assertExpectation
 assertExpectation msg expected actual = liftIO $ assertBool
     (T.unpack $ unexpectedMsg msg expected actual)
     (getExpected expected == getActual actual)
+
+-- | Assert that the actual value is smaller or equal than the expected value
+--
+assertLe
+    :: Show a
+    => Ord a
+    => T.Text
+    -> Actual a
+    -> Expected a
+    -> Assertion
+assertLe msg actual expected = assertBool msg_
+    (getActual actual <= getExpected expected)
+  where
+    msg_ = T.unpack msg
+        <> ", expected: <= " <> show (getExpected expected)
+        <> ", actual: " <> show (getActual actual)
+
+-- | Assert that the actual value is greater or equal than the expected value
+--
+assertGe
+    :: Show a
+    => Ord a
+    => T.Text
+    -> Actual a
+    -> Expected a
+    -> Assertion
+assertGe msg actual expected = assertBool msg_
+    (getActual actual >= getExpected expected)
+  where
+    msg_ = T.unpack msg
+        <> ", expected: >= " <> show (getExpected expected)
+        <> ", actual: " <> show (getActual actual)
+
