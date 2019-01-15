@@ -50,6 +50,7 @@ data Transaction = Transaction
     { _tTxId :: Word64
     , _tCmd :: P.Command ByteString
     }
+
 makeLenses ''Transaction
 
 newtype TransactionOutput = TransactionOutput
@@ -62,20 +63,17 @@ data Block = Block
     , _bBlockHeight :: BlockHeight
     , _bTransactions :: [(Transaction, TransactionOutput)]
     }
+
 makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath
     , _pdbspPactDbState :: PactDbState
     }
+
 makeLenses ''PactDbStatePersist
 
--- type PactT a = RWST CheckpointEnv' () PactDbState IO a
-type PactT a = ReaderT CheckpointEnv (StateT  PactDbState IO) a
+type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 
 data TransactionCriteria =
     TransactionCriteria
-
-type Store = M.Map (BlockHeight, BlockPayloadHash) Checkpoint
-
-type Checkpoint = HashMap (BlockHeight, BlockPayloadHash) CheckpointData

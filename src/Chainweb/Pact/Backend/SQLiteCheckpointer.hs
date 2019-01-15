@@ -5,15 +5,12 @@
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 -- Pact SQLite checkpoint module for Chainweb
-
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 -- import Data.IORef
-
 -- import Control.Concurrent.MVar
 --     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
 --     takeMVar, withMVarMasked)
-
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -24,12 +21,18 @@ import Chainweb.Pact.Backend.Types
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv = undefined
 
-data SQLiteCheckpointData = SQLiteCheckpointData
+data SQLiteCheckpointData =
+    SQLiteCheckpointData
 
 restore :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO ()
 restore = undefined
 
-prepare :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> OpMode -> IO (Either String CheckpointData)
+prepare ::
+       SQLiteCheckpointData
+    -> BlockHeight
+    -> BlockPayloadHash
+    -> OpMode
+    -> IO (Either String CheckpointData)
 prepare = undefined
 
 save :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()

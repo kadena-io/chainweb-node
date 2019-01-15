@@ -16,7 +16,6 @@ import Pact.PersistPactDb
 import Pact.Types.Server
 
 -- internal modules
-
 import Chainweb.Pact.Types
 
 mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> IO PactDbState

@@ -17,7 +17,6 @@ import qualified Pact.PersistPactDb as P
 import Pact.Types.Server as P
 
 -- internal modules
-
 import Chainweb.Pact.Types
 
 mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
