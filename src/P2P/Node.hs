@@ -147,8 +147,12 @@ data P2pSessionResult
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
+-- | Whether a session was successful. 'P2pSessionTimeout' is considered
+-- success.
+--
 isSuccess :: P2pSessionResult -> Bool
 isSuccess (P2pSessionResult True) = True
+isSuccess P2pSessionTimeout = True
 isSuccess _ = False
 
 instance Arbitrary P2pSessionResult where
