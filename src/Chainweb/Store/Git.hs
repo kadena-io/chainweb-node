@@ -372,8 +372,8 @@ parseLeafTreeFileName fn = do
 
     decodeHeight :: ByteString -> Either String BlockHeight
     decodeHeight s = do
-      s' <- B64U.decode s
-      fromIntegral <$> runGetS decodeBlockHeight s'
+        s' <- B64U.decode s
+        fromIntegral <$> runGetS decodeBlockHeight s'
 
 
 ------------------------------------------------------------------------------
@@ -631,6 +631,7 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHei
 
 ------------------------------------------------------------------------------
 getSpectrum :: BlockHeight -> [BlockHeight]
+getSpectrum (BlockHeight 0) = []
 getSpectrum (BlockHeight d0) = map (BlockHeight . fromIntegral) . dedup $ startSpec ++ rlgs ++ recents
   where
     d0' :: Int64
@@ -638,7 +639,7 @@ getSpectrum (BlockHeight d0) = map (BlockHeight . fromIntegral) . dedup $ startS
 
     numRecents = 4
     d = max 0 (d0' - numRecents)
-    recents = [d..(max 0 (d0'-2))]       -- don't include d0 or its parent
+    recents = [d .. (max 0 (d0'-2))]       -- don't include d0 or its parent
 
     pow2s = [ 1 `unsafeShiftL` x | x <- [5..63] ]
 
@@ -714,7 +715,7 @@ insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> d
     tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
 
 ------------------------------------------------------------------------------
--- | The "leaves" - the tips of any branch.
+-- | The "leaves" - the tips of all branches.
 --
 leaves :: GitStore -> IO [BlockHeader]
 leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
@@ -749,12 +750,3 @@ leaves' (GitStoreData repo _) =
                maybeTGitError $ G.c'git_reference_name_to_id oidP repo fullTagPath'
                hash <- liftIO $ GitHash <$> oidToByteString oidP
                pure $! TreeEntry bh bs hash
-
----- TYPE NOTES
---
--- type CString = Ptr CChar
--- c'git_tag_list_match :: Ptr C'git_strarray -> CString -> Ptr C'git_repository -> IO CInt
--- c'git_reference_name_to_id :: Ptr C'git_oid -> Ptr C'git_repository -> CString -> IO CInt
--- c'git_tag_lookup :: Ptr (Ptr C'git_tag) -> Ptr C'git_repository -> Ptr C'git_oid -> IO CInt
---
-----

@@ -41,6 +41,7 @@ tests = testGroup "Git Store"
     , testGroup "Utilities"
           [ testCase "getSpectrum" $ getSpectrum 123 @?= [32, 64, 119, 120, 121]
           , testCase "getSpectrum" $ getSpectrum 1 @?= [0]
+          , testCase "getSpectrum" $ getSpectrum 0 @?= []
           , testCase "parseLeafTreeFileName" leafTreeParsing
           ]
     -- TODO Eventually the TreeDb invariant tests will need to be called here.
