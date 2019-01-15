@@ -6,8 +6,8 @@
 -- Stability: experimental
 --
 module Chainweb.Pact.Backend.InMemoryCheckpointer
-  ( initInMemoryCheckpointEnv
-  ) where
+    ( initInMemoryCheckpointEnv
+    ) where
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
@@ -73,15 +73,15 @@ prepareForValidBlock lock height hash =
     withMVarMasked lock $ \cdata -> do
         checkpoint <- readIORef $ _inMemCheckpoint cdata
         return $
-          case HMS.lookup (height, hash) checkpoint of
-              Just v -> Right v
-              Nothing -> Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
+            case HMS.lookup (height, hash) checkpoint of
+                Just v -> Right v
+                Nothing -> Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
 
 prepareForNewBlock ::
-         MVar InMemoryCheckpointData
-      -> BlockHeight
-      -> BlockPayloadHash
-      -> IO (Either String CheckpointData)
+       MVar InMemoryCheckpointData
+    -> BlockHeight
+    -> BlockPayloadHash
+    -> IO (Either String CheckpointData)
 prepareForNewBlock lock height hash =
     withMVarMasked lock $ \cdata -> do
         store <- readIORef $ _inMemStore cdata
@@ -95,9 +95,7 @@ save :: MVar InMemoryCheckpointData -> BlockHeight -> BlockPayloadHash -> Checkp
 save lock height hash cpdata =
     withMVarMasked lock $ \cdata -> do
         checkpoint <- readIORef $ _inMemCheckpoint cdata
-        atomicModifyIORef'
-            (_inMemCheckpoint cdata)
-            (\s -> (HMS.insert (height, hash) cpdata s, ()))
+        atomicModifyIORef' (_inMemCheckpoint cdata) (\s -> (HMS.insert (height, hash) cpdata s, ()))
         atomicModifyIORef'
             (_inMemStore cdata)
             (\m ->

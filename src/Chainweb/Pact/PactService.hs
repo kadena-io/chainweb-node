@@ -39,8 +39,8 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
+import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -91,15 +91,15 @@ newTransactionBlock parentHeader bHeight = do
     results <- liftIO $ execTransactions env theState newTrans
     liftIO $
         _cDiscard
-                   _cpeCheckpointer
-                   bHeight
-                   parentPayloadHash
-                   (liftA3
-                        CheckpointData
-                        _pdbsDbEnv
-                        (P._csRefStore . _pdbsState)
-                        (P._csPacts . _pdbsState)
-                        theState)
+            _cpeCheckpointer
+            bHeight
+            parentPayloadHash
+            (liftA3
+                 CheckpointData
+                 _pdbsDbEnv
+                 (P._csRefStore . _pdbsState)
+                 (P._csPacts . _pdbsState)
+                 theState)
     return
         Block
             { _bHash = Nothing -- not yet computed
