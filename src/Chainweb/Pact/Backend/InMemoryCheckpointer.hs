@@ -7,9 +7,13 @@
 --
 module Chainweb.Pact.Backend.InMemoryCheckpointer where
 
+import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 import Data.IORef
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+
+import Control.Concurrent.MVar (MVar, newMVar, withMVarMasked)
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
@@ -18,61 +22,70 @@ import qualified Pact.Types.Server as P
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Types
 
-initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
+initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
-    checkpoint <- newIORef HMS.empty
-    store <- newIORef M.empty
-    return $
-        CheckpointEnv'
-            CheckpointEnv
-                { _cpeCheckpointer =
-                      Checkpointer {_cRestore = restore, _cPrepare = prepare, _cSave = save}
-                , _cpeCommandConfig = cmdConfig
-                , _cpeCheckpoint = checkpoint
-                , _cpeCheckpointStore = store
-                , _cpeLogger = logger
-                , _cpeGasEnv = gasEnv
-                }
+  store <- newIORef mempty
+  checkpoint <- newIORef mempty
+  inmem <- newMVar (InMemoryCheckpointData checkpoint store)
+  return $
+      CheckpointEnv
+        { _cpeCheckpointer =
+            Checkpointer
+              {_cRestore = restore inmem, _cPrepare = prepare inmem, _cSave = save inmem}
+        , _cpeCommandConfig = cmdConfig
+        , _cpeLogger = logger
+        , _cpeGasEnv = gasEnv
+        }
 
-restore :: BlockHeight -> BlockPayloadHash -> IORef Checkpoint -> IORef Store -> IO ()
-restore height hash checkpoint store = do
-    store' <- readIORef store
-    case M.lookup (height, hash) store' of
-        Just newsnap -> atomicWriteIORef checkpoint newsnap
+data InMemoryCheckpointData = InMemoryCheckpointData
+    { _inMemCheckpoint :: IORef (HashMap (BlockHeight, BlockPayloadHash) CheckpointData)
+    , _inMemStore :: IORef (Map (BlockHeight, BlockPayloadHash) (HashMap (BlockHeight, BlockPayloadHash) CheckpointData))
+    }
+
+restore :: MVar InMemoryCheckpointData ->  BlockHeight -> BlockPayloadHash -> IO ()
+restore lock height hash = do
+  withMVarMasked lock $ \cdata -> do
+    store <- readIORef $ _inMemStore cdata
+    case M.lookup (height, hash) store of
+        Just newsnap -> atomicWriteIORef (_inMemCheckpoint cdata) newsnap
        -- This is just a placeholder for right now (the Nothing clause)
         Nothing -> fail "There is no checkpoint that can be restored."
 
-prepare ::
-       BlockHeight -> BlockPayloadHash -> OpMode -> IORef Checkpoint ->  IORef Store ->  IO (Either String CheckpointData)
-prepare height hash opmode checkpoint store =
+-- prepare :: IORef Checkpoint ->  IORef Store -> BlockHeight -> BlockPayloadHash -> OpMode -> IO (Either String CheckpointData)
+prepare :: MVar InMemoryCheckpointData -> BlockHeight -> BlockPayloadHash -> OpMode -> IO (Either String CheckpointData)
+prepare lock height hash opmode =
+  withMVarMasked lock $ \cdata -> do
+    checkpoint <- readIORef $ _inMemCheckpoint cdata
+    store <- readIORef $ _inMemStore cdata
     case opmode of
-        Validation -> do
-            cursnap <- readIORef checkpoint
-            return $ case HMS.lookup (height, hash) cursnap of
-                       Just v -> Right v
-                       Nothing -> Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
-        NewBlock -> do
-            store' <- readIORef store
-            case M.lookup (height, hash) store' of
-                Just snap -> do
-                    atomicWriteIORef checkpoint snap
-                    return $ Left "We only prepare an environment for new blocks"
-                Nothing -> return $ Left "Cannot prepare"
+      Validation ->
+        return $
+        case HMS.lookup (height, hash) checkpoint of
+          Just v -> Right v
+          Nothing ->
+            Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
+      NewBlock -> do
+        case M.lookup (height, hash) store of
+          Just snap -> do
+            atomicWriteIORef (_inMemCheckpoint cdata) snap
+            return $ Left "We only prepare an environment for new blocks"
+          Nothing -> return $ Left "Cannot prepare"
 
-save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IORef Checkpoint ->  IORef Store -> IO ()
-save height hash cdata opmode checkpoint store =
-  case opmode of
-    Validation -> do
-      atomicModifyIORef'
-        checkpoint
-        (\s -> (HMS.insert (height, hash) cdata s, ()))
-      checkpoint' <- readIORef checkpoint
-      atomicModifyIORef'
-        store
-        (\m ->
-           case M.lookup (height, hash) m of
-             Nothing -> (M.insert (height, hash) checkpoint' m, ())
-             Just _ -> (m, ()))
-    NewBlock -> return ()
+-- save :: IORef Checkpoint ->  IORef Store ->  BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()
+save :: MVar InMemoryCheckpointData ->  BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()
+save lock height hash cpdata opmode =
+  withMVarMasked lock $ \cdata -> do
+    checkpoint <- readIORef $ _inMemCheckpoint cdata
+    case opmode of
+      Validation -> do
+        atomicModifyIORef'
+          (_inMemCheckpoint cdata)
+          (\s -> (HMS.insert (height, hash) cpdata s, ()))
+        atomicModifyIORef'
+          (_inMemStore cdata)
+          (\m ->
+             case M.lookup (height, hash) m of
+               Nothing -> (M.insert (height, hash) checkpoint m, ())
+               Just _ -> (m, ()))
+      NewBlock -> return ()

@@ -86,13 +86,13 @@ newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
-    CheckpointEnv' (CheckpointEnv{..}) <- ask
+    CheckpointEnv{..} <- ask
     unless (isFirstBlock bHeight) $ do
-        liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash _cpeCheckpoint _cpeCheckpointStore
+        liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
     theState <- get
     env <- ask
     results <- liftIO $ execTransactions env theState newTrans
-    liftIO $ _cSave _cpeCheckpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock _cpeCheckpoint _cpeCheckpointStore
+    liftIO $ _cSave _cpeCheckpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock
     return
         Block
             { _bHash = Nothing -- not yet computed
@@ -133,18 +133,15 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    cpEnv'@(CheckpointEnv' cpEnv) <- ask
+    cpEnv@(CheckpointEnv{..}) <- ask
     -- TODO: to be replaced with mkCheckpointe outside this module
-    let checkpointer = _cpeCheckpointer cpEnv
-        ref_checkpoint = _cpeCheckpoint cpEnv
-        ref_checkpointStore = _cpeCheckpointStore cpEnv
     unless (isFirstBlock _bBlockHeight) $ do
-        liftIO $ _cRestore checkpointer _bBlockHeight parentPayloadHash ref_checkpoint ref_checkpointStore
+        liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
     currentState <- get
-    _results <- liftIO $ execTransactions cpEnv' currentState (fmap fst _bTransactions)
+    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
-    liftIO $ _cSave checkpointer _bBlockHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st) Validation ref_checkpoint ref_checkpointStore
+    liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st) Validation
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
@@ -152,15 +149,15 @@ requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
 --execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-execTransactions :: CheckpointEnv' -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
     forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString
+applyPactCmd :: CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString
              -> IO P.CommandResult
-applyPactCmd (CheckpointEnv' (CheckpointEnv {..})) (PactDbState {..}) eMode cmd = do
+applyPactCmd (CheckpointEnv {..}) (PactDbState {..}) eMode cmd = do
     newVar <-  newMVar _pdbsState
     case _pdbsDbEnv of
         Env' pactDbEnv ->

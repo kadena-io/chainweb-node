@@ -8,7 +8,11 @@
 
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
-import Data.IORef
+-- import Data.IORef
+
+-- import Control.Concurrent.MVar
+--     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
+--     takeMVar, withMVarMasked)
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
@@ -16,17 +20,17 @@ import qualified Pact.Types.Server as P
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Types
 
-initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
+initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv = undefined
 
-restore :: BlockHeight -> BlockPayloadHash -> IORef Checkpoint -> IORef Store -> IO ()
+data SQLiteCheckpointData = SQLiteCheckpointData
+
+restore :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO ()
 restore = undefined
 
-prepare :: BlockHeight -> BlockPayloadHash -> OpMode -> IORef Checkpoint ->  IORef Store
-        -> IO (Either String CheckpointData)
+prepare :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> OpMode -> IO (Either String CheckpointData)
 prepare = undefined
 
-save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IORef Checkpoint ->  IORef Store -> IO ()
+save :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> OpMode -> IO ()
 save = undefined
