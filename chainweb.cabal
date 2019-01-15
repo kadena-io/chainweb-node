@@ -191,6 +191,10 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
 
+        -- EKG
+        , ekg >= 0.4
+        , wai-middleware-metrics >= 0.2.4
+
     if flag(with-pact)
         build-depends:
           pact >= 2.4
