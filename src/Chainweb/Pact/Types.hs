@@ -34,7 +34,6 @@ module Chainweb.Pact.Types
 import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Trans.RWS.Lazy
 
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict (HashMap)

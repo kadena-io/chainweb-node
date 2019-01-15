@@ -1,5 +1,5 @@
 -- |
--- Module: Chainweb.Pact.DiskCheckpoint
+-- Module: Chainweb.Pact.Backend.SQLiteCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>

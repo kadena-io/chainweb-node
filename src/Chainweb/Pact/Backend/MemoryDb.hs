@@ -1,5 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- |
+-- Module: Chainweb.Pact.Backend.MemoryDb
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Mark Nichols <mark@kadena.io>
+-- Stability: experimental
+--
 module Chainweb.Pact.Backend.MemoryDb where
 
 import qualified Data.Map.Strict as M

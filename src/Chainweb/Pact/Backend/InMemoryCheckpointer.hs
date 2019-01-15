@@ -1,5 +1,3 @@
-{-# LANGUAGE TupleSections #-}
-
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
