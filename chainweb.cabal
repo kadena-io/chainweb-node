@@ -32,6 +32,19 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
+flag tls13
+    description:
+        Enable TLSv1.3; depends on the master branch of the tls package.
+    default: False
+    manual: True
+
+flag ed25519
+    description:
+        Use ED25519 certificates; depends on the master branch of the tls
+        package.
+    default: False
+    manual: True
+
 flag with-pact
     description: include pact
     default: True
@@ -199,6 +212,12 @@ library
         build-depends:
           pact >= 2.4
 
+    if flag(tls13)
+        cpp-options: -DWITH_TLS13=1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
@@ -264,6 +283,7 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >= 1.2
         , these >= 0.7
+        , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , wai >= 3.2
@@ -273,6 +293,9 @@ test-suite chainweb-tests
     if flag(with-pact)
         build-depends:
           pact >= 2.6
+
+    if flag(ed25519)
+        cpp-options: -dWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -411,6 +434,7 @@ executable single-chain-example
         , mwc-random >= 0.13
         , streaming >= 0.2.2
         , text >= 1.2
+        , tls >=1.4
         , unordered-containers >= 0.2
         , wai-app-static >= 3.1
         , wai-cors >= 0.2
@@ -418,6 +442,9 @@ executable single-chain-example
         , warp >= 3.2
         , xmlgen >= 0.6
         , yet-another-logger >= 0.3.1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Examples for BlockHeaderDb usage
@@ -479,5 +506,10 @@ executable p2p-example
         , loglevel >= 0.1
         , mwc-random >= 0.13
         , text >= 1.2
+        , tls >=1.4
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+

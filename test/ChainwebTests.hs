@@ -30,7 +30,7 @@ import qualified Chainweb.Utils.Paging (properties)
 
 import qualified Data.DiGraph (properties)
 
-import Network.X509.SelfSigned.Test
+import qualified Network.X509.SelfSigned.Test
 
 import qualified P2P.Node.PeerDB (properties)
 
@@ -55,6 +55,6 @@ suite = testGroup "Unit Tests"
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties
     , testGroup "Network.X05.SelfSigned.Test"
-        [ Network.X509.SelfSigned.Test.test
+        [ Network.X509.SelfSigned.Test.tests
         ]
     ]
