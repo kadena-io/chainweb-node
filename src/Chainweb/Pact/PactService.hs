@@ -27,7 +27,9 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.RWS.Lazy
+import Control.Monad.Reader
+import Control.Monad.State
+-- import Control.Monad.Trans.RWS.Lazy
 
 import Data.ByteString (ByteString)
 import Data.Maybe
@@ -74,7 +76,7 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runRWST serviceRequests checkpointEnv theState
+    void $ runStateT (runReaderT  serviceRequests checkpointEnv) theState
 
 serviceRequests :: PactT ()
 serviceRequests =
@@ -84,17 +86,13 @@ newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
-    CheckpointEnv' cpEnv <- ask
-    -- TODO: to be replaced with mkCheckpointe outside this module
-    let checkpointer = _cpeCheckpointer cpEnv
-        ref_checkpoint = _cpeCheckpoint cpEnv
-        ref_checkpointStore = _cpeCheckpointStore cpEnv
+    CheckpointEnv' (CheckpointEnv{..}) <- ask
     unless (isFirstBlock bHeight) $ do
-        liftIO $ _cRestore checkpointer bHeight parentPayloadHash ref_checkpoint ref_checkpointStore
+        liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash _cpeCheckpoint _cpeCheckpointStore
     theState <- get
     env <- ask
     results <- liftIO $ execTransactions env theState newTrans
-    liftIO $ _cSave checkpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock ref_checkpoint ref_checkpointStore
+    liftIO $ _cSave _cpeCheckpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock _cpeCheckpoint _cpeCheckpointStore
     return
         Block
             { _bHash = Nothing -- not yet computed
@@ -162,15 +160,11 @@ execTransactions cpEnv pactState xs =
 
 applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString
              -> IO P.CommandResult
-applyPactCmd (CheckpointEnv' cpEnv) pactState eMode cmd = do
-    let cmdState = _pdbsState pactState
-    newVar <-  newMVar cmdState
-    let logger = _cpeLogger cpEnv
-    let gasEnv = _cpeGasEnv cpEnv
-    let pactDbEnv' = _pdbsDbEnv pactState
-    case pactDbEnv' of
+applyPactCmd (CheckpointEnv' (CheckpointEnv {..})) (PactDbState {..}) eMode cmd = do
+    newVar <-  newMVar _pdbsState
+    case _pdbsDbEnv of
         Env' pactDbEnv ->
-            applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
+            applyCmd _cpeLogger Nothing pactDbEnv newVar _cpeGasEnv eMode cmd (P.verifyCommand cmd)
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined

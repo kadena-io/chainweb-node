@@ -24,16 +24,16 @@ import Chainweb.Pact.Types
 
 initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv'
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
-    theStore <- newIORef HMS.empty
-    theIndex <- newIORef M.empty
+    checkpoint <- newIORef HMS.empty
+    store <- newIORef M.empty
     return $
         CheckpointEnv'
             CheckpointEnv
                 { _cpeCheckpointer =
                       Checkpointer {_cRestore = restore, _cPrepare = prepare, _cSave = save}
                 , _cpeCommandConfig = cmdConfig
-                , _cpeCheckpoint = theStore
-                , _cpeCheckpointStore = theIndex
+                , _cpeCheckpoint = checkpoint
+                , _cpeCheckpointStore = store
                 , _cpeLogger = logger
                 , _cpeGasEnv = gasEnv
                 }
@@ -69,7 +69,7 @@ save height hash cdata opmode checkpoint store =
     Validation -> do
       atomicModifyIORef'
         checkpoint
-        ((, ()) . HMS.insert (height, hash) cdata)
+        (\s -> (HMS.insert (height, hash) cdata s, ()))
       checkpoint' <- readIORef checkpoint
       atomicModifyIORef'
         store

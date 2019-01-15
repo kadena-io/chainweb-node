@@ -32,11 +32,13 @@ module Chainweb.Pact.Types
     ) where
 
 import Control.Lens
+import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Trans.RWS.Lazy
 
 import Data.ByteString (ByteString)
-import qualified Data.Map.Strict as M
 import Data.HashMap.Strict (HashMap)
+import qualified Data.Map.Strict as M
 
 import GHC.Word
 
@@ -69,7 +71,8 @@ data PactDbStatePersist = PactDbStatePersist
     }
 makeLenses ''PactDbStatePersist
 
-type PactT a = RWST CheckpointEnv' () PactDbState IO a
+-- type PactT a = RWST CheckpointEnv' () PactDbState IO a
+type PactT a = ReaderT CheckpointEnv'(StateT  PactDbState IO) a
 
 data TransactionCriteria =
     TransactionCriteria
