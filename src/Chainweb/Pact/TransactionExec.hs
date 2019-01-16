@@ -32,7 +32,8 @@ import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
 
 applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
-         -> ExecutionMode -> Command a -> ProcessedCommand PublicMeta (PactRPC ParsedCode) -> IO CommandResult
+         -> ExecutionMode -> Command a -> ProcessedCommand PublicMeta (PactRPC ParsedCode)
+         -> IO CommandResult
 applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
 applyCmd logger conf dbv cv gasEnv exMode _ (ProcSucc cmd) = do
     r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd
