@@ -218,6 +218,8 @@ library
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
+    if flag(with-pact)
+        cpp-options: -DWITH_PACT=1
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
@@ -239,7 +241,6 @@ test-suite chainweb-tests
         Chainweb.Test.DiGraph
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Pact
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
@@ -248,8 +249,11 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
-
         Network.X509.SelfSigned.Test
+
+    if flag(with-pact)
+        other-modules:
+            Chainweb.Test.Pact
 
     build-depends:
         -- internal
@@ -301,6 +305,8 @@ test-suite chainweb-tests
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
 
+    if flag(with-pact)
+        cpp-options: -DWITH_PACT=1
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
 -- -------------------------------------------------------------------------- --

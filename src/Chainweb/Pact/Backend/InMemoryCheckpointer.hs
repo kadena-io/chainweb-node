@@ -48,7 +48,7 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
 type Checkpoint = (HashMap (BlockHeight, BlockPayloadHash) CheckpointData)
 
 type Store
-     = (Map (BlockHeight, BlockPayloadHash) (HashMap (BlockHeight, BlockPayloadHash) CheckpointData))
+     = Map (BlockHeight, BlockPayloadHash) (HashMap (BlockHeight, BlockPayloadHash) CheckpointData)
 
 data InMemoryCheckpointData = InMemoryCheckpointData
     { _inMemCheckpoint :: IORef Checkpoint
@@ -64,8 +64,8 @@ restore lock height hash = do
        -- This is just a placeholder for right now (the Nothing clause)
             Nothing -> fail "There is no checkpoint that can be restored."
 
-prepareForValidBlock ::
-       MVar InMemoryCheckpointData
+prepareForValidBlock
+    :: MVar InMemoryCheckpointData
     -> BlockHeight
     -> BlockPayloadHash
     -> IO (Either String CheckpointData)
@@ -77,8 +77,8 @@ prepareForValidBlock lock height hash =
                 Just v -> Right v
                 Nothing -> Left "InMemoryCheckpointer.prepare: CheckpointData is not present."
 
-prepareForNewBlock ::
-       MVar InMemoryCheckpointData
+prepareForNewBlock
+    :: MVar InMemoryCheckpointData
     -> BlockHeight
     -> BlockPayloadHash
     -> IO (Either String CheckpointData)
