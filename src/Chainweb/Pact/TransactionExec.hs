@@ -15,15 +15,14 @@ module Chainweb.Pact.TransactionExec where
 
 import Control.Concurrent
 import Control.Exception.Safe
-import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 
 import Data.Aeson as A
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 
 import Pact.Interpreter
+import Pact.Parse
 import Pact.Persist.SQLite ()
 import Pact.Types.Command
 import Pact.Types.Logger
@@ -31,22 +30,23 @@ import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
 
-applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState -> GasEnv
-         -> ExecutionMode -> Command a -> ProcessedCommand PublicMeta (PactRPC ParsedCode)
-         -> IO CommandResult
+applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState ->
+            GasModel -> ExecutionMode -> Command a ->
+            ProcessedCommand PublicMeta ParsedCode -> IO CommandResult
 applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
-applyCmd logger conf dbv cv gasEnv exMode _ (ProcSucc cmd) = do
-    r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd
-    case r of
-        Right cr -> do
-            logLog logger "DEBUG" $ "success for requestKey: " ++ show (cmdToRequestKey cmd)
-            return cr
-        Left e -> do
-            logLog logger "ERROR" $
-                "tx failure for requestKey: " ++ show (cmdToRequestKey cmd) ++ ": " ++ show e
-            return $
-                jsonResult exMode (cmdToRequestKey cmd) $
-                CommandError "Command execution failed" (Just $ show e)
+applyCmd logger conf dbv cv gasModel exMode _ (ProcSucc cmd) = do
+  let pubMeta = _pMeta $ _cmdPayload cmd
+      (ParsedDecimal gasPrice) = _pmGasPrice pubMeta
+      gasEnv = GasEnv (fromIntegral $ _pmGasLimit pubMeta) (GasPrice gasPrice) gasModel
+  r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd
+  case r of
+    Right cr -> do
+      logLog logger "DEBUG" $ "success for requestKey: " ++ show (cmdToRequestKey cmd)
+      return cr
+    Left e -> do
+      logLog logger "ERROR" $ "tx failure for requestKey: " ++ show (cmdToRequestKey cmd) ++ ": " ++ show e
+      return $ jsonResult exMode (cmdToRequestKey cmd) $
+               CommandError "Command execution failed" (Just $ show e)
 
 jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> a -> CommandResult
 jsonResult ex cmd a = CommandResult cmd (exToTx ex) (toJSON a)
@@ -55,12 +55,10 @@ exToTx :: ExecutionMode -> Maybe TxId
 exToTx (Transactional t) = Just t
 exToTx Local = Nothing
 
-runPayload :: Command (Payload PublicMeta (PactRPC ParsedCode)) -> CommandM p CommandResult
-runPayload c@Command {..} = do
-    let runRpc (Exec pm) = applyExec (cmdToRequestKey c) pm c
-    let runRpc (Continuation ym) = applyContinuation (cmdToRequestKey c) ym c
-    let Payload {..} = _cmdPayload
-    runRpc _pPayload
+runPayload :: Command (Payload PublicMeta ParsedCode) -> CommandM p CommandResult
+runPayload c@Command{..} = case (_pPayload _cmdPayload) of
+  Exec pm -> applyExec (cmdToRequestKey c) pm c
+  Continuation ym -> applyContinuation (cmdToRequestKey c) ym c
 
 applyExec :: RequestKey -> ExecMsg ParsedCode -> Command a -> CommandM p CommandResult
 applyExec rk (ExecMsg parsedCode edata) Command {..} = do

@@ -30,17 +30,22 @@ import qualified Pact.Types.Server as P
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.RWS.Lazy
+import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Zip
+
 import Data.Aeson (Value(..))
 import Data.ByteString (ByteString)
+import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
 import Data.Time.Clock
 import qualified Data.Text as T
+
 import GHC.Word
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -66,7 +71,7 @@ pactExecTests = do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runRWST execTests checkpointEnv theState
+    void $ runStateT (runReaderT execTests checkpointEnv) theState
 
 execTests :: PactT ()
 execTests = do
@@ -82,11 +87,12 @@ execTests = do
 
 mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
-    let cmd = P.mkCommand
-          (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
-          Nothing
-          nonce
-          (P.Exec (P.ExecMsg (T.pack theCode) theData))
+    let pubMeta = def :: P.PublicMeta
+        cmd = P.mkCommand
+              (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
+              pubMeta
+              nonce
+              (P.Exec (P.ExecMsg (T.pack theCode) theData))
     in Transaction {_tTxId = txId, _tCmd = cmd}
 
 testKeyPairs :: [P.KeyPair]

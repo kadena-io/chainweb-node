@@ -29,7 +29,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
--- import Control.Monad.Trans.RWS.Lazy
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
@@ -37,6 +36,7 @@ import qualified Data.Yaml as Y
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
@@ -178,8 +178,9 @@ applyPactCmd ::
 applyPactCmd (CheckpointEnv {..}) (PactDbState {..}) eMode cmd = do
     newVar <- newMVar _pdbsState
     case _pdbsDbEnv of
-        Env' pactDbEnv ->
-            applyCmd _cpeLogger Nothing pactDbEnv newVar _cpeGasEnv eMode cmd (P.verifyCommand cmd)
+        Env' pactDbEnv -> do
+            let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
+            applyCmd _cpeLogger Nothing pactDbEnv newVar (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined
