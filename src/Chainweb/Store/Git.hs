@@ -61,12 +61,13 @@ import Prelude hiding (lookup)
 
 import System.Path (Absolute, Path, toFilePath)
 
-import UnliftIO.Exception (bracket, bracketOnError, bracket_, finally, mask)
+import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
 -- internal modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash (BlockHash, BlockHashBytes, encodeBlockHashBytes)
 import Chainweb.BlockHeader
+    (BlockHeader(..), BlockHeight, encodeBlockHeader, encodeBlockHeight)
 import Chainweb.Store.Git.Internal
 
 ---
@@ -270,16 +271,6 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 
 
 ------------------------------------------------------------------------------
-withObject :: GitStoreData -> GitHash -> (Ptr G.C'git_object -> IO a) -> IO a
-withObject (GitStoreData repo _) hash f =
-    withOid hash $ \oid ->
-    alloca $ \pobj -> do
-        throwOnGitError "withObject" "git_object_lookup" $
-            G.c'git_object_lookup pobj repo oid G.c'GIT_OBJ_ANY
-        peek pobj >>= f
-
-
-------------------------------------------------------------------------------
 {-
 withReference :: GitStoreData
               -> ByteString
@@ -302,19 +293,6 @@ withReference (GitStoreData repo _) path0 f = bracket lookup destroy f
            | code /= 0 -> throwGitError code
            | otherwise -> peek pRef
 -}
-
-
-------------------------------------------------------------------------------
-withTreeBuilder :: (Ptr G.C'git_treebuilder -> IO a) -> IO a
-withTreeBuilder f =
-    alloca $ \pTB -> bracket_ (make pTB)
-                              (peek pTB >>= G.c'git_treebuilder_free)
-                              (peek pTB >>= f)
-  where
-    make :: Ptr (Ptr G.C'git_treebuilder) -> IO ()
-    make p = throwOnGitError "withTreeBuilder" "git_treebuilder_create" $
-        G.c'git_treebuilder_create p nullPtr
-
 
 ------------------------------------------------------------------------------
 -- | The parent node upon which our new node was written is by definition no

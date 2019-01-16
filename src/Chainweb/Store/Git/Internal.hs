@@ -29,6 +29,8 @@ module Chainweb.Store.Git.Internal
     -- * Brackets
   , lockGitStore
   , withOid
+  , withObject
+  , withTreeBuilder
 
     -- * Failure
     -- | Convenience functions for handling error codes returned from @libgit2@
@@ -70,10 +72,10 @@ import Foreign.C.String (CString, withCString)
 import Foreign.C.Types (CInt, CSize)
 import Foreign.Marshal.Alloc (alloca, free)
 import Foreign.Marshal.Array (peekArray)
-import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Ptr (Ptr, castPtr, nullPtr)
 import Foreign.Storable (peek)
 
-import UnliftIO.Exception (Exception, bracket, mask, throwIO)
+import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 
@@ -278,6 +280,24 @@ withOid (GitHash strOid) f =
         throwOnGitError "withOid" "git_oid_fromstrn" $
             G.c'git_oid_fromstrn pOid cstr (fromIntegral clen)
         f pOid
+
+withObject :: GitStoreData -> GitHash -> (Ptr G.C'git_object -> IO a) -> IO a
+withObject (GitStoreData repo _) hash f =
+    withOid hash $ \oid ->
+    alloca $ \pobj -> do
+        throwOnGitError "withObject" "git_object_lookup" $
+            G.c'git_object_lookup pobj repo oid G.c'GIT_OBJ_ANY
+        peek pobj >>= f
+
+withTreeBuilder :: (Ptr G.C'git_treebuilder -> IO a) -> IO a
+withTreeBuilder f =
+    alloca $ \pTB -> bracket_ (make pTB)
+                              (peek pTB >>= G.c'git_treebuilder_free)
+                              (peek pTB >>= f)
+  where
+    make :: Ptr (Ptr G.C'git_treebuilder) -> IO ()
+    make p = throwOnGitError "withTreeBuilder" "git_treebuilder_create" $
+        G.c'git_treebuilder_create p nullPtr
 
 ----------
 -- FAILURE
