@@ -20,6 +20,7 @@ import Chainweb.BlockHash (BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.ChainId
 import Chainweb.Store.Git
+import Chainweb.Store.Git.Internal
 import Chainweb.Test.Utils (toyGenesis)
 
 ---
