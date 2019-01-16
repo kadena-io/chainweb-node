@@ -3,6 +3,8 @@
 
 module Chainweb.Test.Store.Git ( tests ) where
 
+import Data.Foldable (traverse_)
+import qualified Data.Vector as V
 import Data.Word (Word64)
 
 import System.Path (Absolute, Path, fragment, (</>))
@@ -36,8 +38,11 @@ tests = testGroup "Git Store"
     [ testGroup "Basic Usage"
           [ testCase "New Repository" $ withNewRepo legalGenesis
           , testCase "Single Insertion" $ withNewRepo singleInsert
-          , testCase "Repeated Insertion" $ withNewRepo multiInsert
+          , testCase "Multiple Insertion" $ withNewRepo multiInsert
           , testCase "Genesis Reinsertion" $ withNewRepo genesisReinsertion
+          ]
+    , testGroup "Invariants"
+          [ testCase "Final entry of spectrum is parent" $ withNewRepo parentIsLastInSpectrum
           ]
     , testGroup "Utilities"
           [ testCase "getSpectrum" $ getSpectrum 123 @?= [32, 64, 119, 120, 121]
@@ -93,9 +98,20 @@ singleInsert gs = do
 
 multiInsert :: GitStore -> Assertion
 multiInsert gs = do
-    let nexts = take 5 $ testBlockHeaders genesis
+    let nexts = take 100 $ testBlockHeaders genesis
     r <- traverse (insertBlock gs) nexts
-    r @?= [Inserted, Inserted, Inserted, Inserted, Inserted]
+    r @?= replicate 100 Inserted
     ls <- leaves gs
     length ls @?= 1
     head ls @?= last nexts
+
+parentIsLastInSpectrum :: GitStore -> Assertion
+parentIsLastInSpectrum gs = do
+    let nexts = take 100 $ testBlockHeaders genesis
+    traverse_ (insertBlock gs) nexts
+    lockGitStore gs $ \gsd -> do
+        te@(TreeEntry _ _ gh) <- head <$> leaves' gsd
+        ltd <- readLeafTree gsd gh
+        bh <- readHeader gsd te
+        let parent = V.last $ _ltd_spectrum ltd
+        _te_blockHash parent @?= (getBlockHashBytes $ _blockParent bh)
