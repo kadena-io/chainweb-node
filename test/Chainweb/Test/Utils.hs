@@ -73,7 +73,6 @@ import Data.Bytes.Put
 import Data.Coerce (coerce)
 import Data.Foldable
 import Data.List (sortOn)
-import Data.Reflection (give)
 import qualified Data.Text as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
@@ -252,7 +251,7 @@ singleton :: ChainGraph
 singleton = toChainGraph (testChainId . int) G.singleton
 
 testBlockHeaderDbs :: ChainGraph -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
-testBlockHeaderDbs g v = mapM (\c -> (c,) <$> db c) $ give g $ toList chainIds
+testBlockHeaderDbs g v = mapM (\c -> (c,) <$> db c) $ toList $ chainIds_ g
   where
     db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v g c
 

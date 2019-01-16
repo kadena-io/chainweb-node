@@ -275,7 +275,6 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , reflection >= 2.1
         , resourcet >= 1.2
         , scientific >= 0.3
         , servant-client >= 0.13
@@ -337,7 +336,6 @@ test-suite consensus-network-tests
         , lens >= 4.16
         , network >= 2.6
         , loglevel >= 0.1
-        , reflection >= 2.1
         , servant-client >= 0.13
         , streaming >= 0.2.2
         , tasty >= 1.0
@@ -386,7 +384,6 @@ executable chainweb-node
         , lens >= 4.16
         , loglevel >= 0.1
         , monad-control >= 1.0
-        , reflection >= 2.1
         , streaming >= 0.2
         , text >= 1.2
         , unordered-containers >= 0.2

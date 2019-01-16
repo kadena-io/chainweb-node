@@ -124,7 +124,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
-import Data.Reflection (give)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
@@ -458,9 +457,9 @@ withChainwebInternal
     -> Peer
     -> (Chainweb -> IO a)
     -> IO a
-withChainwebInternal graph conf logFuns socket peer inner = give graph $ do
-    let nids = HS.map ChainNetwork chainIds `HS.union` HS.singleton CutNetwork
-    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList chainIds)
+withChainwebInternal graph conf logFuns socket peer inner = do
+    let nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
+    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList cids)
   where
     -- Initialize chain resources
     go peerDb cs (cid : t) =
@@ -489,6 +488,7 @@ withChainwebInternal graph conf logFuns socket peer inner = give graph $ do
                     }
 
     v = _configChainwebVersion conf
+    cids = chainIds_ graph
     cwnid = _configNodeId conf
     p2pConf = _configP2p conf
 

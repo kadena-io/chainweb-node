@@ -46,7 +46,6 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.List
-import Data.Reflection (give)
 import qualified Data.Text as T
 import Data.Time.Clock
 
@@ -204,7 +203,7 @@ node loglevel write stateVar g conf = withChainweb g conf logfuns $ \cw ->
   where
     nid = _configNodeId conf
 
-    logfuns = give graph $ chainwebLogFunctions loglevel write nid chainIds
+    logfuns = chainwebLogFunctions loglevel write nid (chainIds_ graph)
 
     sample cw = modifyMVar_ stateVar $ \state -> force <$>
         sampleConsensusState
