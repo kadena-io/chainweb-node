@@ -48,7 +48,6 @@ import qualified Data.HashSet as HS
 import Data.List
 import Data.Reflection (give)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import Data.Time.Clock
 
 import GHC.Generics
@@ -255,14 +254,19 @@ runNodesForSeconds loglevel n seconds write = do
 test :: LogLevel -> Natural -> Seconds -> TestTree
 test loglevel n seconds = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
+#if 1
+    let logFun = tastylog
+        maxLogMsgs = 60
+#else
+    -- useful for debugging, requires import of Data.Text.IO.
+    let logFun = T.putStrLn
+        maxLogMsgs = 1000
+#endif
 
+    -- Count log messages and only print the first 60 messages
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-#if 0
-            tastylog msg
-#else
-            T.putStrLn msg
-#endif
+            if c < maxLogMsgs then logFun msg else return ()
 
     runNodesForSeconds loglevel n seconds countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
