@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -57,6 +58,18 @@ bootstrapPeerConfig x = error
 --
 bootstrapCertificate :: ChainwebVersion -> X509CertPem
 bootstrapCertificate Test = X509CertPem $ B8.intercalate "\n"
+#if WITH_ED25519
+    [ "-----BEGIN CERTIFICATE-----"
+    , "MIIBOzCB7KADAgECAgEBMAcGAytlcAUAMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAe"
+    , "Fw0xOTAxMTEyMDE4MjVaFw0xOTAxMjEyMDE4MjVaMBQxEjAQBgNVBAMMCWxvY2Fs"
+    , "aG9zdDAqMAUGAytlcAMhAIxryJq0NofN67ugnkRQIE/MQqml2hgWOfDg3XCb1/Z0"
+    , "o2EwXzAMBgNVHQ8EBQMDB/wAMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcD"
+    , "AjAPBgNVHRMECDAGAQH/AgEAMB8GA1UdEQQYMBaCCWxvY2FsaG9zdIcJMTI3LjAu"
+    , "MC4xMAcGAytlcAUAA0EA3IceiC7mDYX4HmFUyCHzip5tNvkQMJ7eDwXuod0NjeW7"
+    , "u7HU1s1AZ8yCqkIm9E9p7SmFehytX38qmSk5KxvCAQ=="
+    , "-----END CERTIFICATE-----"
+    ]
+#else
     [ "-----BEGIN CERTIFICATE-----"
     , "MIIFBDCCAuygAwIBAgIBATANBgkqhkiG9w0BAQ0FADAUMRIwEAYDVQQDDAlsb2Nh"
     , "bGhvc3QwHhcNMTgxMjIyMDM1NzM2WhcNMzAwMzEwMDM1NzM2WjAUMRIwEAYDVQQD"
@@ -87,12 +100,19 @@ bootstrapCertificate Test = X509CertPem $ B8.intercalate "\n"
     , "sF9RMi6wZ9BNEWcs4gsfd0mgss3J32aCk7cQve8isqjFpmGrTx23iA=="
     , "-----END CERTIFICATE-----"
     ]
+#endif
 bootstrapCertificate x = error $ "bootstrap certificate isn't defined for chainweb version " <> sshow x
 
 -- | This is only defined for non-public Test instances
 --
 bootstrapKey :: ChainwebVersion -> X509KeyPem
 bootstrapKey Test = X509KeyPem $ B8.intercalate "\n"
+#if WITH_ED25519
+    [ "-----BEGIN PRIVATE KEY-----"
+    , "MC4CAQAwBQYDK2VwBCIEIPQZCpPI8qgkU/HlsIwQBC48QuXOl036aReJF6DFLLjR"
+    , "-----END PRIVATE KEY-----"
+    ]
+#else
     [ "-----BEGIN PRIVATE KEY-----"
     , "MIIJKAIBAAKCAgEA6NC/zHexQbgi8SR+E3m2AsP9hQqFTulrn9HA0g5nj8aBpNnc"
     , "wbk/9PkIfj06f2O62p/ab7LO9Tim+fz7UQIkC9BBV7cmADi895DKQMRzrKBDMs5F"
@@ -145,5 +165,6 @@ bootstrapKey Test = X509KeyPem $ B8.intercalate "\n"
     , "QM/ThFn9xv3RUppF4aGrnfCsldXfrxmwgLvOw3qxLOCk6mHOcInRjw4Qdpk="
     , "-----END PRIVATE KEY-----"
     ]
+#endif
 bootstrapKey x = error $ "bootstrap key isn't defined for chainweb version " <> sshow x
 

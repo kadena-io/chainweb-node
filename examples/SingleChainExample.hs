@@ -239,7 +239,7 @@ timer t = do
 
 chainDbSyncSession :: BlockHeaderTreeDb db => Natural -> db -> P2pSession
 chainDbSyncSession t db logFun env = do
-    peer <- PeerTree <$> remoteDb db env
+    peer <- PeerTree <$> remoteDb db logFun env
     withAsync (timer t) $ \timerAsync ->
       withAsync (syncSession db peer syncDepth logFun) $ \sessionAsync ->
         waitEitherCatchCancel timerAsync sessionAsync >>= \case

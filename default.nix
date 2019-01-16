@@ -123,6 +123,13 @@ in
           sha256 = "17i5km3bxlp568q9pbnbp2nvpfgnmccpfnvcci0z1f56cw95679n";
         };
 
+        # test suite fails to build with for older versions
+        scotty = callHackageDirect {
+            pkg = "scotty";
+            ver = "0.11.3";
+            sha256 = "0y98macg977ps81h9mx3hzdmkxn5y14556a2dyvd22468nsmjid1";
+        };
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;

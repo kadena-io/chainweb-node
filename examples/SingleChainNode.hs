@@ -259,7 +259,7 @@ runNodeWithConfig conf logger =
 
 chainDbSyncSession :: BlockHeaderDb -> P2pSession
 chainDbSyncSession db logFun env = do
-    peer <- PeerTree <$> remoteDb db env
+    peer <- PeerTree <$> remoteDb db logFun env
     try (syncSession db peer syncDepth logFun) >>= \case
       Left (e :: SomeException) -> do
         logg Warn $ "Session failed: " <> sshow e

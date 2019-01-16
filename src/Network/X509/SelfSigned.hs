@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -21,12 +22,36 @@
 --
 module Network.X509.SelfSigned
 (
--- * Distinguished Name and Alt Names
-  name
+-- * Supported X509 Certificate Types
+  Ed25519Cert
+, Ed448Cert
+, RsaCert
+, P256Cert
+, DefCertType
+, X509Key
+
+-- * Generate PEM encoded self-signed X509 Certificates
+, generateSelfSignedCertificate
+, generateLocalhostCertificate
+, makeCertificate
+
+-- * Client Support
+, TlsPolicy(..)
+, ServiceID
+, unsafeMakeCredential
+, certificateCacheManagerSettings
+
+-- * Server Settings
+, tlsServerSettings
+
+-- * Low level Utils
+
+-- ** Distinguished Name and Alt Names
+, name
 , org
 , AltName(..)
 
--- * Certificate Fingerprints
+-- ** Certificate Fingerprints
 , FingerprintByteCount
 , fingerprintByteCount
 , Fingerprint(..)
@@ -37,7 +62,7 @@ module Network.X509.SelfSigned
 , fingerprintPem
 , unsafeFingerprintPem
 
--- * PEM encoded Certificate
+-- ** PEM encoded Certificate
 , X509CertPem(..)
 , x509CertPemToText
 , x509CertPemFromText
@@ -46,8 +71,7 @@ module Network.X509.SelfSigned
 , validateX509CertPem
 , decodePemX509Cert
 
--- * PEM encoded Key
-
+-- ** PEM encoded Key
 , X509KeyPem(..)
 , x509KeyPemToText
 , x509KeyPemFromText
@@ -55,25 +79,6 @@ module Network.X509.SelfSigned
 , unsafeX509KeyPemFromText
 , validateX509KeyPem
 , decodePemX509Key
-
--- * Generate PEM encoded Certificates
-, generateSelfSignedCertificateRsa
-, generateLocalhostCertificateRsa
-
--- * Client
-, TlsPolicy(..)
-, ServiceID
-, unsafeMakeCredential
-, certificateCacheManagerSettings
-
--- * Server
-, tlsServerSettings
-
--- * Support for Non-RSA Certificates
-, X509Key(..)
-, makeCertificate
-, generateSelfSignedCertificate
-, generateLocalhostCertificate
 
 ) where
 
@@ -99,10 +104,10 @@ import Crypto.Random.Types (MonadRandom)
 import Data.ASN1.BinaryEncoding (DER(..))
 import Data.ASN1.Encoding (encodeASN1', decodeASN1')
 import Data.ASN1.Types
+import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
 import qualified Data.ByteString as B (ByteString, pack, length)
 import qualified Data.ByteString.Char8 as B8 (unpack)
-import Data.Bifunctor
 import Data.Default (def)
 import Data.Foldable (toList)
 import Data.Hashable
@@ -138,7 +143,56 @@ import System.X509 (getSystemCertificateStore)
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
--- EC
+-- X509 Certificate Types
+
+#if WITH_ED25519
+type DefCertType = Ed25519Cert
+#else
+type DefCertType = RsaCert
+#endif
+
+-- | The signature algorithm Ed25519. EdDSA signature algorithms are not yet
+-- supported by most clients. It is part of TLSv1.3 and supported in openssl-1.1
+-- (with TLSv1.2 and TLS1.3) and the master branch (as of 2019-01-10) of Haskell
+-- tls (with TLSv1.2 and TLSv1.3). Also, the under high load the performance of
+-- the Haskell tls package is better with 4096 bit RSA certificates than with
+-- ED25519 certificates.
+--
+type Ed25519Cert = Ed25519.SecretKey
+
+-- | The signature algorithm Ed25519. EdDSA signature algorithms are not yet
+-- supported by most clients. It is part of TLSv1.3 and supported in openssl-1.1
+-- (with TLSv1.2 and TLS1.3) and the master branch (as of 2019-01-10) of Haskell
+-- tls (with TLSv1.2 and TLSv1.3).
+--
+type Ed448Cert = Ed448.SecretKey
+
+-- | RSA signature algorithm. Generating RSA keys is somewhat slow and the
+-- (sufficiently secure) public keys are large. But currently it is still the
+-- most widely supported certificate type. For the Haskell tls <= 1.4.1 it seems
+-- that this is the only certificate type that is fully supported on the server
+-- side.
+--
+type RsaCert = RSA.PrivateKey
+
+-- | ECDSA signature algorithm. p-256 (or prime256v1 or secp256r1) is used with
+-- ecdsa. it is supported by most standard clients, but disabled as signing
+-- algorithm on the server-side of the Haskell tls package due to an timing
+-- attack vulnerability in the generic ECDSA implementation.
+--
+-- https://github.com/ocheron/cryptonite/commits/tc-ecdsa
+-- https://github.com/ocheron/hs-tls/commits/ecdsa-signing
+--
+-- The former resolves the timing attack vulnerability for P-256 (SEC_p521r1) in
+-- the cryptonite package. The latter implements signing with ECDSA certificates
+-- in the tls package. With the increasing support for Ed25519 and Ed448 accross
+-- the internet it is not clear if support for ECDSA with NIST curves will ever
+-- be added to the Haskell tls package.
+--
+type P256Cert = EC.KeyPair
+
+-- -------------------------------------------------------------------------- --
+-- EC Utils
 
 serializePoint :: HasCallStack => EC.Curve -> EC.Point -> SerializedPoint
 serializePoint _ EC.PointO = error "can't serialize EC point at infinity"
@@ -148,14 +202,21 @@ serializePoint curve (EC.Point x y) = SerializedPoint
     bits  = EC.curveSizeBits curve
     bytes = (bits + 7) `div` 8
 
+-- | The ECDSA implementation in cryptonite as of version 0.25 is vulnerable to
+-- timing attacks. It is thus not supported server-side in the Haskell tls
+-- package.
+--
+-- The PR https://github.com/haskell-crypto/cryptonite/pull/226 addresses this
+-- for curve P-256 / SEC_p256r1.
+--
 ecCurveName :: EC.CurveName
-ecCurveName = EC.SEC_p521r1
+ecCurveName = EC.SEC_p256r1
+-- ecCurveName = EC.SEC_p384r1
+-- ecCurveName = EC.SEC_p521r1
 
 -- -------------------------------------------------------------------------- --
--- Ciphers
+-- X509 Certificate Type instances
 
--- | Currently onl RSA is supported
---
 class X509Key k where
     type PK k
 
@@ -172,7 +233,15 @@ class X509Key k where
         -> B.ByteString
         -> m (a, SignatureALG)
 
+    pemKeyHeader :: String
+
 -- | EC
+--
+-- The ECDSA implementation in cryptonite as of version 0.25 is vulnerable to
+-- timing attacks. It is thus not supported in the Haskell tls package.
+--
+-- The PR https://github.com/haskell-crypto/cryptonite/pull/226 addresses this
+-- for curve P-256 / SEC_p256r1.
 --
 instance X509Key EC.KeyPair where
     type PK EC.KeyPair = EC.PublicPoint
@@ -195,9 +264,11 @@ instance X509Key EC.KeyPair where
 
     sigAlg = SignatureALG HashSHA512 PubKeyALG_EC
 
+    pemKeyHeader = "EC PRIVATE KEY"
+
     signIO sk bytes = do
         sig <- encodeEcSignatureDer <$> EC.sign (EC.toPrivateKey sk) SHA512 bytes
-        return (convert sig, sigAlg @Ed25519.SecretKey)
+        return (convert sig, sigAlg @EC.KeyPair)
 
 -- | Ed25519
 --
@@ -209,6 +280,7 @@ instance X509Key Ed25519.SecretKey where
     getPubKey = PubKeyEd25519 . publicKey
     getPrivKey = PrivKeyEd25519
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed25519
+    pemKeyHeader = "PRIVATE KEY"
 
     signIO sk bytes = return (convert sig, sigAlg @Ed25519.SecretKey)
       where
@@ -224,12 +296,13 @@ instance X509Key Ed448.SecretKey where
     getPubKey = PubKeyEd448 . publicKey
     getPrivKey = PrivKeyEd448
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed448
+    pemKeyHeader = "PRIVATE KEY"
 
     signIO sk bytes = return (convert sig, sigAlg @Ed448.SecretKey)
       where
         sig = Ed448.sign sk (publicKey sk) bytes
 
--- RSA (4096 bit keys size)
+-- | RSA (4096 bit keys size)
 --
 instance X509Key RSA.PrivateKey where
     type PK RSA.PrivateKey = RSA.PublicKey
@@ -238,6 +311,7 @@ instance X509Key RSA.PrivateKey where
     publicKey = RSA.toPublicKey . RSA.KeyPair
     getPubKey = PubKeyRSA . publicKey
     getPrivKey = PrivKeyRSA
+    pemKeyHeader = "PRIVATE KEY"
 
     signIO sk bytes = do
         sig <- RSA.signSafer (Just SHA512) sk bytes >>= \case
@@ -477,9 +551,9 @@ pX509KeyPem service = textOption
 encodeKeyDer :: X509Key k => k -> B.ByteString
 encodeKeyDer sk = encodeASN1' DER $ (toASN1 $ getPrivKey sk) []
 
-encodeKeyPem :: X509Key k => k -> X509KeyPem
+encodeKeyPem :: forall k . X509Key k => k -> X509KeyPem
 encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
-    { pemName = "PRIVATE KEY"
+    { pemName = pemKeyHeader @k
     , pemHeader = []
     , pemContent = encodeKeyDer sk
     }
@@ -503,6 +577,11 @@ decodePemX509Key (X509KeyPem bytes) =
 -- -------------------------------------------------------------------------- --
 -- Generate Self Signed Certificate
 
+-- | Generate a self-signed Certificate for a given distinguished name and
+-- optionally additional alternative names. Note, however, that for a most uses
+-- of a self-signed cerificate the names don't matter. Instead the certificate
+-- is authenticated by checking its fingerprint.
+--
 generateSelfSignedCertificate
     :: forall k
     . X509Key k
@@ -526,21 +605,13 @@ generateSelfSignedCertificate days dn altNames = do
     sc <- signedCertIO sk c
     return (fingerprint sc, encodeCertPem sc, encodeKeyPem sk)
 
--- | Generate a self-signed Certificate for a given distinguished name and
--- optionally additional alternative names. Note, however, that for a most uses
--- of a self-signed cerificate the names don't matter. Instead the certificate
--- is authenticated by checking its fingerprint.
---
-generateSelfSignedCertificateRsa
-    :: Natural
-    -> DistinguishedName
-    -> Maybe (NE.NonEmpty AltName)
-    -> IO (Fingerprint, X509CertPem, X509KeyPem)
-generateSelfSignedCertificateRsa = generateSelfSignedCertificate @RSA.PrivateKey
-
 -- -------------------------------------------------------------------------- --
 -- Generate Self Signed Certificate for Localhost
 
+-- | Generate a self-signed Certificate for localhost. Note, however, that for a
+-- most uses of a self-signed cerificate the names don't matter. Instead the
+-- certificate is authenticated by checking its fingerprint.
+--
 generateLocalhostCertificate
     :: forall k
     . X509Key k
@@ -550,15 +621,6 @@ generateLocalhostCertificate
 generateLocalhostCertificate days
     = generateSelfSignedCertificate @k days (name "localhost") $ Just
         $ AltNameDNS "localhost" NE.:| [AltNameIP "127.0.0.1"]
-
--- | Generate a self-signed Certificate for localhost. Note, however, that for a
--- most uses of a self-signed cerificate the names don't matter. Instead the
--- certificate is authenticated by checking its fingerprint.
---
-generateLocalhostCertificateRsa
-    :: Natural
-    -> IO (Fingerprint, X509CertPem, X509KeyPem)
-generateLocalhostCertificateRsa = generateLocalhostCertificate @RSA.PrivateKey
 
 -- -------------------------------------------------------------------------- --
 -- Client
@@ -594,7 +656,12 @@ certificateCacheManagerSettings policy credential = do
     -- and 'connectTo' are going to overwrite this anyways.
     --
     settings certstore = (defaultParamsClient "" "")
-        { clientSupported = def { supportedCiphers = ciphersuite_default }
+        { clientSupported = def
+            { supportedCiphers = ciphersuite_default
+#if WITH_TLS13
+            , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
+#endif
+            }
         , clientShared = def
             { sharedCAStore = certstore
             , sharedValidationCache = validationCache policy
@@ -644,5 +711,8 @@ tlsServerSettings
 tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
     = (tlsSettingsMemory certBytes keyBytes)
         { tlsCiphers = ciphersuite_default
+#if WITH_TLS13
+        , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
+#endif
         }
 

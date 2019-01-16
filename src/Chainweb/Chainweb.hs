@@ -9,6 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -110,6 +111,7 @@ module Chainweb.Chainweb
 
 import Configuration.Utils hiding (Lens')
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -120,6 +122,7 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
 import Data.Reflection (give)
 import qualified Data.Text as T
@@ -356,7 +359,7 @@ runChainSyncClient mgr chain = do
 
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
 chainSyncP2pSession depth db logg env = do
-    peer <- PeerTree <$> remoteDb db env
+    peer <- PeerTree <$> remoteDb db logg env
     chainSyncSession db peer depth logg
 
 syncDepth :: ChainGraph -> Depth
@@ -538,17 +541,53 @@ runChainweb cw = do
         let cred = unsafeMakeCredential
                 (_peerCertificate $ _chainwebPeer cw)
                 (_peerKey $ _chainwebPeer cw)
-        mgr <- HTTP.newManager =<< certificateCacheManagerSettings
-                (TlsSecure True (certCacheLookup cutPeerDb))
-                (Just cred)
+        settings <- certificateCacheManagerSettings
+            (TlsSecure True (certCacheLookup cutPeerDb))
+            (Just cred)
+
+        connCountRef <- newIORef (0 :: Int)
+        reqCountRef <- newIORef (0 :: Int)
+        mgr <- HTTP.newManager settings
+            { HTTP.managerConnCount = 5
+                -- keep only 5 connections alive
+            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
+                -- timeout connection attempts after 1 sec instead of 30 sec default
+            , HTTP.managerIdleConnectionCount = 512
+                -- total number of connections to keep alive. 512 is the default
+
+            -- Debugging
+
+            , HTTP.managerTlsConnection = do
+                mk <- HTTP.managerTlsConnection settings
+                return $ \a b c -> do
+                    atomicModifyIORef' connCountRef $ (,()) . succ
+                    mk a b c
+
+            , HTTP.managerModifyRequest = \req -> do
+                atomicModifyIORef' reqCountRef $ (,()) . succ
+                HTTP.managerModifyRequest settings req
+            }
+
+        let logClientConnections = forever $ do
+                threadDelay 5000000
+                connCount <- readIORef connCountRef
+                reqCount <- readIORef reqCountRef
+                alogFunction @(JsonLog Value) (_chainwebLogFun cw) Debug $ JsonLog $ object
+                    [ "clientConnectionCount" .= connCount
+                    , "clientRequestCount" .= reqCount
+                    ]
 
         -- 2. Run Clients
         --
         void $ mapConcurrently_ id
-            $ runMiner (_chainwebMiner cw)
+            $ logClientConnections
+                -- TODO: should we place this behind a CPP _DEBUG_ flag?
+
+            : runMiner (_chainwebMiner cw)
                 -- FIXME: should we start mining with some delay, so that
                 -- the block header base is up to date?
             : runCutsSyncClient mgr (_chainwebCuts cw)
+
             : (runChainSyncClient mgr <$> HM.elems (_chainwebChains cw))
 
         wait server

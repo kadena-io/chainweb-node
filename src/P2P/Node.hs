@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -65,11 +66,12 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Hashable
-import Data.Int
-import Data.IxSet.Typed (getEQ)
-import qualified Data.Map.Strict as M
 import qualified Data.HashSet as HS
+import Data.Int
+import Data.IxSet.Typed (getEQ, getLT, getGTE, getGT)
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import Data.Tuple
 
 import GHC.Generics
 
@@ -147,8 +149,12 @@ data P2pSessionResult
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
 
+-- | Whether a session was successful. 'P2pSessionTimeout' is considered
+-- success.
+--
 isSuccess :: P2pSessionResult -> Bool
 isSuccess (P2pSessionResult True) = True
+isSuccess P2pSessionTimeout = True
 isSuccess _ = False
 
 instance Arbitrary P2pSessionResult where
@@ -181,8 +187,6 @@ instance Arbitrary P2pSessionInfo where
 
 -- | P2P Node State
 --
--- TODO: add configuration
---
 data P2pNode = P2pNode
     { _p2pNodeNetworkId :: !NetworkId
     , _p2pNodeChainwebVersion :: !ChainwebVersion
@@ -203,10 +207,10 @@ showSessionId :: PeerInfo -> Async (Maybe Bool) -> T.Text
 showSessionId pinf ses = showInfo pinf <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
 
 showInfo :: PeerInfo -> T.Text
-showInfo pinf = maybe (toText $ _peerAddr pinf) showPid (_peerId pinf)
+showInfo pinf = toText (_peerAddr pinf) <> "#" <> maybe "" showPid (_peerId pinf)
 
 showPid :: PeerId -> T.Text
-showPid = T.take 8 . toText
+showPid = T.take 6 . toText
 
 addSession
     :: P2pNode
@@ -286,6 +290,8 @@ peerBaseUrl a = BaseUrl Https
 peerClientEnv :: P2pNode -> PeerInfo -> ClientEnv
 peerClientEnv node = mkClientEnv (_p2pNodeManager node) . peerBaseUrl . _peerAddr
 
+-- | Synchronize the peer database with the peer database of the remote peer.
+--
 -- TODO: handle paging
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
@@ -344,14 +350,8 @@ findNextPeer conf node = do
 
     -- Create a new sessions with a random peer for which there is no active
     -- sessions:
-
-    -- pick random starting point for linear search for a suitable peer.
-    -- Retry if no suitable peer can be found in the whole list of peers.
-    --
     i <- randomR node (0, peerCount - 1)
-    let (a, b) = splitAt (fromIntegral i)
-            $ toList
-            $ getEQ (_p2pNodeNetworkId node) peers
+
     let checkPeer (n :: PeerEntry) = do
             let pid = _peerId $ _peerEntryInfo n
             -- can this check be moved out of the fold?
@@ -359,7 +359,30 @@ findNextPeer conf node = do
             check (M.notMember (_peerEntryInfo n) sessions)
             check (pid /= myPid)
             return n
-    foldr (orElse . checkPeer) retry (b ++ a)
+
+    -- random circular shift of a set
+    let shift s = uncurry (++)
+            $ swap
+            $ splitAt (fromIntegral i)
+            $ toList
+            $ s
+
+    -- Classify the peers by priority
+    --
+    let base = getEQ (_p2pNodeNetworkId node) peers
+#if 0
+    let searchSpace = shift base
+#else
+    -- TODO: how expensive is this? should be cache the classification?
+    --
+    let p0 = getGT (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) $ base
+        p1 = getEQ (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
+        p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) $ base
+        p3 = getEQ (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
+        searchSpace = shift p0 ++ shift p1 ++ shift p2 ++ shift p3
+#endif
+
+    foldr (orElse . checkPeer) retry searchSpace
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
@@ -374,11 +397,11 @@ newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
     newPeer <- atomically $ findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
-    logg node Debug $ "Selected new peer " <> showInfo newPeerInfo
+    logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer node newPeerInfo >>= \case
         False -> do
             logg node Warn $ "Failed to connect new peer " <> showInfo newPeerInfo
-            threadDelay 500000
+            threadDelay =<< R.randomRIO (400000, 500000)
                 -- FIXME there are better ways to prevent the node from spinning
                 -- if no suitable (non-failing node) is available.
                 -- cf. GitHub issue #117
@@ -388,14 +411,20 @@ newSession conf node = do
             let env = peerClientEnv node newPeerInfo
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
-                newSes <- async $ restore $ timeout timeoutMs
+                t <- R.randomRIO
+                    ( round (0.9 * timeoutMs)
+                    , round (1.1 * timeoutMs)
+                    )
+                newSes <- async $ restore $ timeout t
                     $ _p2pNodeClientSession node (loggFun node) env
+                incrementActiveSessionCount peerDb newPeerInfo
                 info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)
             logg node Info $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
-    TimeSpan timeoutMs = secondsToTimeSpan (_p2pConfigSessionTimeout conf)
+    TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
+    peerDb = _p2pNodePeerDb node
 
 -- | Monitor and garbage collect sessions
 --
@@ -410,6 +439,26 @@ awaitSessions node = do
             Right (Just False) -> P2pSessionResult False <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
         return (p, i, a, result)
+
+    -- update peer db entry
+    --
+    -- (Note that there is a chance of a race here, if the peer is used in
+    -- new session after the previous session is removed from the node and
+    -- before the following db updates are performed. The following updates are
+    -- performed under an 'MVar' lock in IO to prevent starvation due to
+    -- contention. This comes at the cost of possibly inaccurate values for
+    -- the counters and times in the PeerEntry value.)
+    --
+    decrementActiveSessionCount peerDb pId
+    case result of
+        P2pSessionTimeout -> do
+            resetSuccessiveFailures peerDb pId
+            updateLastSuccess peerDb pId
+        P2pSessionResult True -> do
+            resetSuccessiveFailures peerDb pId
+            updateLastSuccess peerDb pId
+        P2pSessionResult False -> incrementSuccessiveFailures peerDb pId
+        P2pSessionException _ -> incrementSuccessiveFailures peerDb pId
 
     -- logging
 
@@ -435,6 +484,9 @@ awaitSessions node = do
         updateActiveCount node
         readTVar (_p2pNodeStats node)
     loggFun node Info $ JsonLog stats
+
+  where
+    peerDb = _p2pNodePeerDb node
 
 waitAnySession
     :: P2pNode

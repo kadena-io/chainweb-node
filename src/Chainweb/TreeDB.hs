@@ -14,6 +14,8 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.TreeDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -426,7 +428,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | @branchKeys n l mir mar lower upper@ returns all nodes within the given
     -- range of minimum rank @mir@ and maximun rank @mar@ that are predecessors
     -- of nodes in @upper@ and not predecessors of any node in @lower@, starting
-    -- at the entry after @n@. The number of itmes in the result is limited by
+    -- at the entry after @n@. The number of items in the result is limited by
     -- @l@. Items are returned in descending order.
     --
     -- The result stream doesn't block. It may return less than the requested
