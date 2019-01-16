@@ -151,11 +151,13 @@ library
         , cryptohash-sha512 >= 0.11
         , data-dword >= 0.3
         , deepseq >= 1.4
+        , direct-sqlite >= 2.3
         , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
         , heaps >= 0.3
         , http-client >= 0.5
+        , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
@@ -177,7 +179,6 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
-        , direct-sqlite >= 2.3
         , stm >= 2.4
         , stm-chans
         , streaming >= 0.2

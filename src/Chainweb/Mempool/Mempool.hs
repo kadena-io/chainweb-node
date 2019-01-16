@@ -5,7 +5,7 @@
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
-  , TransactionHash
+  , TransactionHash(..)
   , TransactionFees
   , TransactionMetadata(..)
   , Codec(..)
@@ -71,6 +71,7 @@ data TransactionConfig t = TransactionConfig {
 data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
+    -- TODO: move this inside TransactionConfig ?
   , mempoolBlockSizeLimit :: Int64
 
     -- | Lookup transactions in the pending queue by hash.
