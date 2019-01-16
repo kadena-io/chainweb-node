@@ -30,9 +30,16 @@ import Pact.Types.RPC
 import Pact.Types.Runtime hiding (PublicKey)
 import Pact.Types.Server
 
-applyCmd :: Logger -> Maybe EntityName -> PactDbEnv p -> MVar CommandState ->
-            GasModel -> ExecutionMode -> Command a ->
-            ProcessedCommand PublicMeta ParsedCode -> IO CommandResult
+applyCmd
+    :: Logger
+    -> Maybe EntityName
+    -> PactDbEnv p
+    -> MVar CommandState
+    -> GasModel
+    -> ExecutionMode
+    -> Command a
+    -> ProcessedCommand PublicMeta ParsedCode
+    -> IO CommandResult
 applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
 applyCmd logger conf dbv cv gasModel exMode _ (ProcSucc cmd) = do
   let pubMeta = _pMeta $ _cmdPayload cmd
@@ -160,8 +167,13 @@ rollbackUpdate CommandEnv {..} ContMsg {..} CommandState {..}
         "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmTxId
     void $ liftIO $ swapMVar _ceState newState
 
-continuationUpdate ::
-       CommandEnv p -> ContMsg -> CommandState -> CommandPact -> PactExec -> CommandM p ()
+continuationUpdate
+  :: CommandEnv p
+  -> ContMsg
+  -> CommandState
+  -> CommandPact
+  -> PactExec
+  -> CommandM p ()
 continuationUpdate CommandEnv {..} ContMsg {..} CommandState {..} CommandPact {..} PactExec {..} = do
     let nextStep = _cmStep + 1
         isLast = nextStep >= _cpStepCount
