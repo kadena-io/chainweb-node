@@ -168,6 +168,25 @@ in
           rev = "6ee9fcb026ebdb49b810802a981d166680d867c9";
           sha256 = "09fcf896bs6i71qhj5w6qbwllkv3gywnn5wfsdrcm0w1y6h8i88f";
         }) {});
+
+        hspec = callHackageDirect {
+          pkg = "hspec";
+          ver = "2.5.8";
+          sha256 = "0000000000000000000000000000000000000000000000000000";
+        };
+
+        hspec-core = callHackageDirect {
+          pkg = "hspec-core";
+          ver = "2.5.8";
+          sha256 = "0000000000000000000000000000000000000000000000000000";
+        };
+
+        hspec-discover = callHackageDirect {
+          pkg = "hspec-discover";
+          ver = "2.5.8";
+          sha256 = "0000000000000000000000000000000000000000000000000000";
+        };
+
         ######################################################################
 
       };

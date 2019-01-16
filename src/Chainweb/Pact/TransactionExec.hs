@@ -56,7 +56,7 @@ exToTx (Transactional t) = Just t
 exToTx Local = Nothing
 
 runPayload :: Command (Payload PublicMeta ParsedCode) -> CommandM p CommandResult
-runPayload c@Command{..} = case (_pPayload _cmdPayload) of
+runPayload c@Command{..} = case _pPayload _cmdPayload of
   Exec pm -> applyExec (cmdToRequestKey c) pm c
   Continuation ym -> applyContinuation (cmdToRequestKey c) ym c
 

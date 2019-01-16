@@ -85,7 +85,7 @@ newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock bHeight) $ do liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+    unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
     theState <- get
     env <- ask
     results <- liftIO $ execTransactions env theState newTrans
@@ -140,7 +140,7 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    cpEnv@(CheckpointEnv {..}) <- ask
+    cpEnv@CheckpointEnv {..} <- ask
     -- TODO: to be replaced with mkCheckpointe outside this module
     unless (isFirstBlock _bBlockHeight) $ do
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
@@ -175,7 +175,7 @@ execTransactions cpEnv pactState xs =
 
 applyPactCmd ::
        CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd (CheckpointEnv {..}) (PactDbState {..}) eMode cmd = do
+applyPactCmd CheckpointEnv {..} PactDbState {..} eMode cmd = do
     newVar <- newMVar _pdbsState
     case _pdbsDbEnv of
         Env' pactDbEnv -> do

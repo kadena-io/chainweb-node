@@ -228,6 +228,7 @@ test-suite chainweb-tests
         , bytes >= 0.15
         , bytestring >= 0.10
         , containers >= 0.5
+        , data-default >=0.7
         , data-dword >= 0.3
         , fgl >= 5.6
         , generic-lens >= 1.1

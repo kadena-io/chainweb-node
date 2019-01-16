@@ -30,8 +30,9 @@ import qualified Pact.Types.Server as P
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 import Control.Monad.Zip
 
 import Data.Aeson (Value(..))
@@ -118,13 +119,13 @@ testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc
 execPactTransactions :: [Transaction] -> PactT [TransactionOutput]
 execPactTransactions trans = do
     env <- ask
-    dbState <- get
+    dbState <- lift get
     liftIO $ execTransactions env dbState trans
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
-  let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
-  parseScientific resultValue @?= Just sci
+    let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
+    parseScientific resultValue @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
 parseScientific (Object o) =
