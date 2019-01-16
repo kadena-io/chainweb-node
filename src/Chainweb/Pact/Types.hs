@@ -1,7 +1,7 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Pact.Types
@@ -15,7 +15,7 @@ module Chainweb.Pact.Types
     ( Block(..)
     , bBlockHeight
     , bHash
-    , bParentHash
+    , bParentHeader
     , bTransactions
     , PactDbStatePersist(..)
     , pdbspRestoreFile
@@ -30,18 +30,16 @@ module Chainweb.Pact.Types
     ) where
 
 import Control.Lens
-import Control.Monad.Trans.RWS.Lazy
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 
 import Data.ByteString (ByteString)
 
-import GHC.Word (Word64)
+import GHC.Word
 
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Runtime as P
 
--- internal modules
-
-import qualified Chainweb.BlockHeader as C
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
@@ -56,9 +54,9 @@ newtype TransactionOutput = TransactionOutput
     }
 
 data Block = Block
-    { _bHash :: Maybe P.Hash
-    , _bParentHash :: P.Hash
-    , _bBlockHeight :: C.BlockHeight
+    { _bHash :: Maybe BlockPayloadHash
+    , _bParentHeader :: BlockHeader
+    , _bBlockHeight :: BlockHeight
     , _bTransactions :: [(Transaction, TransactionOutput)]
     }
 
@@ -71,7 +69,7 @@ data PactDbStatePersist = PactDbStatePersist
 
 makeLenses ''PactDbStatePersist
 
-type PactT a = RWST CheckpointEnv' () PactDbState IO a
+type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 
 data TransactionCriteria =
     TransactionCriteria

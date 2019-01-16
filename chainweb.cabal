@@ -218,6 +218,8 @@ library
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
+    if flag(with-pact)
+        cpp-options: -DWITH_PACT=1
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
@@ -247,8 +249,11 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
-
         Network.X509.SelfSigned.Test
+
+    if flag(with-pact)
+        other-modules:
+            Chainweb.Test.Pact
 
     build-depends:
         -- internal
@@ -262,6 +267,7 @@ test-suite chainweb-tests
         , bytes >= 0.15
         , bytestring >= 0.10
         , containers >= 0.5
+        , data-default >=0.7
         , data-dword >= 0.3
         , fgl >= 5.6
         , generic-lens >= 1.1
@@ -276,6 +282,7 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2
+        , scientific >= 0.3
         , servant-client >= 0.13
         , streaming >= 0.2
         , tasty >= 1.0
@@ -283,6 +290,7 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >= 1.2
         , these >= 0.7
+        , time >= 1.8
         , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
@@ -297,6 +305,8 @@ test-suite chainweb-tests
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
 
+    if flag(with-pact)
+        cpp-options: -DWITH_PACT=1
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
 -- -------------------------------------------------------------------------- --
@@ -512,4 +522,3 @@ executable p2p-example
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
-

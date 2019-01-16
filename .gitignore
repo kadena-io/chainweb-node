@@ -1,3 +1,4 @@
+.dir-locals.el
 dist
 dist-*
 cabal-dev
@@ -28,3 +29,4 @@ result-*
 \#*
 .stylish-haskell.yaml
 public
+log

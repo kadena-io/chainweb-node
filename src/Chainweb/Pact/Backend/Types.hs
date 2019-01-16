@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -25,39 +25,31 @@ module Chainweb.Pact.Backend.Types
     , pdbsState
     , usage
     , CheckpointEnv(..)
-    , cpeCheckpointStore
     , cpeCommandConfig
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
-    , CheckpointEnv'(..)
     , CheckpointData(..)
     , cpPactDbEnv
     , cpRefStore
     , cpPacts
     , Checkpointer(..)
     , cRestore
-    , cPrepare
+    , cPrepareForNewBlock
+    , cPrepareForValidBlock
     , cSave
+    , cDiscard
     , Env'(..)
     , OpMode(..)
     , PactDbBackend
     ) where
 
 import Control.Lens
-import Control.Monad.State
 
 import Data.Aeson
-import Data.HashMap.Strict (HashMap)
-import Data.IORef
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
 
 import GHC.Generics
-
--- internal modules
-
-import qualified Chainweb.BlockHeader as C
 
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
@@ -66,6 +58,9 @@ import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
+
+-- internal modules
+import Chainweb.BlockHeader
 
 class PactDbBackend e
 
@@ -119,33 +114,21 @@ data CheckpointData = CheckpointData
 
 makeLenses ''CheckpointData
 
-data Checkpointer c = Checkpointer
-    { _cRestore :: C.BlockHeight -> P.Hash -> StateT (c, M.Map (C.BlockHeight, P.Hash) c) IO ()
-    , _cPrepare :: C.BlockHeight -> P.Hash -> OpMode -> StateT (c, M.Map (C.BlockHeight, P.Hash) c) IO (Either String CheckpointData)
-    , _cSave :: C.BlockHeight -> P.Hash -> CheckpointData -> OpMode -> StateT ( c
-                                                                              , M.Map ( C.BlockHeight
-                                                                                      , P.Hash) c) IO ()
+data Checkpointer = Checkpointer
+    { _cRestore :: BlockHeight -> BlockPayloadHash -> IO ()
+    , _cPrepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+    , _cPrepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+    , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+    , _cDiscard :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
     }
 
 makeLenses ''Checkpointer
 
-class CheckpointServiceStore c
-
-instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) CheckpointData)
-
-instance CheckpointServiceStore (HashMap (C.BlockHeight, P.Hash) FilePath)
-
-data CheckpointEnv c = CheckpointEnv
-    { _cpeCheckpointer :: Checkpointer c
+data CheckpointEnv = CheckpointEnv
+    { _cpeCheckpointer :: Checkpointer
     , _cpeCommandConfig :: P.CommandConfig
-    , _cpeCheckpointStore :: IORef c
-    , _cpeCheckpointStoreIndex :: IORef (Map (C.BlockHeight, P.Hash) c)
     , _cpeLogger :: P.Logger
     , _cpeGasEnv :: P.GasEnv
     }
 
 makeLenses ''CheckpointEnv
-
-data CheckpointEnv' =
-    forall c. CheckpointServiceStore c =>
-              CheckpointEnv' (CheckpointEnv c)
