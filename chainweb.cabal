@@ -32,6 +32,24 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
+flag tls13
+    description:
+        Enable TLSv1.3; depends on the master branch of the tls package.
+    default: False
+    manual: True
+
+flag ed25519
+    description:
+        Use ED25519 certificates; depends on the master branch of the tls
+        package.
+    default: False
+    manual: True
+
+flag with-pact
+    description: include pact
+    default: True
+    manual: True
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -64,14 +82,6 @@ library
         , Chainweb.HostAddress
         , Chainweb.Miner.Test
         , Chainweb.NodeId
-        , Chainweb.Pact.Backend.InMemoryCheckpointer
-        , Chainweb.Pact.Backend.MemoryDb
-        , Chainweb.Pact.Backend.SQLiteCheckpointer
-        , Chainweb.Pact.Backend.SqliteDb
-        , Chainweb.Pact.Backend.Types
-        , Chainweb.Pact.PactService
-        , Chainweb.Pact.TransactionExec
-        , Chainweb.Pact.Types
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
@@ -107,6 +117,18 @@ library
         , P2P.Peer
         , P2P.Session
 
+    if flag(with-pact)
+
+        exposed-modules:
+              Chainweb.Pact.Backend.InMemoryCheckpointer
+            , Chainweb.Pact.Backend.MemoryDb
+            , Chainweb.Pact.Backend.SQLiteCheckpointer
+            , Chainweb.Pact.Backend.SqliteDb
+            , Chainweb.Pact.Backend.Types
+            , Chainweb.Pact.PactService
+            , Chainweb.Pact.TransactionExec
+            , Chainweb.Pact.Types
+
     build-depends:
           QuickCheck >= 2.10
         , QuickCheck-GenT >=0.2
@@ -138,7 +160,6 @@ library
         , mwc-random >= 0.13
         , network >= 2.6
         , optparse-applicative >= 0.14
-        , pact >= 2.4
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1
@@ -182,6 +203,20 @@ library
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
+
+        -- EKG
+        , ekg >= 0.4
+        , wai-middleware-metrics >= 0.2.4
+
+    if flag(with-pact)
+        build-depends:
+          pact >= 2.4
+
+    if flag(tls13)
+        cpp-options: -DWITH_TLS13=1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -239,7 +274,6 @@ test-suite chainweb-tests
         , massiv >= 0.2
         , mwc-random >= 0.13
         , network >= 2.6
-        , pact == 2.6.*
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , reflection >= 2.1
@@ -253,11 +287,19 @@ test-suite chainweb-tests
         , text >= 1.2
         , these >= 0.7
         , time >= 1.8
+        , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
+
+    if flag(with-pact)
+        build-depends:
+          pact >= 2.6
+
+    if flag(ed25519)
+        cpp-options: -dWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -396,6 +438,7 @@ executable single-chain-example
         , mwc-random >= 0.13
         , streaming >= 0.2.2
         , text >= 1.2
+        , tls >=1.4
         , unordered-containers >= 0.2
         , wai-app-static >= 3.1
         , wai-cors >= 0.2
@@ -403,6 +446,9 @@ executable single-chain-example
         , warp >= 3.2
         , xmlgen >= 0.6
         , yet-another-logger >= 0.3.1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Examples for BlockHeaderDb usage
@@ -464,5 +510,9 @@ executable p2p-example
         , loglevel >= 0.1
         , mwc-random >= 0.13
         , text >= 1.2
+        , tls >=1.4
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1

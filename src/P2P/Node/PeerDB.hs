@@ -27,8 +27,14 @@
 --
 module P2P.Node.PeerDB
 (
+-- * Index Values
+  LastSuccess(..)
+, SuccessiveFailures(..)
+, AddedTime(..)
+, ActiveSessionCount(..)
+
 -- * Peer Entry
-  PeerEntry(..)
+, PeerEntry(..)
 , peerEntryInfo
 , peerEntrySuccessiveFailures
 , peerEntryLastSuccess
@@ -47,9 +53,20 @@ module P2P.Node.PeerDB
 , newEmptyPeerDb
 , fromPeerEntryList
 , fromPeerInfoList
+
+-- * Update PeerDb Entries
+, updateLastSuccess
+, resetSuccessiveFailures
+, incrementSuccessiveFailures
+, incrementActiveSessionCount
+, decrementActiveSessionCount
+
+-- * Persistence
 , storePeerDb
 , loadPeerDb
 , loadIntoPeerDb
+
+-- * Some PeerDb
 , PeerDbT(..)
 , SomePeerDb(..)
 , somePeerDbVal
@@ -104,11 +121,15 @@ newtype LastSuccess = LastSuccess { _getLastSuccess :: Maybe UTCTime }
 
 newtype SuccessiveFailures = SuccessiveFailures{ _getSuccessiveFailures :: Natural }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Num, Arbitrary)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary)
 
 newtype AddedTime = AddedTime { _getAddedTime :: UTCTime }
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (ToJSON, FromJSON, Arbitrary)
+
+newtype ActiveSessionCount = ActiveSessionCount { _getActiveSessionCount :: Natural }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary)
 
 data PeerEntry = PeerEntry
     { _peerEntryInfo :: !PeerInfo
@@ -127,6 +148,12 @@ data PeerEntry = PeerEntry
     , _peerEntryNetworkIds :: S.Set NetworkId
         -- ^ The set of chains that this peer supports.
 
+    , _peerEntryActiveSessionCount :: !ActiveSessionCount
+        -- ^ number of currently active sessions with this peer. By trying to
+        -- maximize this number, the sharing of peers between different network
+        -- ids is increased. There should be only one active session per network
+        -- id.
+
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, FromJSON)
@@ -134,11 +161,11 @@ data PeerEntry = PeerEntry
 makeLenses ''PeerEntry
 
 newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid)
+newPeerEntry nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
-        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
@@ -151,6 +178,7 @@ type PeerEntryIxs =
     , SuccessiveFailures
     , LastSuccess
     , NetworkId
+    , ActiveSessionCount
     ]
 
 instance Indexable PeerEntryIxs PeerEntry where
@@ -160,6 +188,7 @@ instance Indexable PeerEntryIxs PeerEntry where
         (ixFun $ \e -> [_peerEntrySuccessiveFailures e])
         (ixFun $ \e -> [_peerEntryLastSuccess e])
         (ixFun $ \e -> F.toList (_peerEntryNetworkIds e))
+        (ixFun $ \e -> [_peerEntryActiveSessionCount e])
 
 type PeerSet = IxSet PeerEntryIxs PeerEntry
 
@@ -184,10 +213,10 @@ fromPeerSet = fromSet
 -- If the 'PeerAddr' exist with the same peer-id, the chain-id is added.
 --
 addPeerEntry :: PeerEntry -> PeerSet -> PeerSet
-addPeerEntry b m = m & case getOne $ getEQ (_peerAddr $ _peerEntryInfo b) m of
+addPeerEntry b m = m & case getOne (getEQ addr m) of
 
     -- new peer doesn't exist: insert
-    Nothing -> insert b
+    Nothing -> updateIx addr b
 
     -- existing peer addr
     Just a -> case _peerId (_peerEntryInfo a) of
@@ -197,17 +226,19 @@ addPeerEntry b m = m & case getOne $ getEQ (_peerAddr $ _peerEntryInfo b) m of
 
         Just pid
             -- new peer id: replace existing peer
-            | Just pid /= _peerId (_peerEntryInfo b) -> replace a
+            | Just pid /= _peerId (_peerEntryInfo b) -> replace
 
             -- existing peer: update chain-ids
             | otherwise -> update a
   where
-    replace a = updateIx (_peerAddr (_peerEntryInfo a)) b
-    update a = updateIx (_peerAddr (_peerEntryInfo a)) $ PeerEntry
+    addr = _peerAddr $ _peerEntryInfo b
+    replace = updateIx addr b
+    update a = updateIx addr $ PeerEntry
         { _peerEntryInfo = _peerEntryInfo a
         , _peerEntrySuccessiveFailures = _peerEntrySuccessiveFailures a + _peerEntrySuccessiveFailures b
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
         , _peerEntryNetworkIds = _peerEntryNetworkIds a <> _peerEntryNetworkIds b
+        , _peerEntryActiveSessionCount = _peerEntryActiveSessionCount a + _peerEntryActiveSessionCount b
         }
 
 -- | Add a 'PeerInfo' to an existing 'PeerSet'.
@@ -273,11 +304,12 @@ fromPeerInfoList :: NetworkId -> [PeerInfo] -> IO PeerDb
 fromPeerInfoList nid peers = fromPeerEntryList $ newPeerEntry nid <$> peers
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
-peerDbInsertList peers (PeerDb lock var) = withMVar lock
-    . const
-    . atomically
-    . modifyTVar var
-    $ insertPeerEntryList peers
+peerDbInsertList peers (PeerDb lock var) = do
+    withMVar lock
+        . const
+        . atomically
+        . modifyTVar var
+        $ insertPeerEntryList peers
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList nid ps = peerDbInsertList (newPeerEntry nid <$> ps)
@@ -287,6 +319,34 @@ peerDbInsertSet = peerDbInsertList . F.toList
 
 newEmptyPeerDb :: IO PeerDb
 newEmptyPeerDb = PeerDb <$> newMVar () <*> newTVarIO mempty
+
+updatePeerDb :: PeerDb -> HostAddress -> (PeerEntry -> PeerEntry) -> IO ()
+updatePeerDb (PeerDb lock var) a f
+    = withMVar lock . const . atomically . modifyTVar' var $ \s ->
+        case getOne $ getEQ a s of
+            Nothing -> s
+            Just x -> updateIx a (f x) s
+
+incrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
+incrementActiveSessionCount db i
+    = updatePeerDb db (_peerAddr i) $ over peerEntryActiveSessionCount succ
+
+decrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
+decrementActiveSessionCount db i
+    = updatePeerDb db (_peerAddr i) $ over peerEntryActiveSessionCount pred
+
+incrementSuccessiveFailures :: PeerDb -> PeerInfo -> IO ()
+incrementSuccessiveFailures db i
+    = updatePeerDb db (_peerAddr i) $ over peerEntrySuccessiveFailures succ
+
+resetSuccessiveFailures :: PeerDb -> PeerInfo -> IO ()
+resetSuccessiveFailures db i
+    = updatePeerDb db (_peerAddr i) $ set peerEntrySuccessiveFailures 0
+
+updateLastSuccess :: PeerDb -> PeerInfo -> IO ()
+updateLastSuccess db i = do
+    now <- LastSuccess . Just <$> getCurrentTime
+    updatePeerDb db (_peerAddr i) $ set peerEntryLastSuccess now
 
 -- -------------------------------------------------------------------------- --
 -- Persistence

@@ -26,6 +26,7 @@ module Data.LogMessage
 , LogFunction
 , ALogFunction(..)
 , alogFunction
+, aNoLog
 
 -- * LogMessage types
 , JsonLog(..)
@@ -102,12 +103,24 @@ instance LogMessage T.Text where
 -- -------------------------------------------------------------------------- --
 -- LogFunction
 
+-- | Type of a log functions
+--
 type LogFunction = forall a . LogMessage a => LogLevel -> a -> IO ()
 
+-- | A newtype wrapper that allows to store a 'LogFunction' without running into
+-- impredicative types.
+--
 newtype ALogFunction = ALogFunction { _getLogFunction :: LogFunction }
 
+-- | Get a 'LogFunction' from 'ALogFunction'
+--
 alogFunction :: forall a . LogMessage a => ALogFunction -> LogLevel -> a -> IO ()
 alogFunction (ALogFunction l) = l
+
+-- | 'ALogFunction' that discards all log messages
+--
+aNoLog :: ALogFunction
+aNoLog = ALogFunction $ \_ _ -> return ()
 
 -- -------------------------------------------------------------------------- --
 -- LogMessage Types

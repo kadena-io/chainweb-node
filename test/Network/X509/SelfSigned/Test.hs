@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -13,7 +14,7 @@
 -- TODO
 --
 module Network.X509.SelfSigned.Test
-( test
+( tests
 ) where
 
 import Control.Concurrent.Async (withAsync)
@@ -39,27 +40,26 @@ import Test.Tasty.HUnit
 import Network.X509.SelfSigned
 
 -- -------------------------------------------------------------------------- --
--- Test
+-- Tests
 
-serve :: X509CertPem -> X509KeyPem -> Socket -> IO ()
-serve certBytes keyBytes sock =
-    runTLSSocket (tlsServerSettings certBytes keyBytes) defaultSettings sock
-        $ \_ respond -> respond $ responseLBS status200 [] "Success"
+tests :: TestTree
+tests = testGroup "SelfSignedCertificate Tests"
+    [ testCertType @RsaCert "RSA"
+#if MIN_VERSION_tls(1,5,0) || WITH_TLS13
+    , testCertType @Ed25519Cert "Ed25519"
+    , testCertType @Ed448Cert "Ed448"
+#endif
+    -- , testCertType @P256Cert "P-256"
+        -- P-256 is currently not fully supported on the server side
+        -- in the master branch of the tls package.
+    ]
 
-showPolicy :: TlsPolicy -> String
-showPolicy TlsInsecure = "TlsInsecure"
-showPolicy (TlsSecure a _) = "TlsInsecure " <> show a <> " <<cache callback>>"
-
--- TODO:
---     serverHooks = def
---         { onUnverifiedClientCert = return True
---         }
-
-test :: TestTree
-test = testCaseSteps "SelfSignedCertifcate" $ \step -> do
+testCertType :: forall k . X509Key k => String -> TestTree
+testCertType l = testCaseSteps l $ \step -> do
 
     step "Generate Certificate"
-    (fp, cert, key) <- generateLocalhostCertificateRsa 1
+
+    (fp, cert, key) <- generateLocalhostCertificate @k 1
     let cred = unsafeMakeCredential cert key
 
     step "Start Server"
@@ -102,7 +102,24 @@ test = testCaseSteps "SelfSignedCertifcate" $ \step -> do
         pass $ query "google.com" 443 $ TlsSecure True check
         fail $ query "google.com" 443 $ TlsSecure False check
 
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+serve :: X509CertPem -> X509KeyPem -> Socket -> IO ()
+serve certBytes keyBytes sock =
+    runTLSSocket (tlsServerSettings certBytes keyBytes) defaultSettings sock
+        $ \_ respond -> respond $ responseLBS status200 [] "Success"
+
+showPolicy :: TlsPolicy -> String
+showPolicy TlsInsecure = "TlsInsecure"
+showPolicy (TlsSecure a _) = "TlsInsecure " <> show a <> " <<cache callback>>"
+
 assertException :: forall e a . Exception e => IO a -> Assertion
 assertException a = (a >> assertFailure "missing asserted exception")
     `catch` \(_ :: e) -> return ()
+
+-- TODO client certificates:
+--     serverHooks = def
+--         { onUnverifiedClientCert = return True
+--         }
 

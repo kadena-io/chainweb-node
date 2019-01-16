@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: P2P.Peer
@@ -321,7 +323,7 @@ makeLenses ''Peer
 unsafeCreatePeer :: HasCallStack => PeerConfig -> IO Peer
 unsafeCreatePeer conf = do
     (fp, cert, key) <- case (_peerConfigCertificate conf, _peerConfigKey conf) of
-        (Nothing, _) -> generateSelfSignedCertificateRsa 365 dn Nothing
+        (Nothing, _) -> generateSelfSignedCertificate @DefCertType 365 dn Nothing
         (Just c, Just k) -> return (unsafeFingerprintPem c, c, k)
         _ -> error "missing certificate key in peer config"
     return $ Peer
@@ -366,10 +368,14 @@ instance FromJSON Peer where
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
 bootstrapPeerInfos Test =
     [ PeerInfo
+#if WITH_ED25519
+        { _peerId = Just $ unsafeFromText "BMe2hSdSEGCzLwvoYXPuB1BqYEH5wiV5AvacutSGWmg"
+#else
         { _peerId = Just $ unsafeFromText "9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ"
+#endif
             -- this is the fingerprint of the certificate and key that is stored
-            -- in ./scripts/test-bootstrap-node.config". For programatic use the
-            -- same certificate is also available at
+            -- in ./scripts/test-bootstrap-node.config". For programatic use of
+            -- the same certificate is also available at
             -- "Chainweb.Test.P2P.Peer.BootstrapConfig". It is intended for
             -- testing purposes only.
 
@@ -389,7 +395,8 @@ bootstrapPeerInfos x = error
 instance Arbitrary PeerConfig where
     arbitrary = do
         (c, k) <- oneof
-            [ return (Just cert, Just key)
+            [ return (Just certRsa, Just keyRsa)
+            , return (Just certEd25519, Just keyEd25519)
             , return (Nothing, Nothing)
             ]
         PeerConfig
@@ -398,7 +405,7 @@ instance Arbitrary PeerConfig where
             <*> return c
             <*> return k
       where
-        cert = X509CertPem $ B8.intercalate "\n"
+        certRsa = X509CertPem $ B8.intercalate "\n"
             [ "-----BEGIN CERTIFICATE-----"
             , "MIIFBDCCAuygAwIBAgIBATANBgkqhkiG9w0BAQ0FADAUMRIwEAYDVQQDDAlsb2Nh"
             , "bGhvc3QwHhcNMTgxMjIyMDM1NzM2WhcNMzAwMzEwMDM1NzM2WjAUMRIwEAYDVQQD"
@@ -429,8 +436,7 @@ instance Arbitrary PeerConfig where
             , "sF9RMi6wZ9BNEWcs4gsfd0mgss3J32aCk7cQve8isqjFpmGrTx23iA=="
             , "-----END CERTIFICATE-----"
             ]
-
-        key  = X509KeyPem $ B8.intercalate "\n"
+        keyRsa = X509KeyPem $ B8.intercalate "\n"
             [ "-----BEGIN PRIVATE KEY-----"
             , "MIIJKAIBAAKCAgEA6NC/zHexQbgi8SR+E3m2AsP9hQqFTulrn9HA0g5nj8aBpNnc"
             , "wbk/9PkIfj06f2O62p/ab7LO9Tim+fz7UQIkC9BBV7cmADi895DKQMRzrKBDMs5F"
@@ -481,6 +487,22 @@ instance Arbitrary PeerConfig where
             , "PDIdzBooRc8ImJdXoGAF/H21wifRO2gE7IqQKyTbjO9NHVloy0Rk1IQ1SJkS+8ar"
             , "tpgD+I8sb6nAgZzIIpH602XDykCoTzI/uAOvtf1VuKNK6DLJK2z+d1vUAOxhzqAr"
             , "QM/ThFn9xv3RUppF4aGrnfCsldXfrxmwgLvOw3qxLOCk6mHOcInRjw4Qdpk="
+            , "-----END PRIVATE KEY-----"
+            ]
+        certEd25519 = X509CertPem $ B8.intercalate "\n"
+            [ "-----BEGIN CERTIFICATE-----"
+            , "MIIBOzCB7KADAgECAgEBMAcGAytlcAUAMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAe"
+            , "Fw0xOTAxMTEyMDE4MjVaFw0xOTAxMjEyMDE4MjVaMBQxEjAQBgNVBAMMCWxvY2Fs"
+            , "aG9zdDAqMAUGAytlcAMhAIxryJq0NofN67ugnkRQIE/MQqml2hgWOfDg3XCb1/Z0"
+            , "o2EwXzAMBgNVHQ8EBQMDB/wAMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcD"
+            , "AjAPBgNVHRMECDAGAQH/AgEAMB8GA1UdEQQYMBaCCWxvY2FsaG9zdIcJMTI3LjAu"
+            , "MC4xMAcGAytlcAUAA0EA3IceiC7mDYX4HmFUyCHzip5tNvkQMJ7eDwXuod0NjeW7"
+            , "u7HU1s1AZ8yCqkIm9E9p7SmFehytX38qmSk5KxvCAQ=="
+            , "-----END CERTIFICATE-----"
+            ]
+        keyEd25519 = X509KeyPem $ B8.intercalate "\n"
+            [ "-----BEGIN PRIVATE KEY-----"
+            , "MC4CAQAwBQYDK2VwBCIEIPQZCpPI8qgkU/HlsIwQBC48QuXOl036aReJF6DFLLjR"
             , "-----END PRIVATE KEY-----"
             ]
 
