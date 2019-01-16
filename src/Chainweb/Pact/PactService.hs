@@ -74,7 +74,7 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runRWST serviceRequests checkpointEnv theState
+    void $ runReaderT serviceRequests checkpointEnv theState
 
 serviceRequests :: PactT ()
 serviceRequests =

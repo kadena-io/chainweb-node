@@ -15,12 +15,14 @@ extra-deps:
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   - tasty-1.2
   - yet-another-logger-0.3.1
-
+  - hspec-2.5.8
+  - hspec-core-2.5.8
+  - hspec-discover-2.5.8
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
   - git: https://github.com/kadena-io/pact.git
-    commit: 3316593a690444e0290dfc3605b55dc5aa7e43c9
+    commit: 3ac9a6d01bd5816ea4b7e47300012543510393ea
   - git: https://github.com/LeventErkok/sbv.git
     commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
   - git: git@github.com:kadena-io/thyme.git
