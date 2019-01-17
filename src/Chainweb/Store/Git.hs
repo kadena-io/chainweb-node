@@ -35,21 +35,14 @@ module Chainweb.Store.Git
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar
-import Control.Monad (unless, void, when, (>=>))
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad (void, when, (>=>))
 
 import Data.Bits ((.|.))
 import Data.Bool (bool)
 import Data.Bytes.Put (runPutS)
-import qualified Data.ByteString.Base64.URL as B64U
-import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable (traverse_)
 import Data.Functor (($>))
-import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -350,71 +343,8 @@ tagAsLeaf store@(GitStoreData repo _) leaf =
 mkName :: TreeEntry -> NullTerminated
 mkName (TreeEntry h bh _) = mkLeafTagName h bh
 
-------------------------------------------------------------------------------
--- | A `ByteString` whose final byte is a @\0@. Don't try to be too clever with
--- this.
---
-newtype NullTerminated = NullTerminated { _unterminated :: [ByteString] }
-
-nappend :: ByteString -> NullTerminated -> NullTerminated
-nappend b (NullTerminated b') = NullTerminated $ b : b'
-{-# INLINE nappend #-}
-
-terminate :: NullTerminated -> ByteString
-terminate = B.concat . _unterminated
-{-# INLINE terminate #-}
-
--- | Encode a `BlockHeight` and `BlockHashBytes` into the expected format,
--- append some decorator to the front (likely a section of a filepath), and
--- postpend a null-terminator.
---
-mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
-mkTreeEntryNameWith b height hash = NullTerminated [ b, encHeight, ".", encBH, "\0" ]
-  where
-    encBH = B64U.encode $! runPutS (encodeBlockHashBytes hash)
-    encHeight = B64U.encode $! runPutS (encodeBlockHeight height)
-
-mkTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
-mkTagName = mkTreeEntryNameWith "bh/"
-
 mkLeafTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
 mkLeafTagName = mkTreeEntryNameWith "leaf/"
-
-mkTagRef :: BlockHeight -> BlockHashBytes -> NullTerminated
-mkTagRef height hash = nappend "tags/" (mkTagName height hash)
-
-
-------------------------------------------------------------------------------
--- | Shouldn't throw, in theory.
---
-lookupRefTarget
-    :: GitStoreData
-    -> NullTerminated      -- ^ ref path, e.g. tags/foo
-    -> IO (Maybe GitHash)
-lookupRefTarget (GitStoreData repo _) path0 =
-    B.unsafeUseAsCString (terminate path)
-        $ \cpath -> alloca
-        $ \pOid -> runMaybeT $ do
-            maybeTGitError $ G.c'git_reference_name_to_id pOid repo cpath
-            GitHash <$> liftIO (oidToByteString pOid)
-  where
-    path :: NullTerminated
-    path = nappend "refs/" path0
-
-
-------------------------------------------------------------------------------
--- | Shouldn't throw, in theory.
---
-lookupTreeEntryByHash
-    :: GitStoreData
-    -> BlockHashBytes
-    -> BlockHeight
-    -> IO (Maybe TreeEntry)
-lookupTreeEntryByHash gs bh height =
-    fmap (TreeEntry height bh) <$> lookupRefTarget gs tagRef
-  where
-    tagRef :: NullTerminated
-    tagRef = mkTagRef height bh
 
 
 ------------------------------------------------------------------------------
@@ -445,9 +375,9 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHei
 
     search :: IO TreeEntry
     search = do
-        let first = V.unsafeHead spec'
-            gh = _te_gitHash first
-        if | _te_blockHeight first == height -> pure first
+        let frst = V.unsafeHead spec'
+            gh = _te_gitHash frst
+        if | _te_blockHeight frst == height -> pure frst
            | otherwise -> lookupTreeEntryByHeight gs gh height
 
 ------------------------------------------------------------------------------
@@ -493,30 +423,3 @@ walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
     let f' :: LeafTreeData -> IO ()
         f' = readHeader' gsd >=> f
     walk' gsd height bhb (const $ pure ()) f'
-
--- | Traverse the tree, as in `walk`. This version is faster, as it does not
--- spend time decoding each `TreeEntry` into a `BlockHeader` (unless you tell it
--- to, of course, say via `readHeader'`).
---
--- Internal usage only (since neither `TreeEntry` nor `LeafTreeData` are
--- exposed).
---
-walk'
-    :: GitStoreData
-    -> BlockHeight
-    -> BlockHashBytes
-    -> (TreeEntry -> IO ())
-    -> (LeafTreeData -> IO ())
-    -> IO ()
-walk' gsd height hash f g =
-    lookupTreeEntryByHash gsd hash height >>= \case
-        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
-        Just te -> do
-            f te
-            unless (height == 0) $ do
-                ltd <- readLeafTree gsd (_te_gitHash te)
-                let parent = V.last $ _ltd_spectrum ltd
-                walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
-
-bhText :: BlockHeight -> Text
-bhText (BlockHeight h) = T.pack $ show h

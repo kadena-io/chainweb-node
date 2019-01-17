@@ -4,6 +4,7 @@
 module Chainweb.Test.Store.Git ( tests ) where
 
 import Data.Foldable (traverse_)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 
@@ -40,6 +41,9 @@ tests = testGroup "Git Store"
           , testCase "Single Insertion" $ withNewRepo singleInsert
           , testCase "Multiple Insertion" $ withNewRepo multiInsert
           , testCase "Genesis Reinsertion" $ withNewRepo genesisReinsertion
+          ]
+    , testGroup "Traversal"
+          [ testCase "Leaf-to-Genesis" $ withNewRepo basicTrav
           ]
     , testGroup "Invariants"
           [ testCase "Final entry of spectrum is parent" $ withNewRepo parentIsLastInSpectrum
@@ -105,6 +109,11 @@ multiInsert gs = do
     length ls @?= 1
     head ls @?= last nexts
 
+-- | INVARIANT: The last `TreeEntry` in a node's spectrum should refer to its
+-- direct parent.
+--
+-- TODO What about the genesis block?
+--
 parentIsLastInSpectrum :: GitStore -> Assertion
 parentIsLastInSpectrum gs = do
     let nexts = take 100 $ testBlockHeaders genesis
@@ -115,3 +124,14 @@ parentIsLastInSpectrum gs = do
         bh <- readHeader gsd te
         let parent = V.last $ _ltd_spectrum ltd
         _te_blockHash parent @?= (getBlockHashBytes $ _blockParent bh)
+
+basicTrav :: GitStore -> Assertion
+basicTrav gs = do
+    let nexts = take 100 $ testBlockHeaders genesis
+    traverse_ (insertBlock gs) nexts
+    leaf <- head <$> leaves gs
+    count <- newIORef (0 :: Int)
+    walk gs (_blockHeight leaf) (_blockHash leaf) $ \_ ->
+        atomicModifyIORef' count (\n -> (n + 1, ()))
+    final <- readIORef count
+    final @?= 101

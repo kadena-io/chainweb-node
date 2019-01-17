@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -20,12 +21,19 @@ module Chainweb.Store.Git.Internal
   , GitHash(..)
     -- ** Errors
   , GitFailure(..)
+    -- ** Utilities
+  , NullTerminated
+  , terminate
 
     -- * Queries
   , readLeafTree
   , readHeader
   , readHeader'
   , leaves'
+  , lookupTreeEntryByHash
+
+    -- * Traversal
+  , walk'
 
     -- * Brackets
   , lockGitStore
@@ -45,18 +53,21 @@ module Chainweb.Store.Git.Internal
   , parseLeafTreeFileName
   , oidToByteString
   , getBlockHashBytes
+  , mkTreeEntryNameWith
+  , mkTagName
   ) where
 
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar (MVar, withMVar)
 import Control.Error.Util (hoistMaybe, hush, nothing)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import Data.Bits (complement, unsafeShiftL, (.&.))
 import Data.Bytes.Get (runGetS)
+import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -80,9 +91,11 @@ import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 
-import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
+import Chainweb.BlockHash
+    (BlockHash(..), BlockHashBytes(..), encodeBlockHashBytes)
 import Chainweb.BlockHeader
-    (BlockHeader, BlockHeight(..), decodeBlockHeader, decodeBlockHeight)
+    (BlockHeader, BlockHeight(..), decodeBlockHeader, decodeBlockHeight,
+    encodeBlockHeight)
 
 ---
 
@@ -149,6 +162,19 @@ newtype GitStoreFailure = GitStoreFailure { gitStoreFailureReason :: Text }
   deriving (Show)
 
 instance Exception GitStoreFailure
+
+-- | A `ByteString` whose final byte is a @\\0@. Don't try to be too clever with
+-- this.
+--
+newtype NullTerminated = NullTerminated { _unterminated :: [ByteString] }
+
+nappend :: ByteString -> NullTerminated -> NullTerminated
+nappend b (NullTerminated b') = NullTerminated $ b : b'
+{-# INLINE nappend #-}
+
+terminate :: NullTerminated -> ByteString
+terminate = B.concat . _unterminated
+{-# INLINE terminate #-}
 
 ----------
 -- QUERIES
@@ -255,6 +281,64 @@ leaves' (GitStoreData repo _) =
                maybeTGitError $ G.c'git_reference_name_to_id oidP repo fullTagPath'
                hash <- liftIO $ GitHash <$> oidToByteString oidP
                pure $! TreeEntry bh bs hash
+
+-- | Shouldn't throw, in theory.
+--
+lookupTreeEntryByHash
+    :: GitStoreData
+    -> BlockHashBytes
+    -> BlockHeight
+    -> IO (Maybe TreeEntry)
+lookupTreeEntryByHash gs bh height =
+    fmap (TreeEntry height bh) <$> lookupRefTarget gs tagRef
+  where
+    tagRef :: NullTerminated
+    tagRef = mkTagRef height bh
+
+-- | Shouldn't throw, in theory.
+--
+lookupRefTarget
+    :: GitStoreData
+    -> NullTerminated      -- ^ ref path, e.g. tags/foo
+    -> IO (Maybe GitHash)
+lookupRefTarget (GitStoreData repo _) path0 =
+    B.unsafeUseAsCString (terminate path)
+        $ \cpath -> alloca
+        $ \pOid -> runMaybeT $ do
+            maybeTGitError $ G.c'git_reference_name_to_id pOid repo cpath
+            GitHash <$> liftIO (oidToByteString pOid)
+  where
+    path :: NullTerminated
+    path = nappend "refs/" path0
+
+------------
+-- TRAVERSAL
+------------
+
+-- | Traverse the tree, as in `Chainweb.Store.Git.walk`. This version is faster, as it does not
+-- spend time decoding each `TreeEntry` into a `BlockHeader` (unless you tell it
+-- to, of course, say via `readHeader'`).
+--
+-- Internal usage only (since neither `TreeEntry` nor `LeafTreeData` are
+-- exposed).
+--
+walk'
+    :: GitStoreData
+    -> BlockHeight
+    -> BlockHashBytes
+    -> (TreeEntry -> IO ())
+    -> (LeafTreeData -> IO ())
+    -> IO ()
+walk' gsd !height !hash f g =
+    lookupTreeEntryByHash gsd hash height >>= \case
+        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
+        Just te -> do
+            f te
+            ltd <- readLeafTree gsd (_te_gitHash te)
+            g ltd
+            unless (height == 0) $ do
+                let parent = V.last $ _ltd_spectrum ltd
+                walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
 
 -----------
 -- BRACKETS
@@ -394,3 +478,22 @@ oidToByteString pOid = bracket (G.c'git_oid_allocfmt pOid) free B.packCString
 --
 getBlockHashBytes :: BlockHash -> BlockHashBytes
 getBlockHashBytes (BlockHash _ bytes) = bytes
+
+bhText :: BlockHeight -> Text
+bhText (BlockHeight h) = T.pack $ show h
+
+mkTagRef :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagRef height hash = nappend "tags/" (mkTagName height hash)
+
+mkTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagName = mkTreeEntryNameWith "bh/"
+
+-- | Encode a `BlockHeight` and `BlockHashBytes` into the expected format,
+-- append some decorator to the front (likely a section of a filepath), and
+-- postpend a null-terminator.
+--
+mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
+mkTreeEntryNameWith b height hash = NullTerminated [ b, encHeight, ".", encBH, "\0" ]
+  where
+    encBH = B64U.encode $! runPutS (encodeBlockHashBytes hash)
+    encHeight = B64U.encode $! runPutS (encodeBlockHeight height)
