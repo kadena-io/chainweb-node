@@ -29,13 +29,13 @@ module Chainweb.Store.Git
   -- * Lookup
   , lookupByBlockHash
   , leaves
-  -- , walk
+  , walk
   ) where
 
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar
-import Control.Monad (void, when)
+import Control.Monad (unless, void, when, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
@@ -48,6 +48,8 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable (traverse_)
 import Data.Functor (($>))
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -65,9 +67,9 @@ import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
 -- internal modules
 
-import Chainweb.BlockHash (BlockHash, BlockHashBytes, encodeBlockHashBytes)
+import Chainweb.BlockHash (BlockHash(..), BlockHashBytes, encodeBlockHashBytes)
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight, encodeBlockHeader, encodeBlockHeight)
+    (BlockHeader(..), BlockHeight(..), encodeBlockHeader, encodeBlockHeight)
 import Chainweb.Store.Git.Internal
 
 ---
@@ -456,20 +458,35 @@ leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
 -- traverse the tree from the node to the root, applying some function to each
 -- associated `BlockHeader` along the way.
 --
--- walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
--- walk height hash f = undefined
+walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
+walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
+    let f' :: LeafTreeData -> IO ()
+        f' = readHeader' gsd >=> f
+    walk' gsd height bhb (const $ pure ()) f'
 
 -- | Traverse the tree, as in `walk`. This version is faster, as it does not
 -- spend time decoding each `TreeEntry` into a `BlockHeader` (unless you tell it
--- to, of course).
+-- to, of course, say via `readHeader'`).
 --
--- Internal usage only (since `TreeEntry` isn't exposed).
+-- Internal usage only (since neither `TreeEntry` nor `LeafTreeData` are
+-- exposed).
 --
--- walk' :: GitStoreData -> BlockHeight -> BlockHash -> (TreeEntry -> IO ()) -> IO ()
--- walk' gsd height hash f =
---     lookupTreeEntryByHash gsd (getBlockHashBytes hash) height >>= \case
---         Nothing -> pure ()
---         Just te -> do
---             f te
-            -- Get spectrum, grab last entry (direct parent)
-            -- walk' _ _
+walk'
+    :: GitStoreData
+    -> BlockHeight
+    -> BlockHashBytes
+    -> (TreeEntry -> IO ())
+    -> (LeafTreeData -> IO ())
+    -> IO ()
+walk' gsd height hash f g =
+    lookupTreeEntryByHash gsd hash height >>= \case
+        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
+        Just te -> do
+            f te
+            unless (height == 0) $ do
+                ltd <- readLeafTree gsd (_te_gitHash te)
+                let parent = V.last $ _ltd_spectrum ltd
+                walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
+
+bhText :: BlockHeight -> Text
+bhText (BlockHeight h) = T.pack $ show h

@@ -24,6 +24,7 @@ module Chainweb.Store.Git.Internal
     -- * Queries
   , readLeafTree
   , readHeader
+  , readHeader'
   , leaves'
 
     -- * Brackets
@@ -188,8 +189,14 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
 -- | Fetch the `BlockHeader` that corresponds to some `TreeEntry`.
 --
 readHeader :: GitStoreData -> TreeEntry -> IO BlockHeader
-readHeader store (TreeEntry _ _ gh) = do
-    blobHash <- _te_gitHash . _ltd_treeEntry <$> readLeafTree store gh
+readHeader store (TreeEntry _ _ gh) = readLeafTree store gh >>= readHeader' store
+
+-- | A short-cut, for when you already have your hands on the inner
+-- `LeafTreeData`.
+--
+readHeader' :: GitStoreData -> LeafTreeData -> IO BlockHeader
+readHeader' store ltd = do
+    let blobHash = _te_gitHash $ _ltd_treeEntry ltd
     bs <- getBlob store blobHash
     either (throwGitStoreFailure . T.pack) pure $
         runGetS decodeBlockHeader bs
