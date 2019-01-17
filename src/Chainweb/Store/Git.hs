@@ -61,15 +61,17 @@ import Foreign.Storable (peek)
 
 import Prelude hiding (lookup)
 
+import System.IO.Unsafe (unsafePerformIO)
+import System.Mem (performGC)
 import System.Path (Absolute, Path, toFilePath)
 
 import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
 -- internal modules
 
-import Chainweb.BlockHash (BlockHash(..), BlockHashBytes, encodeBlockHashBytes)
+import Chainweb.BlockHash (BlockHash(..), BlockHashBytes)
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), encodeBlockHeader, encodeBlockHeight)
+    (BlockHeader(..), BlockHeight(..), encodeBlockHeader)
 import Chainweb.Store.Git.Internal
 
 ---
@@ -81,15 +83,43 @@ data GitStoreConfig = GitStoreConfig {
   , _gsc_genesis :: !BlockHeader
 }
 
+-- | The ancient Haskell monks of Mt. Lambda warned me of its power... but I
+-- have trained. I have studied. I have reflected on the human condition and my
+-- role in the world. I am ready. I dare outstretch my hand and seize The Power
+-- for myself - a beautiful global mutable variable.
+--
+libgitRefCount :: MVar Int
+libgitRefCount = unsafePerformIO (newMVar 0)
+{-# NOINLINE libgitRefCount #-}
+
+-- | A construction similar to `G.withLibGitDo` from @hlibgit2@, except that the
+-- underlying C threads are only initialized when no Haskell threads have
+-- reported using this function yet. Likewise, the last Haskell thread to report
+-- needing this function will make the appropriate cleanup calls.
+--
+withLibGit :: IO a -> IO a
+withLibGit f = do
+    modifyMVar_ libgitRefCount $ \case
+        n | n < 0 -> throwGitStoreFailure "Negative ref count to libgit2 bindings!"
+          | n == 0 ->
+                1 <$ throwOnGitError "withLibGit" "git_threads_init" G.c'git_threads_init
+          | otherwise -> pure $! n + 1
+    r <- f
+    modifyMVar_ libgitRefCount $ \case
+        n | n < 1  -> throwGitStoreFailure "More libgit refs were released than were obtained!"
+          | n == 1 -> performGC >> G.c'git_threads_shutdown $> 0
+          | otherwise -> pure $! n - 1
+    pure r
+
 -- | A bracket-pattern that gives access to a `GitStore`, the fundamental
 -- git-based storage type. Given a `GitStoreConfig`, this function first assumes
 -- an existing repository, and tries to open it. If no such repository exists,
 -- it will create a fresh one with the provided genesis `BlockHeader`.
 --
--- Low-level pointers to the underlying git repository are freed automatically.
+-- Underlying pointers to libgit2 are freed automatically.
 --
 withGitStore :: GitStoreConfig -> (GitStore -> IO a) -> IO a
-withGitStore (GitStoreConfig root0 g) f = G.withLibGitDo $ bracket open close f
+withGitStore (GitStoreConfig root0 g) f = withLibGit $ bracket open close f
   where
     root :: String
     root = toFilePath root0
