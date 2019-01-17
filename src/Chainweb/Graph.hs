@@ -57,6 +57,7 @@ module Chainweb.Graph
 
 , isWebChain
 , chainIds
+, chainIds_
 , checkWebChainId
 , checkAdjacentChainIds
 
@@ -185,6 +186,10 @@ instance HasChainGraph ChainGraph where
 chainIds :: Given ChainGraph => HS.HashSet ChainId
 chainIds = vertices given
 {-# INLINE chainIds #-}
+
+chainIds_ :: ChainGraph -> HS.HashSet ChainId
+chainIds_ = vertices
+{-# INLINE chainIds_ #-}
 
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
 -- in @g@.

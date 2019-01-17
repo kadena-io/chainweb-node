@@ -41,7 +41,6 @@ import Control.Monad
 
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.Reflection
 
 import GHC.Generics hiding (from)
 
@@ -133,7 +132,7 @@ node graph conf logger =
             (runChainweb cw)
             (runMonitor logger (_cutsCutDb $ _chainwebCuts cw))
   where
-    logfuns = give graph $ chainwebLogFunctions chainIds logger
+    logfuns = chainwebLogFunctions (chainIds_ graph) logger
 
 withNodeLogger :: L.LogConfig -> EnableConfig JsonLoggerConfig -> (Logger -> IO a) -> IO a
 withNodeLogger logConfig cutsLoggerConfig f =

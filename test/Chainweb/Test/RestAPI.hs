@@ -21,7 +21,6 @@ import Control.Monad.IO.Class
 import Data.Either
 import Data.Foldable
 import Data.Maybe
-import Data.Reflection (give)
 import qualified Data.Text as T
 
 import Network.HTTP.Types.Status
@@ -100,7 +99,7 @@ tests_ tls =
 simpleSessionTests :: Bool -> TestTree
 simpleSessionTests tls = withBlockHeaderDbsServer tls petersonGenesisBlockHeaderDbs
     $ \env -> testGroup "client session tests"
-        $ simpleClientSession env <$> toList (give peterson chainIds)
+        $ simpleClientSession env <$> toList (chainIds_ peterson)
 
 simpleClientSession :: IO TestClientEnv -> ChainId -> TestTree
 simpleClientSession envIO cid =
