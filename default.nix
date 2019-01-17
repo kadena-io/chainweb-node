@@ -72,13 +72,6 @@ in
           sha256 = "0nhjxjj5dsh9h8yff9np6pj48a6lx5cd1zv50xlyfvvribyf6qvk";
         });
 
-        # 1.1.5 doesn't work with tasty-1.2 and has a hackage revision
-        tasty-hspec = doJailbreak (callHackageDirect {
-          pkg = "tasty-hspec";
-          ver = "1.1.5.1";
-          sha256 = "02fcyifsmp3d0d67crpgwn2q9arkpvf22p9x3fr9bvz152v5mmxr";
-        });
-
         natural-transformation = doJailbreak (callHackageDirect {
           pkg = "natural-transformation";
           ver = "0.4";
@@ -114,8 +107,8 @@ in
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "3316593a690444e0290dfc3605b55dc5aa7e43c9";
-          sha256 = "0h5nlwklha8kgcgxybcb5g2ldfs8x78paqr8riaja73ww7ydf496";
+          rev = "3ac9a6d01bd5816ea4b7e47300012543510393ea";
+          sha256 = "0fkhj1kzm51xynzziqrlzr0nv3gi7vifjikjaaggcy457zpn665w";
         }) {}) pkgs.z3;
 
         streaming = callHackageDirect {
@@ -128,6 +121,13 @@ in
           pkg = "yet-another-logger";
           ver = "0.3.1";
           sha256 = "17i5km3bxlp568q9pbnbp2nvpfgnmccpfnvcci0z1f56cw95679n";
+        };
+
+        # test suite fails to build with for older versions
+        scotty = callHackageDirect {
+            pkg = "scotty";
+            ver = "0.11.3";
+            sha256 = "0y98macg977ps81h9mx3hzdmkxn5y14556a2dyvd22468nsmjid1";
         };
 
         ######################################################################

@@ -9,7 +9,6 @@
 -- Stability: experimental
 --
 -- Pact service for Chainweb
-
 module Chainweb.Pact.PactService
     ( execTransactions
     , initPactService
@@ -27,7 +26,8 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.RWS.Lazy
+import Control.Monad.Reader
+import Control.Monad.State
 
 import Data.ByteString (ByteString)
 import Data.Maybe
@@ -36,10 +36,11 @@ import qualified Data.Yaml as Y
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
+import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -74,27 +75,31 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runRWST serviceRequests checkpointEnv theState
+    void $ runStateT (runReaderT serviceRequests checkpointEnv) theState
 
 serviceRequests :: PactT ()
-serviceRequests =
-    forever $ return () --TODO: get / service requests for new blocks and verification
+serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
 
 newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
-    CheckpointEnv' cpEnv <- ask
-    -- TODO: to be replaced with mkCheckpointe outside this module
-    let checkpointer = _cpeCheckpointer cpEnv
-        ref_checkpoint = _cpeCheckpoint cpEnv
-        ref_checkpointStore = _cpeCheckpointStore cpEnv
-    unless (isFirstBlock bHeight) $ do
-        liftIO $ _cRestore checkpointer bHeight parentPayloadHash ref_checkpoint ref_checkpointStore
+    CheckpointEnv {..} <- ask
+    unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
     theState <- get
     env <- ask
     results <- liftIO $ execTransactions env theState newTrans
-    liftIO $ _cSave checkpointer bHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState) NewBlock ref_checkpoint ref_checkpointStore
+    liftIO $
+        _cDiscard
+            _cpeCheckpointer
+            bHeight
+            parentPayloadHash
+            (liftA3
+                 CheckpointData
+                 _pdbsDbEnv
+                 (P._csRefStore . _pdbsState)
+                 (P._csPacts . _pdbsState)
+                 theState)
     return
         Block
             { _bHash = Nothing -- not yet computed
@@ -135,42 +140,47 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    cpEnv'@(CheckpointEnv' cpEnv) <- ask
+    cpEnv@CheckpointEnv {..} <- ask
     -- TODO: to be replaced with mkCheckpointe outside this module
-    let checkpointer = _cpeCheckpointer cpEnv
-        ref_checkpoint = _cpeCheckpoint cpEnv
-        ref_checkpointStore = _cpeCheckpointStore cpEnv
     unless (isFirstBlock _bBlockHeight) $ do
-        liftIO $ _cRestore checkpointer _bBlockHeight parentPayloadHash ref_checkpoint ref_checkpointStore
+        liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
     currentState <- get
-    _results <- liftIO $ execTransactions cpEnv' currentState (fmap fst _bTransactions)
+    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
-    liftIO $ _cSave checkpointer _bBlockHeight parentPayloadHash (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st) Validation ref_checkpoint ref_checkpointStore
+    liftIO $
+        _cSave
+            _cpeCheckpointer
+            _bBlockHeight
+            parentPayloadHash
+            (liftA3
+                 CheckpointData
+                 _pdbsDbEnv
+                 (P._csRefStore . _pdbsState)
+                 (P._csPacts . _pdbsState)
+                 st)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
---execTransactions :: CheckpointEnv c -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-execTransactions :: CheckpointEnv' -> PactDbState -> [Transaction] -> IO [TransactionOutput]
+execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
-    forM xs (\Transaction {..} -> do
-        let txId = P.Transactional (P.TxId _tTxId)
-        liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
+    forM
+        xs
+        (\Transaction {..} -> do
+             let txId = P.Transactional (P.TxId _tTxId)
+             liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
 
-applyPactCmd :: CheckpointEnv' -> PactDbState -> P.ExecutionMode -> P.Command ByteString
-             -> IO P.CommandResult
-applyPactCmd (CheckpointEnv' cpEnv) pactState eMode cmd = do
-    let cmdState = _pdbsState pactState
-    newVar <-  newMVar cmdState
-    let logger = _cpeLogger cpEnv
-    let gasEnv = _cpeGasEnv cpEnv
-    let pactDbEnv' = _pdbsDbEnv pactState
-    case pactDbEnv' of
-        Env' pactDbEnv ->
-            applyCmd logger Nothing pactDbEnv newVar gasEnv eMode cmd (P.verifyCommand cmd)
+applyPactCmd ::
+       CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd CheckpointEnv {..} PactDbState {..} eMode cmd = do
+    newVar <- newMVar _pdbsState
+    case _pdbsDbEnv of
+        Env' pactDbEnv -> do
+            let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
+            applyCmd _cpeLogger Nothing pactDbEnv newVar (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined

@@ -46,6 +46,7 @@ module Chainweb.Cut
 
 -- * Genesis Cut
 , genesisCut
+, genesisCut_
 
 -- * Checks
 , checkBraidingOfCut
@@ -91,6 +92,7 @@ module Chainweb.Cut
 
 ) where
 
+import Control.DeepSeq
 import Control.Exception hiding (catch)
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -157,6 +159,7 @@ data Cut = Cut
     , _cutGraph :: !ChainGraph
     }
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 makeLenses ''Cut
 
@@ -185,7 +188,7 @@ lookupCutM
     -> m BlockHeader
 lookupCutM cid c = firstOf (ixg (_chainId cid)) c
     ??? ChainNotInChainGraphException
-        (Expected (give (_chainGraph c) chainIds))
+        (Expected $ chainIds_ $ _chainGraph c)
         (Actual (_chainId cid))
 
 _cutWeight :: Cut -> BlockWeight
@@ -240,13 +243,18 @@ genesisCut
     :: Given ChainGraph
     => ChainwebVersion
     -> Cut
-genesisCut v = Cut
-    { _cutHeaders = HM.mapWithKey (\cid _ -> genesisBlockHeader v given cid)
+genesisCut = genesisCut_ given
+
+genesisCut_
+    :: ChainGraph
+    -> ChainwebVersion
+    -> Cut
+genesisCut_ graph v = Cut
+    { _cutHeaders = HM.mapWithKey (\cid _ -> genesisBlockHeader v graph cid)
         . HS.toMap
-        $ chainIds
-    , _cutGraph = given
+        $ chainIds_ graph
+    , _cutGraph = graph
     }
-{-# NOINLINE genesisCut #-}
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -535,6 +543,10 @@ forkDepth a b = do
 -- -------------------------------------------------------------------------- --
 -- Test Mining
 
+-- Try to mine a new block header on the given chain for the given cut.
+-- Returns 'Nothing' if mining isn't possible because of missing adjacent
+-- dependencies.
+--
 testMine
     :: HasChainId cid
     => Given WebBlockHeaderDb
@@ -546,10 +558,11 @@ testMine
 testMine n nid i c = forM (testMineCut n nid i c) $ \(h, c') ->
     c' <$ insertWebBlockHeaderDb h
 
--- | Only produces a new cut but doesn't insert it into the chain database
+-- | Only produces a new cut but doesn't insert it into the chain database.
 --
 testMineCut
-    :: HasChainId cid
+    :: HasCallStack
+    => HasChainId cid
     => Nonce
     -> NodeId
     -> cid
@@ -560,10 +573,13 @@ testMineCut n nid i c = do
     return (h, c & cutHeaders . ix cid .~ h)
   where
     cid = _chainId i
+
+    -- the block to mine on
     p = c ^?! ixg cid
 
     newHeader as = testBlockHeader (nodeIdFromNodeId nid cid) as n p
 
+    -- try to get all adjacent hashes dependencies.
     newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
         c ^?! ixg (_chainId x) . to (tryAdj (_blockHeight p))
 

@@ -30,16 +30,21 @@ import qualified Pact.Types.Server as P
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.RWS.Lazy
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 import Control.Monad.Zip
+
 import Data.Aeson (Value(..))
 import Data.ByteString (ByteString)
+import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
 import Data.Time.Clock
 import qualified Data.Text as T
+
 import GHC.Word
 import System.IO.Extra
 import Test.Tasty
@@ -67,7 +72,7 @@ pactExecTests = do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runRWST execTests checkpointEnv theState
+    void $ runStateT (runReaderT execTests checkpointEnv) theState
 
 execTests :: PactT ()
 execTests = do
@@ -99,11 +104,12 @@ batchCmd: |-
 
 mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
-    let cmd = P.mkCommand
-          (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
-          Nothing
-          nonce
-          (P.Exec (P.ExecMsg (T.pack theCode) theData))
+    let pubMeta = def :: P.PublicMeta
+        cmd = P.mkCommand
+              (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
+              pubMeta
+              nonce
+              (P.Exec (P.ExecMsg (T.pack theCode) theData))
     in Transaction {_tTxId = txId, _tCmd = cmd}
 
 testKeyPairs :: [P.KeyPair]
@@ -129,13 +135,13 @@ testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc
 execPactTransactions :: [Transaction] -> PactT [TransactionOutput]
 execPactTransactions trans = do
     env <- ask
-    dbState <- get
+    dbState <- lift get
     liftIO $ execTransactions env dbState trans
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
-  let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
-  parseScientific resultValue @?= Just sci
+    let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
+    parseScientific resultValue @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
 parseScientific (Object o) =

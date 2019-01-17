@@ -121,7 +121,7 @@ makeLenses ''CutDbConfig
 
 defaultCutDbConfig :: ChainwebVersion -> ChainGraph -> CutDbConfig
 defaultCutDbConfig v g = CutDbConfig
-    { _cutDbConfigInitialCut = give g $ genesisCut v
+    { _cutDbConfigInitialCut = genesisCut_ g v
     , _cutDbConfigInitialCutFile = Nothing
     , _cutDbConfigBufferSize = 10
         -- FIXME this should probably depend on the diameter of the graph

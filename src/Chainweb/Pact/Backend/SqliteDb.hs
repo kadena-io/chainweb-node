@@ -1,3 +1,10 @@
+-- |
+-- Module: Chainweb.Pact.Backend.SqliteDb
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Mark Nichols <mark@kadena.io>
+-- Stability: experimental
+--
 module Chainweb.Pact.Backend.SqliteDb where
 
 import qualified Data.Map.Strict as M
@@ -9,7 +16,6 @@ import Pact.PersistPactDb
 import Pact.Types.Server
 
 -- internal modules
-
 import Chainweb.Pact.Types
 
 mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> IO PactDbState

@@ -1,4 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -17,7 +21,9 @@ module Chainweb.TreeDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
-import Control.Monad.Catch (throwM)
+import Control.Monad.Catch (throwM, handle)
+
+import qualified Data.Text as T
 
 import Numeric.Natural
 
@@ -26,74 +32,97 @@ import Servant.Client hiding (client)
 import Streaming
 import qualified Streaming.Prelude as SP
 
+import System.LogLevel
+
 -- internal modules
+
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId (ChainId)
 import Chainweb.TreeDB
+import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version (ChainwebVersion)
+
+import Data.LogMessage
 
 -- | A representation of a tree-like data store that can be queried across a
 -- network.
 --
 data RemoteDb = RemoteDb
     { _remoteEnv :: !ClientEnv
+    , _remoteLogFunction :: !ALogFunction
     , _remoteVersion :: !ChainwebVersion
-    , _remoteChainId :: {-# UNPACK #-} !ChainId }
+    , _remoteChainId :: {-# UNPACK #-} !ChainId
+    }
 
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env ver cid) k = hush <$> runClientM client env
+    lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
       where
-        client = headerClient ver cid k
+        client = logServantError alog "failed to query tree db entry"
+            $ headerClient ver cid k
 
-    children (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
+    children (RemoteDb env alog ver cid) k = void $ callAndPage client Nothing 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client _ = childHashesClient ver cid k
+        client _ = logServantError alog "failed to query children keys"
+            $ childHashesClient ver cid k
 
-    childrenEntries (RemoteDb env ver cid) k = void $ callAndPage client Nothing 0 env
+    childrenEntries (RemoteDb env alog ver cid) k = void $ callAndPage client Nothing 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client _ = childHeadersClient ver cid k
+        client _ = logServantError alog "failed to query children entries"
+            $ childHeadersClient ver cid k
 
-    keys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+    keys (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = hashesClient ver cid limit nxt minr maxr
+        client nxt = logServantError alog "failed to query tree db keys"
+            $ hashesClient ver cid limit nxt minr maxr
 
-    entries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+    entries (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = headersClient ver cid limit nxt minr maxr
+        client nxt = logServantError alog "failed to query tree db entries"
+            $ headersClient ver cid limit nxt minr maxr
 
-    leafEntries (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+    leafEntries (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = leafHeadersClient ver cid limit nxt minr maxr
+        client nxt = logServantError alog "failed to query leaf entries"
+            $ leafHeadersClient ver cid limit nxt minr maxr
 
-    leafKeys (RemoteDb env ver cid) next limit minr maxr = callAndPage client next 0 env
+    leafKeys (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = leafHashesClient ver cid limit nxt minr maxr
+        client nxt = logServantError alog "failed to query leaf keys"
+            $ leafHashesClient ver cid limit nxt minr maxr
 
-    branchKeys (RemoteDb env ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+    branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+        client nxt = logServantError alog "failed to query remote branch keys"
+            $ branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
-    branchEntries (RemoteDb env ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+    branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+        client nxt = logServantError alog "failed to query remote branch entries"
+            $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
-    insert (RemoteDb env ver cid) e = void $ runClientM client env
+    insert (RemoteDb env alog ver cid) e = void $ runClientM client env
       where
-        client = headerPutClient ver cid e
+        client = logServantError alog "failed to put tree db entry"
+            $ headerPutClient ver cid e
+
+logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
+logServantError alog msg = handle $ \(e :: ServantError) -> do
+    liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
+    throwM e
 
 -- | Given the proper arguments to initiate a remote request, perform said request
 -- and deconstruct consecutive pages into a `Stream`.
@@ -119,7 +148,13 @@ callAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . th
 -- | Given some connection configuration, form a `RemoteDb` interface to some
 -- `TreeDb`.
 --
-remoteDb :: (TreeDb db, DbEntry db ~ BlockHeader) => db -> ClientEnv -> IO RemoteDb
-remoteDb db env = do
+remoteDb
+    :: TreeDb db
+    => DbEntry db ~ BlockHeader
+    => db
+    -> LogFunction
+    -> ClientEnv
+    -> IO RemoteDb
+remoteDb db logg env = do
     h <- root db
-    pure $ RemoteDb env (_blockChainwebVersion h) (_blockChainId h)
+    pure $ RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)

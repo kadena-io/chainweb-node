@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -24,12 +26,13 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Lens hiding (children)
+import Control.Lens hiding (children, (.=))
 import Control.Monad
 import qualified Control.Monad.Catch as E (Handler(..), catches)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
+import Data.Aeson
 import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
@@ -61,7 +64,20 @@ checkKey
     => db
     -> DbKey db
     -> m (DbKey db)
-checkKey db k = liftIO (lookup db k) >>= maybe (throwError err404) (pure . const k)
+checkKey db k = liftIO (lookup db k) >>= \case
+    Nothing -> throwError $ err404Msg $ object
+        [ "reason" .= ("key not found" :: String)
+        , "key" .= (sshow k :: String)
+        ]
+    Just _ -> pure k
+
+err404Msg :: ToJSON msg  => msg -> ServantErr
+err404Msg msg = ServantErr
+    { errHTTPCode = 404
+    , errReasonPhrase = "Not Found"
+    , errBody = encode msg
+    , errHeaders = []
+    }
 
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
 --
@@ -73,8 +89,7 @@ checkBounds
     -> BranchBounds db
     -> m (BranchBounds db)
 checkBounds db b = b
-    <$ traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
-    <* traverse_ (checkKey db . _getLowerBound) (_branchBoundsLower b)
+    <$ traverse_ (checkKey db . _getUpperBound) (_branchBoundsUpper b)
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
@@ -212,7 +227,12 @@ headersHandler db limit next minr maxr = do
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
-headerHandler db k = liftIO (lookup db k) >>= maybe (throwError err404) pure
+headerHandler db k = liftIO (lookup db k) >>= \case
+    Nothing -> throwError $ err404Msg $ object
+        [ "reason" .= ("key not found" :: String)
+        , "key" .= (sshow k :: String)
+        ]
+    Just e -> pure e
 
 -- | Add a new 'BlockHeader' to the database
 --

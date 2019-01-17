@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -21,17 +22,19 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
-import qualified Chainweb.Test.Pact
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
+#ifdef WITH_PACT
+import qualified Chainweb.Test.Pact
+#endif
 
 import qualified Data.DiGraph (properties)
 
-import Network.X509.SelfSigned.Test
+import qualified Network.X509.SelfSigned.Test
 
 import qualified P2P.Node.PeerDB (properties)
 
@@ -48,7 +51,9 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
+#ifdef WITH_PACT
     , Chainweb.Test.Pact.tests
+#endif
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
@@ -57,6 +62,6 @@ suite = testGroup "Unit Tests"
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties
     , testGroup "Network.X05.SelfSigned.Test"
-        [ Network.X509.SelfSigned.Test.test
+        [ Network.X509.SelfSigned.Test.tests
         ]
     ]

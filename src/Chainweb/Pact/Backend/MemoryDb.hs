@@ -1,5 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- |
+-- Module: Chainweb.Pact.Backend.MemoryDb
+-- Copyright: Copyright © 2018 Kadena LLC.
+-- License: MIT
+-- Maintainer: Mark Nichols <mark@kadena.io>
+-- Stability: experimental
+--
 module Chainweb.Pact.Backend.MemoryDb where
 
 import qualified Data.Map.Strict as M
@@ -10,7 +17,6 @@ import qualified Pact.PersistPactDb as P
 import Pact.Types.Server as P
 
 -- internal modules
-
 import Chainweb.Pact.Types
 
 mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
