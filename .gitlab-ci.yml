@@ -6,9 +6,26 @@ ulimit:
     - ulimit -Hn
     - ulimit -Sn
 
-chainweb-nix:
+nix-macos:
   tags:
     - macos
+  script:
+    - nix-build
+    - nix-build -A ghc.chainweb.doc
+    - scripts/collectArtifacts.sh
+  artifacts:
+    paths:
+    - public/
+    expire_in: 1 week
+
+nix-shell-macos:
+  tags:
+    - macos
+  script:
+    - nix-shell --run "echo Done with shell test"
+
+nix-linux:
+  tags:
     - linux
   script:
     - nix-build
@@ -19,9 +36,8 @@ chainweb-nix:
     - public/
     expire_in: 1 week
 
-chainweb-nix-shell:
+nix-shell-linux:
   tags:
-    - macos
     - linux
   script:
     - nix-shell --run "echo Done with shell test"
