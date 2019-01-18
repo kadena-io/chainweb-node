@@ -317,6 +317,9 @@ bind :: ByteString -> N.PortNumber -> IO Socket
 bind host port = do
     (sockAddr, sock) <- resolve host port
     N.bind sock sockAddr
+    N.setSocketOption sock N.ReuseAddr 1
+    -- TODO: ifdef for network >= 2.7
+    -- N.setCloseOnExecIfNeeded $ N.fdSocket sock
     return sock
 
 
@@ -343,9 +346,12 @@ withTimeout d0 (inp, out, cleanup) userfunc = do
 server :: MempoolBackend t
        -> ByteString            -- ^ interface/host to bind on
        -> N.PortNumber          -- ^ port
+       -> MVar N.PortNumber
        -> IO ()
-server mempool host port = mask $ \(restore :: forall z . IO z -> IO z) -> do
+server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) -> do
     bindSock <- bind host port
+    N.listen bindSock 5
+    N.socketPort bindSock >>= putMVar mvar
     forever (restore (N.accept bindSock) >>= launch)
   where
     launch (sock, _) = do

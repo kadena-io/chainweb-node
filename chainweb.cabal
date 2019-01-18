@@ -80,8 +80,9 @@ library
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
-        , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.InMem
+        , Chainweb.Mempool.Mempool
+        , Chainweb.Mempool.Socket
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.RestAPI
@@ -251,6 +252,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
+        Chainweb.Test.Mempool.Socket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.TreeDB
@@ -287,6 +289,7 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
         , stm

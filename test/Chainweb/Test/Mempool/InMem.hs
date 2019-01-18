@@ -16,7 +16,7 @@ import qualified Chainweb.Test.Mempool
 ------------------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "mempool/inMem" $ Chainweb.Test.Mempool.tests
+tests = testGroup "mempool.inmem" $ Chainweb.Test.Mempool.tests
                                   $ MempoolWithFunc
                                   $ InMem.withInMemoryMempool cfg
   where

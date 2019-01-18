@@ -1,3 +1,4 @@
+-- | Tests and test infrastructure common to all mempool backends.
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Chainweb.Test.Mempool
   ( tests
+  , remoteTests
   , MockTx(..)
   , MempoolWithFunc(..)
   , mockCodec
@@ -26,7 +28,6 @@ import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (traverse_)
 import Data.Function (on)
@@ -51,19 +52,30 @@ import qualified Chainweb.Time as Time
 import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------
-tests :: MempoolWithFunc -> [TestTree]
-tests withMempool = map ($ withMempool) [
+-- | Several operations (reintroduce, validate, confirm) can only be performed
+-- by the local consensus layer and are not supported for remote mempools. The
+-- following test cases are safe to run on remote
+remoteTests :: MempoolWithFunc -> [TestTree]
+remoteTests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
     , mempoolProperty "overlarge transactions are rejected" (pick arbitrary)
                       propOverlarge
     , mempoolProperty "insert + lookup + getBlock" (pick arbitrary) propTrivial
     , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
-    , mempoolProperty "validate txs" (pick arbitrary) propValidate
-    , mempoolProperty "subscriptions" (pick arbitrary) propSubscriptions
-    , mempoolTestCase "old transactions are reaped" testTooOld
+    , mempoolProperty "single subscription" (pick arbitrary) propSubscription
     ]
 
+-- | Local-only tests plus all of the tests that are safe for remote.
+tests :: MempoolWithFunc -> [TestTree]
+tests withMempool = map ($ withMempool) [
+      mempoolProperty "validate txs" (pick arbitrary) propValidate
+    , mempoolProperty "multiple subscriptions" (pick arbitrary) propSubscriptions
+    , mempoolTestCase "old transactions are reaped" testTooOld
+    ] ++ remoteTests withMempool
 
+-- | Mempool only cares about a few projected values from the transaction type
+-- (fees, hash, tx size, metadata), so our mock transaction type will only
+-- contain these (plus a nonce)
 data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
   , mockFees :: {-# UNPACK #-} !Decimal
@@ -95,7 +107,7 @@ instance Arbitrary MockTx where
     where
       emptyMeta = TransactionMetadata Time.minTime Time.maxTime
 
-
+-- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
 
@@ -320,6 +332,54 @@ lookupIsValidated :: Monad m => LookupResult t -> m ()
 lookupIsValidated (Validated _) = return ()
 lookupIsValidated _ = fail "lookup failure: expected validated"
 
+propSubscription :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
+propSubscription txs0 mempool = runExceptT $ do
+    sub <- subscribe
+    result <- liftIO $ Async.runConcurrently (insertThread *>
+                                              Concurrently (mockSubscriber sub))
+    checkResult result
+  where
+    txs = uniq $ sortBy ord txs0
+    checkResult = checkSubscriptionResult txs
+    ord = compare `on` onFees
+    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    insert = liftIO . mempoolInsert mempool . V.fromList
+    subscribe = liftIO $ mempoolSubscribe mempool
+    insertThread = Concurrently $ do
+        traverse_ insert $ map (:[]) txs
+        mempoolShutdown mempool
+
+
+checkSubscriptionResult :: [MockTx] -> [MockTx] -> ExceptT String IO ()
+checkSubscriptionResult txs r =
+    when (r /= txs) $
+    let msg = concat [ "subscription failed: expected sequence "
+                     , show txs
+                     , "got "
+                     , show r
+                     ]
+    in fail msg
+
+
+mockSubscriber :: IORef (Subscription a) -> IO [a]
+mockSubscriber subRef = do
+    sub <- readIORef subRef
+    ref <- newIORef []
+    go ref $ mempoolSubChan sub
+    out <- reverse <$> readIORef ref
+    -- make sure we touch the ref so it isn't gc'ed
+    writeIORef subRef sub
+    return out
+  where
+    go ref chan = do
+        m <- atomically $ TBMChan.readTBMChan chan
+        flip (maybe (return ())) m $ \el -> do
+            let l = reverse $ V.toList el
+            modifyIORef' ref (l ++)
+            go ref chan
+
+-- In-mem backend supports multiple subscriptions at once, socket-based one
+-- doesn't (you'd just connect twice)
 propSubscriptions :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propSubscriptions txs0 mempool = runExceptT $ do
     subscriptions <- replicateM numSubscribers subscribe
@@ -329,14 +389,7 @@ propSubscriptions txs0 mempool = runExceptT $ do
 
   where
     txs = uniq $ sortBy ord txs0
-    checkResult :: [MockTx] -> ExceptT String IO ()
-    checkResult r = when (r /= txs) $
-                        let msg = concat [ "subscription failed: expected sequence "
-                                         , show txs
-                                         , "got "
-                                         , show r
-                                         ]
-                        in fail msg
+    checkResult = checkSubscriptionResult txs
     numSubscribers = 7
     ord = compare `on` onFees
     onFees x = (Down (mockFees x), mockSize x, mockNonce x)
@@ -348,21 +401,5 @@ propSubscriptions txs0 mempool = runExceptT $ do
 
     runSubscribers :: [IORef (Subscription MockTx)] -> Concurrently [[MockTx]]
     runSubscribers subscriptions =
-        Concurrently $ Async.forConcurrently ([(1::Int)..] `zip` subscriptions) subscriber
-
-    subscriber (_, subRef) = do
-        sub <- readIORef subRef
-        ref <- newIORef []
-        go ref $ mempoolSubChan sub
-        out <- reverse <$> readIORef ref
-        -- make sure we touch the ref so it isn't gc'ed
-        writeIORef subRef sub
-        return out
-      where
-        go ref chan = do
-            m <- atomically $ TBMChan.readTBMChan chan
-            flip (maybe (return ())) m $ \el -> do
-                let l = reverse $ V.toList el
-                modifyIORef' ref (l ++)
-                go ref chan
+        Concurrently $ Async.forConcurrently subscriptions mockSubscriber
 
