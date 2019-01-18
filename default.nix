@@ -185,6 +185,7 @@ in
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
+      ghcid = pkgs.ghcid;
     };
     shells = {
       ghc = ["chainweb"];

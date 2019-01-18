@@ -25,7 +25,7 @@ extra-deps:
     commit: 3ac9a6d01bd5816ea4b7e47300012543510393ea
   - git: https://github.com/LeventErkok/sbv.git
     commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
-  - git: git@github.com:kadena-io/thyme.git
+  - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
 flags:
