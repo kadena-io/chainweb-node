@@ -31,8 +31,6 @@ module Chainweb.Pact.Backend.Types
     , cpeGasEnv
     , CheckpointData(..)
     , cpPactDbEnv
-    , cpRefStore
-    , cpPacts
     , Checkpointer(..)
     , cRestore
     , cPrepareForNewBlock
@@ -40,7 +38,6 @@ module Chainweb.Pact.Backend.Types
     , cSave
     , cDiscard
     , Env'(..)
-    , OpMode(..)
     , PactDbBackend
     ) where
 
@@ -102,25 +99,20 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-data OpMode
-    = NewBlock
-    | Validation
-
 data CheckpointData = CheckpointData
     { _cpPactDbEnv :: Env'
-    , _cpRefStore :: P.RefStore
-    , _cpPacts :: Map P.TxId P.CommandPact
+    , _cpCommandState :: P.CommandState
     }
 
 makeLenses ''CheckpointData
 
 data Checkpointer = Checkpointer
-    { _cRestore :: BlockHeight -> BlockPayloadHash -> IO ()
-    , _cPrepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
-    , _cPrepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
-    , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-    , _cDiscard :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-    }
+  { _cRestore :: BlockHeight -> BlockPayloadHash -> IO CheckpointData
+  , _cPrepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+  , _cPrepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+  , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+  , _cDiscard :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+  }
 
 makeLenses ''Checkpointer
 

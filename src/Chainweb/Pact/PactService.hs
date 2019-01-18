@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
@@ -39,8 +40,8 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 import qualified Pact.Types.Server as P
+import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -77,36 +78,40 @@ initPactService = do
                     (mkSQLiteState env cmdConfig)
     void $ runStateT (runReaderT serviceRequests checkpointEnv) theState
 
+getGasEnv :: IO P.GasEnv
+getGasEnv = return undefined
+
 serviceRequests :: PactT ()
 serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
 
 newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
-    let parentPayloadHash = _blockPayloadHash parentHeader
-    newTrans <- requestTransactions TransactionCriteria
-    CheckpointEnv {..} <- ask
-    unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
-    theState <- get
-    env <- ask
-    results <- liftIO $ execTransactions env theState newTrans
-    liftIO $
-        _cDiscard
-            _cpeCheckpointer
-            bHeight
-            parentPayloadHash
-            (liftA3
-                 CheckpointData
-                 _pdbsDbEnv
-                 (P._csRefStore . _pdbsState)
-                 (P._csPacts . _pdbsState)
-                 theState)
-    return
-        Block
-            { _bHash = Nothing -- not yet computed
-            , _bParentHeader = parentHeader
-            , _bBlockHeight = succ bHeight
-            , _bTransactions = zip newTrans results
-            }
+  let parentPayloadHash = _blockPayloadHash parentHeader
+  newTrans <- requestTransactions TransactionCriteria
+  env@(CheckpointEnv {..}) <- ask
+  unless (isFirstBlock bHeight) $ do
+    CheckpointData {..} <-
+      liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+    put (PactDbState undefined _cpPactDbEnv _cpCommandState)
+  theState <- get
+  results <- liftIO $ execTransactions env theState newTrans
+  liftIO $
+    _cDiscard
+      _cpeCheckpointer
+      bHeight
+      parentPayloadHash
+      (liftA2
+         CheckpointData
+         _pdbsDbEnv
+         _pdbsState
+         theState)
+  return
+    Block
+      { _bHash = Nothing -- not yet computed
+      , _bParentHeader = parentHeader
+      , _bBlockHeight = succ bHeight
+      , _bTransactions = zip newTrans results
+      }
 
 getDbState :: PactT PactDbState
 getDbState = undefined
@@ -141,24 +146,22 @@ validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     cpEnv@CheckpointEnv {..} <- ask
-    -- TODO: to be replaced with mkCheckpointe outside this module
+        -- TODO: to be replaced with mkCheckpointe outside this module
     unless (isFirstBlock _bBlockHeight) $ do
+      CheckpointData {..} <-
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      put (PactDbState undefined _cpPactDbEnv _cpCommandState)
     currentState <- get
-    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
+    _results <-
+      liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
     liftIO $
-        _cSave
-            _cpeCheckpointer
-            _bBlockHeight
-            parentPayloadHash
-            (liftA3
-                 CheckpointData
-                 _pdbsDbEnv
-                 (P._csRefStore . _pdbsState)
-                 (P._csPacts . _pdbsState)
-                 st)
+      _cSave
+        _cpeCheckpointer
+        _bBlockHeight
+        parentPayloadHash
+        (liftA2 CheckpointData _pdbsDbEnv _pdbsState st)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
