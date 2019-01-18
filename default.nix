@@ -185,7 +185,8 @@ in
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
-      ghcid = pkgs.ghcid;
+      cabal-install = pkgs.haskellPackages.cabal-install;
+      ghcid = pkgs.haskellPackages.ghcid;
     };
     shells = {
       ghc = ["chainweb"];
