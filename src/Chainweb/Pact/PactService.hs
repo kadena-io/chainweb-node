@@ -29,6 +29,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
+import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
@@ -129,7 +130,7 @@ toCommandConfig PactDbConfig {..} =
         }
 
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
--- squlite databases -- hence this is here and not in the Sqlite specific module
+-- sqlite databases -- hence this is here and not in the Sqlite specific module
 mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
@@ -167,14 +168,17 @@ requestTransactions _crit = return []
 
 execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
 execTransactions cpEnv pactState xs =
-    forM
-        xs
-        (\Transaction {..} -> do
-             let txId = P.Transactional (P.TxId _tTxId)
-             liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
+    forM xs (\Transaction {..} -> do
+        let txId = P.Transactional (P.TxId _tTxId)
+        (result, txLogs) <- applyPactCmd cpEnv pactState txId _tCmd
+        return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
 
-applyPactCmd ::
-       CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
+applyPactCmd
+  :: CheckpointEnv
+  -> PactDbState
+  -> P.ExecutionMode
+  -> P.Command ByteString
+  -> IO (P.CommandResult, [P.TxLog A.Value])
 applyPactCmd CheckpointEnv {..} PactDbState {..} eMode cmd = do
     newVar <- newMVar _pdbsState
     case _pdbsDbEnv of

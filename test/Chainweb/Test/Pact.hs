@@ -17,7 +17,7 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 
-import qualified Pact.ApiReq as P (KeyPair(..))
+import qualified Pact.ApiReq as P
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
@@ -35,14 +35,14 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Control.Monad.Zip
 
-import Data.Aeson (Value(..))
+import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.Time.Clock
 import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
-import Data.Time.Clock
 import qualified Data.Text as T
 
 import GHC.Word
@@ -76,12 +76,13 @@ pactExecTests = do
 
 execTests :: PactT ()
 execTests = do
+    let theData = (object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs])
     -- create test nonce values of the form <current-time>:0, <current-time>:1, etc.
     prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]
     let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
-    let trans = zipWith3 (mkPactTransaction testKeyPairs Null) nonces intSeq cmdStrs
+    let trans = zipWith3 (mkPactTransaction testKeyPairs theData) nonces intSeq cmdStrs
     outputs <- execPactTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
@@ -89,20 +90,8 @@ execTests = do
 getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
-{-
-data:
-  demo-admin-keyset:
-    "keys": ["demoadmin"]
-    "pred": ">"
-codeFile: demo.pact
-keyPairs:
-  - public: 06c9c56daa8a068e1f19f5578cdf1797b047252e1ef0eb4a1809aa3c2226f61e
-    secret: 7ce4bae38fccfe33b6344b8c260bffa21df085cf033b3dc99b4781b550e1e922
-batchCmd: |-
-  (demo.transfer "Acct1" "Acct2" 1.00)
--}
 
-mkPactTransaction :: [P.KeyPair] -> Value -> Text -> Word64 -> String -> Transaction
+mkPactTransaction :: [P.KeyPair] -> Value -> T.Text -> Word64 -> String -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
     let pubMeta = def :: P.PublicMeta
         cmd = P.mkCommand
@@ -151,6 +140,21 @@ parseScientific (Object o) =
     Just _ -> Nothing
 parseScientific _ = Nothing
 
+fullTextMatch :: T.Text -> TestResponse -> Assertion
+fullTextMatch matchText resp = do
+    let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
+    parseText resultValue @?= Just matchText
+
+parseText :: Value -> Maybe Text
+parseText (Object o) =
+  case HM.lookup "data" o of
+    Nothing -> Nothing
+    Just (String t) -> Just t
+    Just _ -> Nothing
+parseText _ = Nothing
+
+----------------------------------------------------------------------------------------------------
+-- Pact test datatypes
 ----------------------------------------------------------------------------------------------------
 data TestRequest = TestRequest
     { _trCmd :: TestSource
@@ -170,8 +174,14 @@ instance Show TestRequest where
     show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: " ++ show (_trDisplayStr tr)
 
 instance Show TestResponse where
-    show tr = take 100 (show (P._crResult $ _getCommandResult (_trOutput tr)) ++ "...")
+    show tr =
+        let tOutput = _trOutput tr
+            cmdResultStr = show $ P._crResult $ _getCommandResult tOutput
+            txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
+        in "CommandResult: " ++ cmdResultStr ++ "\n" ++ "TxLogs: " ++ txLogsStr
 
+----------------------------------------------------------------------------------------------------
+-- Pact test sample data
 ----------------------------------------------------------------------------------------------------
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
@@ -187,6 +197,9 @@ testReq1 = TestRequest
 
 testReq2 :: TestRequest
 testReq2 = TestRequest
-    { _trCmd = File "pact-test-1.txt"
-    , _trEval = checkScientific (scientific 2 0)
-    , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
+    { _trCmd = File "test1.pact"
+    , _trEval = fullTextMatch test1Out
+    , _trDisplayStr = "Loads a pact module, creates tables, and does transfers between accounts" }
+
+test1Out :: Text
+test1Out = "Write succeeded" -- TODO: replace this with TxLog output

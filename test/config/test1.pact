@@ -1,4 +1,4 @@
-(define-keyset 'demo-admin (read-keyset "demo-admin-keyset"))
+(define-keyset 'test-admin (read-keyset "test-admin-keyset"))
 
 (module test1 'test-admin
 
