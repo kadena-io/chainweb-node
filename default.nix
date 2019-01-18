@@ -117,6 +117,8 @@ in
           sha256 = "0yym840jnh2cma5n4c0pv3nh1hyhag1v6pks73wdikhrcajffsh3";
         };
 
+        wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
+
         yet-another-logger = callHackageDirect {
           pkg = "yet-another-logger";
           ver = "0.3.1";
@@ -183,6 +185,8 @@ in
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
+      cabal-install = pkgs.haskellPackages.cabal-install;
+      ghcid = pkgs.haskellPackages.ghcid;
     };
     shells = {
       ghc = ["chainweb"];

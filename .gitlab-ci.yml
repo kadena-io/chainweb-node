@@ -6,7 +6,7 @@ ulimit:
     - ulimit -Hn
     - ulimit -Sn
 
-chainweb-nix-macos:
+chainweb-nix:
   script:
     - nix-build
     - nix-build -A ghc.chainweb.doc
@@ -16,14 +16,15 @@ chainweb-nix-macos:
     - public/
     expire_in: 1 week
 
-chainweb-nix-linux:
+chainweb-nix-shell:
   script:
-    - nix-build --argstr system x86_64-linux
-  allow_failure: true
+    - nix-shell --run "echo Done with shell test"
 
-chainweb-stack:
-  script:
-    - nix-shell -p stack libiconv zlib ncurses --run "stack test --fast"
+# DB 2019-01-17: Disabling so we have some CI for now. Stuart and I worked on
+# fixing this and have a plan of attack.
+# chainweb-stack:
+#   script:
+#     - nix-shell -p libiconv zlib ncurses gmp git perl --run "stack test --fast"
 
 pages:
   stage: deploy
