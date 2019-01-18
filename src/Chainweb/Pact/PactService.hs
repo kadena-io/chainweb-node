@@ -78,7 +78,7 @@ initPactService = do
                     (mkSQLiteState env cmdConfig)
     void $ runStateT (runReaderT serviceRequests checkpointEnv) theState
 
-getGasEnv :: IO P.GasEnv
+getGasEnv :: PactT P.GasEnv
 getGasEnv = return undefined
 
 serviceRequests :: PactT ()
@@ -92,19 +92,11 @@ newTransactionBlock parentHeader bHeight = do
   unless (isFirstBlock bHeight) $ do
     CheckpointData {..} <-
       liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+     -- EMMANUEL: Check this boi out. Just need to find out where to get CommandConfig from?
     put (PactDbState undefined _cpPactDbEnv _cpCommandState)
   theState <- get
   results <- liftIO $ execTransactions env theState newTrans
-  liftIO $
-    _cDiscard
-      _cpeCheckpointer
-      bHeight
-      parentPayloadHash
-      (liftA2
-         CheckpointData
-         _pdbsDbEnv
-         _pdbsState
-         theState)
+  -- There is an implicit `discard` here.
   return
     Block
       { _bHash = Nothing -- not yet computed
@@ -150,12 +142,13 @@ validateBlock Block {..} = do
     unless (isFirstBlock _bBlockHeight) $ do
       CheckpointData {..} <-
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      -- EMMANUEL: Check this boi out. Just need to find out where to get CommandConfig from?
       put (PactDbState undefined _cpPactDbEnv _cpCommandState)
     currentState <- get
     _results <-
       liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
-    st <- getDbState
+    st <- getDbState            -- EMMANUEL: is this necessary anymore?
     liftIO $
       _cSave
         _cpeCheckpointer

@@ -35,10 +35,7 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
             { _cpeCheckpointer =
                   Checkpointer
                       { _cRestore = restore inmem
-                      , _cPrepareForValidBlock = prepareForValidBlock inmem
-                      , _cPrepareForNewBlock = prepareForNewBlock inmem
                       , _cSave = save inmem
-                      , _cDiscard = discard inmem
                       }
             , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger
@@ -52,31 +49,12 @@ restore lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
             Just newsnap -> return newsnap
-       -- This is just a placeholder for right now (the Nothing clause)
-            Nothing -> fail "There is no checkpoint that can be restored."
+            -- This is just a placeholder for right now (the Nothing clause)
+            Nothing ->
+                fail "InMemoryCheckpointer.restore: There is no checkpoint that can be restored."
 
-prepareForValidBlock
-    :: MVar Store
-    -> BlockHeight
-    -> BlockPayloadHash
-    -> IO (Either String CheckpointData)
-prepareForValidBlock lock height hash =
-    withMVarMasked lock $ \store ->
-      return $
-      fromMaybe
-        (Left "InMemoryCheckpointer.prepare: CheckpointData is not present.") $
-      Right <$> HMS.lookup (height, hash) store
-
-prepareForNewBlock
-    :: MVar Store
-    -> BlockHeight
-    -> BlockPayloadHash
-    -> IO (Either String CheckpointData)
-prepareForNewBlock = prepareForValidBlock
+-- There is no need for prepare to even exist for the in memory checkpointer.
 
 save :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
 save lock height hash cpdata =
      modifyMVarMasked_ lock (return . HMS.insert (height, hash) cpdata)
-
-discard :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-discard _ _ _ _ = return ()

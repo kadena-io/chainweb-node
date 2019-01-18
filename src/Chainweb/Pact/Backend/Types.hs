@@ -33,10 +33,7 @@ module Chainweb.Pact.Backend.Types
     , cpPactDbEnv
     , Checkpointer(..)
     , cRestore
-    , cPrepareForNewBlock
-    , cPrepareForValidBlock
     , cSave
-    , cDiscard
     , Env'(..)
     , PactDbBackend
     ) where
@@ -108,11 +105,11 @@ makeLenses ''CheckpointData
 
 data Checkpointer = Checkpointer
   { _cRestore :: BlockHeight -> BlockPayloadHash -> IO CheckpointData
-  , _cPrepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
-  , _cPrepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
   , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-  , _cDiscard :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
   }
+  -- functions like the ones below need to be implemented internally
+  -- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+  -- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
 
 makeLenses ''Checkpointer
 
