@@ -198,8 +198,26 @@ testReq1 = TestRequest
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    , _trEval = fullTextMatch test1Out
-    , _trDisplayStr = "Loads a pact module, creates tables, and does transfers between accounts" }
+    , _trEval = fullTextMatch tempOut
+    , _trDisplayStr = "Loads a pact module" }
 
-test1Out :: Text
-test1Out = "Write succeeded" -- TODO: replace this with TxLog output
+testReq3 :: TestRequest
+testReq3 = TestRequest
+    { _trCmd = Code "(test1.create-table accounts)"
+    , _trEval = fullTextMatch tempOut
+    , _trDisplayStr = "Creates tables" }
+
+testReq4 :: TestRequest
+testReq4 = TestRequest
+    { _trCmd = Code "(test1.create-global-accounts)"
+    , _trEval = fullTextMatch tempOut
+    , _trDisplayStr = "Creates two accounts" }
+
+testReq5 :: TestRequest
+testReq5 = TestRequest
+    { _trCmd = Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+    , _trEval = fullTextMatch tempOut
+    , _trDisplayStr = "Transfers from one account to another" }
+
+tempOut :: Text
+tempOut = "Write succeeded" -- TODO: replace this with TxLog output

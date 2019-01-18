@@ -79,7 +79,3 @@
    (step "Dinesh" (create-account "D" 1000.0)))
 
 )
-
-(create-table accounts)
-(create-global-accounts)
-(transfer "Acct1" "Acct2" 1.00)
