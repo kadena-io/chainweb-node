@@ -7,6 +7,9 @@ ulimit:
     - ulimit -Sn
 
 chainweb-nix:
+  tags:
+    - macos
+    - linux
   script:
     - nix-build
     - nix-build -A ghc.chainweb.doc
@@ -17,6 +20,9 @@ chainweb-nix:
     expire_in: 1 week
 
 chainweb-nix-shell:
+  tags:
+    - macos
+    - linux
   script:
     - nix-shell --run "echo Done with shell test"
 
