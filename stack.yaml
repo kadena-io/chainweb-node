@@ -9,6 +9,7 @@ extra-deps:
   - configuration-tools-0.4.0
   - crackNum-2.2
   - ed25519-donna-0.1.1
+  - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
   - FloatingHex-0.4
   - generic-lens-1.1.0.0@sha256:caaab13ae4f2a68e43671d25fb56746ba14bc9d5d787d594a66c7f56eba3fa66
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256

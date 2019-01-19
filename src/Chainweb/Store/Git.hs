@@ -365,7 +365,7 @@ lookupTreeEntryByHeight'
     -> BlockHeight     -- ^ desired blockheight
     -> LeafTreeData
     -> IO TreeEntry
-lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (TreeEntry leafHeight leafBH _) spectrum)
+lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (BlobEntry (TreeEntry leafHeight leafBH _)) spectrum)
     | height == leafHeight = pure $! TreeEntry height leafBH leafTreeHash
     | V.null spec' = throwGitStoreFailure "lookup failure"
     | otherwise = search
@@ -420,6 +420,6 @@ leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
 --
 walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
 walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
-    let f' :: LeafTreeData -> IO ()
+    let f' :: BlobEntry -> IO ()
         f' = readHeader' gsd >=> f
-    walk' gsd height bhb (const $ pure ()) f'
+    walk'' gsd height bhb (const $ pure ()) f'

@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -18,6 +20,7 @@ module Chainweb.Store.Git.Internal
   , GitStoreData(..)
   , TreeEntry(..)
   , LeafTreeData(..)
+  , BlobEntry(..)
   , GitHash(..)
     -- ** Errors
   , GitFailure(..)
@@ -31,9 +34,11 @@ module Chainweb.Store.Git.Internal
   , readHeader'
   , leaves'
   , lookupTreeEntryByHash
+  , readParent
 
     -- * Traversal
   , walk'
+  , walk''
 
     -- * Brackets
   , lockGitStore
@@ -60,6 +65,7 @@ module Chainweb.Store.Git.Internal
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar (MVar, withMVar)
+import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistMaybe, hush, nothing)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
@@ -71,7 +77,9 @@ import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.FastBuilder as FB
 import qualified Data.ByteString.Unsafe as B
+import Data.Char (digitToInt)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -79,6 +87,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Intro as V
 import Data.Witherable (wither)
+import Data.Word (Word64)
 
 import Foreign.C.String (CString, withCString)
 import Foreign.C.Types (CInt, CSize)
@@ -87,15 +96,16 @@ import Foreign.Marshal.Array (peekArray)
 import Foreign.Ptr (Ptr, castPtr, nullPtr)
 import Foreign.Storable (peek)
 
+import GHC.Generics (Generic)
+
 import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 
 import Chainweb.BlockHash
     (BlockHash(..), BlockHashBytes(..), encodeBlockHashBytes)
-import Chainweb.BlockHeader
-    (BlockHeader, BlockHeight(..), decodeBlockHeader, decodeBlockHeight,
-    encodeBlockHeight)
+import Chainweb.BlockHeader (BlockHeader, BlockHeight(..), decodeBlockHeader)
+
 
 ---
 
@@ -128,7 +138,7 @@ data TreeEntry = TreeEntry {
     _te_blockHeight :: {-# UNPACK #-} !BlockHeight
   , _te_blockHash :: {-# UNPACK #-} !BlockHashBytes
   , _te_gitHash :: {-# UNPACK #-} !GitHash
-} deriving (Show, Eq, Ord)
+} deriving (Show, Eq, Ord, Generic, NFData)
 
 -- | While `TreeEntry` represents a kind of "pointer" to a stored `BlockHeader`,
 -- `LeafTreeData` contains its "spectrum" (points to ancestors in the chain to
@@ -136,16 +146,18 @@ data TreeEntry = TreeEntry {
 -- containing the encoded `BlockHeader`.
 --
 data LeafTreeData = LeafTreeData {
-    _ltd_treeEntry :: !TreeEntry
+    _ltd_blobEntry :: !BlobEntry
     -- ^ Pointer to the blob data associated with this `TreeEntry`. A
     -- `BlockHeader`.
   , _ltd_spectrum :: Vector TreeEntry
 } deriving (Show)
 
+newtype BlobEntry = BlobEntry { _blobEntry :: TreeEntry } deriving (Show)
+
 -- | A reference to a particular git object, corresponding to the type
 -- `G.C'git_oid`.
 --
-newtype GitHash = GitHash ByteString deriving (Eq, Ord, Show)
+newtype GitHash = GitHash ByteString deriving (Eq, Ord, Show, Generic, NFData)
 
 -- | See here for all possible libgit2 errors:
 -- https://github.com/libgit2/libgit2/blob/99afd41f1c43c856d39e3b9572d7a2103875a771/include/git2/errors.h#L21
@@ -193,7 +205,7 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
         spectrum <- sortSpectrum elist
         when (V.null spectrum) $ throwGitStoreFailure "impossible: empty tree"
         let lastEntry = V.unsafeLast spectrum
-        pure $! LeafTreeData lastEntry (V.init spectrum)
+        pure $! LeafTreeData (BlobEntry lastEntry) (V.init spectrum)
 
     readTreeEntry :: Ptr G.C'git_tree -> CSize -> IO TreeEntry
     readTreeEntry pTree idx = G.c'git_tree_entry_byindex pTree idx >>= fromTreeEntryP
@@ -212,17 +224,19 @@ readLeafTree store treeGitHash = withTreeObject store treeGitHash readTree
         V.sort mv
         V.unsafeFreeze mv
 
+-- TODO Avoid calling the entire `readLeafTree` - use `withTreeObject` and
+-- `unsafeReadTree` to fetch the blob hash directly.
 -- | Fetch the `BlockHeader` that corresponds to some `TreeEntry`.
 --
 readHeader :: GitStoreData -> TreeEntry -> IO BlockHeader
-readHeader store (TreeEntry _ _ gh) = readLeafTree store gh >>= readHeader' store
+readHeader store (TreeEntry _ _ gh) = readLeafTree store gh >>= readHeader' store . _ltd_blobEntry
 
 -- | A short-cut, for when you already have your hands on the inner
--- `LeafTreeData`.
+-- `BlobEntry`.
 --
-readHeader' :: GitStoreData -> LeafTreeData -> IO BlockHeader
-readHeader' store ltd = do
-    let blobHash = _te_gitHash $ _ltd_treeEntry ltd
+readHeader' :: GitStoreData -> BlobEntry -> IO BlockHeader
+readHeader' store blob = do
+    let blobHash = _te_gitHash $ _blobEntry blob
     bs <- getBlob store blobHash
     either (throwGitStoreFailure . T.pack) pure $
         runGetS decodeBlockHeader bs
@@ -263,6 +277,7 @@ leaves' (GitStoreData repo _) =
             names <- peekArray (fromIntegral $ G.c'git_strarray'count a) (G.c'git_strarray'strings a)
             wither getEntry names  -- TODO Report malformed tag names instead of ignoring?
  where
+   -- TODO Update this example once a proper fixed-length encoding for `BlockHeight` is chosen.
    -- | Expected argument format:
    --
    -- @
@@ -311,6 +326,35 @@ lookupRefTarget (GitStoreData repo _) path0 =
     path :: NullTerminated
     path = nappend "refs/" path0
 
+readParent :: GitStoreData -> GitHash -> IO TreeEntry
+readParent store treeGitHash = withTreeObject store treeGitHash (unsafeReadTree 1)
+
+-- | Given a `G.C'git_tree` that you've hopefully gotten via the
+-- `withTreeObject` bracket, read some @git_tree_entry@ marshalled into a usable
+-- Haskell type (`TreeEntry`).
+--
+-- The offset value (the `CSize`) counts from the /end/ of the array of entries!
+-- Therefore, an argument of @0@ will return the /last/ entry.
+--
+-- *NOTE:* It is up to you to pass a legal `CSize` value. For instance, an
+-- out-of-bounds value will result in exceptions thrown from within C code,
+-- crashing your program.
+--
+unsafeReadTree :: CSize -> Ptr G.C'git_tree -> IO TreeEntry
+unsafeReadTree offset pTree = do
+    numEntries <- G.c'git_tree_entrycount pTree
+    let index = numEntries - (offset + 1)
+    gte <- G.c'git_tree_entry_byindex pTree index  -- TODO check for NULL here?
+    fromTreeEntryP gte
+  where
+    fromTreeEntryP :: Ptr G.C'git_tree_entry -> IO TreeEntry
+    fromTreeEntryP entryP = do
+        name <- G.c'git_tree_entry_name entryP >>= B.packCString
+        oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
+        (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
+                         (parseLeafTreeFileName name)
+        pure $! TreeEntry h bh oid
+
 ------------
 -- TRAVERSAL
 ------------
@@ -339,6 +383,25 @@ walk' gsd !height !hash f g =
             unless (height == 0) $ do
                 let parent = V.last $ _ltd_spectrum ltd
                 walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
+
+walk''
+    :: GitStoreData
+    -> BlockHeight
+    -> BlockHashBytes
+    -> (TreeEntry -> IO ())
+    -> (BlobEntry -> IO ())
+    -> IO ()
+walk'' gsd !height !hash f g =
+    lookupTreeEntryByHash gsd hash height >>= \case
+        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
+        Just te -> do
+            f te
+            withTreeObject gsd (_te_gitHash te) $ \gt -> do
+                blob <- BlobEntry <$> unsafeReadTree 0 gt
+                g blob
+                unless (height == 0) $ do
+                    parent <- unsafeReadTree 1 gt
+                    walk'' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
 
 -----------
 -- BRACKETS
@@ -448,6 +511,7 @@ dedup o@[_] = o
 dedup (x:r@(y:_)) | x == y = dedup r
                   | otherwise = x : dedup r
 
+-- TODO Update this example once a proper fixed-length encoding is chosen.
 -- | Parse a git-object filename in the shape of:
 --
 -- @
@@ -458,7 +522,7 @@ dedup (x:r@(y:_)) | x == y = dedup r
 -- @
 parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
 parseLeafTreeFileName fn = do
-    height <- hush $ decodeHeight heightStr
+    height <- decodeHeight heightStr
     bh <- BlockHashBytes <$> hush (B64U.decode blockHash0)
     pure (height, bh)
   where
@@ -466,10 +530,8 @@ parseLeafTreeFileName fn = do
     (heightStr, rest) = B.break (== '.') fn
     blockHash0 = B.drop 1 rest
 
-    decodeHeight :: ByteString -> Either String BlockHeight
-    decodeHeight s = do
-        s' <- B64U.decode s
-        fromIntegral <$> runGetS decodeBlockHeight s'
+    decodeHeight :: ByteString -> Maybe BlockHeight
+    decodeHeight = Just . BlockHeight . decodeHex
 
 oidToByteString :: Ptr G.C'git_oid -> IO ByteString
 oidToByteString pOid = bracket (G.c'git_oid_allocfmt pOid) free B.packCString
@@ -493,7 +555,15 @@ mkTagName = mkTreeEntryNameWith "bh/"
 -- postpend a null-terminator.
 --
 mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
-mkTreeEntryNameWith b height hash = NullTerminated [ b, encHeight, ".", encBH, "\0" ]
+mkTreeEntryNameWith b (BlockHeight height) hash =
+    NullTerminated [ b, encHeight, ".", encBH, "\0" ]
   where
+    encBH :: ByteString
     encBH = B64U.encode $! runPutS (encodeBlockHashBytes hash)
-    encHeight = B64U.encode $! runPutS (encodeBlockHeight height)
+
+    encHeight :: ByteString
+    encHeight = FB.toStrictByteString $! FB.word64HexFixed height
+
+decodeHex :: ByteString -> Word64
+decodeHex = B.foldl' (\acc c -> (acc * 16) + fromIntegral (digitToInt c)) 0
+{-# INLINE decodeHex #-}
