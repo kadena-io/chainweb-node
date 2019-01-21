@@ -34,7 +34,7 @@ tests = testGroup "mempool.socket" $ Chainweb.Test.Mempool.remoteTests
 
 
 withRemoteMempool
-  :: InMemConfig t -> ByteString -> (MempoolBackend t -> IO a) -> IO a
+  :: Show t => InMemConfig t -> ByteString -> (MempoolBackend t -> IO a) -> IO a
 withRemoteMempool inMemCfg host userFunc = do
     InMem.withInMemoryMempool inMemCfg $ \inmem -> do
         mv <- newEmptyMVar

@@ -283,6 +283,7 @@ test-suite chainweb-tests
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
+        , io-streams >= 1.5
         , lens >= 4.16
         , massiv >= 0.2
         , mwc-random >= 0.13

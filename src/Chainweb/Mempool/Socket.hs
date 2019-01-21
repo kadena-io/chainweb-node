@@ -47,6 +47,7 @@ import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
+import Debug.Trace (trace)
 import qualified GHC.Event as Ev
 import Network.Socket (Socket)
 import qualified Network.Socket as N
@@ -54,6 +55,7 @@ import Prelude hiding (init)
 import System.IO.Streams (InputStream, OutputStream)
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec.ByteString as Streams
+import qualified System.IO.Streams.Debug as Streams
 import System.Mem.Weak (deRefWeak)
 import System.Timeout (timeout)
 
@@ -61,6 +63,26 @@ import System.Timeout (timeout)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+
+{-# INLINE trace' #-}
+{-# INLINE debug #-}
+
+trace' :: Show a => String -> a -> a
+trace' _ x = let _ = show x in x
+
+debug :: String -> IO ()
+debug _ = return ()
+
+_shutupWarnings :: a
+_shutupWarnings = undefined Streams.debugInputBS trace
+
+-- uncomment to enable debugging
+-- trace' :: Show a => String -> a -> a
+-- trace' s x = trace (s ++ show x) x
+-- debug :: String -> IO ()
+-- debug s = Streams.writeTo Streams.stderr $
+--           Just (B.concat ["debug: ", BC.pack s, "\n"])
+
 
 ------------------------------------------------------------------------------
 data ClientConfig t = ClientConfig {
@@ -74,6 +96,7 @@ data Command t = Keepalive
                | GetPending
                | GetBlock !Int64
                | Subscribe
+  deriving (Show)
 
 data ServerMessage t = OK
                      | Failed ByteString
@@ -82,6 +105,7 @@ data ServerMessage t = OK
                      | HashChunk (Vector TransactionHash)
                      | ChunksFinished
                      | SubscriptionUpdates (Vector t)
+  deriving (Show)
 
 
 ------------------------------------------------------------------------------
@@ -104,18 +128,19 @@ encodeVarWord x = if hi == 0
 
 
 decodeVarWord :: (Bits a, Integral a) => Parser a
-decodeVarWord = decode <$> Atto.scan (0 :: Int, False) scanf
+decodeVarWord = go 0 (0 :: Int) 0
   where
+    go !soFar !numChars !shft = do
+        !w <- Atto.anyWord8
+        let !l = w .&. bmask
+        let !h = w .&. hibit
+        let !soFar' = soFar .|. (fromIntegral l `shiftL` shft)
+        if (h == 0 || numChars >= 11)
+          then return soFar'
+          else go soFar' (numChars + 1) (shft + 7)
+
     hibit = 1 `unsafeShiftL` 7
     bmask = fromIntegral (hibit - 1)
-    scanf !(!numChars,!lst) c =
-        if | lst || (numChars >= 11) -> Nothing
-           | (c .&. hibit) == 0 -> Just (numChars + 1, True)
-           | otherwise -> Just (numChars + 1, False)
-    decode = fst . B.foldl' df (0, 0)
-    df (soFar, shft) c = (soFar .|. x, shft + 7)
-      where
-        x = fromIntegral (c .&. bmask) `shiftL` shft
 
 
 _toVarString :: (Bits a, Integral a) => a -> ByteString
@@ -261,9 +286,10 @@ maxTransactionBatch = 2 ^ (18 :: Int)
 decodeVector :: Parser v
              -> Parser (Vector v)
 decodeVector p = (<?> "decodeVector") $ do
-    sz <- decodeVarWord
+    sz <- trace' "decodeVector: sz=" <$> decodeVarWord
     guard (sz < maxTransactionBatch) <?> "remote sent overlong vector"
     V.replicateM (fromIntegral sz) p
+
 
 encodeVector :: (v -> Builder)
              -> Vector v
@@ -271,9 +297,9 @@ encodeVector :: (v -> Builder)
 encodeVector toB v = encodeVarWord (V.length v) <> mconcat (map toB $ V.toList v)
 
 
-decodeCommand :: TransactionConfig t -> Parser (Command t)
+decodeCommand :: Show t => TransactionConfig t -> Parser (Command t)
 decodeCommand txcfg = (<?> "decodeCommand") $ do
-    cmd <- Atto.anyWord8
+    !cmd <- (trace' "decodeCommand got: ") <$> Atto.anyWord8
     case cmd of
       0 -> return Keepalive
       1 -> decodeInsert
@@ -283,7 +309,7 @@ decodeCommand txcfg = (<?> "decodeCommand") $ do
       5 -> return Subscribe
       _ -> fail "bad command code"
   where
-    decodeInsert = Insert <$> decodeVector (decodeTx txcfg)
+    decodeInsert = (Insert . trace' "decodeInsert got: ") <$> decodeVector (decodeTx txcfg)
     decodeLookup = Lookup <$> decodeVector decodeTransactionHash
 
 
@@ -343,7 +369,8 @@ withTimeout d0 (inp, out, cleanup) userfunc = do
         userfunc (inp', out', cleanup)
 
 
-server :: MempoolBackend t
+server :: Show t
+       => MempoolBackend t
        -> ByteString            -- ^ interface/host to bind on
        -> N.PortNumber          -- ^ port
        -> MVar N.PortNumber
@@ -355,9 +382,21 @@ server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) -> 
     forever (restore (N.accept bindSock) >>= launch)
   where
     launch (sock, _) = do
-        s <- toStreams sock
+        s <- toDebugStreams "server" sock
         forkIOWithUnmask $ serverSession mempool s
 
+toDebugStreams :: ByteString
+               -> Socket
+               -> IO (InputStream ByteString, OutputStream Builder, IO ())
+toDebugStreams _ = toStreams
+{-
+toDebugStreams name sock = do
+    (readEnd0, writeEnd0) <- Streams.socketToStreams sock
+    readEnd <- Streams.debugInputBS (BC.append name ": sock input") Streams.stderr readEnd0
+    writeEnd <- Streams.debugOutputBS (BC.append name ": sock output") Streams.stderr writeEnd0
+    writeEndB <- Streams.builderStream writeEnd
+    return (readEnd, writeEndB, N.close sock)
+-}
 
 toStreams :: Socket
           -> IO (InputStream ByteString, OutputStream Builder, IO ())
@@ -367,7 +406,8 @@ toStreams sock = do
     return (readEnd, writeEndB, N.close sock)
 
 
-serverSession :: MempoolBackend t
+serverSession :: Show t
+              => MempoolBackend t
               -> (InputStream ByteString, OutputStream Builder, IO ())
               -> (forall a . IO a -> IO a)
               -> IO ()
@@ -378,7 +418,7 @@ serverSession mempool streams restore =
 
 
 serverSession'
-  :: MempoolBackend t
+  :: Show t => MempoolBackend t
      -> (forall a . IO a -> IO a)
      -> (InputStream ByteString, OutputStream Builder, IO ())
      -> IO ()
@@ -399,6 +439,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
 
     inputThread remotePipe = eatExceptions (
         Streams.parserToInputStream commandParser readEnd
+            >>= Streams.mapM_ (debug . ("server: input thread read: " ++) . show)
             >>= Streams.mapM_ (atomically . TBMChan.writeTBMChan remotePipe)
             >>= Streams.skipToEof)
 
@@ -424,6 +465,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
 
     runOutputThread (mv, remotePipe, _) = do
         -- say hello
+        debug "server: output thread sending handshake"
         Streams.writeTo writeEnd
             $! Just $! mconcat [ Builder.word64LE protocolMagic
                                , Builder.word8 protocolVersion
@@ -434,8 +476,12 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
             sub <- subToStm mv
             atomically (sub <|> fetchRemote remotePipe) >>= either procSub (procCmd mv)
 
-    procSub txs = respond (SubscriptionUpdates txs)
-    procCmd mv = maybe (throwIO ThreadKilled) (processCommand mv)
+    procSub txs = do
+        debug "server: sending subscription updates"
+        respond (SubscriptionUpdates txs)
+    procCmd mv c = do
+        debug $ "server: got command " ++ show c
+        maybe (throwIO ThreadKilled) (processCommand mv) c
 
     go = eatExceptions $ bracket startInputThread killInputThread $
          restore . runOutputThread
@@ -472,6 +518,14 @@ data ClientCommand t = CKeepalive
                      | CGetBlock Int64 (ClientMVar (Vector t))
                      | CSubscribe (Vector t -> IO ())
                      | CShutdown
+instance Show t => Show (ClientCommand t) where
+    show CKeepalive = "<<CKeepalive>>"
+    show (CInsert v _) = "<<CInsert " ++ show v ++ ">>"
+    show (CLookup v _) = "<<CLookup " ++ show v ++ ">>"
+    show (CGetPending _) = "<<CGetPending>>"
+    show (CGetBlock k _) = "<<CGetBlock " ++ show k ++ ">>"
+    show (CSubscribe _) = "<<CSubscribe>>"
+    show CShutdown = "<<CShutdown>>"
 
 type CommandChan t = TBMChan (ClientCommand t)
 
@@ -486,7 +540,8 @@ data ClientState t = ClientState {
 }
 
 
-withClient :: ByteString   -- ^ host
+withClient :: Show t
+           => ByteString   -- ^ host
            -> N.PortNumber -- ^ port
            -> ClientConfig t
            -> (MempoolBackend t -> IO a)
@@ -494,14 +549,14 @@ withClient :: ByteString   -- ^ host
 withClient host port config handler = do
     (addr, sock) <- resolve host port
     N.connect sock addr
-    streams0 <- toStreams sock
+    streams0 <- toDebugStreams "client" sock
     withTimeout defaultTimeout streams0
         $ \streams -> withClientSession streams config handler
   where
     defaultTimeout = 120    -- TODO: configure
 
 
-toBackend :: ClientConfig t -> ClientState t -> MempoolBackend t
+toBackend :: Show t => ClientConfig t -> ClientState t -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _) =
     MempoolBackend txcfg blockSizeLimit pLookup pInsert pGetBlock
                    unsupported unsupported unsupported
@@ -514,14 +569,19 @@ toBackend config (ClientState cChan _ _ _ _ _) =
                        either (fail . T.unpack . T.decodeUtf8) return
 
     writeCmd = writeChan cChan
-    issueMvCmd c = do
+    issueMvCmd f = do
         mv <- newEmptyMVar
-        writeCmd $ c mv
+        let c = f mv
+        debug $ "client: writing cmd " ++ show c ++ " to channel"
+        writeCmd c
         takeResultMVar mv
 
 
     pLookup v = issueMvCmd $ CLookup v
-    pInsert v = issueMvCmd $ CInsert v
+    pInsert v = do
+        debug "client: pInsert begin"
+        issueMvCmd $ CInsert v
+        debug "client: pInsert end"
     pGetBlock x = issueMvCmd $ CGetBlock x
     pGetPending userFunc = do
         mv <- newEmptyMVar
@@ -560,7 +620,8 @@ writeChan chan x = do
     when closed $ fail "attempted write on closed chan"
 
 
-withClientSession :: (InputStream ByteString, OutputStream Builder, IO ())
+withClientSession :: Show t
+                  => (InputStream ByteString, OutputStream Builder, IO ())
                   -> ClientConfig t
                   -> (MempoolBackend t -> IO a)
                   -> IO a
@@ -620,16 +681,27 @@ withClientSession (inp, outp, cleanup) config userHandler =
 
     sendCommand = Streams.writeTo outp . Just . encodeCommand txcfg
 
-    processElem cs (Left c) = processCommand cs c
-    processElem cs (Right r) = processResponse cs r
+    processElem cs = p
+      where
+        p (Left c) = do
+            debug $ "client: thread got command: " ++ show c
+            processCommand cs c
+        p (Right r) = do
+            debug $ "client: thread got response: " ++ show r
+            processResponse cs r
 
-    processCommand cs CShutdown = sendFailedToAllPending cs $ Failed "mempool shutdown"
+    processCommand cs CShutdown = do
+        debug "client: got shutdown, closing command channel"
+        atomically $ TBMChan.closeTBMChan (_commandChan cs)
+
     processCommand cs ccmd@(CSubscribe v) = do
+        debug "client: processCommand: enqueuing CSubscribe"
         modifyMVarMasked_ (_queuedCommands cs) $ \dlist ->
             return (dlist . (ccmd:))
         modifyMVarMasked_ (_subscriptionCallback cs) $ const $ return v
         sendCommand $ ccmdToCmd ccmd
     processCommand cs ccmd = do
+        debug $ "client: processCommand: " ++ show ccmd
         -- add command to tail of dlist
         modifyMVarMasked_ (_queuedCommands cs) $ \dlist ->
             return (dlist . (ccmd:))
@@ -645,6 +717,7 @@ withClientSession (inp, outp, cleanup) config userHandler =
 
     socketThreadProc chan restore = socketErrHandler chan $ restore $ do
         readHandshake
+        debug "client: got handshake"
         Streams.parserToInputStream smsgParser inp
             >>= Streams.mapM_ (writeChan chan)
             >>= Streams.skipToEof
@@ -702,10 +775,12 @@ sendFailedToAllPending cs r =
 
 
 dispatchResponse :: ClientState t -> ClientCommand t -> ServerMessage t -> IO ()
-dispatchResponse _ CKeepalive OK = return ()
+dispatchResponse _ CKeepalive OK = debug "client: got OK for keepalive"
+                                       >> return ()
 dispatchResponse _ CKeepalive _ = dispatchMismatch
 
-dispatchResponse _ (CInsert _ m) OK = putMVar m (Right ())
+dispatchResponse _ (CInsert _ m) OK = debug "client: got OK for insert"
+                                          >> putMVar m (Right ())
 dispatchResponse _ (CInsert _ _) _ = dispatchMismatch
 
 dispatchResponse _ (CLookup _ m) (LookupResults v) = putMVar m $ Right v
@@ -718,7 +793,8 @@ dispatchResponse _ (CGetPending _) _ = dispatchMismatch
 dispatchResponse _ (CGetBlock _ m) (Block v) = putMVar m $! Right v
 dispatchResponse _ (CGetBlock _ _) _ = dispatchMismatch
 
-dispatchResponse _ (CSubscribe _) OK = return ()
+dispatchResponse _ (CSubscribe _) OK = debug "client: got OK for subscribe message"
+                                           >> return ()
 dispatchResponse _ (CSubscribe _) _ = dispatchMismatch
 
 dispatchResponse cs _ _ = sendFailedToAllPending cs $ Failed "mempool shutdown"
