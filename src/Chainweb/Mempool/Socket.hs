@@ -369,11 +369,15 @@ withTimeout d0 (inp, out, cleanup) userfunc = do
         userfunc (inp', out', cleanup)
 
 
+-- | Starts a mempool socket server on the given host and port. In case
+-- 'N.aNY_PORT' was provided as the port number, 'server' writes the real bound
+-- port number to the given 'MVar'.
 server :: Show t
-       => MempoolBackend t
+       => MempoolBackend t      -- ^ mempool to serve over socket transport.
        -> ByteString            -- ^ interface/host to bind on
        -> N.PortNumber          -- ^ port
-       -> MVar N.PortNumber
+       -> MVar N.PortNumber     -- ^ real bound port number is written here.
+                                -- MVar must be empty.
        -> IO ()
 server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) -> do
     bindSock <- bind host port
@@ -384,6 +388,7 @@ server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) -> 
     launch (sock, _) = do
         s <- toDebugStreams "server" sock
         forkIOWithUnmask $ serverSession mempool s
+
 
 toDebugStreams :: ByteString
                -> Socket
@@ -398,6 +403,7 @@ toDebugStreams name sock = do
     return (readEnd, writeEndB, N.close sock)
 -}
 
+
 toStreams :: Socket
           -> IO (InputStream ByteString, OutputStream Builder, IO ())
 toStreams sock = do
@@ -408,8 +414,11 @@ toStreams sock = do
 
 serverSession :: Show t
               => MempoolBackend t
+                     -- ^ mempool backend to serve to remote.
               -> (InputStream ByteString, OutputStream Builder, IO ())
+                     -- ^ streams for input and output, plus a cleanup action.
               -> (forall a . IO a -> IO a)
+                     -- ^ restore function to unmask exceptions.
               -> IO ()
 serverSession mempool streams restore =
     withTimeout defaultTimeout streams (serverSession' mempool restore)
@@ -418,10 +427,11 @@ serverSession mempool streams restore =
 
 
 serverSession'
-  :: Show t => MempoolBackend t
-     -> (forall a . IO a -> IO a)
-     -> (InputStream ByteString, OutputStream Builder, IO ())
-     -> IO ()
+  :: Show t
+  => MempoolBackend t
+  -> (forall a . IO a -> IO a)
+  -> (InputStream ByteString, OutputStream Builder, IO ())
+  -> IO ()
 serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     eatExceptions go `finally` cleanup
 
@@ -540,6 +550,8 @@ data ClientState t = ClientState {
 }
 
 
+-- | Given a remote mempool, runs the given user action treating the remote
+-- mempool as a 'MempoolBackend'.
 withClient :: Show t
            => ByteString   -- ^ host
            -> N.PortNumber -- ^ port
