@@ -28,6 +28,7 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 import Control.Applicative
+import Control.Concurrent
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -61,7 +62,8 @@ pactExecTests = do
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
-    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
+    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0
+                          (P.constGasModel (fromIntegral gasRate))
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
             Nothing -> do
@@ -77,12 +79,13 @@ pactExecTests = do
 execTests :: PactT ()
 execTests = do
     let theData = (object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs])
-    -- create test nonce values of the form <current-time>:0, <current-time>:1, etc.
+    -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
     prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]
     let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
-    let trans = zipWith3 (mkPactTransaction testKeyPairs theData) nonces intSeq cmdStrs
+    let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
+                         nonces intSeq cmdStrs
     outputs <- execPactTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
@@ -91,7 +94,13 @@ getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
-mkPactTransaction :: [P.KeyPair] -> Value -> T.Text -> Word64 -> String -> Transaction
+mkPactTransaction
+  :: [P.KeyPair]
+  -> Value
+  -> T.Text
+  -> Word64
+  -> String
+  -> Transaction
 mkPactTransaction keyPair theData nonce txId theCode =
     let pubMeta = def :: P.PublicMeta
         cmd = P.mkCommand
@@ -104,7 +113,9 @@ mkPactTransaction keyPair theData nonce txId theCode =
 testKeyPairs :: [P.KeyPair]
 testKeyPairs =
     let mPair = mzip (P.importPrivate testPrivateBs) (P.importPublic testPublicBs)
-        mKeyPair = fmap (\(sec, pub) -> P.KeyPair {_kpSecret = sec, _kpPublic = pub} ) mPair
+        mKeyPair = fmap
+                   (\(sec, pub) -> P.KeyPair {_kpSecret = sec, _kpPublic = pub})
+                   mPair
     in maybeToList mKeyPair
 
 checkResponses :: [TestResponse] -> IO ()
@@ -125,7 +136,8 @@ execPactTransactions :: [Transaction] -> PactT [TransactionOutput]
 execPactTransactions trans = do
     env <- ask
     dbState <- lift get
-    liftIO $ execTransactions env dbState trans
+    newVar <- liftIO $ newMVar (_pdbsState dbState)
+    liftIO $ execTransactions env (_pdbsDbEnv dbState) newVar trans
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
@@ -156,9 +168,9 @@ parseText (Object o) =
     Just _ -> Nothing
 parseText _ = Nothing
 
-----------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Pact test datatypes
-----------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 data TestRequest = TestRequest
     { _trCmd :: TestSource
     , _trEval :: TestResponse -> Assertion
@@ -174,23 +186,26 @@ data TestResponse = TestResponse
     }
 
 instance Show TestRequest where
-    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: " ++ show (_trDisplayStr tr)
+    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: "
+              ++ show (_trDisplayStr tr)
 
 instance Show TestResponse where
     show tr =
         let tOutput = _trOutput tr
             cmdResultStr = show $ P._crResult $ _getCommandResult tOutput
             txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
-        in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n" ++ "TxLogs: " ++ txLogsStr
+        in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
+           ++ "TxLogs: " ++ txLogsStr
 
-----------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Pact test sample data
-----------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
 
 testPactRequests :: [TestRequest]
 testPactRequests = [testReq1, testReq2, testReq3, testReq4, testReq5]
+-- testPactRequests = [testReq1, testReq2, testReq4, testReq5]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest
@@ -201,7 +216,7 @@ testReq1 = TestRequest
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    -- , _trEval = fullTextMatch tempOut
+    --, _trEval = fullTextMatch tempOut
     , _trEval = ignoreTextMatch tempOut
     , _trDisplayStr = "Loads a pact module" }
 
