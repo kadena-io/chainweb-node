@@ -420,4 +420,4 @@ walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
 walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
     let f' :: BlobEntry -> IO ()
         f' = readHeader' gsd >=> f
-    walk'' gsd height bhb (const $ pure ()) f'
+    walk' gsd height bhb (const $ pure ()) f'

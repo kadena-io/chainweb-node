@@ -38,7 +38,6 @@ module Chainweb.Store.Git.Internal
 
     -- * Traversal
   , walk'
-  , walk''
 
     -- * Brackets
   , lockGitStore
@@ -72,9 +71,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import Data.Bits (complement, unsafeShiftL, (.&.))
+import Data.ByteArray.Encoding (Base(..), convertFromBase, convertToBase)
 import Data.Bytes.Get (runGetS)
-import Data.Bytes.Put (runPutS)
-import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.FastBuilder as FB
@@ -102,8 +100,7 @@ import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 
-import Chainweb.BlockHash
-    (BlockHash(..), BlockHashBytes(..), encodeBlockHashBytes)
+import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockHeader, BlockHeight(..), decodeBlockHeader)
 
 ---
@@ -354,20 +351,6 @@ unsafeReadTree offset pTree = do
                          (parseLeafTreeFileName name)
         pure $! TreeEntry h bh oid
 
-unsafeReadTree' :: CSize -> CSize -> Ptr G.C'git_tree -> IO TreeEntry
-unsafeReadTree' offset numEntries pTree = do
-    let !index = numEntries - (offset + 1)
-    gte <- G.c'git_tree_entry_byindex pTree index  -- TODO check for NULL here?
-    fromTreeEntryP gte
-  where
-    fromTreeEntryP :: Ptr G.C'git_tree_entry -> IO TreeEntry
-    fromTreeEntryP entryP = do
-        name <- G.c'git_tree_entry_name entryP >>= B.packCString
-        oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
-        (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
-                         (parseLeafTreeFileName name)
-        pure $! TreeEntry h bh oid
-
 ------------
 -- TRAVERSAL
 ------------
@@ -384,38 +367,19 @@ walk'
     -> BlockHeight
     -> BlockHashBytes
     -> (TreeEntry -> IO ())
-    -> (LeafTreeData -> IO ())
+    -> (BlobEntry -> IO ())
     -> IO ()
 walk' gsd !height !hash f g =
     lookupTreeEntryByHash gsd hash height >>= \case
         Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
         Just te -> do
             f te
-            ltd <- readLeafTree gsd (_te_gitHash te)
-            g ltd
-            unless (height == 0) $ do
-                let parent = V.unsafeLast $ _ltd_spectrum ltd
-                walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
-
-walk''
-    :: GitStoreData
-    -> BlockHeight
-    -> BlockHashBytes
-    -> (TreeEntry -> IO ())
-    -> (BlobEntry -> IO ())
-    -> IO ()
-walk'' gsd !height !hash f g =
-    lookupTreeEntryByHash gsd hash height >>= \case
-        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
-        Just te -> do
-            f te
             withTreeObject gsd (_te_gitHash te) $ \gt -> do
-                numEntries <- G.c'git_tree_entrycount gt
-                blob <- BlobEntry <$> unsafeReadTree' 0 numEntries gt
+                blob <- BlobEntry <$> unsafeReadTree 0 gt
                 g blob
                 unless (height == 0) $ do
-                    parent <- unsafeReadTree' 1 numEntries gt
-                    walk'' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
+                    parent <- unsafeReadTree 1 gt
+                    walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
 
 -----------
 -- BRACKETS
@@ -537,7 +501,8 @@ dedup (x:r@(y:_)) | x == y = dedup r
 parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
 parseLeafTreeFileName fn = do
     height <- decodeHeight heightStr
-    bh <- BlockHashBytes <$> hush (B64U.decode blockHash0)
+    -- bh <- BlockHashBytes <$> hush (B64U.decode blockHash0)
+    bh <- BlockHashBytes <$> hush (convertFromBase Base64URLUnpadded blockHash0)
     pure (height, bh)
   where
     -- TODO if the `rest` is fixed-length, it would be faster to use `splitAt`.
@@ -569,15 +534,15 @@ mkTagName = mkTreeEntryNameWith "bh/"
 -- postpend a null-terminator.
 --
 mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
-mkTreeEntryNameWith b (BlockHeight height) hash =
+mkTreeEntryNameWith b (BlockHeight height) (BlockHashBytes hash) =
     NullTerminated [ b, encHeight, ".", encBH, "\0" ]
   where
     encBH :: ByteString
-    encBH = B64U.encode $! runPutS (encodeBlockHashBytes hash)
+    encBH = convertToBase Base64URLUnpadded hash
 
     encHeight :: ByteString
     encHeight = FB.toStrictByteString $! FB.word64HexFixed height
 
 decodeHex :: ByteString -> Word64
 decodeHex = B.foldl' (\acc c -> (acc * 16) + fromIntegral (digitToInt c)) 0
-{-# INLINE decodeHex #-}
+-- {-# INLINE decodeHex #-}

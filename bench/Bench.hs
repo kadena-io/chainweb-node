@@ -32,7 +32,7 @@ import Chainweb.Store.Git
     (GitStore, GitStoreConfig(..), insertBlock, leaves, lookupByBlockHash,
     walk, withGitStore)
 import Chainweb.Store.Git.Internal
-    (getBlockHashBytes, leaves', lockGitStore, walk', walk'')
+    (getBlockHashBytes, leaves', lockGitStore, walk')
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -90,8 +90,7 @@ populate tmp gs = do
 gitSuite :: GitStore -> Env -> Benchmark
 gitSuite gs ~(frt, mid, lst) =
     bgroup "Git Store"
-    [  bench "walk' (just TreeEntry)" $ nfIO (walkB' gs lst)
-    , bench "walk'' (just TreeEntry)" $ nfIO (walkB'' gs lst)
+    [ bench "walk' (just TreeEntry)" $ nfIO (walkB' gs lst)
     , bench "walk (decoded BlockHeaders)" $ nfIO (walkB gs lst)
     , bench "leaves'" $ nfIO (lockGitStore gs leaves')
     , bench "leaves" $ nfIO (leaves gs)
@@ -106,10 +105,6 @@ walkB gs leaf = walk gs (_blockHeight leaf) (_blockHash leaf) (const $ pure ())
 walkB' :: GitStore -> BlockHeader -> IO ()
 walkB' gs leaf = lockGitStore gs $ \gsd -> do
     walk' gsd (_blockHeight leaf) (getBlockHashBytes $ _blockHash leaf) (const $ pure ()) (const $ pure ())
-
-walkB'' :: GitStore -> BlockHeader -> IO ()
-walkB'' gs leaf = lockGitStore gs $ \gsd -> do
-    walk'' gsd (_blockHeight leaf) (getBlockHashBytes $ _blockHash leaf) (const $ pure ()) (const $ pure ())
 
 ------------
 -- UTILITIES
