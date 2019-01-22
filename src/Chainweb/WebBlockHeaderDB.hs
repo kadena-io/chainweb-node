@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -19,6 +20,8 @@ module Chainweb.WebBlockHeaderDB
 , initWebBlockHeaderDb
 , getWebBlockHeaderDb
 , webBlockHeaderDb
+, webEntries
+, webAllEntries
 , lookupWebBlockHeaderDb
 , insertWebBlockHeaderDb
 , blockAdjacentParentHeaders
@@ -26,13 +29,21 @@ module Chainweb.WebBlockHeaderDB
 , checkBlockAdjacentParents
 ) where
 
+import Control.Concurrent.Async
+import Control.Concurrent.STM.TBQueue
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.STM
+import Control.Monad.Trans.Class
 
+import Data.Foldable
+import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Reflection
+import Data.Reflection hiding (int)
+
+import qualified Streaming.Prelude as S
 
 -- internal modules
 
@@ -65,6 +76,28 @@ data WebBlockHeaderDb = WebBlockHeaderDb
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
+
+-- | Returns the infinite stream of all blocks of all block header databases
+-- When all available blocks are consumed, the stream blocks until until a new
+-- block comes available.
+--
+webAllEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
+webAllEntries db = do
+    q <- lift $ newTBQueueIO (len dbs)
+    lift $ forConcurrently_ streams $ S.mapM_ $ atomically . writeTBQueue q
+    forever $ lift (atomically (readTBQueue q)) >>= S.yield
+  where
+    streams = flip allEntries Nothing <$> dbs
+    dbs = view (webBlockHeaderDb . to HM.elems) db
+
+-- | Returns all  blocks in all block header databases.
+--
+webEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
+webEntries db = do
+    foldl' (\a b -> () <$ S.mergeOn _blockCreationTime a b) mempty streams
+  where
+    streams = (\x -> entries x Nothing Nothing Nothing Nothing) <$> dbs
+    dbs = view (webBlockHeaderDb . to HM.elems) db
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb

@@ -20,6 +20,7 @@ import Data.Align (padZipWith)
 
 import qualified Streaming.Prelude as S
 
+import System.Directory
 import System.Path (fromAbsoluteFilePath)
 
 import Test.Tasty
@@ -50,11 +51,13 @@ tests = testGroup "Persistence"
 --
 onlyGenesis :: Assertion
 onlyGenesis = withDB chainId0 $ \g db -> do
-    persist fp db
-    g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) fp
+    persist p db
+    g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) p
     g' @?= Just g
+    removeFile fp
   where
-    fp = fromAbsoluteFilePath "/tmp/only-genesis"
+    fp = "/tmp/only-genesis"
+    p = fromAbsoluteFilePath fp
 
 -- | Write a number of block headers to a database, persist that database,
 -- reread it, and compare. Guarantees:
@@ -65,15 +68,17 @@ onlyGenesis = withDB chainId0 $ \g db -> do
 manyBlocksWritten :: Assertion
 manyBlocksWritten = withDB chainId0 $ \g db -> do
     void $ insertN len g db
-    persist fp db
+    persist p db
     fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing
-    fromFi <- runResourceT . S.toList_ $ fileEntries fp
+    fromFi <- runResourceT . S.toList_ $ fileEntries p
     length fromDB @?= len + 1
     length fromFi @?= len + 1
     head fromDB @?= g
     head fromFi @?= g
     let b = and $ padZipWith (==) fromDB fromFi
     assertBool "Couldn't write many blocks" b
+    removeFile fp
   where
-    fp  = fromAbsoluteFilePath "/tmp/many-blocks-written"
+    fp = "/tmp/many-blocks-written"
+    p = fromAbsoluteFilePath fp
     len = 10
