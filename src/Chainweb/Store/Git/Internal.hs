@@ -2,7 +2,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Store.Git.Internal
@@ -17,6 +19,7 @@ module Chainweb.Store.Git.Internal
   ( -- * Types
     -- ** Data
     GitStore(..)
+  , GitStoreBlockHeader(..)
   , GitStoreData(..)
   , TreeEntry(..)
   , LeafTreeData(..)
@@ -32,12 +35,22 @@ module Chainweb.Store.Git.Internal
   , readLeafTree
   , readHeader
   , readHeader'
+  , leaves
   , leaves'
+  , lookupByBlockHash
   , lookupTreeEntryByHash
   , readParent
 
     -- * Traversal
   , walk'
+
+    -- * Insertion
+  , InsertResult(..)
+  , insertBlock
+  , insertBlockHeaderIntoOdb
+  , addSelfEntry
+  , createBlockHeaderTag
+  , tagAsLeaf
 
     -- * Brackets
   , lockGitStore
@@ -66,21 +79,27 @@ import qualified Bindings.Libgit2 as G
 import Control.Concurrent.MVar (MVar, withMVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistMaybe, hush, nothing)
-import Control.Monad (unless, when)
+import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import Data.Bits (complement, unsafeShiftL, (.&.))
 import Data.ByteArray.Encoding (Base(..), convertFromBase, convertToBase)
 import Data.Bytes.Get (runGetS)
+import Data.Bytes.Put (runPutS)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.FastBuilder as FB
 import qualified Data.ByteString.Unsafe as B
 import Data.Char (digitToInt)
+import Data.Coerce (coerce)
+import Data.Foldable (traverse_)
+import Data.Functor (($>))
+import Data.Hashable (Hashable)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Intro as V
@@ -96,12 +115,17 @@ import Foreign.Storable (peek)
 
 import GHC.Generics (Generic)
 
+import qualified Streaming.Prelude as S
+
 import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 
 import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
-import Chainweb.BlockHeader (BlockHeader, BlockHeight(..), decodeBlockHeader)
+import Chainweb.BlockHeader
+    (BlockHeader(..), BlockHeight(..), decodeBlockHeader, encodeBlockHeader)
+import Chainweb.TreeDB (Eos(..), TreeDb(..), TreeDbEntry(..))
+import Chainweb.Utils (int)
 
 ---
 
@@ -109,10 +133,42 @@ import Chainweb.BlockHeader (BlockHeader, BlockHeight(..), decodeBlockHeader)
 -- TYPES
 --------
 
+newtype GitStoreBlockHeader = GitStoreBlockHeader BlockHeader
+    deriving (Eq, Show, Generic, Hashable)
+
+instance TreeDbEntry GitStoreBlockHeader where
+    type Key GitStoreBlockHeader = T2 BlockHeight BlockHash
+
+    key (GitStoreBlockHeader bh) = T2 (_blockHeight bh) (_blockHash bh)
+
+    rank (GitStoreBlockHeader bh) = int $ _blockHeight bh
+
+    parent e@(GitStoreBlockHeader bh)
+        | p == key e = Nothing
+        | otherwise = Just p
+      where
+        p = T2 (_blockHeight bh - 1) (_blockParent bh)
+
 -- | The fundamental git-based storage type. Can be initialized via
--- `withGitStore` and then queried as needed.
+-- `Chainweb.Store.Git.withGitStore` and then queried as needed.
 --
 newtype GitStore = GitStore (MVar GitStoreData)
+
+instance TreeDb GitStore where
+    type DbEntry GitStore = GitStoreBlockHeader
+
+    lookup gs (T2 hgt hsh) = coerce $ lookupByBlockHash gs hgt hsh
+
+    children = undefined
+
+    entries = undefined
+
+    leafEntries gs _ _ _ _ = do
+        ls <- liftIO $ leaves gs
+        S.map GitStoreBlockHeader $ S.each ls
+        pure (int $ length ls, Eos True)
+
+    insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
 
 -- | Many of the functions in this module require this type. The easiest and
 -- safest way to get it is via `lockGitStore`. Don't try and manipulate the
@@ -257,6 +313,11 @@ getBlob (GitStoreData repo _) gh = bracket lookupBlob destroy readBlob
         size <- G.c'git_blob_rawsize blob
         B.packCStringLen (castPtr content, fromIntegral size)
 
+-- | The "leaves" - the tips of all branches.
+--
+leaves :: GitStore -> IO [BlockHeader]
+leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
+
 -- | All leaf nodes in their light "pointer" form.
 --
 -- If we are pruning properly, there should only ever be a few of these, hence a
@@ -293,6 +354,11 @@ leaves' (GitStoreData repo _) =
                hash <- liftIO $ GitHash <$> oidToByteString oidP
                pure $! TreeEntry bh bs hash
 
+lookupByBlockHash :: GitStore -> BlockHeight -> BlockHash -> IO (Maybe BlockHeader)
+lookupByBlockHash gs height bh = lockGitStore gs $ \store -> do
+    m <- lookupTreeEntryByHash store (getBlockHashBytes bh) (fromIntegral height)
+    traverse (readHeader store) m
+
 -- | Shouldn't throw, in theory.
 --
 lookupTreeEntryByHash
@@ -321,6 +387,36 @@ lookupRefTarget (GitStoreData repo _) path0 =
   where
     path :: NullTerminated
     path = nappend "refs/" path0
+
+lookupTreeEntryByHeight
+    :: GitStoreData
+    -> GitHash         -- ^ starting from this leaf tree
+    -> BlockHeight     -- ^ desired blockheight
+    -> IO TreeEntry
+lookupTreeEntryByHeight gs leafTreeHash height =
+    readLeafTree gs leafTreeHash >>=
+    lookupTreeEntryByHeight' gs leafTreeHash height
+
+lookupTreeEntryByHeight'
+    :: GitStoreData
+    -> GitHash
+    -> BlockHeight     -- ^ desired blockheight
+    -> LeafTreeData
+    -> IO TreeEntry
+lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (BlobEntry (TreeEntry leafHeight leafBH _)) spectrum)
+    | height == leafHeight = pure $! TreeEntry height leafBH leafTreeHash
+    | V.null spec' = throwGitStoreFailure "lookup failure"
+    | otherwise = search
+  where
+    spec' :: Vector TreeEntry
+    spec' = V.filter (\t -> _te_blockHeight t >= height) spectrum
+
+    search :: IO TreeEntry
+    search = do
+        let frst = V.unsafeHead spec'
+            gh = _te_gitHash frst
+        if | _te_blockHeight frst == height -> pure frst
+           | otherwise -> lookupTreeEntryByHeight gs gh height
 
 readParent :: GitStoreData -> GitHash -> IO TreeEntry
 readParent store treeGitHash = withTreeObject store treeGitHash (unsafeReadTree 1)
@@ -378,8 +474,153 @@ walk' gsd !height !hash f g =
                 blob <- BlobEntry <$> unsafeReadTree 0 gt
                 g blob
                 unless (height == 0) $ do
-                    parent <- unsafeReadTree 1 gt
-                    walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
+                    prnt <- unsafeReadTree 1 gt
+                    walk' gsd (_te_blockHeight prnt) (_te_blockHash prnt) f g
+
+------------
+-- INSERTION
+------------
+
+data InsertResult = Inserted | AlreadyExists deriving (Eq, Show)
+
+insertBlock :: GitStore -> BlockHeader -> IO InsertResult
+insertBlock gs bh = lockGitStore gs $ \store -> do
+    let hash = getBlockHashBytes $ _blockHash bh
+        height = fromIntegral $ _blockHeight bh
+    m <- lookupTreeEntryByHash store hash height
+    maybe (go store) (const $ pure AlreadyExists) m
+  where
+    go :: GitStoreData -> IO InsertResult
+    go store = createLeafTree store bh $> Inserted
+
+-- | Given a block header: lookup its parent leaf tree entry, write the block
+-- header into the object database, compute a spectrum for the new tree entry,
+-- write the @git_tree@ to the repository, tag it under @tags/bh/foo@, and
+-- returns the git hash of the new @git_tree@ object.
+createLeafTree :: GitStoreData -> BlockHeader -> IO GitHash
+createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
+    when (height <= 0) $ throwGitStoreFailure "cannot insert genesis block"
+    parentTreeEntry <- lookupTreeEntryByHash store parentHash (height - 1) >>=
+                       maybe (throwGitStoreFailure "parent hash not found in DB") pure
+    let parentTreeGitHash = _te_gitHash parentTreeEntry
+    parentTreeData <- readLeafTree store parentTreeGitHash
+    treeEntries <- traverse (\h -> lookupTreeEntryByHeight' store parentTreeGitHash h parentTreeData)
+                        spectrum
+    newHeaderGitHash <- insertBlockHeaderIntoOdb store bh
+    traverse_ (addTreeEntry treeB) treeEntries
+    addTreeEntry treeB parentTreeEntry
+    addSelfEntry treeB height hash newHeaderGitHash
+    treeHash <- alloca $ \oid -> do
+        throwOnGitError "createLeafTree" "git_treebuilder_write" $
+            G.c'git_treebuilder_write oid repo treeB
+        GitHash <$> oidToByteString oid
+    createBlockHeaderTag store bh treeHash
+
+    updateLeafTags store parentTreeEntry (TreeEntry height hash treeHash)
+
+    -- TODO:
+    --   - compute total difficulty weight vs the winning block, and atomic-replace
+    --     the winning ref (e.g. @tags/BEST@) if the new block is better
+    pure treeHash
+
+  where
+    height :: BlockHeight
+    height = _blockHeight bh
+
+    hash :: BlockHashBytes
+    hash = getBlockHashBytes $ _blockHash bh
+
+    parentHash :: BlockHashBytes
+    parentHash = getBlockHashBytes $ _blockParent bh
+
+    spectrum :: [BlockHeight]
+    spectrum = getSpectrum height
+
+    addTreeEntry :: Ptr G.C'git_treebuilder -> TreeEntry -> IO ()
+    addTreeEntry tb (TreeEntry h hs gh) = tbInsert tb G.c'GIT_FILEMODE_TREE h hs gh
+
+addSelfEntry :: Ptr G.C'git_treebuilder -> BlockHeight -> BlockHashBytes -> GitHash -> IO ()
+addSelfEntry tb h hs gh = tbInsert tb G.c'GIT_FILEMODE_BLOB h hs gh
+
+-- | Insert a tree entry into a @git_treebuilder@.
+--
+tbInsert
+    :: Ptr G.C'git_treebuilder
+    -> G.C'git_filemode_t
+    -> BlockHeight
+    -> BlockHashBytes
+    -> GitHash
+    -> IO ()
+tbInsert tb mode h hs gh =
+    withOid gh $ \oid ->
+    B.unsafeUseAsCString (terminate name) $ \cname ->
+    throwOnGitError "tbInsert" "git_treebuilder_insert" $
+        G.c'git_treebuilder_insert nullPtr tb cname oid mode
+  where
+    name :: NullTerminated
+    name = mkTreeEntryNameWith "" h hs
+
+insertBlockHeaderIntoOdb :: GitStoreData -> BlockHeader -> IO GitHash
+insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
+    B.unsafeUseAsCStringLen serializedBlockHeader write
+  where
+    !serializedBlockHeader = runPutS $! encodeBlockHeader bh
+
+    write :: (Ptr a, Int) -> IO GitHash
+    write (cs, len) = alloca $ \oidPtr -> do
+       throwOnGitError "insertBlockHeaderIntoOdb" "git_odb_write" $
+           G.c'git_odb_write oidPtr odb (castPtr cs)
+                                        (fromIntegral len)
+                                        G.c'GIT_OBJ_BLOB
+       GitHash <$> oidToByteString oidPtr
+
+-- | Create a tag within @.git/refs/tags/bh/@ that matches the
+-- @blockheight.blockhash@ syntax, as say found in a stored `BlockHeader`'s
+-- "spectrum".
+--
+createBlockHeaderTag :: GitStoreData -> BlockHeader -> GitHash -> IO ()
+createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
+    withObject gs leafHash $ \obj ->
+    alloca $ \pTagOid ->
+    B.unsafeUseAsCString (terminate tagName) $ \cstr ->
+    -- @1@ forces libgit to overwrite this tag, should it already exist.
+    throwOnGitError "createBlockHeaderTag" "git_tag_create_lightweight" $
+        G.c'git_tag_create_lightweight pTagOid repo cstr obj 1
+  where
+    height :: BlockHeight
+    height = _blockHeight bh
+
+    hash :: BlockHashBytes
+    hash = getBlockHashBytes $ _blockHash bh
+
+    tagName :: NullTerminated
+    tagName = mkTagName height hash
+
+-- | The parent node upon which our new node was written is by definition no
+-- longer a leaf, and thus its entry in @.git/refs/leaf/@ must be removed.
+--
+updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
+updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
+    tagAsLeaf store newLeaf
+    B.unsafeUseAsCString (terminate $ mkName oldLeaf) $ \cstr ->
+        throwOnGitError "updateLeafTags" "git_tag_delete" $
+            G.c'git_tag_delete repo cstr
+
+-- | Tag a `TreeEntry` in @.git/refs/leaf/@.
+--
+tagAsLeaf :: GitStoreData -> TreeEntry -> IO ()
+tagAsLeaf store@(GitStoreData repo _) leaf =
+    withObject store (_te_gitHash leaf) $ \obj ->
+        alloca $ \pTagOid ->
+        B.unsafeUseAsCString (terminate $ mkName leaf) $ \cstr ->
+        throwOnGitError "tagAsLeaf" "git_tag_create_lightweight" $
+            G.c'git_tag_create_lightweight pTagOid repo cstr obj 1
+
+mkName :: TreeEntry -> NullTerminated
+mkName (TreeEntry h bh _) = mkLeafTagName h bh
+
+mkLeafTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkLeafTagName = mkTreeEntryNameWith "leaf/"
 
 -----------
 -- BRACKETS
