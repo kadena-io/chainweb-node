@@ -181,8 +181,6 @@ lookupByBlockHash :: GitStore -> BlockHeight -> BlockHash -> IO (Maybe BlockHead
 lookupByBlockHash gs height bh = lockGitStore gs $ \store -> do
     m <- lookupTreeEntryByHash store (getBlockHashBytes bh) (fromIntegral height)
     traverse (readHeader store) m
-  where
-
 
 ------------------------------------------------------------------------------
 insertBlockHeaderIntoOdb :: GitStoreData -> BlockHeader -> IO GitHash

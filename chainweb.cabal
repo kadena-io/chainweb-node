@@ -431,6 +431,37 @@ test-suite consensus-network-tests
         cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
+-- Chainweb Benchmarking
+-- -------------------------------------------------------------------------- --
+
+benchmark chainweb-bench
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: Bench.hs
+  hs-source-dirs:
+      bench
+  ghc-options:
+      -Wall
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wredundant-constraints
+      -threaded
+      -O2
+      -with-rtsopts=-N
+  build-depends:
+        -- internal
+        chainweb
+
+        -- external
+        , base >= 4.11
+        , criterion >= 1.1
+        , deepseq
+        , paths >= 0.2
+        , random >= 1.1
+        , shelly >= 1.7
+        , text
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
 -- -------------------------------------------------------------------------- --
 

@@ -106,7 +106,6 @@ import Chainweb.BlockHash
     (BlockHash(..), BlockHashBytes(..), encodeBlockHashBytes)
 import Chainweb.BlockHeader (BlockHeader, BlockHeight(..), decodeBlockHeader)
 
-
 ---
 
 --------
@@ -343,7 +342,21 @@ readParent store treeGitHash = withTreeObject store treeGitHash (unsafeReadTree 
 unsafeReadTree :: CSize -> Ptr G.C'git_tree -> IO TreeEntry
 unsafeReadTree offset pTree = do
     numEntries <- G.c'git_tree_entrycount pTree
-    let index = numEntries - (offset + 1)
+    let !index = numEntries - (offset + 1)
+    gte <- G.c'git_tree_entry_byindex pTree index  -- TODO check for NULL here?
+    fromTreeEntryP gte
+  where
+    fromTreeEntryP :: Ptr G.C'git_tree_entry -> IO TreeEntry
+    fromTreeEntryP entryP = do
+        name <- G.c'git_tree_entry_name entryP >>= B.packCString
+        oid  <- GitHash <$> (G.c'git_tree_entry_id entryP >>= oidToByteString)
+        (h, bh) <- maybe (throwGitStoreFailure "Tree object with incorrect naming scheme!") pure
+                         (parseLeafTreeFileName name)
+        pure $! TreeEntry h bh oid
+
+unsafeReadTree' :: CSize -> CSize -> Ptr G.C'git_tree -> IO TreeEntry
+unsafeReadTree' offset numEntries pTree = do
+    let !index = numEntries - (offset + 1)
     gte <- G.c'git_tree_entry_byindex pTree index  -- TODO check for NULL here?
     fromTreeEntryP gte
   where
@@ -381,7 +394,7 @@ walk' gsd !height !hash f g =
             ltd <- readLeafTree gsd (_te_gitHash te)
             g ltd
             unless (height == 0) $ do
-                let parent = V.last $ _ltd_spectrum ltd
+                let parent = V.unsafeLast $ _ltd_spectrum ltd
                 walk' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
 
 walk''
@@ -397,10 +410,11 @@ walk'' gsd !height !hash f g =
         Just te -> do
             f te
             withTreeObject gsd (_te_gitHash te) $ \gt -> do
-                blob <- BlobEntry <$> unsafeReadTree 0 gt
+                numEntries <- G.c'git_tree_entrycount gt
+                blob <- BlobEntry <$> unsafeReadTree' 0 numEntries gt
                 g blob
                 unless (height == 0) $ do
-                    parent <- unsafeReadTree 1 gt
+                    parent <- unsafeReadTree' 1 numEntries gt
                     walk'' gsd (_te_blockHeight parent) (_te_blockHash parent) f g
 
 -----------
