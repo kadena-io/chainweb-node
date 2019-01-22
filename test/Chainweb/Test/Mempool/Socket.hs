@@ -23,7 +23,7 @@ import qualified Chainweb.Test.Mempool
 tests :: TestTree
 tests = testGroup "mempool.socket" $ Chainweb.Test.Mempool.remoteTests
                                    $ MempoolWithFunc
-                                   $ withRemoteMempool cfg "localhost"
+                                   $ withRemoteMempool cfg "127.0.0.1"
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
     -- run the reaper @100Hz for testing
