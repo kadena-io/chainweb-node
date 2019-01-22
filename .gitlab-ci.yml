@@ -13,10 +13,10 @@ nix-macos:
     - nix-build
     - nix-build -A ghc.chainweb.doc
     - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+#  artifacts:
+#    paths:
+#    - public/
+#    expire_in: 1 week
 
 nix-shell-macos:
   tags:
@@ -31,10 +31,10 @@ nix-linux:
     - nix-build
     - nix-build -A ghc.chainweb.doc
     - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+#  artifacts:
+#    paths:
+#    - public/
+#    expire_in: 1 week
 
 nix-shell-linux:
   tags:
@@ -48,10 +48,10 @@ nix-shell-linux:
 #   script:
 #     - nix-shell -p libiconv zlib ncurses gmp git perl --run "stack test --fast"
 
-pages:
-  stage: deploy
-  script:
-  - echo 'Nothing to do...'
-  artifacts:
-    paths:
-    - public/
+#pages:
+#  stage: deploy
+#  script:
+#  - echo 'Nothing to do...'
+#  artifacts:
+#    paths:
+#    - public/
