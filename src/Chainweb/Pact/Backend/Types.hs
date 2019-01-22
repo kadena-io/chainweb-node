@@ -31,6 +31,7 @@ module Chainweb.Pact.Backend.Types
     , cpeGasEnv
     , CheckpointData(..)
     , cpPactDbEnv
+    , cpCommandState
     , Checkpointer(..)
     , cRestore
     , cSave
@@ -41,7 +42,6 @@ module Chainweb.Pact.Backend.Types
 import Control.Lens
 
 import Data.Aeson
-import Data.Map.Strict (Map)
 
 import GHC.Generics
 
@@ -107,9 +107,10 @@ data Checkpointer = Checkpointer
   { _cRestore :: BlockHeight -> BlockPayloadHash -> IO CheckpointData
   , _cSave :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
   }
-  -- functions like the ones below need to be implemented internally
-  -- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
-  -- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+
+-- functions like the ones below need to be implemented internally
+-- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+-- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
 
 makeLenses ''Checkpointer
 

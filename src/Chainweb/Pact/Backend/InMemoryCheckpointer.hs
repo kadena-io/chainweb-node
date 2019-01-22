@@ -11,7 +11,6 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
-import Data.Maybe
 
 import Control.Concurrent.MVar
 
@@ -48,7 +47,7 @@ restore :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
 restore lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just newsnap -> return newsnap
+            Just old -> return old
             -- This is just a placeholder for right now (the Nothing clause)
             Nothing ->
                 fail "InMemoryCheckpointer.restore: There is no checkpoint that can be restored."

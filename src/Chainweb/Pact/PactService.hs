@@ -145,8 +145,7 @@ validateBlock Block {..} = do
       -- EMMANUEL: Check this boi out. Just need to find out where to get CommandConfig from?
       put (PactDbState undefined _cpPactDbEnv _cpCommandState)
     currentState <- get
-    _results <-
-      liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
+    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState            -- EMMANUEL: is this necessary anymore?
     liftIO $
