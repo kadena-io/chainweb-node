@@ -65,6 +65,7 @@ import System.Timeout (timeout)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+import Chainweb.Utils (Codec(..))
 
 {-# INLINE trace' #-}
 {-# INLINE debug #-}

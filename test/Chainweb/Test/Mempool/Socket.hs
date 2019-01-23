@@ -18,6 +18,7 @@ import qualified Chainweb.Mempool.Socket as M
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), MockTx(..), mockBlocksizeLimit, mockCodec)
 import qualified Chainweb.Test.Mempool
+import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
 tests :: TestTree

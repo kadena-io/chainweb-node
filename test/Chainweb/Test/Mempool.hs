@@ -49,6 +49,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (Codec(..))
 import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------

@@ -6,6 +6,7 @@ module Chainweb.BlockPayloadDB.FS
   , withDB
   ) where
 
+------------------------------------------------------------------------------
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar
 import Control.DeepSeq
@@ -23,11 +24,13 @@ import qualified System.Directory as Dir
 import System.Path (Absolute, Path, (</>))
 import qualified System.Path as Path
 import qualified System.Random.MWC as MWC
-
+------------------------------------------------------------------------------
 import Chainweb.BlockHash (BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockPayloadHash(..))
 import Chainweb.BlockPayloadDB
 import Chainweb.Utils (Codec(..))
+------------------------------------------------------------------------------
+
 
 data FsDB t = FsDB {
     _fsDbRoot :: Path Absolute

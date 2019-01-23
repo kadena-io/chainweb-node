@@ -14,7 +14,7 @@ data PayloadConfig t = PayloadConfig {
   , payloadHash :: t -> BlockPayloadHash
 }
 
-data NFData t => DB t = DB {
+data DB t = DB {
     payloadLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
   , payloadInsert :: Vector t -> IO (Vector (Either String ()))
   , payloadDelete :: Vector BlockPayloadHash -> IO ()
