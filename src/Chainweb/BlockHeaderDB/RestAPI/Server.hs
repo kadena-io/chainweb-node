@@ -251,24 +251,6 @@ headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
         throwError $ err400 { errBody = sshow err }
     ]
 
--- | Fetch all the immediate children nodes of some given parent.
---
-childHashesHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-childHashesHandler db k = do
-    keyChecked <- checkKey db k
-    liftIO . finiteStreamToPage id (Just defaultEntryLimit)
-           . void
-           $ children db keyChecked
-
--- | Fetch all the immediate children nodes of some given parent.
---
-childHeadersHandler :: TreeDb db => db -> DbKey db -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-childHeadersHandler db k = do
-    keyChecked <- checkKey db k
-    liftIO . finiteStreamToPage key (Just defaultEntryLimit)
-           . void
-           $ childrenEntries db keyChecked
-
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 
@@ -282,8 +264,6 @@ blockHeaderDbServer (BlockHeaderDb_ db) =
     :<|> headerPutHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db
-    :<|> childHashesHandler db
-    :<|> childHeadersHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB
