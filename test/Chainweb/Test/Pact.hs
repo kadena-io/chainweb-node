@@ -78,7 +78,7 @@ pactExecTests = do
 
 execTests :: PactT ()
 execTests = do
-    let theData = (object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs])
+    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
     -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
     prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]

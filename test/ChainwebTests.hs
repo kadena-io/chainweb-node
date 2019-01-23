@@ -61,6 +61,7 @@ suite = testGroup "Unit Tests"
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties
+
     -- DB 2019-01-17 Disabling to fix CI
     -- , testGroup "Network.X05.SelfSigned.Test"
     --     [ Network.X509.SelfSigned.Test.tests

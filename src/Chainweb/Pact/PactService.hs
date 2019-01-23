@@ -133,7 +133,6 @@ validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     cpEnv@CheckpointEnv {..} <- ask
-    -- TODO: to be replaced with mkCheckpointe outside this module
     unless (isFirstBlock _bBlockHeight) $ do
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
     currentState <- get
