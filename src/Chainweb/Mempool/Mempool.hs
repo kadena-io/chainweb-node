@@ -8,7 +8,6 @@ module Chainweb.Mempool.Mempool
   , TransactionHash(..)
   , TransactionFees
   , TransactionMetadata(..)
-  , Codec(..)
   , HashMeta(..)
   , Subscription(..)
   , ValidationInfo(..)
@@ -37,6 +36,7 @@ import GHC.Generics (Generic)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
+import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 
 
@@ -124,14 +124,6 @@ instance Hashable TransactionHash where
 ------------------------------------------------------------------------------
 -- | Fees to be awarded to the miner for processing a transaction. Higher is better
 type TransactionFees = Decimal
-
-
-------------------------------------------------------------------------------
--- | TODO: maybe use Put/Get ?
-data Codec t = Codec {
-    codecEncode :: t -> ByteString
-  , codecDecode :: ByteString -> Maybe t
-}
 
 
 ------------------------------------------------------------------------------
