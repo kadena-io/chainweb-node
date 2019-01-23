@@ -34,7 +34,7 @@ module Chainweb.BlockHeaderDB
 , ValidationFailureType(..)
 
 -- * Utils
-, children
+, childrenKeys
 ) where
 
 import Control.Arrow
@@ -306,11 +306,11 @@ instance TreeDb BlockHeaderDb where
 -- The number is expected to be small enough to be returned in a single call
 -- even for remote backends. FIXME: this may be a DOS vulnerability.
 --
-children
+childrenKeys
     :: BlockHeaderDb
     -> DbKey BlockHeaderDb
     -> S.Stream (S.Of (DbKey BlockHeaderDb)) IO ()
-children db = S.map key . childrenEntries db
+childrenKeys db = S.map key . childrenEntries db
 
 childrenEntries
     :: BlockHeaderDb
@@ -340,7 +340,7 @@ ascend
 ascend db (MinRank (Min r)) = go
   where
     go e
-        | rank e < r = S.for (children db (key e) & lookupStreamM db) go
+        | rank e < r = S.for (childrenKeys db (key e) & lookupStreamM db) go
         | otherwise = S.yield e
 
 -- | @ascendIntersect db s e@ returns the intersection of the successors of
