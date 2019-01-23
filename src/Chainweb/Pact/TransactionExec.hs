@@ -64,7 +64,6 @@ exToTx :: ExecutionMode -> Maybe TxId
 exToTx (Transactional t) = Just t
 exToTx Local = Nothing
 
--- runPayload :: Command (Payload PublicMeta ParsedCode) -> (CommandM p CommandResult, [TxLog Value])
 runPayload :: Command (Payload PublicMeta ParsedCode) -> CommandM p (CommandResult, [TxLog Value])
 runPayload c@Command{..} = case _pPayload _cmdPayload of
   Exec pm -> applyExec (cmdToRequestKey c) pm c
