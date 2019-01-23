@@ -33,11 +33,13 @@ import Control.Lens
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
+import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 
 import GHC.Word
 
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Persistence as P
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
@@ -49,8 +51,9 @@ data Transaction = Transaction
 
 makeLenses ''Transaction
 
-newtype TransactionOutput = TransactionOutput
+data TransactionOutput = TransactionOutput
     { _getCommandResult :: P.CommandResult
+    , _getTxLogs :: [P.TxLog A.Value]
     }
 
 data Block = Block

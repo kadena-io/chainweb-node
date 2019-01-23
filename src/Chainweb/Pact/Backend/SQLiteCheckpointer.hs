@@ -7,6 +7,9 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
+import Data.HashMap.Strict (HashMap)
+-- import qualified Data.HashMap.Strict as HMS
+
 import Control.Concurrent.MVar
 
 import qualified Pact.Types.Logger as P
@@ -19,7 +22,7 @@ import Chainweb.Pact.Backend.Types
 
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
-    inmem <- newMVar undefined
+    inmem <- newMVar mempty
     return $
         CheckpointEnv
             { _cpeCheckpointer =
@@ -32,7 +35,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-data Store = Store
+type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
 
 restore :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
 restore = undefined
@@ -44,6 +47,9 @@ prepareForValidBlock = undefined
 prepareForNewBlock ::
        MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
 prepareForNewBlock = undefined
+
+-- prepare/save could change filename (field dbFile) of SQLiteConfig
+-- so that its retrieval is possible in a restore.
 
 save :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
 save = undefined

@@ -25,11 +25,13 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
+import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
@@ -76,37 +78,34 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runStateT (runReaderT serviceRequests checkpointEnv) theState
+    evalStateT (runReaderT serviceRequests checkpointEnv) theState
 
 getGasEnv :: PactT P.GasEnv
-getGasEnv = return undefined
+getGasEnv = view cpeGasEnv
 
 serviceRequests :: PactT ()
 serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
 
 newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
 newTransactionBlock parentHeader bHeight = do
-  let parentPayloadHash = _blockPayloadHash parentHeader
-  newTrans <- requestTransactions TransactionCriteria
-  env@(CheckpointEnv {..}) <- ask
-  unless (isFirstBlock bHeight) $ do
-    CheckpointData {..} <-
-      liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
-     -- EMMANUEL: Check this boi out. Just need to find out where to get CommandConfig from?
-    put (PactDbState undefined _cpPactDbEnv _cpCommandState)
-  theState <- get
-  results <- liftIO $ execTransactions env theState newTrans
-  -- There is an implicit `discard` here.
-  return
-    Block
-      { _bHash = Nothing -- not yet computed
-      , _bParentHeader = parentHeader
-      , _bBlockHeight = succ bHeight
-      , _bTransactions = zip newTrans results
-      }
-
-getDbState :: PactT PactDbState
-getDbState = undefined
+    let parentPayloadHash = _blockPayloadHash parentHeader
+    newTrans <- requestTransactions TransactionCriteria
+    CheckpointEnv {..} <- ask
+    unless (isFirstBlock bHeight) $ do
+      cpdata <- liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+      buildPactDbStateWithCheckpointData cpdata
+    theState <- use pdbsState
+    dbEnv <- use pdbsDbEnv
+    env <- ask
+    newVar <- liftIO $ newMVar theState
+    results <- liftIO $ execTransactions env dbEnv newVar newTrans
+    return
+      Block
+        { _bHash = Nothing -- not yet computed
+        , _bParentHeader = parentHeader
+        , _bBlockHeight = succ bHeight
+        , _bTransactions = zip newTrans results
+        }
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -138,44 +137,48 @@ validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     cpEnv@CheckpointEnv {..} <- ask
-        -- TODO: to be replaced with mkCheckpointe outside this module
     unless (isFirstBlock _bBlockHeight) $ do
-      CheckpointData {..} <-
-        liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      -- EMMANUEL: Check this boi out. Just need to find out where to get CommandConfig from?
-      put (PactDbState undefined _cpPactDbEnv _cpCommandState)
+      cpdata <- liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      buildPactDbStateWithCheckpointData cpdata
     currentState <- get
-    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
-    buildCurrentPactState >>= put
-    st <- getDbState            -- EMMANUEL: is this necessary anymore?
-    liftIO $
-      _cSave
-        _cpeCheckpointer
-        _bBlockHeight
-        parentPayloadHash
-        (liftA2 CheckpointData _pdbsDbEnv _pdbsState st)
+    newVar <- liftIO $ newMVar (_pdbsState currentState)
+    _results <- liftIO $ execTransactions cpEnv (_pdbsDbEnv currentState) newVar (fmap fst _bTransactions)
+    liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
+                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-execTransactions cpEnv pactState xs =
-    forM
-        xs
-        (\Transaction {..} -> do
-             let txId = P.Transactional (P.TxId _tTxId)
-             liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
+execTransactions :: CheckpointEnv -> Env' -> MVar P.CommandState -> [Transaction] -> IO [TransactionOutput]
+execTransactions cpEnv dbEnv' mvCmdState xs =
+    forM xs (\Transaction {..} -> do
+                let txId = P.Transactional (P.TxId _tTxId)
+                (result, txLogs) <- applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+                return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
 
-applyPactCmd ::
-       CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd CheckpointEnv {..} PactDbState {..} eMode cmd = do
-    newVar <- newMVar _pdbsState
-    case _pdbsDbEnv of
-        Env' pactDbEnv -> do
-            let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing pactDbEnv newVar (P._geGasModel _cpeGasEnv) eMode cmd procCmd
+applyPactCmd
+    :: CheckpointEnv
+    -> Env'
+    -> MVar P.CommandState
+    -> P.ExecutionMode
+    -> P.Command ByteString
+    -> IO (P.CommandResult, [P.TxLog A.Value])
+applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
+    case dbEnv' of
+      Env' pactDbEnv -> do
+        let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
+        applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
-buildCurrentPactState :: PactT PactDbState
-buildCurrentPactState = undefined
+-- buildCurrentPactDbState :: PactT PactDbState
+-- buildCurrentPactDbState = undefined
+
+-- We could use this to build back up a valid PactDbState with the
+-- available checkpointdata. I noticed that _pdbsCommandConfig field
+-- of PactDbState is a static field. Consequently, only the _pdbsDbEnv
+-- and _pdbsState fields need to updated.
+buildPactDbStateWithCheckpointData :: CheckpointData  -> PactT ()
+buildPactDbStateWithCheckpointData CheckpointData {..} = do
+    pdbsDbEnv .= _cpPactDbEnv
+    pdbsState .= _cpCommandState
