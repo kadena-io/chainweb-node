@@ -28,10 +28,8 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 import Control.Applicative
-import Control.Concurrent
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Control.Monad.Zip
@@ -86,7 +84,7 @@ execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
                          nonces intSeq cmdStrs
-    outputs <- execPactTransactions trans
+    outputs <- execTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
@@ -129,13 +127,6 @@ testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d
 
 testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
-
-execPactTransactions :: [Transaction] -> PactT [TransactionOutput]
-execPactTransactions trans = do
-    env <- ask
-    dbState <- lift get
-    newVar <- liftIO $ newMVar (_pdbsState dbState)
-    liftIO $ execTransactions env (_pdbsDbEnv dbState) newVar trans
 
 checkSuccessOnly :: TestResponse -> Assertion
 checkSuccessOnly resp = do

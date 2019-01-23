@@ -87,12 +87,8 @@ newTransactionBlock parentHeader bHeight = do
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
-    theState <- get
-    env <- ask
-    newVar <- liftIO $ newMVar (_pdbsState theState)
-    results <- liftIO $ execTransactions env (_pdbsDbEnv theState) newVar newTrans
-    liftIO $ _cDiscard _cpeCheckpointer bHeight parentPayloadHash
-                      (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) theState)
+    results <- execTransactions newTrans
+    -- TODO: new block format needs to be integrated w/hash of results to be put into block, etc.
     return Block
               { _bHash = Nothing -- not yet computed
               , _bParentHeader = parentHeader
@@ -132,12 +128,10 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    cpEnv@CheckpointEnv {..} <- ask
+    CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
-    currentState <- get
-    newVar <- liftIO $ newMVar (_pdbsState currentState)
-    _results <- liftIO $ execTransactions cpEnv (_pdbsDbEnv currentState) newVar (fmap fst _bTransactions)
+    _results <- execTransactions (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
     liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
@@ -148,11 +142,15 @@ validateBlock Block {..} = do
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv -> Env' -> MVar P.CommandState -> [Transaction] -> IO [TransactionOutput]
-execTransactions cpEnv dbEnv' mvCmdState xs =
+execTransactions :: [Transaction] -> PactT [TransactionOutput]
+execTransactions xs = do
+    cpEnv <- ask
+    currentState <- get
+    let dbEnv' = _pdbsDbEnv currentState
+    mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
     forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
-        (result, txLogs) <- applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
         return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
 
 applyPactCmd
