@@ -176,6 +176,5 @@ fetchingAtHeight :: GitStore -> Assertion
 fetchingAtHeight gs = do
     let nexts = take chainLen $ testBlockHeaders genesis
     traverse_ (insertBlock gs) nexts
-    lockGitStore gs $ \gsd -> do
-        allFromHeight gsd 0 >>= (\bs -> length bs @?= 1)
-        allFromHeight gsd (int chainLen) >>= (\bs -> length bs @?= 1)
+    allFromHeight gs 0 >>= (\bs -> length bs @?= 1)
+    allFromHeight gs (int chainLen) >>= (\bs -> length bs @?= 1)

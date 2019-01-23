@@ -118,6 +118,8 @@ import Foreign.Storable (peek)
 
 import GHC.Generics (Generic)
 
+import Numeric.Natural (Natural)
+
 import Streaming (Of, Stream)
 import qualified Streaming.Prelude as S
 
@@ -168,16 +170,17 @@ instance TreeDb GitStore where
     -- This is removed via #237
     childrenEntries = undefined
 
-    -- | Sub-problems to solve:
-    --
-    --   * Assuming a single leaf: how to stream bottom-up?
-    --     * Bring the whole DB into memory, reverse, then stream?
-    --     * Walk it once, creating a "reverse lookup index" in memory, then do
-    --       a long serious of lookups?
-    --     * For a node at height H, do a git lookup of all tags in @bh/@ who have height
-    --       H+1, grab them all, stream?
-    --   * How to avoid repeated streaming of nodes past a shared branch point?
-    entries gs next limit minr maxr = undefined
+    -- TODO Handle the args
+    entries gs next limit minr maxr = f 0 0
+      where
+        f :: BlockHeight -> Natural -> Stream (Of GitStoreBlockHeader) IO (Natural, Eos)
+        f !bh !total = do
+            bs <- liftIO $ allFromHeight gs bh
+            let len = length bs
+            if | len == 0 -> pure (total, Eos True)
+               | otherwise ->  do
+                   S.map GitStoreBlockHeader $ S.each bs
+                   f (bh + 1) (total + int len)
 
     -- TODO Handle `next`
     leafEntries gs next limit minr maxr = do
@@ -449,11 +452,18 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (BlobEntry (TreeEn
         if | _te_blockHeight frst == height -> pure frst
            | otherwise -> lookupTreeEntryByHeight gs gh height
 
+-- | All `BlockHeader` found in @refs\/tags\/bh\/@ at a given height.
+--
+allFromHeight :: GitStore -> BlockHeight -> IO [BlockHeader]
+allFromHeight gs bh = do
+    ts <- allFromHeight' gs bh
+    lockGitStore gs $ \gsd ->
+        traverse (readHeader gsd) ts
+
 -- | All `TreeEntry` found in @refs\/tags\/bh\/@ at a given height.
 --
-allFromHeight :: GitStoreData -> BlockHeight -> IO [TreeEntry]
-allFromHeight gsd (BlockHeight bh) =
-    matchTags gsd bhPath 3
+allFromHeight' :: GitStore -> BlockHeight -> IO [TreeEntry]
+allFromHeight' gs (BlockHeight bh) = lockGitStore gs $ \gsd -> matchTags gsd bhPath 3
   where
     bhPath :: NullTerminated
     bhPath = NullTerminated [ "bh/", FB.toStrictByteString (FB.word64HexFixed bh), "*\0" ]
