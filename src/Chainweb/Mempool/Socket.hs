@@ -755,7 +755,7 @@ ccmdToCmd (CLookup v _) = Lookup v
 ccmdToCmd (CGetPending _) = GetPending
 ccmdToCmd (CGetBlock x _) = GetBlock x
 ccmdToCmd (CSubscribe _) = Subscribe
-ccmdToCmd _ = error "impossible"
+ccmdToCmd CShutdown = error "impossible"
 
 
 closeChans :: ClientState t -> IO ()
@@ -809,7 +809,8 @@ dispatchResponse _ (CSubscribe _) OK = debug "client: got OK for subscribe messa
                                            >> return ()
 dispatchResponse _ (CSubscribe _) _ = dispatchMismatch
 
-dispatchResponse cs _ _ = sendFailedToAllPending cs $ Failed "mempool shutdown"
+dispatchResponse _ CShutdown _ = error "impossible, CShutdown doesn't queue"
+
 
 dispatchMismatch :: IO a
 dispatchMismatch = fail "mempool protocol error: got response for wrong request type"
