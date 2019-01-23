@@ -37,6 +37,7 @@ module Chainweb.Store.Git.Internal
   , readHeader'
   , leaves
   , leaves'
+  , allFromHeight
   , lookupByBlockHash
   , lookupTreeEntryByHash
   , readParent
@@ -97,6 +98,8 @@ import Data.Foldable (traverse_)
 import Data.Functor (($>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
+import Data.List (sort)
+import Data.Semigroup (Max(..), Min(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
@@ -106,7 +109,7 @@ import qualified Data.Vector.Algorithms.Intro as V
 import Data.Witherable (wither)
 import Data.Word (Word64)
 
-import Foreign.C.String (CString, withCString)
+import Foreign.C.String (CString)
 import Foreign.C.Types (CInt, CSize)
 import Foreign.Marshal.Alloc (alloca, free)
 import Foreign.Marshal.Array (peekArray)
@@ -115,6 +118,7 @@ import Foreign.Storable (peek)
 
 import GHC.Generics (Generic)
 
+import Streaming (Of, Stream)
 import qualified Streaming.Prelude as S
 
 import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
@@ -124,8 +128,10 @@ import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
 import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), decodeBlockHeader, encodeBlockHeader)
-import Chainweb.TreeDB (Eos(..), TreeDb(..), TreeDbEntry(..))
+import Chainweb.TreeDB
+    (Eos(..), MaxRank(..), MinRank(..), TreeDb(..), TreeDbEntry(..))
 import Chainweb.Utils (int)
+import Chainweb.Utils.Paging (Limit(..))
 
 ---
 
@@ -159,14 +165,36 @@ instance TreeDb GitStore where
 
     lookup gs (T2 hgt hsh) = coerce $ lookupByBlockHash gs hgt hsh
 
-    children = undefined
+    -- This is removed via #237
+    childrenEntries = undefined
 
-    entries = undefined
+    -- | Sub-problems to solve:
+    --
+    --   * Assuming a single leaf: how to stream bottom-up?
+    --     * Bring the whole DB into memory, reverse, then stream?
+    --     * Walk it once, creating a "reverse lookup index" in memory, then do
+    --       a long serious of lookups?
+    --     * For a node at height H, do a git lookup of all tags in @bh/@ who have height
+    --       H+1, grab them all, stream?
+    --   * How to avoid repeated streaming of nodes past a shared branch point?
+    entries gs next limit minr maxr = undefined
 
-    leafEntries gs _ _ _ _ = do
-        ls <- liftIO $ leaves gs
-        S.map GitStoreBlockHeader $ S.each ls
+    -- TODO Handle `next`
+    leafEntries gs next limit minr maxr = do
+        ls <- fmap sort . liftIO $ leaves gs
+        maybe id f limit . maybe id h maxr . maybe id g minr . S.map GitStoreBlockHeader $ S.each ls
         pure (int $ length ls, Eos True)
+      where
+        f :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+        f = S.take . int . _getLimit
+
+        g :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+        g (MinRank (Min n)) =
+            S.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
+
+        h :: MaxRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+        h (MaxRank (Max n)) =
+            S.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
 
     insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
 
@@ -324,11 +352,14 @@ leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
 -- list is appropriate.
 --
 leaves' :: GitStoreData -> IO [TreeEntry]
-leaves' (GitStoreData repo _) =
-    withCString "leaf/*"
+leaves' gsd = matchTags gsd (NullTerminated [ "leaf/*\0" ]) 5
+
+matchTags :: GitStoreData -> NullTerminated -> Int -> IO [TreeEntry]
+matchTags (GitStoreData repo _) nt chop =
+    B.unsafeUseAsCString (terminate nt)
         $ \patt -> alloca
         $ \namesP -> do
-            throwOnGitError "leaves" "git_tag_list_match" $
+            throwOnGitError "matchTags" "git_tag_list_match" $
                 G.c'git_tag_list_match namesP patt repo
             a <- peek namesP
             names <- peekArray (fromIntegral $ G.c'git_strarray'count a) (G.c'git_strarray'strings a)
@@ -344,7 +375,7 @@ leaves' (GitStoreData repo _) =
    getEntry :: CString -> IO (Maybe TreeEntry)
    getEntry name = do
        name' <- B.packCString name
-       let tagName = B.drop 5 name'  -- Slice off "leaf/"
+       let tagName = B.drop chop name'  -- Slice off "leaf/", etc.
            fullTagPath = B.concat [ "refs/tags/", name', "\0" ]
        B.unsafeUseAsCString fullTagPath
            $ \fullTagPath' -> alloca
@@ -417,6 +448,15 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (BlobEntry (TreeEn
             gh = _te_gitHash frst
         if | _te_blockHeight frst == height -> pure frst
            | otherwise -> lookupTreeEntryByHeight gs gh height
+
+-- | All `TreeEntry` found in @refs\/tags\/bh\/@ at a given height.
+--
+allFromHeight :: GitStoreData -> BlockHeight -> IO [TreeEntry]
+allFromHeight gsd (BlockHeight bh) =
+    matchTags gsd bhPath 3
+  where
+    bhPath :: NullTerminated
+    bhPath = NullTerminated [ "bh/", FB.toStrictByteString (FB.word64HexFixed bh), "*\0" ]
 
 readParent :: GitStoreData -> GitHash -> IO TreeEntry
 readParent store treeGitHash = withTreeObject store treeGitHash (unsafeReadTree 1)

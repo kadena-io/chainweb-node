@@ -24,6 +24,7 @@ import Chainweb.ChainId
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal
 import Chainweb.Test.Utils (toyGenesis)
+import Chainweb.Utils (int)
 
 ---
 
@@ -43,6 +44,7 @@ tests = testGroup "Git Store"
           , testCase "Single Insertion" $ withNewRepo singleInsert
           , testCase "Multiple Insertion" $ withNewRepo multiInsert
           , testCase "Genesis Reinsertion" $ withNewRepo genesisReinsertion
+          , testCase "Fetching at Height" $ withNewRepo fetchingAtHeight
           ]
     , testGroup "Traversal"
           [ testCase "Leaf-to-Genesis" $ withNewRepo basicTrav
@@ -169,3 +171,11 @@ basicTrav gs = do
         atomicModifyIORef' count (\n -> (n + 1, ()))
     final <- readIORef count
     final @?= (chainLen + 1)
+
+fetchingAtHeight :: GitStore -> Assertion
+fetchingAtHeight gs = do
+    let nexts = take chainLen $ testBlockHeaders genesis
+    traverse_ (insertBlock gs) nexts
+    lockGitStore gs $ \gsd -> do
+        allFromHeight gsd 0 >>= (\bs -> length bs @?= 1)
+        allFromHeight gsd (int chainLen) >>= (\bs -> length bs @?= 1)
