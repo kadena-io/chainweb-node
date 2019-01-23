@@ -39,21 +39,23 @@ applyCmd
     -> ExecutionMode
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
-    -> IO CommandResult
-applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return $ jsonResult ex (cmdToRequestKey cmd) s
+    -> IO (CommandResult, [TxLog Value])
+applyCmd _ _ _ _ _ ex cmd (ProcFail s) = return (jsonResult ex (cmdToRequestKey cmd) s, [])
 applyCmd logger conf dbv cv gasModel exMode _ (ProcSucc cmd) = do
-  let pubMeta = _pMeta $ _cmdPayload cmd
-      (ParsedDecimal gasPrice) = _pmGasPrice pubMeta
-      gasEnv = GasEnv (fromIntegral $ _pmGasLimit pubMeta) (GasPrice gasPrice) gasModel
-  r <- tryAny $ runCommand (CommandEnv conf exMode dbv cv logger gasEnv) $ runPayload cmd
-  case r of
-    Right cr -> do
-      logLog logger "DEBUG" $ "success for requestKey: " ++ show (cmdToRequestKey cmd)
-      return cr
-    Left e -> do
-      logLog logger "ERROR" $ "tx failure for requestKey: " ++ show (cmdToRequestKey cmd) ++ ": " ++ show e
-      return $ jsonResult exMode (cmdToRequestKey cmd) $
-               CommandError "Command execution failed" (Just $ show e)
+    let pubMeta = _pMeta $ _cmdPayload cmd
+        (ParsedDecimal gasPrice) = _pmGasPrice pubMeta
+        gasEnv = GasEnv (fromIntegral $ _pmGasLimit pubMeta) (GasPrice gasPrice) gasModel
+    r <- tryAny $ runReaderT (runPayload cmd) (CommandEnv conf exMode dbv cv logger gasEnv)
+    case r of
+        Right p -> do
+          logLog logger "DEBUG" $ "success for requestKey: " ++ show (cmdToRequestKey cmd)
+          return p
+        Left e -> do
+            logLog logger "ERROR" $ "tx failure for requestKey: " ++ show (cmdToRequestKey cmd)
+                ++ ": " ++ show e
+            return (jsonResult exMode (cmdToRequestKey cmd) $
+                         CommandError "Command execution failed" (Just $ show e)
+                   , [])
 
 jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> a -> CommandResult
 jsonResult ex cmd a = CommandResult cmd (exToTx ex) (toJSON a)
@@ -62,37 +64,32 @@ exToTx :: ExecutionMode -> Maybe TxId
 exToTx (Transactional t) = Just t
 exToTx Local = Nothing
 
-runPayload :: Command (Payload PublicMeta ParsedCode) -> CommandM p CommandResult
+runPayload :: Command (Payload PublicMeta ParsedCode) -> CommandM p (CommandResult, [TxLog Value])
 runPayload c@Command{..} = case _pPayload _cmdPayload of
   Exec pm -> applyExec (cmdToRequestKey c) pm c
   Continuation ym -> applyContinuation (cmdToRequestKey c) ym c
 
-applyExec :: RequestKey -> ExecMsg ParsedCode -> Command a -> CommandM p CommandResult
-applyExec rk (ExecMsg parsedCode edata) Command {..} = do
-    CommandEnv {..} <- ask
-    when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
-    (CommandState refStore pacts) <- liftIO $ readMVar _ceState
-    let sigs = userSigsToPactKeySet _cmdSigs
-        evalEnv =
-            setupEvalEnv
-                _ceDbEnv
-                _ceEntity
-                _ceMode
-                (MsgData sigs edata Nothing _cmdHash)
-                refStore
-                _ceGasEnv
-                permissiveNamespacePolicy
-    pr <- liftIO $ evalExec evalEnv parsedCode
-    newCmdPact <- join <$> mapM (handlePactExec (erInput pr)) (erExec pr)
-    let newPacts =
-            case newCmdPact of
-                Nothing -> pacts
-                Just cmdPact -> M.insert (_cpTxId cmdPact) cmdPact pacts
-    void $ liftIO $ swapMVar _ceState $ CommandState (erRefStore pr) newPacts
-    mapM_
-        (\p -> liftIO $ logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show p)
-        newCmdPact
-    return $ jsonResult _ceMode rk $ CommandSuccess (last (erOutput pr))
+applyExec
+    :: RequestKey
+    -> ExecMsg ParsedCode
+    -> Command a
+    -> CommandM p (CommandResult, [TxLog Value])
+applyExec rk (ExecMsg parsedCode edata) Command{..} = do
+  CommandEnv {..} <- ask
+  when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
+  (CommandState refStore pacts) <- liftIO $ readMVar _ceState
+  let sigs = userSigsToPactKeySet _cmdSigs
+      evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
+                (MsgData sigs edata Nothing _cmdHash) refStore _ceGasEnv permissiveNamespacePolicy
+  pr <- liftIO $ evalExec evalEnv parsedCode
+  let txLogs = erLogs pr
+  newCmdPact <- join <$> mapM (handlePactExec (erInput pr)) (erExec pr)
+  let newPacts = case newCmdPact of
+        Nothing -> pacts
+        Just cmdPact -> M.insert (_cpTxId cmdPact) cmdPact pacts
+  void $ liftIO $ swapMVar _ceState $ CommandState (erRefStore pr) newPacts
+  mapM_ (\p -> liftIO $ logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show p) newCmdPact
+  return (jsonResult _ceMode rk $ CommandSuccess (last (erOutput pr)), txLogs)
 
 handlePactExec :: [Term Name] -> PactExec -> CommandM p (Maybe CommandPact)
 handlePactExec em PactExec {..} = do
@@ -103,7 +100,7 @@ handlePactExec em PactExec {..} = do
         Local -> return Nothing
         Transactional tid -> return $ Just $ CommandPact tid (head em) _peStepCount _peStep _peYield
 
-applyContinuation :: RequestKey -> ContMsg -> Command a -> CommandM p CommandResult
+applyContinuation :: RequestKey -> ContMsg -> Command a -> CommandM p (CommandResult, [TxLog Value])
 applyContinuation rk msg@ContMsg {..} Command {..} = do
     env@CommandEnv {..} <- ask
     case _ceMode of
@@ -154,7 +151,7 @@ applyContinuation rk msg@ContMsg {..} Command {..} = do
                             if _cmRollback
                                 then rollbackUpdate env msg state
                                 else continuationUpdate env msg state pact exec
-                            return $ jsonResult _ceMode rk $ CommandSuccess (last erOutput)
+                            return (jsonResult _ceMode rk $ CommandSuccess (last erOutput), erLogs)
 
 rollbackUpdate :: CommandEnv p -> ContMsg -> CommandState -> CommandM p ()
 rollbackUpdate CommandEnv {..} ContMsg {..} CommandState {..}

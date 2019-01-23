@@ -29,6 +29,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
+import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
@@ -86,27 +87,14 @@ newTransactionBlock parentHeader bHeight = do
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
-    theState <- get
-    env <- ask
-    results <- liftIO $ execTransactions env theState newTrans
-    liftIO $
-        _cDiscard
-            _cpeCheckpointer
-            bHeight
-            parentPayloadHash
-            (liftA3
-                 CheckpointData
-                 _pdbsDbEnv
-                 (P._csRefStore . _pdbsState)
-                 (P._csPacts . _pdbsState)
-                 theState)
-    return
-        Block
-            { _bHash = Nothing -- not yet computed
-            , _bParentHeader = parentHeader
-            , _bBlockHeight = succ bHeight
-            , _bTransactions = zip newTrans results
-            }
+    results <- execTransactions newTrans
+    -- TODO: new block format needs to be integrated w/hash of results to be put into block, etc.
+    return Block
+              { _bHash = Nothing -- not yet computed
+              , _bParentHeader = parentHeader
+              , _bBlockHeight = succ bHeight
+              , _bTransactions = zip newTrans results
+              }
 
 getDbState :: PactT PactDbState
 getDbState = undefined
@@ -129,7 +117,7 @@ toCommandConfig PactDbConfig {..} =
         }
 
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
--- squlite databases -- hence this is here and not in the Sqlite specific module
+-- sqlite databases -- hence this is here and not in the Sqlite specific module
 mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
@@ -140,47 +128,43 @@ isFirstBlock height = height == 0
 validateBlock :: Block -> PactT ()
 validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
-    cpEnv@CheckpointEnv {..} <- ask
-    -- TODO: to be replaced with mkCheckpointe outside this module
+    CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
         liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
-    currentState <- get
-    _results <- liftIO $ execTransactions cpEnv currentState (fmap fst _bTransactions)
+    _results <- execTransactions (fmap fst _bTransactions)
     buildCurrentPactState >>= put
     st <- getDbState
-    liftIO $
-        _cSave
-            _cpeCheckpointer
-            _bBlockHeight
-            parentPayloadHash
-            (liftA3
-                 CheckpointData
-                 _pdbsDbEnv
-                 (P._csRefStore . _pdbsState)
-                 (P._csPacts . _pdbsState)
-                 st)
+    liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
+                    (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
-execTransactions :: CheckpointEnv -> PactDbState -> [Transaction] -> IO [TransactionOutput]
-execTransactions cpEnv pactState xs =
-    forM
-        xs
-        (\Transaction {..} -> do
-             let txId = P.Transactional (P.TxId _tTxId)
-             liftIO $ TransactionOutput <$> applyPactCmd cpEnv pactState txId _tCmd)
+execTransactions :: [Transaction] -> PactT [TransactionOutput]
+execTransactions xs = do
+    cpEnv <- ask
+    currentState <- get
+    let dbEnv' = _pdbsDbEnv currentState
+    mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
+    forM xs (\Transaction {..} -> do
+        let txId = P.Transactional (P.TxId _tTxId)
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+        return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
 
-applyPactCmd ::
-       CheckpointEnv -> PactDbState -> P.ExecutionMode -> P.Command ByteString -> IO P.CommandResult
-applyPactCmd CheckpointEnv {..} PactDbState {..} eMode cmd = do
-    newVar <- newMVar _pdbsState
-    case _pdbsDbEnv of
+applyPactCmd
+  :: CheckpointEnv
+  -> Env'
+  -> MVar P.CommandState
+  -> P.ExecutionMode
+  -> P.Command ByteString
+  -> IO (P.CommandResult, [P.TxLog A.Value])
+applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
+    case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing pactDbEnv newVar (P._geGasModel _cpeGasEnv) eMode cmd procCmd
+            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined
