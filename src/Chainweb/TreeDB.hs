@@ -45,6 +45,7 @@ module Chainweb.TreeDB
 , root
 , maxHeader
 , toTree
+, descend
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
@@ -55,12 +56,6 @@ module Chainweb.TreeDB
 
 -- ** Query branches
 , getBranch
-
--- * Query leaves
-, limitLeaves
-, descend
-, ascend
-, ascendIntersect
 
 -- ** Lookups
 , lookupM
@@ -79,7 +74,7 @@ module Chainweb.TreeDB
 ) where
 
 import Control.Arrow ((***))
-import Control.Lens ((&), view, _1)
+import Control.Lens (view, (&), _1)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -219,7 +214,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
     {-# MINIMAL
         lookup,
-        (children | childrenEntries),
         (allEntries | entries),
         (leafKeys | leafEntries),
         (insert | insertStream) #-}
@@ -239,30 +233,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         :: db
         -> DbKey db
         -> IO (Maybe (DbEntry db))
-
-    -- --------------------------------------------------------------------------
-    -- * Children
-
-    -- | All the children of a given node in at some point in time in
-    -- some arbitrary order.
-    --
-    -- The number is expected to be small enough to be returned in a single call
-    -- even for remote backends. FIXME: this may be a DOS vulnerability.
-    --
-    children
-        :: db
-        -> DbKey db
-        -> S.Stream (Of (DbKey db)) IO ()
-    children db = S.map key . childrenEntries db
-
-    childrenEntries
-        :: db
-        -> DbKey db
-        -> S.Stream (Of (DbEntry db)) IO ()
-    childrenEntries db = lookupStreamM db . children db
-
-    -- TODO: add a function that takes a stream instead of a single key.
-    -- TODO: implement limits
 
     -- ---------------------------------------------------------------------- --
     -- * Keys and Entries
@@ -494,6 +464,18 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 -- -------------------------------------------------------------------------- --
 -- Utils
 
+descend
+    :: TreeDb db
+    => db
+    -> MaxRank
+    -> DbEntry db
+    -> IO (DbEntry db)
+descend db (MaxRank (Max r)) = go
+  where
+    go e
+        | rank e > r = lookupParentM GenesisParentThrow db e >>= go
+        | otherwise = return e
+
 maxHeader :: TreeDb db => db -> IO (DbEntry db)
 maxHeader db = do
     r <- root db
@@ -577,63 +559,6 @@ getBranch db lowerBounds upperBounds = do
         -> HS.HashSet a
         -> (HS.HashSet a, HS.HashSet a)
     hsPartition p = (HS.fromList *** HS.fromList) . L.partition p . HS.toList
-
--- -------------------------------------------------------------------------- --
--- leaves
-
-limitLeaves
-    :: TreeDb db
-    => db
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> S.Stream (Of (DbEntry db)) IO x
-    -> S.Stream (Of (DbEntry db)) IO x
-limitLeaves db mir mar s = s
-    & maybe id (flip S.for .ascend db) mir
-    & maybe id (S.mapM . descend db) mar
-    & nub
-
-descend
-    :: TreeDb db
-    => db
-    -> MaxRank
-    -> DbEntry db
-    -> IO (DbEntry db)
-descend db (MaxRank (Max r)) = go
-  where
-    go e
-        | rank e > r = lookupParentM GenesisParentThrow db e >>= go
-        | otherwise = return e
-
-ascend
-    :: TreeDb db
-    => db
-    -> MinRank
-    -> DbEntry db
-    -> S.Stream (Of (DbEntry db)) IO ()
-ascend db (MinRank (Min r)) = go
-  where
-    go e
-        | rank e < r = S.for (children db (key e) & lookupStreamM db) go
-        | otherwise = S.yield e
-
--- | @ascendIntersect db s e@ returns the intersection of the successors of
--- @e@ with the set @s@.
---
--- TODO: use rank to prune the search
--- FIXME: is this what we want if elements of @s@ are on the same branch?
---
-ascendIntersect
-    :: TreeDb db
-    => db
-    -> HS.HashSet (DbKey db)
-    -> DbEntry db
-    -> S.Stream (Of (DbEntry db)) IO ()
-ascendIntersect db s = go
-  where
-    go e
-        | key e `HS.member` s = S.yield e
-        | otherwise = S.for (childrenEntries db (key e)) go
 
 -- -------------------------------------------------------------------------- --
 -- Limiting and Seeking a stream

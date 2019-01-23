@@ -48,6 +48,7 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
+import Data.Semigroup (Min(..))
 import qualified Data.Sequence as Seq
 
 import GHC.Generics
@@ -253,11 +254,6 @@ instance TreeDb BlockHeaderDb where
 
     lookup db k = fmap fst . HM.lookup k . _dbEntries <$> snapshot db
 
-    childrenEntries db k =
-        HM.lookup k . _dbChildren <$> lift (snapshot db) >>= \case
-            Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb k
-            Just c -> S.each c
-
     leafEntries db n l mir mar
         = _dbBranches <$> lift (snapshot db) >>= \b -> do
             (s :: Maybe (NextItem (HS.HashSet K))) <- lift $ start b n
@@ -300,6 +296,66 @@ instance TreeDb BlockHeaderDb where
         >>= foldableEntries k l mir mar
 
     insert db e = liftIO $ insertBlockHeaderDb db [e]
+
+-- | All the children of a given node in at some point in time in
+-- some arbitrary order.
+--
+-- The number is expected to be small enough to be returned in a single call
+-- even for remote backends. FIXME: this may be a DOS vulnerability.
+--
+children
+    :: BlockHeaderDb
+    -> DbKey BlockHeaderDb
+    -> S.Stream (S.Of (DbKey BlockHeaderDb)) IO ()
+children db = S.map key . childrenEntries db
+
+childrenEntries
+    :: BlockHeaderDb
+    -> DbKey BlockHeaderDb
+    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
+childrenEntries db k =
+    HM.lookup k . _dbChildren <$> lift (snapshot db) >>= \case
+        Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb k
+        Just c -> S.each c
+
+limitLeaves
+    :: BlockHeaderDb
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO x
+    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO x
+limitLeaves db mir mar s = s
+    & maybe id (flip S.for . ascend db) mir
+    & maybe id (S.mapM . descend db) mar
+    & nub
+
+ascend
+    :: BlockHeaderDb
+    -> MinRank
+    -> DbEntry BlockHeaderDb
+    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
+ascend db (MinRank (Min r)) = go
+  where
+    go e
+        | rank e < r = S.for (children db (key e) & lookupStreamM db) go
+        | otherwise = S.yield e
+
+-- | @ascendIntersect db s e@ returns the intersection of the successors of
+-- @e@ with the set @s@.
+--
+-- TODO: use rank to prune the search
+-- FIXME: is this what we want if elements of @s@ are on the same branch?
+--
+ascendIntersect
+    :: BlockHeaderDb
+    -> HS.HashSet (DbKey BlockHeaderDb)
+    -> DbEntry BlockHeaderDb
+    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
+ascendIntersect db s = go
+  where
+    go e
+        | key e `HS.member` s = S.yield e
+        | otherwise = S.for (childrenEntries db (key e)) go
 
 -- -------------------------------------------------------------------------- --
 -- Insertions

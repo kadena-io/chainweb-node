@@ -21,7 +21,7 @@ module Chainweb.TreeDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
-import Control.Monad.Catch (throwM, handle)
+import Control.Monad.Catch (handle, throwM)
 
 import qualified Data.Text as T
 
@@ -65,18 +65,6 @@ instance TreeDb RemoteDb where
       where
         client = logServantError alog "failed to query tree db entry"
             $ headerClient ver cid k
-
-    children (RemoteDb env alog ver cid) k = void $ callAndPage client Nothing 0 env
-      where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client _ = logServantError alog "failed to query children keys"
-            $ childHashesClient ver cid k
-
-    childrenEntries (RemoteDb env alog ver cid) k = void $ callAndPage client Nothing 0 env
-      where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client _ = logServantError alog "failed to query children entries"
-            $ childHeadersClient ver cid k
 
     keys (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
       where
