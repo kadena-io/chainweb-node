@@ -63,6 +63,12 @@ in
           sha256 = "1lww53vn38pin1kw87bambqjd7f4bsw1b5ix77zclvg4gj257pm1";
         };
 
+        strict-tuple = callHackageDirect {
+          pkg = "strict-tuple";
+          ver = "0.1.2";
+          sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
+        };
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
