@@ -137,7 +137,7 @@ validateBlock Block {..} = do
       cpdata <- liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
       buildPactDbStateWithCheckpointData cpdata
     currentState <- get
-    _results <- liftIO $ execTransactions (fmap fst _bTransactions)
+    _results <- execTransactions (fmap fst _bTransactions)
     liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
                     (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
