@@ -45,11 +45,6 @@ flag ed25519
     default: False
     manual: True
 
-flag gitstore
-    description: Enable git packed storage backend
-    default: True
-    manual: True
-
 flag with-pact
     description: include pact
     default: True
@@ -96,6 +91,8 @@ library
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Store.Git
+        , Chainweb.Store.Git.Internal
         , Chainweb.Time
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Persist
@@ -168,6 +165,7 @@ library
         , fast-builder >= 0.1
         , hashable >= 1.2
         , heaps >= 0.3
+        , hlibgit2 >= 0.18
         , http-client >= 0.5
         , io-streams >= 1.5
         , ixset-typed >= 0.4
@@ -232,12 +230,6 @@ library
         -- EKG
         , ekg >= 0.4
         , wai-middleware-metrics >= 0.2.4
-
-    if flag(gitstore)
-        build-depends: hlibgit2 >= 0.18.0.16,
-        exposed-modules:
-            Chainweb.Store.Git
-            Chainweb.Store.Git.Internal
 
     if flag(with-pact)
         cpp-options: -DWITH_PACT=1
