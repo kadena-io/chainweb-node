@@ -171,7 +171,6 @@ library
         , mwc-random >= 0.13
         , network >= 2.6
         , optparse-applicative >= 0.14
-        , parallel >= 3.2
         , paths >= 0.2
         , psqueues >= 0.2.7.0
         , quickcheck-instances >= 0.3
