@@ -93,7 +93,7 @@ newTransactionBlock parentHeader bHeight = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ do
       cpdata <- liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
-      buildPactDbStateWithCheckpointData cpdata
+      updateState cpdata
     results <- execTransactions newTrans
     return
       Block
@@ -135,7 +135,7 @@ validateBlock Block {..} = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
       cpdata <- liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      buildPactDbStateWithCheckpointData cpdata
+      updateState cpdata
     currentState <- get
     _results <- execTransactions (fmap fst _bTransactions)
     liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
@@ -170,15 +170,7 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
             applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
-
--- buildCurrentPactDbState :: PactT PactDbState
--- buildCurrentPactDbState = undefined
-
--- We could use this to build back up a valid PactDbState with the
--- available checkpointdata. I noticed that _pdbsCommandConfig field
--- of PactDbState is a static field. Consequently, only the _pdbsDbEnv
--- and _pdbsState fields need to updated.
-buildPactDbStateWithCheckpointData :: CheckpointData  -> PactT ()
-buildPactDbStateWithCheckpointData CheckpointData {..} = do
+updateState :: CheckpointData  -> PactT ()
+updateState CheckpointData {..} = do
     pdbsDbEnv .= _cpPactDbEnv
     pdbsState .= _cpCommandState
