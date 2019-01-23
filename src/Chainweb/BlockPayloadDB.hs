@@ -19,7 +19,8 @@ data PayloadConfig t = PayloadConfig {
 
 -- | The block payload DB api.
 data DB t = DB {
-    payloadLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
+    payloadDbConfig :: PayloadConfig t
+  , payloadLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
   , payloadInsert :: Vector t -> IO (Vector (Either String ()))
   , payloadDelete :: Vector BlockPayloadHash -> IO ()
 }

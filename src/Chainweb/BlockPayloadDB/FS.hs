@@ -92,7 +92,8 @@ withDB' ops root0 config userFunc = do
     root <- opMakeAbsolutePath ops root0
     opCreateDirectory ops $ Path.toFilePath root
     let fsdb = FsDB root config ops
-    let db = DB { payloadLookup = fsLookup fsdb
+    let db = DB { payloadDbConfig = config
+                , payloadLookup = fsLookup fsdb
                 , payloadInsert = fsInsert fsdb
                 , payloadDelete = fsDelete fsdb }
     userFunc db

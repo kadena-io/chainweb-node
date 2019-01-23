@@ -15,6 +15,8 @@ import qualified Chainweb.BlockPayloadDB.FS as FS
 import Chainweb.Test.BlockPayloadDB
 
 
+-- TODO: plug in mock filesystem here so that we don't hammer the local filesystem?
+
 withDB :: (DB MockPayload -> IO a) -> IO a
 withDB userFunc = bracket mkdir rmRF go
   where
