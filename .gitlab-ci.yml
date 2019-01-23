@@ -1,12 +1,23 @@
 # This is small check to confirm that the shell's limits for opening file
 # descriptors is sufficiently high. This is relevant for our property tests, in
 # which some tests rapidly create and destroy HTTP servers.
-ulimit:
+ulimit-linux:
+  tags:
+    - linux
   script:
     - ulimit -Hn
     - ulimit -Sn
 
-chainweb-nix:
+ulimit-macos:
+  tags:
+    - macos
+  script:
+    - ulimit -Hn
+    - ulimit -Sn
+
+nix-macos:
+  tags:
+    - macos
   script:
     - nix-build
     - nix-build -A ghc.chainweb.doc
@@ -16,15 +27,35 @@ chainweb-nix:
     - public/
     expire_in: 1 week
 
-chainweb-nix-shell:
+nix-shell-macos:
+  tags:
+    - macos
   script:
     - nix-shell --run "echo Done with shell test"
 
-# DB 2019-01-17: Disabling so we have some CI for now. Stuart and I worked on
-# fixing this and have a plan of attack.
-# chainweb-stack:
-#   script:
-#     - nix-shell -p libiconv zlib ncurses gmp git perl --run "stack test --fast"
+nix-linux:
+  tags:
+    - linux
+  script:
+    - nix-build
+    - nix-build -A ghc.chainweb.doc
+    - scripts/collectArtifacts.sh
+  artifacts:
+    paths:
+    - public/
+    expire_in: 1 week
+
+nix-shell-linux:
+  tags:
+    - linux
+  script:
+    - nix-shell --run "echo Done with shell test"
+
+stack:
+  tags:
+    - macos
+  script:
+    - nix-shell --pure -p stack libiconv zlib ncurses gmp git perl darwin.security_tool --run "stack test --fast"
 
 pages:
   stage: deploy
