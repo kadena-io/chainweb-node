@@ -120,9 +120,7 @@ testKeyPairs =
 
 checkResponses :: [TestResponse] -> IO ()
 checkResponses responses = do
-    putStrLn "TestResponses:"
     forM_ responses (\resp -> do
-        print resp
         let evalFn = _trEval $ _trRequest resp
         evalFn resp )
 
@@ -138,6 +136,12 @@ execPactTransactions trans = do
     dbState <- lift get
     newVar <- liftIO $ newMVar (_pdbsState dbState)
     liftIO $ execTransactions env (_pdbsDbEnv dbState) newVar trans
+
+checkSuccessOnly :: TestResponse -> Assertion
+checkSuccessOnly resp = do
+    case P._crResult $ _getCommandResult $ _trOutput resp of
+        (Object o) -> HM.lookup "status" o @?= Just "success"
+        _          -> assertFailure "Status returned does not equal \"success\""
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
@@ -168,9 +172,15 @@ parseText (Object o) =
     Just _ -> Nothing
 parseText _ = Nothing
 
---------------------------------------------------------------------------------
+fileCompareTxLogs :: FilePath -> TestResponse -> Assertion
+fileCompareTxLogs fp resp = do
+    contents <- readFile' $ testPactFilesDir ++ fp
+    let txLogsStr = unlines $ fmap show $ _getTxLogs $ _trOutput resp
+    txLogsStr @?= contents
+
+----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
---------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
 data TestRequest = TestRequest
     { _trCmd :: TestSource
     , _trEval :: TestResponse -> Assertion
@@ -197,15 +207,14 @@ instance Show TestResponse where
         in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
            ++ "TxLogs: " ++ txLogsStr
 
---------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
 -- Pact test sample data
---------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
 
 testPactRequests :: [TestRequest]
 testPactRequests = [testReq1, testReq2, testReq3, testReq4, testReq5]
--- testPactRequests = [testReq1, testReq2, testReq4, testReq5]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest
@@ -216,30 +225,23 @@ testReq1 = TestRequest
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    --, _trEval = fullTextMatch tempOut
-    , _trEval = ignoreTextMatch tempOut
+    , _trEval = checkSuccessOnly
     , _trDisplayStr = "Loads a pact module" }
 
 testReq3 :: TestRequest
 testReq3 = TestRequest
     { _trCmd = Code "(create-table test1.accounts)"
-    -- , _trEval = fullTextMatch tempOut
-    , _trEval = ignoreTextMatch tempOut
+    , _trEval = fileCompareTxLogs "create-table-expected.txt"
     , _trDisplayStr = "Creates tables" }
 
 testReq4 :: TestRequest
 testReq4 = TestRequest
     { _trCmd = Code "(test1.create-global-accounts)"
-    -- , _trEval = fullTextMatch tempOut
-    , _trEval = ignoreTextMatch tempOut
+    , _trEval = fileCompareTxLogs "create-accounts-expected.txt"
     , _trDisplayStr = "Creates two accounts" }
 
 testReq5 :: TestRequest
 testReq5 = TestRequest
     { _trCmd = Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
-    -- , _trEval = fullTextMatch tempOut
-    , _trEval = ignoreTextMatch tempOut
+    , _trEval = fileCompareTxLogs "transfer-accounts-expected.txt"
     , _trDisplayStr = "Transfers from one account to another" }
-
-tempOut :: Text
-tempOut = "Write succeeded" -- TODO: replace this with TxLog output
