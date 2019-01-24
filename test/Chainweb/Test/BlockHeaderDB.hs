@@ -24,7 +24,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 
-import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
@@ -46,6 +46,7 @@ tests = testGroup "Unit Tests"
     , testGroup "Misc."
       [ testCase "height" correctHeight
       , testCase "copy" copyTest
+      , testCase "children" children
       ]
     , treeDbInvariants withDb Parallel
     ]
@@ -82,3 +83,12 @@ rankFiltering = withDB chainId0 $ \g db -> do
     insertN 100 g db
     l <- S.length_ $ entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing
     l @?= 11
+
+children :: Assertion
+children = withDB chainId0 $ \g db -> do
+    insertN 5 g db
+    l <- S.length_ $ childrenKeys db (_blockHash g)
+    l @?= 1
+    m <- maxHeader db
+    l' <- S.length_ $ childrenKeys db (_blockHash m)
+    l' @?= 0
