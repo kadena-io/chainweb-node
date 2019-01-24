@@ -98,6 +98,7 @@ import Data.Foldable (traverse_)
 import Data.Functor (($>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (sort)
 import Data.Semigroup (Max(..), Min(..))
 import Data.Text (Text)
@@ -118,7 +119,6 @@ import Foreign.Storable (peek)
 
 import GHC.Generics (Generic)
 
-import Numeric.Natural (Natural)
 
 import Streaming (Of, Stream)
 import qualified Streaming.Prelude as S
@@ -167,39 +167,55 @@ instance TreeDb GitStore where
 
     lookup gs (T2 hgt hsh) = coerce $ lookupByBlockHash gs hgt hsh
 
-    -- This is removed via #237
-    childrenEntries = undefined
-
-    -- TODO Handle the args
-    entries gs next limit minr maxr = f 0 0
+    -- TODO Handle `next`
+    entries gs next limit minr0 maxr = do
+        counter <- liftIO $ newIORef 0
+        countItems counter . postprocess $ f minr
+        total <- liftIO $ readIORef counter
+        pure (int total, Eos True)
       where
-        f :: BlockHeight -> Natural -> Stream (Of GitStoreBlockHeader) IO (Natural, Eos)
-        f !bh !total = do
+        minr :: BlockHeight
+        minr = maybe 0 (\(MinRank (Min mh)) -> int mh) minr0
+
+        postprocess :: Stream (Of GitStoreBlockHeader) IO () -> Stream (Of GitStoreBlockHeader) IO ()
+        postprocess = maybe id filterItems limit . maybe id maxItems maxr
+
+        f :: BlockHeight -> Stream (Of GitStoreBlockHeader) IO ()
+        f !bh = do
             bs <- liftIO $ allFromHeight gs bh
-            let len = length bs
-            if | len == 0 -> pure (total, Eos True)
-               | otherwise ->  do
-                   S.map GitStoreBlockHeader $ S.each bs
-                   f (bh + 1) (total + int len)
+            let !len = length bs
+            unless (len == 0) $ do
+                S.map GitStoreBlockHeader $ S.each bs
+                f (bh + 1)
 
     -- TODO Handle `next`
     leafEntries gs next limit minr maxr = do
         ls <- fmap sort . liftIO $ leaves gs
-        maybe id f limit . maybe id h maxr . maybe id g minr . S.map GitStoreBlockHeader $ S.each ls
-        pure (int $ length ls, Eos True)
+        counter <- liftIO $ newIORef 0
+        countItems counter . postprocess . S.map GitStoreBlockHeader $ S.each ls
+        total <- liftIO $ readIORef counter
+        pure (int total, Eos True)  -- TODO incorrect number of objects streamed!
       where
-        f :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-        f = S.take . int . _getLimit
+        postprocess :: Stream (Of GitStoreBlockHeader) IO () -> Stream (Of GitStoreBlockHeader) IO ()
+        postprocess = maybe id filterItems limit . maybe id maxItems maxr . maybe id g minr
 
         g :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
         g (MinRank (Min n)) =
             S.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
 
-        h :: MaxRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-        h (MaxRank (Max n)) =
-            S.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
-
     insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
+
+filterItems :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+filterItems = S.take . int . _getLimit
+
+maxItems :: MaxRank -> Stream (Of GitStoreBlockHeader) IO r -> Stream (Of GitStoreBlockHeader) IO ()
+maxItems (MaxRank (Max n)) =
+    S.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
+
+countItems :: IORef Int -> Stream (Of b) IO r -> Stream (Of b) IO r
+countItems counter = S.mapM j
+  where
+    j i = i <$ atomicModifyIORef' counter (\n -> (n+1, ()))
 
 -- | Many of the functions in this module require this type. The easiest and
 -- safest way to get it is via `lockGitStore`. Don't try and manipulate the
