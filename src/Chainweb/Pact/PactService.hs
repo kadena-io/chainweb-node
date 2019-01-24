@@ -24,6 +24,7 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader
@@ -36,6 +37,7 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
@@ -138,7 +140,7 @@ validateBlock Block {..} = do
                     (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
---placeholder - get transactions from mem pool
+--placeholder - get transactions from mem pool tf
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
@@ -148,10 +150,56 @@ execTransactions xs = do
     currentState <- get
     let dbEnv' = _pdbsDbEnv currentState
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-    forM xs (\Transaction {..} -> do
-        let txId = P.Transactional (P.TxId _tTxId)
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
-        return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+    let results = forM xs (\Transaction {..} -> do
+          let txId = P.Transactional (P.TxId _tTxId)
+          (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+          return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+
+    let ns = currentState & pdbsDbEnv .~ newEnv'
+    let newState = ns & pdbsState .~ newCommandState
+    -- let newStateCombo = (currentState & pdbsDbEnv .~ newEnv') & pdbsState .~ newCommandState
+
+    let ns' = set pdbsDbEnv newEnv' currentState
+    let newState' = set pdbsState newCommandState ns'
+    -- let newStateCombo' = set pdbsState newCommandState (set pdbsDbEnv newEnv' currentState)
+
+    put newState
+    results
+{-
+ -- set lens value lens-target
+ -- lens-target & lens .~ value
+-}
+
+
+toPersistEnv :: Env' -> IO EnvPersist'
+toPersistEnv (Env' pactDbEnv) = do
+    let mVar = pdPactDbVar pactDbEnv
+    dbEnv <- readMVar mVar
+    let pDbEnvPersist = PactDbEnvPersist
+          { _pdepPactDb = pdPactDb pactDbEnv
+          , _pdepDb     = _db dbEnv
+          , _pdepPersist = _persist dbEnv
+          , _pdepLogger = _logger dbEnv
+          , _pdepTxRecord = _txRecord dbEnv
+          , _pdepTxId = _txId dbEnv
+          }
+    return $ EnvPersist' pDbEnvPersist
+
+toEnv :: EnvPersist' -> IO Env'
+toEnv (EnvPersist' pDbEnvPersist) = do
+    let dbEnv  = P.DbEnv
+          { _db = _pdepDb pDbEnvPersist
+          , _persist = _pdepPersist pDbEnvPersist
+          , _logger = _pdepLogger pDbEnvPersist
+          , _txRecord = _pdepTxRecord pDbEnvPersist
+          , _txId = _pdepTxId pdbEnvPersist
+          }
+    let mVar = newMVar dbEnv
+    let pDbEnv = P.PactDbEnv
+          { pdPactDb = _pdepPactDb pDbEnvPersist
+          , pdPactDbVar = mVar
+          }
+    return $ Env' pDbEnv
 
 applyPactCmd
   :: CheckpointEnv
@@ -164,7 +212,8 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
     case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
+            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode
+                     cmd procCmd
 
 buildCurrentPactState :: PactT PactDbState
 buildCurrentPactState = undefined

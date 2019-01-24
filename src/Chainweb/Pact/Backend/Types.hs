@@ -13,18 +13,7 @@
 --
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
-    ( PactDbConfig(..)
-    , pdbcGasLimit
-    , pdbcGasRate
-    , pdbcLogDir
-    , pdbcPersistDir
-    , pdbcPragmas
-    , PactDbState(..)
-    , pdbsCommandConfig
-    , pdbsDbEnv
-    , pdbsState
-    , usage
-    , CheckpointEnv(..)
+    ( CheckpointEnv(..)
     , cpeCommandConfig
     , cpeCheckpointer
     , cpeLogger
@@ -40,18 +29,53 @@ module Chainweb.Pact.Backend.Types
     , cSave
     , cDiscard
     , Env'(..)
+    , EnvPersist'(..)
     , OpMode(..)
     , PactDbBackend
+    , PactDbConfig(..)
+    , pdbcGasLimit
+    , pdbcGasRate
+    , pdbcLogDir
+    , pdbcPersistDir
+    , pdbcPragmas
+    , PactDbEnvPersist(..)
+    , pdepPactDb
+    , pdepDb
+    , pdepPersist
+    , pdepLogger
+    , pdepTxRecord
+    , pdepTxId
+    , PactDbState(..)
+    , pdbsCommandConfig
+    , pdbsDbEnv
+    , pdbsState
+    , usage
     ) where
 
+{-
+
+data PactDbEnvPersist p = PactDbEnvPersist
+    { _pdepPactDb :: P.PactDb p
+    , _pdepDb     :: p
+    , _pdepPersist :: P.Persister p
+    , _pdepLogger :: P.Logger
+    , _pdepTxRecord :: M.Map P.TxTable [P.TxLog Value]
+    , _pdepTxId :: Maybe P.TxId
+    }
+makeLenses ''PactDbEnvPersist
+
+data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
+-}
 import Control.Lens
 
 import Data.Aeson
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 
 import GHC.Generics
 
 import qualified Pact.Interpreter as P
+import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
@@ -71,6 +95,18 @@ instance PactDbBackend P.SQLite
 data Env' =
     forall a. PactDbBackend a =>
               Env' (P.PactDbEnv (P.DbEnv a))
+
+data PactDbEnvPersist p = PactDbEnvPersist
+    { _pdepPactDb :: P.PactDb p
+    , _pdepDb     :: p
+    , _pdepPersist :: P.Persister p
+    , _pdepLogger :: P.Logger
+    , _pdepTxRecord :: M.Map P.TxTable [P.TxLog Value]
+    , _pdepTxId :: Maybe P.TxId
+    }
+makeLenses ''PactDbEnvPersist
+
+data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
 
 data PactDbState = PactDbState
     { _pdbsCommandConfig :: P.CommandConfig
