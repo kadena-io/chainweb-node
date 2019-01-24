@@ -20,7 +20,6 @@ module Chainweb.Pact.Backend.Types
     , pdbcPersistDir
     , pdbcPragmas
     , PactDbState(..)
-    , pdbsCommandConfig
     , pdbsDbEnv
     , pdbsState
     , usage
@@ -29,9 +28,6 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
-    , CheckpointData(..)
-    , cpPactDbEnv
-    , cpCommandState
     , Checkpointer(..)
     , Env'(..)
     , PactDbBackend
@@ -65,8 +61,7 @@ data Env' =
               Env' (P.PactDbEnv (P.DbEnv a))
 
 data PactDbState = PactDbState
-    { _pdbsCommandConfig :: P.CommandConfig
-    , _pdbsDbEnv :: Env'
+    { _pdbsDbEnv :: Env'
     , _pdbsState :: P.CommandState
     }
 
@@ -94,21 +89,14 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-data CheckpointData = CheckpointData
-    { _cpPactDbEnv :: Env'
-    , _cpCommandState :: P.CommandState
-    }
-
-makeLenses ''CheckpointData
-
 data Checkpointer = Checkpointer
-  { restore :: BlockHeight -> BlockPayloadHash -> IO CheckpointData
-  , save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+  { restore :: BlockHeight -> BlockPayloadHash -> IO PactDbState
+  , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
   }
 
 -- functions like the ones below need to be implemented internally
--- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
--- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+-- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+-- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer

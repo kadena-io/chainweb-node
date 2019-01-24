@@ -71,13 +71,13 @@ initPactService = do
                 liftA2
                     (,)
                     (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
-                    (mkPureState env cmdConfig)
+                    (mkPureState env)
             Just sqlc -> do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
                 liftA2
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
-                    (mkSQLiteState env cmdConfig)
+                    (mkSQLiteState env)
     evalStateT (runReaderT serviceRequests checkpointEnv) theState
 
 getGasEnv :: PactT P.GasEnv
@@ -139,7 +139,7 @@ validateBlock Block {..} = do
     _results <- execTransactions (fmap fst _bTransactions)
     currentState <- get
     liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
+                    (liftA2 PactDbState _pdbsDbEnv _pdbsState currentState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
@@ -170,7 +170,7 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
             applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
 
-updateState :: CheckpointData  -> PactT ()
-updateState CheckpointData {..} = do
-    pdbsDbEnv .= _cpPactDbEnv
-    pdbsState .= _cpCommandState
+updateState :: PactDbState  -> PactT ()
+updateState PactDbState {..} = do
+    pdbsDbEnv .= _pdbsDbEnv
+    pdbsState .= _pdbsState

@@ -35,24 +35,24 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
+type Store = HashMap (BlockHeight, BlockPayloadHash) PactDbState
 
-restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
+restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO PactDbState
 restore' = undefined
 
 prepareForValidBlock ::
-       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 prepareForValidBlock = undefined
 
 prepareForNewBlock ::
-       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 prepareForNewBlock = undefined
 
 -- prepare/save could change filename (field dbFile) of SQLiteConfig
 -- so that its retrieval is possible in a restore.
 
-save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
 save' = undefined
 
-discard :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+discard :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
 discard = undefined
