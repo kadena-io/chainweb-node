@@ -23,6 +23,7 @@ import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.ChainId
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal
+import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Utils (int)
 
@@ -60,7 +61,7 @@ tests = testGroup "Git Store"
           , testCase "getSpectrum" $ getSpectrum 0 @?= []
           -- , testCase "parseLeafTreeFileName" leafTreeParsing
           ]
-    -- TODO Eventually the TreeDb invariant tests will need to be called here.
+    , treeDbInvariants withNewRepo' Parallel
     ]
 
 -- | Some random path under @/tmp@.
@@ -78,7 +79,11 @@ tempPath = do
 -- | Initialize a fresh Git store and perform some action over it.
 --
 withNewRepo :: (GitStore -> IO a) -> IO a
-withNewRepo f = tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp genesis) f
+withNewRepo  = withNewRepo' (GitStoreBlockHeader genesis)
+
+withNewRepo' :: GitStoreBlockHeader -> (GitStore -> IO a) -> IO a
+withNewRepo' (GitStoreBlockHeader bh) f =
+    tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp bh) f
 
 legalGenesis :: GitStore -> Assertion
 legalGenesis gs = do

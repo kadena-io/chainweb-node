@@ -129,7 +129,8 @@ import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), decodeBlockHeader, encodeBlockHeader)
+    (BlockHeader(..), BlockHeight(..), IsBlockHeader(..), decodeBlockHeader,
+    encodeBlockHeader)
 import Chainweb.TreeDB
     (Eos(..), MaxRank(..), MinRank(..), TreeDb(..), TreeDbEntry(..))
 import Chainweb.Utils (int)
@@ -142,7 +143,7 @@ import Chainweb.Utils.Paging (Limit(..))
 --------
 
 newtype GitStoreBlockHeader = GitStoreBlockHeader BlockHeader
-    deriving (Eq, Show, Generic, Hashable)
+    deriving (Eq, Ord, Show, Generic, Hashable)
 
 instance TreeDbEntry GitStoreBlockHeader where
     type Key GitStoreBlockHeader = T2 BlockHeight BlockHash
@@ -156,6 +157,10 @@ instance TreeDbEntry GitStoreBlockHeader where
         | otherwise = Just p
       where
         p = T2 (_blockHeight bh - 1) (_blockParent bh)
+
+instance IsBlockHeader GitStoreBlockHeader where
+    fromBH = coerce
+    toBH = coerce
 
 -- | The fundamental git-based storage type. Can be initialized via
 -- `Chainweb.Store.Git.withGitStore` and then queried as needed.
@@ -194,7 +199,7 @@ instance TreeDb GitStore where
         counter <- liftIO $ newIORef 0
         countItems counter . postprocess . S.map GitStoreBlockHeader $ S.each ls
         total <- liftIO $ readIORef counter
-        pure (int total, Eos True)  -- TODO incorrect number of objects streamed!
+        pure (int total, Eos True)
       where
         postprocess :: Stream (Of GitStoreBlockHeader) IO () -> Stream (Of GitStoreBlockHeader) IO ()
         postprocess = maybe id filterItems limit . maybe id maxItems maxr . maybe id g minr
