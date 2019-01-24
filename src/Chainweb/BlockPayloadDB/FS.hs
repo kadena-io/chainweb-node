@@ -13,7 +13,7 @@ module Chainweb.BlockPayloadDB.FS
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar
 import Control.Exception
-import Control.Monad (void, when)
+import Control.Monad (when)
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -27,7 +27,7 @@ import qualified System.Random.MWC as MWC
 import Chainweb.BlockHash (BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockPayloadHash(..))
 import Chainweb.BlockPayloadDB
-import Chainweb.Utils (Codec(..))
+import Chainweb.Utils (Codec(..), eatIOExceptions)
 ------------------------------------------------------------------------------
 
 -- TODO: use base64 instead? slower, but wastes fewer bytes for filenames
@@ -163,10 +163,6 @@ getBlockFilePath root h = fp
 
 newMWC :: IO (MVar MWC.GenIO)
 newMWC = MWC.createSystemRandom >>= newMVar
-
-
-eatIOExceptions :: IO () -> IO ()
-eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 
 
 systemFsOps :: IO FsOps

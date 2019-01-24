@@ -100,15 +100,16 @@ module Chainweb.Utils
 , parseJsonFromText
 
 -- * Error Handling
-, Expected(..)
 , Actual(..)
-, unexpectedMsg
-, (==?)
-, check
-, fromMaybeM
-, (???)
-, fromEitherM
+, Expected(..)
 , InternalInvariantViolation(..)
+, (==?)
+, (???)
+, check
+, eatIOExceptions
+, fromEitherM
+, fromMaybeM
+, unexpectedMsg
 
 -- * Command Line Options
 , OptionParser
@@ -134,6 +135,7 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
+import Control.Exception (IOException, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -647,3 +649,8 @@ data Codec t = Codec {
     codecEncode :: t -> ByteString
   , codecDecode :: ByteString -> Maybe t
 }
+
+
+eatIOExceptions :: IO () -> IO ()
+eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
+
