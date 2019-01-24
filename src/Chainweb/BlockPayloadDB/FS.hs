@@ -10,15 +10,19 @@ module Chainweb.BlockPayloadDB.FS
   ) where
 
 ------------------------------------------------------------------------------
-import qualified Control.Concurrent.Async as Async
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.FixedThreadPool (ThreadPool)
+import qualified Control.Concurrent.FixedThreadPool as TP
 import Control.Concurrent.MVar
 import Control.Exception
-import Control.Monad (when)
+import Control.Monad (join, when)
+import Control.Monad.Trans.Except
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Random.MWC as MWCB
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import qualified System.Directory as Dir
 import System.Path (Absolute, Path, (</>))
 import qualified System.Path as Path
@@ -49,6 +53,7 @@ data FsDB t = FsDB {
     _fsDbRoot :: Path Absolute
   , _fsDbConfig :: {-# UNPACK #-} !(PayloadConfig t)
   , _fsOps :: {-# UNPACK #-} !FsOps
+  , _fsTP :: {-# UNPACK #-} !ThreadPool
 }
 
 -- | Filesystem operations for the content-addressed store backend. Use
@@ -89,19 +94,22 @@ withDB' :: FsOps                 -- ^ filesystem abstraction
         -> (DB t -> IO b)        -- ^ user handler
         -> IO b
 withDB' ops root0 config userFunc = do
-    root <- opMakeAbsolutePath ops root0
-    opCreateDirectory ops $ Path.toFilePath root
-    let fsdb = FsDB root config ops
-    let db = DB { payloadDbConfig = config
-                , payloadLookup = fsLookup fsdb
-                , payloadInsert = fsInsert fsdb
-                , payloadDelete = fsDelete fsdb }
-    userFunc db
+    numC <- getNumCapabilities
+    TP.withThreadPool numC $ \tp -> do
+        root <- opMakeAbsolutePath ops root0
+        opCreateDirectory ops $ Path.toFilePath root
+        let fsdb = FsDB root config ops tp
+        let db = DB { payloadDbConfig = config
+                    , payloadLookup = fsLookup fsdb
+                    , payloadInsert = fsInsert fsdb
+                    , payloadDelete = fsDelete fsdb }
+        userFunc db
 
 
 fsInsert :: FsDB t -> Vector t -> IO (Vector (Either String ()))
-fsInsert fsdb = Async.mapConcurrently insertOne
+fsInsert fsdb v = (V.fromList . map join) <$> TP.mapAction tp insertOne (V.toList v)
   where
+    tp = _fsTP fsdb
     ops = _fsOps fsdb
     root = _fsDbRoot fsdb
     hash = payloadHash $ _fsDbConfig fsdb
@@ -121,8 +129,12 @@ fsInsert fsdb = Async.mapConcurrently insertOne
 
 
 fsLookup :: FsDB t -> Vector BlockPayloadHash -> IO (Vector (Maybe t))
-fsLookup fsdb = Async.mapConcurrently lookupOne
+fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
   where
+    toV es = V.fromList <$> (runExceptT (sequence $ map (ExceptT . return) es)
+                             >>= either fail return)
+
+    tp = _fsTP fsdb
     ops = _fsOps fsdb
     root = _fsDbRoot fsdb
     decode = codecDecode $ payloadCodec $ _fsDbConfig fsdb
@@ -135,8 +147,10 @@ fsLookup fsdb = Async.mapConcurrently lookupOne
 
 
 fsDelete :: FsDB t -> Vector BlockPayloadHash -> IO ()
-fsDelete fsdb = Async.mapConcurrently_ deleteOne
+fsDelete fsdb v = TP.mapAction_ tp deleteOne (V.toList v) >>=
+                  either fail return
   where
+    tp = _fsTP fsdb
     ops = _fsOps fsdb
     root = _fsDbRoot fsdb
     deleteOne = opDeleteFile ops . getBlockFilePath root

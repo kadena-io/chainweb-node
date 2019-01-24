@@ -101,6 +101,8 @@ library
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
 
+        , Control.Concurrent.FixedThreadPool
+
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
         , Data.LogMessage
