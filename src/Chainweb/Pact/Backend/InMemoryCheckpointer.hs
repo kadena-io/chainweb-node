@@ -33,8 +33,8 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
         CheckpointEnv
             { _cpeCheckpointer =
                   Checkpointer
-                      { _cRestore = restore inmem
-                      , _cSave = save inmem
+                      { restore = restore' inmem
+                      , save = save' inmem
                       }
             , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger
@@ -43,8 +43,8 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
 
 type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
 
-restore :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
-restore lock height hash = do
+restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
+restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
             Just old -> return old
@@ -54,6 +54,6 @@ restore lock height hash = do
 
 -- There is no need for prepare to even exist for the in memory checkpointer.
 
-save :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-save lock height hash cpdata =
+save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+save' lock height hash cpdata =
      modifyMVarMasked_ lock (return . HMS.insert (height, hash) cpdata)

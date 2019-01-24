@@ -92,7 +92,7 @@ newTransactionBlock parentHeader bHeight = do
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ do
-      cpdata <- liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+      cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
       updateState cpdata
     results <- execTransactions newTrans
     return
@@ -134,11 +134,11 @@ validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
-      cpdata <- liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
       updateState cpdata
-    currentState <- get
     _results <- execTransactions (fmap fst _bTransactions)
-    liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
+    currentState <- get
+    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
                     (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
