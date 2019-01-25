@@ -80,6 +80,7 @@ import qualified Bindings.Libgit2 as G
 import Control.Concurrent.MVar (MVar, withMVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistMaybe, hush, nothing)
+import Control.Lens.Iso (iso)
 import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
@@ -159,8 +160,7 @@ instance TreeDbEntry GitStoreBlockHeader where
         p = T2 (_blockHeight bh - 1) (_blockParent bh)
 
 instance IsBlockHeader GitStoreBlockHeader where
-    fromBH = coerce
-    toBH = coerce
+    isoBH = iso coerce GitStoreBlockHeader
 
 -- | The fundamental git-based storage type. Can be initialized via
 -- `Chainweb.Store.Git.withGitStore` and then queried as needed.
@@ -670,12 +670,18 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 -- | The parent node upon which our new node was written is by definition no
 -- longer a leaf, and thus its entry in @.git/refs/leaf/@ must be removed.
 --
+-- Unless, of course, this new node is part of a fork, and its parent is no
+-- longer a leaf as far as the entire store is concerned.
+--
 updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
 updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
     tagAsLeaf store newLeaf
-    B.unsafeUseAsCString (terminate $ mkName oldLeaf) $ \cstr ->
-        throwOnGitError "updateLeafTags" "git_tag_delete" $
-            G.c'git_tag_delete repo cstr
+    void . B.unsafeUseAsCString nulled $ \cstr ->
+        -- throwOnGitError "updateLeafTags" "git_tag_delete" $
+        G.c'git_tag_delete repo cstr  -- Ignores failure to work around a bug.
+  where
+    nulled :: ByteString
+    nulled = terminate $ mkName oldLeaf
 
 -- | Tag a `TreeEntry` in @.git/refs/leaf/@.
 --

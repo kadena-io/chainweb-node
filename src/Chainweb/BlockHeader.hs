@@ -491,13 +491,10 @@ instance FromJSON (ObjectEncoded BlockHeader) where
 -- | Any type which can purely produce a `BlockHeader`, or purely construct one.
 --
 class IsBlockHeader t where
-    toBH :: t -> BlockHeader
-    fromBH :: BlockHeader -> t
--- TODO Couldn't get it to work with `Iso'`
+    isoBH :: Iso' t BlockHeader
 
 instance IsBlockHeader BlockHeader where
-    toBH = id
-    fromBH = id
+    isoBH = id
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader
