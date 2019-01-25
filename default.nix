@@ -149,6 +149,12 @@ in
             sha256 = "0y98macg977ps81h9mx3hzdmkxn5y14556a2dyvd22468nsmjid1";
         };
 
+        merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
+          url = "ssh://git@github.com/kadena-io/merkle-log.git";
+          rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
+          ref = "master";
+        }) {};
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;
