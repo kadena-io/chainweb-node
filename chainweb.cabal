@@ -308,6 +308,7 @@ test-suite chainweb-tests
         , massiv >= 0.2
         , mwc-random >= 0.13
         , network >= 2.6
+        , paths >= 0.2
         , quickcheck-instances >= 0.3
         , reflection >= 2.1
         , resourcet >= 1.2

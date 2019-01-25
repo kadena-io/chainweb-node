@@ -142,7 +142,7 @@ import Configuration.Utils
 import Control.Exception (IOException, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans
 
@@ -188,6 +188,8 @@ import System.Timeout
 import Text.Printf (printf)
 
 import Text.Read (readEither)
+
+import UnliftIO.Exception (bracket)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -670,10 +672,13 @@ eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 -- @
 --
 withTempDir :: String -> (Path Absolute -> IO a) -> IO a
-withTempDir tag f = do
-    tmp <- getTemporaryDirectory
-    suff <- randomIO @Word64
-    let full = tmp </> fragment (printf "chainweb-%s-%d" tag suff)
-    r <- f full
-    toAbsoluteFilePath full >>= removeDirectoryRecursive
-    pure r
+withTempDir tag f = bracket create delete f
+  where
+    create :: IO (Path Absolute)
+    create = do
+        tmp <- getTemporaryDirectory
+        suff <- randomIO @Word64
+        pure $ tmp </> fragment (printf "chainweb-%s-%d" tag suff)
+
+    delete :: Path Absolute -> IO ()
+    delete = toAbsoluteFilePath >=> removeDirectoryRecursive
