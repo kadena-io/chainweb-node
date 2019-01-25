@@ -24,7 +24,6 @@ module Chainweb.Pact.Backend.Types
     , Checkpointer(..)
     , Env'(..)
     , EnvPersist'(..)
-    , OpMode(..)
     , PactDbBackend
     , PactDbConfig(..)
     , pdbcGasLimit
@@ -33,46 +32,21 @@ module Chainweb.Pact.Backend.Types
     , pdbcPersistDir
     , pdbcPragmas
     , PactDbEnvPersist(..)
+    , pdepEnv
     , pdepPactDb
-    , pdepDb
-    , pdepPersist
-    , pdepLogger
-    , pdepTxRecord
-    , pdepTxId
     , PactDbState(..)
-    , pdbsCommandConfig
     , pdbsDbEnv
     , pdbsState
     , usage
     ) where
 
-{-
-
-data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: P.PactDb p
-    , _pdepDb     :: p
-    , _pdepPersist :: P.Persister p
-    , _pdepLogger :: P.Logger
-    , _pdepTxRecord :: M.Map P.TxTable [P.TxLog Value]
-    , _pdepTxId :: Maybe P.TxId
-    }
-makeLenses ''PactDbEnvPersist
-
-data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
--}
 import Control.Lens
 
 import Data.Aeson
-<<<<<<< HEAD
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
-=======
->>>>>>> origin/master
 
 import GHC.Generics
 
 import qualified Pact.Interpreter as P
-import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
@@ -94,20 +68,15 @@ data Env' =
               Env' (P.PactDbEnv (P.DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: P.PactDb p
-    , _pdepDb     :: p
-    , _pdepPersist :: P.Persister p
-    , _pdepLogger :: P.Logger
-    , _pdepTxRecord :: M.Map P.TxTable [P.TxLog Value]
-    , _pdepTxId :: Maybe P.TxId
+    { _pdepPactDb :: P.PactDb (P.DbEnv p)
+    , _pdepEnv     :: (P.DbEnv p)
     }
 makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
 
 data PactDbState = PactDbState
-    { _pdbsCommandConfig :: P.CommandConfig
-    , _pdbsDbEnv :: Env'
+    { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
     }
 
@@ -136,7 +105,7 @@ usage =
   \\n"
 
 data CheckpointData = CheckpointData
-    { _cpPactDbEnv :: Env'
+    { _cpPactDbEnv :: EnvPersist'
     , _cpCommandState :: P.CommandState
     }
 
