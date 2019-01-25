@@ -10,13 +10,10 @@ module Main ( main ) where
 import Criterion.Main
 
 import Data.Foldable (traverse_)
-import qualified Data.Text as T
 import Data.Word (Word64)
 
-import Shelly hiding ((</>))
-
 import System.IO (hFlush, stdout)
-import System.Path (Absolute, Path, fragment, toFilePath, (</>))
+import System.Path (Absolute, Path, fragment, (</>))
 import System.Path.IO (getTemporaryDirectory)
 import System.Random (randomIO)
 
@@ -30,7 +27,7 @@ import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Graph (ChainGraph, toChainGraph)
 import Chainweb.Store.Git
     (GitStore, GitStoreConfig(..), insertBlock, leaves, lookupByBlockHash,
-    walk, withGitStore)
+    prune, walk, withGitStore)
 import Chainweb.Store.Git.Internal
     (getBlockHashBytes, leaves', lockGitStore, walk')
 import Chainweb.Utils (int)
@@ -52,13 +49,13 @@ main = do
     tmp <- tempPath
     let !gsc = GitStoreConfig tmp genesis
     withGitStore gsc $ \gs -> do
-        defaultMain $ [ gitMain tmp gs ]
+        defaultMain $ [ gitMain gs ]
 
-gitMain :: Path Absolute -> GitStore -> Benchmark
-gitMain tmp gs = env (populate tmp gs) (gitSuite gs)
+gitMain :: GitStore -> Benchmark
+gitMain gs = env (populate gs) (gitSuite gs)
 
-populate :: Path Absolute -> GitStore -> IO Env
-populate tmp gs = do
+populate :: GitStore -> IO Env
+populate gs = do
     ------------------------------------
     -- fake (but legal) chain generation
     ------------------------------------
@@ -74,14 +71,7 @@ populate tmp gs = do
     --------------
     -- git packing
     --------------
-    shelly $ do
-        let pth = T.pack $ toFilePath tmp
-        echo $ "PACKING: " <> pth
-        cd $ fromText pth
-        run_ "git" ["repack", "-A"]
-        echo "PACKING COMPLETE. GCing..."
-        run_ "git" ["gc"]
-        echo "GCing COMPLETE"
+    prune gs
     -----------------------
     -- form the environment
     -----------------------

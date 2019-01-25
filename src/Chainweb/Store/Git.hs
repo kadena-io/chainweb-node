@@ -28,6 +28,9 @@ module Chainweb.Store.Git
   , lookupByBlockHash
   , leaves
   , walk
+
+  -- * Maintenance
+  , prune
   ) where
 
 import qualified Bindings.Libgit2 as G
@@ -38,6 +41,7 @@ import Control.Monad (void, (>=>))
 import Data.Bits ((.|.))
 import Data.Bool (bool)
 import Data.Functor (($>))
+import qualified Data.Text as T
 
 import Foreign.C.String (withCString)
 import Foreign.C.Types (CInt, CUInt)
@@ -45,9 +49,11 @@ import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (peek)
 
+import Shelly (cd, fromText, run_, shelly)
+
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem (performGC)
-import System.Path (Absolute, Path, toFilePath)
+import System.Path (toFilePath)
 
 import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
@@ -58,13 +64,6 @@ import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.Store.Git.Internal
 
 ---
-
--- | For opening an existing repository, or for initializing a new one.
---
-data GitStoreConfig = GitStoreConfig {
-    _gsc_path :: !(Path Absolute)
-  , _gsc_genesis :: !BlockHeader
-}
 
 -- | The ancient Haskell monks of Mt. Lambda warned me of its power... but I
 -- have trained. I have studied. I have reflected on the human condition and my
@@ -102,7 +101,7 @@ withLibGit f = do
 -- Underlying pointers to libgit2 are freed automatically.
 --
 withGitStore :: GitStoreConfig -> (GitStore -> IO a) -> IO a
-withGitStore (GitStoreConfig root0 g) f = withLibGit $ bracket open close f
+withGitStore gsc@(GitStoreConfig root0 g) f = withLibGit $ bracket open close f
   where
     root :: String
     root = toFilePath root0
@@ -111,12 +110,12 @@ withGitStore (GitStoreConfig root0 g) f = withLibGit $ bracket open close f
     open = mask $ \restore ->
         bracketOnError (openRepo restore) G.c'git_repository_free $ \repo -> do
             odb <- openOdb restore repo
-            let gsd = GitStoreData repo odb
+            let gsd = GitStoreData repo odb gsc
             insertGenesisBlock g gsd  -- INVARIANT: Should be a no-op for an existing repo.
             GitStore <$> newMVar gsd
 
     close :: GitStore -> IO ()
-    close m = lockGitStore m $ \(GitStoreData p o) ->
+    close m = lockGitStore m $ \(GitStoreData p o _) ->
         G.c'git_odb_free o `finally` G.c'git_repository_free p
 
     openRepo :: (IO CInt -> IO CInt) -> IO (Ptr G.C'git_repository)
@@ -153,28 +152,24 @@ withGitStore (GitStoreConfig root0 g) f = withLibGit $ bracket open close f
 
 
 ------------------------------------------------------------------------------
-{-
-withReference :: GitStoreData
-              -> ByteString
-              -> (Ptr G.C'git_reference -> IO a)    -- ^ ptr may be null
-              -> IO a
-withReference (GitStoreData repo _) path0 f = bracket lookup destroy f
-  where
-    path :: ByteString
-    path = B.append "refs/" path0
-
-    destroy :: Ptr G.C'git_reference -> IO ()
-    destroy p = when (p /= nullPtr) $ G.c'git_reference_free p
-
-    lookup :: IO (Ptr G.C'git_reference)
-    lookup = mask $ \restore ->
-             alloca $ \pRef ->
-             B.unsafeUseAsCString path $ \cstr -> do
-        code <- restore $ G.c'git_reference_lookup pRef repo cstr
-        if | code == G.c'GIT_ENOTFOUND -> pure nullPtr
-           | code /= 0 -> throwGitError code
-           | otherwise -> peek pRef
--}
+-- | Runs the following across a given Git Store:
+--
+-- @
+-- git repack -A
+-- git gc
+-- @
+--
+-- This has the effect of drastically reducing the size of the Git repository on
+-- disk. Traversals / lookups also generally get faster.
+--
+-- *Note:* This operation locks the Git Store.
+--
+prune :: GitStore -> IO ()
+prune gs = lockGitStore gs $ \(GitStoreData _ _ (GitStoreConfig p _)) ->
+    shelly $ do
+        cd . fromText . T.pack $ toFilePath p
+        run_ "git" ["repack", "-A"]
+        run_ "git" ["gc"]
 
 
 ------------------------------------------------------------------------------
@@ -182,7 +177,6 @@ _isSorted :: Ord a => [a] -> Bool
 _isSorted [] = True
 _isSorted [_] = True
 _isSorted (x:z@(y:_)) = x < y && _isSorted z
-
 
 _prop_spectra_sorted :: Bool
 _prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: BlockHeight]
@@ -193,7 +187,7 @@ _prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: BlockHeigh
 -- Block.
 --
 insertGenesisBlock :: BlockHeader -> GitStoreData -> IO ()
-insertGenesisBlock g store@(GitStoreData repo _) = withTreeBuilder $ \treeB -> do
+insertGenesisBlock g store@(GitStoreData repo _ _) = withTreeBuilder $ \treeB -> do
     newHeaderGitHash <- insertBlockHeaderIntoOdb store g
     addSelfEntry treeB (_blockHeight g) (getBlockHashBytes $ _blockHash g) newHeaderGitHash
     treeHash <- alloca $ \oid -> do

@@ -21,6 +21,7 @@ module Chainweb.Store.Git.Internal
     GitStore(..)
   , GitStoreBlockHeader(..)
   , GitStoreData(..)
+  , GitStoreConfig(..)
   , TreeEntry(..)
   , LeafTreeData(..)
   , BlobEntry(..)
@@ -120,9 +121,10 @@ import Foreign.Storable (peek)
 
 import GHC.Generics (Generic)
 
-
 import Streaming (Of, Stream)
 import qualified Streaming.Prelude as S
+
+import System.Path (Absolute, Path)
 
 import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
@@ -229,6 +231,14 @@ countItems counter = S.mapM j
 data GitStoreData = GitStoreData {
     _gitStore :: {-# UNPACK #-} !(Ptr G.C'git_repository)
   , _gitOdb :: {-# UNPACK #-} !(Ptr G.C'git_odb)
+  , _gitConfig :: !GitStoreConfig
+}
+
+-- | For opening an existing repository, or for initializing a new one.
+--
+data GitStoreConfig = GitStoreConfig {
+    _gsc_path :: !(Path Absolute)
+  , _gsc_genesis :: !BlockHeader
 }
 
 -- TODO It's almost certainly possible to give this an instance of `Storable`.
@@ -348,7 +358,7 @@ readHeader' store blob = do
 -- | Fetch the raw byte data of some object in the Git Store.
 --
 getBlob :: GitStoreData -> GitHash -> IO ByteString
-getBlob (GitStoreData repo _) gh = bracket lookupBlob destroy readBlob
+getBlob (GitStoreData repo _ _) gh = bracket lookupBlob destroy readBlob
   where
     lookupBlob :: IO (Ptr G.C'git_blob)
     lookupBlob = mask $ \restore -> alloca $ \pBlob -> withOid gh $ \oid -> do
@@ -379,7 +389,7 @@ leaves' :: GitStoreData -> IO [TreeEntry]
 leaves' gsd = matchTags gsd (NullTerminated [ "leaf/*\0" ]) 5
 
 matchTags :: GitStoreData -> NullTerminated -> Int -> IO [TreeEntry]
-matchTags (GitStoreData repo _) nt chop =
+matchTags (GitStoreData repo _ _) nt chop =
     B.unsafeUseAsCString (terminate nt)
         $ \patt -> alloca
         $ \namesP -> do
@@ -433,7 +443,7 @@ lookupRefTarget
     :: GitStoreData
     -> NullTerminated      -- ^ ref path, e.g. tags/foo
     -> IO (Maybe GitHash)
-lookupRefTarget (GitStoreData repo _) path0 =
+lookupRefTarget (GitStoreData repo _ _) path0 =
     B.unsafeUseAsCString (terminate path)
         $ \cpath -> alloca
         $ \pOid -> runMaybeT $ do
@@ -569,7 +579,7 @@ insertBlock gs bh = lockGitStore gs $ \store -> do
 -- write the @git_tree@ to the repository, tag it under @tags/bh/foo@, and
 -- returns the git hash of the new @git_tree@ object.
 createLeafTree :: GitStoreData -> BlockHeader -> IO GitHash
-createLeafTree store@(GitStoreData repo _) bh = withTreeBuilder $ \treeB -> do
+createLeafTree store@(GitStoreData repo _ _) bh = withTreeBuilder $ \treeB -> do
     when (height <= 0) $ throwGitStoreFailure "cannot insert genesis block"
     parentTreeEntry <- lookupTreeEntryByHash store parentHash (height - 1) >>=
                        maybe (throwGitStoreFailure "parent hash not found in DB") pure
@@ -632,7 +642,7 @@ tbInsert tb mode h hs gh =
     name = mkTreeEntryNameWith "" h hs
 
 insertBlockHeaderIntoOdb :: GitStoreData -> BlockHeader -> IO GitHash
-insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
+insertBlockHeaderIntoOdb (GitStoreData _ odb _) bh =
     B.unsafeUseAsCStringLen serializedBlockHeader write
   where
     !serializedBlockHeader = runPutS $! encodeBlockHeader bh
@@ -650,7 +660,7 @@ insertBlockHeaderIntoOdb (GitStoreData _ odb) bh =
 -- "spectrum".
 --
 createBlockHeaderTag :: GitStoreData -> BlockHeader -> GitHash -> IO ()
-createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
+createBlockHeaderTag gs@(GitStoreData repo _ _) bh leafHash =
     withObject gs leafHash $ \obj ->
     alloca $ \pTagOid ->
     B.unsafeUseAsCString (terminate tagName) $ \cstr ->
@@ -674,7 +684,7 @@ createBlockHeaderTag gs@(GitStoreData repo _) bh leafHash =
 -- longer a leaf as far as the entire store is concerned.
 --
 updateLeafTags :: GitStoreData -> TreeEntry -> TreeEntry -> IO ()
-updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
+updateLeafTags store@(GitStoreData repo _ _) oldLeaf newLeaf = do
     tagAsLeaf store newLeaf
     void . B.unsafeUseAsCString nulled $ \cstr ->
         -- throwOnGitError "updateLeafTags" "git_tag_delete" $
@@ -686,7 +696,7 @@ updateLeafTags store@(GitStoreData repo _) oldLeaf newLeaf = do
 -- | Tag a `TreeEntry` in @.git/refs/leaf/@.
 --
 tagAsLeaf :: GitStoreData -> TreeEntry -> IO ()
-tagAsLeaf store@(GitStoreData repo _) leaf =
+tagAsLeaf store@(GitStoreData repo _ _) leaf =
     withObject store (_te_gitHash leaf) $ \obj ->
         alloca $ \pTagOid ->
         B.unsafeUseAsCString (terminate $ mkName leaf) $ \cstr ->
@@ -716,7 +726,7 @@ withTreeObject
     -> GitHash
     -> (Ptr G.C'git_tree -> IO a)
     -> IO a
-withTreeObject (GitStoreData repo _) gitHash f = bracket getTree G.c'git_tree_free f
+withTreeObject (GitStoreData repo _ _) gitHash f = bracket getTree G.c'git_tree_free f
   where
     getTree :: IO (Ptr G.C'git_tree)
     getTree = mask $ \restore -> alloca $ \ppTree -> withOid gitHash $ \oid -> do
@@ -732,7 +742,7 @@ withOid (GitHash strOid) f =
         f pOid
 
 withObject :: GitStoreData -> GitHash -> (Ptr G.C'git_object -> IO a) -> IO a
-withObject (GitStoreData repo _) hash f =
+withObject (GitStoreData repo _ _) hash f =
     withOid hash $ \oid ->
     alloca $ \pobj -> do
         throwOnGitError "withObject" "git_object_lookup" $

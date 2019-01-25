@@ -190,6 +190,7 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , shelly >= 1.7
         , stm >= 2.4
         , stm-chans
         , streaming >= 0.2
@@ -450,9 +451,7 @@ benchmark chainweb-bench
         , base >= 4.11
         , criterion >= 1.1
         , deepseq
-        , paths >= 0.2
         , random >= 1.1
-        , shelly >= 1.7
         , text
 
 -- -------------------------------------------------------------------------- --
