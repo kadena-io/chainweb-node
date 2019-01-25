@@ -92,6 +92,8 @@ data ClientConfig t = ClientConfig {
   , _ccKeepaliveIntervalSeconds :: Int
 }
 
+-- | Mempool commands are reified into this datatype so they can be
+-- encoded/decoded and sent over the socket.
 data Command t = Keepalive
                | Insert !(Vector t)
                | Lookup !(Vector TransactionHash)
@@ -100,6 +102,7 @@ data Command t = Keepalive
                | Subscribe
   deriving (Show)
 
+-- | The set of possible response messages from the mempool server.
 data ServerMessage t = OK
                      | Failed ByteString
                      | LookupResults (Vector (LookupResult t))
@@ -111,6 +114,8 @@ data ServerMessage t = OK
 
 
 ------------------------------------------------------------------------------
+-- Most of the following section relates to encoding/decoding of these
+-- messages.
 protocolVersion :: Word8
 protocolVersion = 1
 
@@ -325,6 +330,7 @@ encodeCommand txcfg = (<> Builder.flush) . go
     go (GetBlock x) = Builder.word8 4 <> Builder.word64LE (fromIntegral x)
     go Subscribe = Builder.word8 5
 
+------------------------------------------------------------------------------
 newtype MempoolSocketException = MempoolSocketException (T.Text)
   deriving (Show)
 instance Exception MempoolSocketException
@@ -355,6 +361,8 @@ bind host port = do
     return sock
 
 
+-- | Wraps a set of streams in an activity timer. Any activity on either stream
+-- will cause the timer to be extended.
 withTimeout :: Int              -- ^ timeout in seconds
             -> (InputStream ByteString, OutputStream Builder, IO ())
             -> ((InputStream ByteString, OutputStream Builder, IO ()) -> IO a)
@@ -410,6 +418,7 @@ toDebugStreams name sock = do
 -}
 
 
+-- | Converts a socket to a triple of (input, output, cleanup).
 toStreams :: Socket
           -> IO (InputStream ByteString, OutputStream Builder, IO ())
 toStreams sock = do
@@ -418,6 +427,8 @@ toStreams sock = do
     return (readEnd, writeEndB, N.close sock)
 
 
+-- | A single server session interacting with a remote client on an
+-- accepted/bound socket.
 serverSession :: Show t
               => MempoolBackend t
                      -- ^ mempool backend to serve to remote.
@@ -442,9 +453,19 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     eatExceptions go `finally` cleanup
 
   where
+    -- The server session forks a thread that reads + parses from the remote
+    -- socket, and sends parsed messages to an input channel. The original
+    -- thread runs 'runOutputThread', which reads from the input channel (and
+    -- from the subscription channel, if there is one) and dispatches the
+    -- reified commands to the underlying 'MempoolBackend'.
+    go = eatExceptions $ bracket startInputThread killInputThread $
+         restore . runOutputThread
+
     eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
     txcfg = mempoolTxConfig mempool
 
+    -- We stuff the underlying mempool's subscription object into an mvar. Only
+    -- one at a time is allowed.
     subscribe mv = modifyMVar_ mv $ \m -> do
         -- unsubscribe to old subscription
         mapM_ (readIORef >=> mempoolSubFinal) m
@@ -453,6 +474,8 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     commandParser = (Atto.endOfInput *> pure Nothing) <|>
                     (Just <$> decodeCommand txcfg)
 
+    -- The input thread is a simple io-streams pipeline -- parse via attoparsec
+    -- and write the message to the channel
     inputThread remotePipe = eatExceptions (
         Streams.parserToInputStream commandParser readEnd
             >>= Streams.mapM_ (debug . ("server: input thread read: " ++) . show)
@@ -488,25 +511,27 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
                                , "\n"
                                , Builder.flush
                                ]
+        -- then run the dispatch loop
         forever $ do
             sub <- subToStm mv
             atomically (sub <|> fetchRemote remotePipe) >>= either procSub (procCmd mv)
 
+    -- we got a subscription notification. Send the updates to remote
     procSub txs = do
         debug "server: sending subscription updates"
         respond (SubscriptionUpdates txs)
+    -- we got a command from the socket. run it
     procCmd mv c = do
         debug $ "server: got command " ++ show c
         maybe (throwIO ThreadKilled) (processCommand mv) c
-
-    go = eatExceptions $ bracket startInputThread killInputThread $
-         restore . runOutputThread
 
     respond s = do
         Streams.writeTo writeEnd $ Just (encodeServerMessage txcfg s <> Builder.flush)
         when (msgIsFailed s) $ throwIO ThreadKilled
 
     -- TODO: propagate failures to remote when throwing
+    --
+    -- 'processCommand' just delegates to the underlying mempool.
     processCommand _ Keepalive = respond OK
     processCommand _ (Insert txs) = mempoolInsert mempool txs >> respond OK
     processCommand _ (Lookup txhashes) = do
