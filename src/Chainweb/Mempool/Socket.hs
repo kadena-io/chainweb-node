@@ -12,6 +12,7 @@ module Chainweb.Mempool.Socket
   , server
   , serverSession
   , ClientConfig(..)
+  , MempoolSocketException(..)
   ) where
 
 import Control.Applicative
@@ -42,6 +43,7 @@ import Data.Foldable (for_, mapM_)
 import Data.Int (Int64)
 import Data.IORef (mkWeakIORef, newIORef, readIORef)
 import Data.Maybe (fromMaybe)
+import qualified Data.Text as T
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
@@ -323,6 +325,9 @@ encodeCommand txcfg = (<> Builder.flush) . go
     go (GetBlock x) = Builder.word8 4 <> Builder.word64LE (fromIntegral x)
     go Subscribe = Builder.word8 5
 
+newtype MempoolSocketException = MempoolSocketException (T.Text)
+  deriving (Show)
+instance Exception MempoolSocketException
 
 resolve :: ByteString -> N.PortNumber -> IO (N.SockAddr, Socket)
 resolve bname port = do
@@ -330,7 +335,8 @@ resolve bname port = do
     let name = BC.unpack bname
     infos <- N.getAddrInfo (Just N.defaultHints { N.addrSocketType = N.Stream })
                            (Just name) (Just $ show port)
-    when (null infos) $ fail ("hostname lookup for '" ++ name ++ "' failed")
+    when (null infos) $ throwS
+                      $ T.pack ("hostname lookup for '" ++ name ++ "' failed")
     let addr = head infos
     let family = N.addrFamily addr
     let sockType = N.addrSocketType addr
@@ -577,8 +583,9 @@ toBackend config (ClientState cChan _ _ _ _ _) =
     txcfg = _ccTxCfg config
     blockSizeLimit = 100000              -- FIXME: move into transaction config!
 
-    takeResultMVar m = takeMVar m >>=
-                       either (fail . T.unpack . T.decodeUtf8) return
+    takeResultMVar m =
+        takeMVar m >>=
+        either (throwS . T.decodeUtf8) return
 
     writeCmd = writeChan cChan
     issueMvCmd f = do
@@ -620,7 +627,7 @@ toBackend config (ClientState cChan _ _ _ _ _) =
 
     pShutdown = writeCmd CShutdown
 
-    unsupported = const $ fail "operation unsupported on remote mempool"
+    unsupported = const $ throwS "operation unsupported on remote mempool"
 
 
 writeChan :: TBMChan a -> a -> IO ()
@@ -629,7 +636,7 @@ writeChan chan x = do
         b <- TBMChan.isClosedTBMChan chan
         when (not b) $ TBMChan.writeTBMChan chan x
         return b
-    when closed $ fail "attempted write on closed chan"
+    when closed $ throwS "attempted write on closed channel"
 
 
 withClientSession :: Show t
@@ -736,7 +743,7 @@ withClientSession (inp, outp, cleanup) config userHandler =
 
     readHandshake = Streams.parseFromStream parseHandshake inp
                 `catch` \(Streams.ParseException s) ->
-                          fail ("protocol error on handshake: " ++ s)
+                          throwS $ T.pack ("protocol error on handshake: " ++ s)
 
 
 parseHandshake :: Parser ()
@@ -813,7 +820,7 @@ dispatchResponse _ CShutdown _ = error "impossible, CShutdown doesn't queue"
 
 
 dispatchMismatch :: IO a
-dispatchMismatch = fail "mempool protocol error: got response for wrong request type"
+dispatchMismatch = throwS "mempool protocol error: got response for wrong request type"
 
 
 processResponse :: ClientState t -> ServerMessage t -> IO ()
@@ -825,7 +832,7 @@ processResponse cs resp = do
     x <- modifyMVarMasked (_queuedCommands cs) $ \dlist -> do
         let l = dlist []
         when (null l) $
-            fail "Got a response from remote with no pending request"
+            throwS "Got a response from remote with no pending request"
         let !h = head l
         -- if this is a "get pending", receiving a chunk of hashes doesn't
         -- fully dispatch the request
@@ -836,3 +843,6 @@ processResponse cs resp = do
                    _ -> tail l
         return ((t ++), h)
     dispatchResponse cs x resp
+
+
+throwS = throwIO . MempoolSocketException
