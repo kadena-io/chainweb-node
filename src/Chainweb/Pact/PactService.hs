@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
@@ -42,8 +43,8 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 import qualified Pact.Types.Server as P
+import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -78,7 +79,10 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runStateT (runReaderT serviceRequests checkpointEnv) theState
+    evalStateT (runReaderT serviceRequests checkpointEnv) theState
+
+getGasEnv :: PactT P.GasEnv
+getGasEnv = view cpeGasEnv
 
 serviceRequests :: PactT ()
 serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
@@ -88,18 +92,17 @@ newTransactionBlock parentHeader bHeight = do
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock bHeight) $ liftIO $ _cRestore _cpeCheckpointer bHeight parentPayloadHash
+    unless (isFirstBlock bHeight) $ do
+      cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
+      updateState cpdata
     results <- execTransactions newTrans
-    -- TODO: new block format needs to be integrated w/hash of results to be put into block, etc.
-    return Block
-              { _bHash = Nothing -- not yet computed
-              , _bParentHeader = parentHeader
-              , _bBlockHeight = succ bHeight
-              , _bTransactions = zip newTrans results
-              }
-
-getDbState :: PactT PactDbState
-getDbState = undefined
+    return
+      Block
+        { _bHash = Nothing -- not yet computed
+        , _bParentHeader = parentHeader
+        , _bBlockHeight = succ bHeight
+        , _bTransactions = zip newTrans results
+        }
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -132,12 +135,12 @@ validateBlock Block {..} = do
     let parentPayloadHash = _blockPayloadHash _bParentHeader
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
-        liftIO $ _cRestore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      updateState cpdata
     _results <- execTransactions (fmap fst _bTransactions)
-    buildCurrentPactState >>= put
-    st <- getDbState
-    liftIO $ _cSave _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA3 CheckpointData _pdbsDbEnv (P._csRefStore . _pdbsState) (P._csPacts . _pdbsState) st)
+    currentState <- get
+    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
+                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool tf
@@ -217,5 +220,7 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
             applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode
                      cmd procCmd
 
-buildCurrentPactState :: PactT PactDbState
-buildCurrentPactState = undefined
+updateState :: CheckpointData  -> PactT ()
+updateState CheckpointData {..} = do
+    pdbsDbEnv .= _cpPactDbEnv
+    pdbsState .= _cpCommandState

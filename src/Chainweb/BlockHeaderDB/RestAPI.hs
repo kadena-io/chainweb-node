@@ -366,8 +366,6 @@ type BlockHeaderDbApi v c
     :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
-    :<|> ChildHashesApi v c
-    :<|> ChildHeadersApi v c
 
 blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

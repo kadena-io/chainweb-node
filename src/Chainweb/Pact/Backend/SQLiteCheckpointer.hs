@@ -7,36 +7,52 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
--- import Data.IORef
--- import Control.Concurrent.MVar
---     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
---     takeMVar, withMVarMasked)
+import Data.HashMap.Strict (HashMap)
+-- import qualified Data.HashMap.Strict as HMS
+
+import Control.Concurrent.MVar
+
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
+-- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
-initSQLiteCheckpointEnv = undefined
+initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
+    inmem <- newMVar mempty
+    return $
+        CheckpointEnv
+            { _cpeCheckpointer =
+                  Checkpointer
+                      { restore = restore' inmem
+                      , save = save' inmem
+                      }
+            , _cpeCommandConfig = cmdConfig
+            , _cpeLogger = logger
+            , _cpeGasEnv = gasEnv
+            }
 
-data SQLiteCheckpointData =
-    SQLiteCheckpointData
+type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
 
-restore :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO ()
-restore = undefined
+restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
+restore' = undefined
 
 prepareForValidBlock ::
-       SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
 prepareForValidBlock = undefined
 
 prepareForNewBlock ::
-       SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
+       MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
 prepareForNewBlock = undefined
 
-save :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-save = undefined
+-- prepare/save could change filename (field dbFile) of SQLiteConfig
+-- so that its retrieval is possible in a restore.
 
-discard :: SQLiteCheckpointData -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
+save' = undefined
+
+discard :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
 discard = undefined

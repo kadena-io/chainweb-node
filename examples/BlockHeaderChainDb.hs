@@ -141,6 +141,5 @@ checkBranch
     -> BlockHeader
     -> IO ()
 checkBranch logg db h = do
-    S.length_ (children db (key h)) >>= \x -> unless (x == 0)
+    S.length_ (DB.childrenKeys db (key h)) >>= \x -> unless (x == 0)
         $ logg Error $ "branch " <> sshow (key h) <> " has children"
-
