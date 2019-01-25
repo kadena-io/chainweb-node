@@ -10,14 +10,8 @@ module Main ( main ) where
 import Criterion.Main
 
 import Data.Foldable (traverse_)
-import Data.Word (Word64)
 
 import System.IO (hFlush, stdout)
-import System.Path (Absolute, Path, fragment, (</>))
-import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
-
-import Text.Printf (printf)
 
 -- internal modules
 
@@ -30,7 +24,7 @@ import Chainweb.Store.Git
     prune, walk, withGitStore)
 import Chainweb.Store.Git.Internal
     (getBlockHashBytes, leaves', lockGitStore, walk')
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, withTempDir)
 import Chainweb.Version (ChainwebVersion(..))
 
 import qualified Data.DiGraph as G
@@ -45,10 +39,9 @@ type Env = (BlockHeader, BlockHeader, BlockHeader)
 --     fromAbsoluteFilePath "/home/colin/code/haskell/chainweb/chainweb-git-store-test-7226612870463109362"
 
 main :: IO ()
-main = do
-    tmp <- tempPath
+main = withTempDir "benchmarks" $ \tmp -> do
     let !gsc = GitStoreConfig tmp genesis
-    withGitStore gsc $ \gs -> do
+    withGitStore gsc $ \gs ->
         defaultMain $ [ gitMain gs ]
 
 gitMain :: GitStore -> Benchmark
@@ -113,15 +106,3 @@ chainId0 = testChainId 0
 
 singleton :: ChainGraph
 singleton = toChainGraph (testChainId . int) G.singleton
-
--- | Some random path under @/tmp@.
---
--- @
--- Path "/tmp/chainweb-git-store-test-8086816238120523704"
--- @
---
-tempPath :: IO (Path Absolute)
-tempPath = do
-    tmp <- getTemporaryDirectory
-    suff <- randomIO @Word64
-    pure $ tmp </> fragment (printf "chainweb-git-store-test-%d" suff)

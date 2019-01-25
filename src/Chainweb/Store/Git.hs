@@ -160,7 +160,8 @@ withGitStore gsc@(GitStoreConfig root0 g) f = withLibGit $ bracket open close f
 -- @
 --
 -- This has the effect of drastically reducing the size of the Git repository on
--- disk. Traversals / lookups also generally get faster.
+-- disk (~95% reduction from a completely unpacked state). Traversals / lookups
+-- also generally get faster.
 --
 -- *Note:* This operation locks the Git Store.
 --

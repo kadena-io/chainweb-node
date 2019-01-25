@@ -6,13 +6,6 @@ module Chainweb.Test.Store.Git ( tests ) where
 import Data.Foldable (traverse_)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Data.Vector as V
-import Data.Word (Word64)
-
-import System.Path (Absolute, Path, fragment, (</>))
-import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
-
-import Text.Printf (printf)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -25,7 +18,7 @@ import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (toyGenesis)
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, withTempDir)
 
 ---
 
@@ -64,26 +57,14 @@ tests = testGroup "Git Store"
     , treeDbInvariants withNewRepo' Parallel
     ]
 
--- | Some random path under @/tmp@.
---
--- @
--- Path "/tmp/chainweb-git-store-test-8086816238120523704"
--- @
---
-tempPath :: IO (Path Absolute)
-tempPath = do
-    tmp <- getTemporaryDirectory
-    suff <- randomIO @Word64
-    pure $ tmp </> fragment (printf "chainweb-git-store-test-%d" suff)
-
 -- | Initialize a fresh Git store and perform some action over it.
 --
 withNewRepo :: (GitStore -> IO a) -> IO a
 withNewRepo  = withNewRepo' (GitStoreBlockHeader genesis)
 
 withNewRepo' :: GitStoreBlockHeader -> (GitStore -> IO a) -> IO a
-withNewRepo' (GitStoreBlockHeader bh) f =
-    tempPath >>= \tmp -> withGitStore (GitStoreConfig tmp bh) f
+withNewRepo' (GitStoreBlockHeader bh) f = withTempDir "git-store-test"$ \tmp ->
+    withGitStore (GitStoreConfig tmp bh) f
 
 legalGenesis :: GitStore -> Assertion
 legalGenesis gs = do
