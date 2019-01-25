@@ -69,7 +69,7 @@ data Env' =
 
 data PactDbEnvPersist p = PactDbEnvPersist
     { _pdepPactDb :: P.PactDb (P.DbEnv p)
-    , _pdepEnv     :: (P.DbEnv p)
+    , _pdepEnv     :: P.DbEnv p
     }
 makeLenses ''PactDbEnvPersist
 
