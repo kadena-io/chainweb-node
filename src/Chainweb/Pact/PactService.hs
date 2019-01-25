@@ -155,7 +155,6 @@ execTransactions xs = do
                   let txId = P.Transactional (P.TxId _tTxId)
                   (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
                   return  TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
-
     newCmdState <- liftIO $ readMVar mvCmdState
     newEnvPersist' <- liftIO $ toEnvPersist' dbEnv'
     let updatedState = PactDbState
