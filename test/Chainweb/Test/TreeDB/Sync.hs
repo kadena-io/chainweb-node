@@ -43,10 +43,10 @@ cid = testChainId 0
 
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
-noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \g db -> withSingleChainServer [(cid, db)] [] $ \env -> do
-    linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
-    maxRank db >>= (@?= 0)
+-- noopSingletonSync :: Assertion
+-- noopSingletonSync = withDB cid $ \g db -> withSingleChainServer [(cid, db)] [] $ \env -> do
+--     linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
+--     maxRank db >>= (@?= 0)
 
 -- | Simulates an up-to-date node querying another for updates,
 -- and finding none.
