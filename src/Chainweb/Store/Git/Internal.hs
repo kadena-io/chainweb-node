@@ -135,9 +135,9 @@ import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), IsBlockHeader(..), decodeBlockHeader,
     encodeBlockHeader)
 import Chainweb.TreeDB
-    (Eos(..), MaxRank(..), MinRank(..), TreeDb(..), TreeDbEntry(..))
+    (DbKey, Eos(..), MaxRank(..), MinRank(..), TreeDb(..), TreeDbEntry(..))
 import Chainweb.Utils (int)
-import Chainweb.Utils.Paging (Limit(..))
+import Chainweb.Utils.Paging (Limit(..), NextItem(..))
 
 ---
 
@@ -172,9 +172,8 @@ newtype GitStore = GitStore (MVar GitStoreData)
 instance TreeDb GitStore where
     type DbEntry GitStore = GitStoreBlockHeader
 
-    lookup gs (T2 hgt hsh) = coerce $ lookupByBlockHash gs hgt hsh
+    lookup gs (T2 hgt hsh) = fmap GitStoreBlockHeader <$> lookupByBlockHash gs hgt hsh
 
-    -- TODO Handle `next`
     entries gs next limit minr0 maxr = do
         counter <- liftIO $ newIORef 0
         countItems counter . postprocess $ f minr
@@ -182,10 +181,20 @@ instance TreeDb GitStore where
         pure (int total, Eos True)
       where
         minr :: BlockHeight
-        minr = maybe 0 (\(MinRank (Min mh)) -> int mh) minr0
+        minr = max (maybe 0 y minr0) (maybe 0 z next)
+          where
+            y :: MinRank -> BlockHeight
+            y (MinRank (Min mh)) = int mh
+
+            z :: NextItem (DbKey GitStore) -> BlockHeight
+            z (Inclusive (T2 h _)) = h
+            z (Exclusive (T2 h _)) = h + 1
 
         postprocess :: Stream (Of GitStoreBlockHeader) IO () -> Stream (Of GitStoreBlockHeader) IO ()
-        postprocess = maybe id filterItems limit . maybe id maxItems maxr
+        postprocess =
+            maybe id filterItems limit
+            . maybe id seekToNext next
+            . maybe id maxItems maxr
 
         f :: BlockHeight -> Stream (Of GitStoreBlockHeader) IO ()
         f !bh = do
@@ -195,7 +204,6 @@ instance TreeDb GitStore where
                 S.map GitStoreBlockHeader $ S.each bs
                 f (bh + 1)
 
-    -- TODO Handle `next`
     leafEntries gs next limit minr maxr = do
         ls <- fmap (sortOn _blockHeight) . liftIO $ leaves gs
         counter <- liftIO $ newIORef 0
@@ -203,11 +211,15 @@ instance TreeDb GitStore where
         total <- liftIO $ readIORef counter
         pure (int total, Eos True)
       where
-        postprocess :: Stream (Of GitStoreBlockHeader) IO () -> Stream (Of GitStoreBlockHeader) IO ()
-        postprocess = maybe id filterItems limit . maybe id maxItems maxr . maybe id g minr
+        postprocess :: Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+        postprocess =
+            maybe id filterItems limit
+            . maybe id seekToNext next
+            . maybe id maxItems maxr
+            . maybe id minItems minr
 
-        g :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-        g (MinRank (Min n)) =
+        minItems :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+        minItems (MinRank (Min n)) =
             S.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
 
     insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
@@ -215,9 +227,18 @@ instance TreeDb GitStore where
 filterItems :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
 filterItems = S.take . int . _getLimit
 
-maxItems :: MaxRank -> Stream (Of GitStoreBlockHeader) IO r -> Stream (Of GitStoreBlockHeader) IO ()
+maxItems :: MaxRank -> Stream (Of (DbEntry GitStore)) IO r -> Stream (Of (DbEntry GitStore)) IO ()
 maxItems (MaxRank (Max n)) =
     S.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
+
+seekToNext
+    :: NextItem (DbKey GitStore)
+    -> Stream (Of (DbEntry GitStore)) IO ()
+    -> Stream (Of (DbEntry GitStore)) IO ()
+seekToNext (Inclusive (T2 _ hash)) =
+    S.dropWhile (\(GitStoreBlockHeader bh) -> _blockHash bh /= hash)
+seekToNext (Exclusive n) =
+    S.drop 1 . seekToNext (Inclusive n)
 
 countItems :: IORef Int -> Stream (Of b) IO r -> Stream (Of b) IO r
 countItems counter = S.mapM j
@@ -548,7 +569,7 @@ walk'
     -> IO ()
 walk' gsd !height !hash f g =
     lookupTreeEntryByHash gsd hash height >>= \case
-        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> (bhText height)
+        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> bhText height
         Just te -> do
             f te
             withTreeObject gsd (_te_gitHash te) $ \gt -> do
