@@ -100,7 +100,7 @@ import Data.Functor (($>))
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.List (sort)
+import Data.List (sortOn)
 import Data.Semigroup (Max(..), Min(..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -195,7 +195,7 @@ instance TreeDb GitStore where
 
     -- TODO Handle `next`
     leafEntries gs next limit minr maxr = do
-        ls <- fmap sort . liftIO $ leaves gs
+        ls <- fmap (sortOn _blockHeight) . liftIO $ leaves gs
         counter <- liftIO $ newIORef 0
         countItems counter . postprocess . S.map GitStoreBlockHeader $ S.each ls
         total <- liftIO $ readIORef counter
