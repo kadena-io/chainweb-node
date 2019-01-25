@@ -89,8 +89,7 @@ payloadProperty name gen test (PayloadDBWithFunc withDB) = testProperty name go
 propInsert :: [MockPayload] -> DB MockPayload -> IO (Either String ())
 propInsert payloads db = runExceptT $ do
     let payloadV = V.fromList payloads
-    out <- V.map return <$> liftIO (payloadInsert db payloadV)
-    V.sequence_ out
+    liftIO (payloadInsert db payloadV)
     lookups <- liftIO (payloadLookup db (V.map hash payloadV)) >>= mapM fromLookup
     when (lookups /= payloadV) $ fail "payload contents didn't match on lookup"
 
@@ -101,8 +100,7 @@ propInsert payloads db = runExceptT $ do
 
 propLookupFail :: ([MockPayload], [MockPayload]) -> DB MockPayload -> IO (Either String ())
 propLookupFail (ps0, fs0) db = runExceptT $ do
-    out <- V.map return <$> liftIO (payloadInsert db (V.fromList ps))
-    V.sequence_ out
+    liftIO (payloadInsert db (V.fromList ps))
 
     -- lookups on fs should fail (we didn't insert these)
     liftIO (payloadLookup db (V.fromList $ map hash fs)) >>= mapM_ checkLookupFailed
@@ -117,10 +115,9 @@ propLookupFail (ps0, fs0) db = runExceptT $ do
 
 propDelete :: [MockPayload] -> DB MockPayload -> IO (Either String ())
 propDelete payloads db = runExceptT $ do
-    out <- V.map return <$> liftIO (payloadInsert db (V.fromList payloads))
-    V.sequence_ out
+    liftIO (payloadInsert db (V.fromList payloads))
     liftIO (payloadLookup db hashes) >>= mapM_ checkLookup
-    liftIO $ payloadDelete db hashes
+    liftIO (payloadDelete db hashes)
     liftIO (payloadLookup db hashes) >>= mapM_ checkLookupFailed
 
   where

@@ -145,26 +145,21 @@ withThreadPool k userFunc = bracket create destroy userFunc
 mapAction :: ThreadPool
           -> (a -> IO b)
           -> [a]
-          -> IO [Either String b]
+          -> IO [Either SomeException b]
 mapAction tp userFunc xs0 = do
-    mvs <- mapM (const $ newEmptyMVar) xs
+    mvs <- mapM (const newEmptyMVar) xs
     let vals = xs `zip` mvs
     let actions = map toAction vals
     mapM_ (runAction tp) actions
     mapM takeMVar mvs
   where
     xs = toList xs0
-    toAction (x, mv) = do
-        e <- try $ userFunc x
-        putMVar mv (mapLeft exToStr e)
-
-    exToStr (x :: SomeException) = show x
-
-    mapLeft f (Left e) = Left (f e)
-    mapLeft _ (Right x) = Right x
+    toAction (x, mv) = try (userFunc x) >>= putMVar mv
 
 mapAction_ :: ThreadPool
           -> (a -> IO b)
           -> [a]
-          -> IO (Either String ())
-mapAction_ tp userFunc xs0 = sequence_ <$> mapAction tp (void . userFunc) xs0
+          -> IO ()
+mapAction_ tp userFunc xs0 = do
+    e <- sequence_ <$> mapAction tp (void . userFunc) xs0
+    either throwIO return e

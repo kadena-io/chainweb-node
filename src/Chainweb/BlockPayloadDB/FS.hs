@@ -15,7 +15,7 @@ import Control.Concurrent.FixedThreadPool (ThreadPool)
 import qualified Control.Concurrent.FixedThreadPool as TP
 import Control.Concurrent.MVar
 import Control.Exception
-import Control.Monad (join, when)
+import Control.Monad (when)
 import Control.Monad.Trans.Except
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
@@ -106,20 +106,15 @@ withDB' ops root0 config userFunc = do
         userFunc db
 
 
-fsInsert :: FsDB t -> Vector t -> IO (Vector (Either String ()))
-fsInsert fsdb v = (V.fromList . map join) <$> TP.mapAction tp insertOne (V.toList v)
+fsInsert :: FsDB t -> Vector t -> IO ()
+fsInsert fsdb v = TP.mapAction_ tp insertOne (V.toList v)
   where
     tp = _fsTP fsdb
     ops = _fsOps fsdb
     root = _fsDbRoot fsdb
     hash = payloadHash $ _fsDbConfig fsdb
     encode = codecEncode $ payloadCodec $ _fsDbConfig fsdb
-    toEither m = (Right <$> m) `catches`
-        -- rethrow on ThreadKilled
-        [ Handler $ \(e :: AsyncException) -> throwIO e
-        , Handler $ \(e :: SomeException) -> return (Left (show e)) ]
-
-    insertOne t = toEither $ do
+    insertOne t = do
         let h = hash t
         let (parent, fn) = getBlockPath root h
         opCreateDirectory ops $ Path.toFilePath parent
@@ -132,7 +127,7 @@ fsLookup :: FsDB t -> Vector BlockPayloadHash -> IO (Vector (Maybe t))
 fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
   where
     toV es = V.fromList <$> (runExceptT (sequence $ map (ExceptT . return) es)
-                             >>= either fail return)
+                             >>= either throwIO return)
 
     tp = _fsTP fsdb
     ops = _fsOps fsdb
@@ -147,8 +142,7 @@ fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
 
 
 fsDelete :: FsDB t -> Vector BlockPayloadHash -> IO ()
-fsDelete fsdb v = TP.mapAction_ tp deleteOne (V.toList v) >>=
-                  either fail return
+fsDelete fsdb v = TP.mapAction_ tp deleteOne (V.toList v)
   where
     tp = _fsTP fsdb
     ops = _fsOps fsdb

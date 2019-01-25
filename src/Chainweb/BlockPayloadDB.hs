@@ -21,6 +21,6 @@ data PayloadConfig t = PayloadConfig {
 data DB t = DB {
     payloadDbConfig :: PayloadConfig t
   , payloadLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
-  , payloadInsert :: Vector t -> IO (Vector (Either String ()))
+  , payloadInsert :: Vector t -> IO ()
   , payloadDelete :: Vector BlockPayloadHash -> IO ()
 }
