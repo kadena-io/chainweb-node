@@ -155,12 +155,14 @@ execTransactions xs = do
           (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
           return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
 
+    let newEnv' = Env' theCurrentPactDbEnv_DbEnv
+    let newCmdState = theCurrentPactCmdState
     let ns = currentState & pdbsDbEnv .~ newEnv'
-    let newState = ns & pdbsState .~ newCommandState
+    let newState = ns & pdbsState .~ newCmdState
     -- let newStateCombo = (currentState & pdbsDbEnv .~ newEnv') & pdbsState .~ newCommandState
 
     let ns' = set pdbsDbEnv newEnv' currentState
-    let newState' = set pdbsState newCommandState ns'
+    let newState' = set pdbsState newCmdState ns'
     -- let newStateCombo' = set pdbsState newCommandState (set pdbsDbEnv newEnv' currentState)
 
     put newState
