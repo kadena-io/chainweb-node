@@ -30,10 +30,13 @@ module Chainweb.Pact.Backend.Types
     , cpeGasEnv
     , Checkpointer(..)
     , Env'(..)
-    , PactDbBackend
+    , PactDbBackend(..)
     ) where
 
+import Control.Applicative
 import Control.Lens
+import Control.Monad
+import Control.Monad.Catch
 
 import Data.Aeson
 
@@ -50,11 +53,23 @@ import qualified Pact.Types.Server as P
 -- internal modules
 import Chainweb.BlockHeader
 
-class PactDbBackend e
+class PactDbBackend e where
+   openDb :: e -> IO ()
+   closeDb :: e -> IO ()
 
-instance PactDbBackend P.PureDb
+data PactDbBackEndException  = PactDbBackEndException String
+    deriving Show
 
-instance PactDbBackend P.SQLite
+instance Exception PactDbBackEndException
+
+instance PactDbBackend P.PureDb where
+    openDb = const $ return ()
+    closeDb = const $ return ()
+
+instance PactDbBackend P.SQLite where
+    openDb = void . liftA2 P.initSQLite P.config (P.constLoggers . P.logger)
+    closeDb =
+      either (void . throwM . PactDbBackEndException) return <=< P.closeSQLite
 
 data Env' =
     forall a. PactDbBackend a =>
