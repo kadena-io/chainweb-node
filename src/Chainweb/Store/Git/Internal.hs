@@ -155,8 +155,8 @@ instance TreeDbEntry GitStoreBlockHeader where
 
     rank (GitStoreBlockHeader bh) = int $ _blockHeight bh
 
-    parent e@(GitStoreBlockHeader bh)
-        | p == key e = Nothing
+    parent (GitStoreBlockHeader bh)
+        | _blockParent bh == _blockHash bh = Nothing
         | otherwise = Just p
       where
         p = T2 (_blockHeight bh - 1) (_blockParent bh)
