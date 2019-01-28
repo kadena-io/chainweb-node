@@ -13,27 +13,30 @@
 --
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
-    ( PactDbConfig(..)
-    , pdbcGasLimit
-    , pdbcGasRate
-    , pdbcLogDir
-    , pdbcPersistDir
-    , pdbcPragmas
-    , PactDbState(..)
-    , pdbsDbEnv
-    , pdbsState
-    , usage
-    , CheckpointEnv(..)
+    ( CheckpointEnv(..)
     , cpeCommandConfig
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
     , Checkpointer(..)
     , Env'(..)
+    , EnvPersist'(..)
     , PactDbBackend(..)
+    , PactDbConfig(..)
+    , pdbcGasLimit
+    , pdbcGasRate
+    , pdbcLogDir
+    , pdbcPersistDir
+    , pdbcPragmas
+    , PactDbEnvPersist(..)
+    , pdepEnv
+    , pdepPactDb
+    , PactDbState(..)
+    , pdbsDbEnv
+    , pdbsState
+    , usage
     ) where
 
-import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -67,16 +70,25 @@ instance PactDbBackend P.PureDb where
     closeDb = const $ return ()
 
 instance PactDbBackend P.SQLite where
-    openDb = void . liftA2 P.initSQLite P.config (P.constLoggers . P.logger)
+    openDb = void . liftM2 P.initSQLite P.config (P.constLoggers . P.logger)
     closeDb =
-      either (void . throwM . PactDbBackEndException) return <=< P.closeSQLite
+      either (throwM . PactDbBackEndException) return <=< P.closeSQLite
 
 data Env' =
     forall a. PactDbBackend a =>
               Env' (P.PactDbEnv (P.DbEnv a))
 
+data PactDbEnvPersist p = PactDbEnvPersist
+    { _pdepPactDb :: P.PactDb (P.DbEnv p)
+    , _pdepEnv :: P.DbEnv p
+    }
+
+makeLenses ''PactDbEnvPersist
+
+data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
+
 data PactDbState = PactDbState
-    { _pdbsDbEnv :: Env'
+    { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
     }
 

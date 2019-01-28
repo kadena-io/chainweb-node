@@ -128,6 +128,7 @@ library
             , Chainweb.Pact.PactService
             , Chainweb.Pact.TransactionExec
             , Chainweb.Pact.Types
+            , Chainweb.Pact.Utils
 
     build-depends:
           QuickCheck >= 2.10

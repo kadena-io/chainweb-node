@@ -36,13 +36,13 @@ import Control.Monad.Zip
 
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.Time.Clock
 import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Clock
 
 import GHC.Word
 import System.IO.Extra
@@ -84,7 +84,7 @@ execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
                          nonces intSeq cmdStrs
-    outputs <- execTransactions trans
+    (outputs, _) <- execTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
@@ -132,7 +132,7 @@ checkSuccessOnly :: TestResponse -> Assertion
 checkSuccessOnly resp = do
     case P._crResult $ _getCommandResult $ _trOutput resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
-        _          -> assertFailure "Status returned does not equal \"success\""
+        _ -> assertFailure "Status returned does not equal \"success\""
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do

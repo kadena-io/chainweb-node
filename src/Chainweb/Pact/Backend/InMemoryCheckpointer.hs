@@ -16,7 +16,6 @@ import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
 
-import qualified Pact.Interpreter as P
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
@@ -54,8 +53,8 @@ restore' lock height hash = do
             Just old -> do
               let dbstate = tostate old
               case _pdbsDbEnv dbstate of
-                Env' (P.PactDbEnv {..}) ->
-                  takeMVar pdPactDbVar >>= \case
+                EnvPersist' (PactDbEnvPersist {..}) ->
+                  case _pdepEnv of
                     P.DbEnv {..} -> openDb _db
               return dbstate
             -- This is just a placeholder for right now (the Nothing clause)
@@ -74,6 +73,6 @@ save' lock height hash cpdata@(PactDbState {..}) = do
 
      -- Closing database connection.
      case _pdbsDbEnv of
-       Env' (P.PactDbEnv {..}) ->
-         takeMVar pdPactDbVar >>= \case
+       EnvPersist' (PactDbEnvPersist {..}) ->
+         case _pdepEnv of
            P.DbEnv {..} -> closeDb _db
