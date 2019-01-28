@@ -126,6 +126,7 @@ library
             , Chainweb.Pact.Backend.SqliteDb
             , Chainweb.Pact.Backend.Types
             , Chainweb.Pact.PactService
+            , Chainweb.Pact.Service.PactApi
             , Chainweb.Pact.TransactionExec
             , Chainweb.Pact.Types
 
