@@ -449,7 +449,9 @@ benchmark chainweb-bench
         , base >= 4.11
         , criterion >= 1.1
         , deepseq
+        , streaming >= 0.2
         , text
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application

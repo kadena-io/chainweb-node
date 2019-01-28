@@ -146,7 +146,7 @@ import Chainweb.Utils.Paging (Limit(..), NextItem(..))
 --------
 
 newtype GitStoreBlockHeader = GitStoreBlockHeader BlockHeader
-    deriving (Eq, Ord, Show, Generic, Hashable)
+    deriving (Eq, Ord, Show, Generic, Hashable, NFData)
 
 instance TreeDbEntry GitStoreBlockHeader where
     type Key GitStoreBlockHeader = T2 BlockHeight BlockHash
