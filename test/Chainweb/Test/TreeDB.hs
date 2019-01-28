@@ -20,14 +20,17 @@ import Control.Lens (each, from, over, to, view, (^.), (^..))
 import Data.Bool (bool)
 import Data.Foldable (foldlM)
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashSet as HS
 import Data.List (sort, sortOn)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
 import Data.Tree (Tree(..))
 
 import Numeric.Natural (Natural)
 
-import Streaming (Of(..), Stream)
+import Prelude hiding (lookup)
+
+import Streaming (MonadIO, Of(..), Stream, liftIO)
 import qualified Streaming.Prelude as P
 
 import Test.Tasty
@@ -84,13 +87,14 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
                     , schedule rs "leafEntries" $ testProperty "leafKeys"
                           $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
                     , schedule rs "leafKeys" $ testProperty "branchKeys"
-                          $ streamCount_prop f (\db -> branchKeys db Nothing Nothing Nothing Nothing mempty mempty)
+                          $ streamCount_prop f (\db -> branches branchKeys db)
                     , schedule rs "branchKeys" $ testProperty "branchEntries"
-                          $ streamCount_prop f (\db -> branchEntries db Nothing Nothing Nothing Nothing mempty mempty)
+                          $ streamCount_prop f (\db -> branches branchEntries db)
                     ]
               , testGroup "Misc."
                     [ schedule rs "branchEntries" $
                           testProperty "All leaves are properly fetched" $ leafFetch_prop f
+                    , testProperty "Parent lookup of genesis fails" $ genParent_prop f
                     ]
               ]
         , testGroup "Behaviour"
@@ -250,5 +254,34 @@ entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     g acc h = let acc' = S.insert (_blockHash h) acc
               in bool Nothing (Just acc') $ S.member (_blockParent h) acc'
 
+    t :: Tree (DbEntry db)
+    t = fmap (^. from isoBH) t0
+
+branches
+    :: TreeDb t
+    => MonadIO m
+    => (t
+        -> Maybe a
+        -> Maybe a1
+        -> Maybe a2
+        -> Maybe a3
+        -> HS.HashSet (LowerBound (Key (DbEntry t)))
+        -> HS.HashSet (UpperBound (Key (DbEntry t)))
+        -> m b)
+    -> t
+    -> m b
+branches f db = do
+    geni <- liftIO $ root db
+    leaf <- liftIO $ maxHeader db
+    let lows = HS.singleton . LowerBound $ key geni
+        ups  = HS.singleton . UpperBound $ key leaf
+    f db Nothing Nothing Nothing Nothing lows ups
+
+genParent_prop
+    :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
+    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
+genParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db ->
+    isNothing . parent <$> root db
+  where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
