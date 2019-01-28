@@ -30,3 +30,4 @@ result-*
 .stylish-haskell.yaml
 public
 log
+report.html
