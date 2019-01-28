@@ -51,8 +51,8 @@ restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO PactDbState
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
       case HMS.lookup (height, hash) store of
-        Just old -> do
-          let dbstate = tostate old
+        Just cdata -> do
+          let dbstate = tostate cdata
           case _pdbsDbEnv dbstate of
             Env' (P.PactDbEnv {..}) ->
               takeMVar pdPactDbVar >>= \case
