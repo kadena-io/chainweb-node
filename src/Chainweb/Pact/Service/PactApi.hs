@@ -57,8 +57,9 @@ pactAPI = Proxy
 
 pactServiceApp :: Application
 pactServiceApp =
-    let q = newTQueue :: STM (TQueue a)
-        withAsync
+    requestQ <- newTQueue
+    responseQ <- newTQueue
+    withAsync
             action
             (\_ -> return ())
 

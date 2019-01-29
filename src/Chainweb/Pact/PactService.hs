@@ -24,6 +24,8 @@ module Chainweb.Pact.PactService
 
 import Control.Applicative
 import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
 import Control.Exception
 import Control.Lens
 import Control.Monad
@@ -52,11 +54,12 @@ import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.Backend.SqliteDb
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 
-initPactService :: IO ()
-initPactService = do
+initPactService :: TQueue RequestMsg -> TQueue ResponseMsg -> IO ()
+initPactService requestQ responseQ = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
@@ -78,30 +81,71 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    evalStateT (runReaderT serviceRequests checkpointEnv) theState
+    void $ evalStateT (runReaderT (serviceRequests requestQ responseQ) checkpointEnv) theState
 
 getGasEnv :: PactT P.GasEnv
 getGasEnv = view cpeGasEnv
 
-serviceRequests :: PactT ()
-serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
+serviceRequests :: TQueue RequestMsg -> TQueue ResponseMsg -> PactT ()
+serviceRequests requestQ responseQ = forever $ run
+  where
+    run :: PactT ()
+    run = do
+        reqMsg <- liftIO $ atomically $ readTQueue requestQ
+        let msgHeader = _reqBlockHeader reqMsg
+        let msgHeight = _blockHeight msgHeader
+        respMsg <- case _reqRequestType reqMsg of
+            NewBlock -> do
+                h <- newBlock (_reqBlockHeader reqMsg)
+                return $ ResponseMsg
+                    { _respRequestType = NewBlock
+                    , _respBlockHeader = h }
+            ValidateBlock -> do
+                h <- validateBlock (_reqBlockHeader reqMsg)
+                return $ ResponseMsg
+                    { _respRequestType = ValidateBlock
+                    , _respBlockHeader = h }
+        _ <- liftIO $ atomically $ writeTQueue responseQ respMsg
+        return ()
 
-newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
-newTransactionBlock parentHeader bHeight = do
+-- | BlockHeader here is the header of the parent of the new block
+newBlock :: BlockHeader -> PactT BlockHeader
+newBlock parentHeader = do
+    let parentHeight = _blockHeight parentHeader
     let parentPayloadHash = _blockPayloadHash parentHeader
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock bHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
+    unless (isFirstBlock parentHeight) $ do
+      cpdata <- liftIO $ restore _cpeCheckpointer parentHeight parentPayloadHash
       updateState cpdata
     results <- execTransactions newTrans
-    return
-      Block
-        { _bHash = Nothing -- not yet computed
-        , _bParentHeader = parentHeader
-        , _bBlockHeight = succ bHeight
-        , _bTransactions = zip newTrans results
-        }
+    return $ mkResponseBlockHeader parentHeader (succ parentHeight) results
+
+-- | BlockHeader here is the header of the block being validated
+validateBlock :: BlockHeader -> PactT BlockHeader
+validateBlock currHeader@BlockHeader {..} = do
+    let parentPayloadHash = _blockPayloadHash _bParentHeader
+    CheckpointEnv {..} <- ask
+    unless (isFirstBlock _bBlockHeight) $ do
+      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
+      updateState cpdata
+    _results <- execTransactions (fmap fst _bTransactions)
+    currentState <- get
+    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
+                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
+             -- TODO: TBD what do we need to do for validation and what is the return type?
+
+    let newParentHader = _whereIsTheParentHeaderField currentHeader
+    return $ mkResponseBlockHeader newParentHeader msgHeight results
+
+mkResponseBlockHeader :: BlockHeader -> BlockHeight -> [TransactionOutput] -> BlockHeader
+mkResponseBlockHeader orig newParent newHeight newHash txOuts =
+     let newHash = blockPayloadHash orig -- TODO: recalculate new hash
+     in orig
+            & blockParent newParent
+            & blockPayloadHash TBD
+            & blockHeight newHeight
+            & blockHash newHash
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -126,21 +170,9 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
+-- TODO: Fix this wrt parent blocks, parent height etc
 isFirstBlock :: BlockHeight -> Bool
 isFirstBlock height = height == 0
-
-validateBlock :: Block -> PactT ()
-validateBlock Block {..} = do
-    let parentPayloadHash = _blockPayloadHash _bParentHeader
-    CheckpointEnv {..} <- ask
-    unless (isFirstBlock _bBlockHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      updateState cpdata
-    _results <- execTransactions (fmap fst _bTransactions)
-    currentState <- get
-    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
-             -- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool
 requestTransactions :: TransactionCriteria -> PactT [Transaction]

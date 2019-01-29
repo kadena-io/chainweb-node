@@ -14,18 +14,23 @@ module Chainweb.Pact.Service.PactQueue
     , addResponse
     , getNextRequest
     , getNextResponse
+    , RequestMsg(..)
+    , RequestType(..)
+    , ResponseMsg(..)
     ) where
+
+import Chainweb.BlockHeader
 
 data RequestType = ValidateBlock | NewBlock
 
 data RequestMsg = RequestMsg
-    { requestType :: RequestType
-    , blockHeader :: BlockHeader
+    { _reqRequestType :: RequestType
+    , _reqBlockHeader :: BlockHeader
     }
 
 data ResponseMsg = ResponseMsg
-    { requestType :: RequestType
-    , blockHeader :: BlockHeader
+    { _respRequestType :: RequestType
+    , _respBlockHeader :: BlockHeader
     }
 
 addRequest :: RequestMsg -> IO ()
