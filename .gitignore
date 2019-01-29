@@ -31,3 +31,4 @@ result-*
 public
 log
 report.html
+.hlint.yaml

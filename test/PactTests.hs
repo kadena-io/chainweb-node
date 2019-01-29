@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -28,4 +27,3 @@ suite :: TestTree
 suite = testGroup "Chainweb-Pact Unit Tests"
     [ Chainweb.Test.Pact.tests
     ]
-
