@@ -13,18 +13,7 @@
 --
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
-    ( PactDbConfig(..)
-    , pdbcGasLimit
-    , pdbcGasRate
-    , pdbcLogDir
-    , pdbcPersistDir
-    , pdbcPragmas
-    , PactDbState(..)
-    , pdbsCommandConfig
-    , pdbsDbEnv
-    , pdbsState
-    , usage
-    , CheckpointEnv(..)
+    ( CheckpointEnv(..)
     , cpeCommandConfig
     , cpeCheckpointer
     , cpeLogger
@@ -34,7 +23,21 @@ module Chainweb.Pact.Backend.Types
     , cpCommandState
     , Checkpointer(..)
     , Env'(..)
+    , EnvPersist'(..)
     , PactDbBackend
+    , PactDbConfig(..)
+    , pdbcGasLimit
+    , pdbcGasRate
+    , pdbcLogDir
+    , pdbcPersistDir
+    , pdbcPragmas
+    , PactDbEnvPersist(..)
+    , pdepEnv
+    , pdepPactDb
+    , PactDbState(..)
+    , pdbsDbEnv
+    , pdbsState
+    , usage
     ) where
 
 import Control.Lens
@@ -64,9 +67,16 @@ data Env' =
     forall a. PactDbBackend a =>
               Env' (P.PactDbEnv (P.DbEnv a))
 
+data PactDbEnvPersist p = PactDbEnvPersist
+    { _pdepPactDb :: P.PactDb (P.DbEnv p)
+    , _pdepEnv     :: P.DbEnv p
+    }
+makeLenses ''PactDbEnvPersist
+
+data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
+
 data PactDbState = PactDbState
-    { _pdbsCommandConfig :: P.CommandConfig
-    , _pdbsDbEnv :: Env'
+    { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
     }
 
@@ -95,7 +105,7 @@ usage =
   \\n"
 
 data CheckpointData = CheckpointData
-    { _cpPactDbEnv :: Env'
+    { _cpPactDbEnv :: EnvPersist'
     , _cpCommandState :: P.CommandState
     }
 

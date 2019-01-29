@@ -17,14 +17,15 @@ import Pact.Types.Server
 
 -- internal modules
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils
 
 mkSQLiteState :: PactDbEnv (DbEnv P.SQLite) -> CommandConfig -> IO PactDbState
-mkSQLiteState env cmdCfg = do
+mkSQLiteState env _cmdCfg = do
     initSchema env
+    envPersist' <- toEnvPersist' (Env' env)
     let theState =
             PactDbState
-                { _pdbsCommandConfig = cmdCfg
-                , _pdbsDbEnv = Env' env
+                { _pdbsDbEnv = envPersist'
                 , _pdbsState = CommandState initRefStore M.empty
                 }
     return theState
