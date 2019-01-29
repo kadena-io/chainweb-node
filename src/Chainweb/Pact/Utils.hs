@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -28,7 +30,7 @@ toEnv' (EnvPersist' ep') = do
 toEnvPersist' :: Env' -> IO EnvPersist'
 toEnvPersist' (Env' pactDbEnv) = do
     let mVar = pdPactDbVar $! pactDbEnv -- :: MVar (P.DbEnv a)
-    dbEnv <- readMVar $! mVar           -- :: P.DbEnv a
+    !dbEnv <- readMVar $! mVar           -- :: P.DbEnv a
     let pDbEnvPersist = PactDbEnvPersist
           { _pdepPactDb = pdPactDb pactDbEnv -- :: P.PactDb (P.DbEnv a)
           , _pdepEnv = dbEnv
