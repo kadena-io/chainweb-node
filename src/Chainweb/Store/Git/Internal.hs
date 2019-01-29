@@ -579,6 +579,36 @@ walk' gsd !height !hash f g =
                     prnt <- unsafeReadTree 1 gt
                     walk' gsd (_te_blockHeight prnt) (_te_blockHash prnt) f g
 
+-- | Given some `TreeEntry` and some (hopefully) lower `BlockHeight`, perform
+-- spectra lookups to quickly seek down to the `TreeEntry` of that height.
+--
+seek :: GitStoreData -> BlockHeight -> TreeEntry -> IO (Maybe TreeEntry)
+seek gsd bh te = case compare (_te_blockHeight te) bh of
+    LT -> pure Nothing
+    EQ -> pure $ Just te
+    _ -> readLeafTree gsd (_te_gitHash te) >>= seek gsd bh . nearest . _ltd_spectrum
+  where
+    -- TODO `Map.lookupGT`, etc, are great for this kind of lookup. That said,
+    -- spectra should never be long enough to make naive `O(n)` lookups
+    -- prohibitive. Even an entry at height 1-billion has a spectrum of only
+    -- length 51. Binary search on the Vector would also be good for this,
+    -- although `vector-algorithms` didn't quite have the right incantation to
+    -- be immediately useable.
+    -- | The spectrum entry nearest in height to the target `BlockHeight`. Given:
+    --
+    -- @
+    -- >>> getSpectrum 150
+    -- [BlockHeight 32,BlockHeight 64,BlockHeight 128,BlockHeight 146,BlockHeight 147,BlockHeight 148]
+    -- @
+    --
+    -- @nearest 100@ should yield the `TreeEntry` at height 128, and @nearest 5@
+    -- should yield that at height 32.
+    --
+    nearest :: Vector TreeEntry -> TreeEntry
+    nearest v = case V.findIndex (\i -> _te_blockHeight i < bh) v of
+        Nothing -> V.unsafeHead v
+        Just ix -> V.unsafeIndex v (ix + 1)
+
 ------------
 -- INSERTION
 ------------
