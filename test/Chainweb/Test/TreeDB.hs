@@ -12,7 +12,7 @@
 --
 -- Test the invariants of the `TreeDb` typeclass.
 --
-module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
+module Chainweb.Test.TreeDB ( withTreeDb, treeDbInvariants, RunStyle(..) ) where
 
 import Control.Exception (SomeException(..), try)
 import Control.Lens (each, from, over, to, view, (^.), (^..))
@@ -95,6 +95,8 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
                     [ schedule rs "branchEntries" $
                           testProperty "All leaves are properly fetched" $ leafFetch_prop f
                     , testProperty "Parent lookup of genesis fails" $ genParent_prop f
+                    , schedule rs "Parent lookup of genesis fails" $
+                          testProperty "All entries are properly fetched" $ entriesFetch_prop f
                     ]
               ]
         , testGroup "Behaviour"
@@ -199,7 +201,7 @@ streamCount_prop
     -> Property
 streamCount_prop f g (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     (ls :> (n, _)) <- P.toList $ g db
-    pure $ len ls == n
+    pure $ len ls == n -- && n > 0
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
@@ -212,6 +214,16 @@ leafFetch_prop
 leafFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     ls <- P.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
     pure $ sort ls == sort (treeLeaves t)
+  where
+    t :: Tree (DbEntry db)
+    t = fmap (^. from isoBH) t0
+
+entriesFetch_prop
+    :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
+    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
+entriesFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    l <- P.length_ $ entries db Nothing Nothing Nothing Nothing
+    pure $ l == length t
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0

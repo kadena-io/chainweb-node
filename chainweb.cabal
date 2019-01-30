@@ -197,7 +197,6 @@ library
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
         , strict-tuple >= 0.1
-        , string-conv
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2

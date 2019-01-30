@@ -25,8 +25,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Graph (ChainGraph, toChainGraph)
 import Chainweb.Store.Git
-import Chainweb.Store.Git.Internal
-    (getBlockHashBytes, leaves', lockGitStore, walk')
+import Chainweb.Store.Git.Internal (leaves', lockGitStore)
 import Chainweb.TreeDB
 import Chainweb.Utils (int, withTempDir)
 import Chainweb.Version (ChainwebVersion(..))
@@ -56,7 +55,7 @@ populate gs = do
     ------------------------------------
     -- fake (but legal) chain generation
     ------------------------------------
-    let !chainSize = 102
+    let !chainSize = 1024
         !nexts = take chainSize $ testBlockHeaders genesis
         !middle = nexts !! (chainSize `div` 2)
     ------------------
@@ -79,9 +78,9 @@ populate gs = do
 gitSuite :: GitStore -> Env -> Benchmark
 gitSuite gs ~(frt, mid, lst) =
     bgroup "Git Store"
-    [ bench "walk' (just TreeEntry)" $ nfIO (walkB' gs lst)
-    , bench "walk (decoded BlockHeaders)" $ nfIO (walkB gs lst)
-    , bench "stream (decoded BlockHeaders)" $ nfIO (stream gs)
+    [ -- bench "walk' (just TreeEntry)" $ nfIO (walkB' gs lst)
+      bench "walk (decoded BlockHeaders)" $ nfIO (walkB gs lst)
+    , bench "entries (decoded BlockHeaders)" $ nfIO (stream gs)
     , bench "branchEntries" $ nfIO (branches gs lst)
     , bench "leaves'" $ nfIO (lockGitStore gs leaves')
     , bench "leaves" $ nfIO (leaves gs)
@@ -96,15 +95,16 @@ gitSuite gs ~(frt, mid, lst) =
 walkB :: GitStore -> BlockHeader -> IO ()
 walkB gs leaf = walk gs (_blockHeight leaf) (_blockHash leaf) (const $ pure ())
 
-walkB' :: GitStore -> BlockHeader -> IO ()
-walkB' gs leaf = lockGitStore gs $ \gsd -> do
-    walk' gsd (_blockHeight leaf)
-              (getBlockHashBytes $ _blockHash leaf)
-              (const $ pure ())
-              (const $ pure ())
+-- walkB' :: GitStore -> BlockHeader -> IO ()
+-- walkB' gs leaf = lockGitStore gs $ \gsd -> do
+--     walk' gsd (_blockHeight leaf)
+--               (getBlockHashBytes $ _blockHash leaf)
+--               0
+--               (const $ pure ())
+--               (const $ pure ())
 
 stream :: GitStore -> IO ()
-stream gs = void . P.effects $ entries gs Nothing Nothing Nothing Nothing
+stream gs = void . P.length_ $ entries gs Nothing Nothing Nothing Nothing
 
 leavesS :: GitStore -> IO ()
 leavesS gs = void . P.effects $ leafEntries gs Nothing Nothing Nothing Nothing

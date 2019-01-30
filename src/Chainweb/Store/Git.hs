@@ -36,7 +36,7 @@ module Chainweb.Store.Git
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar
-import Control.Monad (void, (>=>))
+import Control.Monad (void)
 
 import Data.Bits ((.|.))
 import Data.Bool (bool)
@@ -59,7 +59,6 @@ import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
 -- internal modules
 
-import Chainweb.BlockHash (BlockHash(..))
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.Store.Git.Internal
 
@@ -152,6 +151,8 @@ withGitStore gsc@(GitStoreConfig root0 g) f = withLibGit $ bracket open close f
 
 
 ------------------------------------------------------------------------------
+-- TODO Manually delete tags in @leaf/@ that this process clears of the header
+-- entries of!
 -- | Runs the following across a given Git Store:
 --
 -- @
@@ -180,7 +181,7 @@ _isSorted [_] = True
 _isSorted (x:z@(y:_)) = x < y && _isSorted z
 
 _prop_spectra_sorted :: Bool
-_prop_spectra_sorted = all _isSorted $ map getSpectrum [1,10000000 :: BlockHeight]
+_prop_spectra_sorted = all (_isSorted . _spectrum) $ map getSpectrum [1,10000000 :: BlockHeight]
 
 
 ------------------------------------------------------------------------------
@@ -199,15 +200,3 @@ insertGenesisBlock g store@(GitStoreData repo _ _) = withTreeBuilder $ \treeB ->
     createBlockHeaderTag store g treeHash
     -- Mark this entry (it's the only entry!) as a "leaf" in @.git/refs/tags/leaf/@.
     tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
-
-------------------------------------------------------------------------------
-
--- | Starting from a node indicated by a given `BlockHeight` and `BlockHash`,
--- traverse the tree from the node to the root, applying some function to each
--- associated `BlockHeader` along the way.
---
-walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
-walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
-    let f' :: BlobEntry -> IO ()
-        f' = readHeader' gsd >=> f
-    walk' gsd height bhb (const $ pure ()) f'

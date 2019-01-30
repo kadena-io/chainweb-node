@@ -38,13 +38,16 @@ module Chainweb.Store.Git.Internal
   , readHeader'
   , leaves
   , leaves'
+  , highestLeaf
   , allFromHeight
   , lookupByBlockHash
   , lookupTreeEntryByHash
   , readParent
 
     -- * Traversal
+  , walk
   , walk'
+  , seekHighest
 
     -- * Insertion
   , InsertResult(..)
@@ -68,6 +71,7 @@ module Chainweb.Store.Git.Internal
   , maybeTGitError
 
     -- * Utils
+  , Spectrum(..)
   , getSpectrum
   , parseLeafTreeFileName
   , oidToByteString
@@ -82,7 +86,7 @@ import Control.Concurrent.MVar (MVar, withMVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistMaybe, hush, nothing)
 import Control.Lens.Iso (iso)
-import Control.Monad (unless, void, when)
+import Control.Monad (foldM, unless, void, when, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
@@ -96,9 +100,11 @@ import qualified Data.ByteString.FastBuilder as FB
 import qualified Data.ByteString.Unsafe as B
 import Data.Char (digitToInt)
 import Data.Coerce (coerce)
-import Data.Foldable (traverse_)
+import Data.Foldable (maximumBy, traverse_)
+import Data.Function (on)
 import Data.Functor (($>))
 import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
@@ -122,9 +128,10 @@ import Foreign.Storable (peek)
 import GHC.Generics (Generic)
 
 import Streaming (Of, Stream)
-import qualified Streaming.Prelude as S
+import qualified Streaming.Prelude as P
 
 import System.Path (Absolute, Path)
+
 
 import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
@@ -132,10 +139,7 @@ import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), IsBlockHeader(..), decodeBlockHeader,
-    encodeBlockHeader)
 import Chainweb.TreeDB
-    (DbKey, Eos(..), MaxRank(..), MinRank(..), TreeDb(..), TreeDbEntry(..))
 import Chainweb.Utils (int)
 import Chainweb.Utils.Paging (Limit(..), NextItem(..))
 
@@ -175,11 +179,19 @@ instance TreeDb GitStore where
     lookup gs (T2 hgt hsh) = fmap GitStoreBlockHeader <$> lookupByBlockHash gs hgt hsh
 
     entries gs next limit minr0 maxr = do
+        ls <- liftIO $ lockGitStore gs leaves'
+        let !highest = _te_blockHeight $ maximumBy (compare `on` _te_blockHeight) ls
         counter <- liftIO $ newIORef 0
-        countItems counter . postprocess $ f minr
+        countItems counter . postprocess $ work ls highest minr (min (minr + range) highest)
         total <- liftIO $ readIORef counter
         pure (int total, Eos True)
       where
+        pageSize :: BlockHeight
+        pageSize = 256  -- TODO What's an optimal value for this?
+
+        range :: BlockHeight
+        range = pageSize - 1
+
         minr :: BlockHeight
         minr = max (maybe 0 y minr0) (maybe 0 z next)
           where
@@ -196,18 +208,39 @@ instance TreeDb GitStore where
             . maybe id seekToNext next
             . maybe id maxItems maxr
 
-        f :: BlockHeight -> Stream (Of GitStoreBlockHeader) IO ()
-        f !bh = do
-            bs <- liftIO $ allFromHeight gs bh
-            let !len = length bs
-            unless (len == 0) $ do
-                S.map GitStoreBlockHeader $ S.each bs
-                f (bh + 1)
+        -- TODO Cache various results of `seekHighest`, so as to speed up subsequent lookups?
+        -- | Given a range of `BlockHeight`s, stream all associated
+        -- `BlockHeader`s in /ascending/ order.
+        --
+        work
+            :: [TreeEntry]
+            -> BlockHeight  -- ^ The height of the heighest leaf in the entire store
+            -> BlockHeight  -- ^ Height of the lowest `BlockHeader` to be streamed
+            -> BlockHeight  -- ^ Height of the highest `BlockHeader` to be streamed
+            -> Stream (Of (DbEntry GitStore)) IO ()
+        work ls highest lower upper = do
+            let !cache = HM.empty
+            ls' <- liftIO $ wither (seekHighest gs (lower, upper)) ls
+            m <- liftIO $ foldM f cache ls'
+            P.mapM g . P.each . sortOn fst $ HM.toList m
+            unless (upper >= highest) $
+                work ls highest (succ upper) (min (upper + pageSize) highest)
+          where
+            f :: HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry)
+              -> TreeEntry
+              -> IO (HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry))
+            f cache nxt = lockGitStore gs $ \gsd -> do
+                let !start = T2 (_te_blockHeight nxt) (_te_blockHash nxt)
+                cachedWalk gsd start lower cache
+
+            g :: (T2 BlockHeight BlockHashBytes, T2 TreeEntry BlobEntry) -> IO GitStoreBlockHeader
+            g (_, T2 _ blob) =
+                GitStoreBlockHeader <$> lockGitStore gs (\gsd -> readHeader' gsd blob)
 
     leafEntries gs next limit minr maxr = do
         ls <- fmap (sortOn _blockHeight) . liftIO $ leaves gs
         counter <- liftIO $ newIORef 0
-        countItems counter . postprocess . S.map GitStoreBlockHeader $ S.each ls
+        countItems counter . postprocess . P.map GitStoreBlockHeader $ P.each ls
         total <- liftIO $ readIORef counter
         pure (int total, Eos True)
       where
@@ -220,28 +253,28 @@ instance TreeDb GitStore where
 
         minItems :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
         minItems (MinRank (Min n)) =
-            S.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
+            P.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
 
     insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
 
 filterItems :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-filterItems = S.take . int . _getLimit
+filterItems = P.take . int . _getLimit
 
 maxItems :: MaxRank -> Stream (Of (DbEntry GitStore)) IO r -> Stream (Of (DbEntry GitStore)) IO ()
 maxItems (MaxRank (Max n)) =
-    S.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
+    P.takeWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) <= n)
 
 seekToNext
     :: NextItem (DbKey GitStore)
     -> Stream (Of (DbEntry GitStore)) IO ()
     -> Stream (Of (DbEntry GitStore)) IO ()
 seekToNext (Inclusive (T2 _ hash)) =
-    S.dropWhile (\(GitStoreBlockHeader bh) -> _blockHash bh /= hash)
+    P.dropWhile (\(GitStoreBlockHeader bh) -> _blockHash bh /= hash)
 seekToNext (Exclusive n) =
-    S.drop 1 . seekToNext (Inclusive n)
+    P.drop 1 . seekToNext (Inclusive n)
 
 countItems :: IORef Int -> Stream (Of b) IO r -> Stream (Of b) IO r
-countItems counter = S.mapM j
+countItems counter = P.mapM j
   where
     j i = i <$ atomicModifyIORef' counter (\n -> (n+1, ()))
 
@@ -284,7 +317,7 @@ data LeafTreeData = LeafTreeData {
     _ltd_blobEntry :: !BlobEntry
     -- ^ Pointer to the blob data associated with this `TreeEntry`. A
     -- `BlockHeader`.
-  , _ltd_spectrum :: Vector TreeEntry
+  , _ltd_spectrum :: !(Vector TreeEntry)
 } deriving (Show)
 
 newtype BlobEntry = BlobEntry { _blobEntry :: TreeEntry } deriving (Show)
@@ -408,6 +441,9 @@ leaves gs = lockGitStore gs $ \gsd -> leaves' gsd >>= traverse (readHeader gsd)
 --
 leaves' :: GitStoreData -> IO [TreeEntry]
 leaves' gsd = matchTags gsd (NullTerminated [ "leaf/*\0" ]) 5
+
+highestLeaf :: GitStoreData -> IO TreeEntry
+highestLeaf gsd = maximumBy (compare `on` _te_blockHeight) <$> leaves' gsd
 
 matchTags :: GitStoreData -> NullTerminated -> Int -> IO [TreeEntry]
 matchTags (GitStoreData repo _ _) nt chop =
@@ -553,21 +589,31 @@ unsafeReadTree offset pTree = do
 -- TRAVERSAL
 ------------
 
--- | Traverse the tree, as in `Chainweb.Store.Git.walk`. This version is faster, as it does not
--- spend time decoding each `TreeEntry` into a `BlockHeader` (unless you tell it
--- to, of course, say via `readHeader'`).
+-- | Starting from a node indicated by a given `BlockHeight` and `BlockHash`,
+-- traverse the tree from the node to the root, applying some function to each
+-- associated `BlockHeader` along the way.
+--
+walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
+walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
+    let f' :: BlobEntry -> IO ()
+        f' = readHeader' gsd >=> f
+    walk' gsd (T2 height bhb) 0 (const $ pure ()) f'
+
+-- | Traverse the tree, as in `Chainweb.Store.Git.walk`. This version is faster,
+-- as it does not spend time decoding each `TreeEntry` into a `BlockHeader`
+-- (unless you tell it to, of course, say via `readHeader'`).
 --
 -- Internal usage only (since neither `TreeEntry` nor `LeafTreeData` are
 -- exposed).
 --
 walk'
     :: GitStoreData
+    -> T2 BlockHeight BlockHashBytes
     -> BlockHeight
-    -> BlockHashBytes
     -> (TreeEntry -> IO ())
     -> (BlobEntry -> IO ())
     -> IO ()
-walk' gsd !height !hash f g =
+walk' gsd (T2 height hash) target f g =
     lookupTreeEntryByHash gsd hash height >>= \case
         Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> bhText height
         Just te -> do
@@ -575,18 +621,47 @@ walk' gsd !height !hash f g =
             withTreeObject gsd (_te_gitHash te) $ \gt -> do
                 blob <- BlobEntry <$> unsafeReadTree 0 gt
                 g blob
-                unless (height == 0) $ do
+                unless (height == target) $ do
                     prnt <- unsafeReadTree 1 gt
-                    walk' gsd (_te_blockHeight prnt) (_te_blockHash prnt) f g
+                    walk' gsd (T2 (_te_blockHeight prnt) (_te_blockHash prnt)) target f g
 
--- | Given some `TreeEntry` and some (hopefully) lower `BlockHeight`, perform
--- spectra lookups to quickly seek down to the `TreeEntry` of that height.
+-- | Walk some length of a git store, accumulating its elements. Stops either
+-- when the target height has been reached, or we encounter a node that has
+-- already been visited. The second condition should only occur when a
+-- prepopulated cache is passed into this function initially, say after walking
+-- some other branch first.
 --
-seek :: GitStoreData -> BlockHeight -> TreeEntry -> IO (Maybe TreeEntry)
-seek gsd bh te = case compare (_te_blockHeight te) bh of
-    LT -> pure Nothing
-    EQ -> pure $ Just te
-    _ -> readLeafTree gsd (_te_gitHash te) >>= seek gsd bh . nearest . _ltd_spectrum
+-- Note: Be careful not to walk too far with this, as it brings all the nodes it
+-- visits into memory.
+--
+cachedWalk
+    :: GitStoreData
+    -> T2 BlockHeight BlockHashBytes
+    -> BlockHeight
+    -> HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry)
+    -> IO (HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry))
+cachedWalk gsd k@(T2 height hash) target cache
+    | HM.member k cache = pure cache
+    | otherwise = lookupTreeEntryByHash gsd hash height >>= \case
+        Nothing -> throwGitStoreFailure $ "Lookup failure for block at given height " <> bhText height
+        Just te -> withTreeObject gsd (_te_gitHash te) $ \gt -> do
+            blob <- BlobEntry <$> unsafeReadTree 0 gt
+            let !cache' = HM.insert k (T2 te blob) cache
+            if | height == target -> pure cache'
+               | otherwise -> do
+                   prnt <- unsafeReadTree 1 gt  -- Fails for the genesis block, hence the `if`.
+                   cachedWalk gsd (T2 (_te_blockHeight prnt) (_te_blockHash prnt)) target cache'
+
+-- | Given a range of heights and a `TreeEntry` to start from, seek down its
+-- branch to find the highest node which appears in the range.
+--
+seekHighest :: GitStore -> (BlockHeight, BlockHeight) -> TreeEntry -> IO (Maybe TreeEntry)
+seekHighest gs r@(low, high) te
+    | _te_blockHeight te < low = pure Nothing
+    | _te_blockHeight te <= high = pure $ Just te
+    | otherwise = do
+        ltd <- lockGitStore gs (\gsd -> readLeafTree gsd (_te_gitHash te))
+        seekHighest gs r . nearest $ _ltd_spectrum ltd
   where
     -- TODO `Map.lookupGT`, etc, are great for this kind of lookup. That said,
     -- spectra should never be long enough to make naive `O(n)` lookups
@@ -605,9 +680,9 @@ seek gsd bh te = case compare (_te_blockHeight te) bh of
     -- should yield that at height 32.
     --
     nearest :: Vector TreeEntry -> TreeEntry
-    nearest v = case V.findIndex (\i -> _te_blockHeight i < bh) v of
-        Nothing -> V.unsafeHead v
-        Just ix -> V.unsafeIndex v (ix + 1)
+    nearest v = case V.findIndex (\i -> _te_blockHeight i >= high) v of
+        Nothing -> error "Impossible case"
+        Just ix -> V.unsafeIndex v ix
 
 ------------
 -- INSERTION
@@ -637,7 +712,7 @@ createLeafTree store@(GitStoreData repo _ _) bh = withTreeBuilder $ \treeB -> do
     let parentTreeGitHash = _te_gitHash parentTreeEntry
     parentTreeData <- readLeafTree store parentTreeGitHash
     treeEntries <- traverse (\h -> lookupTreeEntryByHeight' store parentTreeGitHash h parentTreeData)
-                        spectrum
+                        $ _spectrum spectrum
     newHeaderGitHash <- insertBlockHeaderIntoOdb store bh
     traverse_ (addTreeEntry treeB) treeEntries
     addTreeEntry treeB parentTreeEntry
@@ -665,7 +740,7 @@ createLeafTree store@(GitStoreData repo _ _) bh = withTreeBuilder $ \treeB -> do
     parentHash :: BlockHashBytes
     parentHash = getBlockHashBytes $ _blockParent bh
 
-    spectrum :: [BlockHeight]
+    spectrum :: Spectrum
     spectrum = getSpectrum height
 
     addTreeEntry :: Ptr G.C'git_treebuilder -> TreeEntry -> IO ()
@@ -699,10 +774,10 @@ insertBlockHeaderIntoOdb (GitStoreData _ odb _) bh =
     !serializedBlockHeader = runPutS $! encodeBlockHeader bh
 
     write :: (Ptr a, Int) -> IO GitHash
-    write (cs, len) = alloca $ \oidPtr -> do
+    write (cs, ln) = alloca $ \oidPtr -> do
        throwOnGitError "insertBlockHeaderIntoOdb" "git_odb_write" $
            G.c'git_odb_write oidPtr odb (castPtr cs)
-                                        (fromIntegral len)
+                                        (fromIntegral ln)
                                         G.c'GIT_OBJ_BLOB
        GitHash <$> oidToByteString oidPtr
 
@@ -834,9 +909,12 @@ throwGitStoreFailure = throwIO . GitStoreFailure
 -- UTILS
 --------
 
-getSpectrum :: BlockHeight -> [BlockHeight]
-getSpectrum (BlockHeight 0) = []
-getSpectrum (BlockHeight d0) = map (BlockHeight . fromIntegral) . dedup $ startSpec ++ rlgs ++ recents
+newtype Spectrum = Spectrum { _spectrum :: [BlockHeight] } deriving (Eq, Show)
+
+getSpectrum :: BlockHeight -> Spectrum
+getSpectrum (BlockHeight 0) = Spectrum []
+getSpectrum (BlockHeight d0) =
+    Spectrum . map (BlockHeight . fromIntegral) . dedup $ startSpec ++ rlgs ++ recents
   where
     d0' :: Int64
     d0' = fromIntegral d0

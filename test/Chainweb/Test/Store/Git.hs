@@ -16,7 +16,7 @@ import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.ChainId
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal
-import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
+import Chainweb.Test.TreeDB
 import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Utils (int, withTempDir)
 
@@ -42,6 +42,7 @@ tests = testGroup "Git Store"
           ]
     , testGroup "Traversal"
           [ testCase "Leaf-to-Genesis" $ withNewRepo basicTrav
+          , testCase "seek" $ withNewRepo seeking
           ]
     , testGroup "Invariants"
           [ testCase "Final entry of spectrum is parent" $ withNewRepo parentIsLastInSpectrum
@@ -49,10 +50,11 @@ tests = testGroup "Git Store"
           , testCase "Genesis has an empty spectrum Vector" $ withNewRepo genesisEmptySpectrum
           ]
     , testGroup "Utilities"
-          [ testCase "getSpectrum" $ getSpectrum 123 @?= [32, 64, 119, 120, 121]
-          , testCase "getSpectrum" $ getSpectrum 1 @?= [0]
-          , testCase "getSpectrum" $ getSpectrum 0 @?= []
+          [ testCase "getSpectrum" $ getSpectrum 123 @?= Spectrum [32, 64, 119, 120, 121]
+          , testCase "getSpectrum" $ getSpectrum 1 @?= Spectrum [0]
+          , testCase "getSpectrum" $ getSpectrum 0 @?= Spectrum []
           -- , testCase "parseLeafTreeFileName" leafTreeParsing
+          -- , testCase "letsSee" letsSee
           ]
     , treeDbInvariants withNewRepo' Parallel
     ]
@@ -164,3 +166,20 @@ fetchingAtHeight gs = do
     traverse_ (insertBlock gs) nexts
     allFromHeight gs 0 >>= (\bs -> length bs @?= 1)
     allFromHeight gs (int chainLen) >>= (\bs -> length bs @?= 1)
+
+seeking :: GitStore -> Assertion
+seeking gs = do
+    let nexts = take 300 $ testBlockHeaders genesis
+    traverse_ (insertBlock gs) nexts
+    te <- lockGitStore gs highestLeaf >>= seekHighest gs (0, 256)
+    fmap _te_blockHeight te @?= Just 256
+
+-- letsSee :: Assertion
+-- letsSee = do
+--     t <- generate . tree $ AtMost 550
+--     withTreeDb withNewRepo' (GitStoreBlockHeader <$> t) $ \db -> do
+--         putStrLn "PRETTY TREE!"
+--         -- putStrLn $ prettyTree t
+--         void . P.mapM_ f $ entries db Nothing Nothing Nothing Nothing
+--   where
+--     f (GitStoreBlockHeader bh) = printf "%s %s\n" (show $ _blockHeight bh) (show $ _blockHash bh)
