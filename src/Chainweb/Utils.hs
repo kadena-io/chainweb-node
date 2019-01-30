@@ -100,16 +100,16 @@ module Chainweb.Utils
 , parseJsonFromText
 
 -- * Error Handling
-, Actual(..)
 , Expected(..)
-, InternalInvariantViolation(..)
-, (==?)
-, (???)
-, check
-, eatIOExceptions
-, fromEitherM
-, fromMaybeM
+, Actual(..)
 , unexpectedMsg
+, (==?)
+, check
+, fromMaybeM
+, (???)
+, fromEitherM
+, InternalInvariantViolation(..)
+, eatIOExceptions
 
 -- * Command Line Options
 , OptionParser
