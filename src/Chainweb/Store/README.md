@@ -9,7 +9,7 @@ we can look up a block header based on its content-addressed block-hash.
 
 ### Leaf representation
 
-Each block will be represented by a "leaf tree" that contains a "sketch" of the
+Each block is represented by a "leaf tree" that contains a "sketch" of the
 block's ancestors, indexed by block height + block-hash:
 
 ```
@@ -25,47 +25,22 @@ block's ancestors, indexed by block height + block-hash:
 040000 blob 391fe0b23fa795caf352d2aa71b5c95f726b7c18  header
 ```
 
-Here each of the linked `tree` objects points to a block leaf tree. These trees
-will be delta-compressed by `git pack` -- at each commit we will be adding or
-removing a small number of entries to the sketch table. Ancestor search should
-be `O(log(n))` if we keep K recent blocks plus this spectrum. (FIXME: PROOF)
-
-### Commit objects
-
-A commit object moves parent commit X to new ancestor leaf tree Y
-
-```
-tree d8329fc1cc938780ffdd9f94e0d364e0ea74f579
-parent dd4b60bc676dd1b846fa4fe0c406134059d57b4a
-author chainweb 0 -0700
-committer chainweb 0 -0700
-```
-
-We need commit objects so that we can old "refs" to trees.
+Here each of the linked `tree` objects points to another block's leaf tree.
+These trees will be delta-compressed by `git pack` -- at each addition of a
+block header, we will only be adding or removing a small number of entries to
+the sketch table. Ancestor search should be `O(log(n))` if we keep K recent
+blocks plus this spectrum. (FIXME: PROOF)
 
 ### Refs
 
-Refs identify leaf tree commits. The current longest will be in
-`refs/heads/{chain_id}/longest` and other leaves will live at
-`refs/heads/{chain_id}/{blockhash}`.
+Refs (tags) identify leaf tree objects.
 
+| Tag Type     | Locations         |
+|--------------|-------------------|
+| Leaf         | `refs/tags/leaf/` |
+| Block Header | `refs/tags/bh/`   |
 
 ### Garbage collection
 
 Periodically the refs must be walked to remove leaf links that are not going to
 make it onto the longest chain.
-
-
-## Operations
-
-### Find a block by (BlockHash, Height)
-
-  - TODO
-
-### Find common ancestor of h1, h2 :: (BlockHash, Height)
-
-  - TODO
-
-### Traverse history of (BlockHash, Height) in reverse order
-
-  - chase `prev` tree link
