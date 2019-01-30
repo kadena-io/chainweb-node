@@ -40,9 +40,9 @@ data Action = Action {
 type Chan = TBMChan Action
 
 data ThreadPool = ThreadPool {
-    _threads :: Vector ThreadId
-  , _joins :: Vector (IO ())
-  , _chan :: Chan
+    _threads :: {-# UNPACK #-} !(Vector ThreadId)
+  , _joins :: {-# UNPACK #-} !(Vector (IO ()))
+  , _chan :: {-# UNPACK #-} !Chan
   }
 
 
