@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module: Chainweb.Pact.Backend.Orphans
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -18,91 +19,262 @@ module Chainweb.Pact.Backend.Orphans where
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-import qualified Data.HashMap.Strict as HMS
 
+import Control.Monad
+
+import Data.Bytes.Put
+import Data.Bytes.Get
 import Data.Bytes.Serial
-import Data.Serialize
+import Data.HashMap.Strict
+import Data.HashSet
+import Data.Hashable
+import Data.List.NonEmpty
+import Data.Serialize hiding (putWord8, getWord8)
+import Data.Word
 
-import GHC.Generics
+import GHC.Generics hiding (Meta)
 
 import Text.Trifecta.Delta
 
-import qualified Pact.Persist as P
-import qualified Pact.Persist.SQLite as P
-import qualified Pact.PersistPactDb as P
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Persistence as P
-import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
+import Pact.Persist
+import Pact.Persist.SQLite
+import Pact.Types.Persistence
+import Pact.Types.Runtime
+import Pact.Types.Server
 
--- deriving instance Generic P.TableId
--- deriving instance Serialize P.TableId
+deriving instance Generic TableId
+deriving instance Serialize TableId
 
--- instance Serialize (P.Table k) where
---   put (P.DataTable t) = put t >> put False
---   put (P.TxTable t) = put t >> put True
---   get = undefined
---         {-do
---     v <- get :: Get P.TableId
---     b <- get :: Get Bool
---     if b
---       then return $ P.DataTable v
---       else return $ P.TxTable v-}
+instance Serialize (Table k) where
+  put (DataTable t) = put t >> put False
+  put (TxTable t) = put t >> put True
+  get = undefined               -- TODO: How do I solve this?
+        {-do
+    v <- get :: Get TableId
+    b <- get :: Get Bool
+    if b
+      then return $ DataTable v
+      else return $ TxTable v-}
 
--- deriving instance Serialize v => Serialize (P.TxLog v)
--- deriving instance Serialize P.TxId
--- deriving instance Serialize P.SQLiteConfig
--- deriving instance Generic P.Pragma
--- deriving instance Serialize P.Pragma
+deriving instance Serialize v => Serialize (TxLog v)
+deriving instance Serialize TxId
+deriving instance Serialize SQLiteConfig
+deriving instance Generic Pragma
+deriving instance Serialize Pragma
 
--- instance Generic (HMS.HashMap k v) where
---   from = undefined
---   to = undefined
+instance (Hashable k, Ord k, Serialize k, Serialize v) => Serialize (HashMap k v) where
+    put = put . Data.HashMap.Strict.toList
+    get = get >>= return . Data.HashMap.Strict.fromList
 
--- instance Serialize (HMS.HashMap k v) where
---   put = undefined
---   get = undefined
+deriving instance Generic CommandPact
+deriving instance Serialize CommandPact
 
--- deriving instance Generic P.CommandPact
--- deriving instance Serialize P.CommandPact
+deriving instance Generic RefStore
 
--- deriving instance Generic P.RefStore
+deriving instance Generic ModuleData
+deriving instance Serialize ModuleData
 
--- instance Serialize P.RefStore where
---   put (P.RefStore {..}) = put _rsModules
---   get = get
+deriving instance Generic Ref
+deriving instance Serialize Ref
 
--- deriving instance Generic P.CommandState
--- deriving instance Serialize P.CommandState
+instance Serialize RefStore where
+    put (RefStore {..}) = put _rsModules
+    get = do
+      let natives = undefined   -- TODO: Where do I get this from?
+      modules <- get
+      return $ RefStore natives modules
 
--- deriving instance Serialize P.Name
--- deriving instance Serialize P.ModuleName
--- deriving instance Serialize P.NamespaceName
--- deriving instance Serialize P.Info
--- deriving instance Serialize P.Parsed
--- deriving instance Serialize Delta
--- deriving instance Serialize P.Code
--- deriving instance Generic (P.Term n)
--- deriving instance Serialize (P.Term n)
+deriving instance Generic CommandState
+deriving instance Serialize CommandState
 
--- deriving instance Serialize t => Serialize (P.Type t)
--- deriving instance Serialize t => Serialize (P.TypeVar t)
--- deriving instance Serialize P.TypeVarName
--- deriving instance Serialize t => Serialize (P.FunType t)
--- deriving instance Serialize t => Serialize (P.Arg t)
--- deriving instance Serialize P.PrimType
--- deriving instance Serialize P.GuardType
--- deriving instance Serialize P.SchemaType
--- deriving instance Generic n => Generic (P.Def n)
--- deriving instance (Generic n, Serialize n) => Serialize (P.Def n)
--- deriving instance Generic P.DefName
--- deriving instance Serialize P.DefName
--- deriving instance Serialize P.DefType
--- deriving instance Serialize i => Serialize (P.Exp i)
--- deriving instance Serialize i => Serialize (P.LiteralExp i)
--- deriving instance Serialize i => Serialize (P.AtomExp i)
--- deriving instance Serialize i => Serialize (P.ListExp i)
--- deriving instance Serialize P.ListDelimiter
--- deriving instance Serialize i => Serialize (P.SeparatorExp i)
--- deriving instance Serialize P.Separator
--- deriving instance Serialize P.Meta
+deriving instance Serialize Name
+deriving instance Serialize ModuleName
+deriving instance Serialize NamespaceName
+deriving instance Serialize Info
+
+instance Serial Info where
+    serialize = undefined
+    deserialize = undefined
+
+deriving instance Serialize Parsed
+deriving instance Serialize Delta
+deriving instance Serialize Code
+
+
+
+instance Serial1 Def where
+  serializeWith f t = undefined
+  deserializeWith m = undefined
+
+instance Serial1 Term where
+  serializeWith f t =
+    case t of
+      TModule {..} -> do
+        putWord8 0
+        serialize _tModuleDef
+        serializeWith f _tModuleBody
+        serialize _tInfo
+      TList {..} -> do
+         putWord8 1
+         mapM_ (serializeWith f) _tList
+         serializeWith (serializeWith f) _tListType
+      TDef {..} -> do
+         putWord8 2
+         serializeWith f _tDef
+         serialize _tInfo
+      TNative {..} -> putWord8 3 >> undefined
+      TConst {..} -> putWord8 4 >> undefined
+      TApp {..} -> putWord8 5 >> undefined
+      TVar {..} -> putWord8 6 >> undefined
+      TBinding {..} -> putWord8 7 >> undefined
+      TObject {..} -> putWord8 8 >> undefined
+      TSchema {..} -> putWord8 9 >> undefined
+      TLiteral {..} -> putWord8 10 >> undefined
+      TGuard {..} -> putWord8 11 >> undefined
+      TUse {..} -> putWord8 12 >> undefined
+      TValue {..} -> putWord8 13 >> undefined
+      TStep {..} -> putWord8 14 >> undefined
+      TTable {..} -> putWord8 15 >> undefined
+  deserializeWith = undefined
+
+instance Serialize n => Serialize (Term n) where
+  put = undefined
+  get = undefined
+
+instance Serialize NativeDFun where
+  put = undefined
+  get = undefined
+
+
+deriving instance Serialize TypeName
+deriving instance Generic Guard
+deriving instance Serialize Guard
+deriving instance Serialize PactGuard
+deriving instance Serialize KeySet
+deriving instance Generic PactId
+deriving instance Serialize PactId
+deriving instance Generic TableName
+deriving instance Serialize TableName
+deriving instance Serialize ModuleGuard
+deriving instance Serialize UserGuard
+
+deriving instance Generic NativeDefName
+deriving instance Serialize NativeDefName
+
+deriving instance (Generic n, Serialize n) => Serialize (NonEmpty (FunType (Term n)))
+deriving instance (Generic n, Serialize n) => Serialize (ConstVal (Term n))
+deriving instance (Generic n) => Generic (App (Term n))
+deriving instance (Generic n, Serialize n) => Serialize (App (Term n))
+deriving instance Generic (BindType (Type (Term n)))
+deriving instance (Generic n, Serialize n) => Serialize (BindType (Type (Term n)))
+
+deriving instance Generic Module
+deriving instance Serialize Module
+instance Serial Module where
+  serialize = undefined
+  deserialize = undefined
+
+deriving instance Generic KeySetName
+deriving instance Serialize KeySetName
+
+deriving instance Generic Use
+deriving instance Serialize Use
+
+-- Let's just do the simple thing right now.
+instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
+  put = put . Data.HashSet.toList
+  get = get >>= return . Data.HashSet.fromList
+
+deriving instance Serial PrimType
+deriving instance Serial GuardType
+deriving instance Serial SchemaType
+
+instance Serial1 FunType where
+  serializeWith f (FunType {..}) =
+    mapM_ (serializeWith f) _ftArgs >> serializeWith f _ftReturn
+  deserializeWith m = do
+    _ftArgs <- deserializeWith (deserializeWith m)
+    _ftReturn <- deserializeWith m
+    return $ FunType {..}
+
+instance Serial1 Arg where
+  serializeWith f (Arg {..}) =
+    serialize _aName >> serializeWith f _aType >> serialize _aInfo
+  deserializeWith m = do
+    _aName <- deserialize
+    _aType <- deserializeWith m
+    _aInfo <- deserialize
+    return $ Arg {..}
+
+instance Serial1 Type where
+  serializeWith f t =
+    case t of
+      TyAny -> putWord8 0
+      TyVar {..} -> putWord8 1 >> serializeWith f _tyVar
+      TyPrim p -> putWord8 2 >> serialize p
+      TyList {..} -> putWord8 3 >> serializeWith f _tyListType
+      TySchema {..} -> do
+        putWord8 4
+        serialize _tySchema
+        serializeWith f _tySchemaType
+      TyFun {..} -> putWord8 5 >> serializeWith f _tyFunType
+      TyUser {..} -> putWord8 6 >> undefined _tyUser -- TODO: How?
+  deserializeWith m =
+    getWord8 >>= \a ->
+      case a of
+        0 -> return TyAny
+        1 -> liftM TyVar $ deserializeWith m
+        2 -> liftM TyPrim $ deserialize
+        3 -> liftM TyList $ deserializeWith m
+        4 -> liftM2 TySchema deserialize (deserializeWith m)
+        5 -> liftM TyFun $ deserializeWith m
+        6 -> liftM TyUser undefined -- TODO: Again how?
+
+deriving instance Serial TypeVarName
+
+instance Serial1 TypeVar where
+  serializeWith f v =
+    case v of
+      TypeVar {..} -> do
+        putWord8 0
+        serialize _tvName
+        mapM_ (serializeWith f) _tvConstraint
+      SchemaVar {..} -> putWord8 1 >> serialize _tvName
+  deserializeWith m =
+    getWord8 >>= \a ->
+      case a of
+        0 -> do
+          _tvName <- deserialize
+          _tvConstraint <- deserializeWith (deserializeWith m)
+          return $ TypeVar {..}
+        1 -> liftM SchemaVar deserialize
+        _ -> error ""
+
+deriving instance Serialize t => Serialize (Type t)
+deriving instance Serialize t => Serialize (TypeVar t)
+deriving instance Serialize TypeVarName
+deriving instance Serialize t => Serialize (FunType t)
+deriving instance Serialize t => Serialize (Arg t)
+deriving instance Serialize PrimType
+deriving instance Serialize GuardType
+deriving instance Serialize SchemaType
+
+instance (Serialize n) => Serialize (Def n) where
+  put (Def {..}) =
+    put _dDefName >> put _dModule >> put _dDefType >> put _dFunType >>
+    put _dDefBody >>
+    put _dMeta >>
+    put _dInfo
+  get = undefined
+
+deriving instance Generic DefName
+deriving instance Serialize DefName
+deriving instance Serialize DefType
+deriving instance Serialize i => Serialize (Exp i)
+deriving instance Serialize i => Serialize (LiteralExp i)
+deriving instance Serialize i => Serialize (AtomExp i)
+deriving instance Serialize i => Serialize (ListExp i)
+deriving instance Serialize ListDelimiter
+deriving instance Serialize i => Serialize (SeparatorExp i)
+deriving instance Serialize Separator
+deriving instance Serialize Meta
