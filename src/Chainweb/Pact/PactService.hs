@@ -15,7 +15,7 @@ module Chainweb.Pact.PactService
     , initPactService
     , mkPureState
     , mkSQLiteState
-    , newTransactionBlock
+    , newBlock
     , serviceRequests
     , setupConfig
     , toCommandConfig
@@ -36,6 +36,7 @@ import Control.Monad.State
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
+import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -48,7 +49,9 @@ import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 
 -- internal modules
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer
@@ -83,9 +86,6 @@ initPactService requestQ responseQ = do
                     (mkSQLiteState env cmdConfig)
     void $ evalStateT (runReaderT (serviceRequests requestQ responseQ) checkpointEnv) theState
 
-getGasEnv :: PactT P.GasEnv
-getGasEnv = view cpeGasEnv
-
 serviceRequests :: TQueue RequestMsg -> TQueue ResponseMsg -> PactT ()
 serviceRequests requestQ responseQ = forever $ run
   where
@@ -109,43 +109,31 @@ serviceRequests requestQ responseQ = forever $ run
         return ()
 
 -- | BlockHeader here is the header of the parent of the new block
-newBlock :: BlockHeader -> PactT BlockHeader
-newBlock parentHeader = do
-    let parentHeight = _blockHeight parentHeader
-    let parentPayloadHash = _blockPayloadHash parentHeader
+newBlock :: BlockHeader -> PactT BlockPayloadHash
+newBlock parentHeader@BlockHeader{..} = do
     newTrans <- requestTransactions TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock parentHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer parentHeight parentPayloadHash
-      updateState cpdata
+    unless (isGenesisBlockHeader parentHeader) $ do
+        cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
+        updateState cpdata
     results <- execTransactions newTrans
-    return $ mkResponseBlockHeader parentHeader (succ parentHeight) results
+    liftIO $ mkPayloadHash results
 
 -- | BlockHeader here is the header of the block being validated
-validateBlock :: BlockHeader -> PactT BlockHeader
-validateBlock currHeader@BlockHeader {..} = do
-    let parentPayloadHash = _blockPayloadHash _bParentHeader
+validateBlock :: BlockHeader -> PactT BlockPayloadHash
+validateBlock currHeader = do
+    trans <- liftIO $ transactionsFromHeader currHeader
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock _bBlockHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      updateState cpdata
-    _results <- execTransactions (fmap fst _bTransactions)
+    parentHeader <- liftIO $ parentFromHeader currHeader
+    unless (isGenesisBlockHeader parentHeader) $ do
+        cpdata <- liftIO $ restore _cpeCheckpointer (_blockHeight parentHeader)
+                  (_blockPayloadHash parentHeader)
+        updateState cpdata
+    results <- execTransactions trans
     currentState <- get
-    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
-             -- TODO: TBD what do we need to do for validation and what is the return type?
-
-    let newParentHader = _whereIsTheParentHeaderField currentHeader
-    return $ mkResponseBlockHeader newParentHeader msgHeight results
-
-mkResponseBlockHeader :: BlockHeader -> BlockHeight -> [TransactionOutput] -> BlockHeader
-mkResponseBlockHeader orig newParent newHeight newHash txOuts =
-     let newHash = blockPayloadHash orig -- TODO: recalculate new hash
-     in orig
-            & blockParent newParent
-            & blockPayloadHash TBD
-            & blockHeight newHeight
-            & blockHash newHash
+    liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
+             (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
+    liftIO $ mkPayloadHash results
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -170,24 +158,17 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
--- TODO: Fix this wrt parent blocks, parent height etc
-isFirstBlock :: BlockHeight -> Bool
-isFirstBlock height = height == 0
-
---placeholder - get transactions from mem pool
-requestTransactions :: TransactionCriteria -> PactT [Transaction]
-requestTransactions _crit = return []
-
-execTransactions :: [Transaction] -> PactT [TransactionOutput]
+execTransactions :: [Transaction] -> PactT Transactions
 execTransactions xs = do
     cpEnv <- ask
     currentState <- get
     let dbEnv' = _pdbsDbEnv currentState
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-    forM xs (\Transaction {..} -> do
+    txOuts <- forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
         return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+    return $ Transactions $ zip xs txOuts
 
 applyPactCmd
   :: CheckpointEnv
@@ -206,3 +187,24 @@ updateState :: CheckpointData  -> PactT ()
 updateState CheckpointData {..} = do
     pdbsDbEnv .= _cpPactDbEnv
     pdbsState .= _cpCommandState
+
+----------------------------------------------------------------------------------------------------
+-- TODO: Replace these placeholders with the real API functions:
+----------------------------------------------------------------------------------------------------
+requestTransactions :: TransactionCriteria -> PactT [Transaction]
+requestTransactions _crit = return []
+
+transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
+transactionsFromHeader bHeader = undefined
+
+mkPayloadHash :: Transactions -> IO BlockPayloadHash
+mkPayloadHash _trans = do
+    bhb <- randomBlockHashBytes
+    return $ BlockPayloadHash bhb
+
+getGasEnv :: PactT P.GasEnv
+getGasEnv = view cpeGasEnv
+
+parentFromHeader :: BlockHeader -> IO BlockHeader
+parentFromHeader header = return header
+----------------------------------------------------------------------------------------------------

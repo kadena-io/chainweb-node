@@ -12,16 +12,12 @@
 --
 -- Pact Types module for Chainweb
 module Chainweb.Pact.Types
-    ( Block(..)
-    , bBlockHeight
-    , bHash
-    , bParentHeader
-    , bTransactions
-    , PactDbStatePersist(..)
+    ( PactDbStatePersist(..)
     , pdbspRestoreFile
     , pdbspPactDbState
     , PactT
     , Transaction(..)
+    , Transactions(..)
     , tCmd
     , tTxId
     , TransactionCriteria(..)
@@ -48,22 +44,14 @@ data Transaction = Transaction
     { _tTxId :: Word64
     , _tCmd :: P.Command ByteString
     }
-
 makeLenses ''Transaction
+
+newtype Transactions = Transactions { _transactionPair :: [(Transaction, TransactionOutput)] }
 
 data TransactionOutput = TransactionOutput
     { _getCommandResult :: P.CommandResult
     , _getTxLogs :: [P.TxLog A.Value]
     }
-
-data Block = Block
-    { _bHash :: Maybe BlockPayloadHash
-    , _bParentHeader :: BlockHeader
-    , _bBlockHeight :: BlockHeight
-    , _bTransactions :: [(Transaction, TransactionOutput)]
-    }
-
-makeLenses ''Block
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath

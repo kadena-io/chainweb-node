@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
@@ -14,32 +15,40 @@ module Chainweb.Pact.Service.PactQueue
     , addResponse
     , getNextRequest
     , getNextResponse
+    , RequestId(..)
     , RequestMsg(..)
     , RequestType(..)
     , ResponseMsg(..)
     ) where
 
+import Data.Aeson
+import Data.Int
+
 import Chainweb.BlockHeader
 
 data RequestType = ValidateBlock | NewBlock
 
+newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (FromJSON, ToJSON)
+
 data RequestMsg = RequestMsg
     { _reqRequestType :: RequestType
+    , _reqRequestId   :: RequestId
     , _reqBlockHeader :: BlockHeader
     }
 
 data ResponseMsg = ResponseMsg
     { _respRequestType :: RequestType
-    , _respBlockHeader :: BlockHeader
+    , _respRequestId   :: RequestId
+    , _respBlockHeader :: BlockPayloadHash
     }
 
-addRequest :: RequestMsg -> IO ()
+addRequest :: RequestMsg -> IO RequestId
 addRequest msg = undefined
 
 getNextRequest :: IO RequestMsg
 getNextRequest = undefined
 
-addResponse :: ResponseMsg -> IO ()
+addResponse :: ResponseMsg -> IO RequestId
 addResponse msg = undefined
 
 getNextResponse :: IO ResponseMsg
