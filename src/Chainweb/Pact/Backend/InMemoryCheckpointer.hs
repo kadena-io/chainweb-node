@@ -15,6 +15,8 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
+import Control.Exception
+import Control.Monad.Catch
 
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
@@ -28,6 +30,8 @@ import Chainweb.Pact.Backend.Types
 -- MIGHT INCLUDE THIS MODULE LATER
 -- import Chainweb.ChainId
 -- MIGHT INCLUDE THIS MODULE LATER
+
+data DataToSave = DataToSave
 
 initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
@@ -46,30 +50,31 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
 
 type Store = HashMap (BlockHeight, BlockPayloadHash) PactDbState
 
+data InMemCheckpointException = RestoreNotFoundException deriving Show
+
+instance Exception InMemCheckpointException
+
 restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO PactDbState
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just old -> do
-              let dbstate = tostate old
+            Just dbstate -> do
               case _pdbsDbEnv dbstate of
                 EnvPersist' (PactDbEnvPersist {..}) ->
                   case _pdepEnv of
                     P.DbEnv {..} -> openDb _db
               return dbstate
-            -- This is just a placeholder for right now (the Nothing clause)
-            Nothing ->
-                fail "InMemoryCheckpointer.restore: There is no checkpoint that can be restored."
-  where
-    tostate = id
 
--- There is no need for prepare to even exist for the in memory checkpointer.
+            Nothing -> throwM RestoreNotFoundException
 
 save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
-save' lock height hash cpdata@(PactDbState {..}) = do
+save' lock height hash PactDbState {..} = do
+
+     -- case _pdsDbEnv of
+     --   EnvPersist -> undefined
 
      -- Saving off checkpoint.
-     modifyMVarMasked_ lock (return . HMS.insert (height, hash) cpdata)
+     modifyMVarMasked_ lock (return . HMS.insert (height, hash) undefined)
 
      -- Closing database connection.
      case _pdbsDbEnv of

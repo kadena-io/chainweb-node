@@ -5,7 +5,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.SQLiteCheckpointer
@@ -22,12 +21,15 @@ import qualified Data.HashMap.Strict as HMS
 -- import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.String
+import Data.Serialize
 -- import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
 import Control.Monad.Catch
+
+import GHC.Generics
 
 import qualified Pact.Persist as P
 import qualified Pact.Persist.SQLite as P
@@ -39,17 +41,24 @@ import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
+import Chainweb.Pact.Backend.Orphans
 import Chainweb.Pact.Backend.Types
 
 
-data DataToFill = DataToFill
+data DataToSave = DataToSave
   { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
   , _dtfTxId :: Maybe P.TxId
   , _dtfSQLiteConfig :: P.SQLiteConfig
   , _dtfCommandState :: P.CommandState
-  }
+  } deriving Generic
 
-makeLenses ''DataToFill
+-- instance Serialize DataToSave where
+--   put (DataToSave {..}) =
+--     put _dtfTxRecord >> put _dtfTxId >> put _dtfSQLiteConfig >>
+--     put _dtfCommandState
+--   get = undefined
+
+makeLenses ''DataToSave
 
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
@@ -66,7 +75,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) DataToFill
+type Store = HashMap (BlockHeight, BlockPayloadHash) DataToSave
 
 changeSQLFilePath ::
        FilePath
@@ -76,8 +85,8 @@ changeSQLFilePath ::
 changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
     P.SQLiteConfig (f fp dbFile) pragmas
 
-reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> DataToFill -> IO PactDbState
-reinitDbEnv loggers funrec (DataToFill {..}) = do
+reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> DataToSave -> IO PactDbState
+reinitDbEnv loggers funrec (DataToSave {..}) = do
   _db <- P.initSQLite _dtfSQLiteConfig loggers
   return (PactDbState (EnvPersist' (PactDbEnvPersist undefined (P.DbEnv {..}))) _dtfCommandState)
   where
@@ -130,8 +139,8 @@ save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
 save' lock height hash PactDbState {..}
     -- Saving off checkpoint.
  = do
-  let datatofill = DataToFill undefined undefined undefined undefined
-  modifyMVarMasked_ lock (return . HMS.insert (height, hash) datatofill)
+  let datatosave = DataToSave undefined undefined undefined undefined
+  modifyMVarMasked_ lock (return . HMS.insert (height, hash) datatosave)
     -- Closing database connection.
   case _pdbsDbEnv of
     EnvPersist' (PactDbEnvPersist {..}) ->
