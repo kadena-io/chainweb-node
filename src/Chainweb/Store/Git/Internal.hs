@@ -186,8 +186,17 @@ instance TreeDb GitStore where
         total <- liftIO $ readIORef counter
         pure (int total, Eos True)
       where
+        -- | Best value, found experimentally.
+        --
+        -- @
+        -- | pageSize = 256 | 72.35 |
+        -- | pageSize = 128 | 57.47 |
+        -- | pageSize = 64  | 49.26 |
+        -- | pageSize = 32  | 51.07 |
+        -- @
+        --
         pageSize :: BlockHeight
-        pageSize = 256  -- TODO What's an optimal value for this?
+        pageSize = 64
 
         range :: BlockHeight
         range = pageSize - 1
