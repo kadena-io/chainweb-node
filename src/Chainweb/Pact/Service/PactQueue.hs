@@ -25,22 +25,7 @@ import Data.Aeson
 import Data.Int
 
 import Chainweb.BlockHeader
-
-data RequestType = ValidateBlock | NewBlock
-
-newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (FromJSON, ToJSON)
-
-data RequestMsg = RequestMsg
-    { _reqRequestType :: RequestType
-    , _reqRequestId   :: RequestId
-    , _reqBlockHeader :: BlockHeader
-    }
-
-data ResponseMsg = ResponseMsg
-    { _respRequestType :: RequestType
-    , _respRequestId   :: RequestId
-    , _respBlockHeader :: BlockPayloadHash
-    }
+import Chainweb.Pact.Service.Types
 
 addRequest :: RequestMsg -> IO RequestId
 addRequest msg = undefined
