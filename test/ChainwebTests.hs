@@ -21,6 +21,8 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
+import qualified Chainweb.Test.Mempool.InMem
+import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.TreeDB.Persistence
@@ -50,6 +52,8 @@ suite = testGroup "Unit Tests"
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
+    , Chainweb.Test.Mempool.InMem.tests
+    , Chainweb.Test.Mempool.Socket.tests
     , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
