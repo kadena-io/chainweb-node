@@ -68,6 +68,9 @@ module Chainweb.Utils
 , runGet
 , runGetEither
 
+-- ** Codecs
+, Codec(..)
+
 -- ** Text
 , sshow
 , tread
@@ -106,6 +109,7 @@ module Chainweb.Utils
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
+, eatIOExceptions
 
 -- * Command Line Options
 , OptionParser
@@ -131,6 +135,7 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
+import Control.Exception (IOException, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -143,6 +148,7 @@ import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
 import Data.Bytes.Get
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
@@ -637,3 +643,14 @@ streamToHashSet_ = fmap HS.fromList . S.toList_
 --
 reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
+
+-- | TODO: maybe use Put/Get ?
+data Codec t = Codec {
+    codecEncode :: t -> ByteString
+  , codecDecode :: ByteString -> Either String t
+}
+
+
+eatIOExceptions :: IO () -> IO ()
+eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
+

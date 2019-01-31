@@ -49,6 +49,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (Codec(..))
 import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------
@@ -159,9 +160,8 @@ getDecimal = do
         in (i, s)
 
 
-mockDecode :: ByteString -> Maybe MockTx
-mockDecode = either (const Nothing) Just .
-             runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
+mockDecode :: ByteString -> Either String MockTx
+mockDecode = runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
   where
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime

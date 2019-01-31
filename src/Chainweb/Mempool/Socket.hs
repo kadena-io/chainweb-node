@@ -25,7 +25,7 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
-import Control.Monad (forever, guard, void, when, (>=>))
+import Control.Monad (forever, guard, unless, void, when, (>=>))
 import Data.Attoparsec.ByteString (Parser, (<?>))
 import qualified Data.Attoparsec.ByteString as Atto
 import qualified Data.Attoparsec.ByteString.Char8 as Atto (char8)
@@ -43,7 +43,6 @@ import Data.Foldable (for_, mapM_)
 import Data.Int (Int64)
 import Data.IORef (mkWeakIORef, newIORef, readIORef)
 import Data.Maybe (fromMaybe)
-import qualified Data.Text as T
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
@@ -65,6 +64,7 @@ import System.Timeout (timeout)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+import Chainweb.Utils (Codec(..))
 
 {-# INLINE trace' #-}
 {-# INLINE debug #-}
@@ -239,8 +239,7 @@ encodeTx txcfg tx = encodeFramed $ codecEncode codec tx
 decodeTx :: TransactionConfig t -> Parser t
 decodeTx txcfg = p <?> "decodeTx"
   where
-    p = (codecDecode codec <$> decodeFramed) >>=
-        maybe (fail "transaction codec failed") return
+    p = (codecDecode codec <$> decodeFramed) >>= either fail return
     codec = txCodec txcfg
 
 
@@ -306,7 +305,7 @@ encodeVector toB v = encodeVarWord (V.length v) <> mconcat (map toB $ V.toList v
 
 decodeCommand :: Show t => TransactionConfig t -> Parser (Command t)
 decodeCommand txcfg = (<?> "decodeCommand") $ do
-    !cmd <- (trace' "decodeCommand got: ") <$> Atto.anyWord8
+    !cmd <- trace' "decodeCommand got: " <$> Atto.anyWord8
     case cmd of
       0 -> return Keepalive
       1 -> decodeInsert
@@ -331,7 +330,7 @@ encodeCommand txcfg = (<> Builder.flush) . go
     go Subscribe = Builder.word8 5
 
 ------------------------------------------------------------------------------
-newtype MempoolSocketException = MempoolSocketException (T.Text)
+newtype MempoolSocketException = MempoolSocketException T.Text
   deriving (Show)
 instance Exception MempoolSocketException
 
@@ -497,7 +496,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
 
     subToStm mv = withMVar mv $
                   maybe (return STM.retry)
-                        (\x -> readIORef x >>= return . fetchSub . mempoolSubChan)
+                        (\x -> (fetchSub . mempoolSubChan) <$> readIORef x)
 
     fetchSub c = Left <$> (TBMChan.readTBMChan c >>= maybe STM.retry return)
     fetchRemote c = Right <$> TBMChan.readTBMChan c
@@ -659,7 +658,7 @@ writeChan :: TBMChan a -> a -> IO ()
 writeChan chan x = do
     closed <- atomically $ do
         b <- TBMChan.isClosedTBMChan chan
-        when (not b) $ TBMChan.writeTBMChan chan x
+        unless b $ TBMChan.writeTBMChan chan x
         return b
     when closed $ throwS "attempted write on closed channel"
 
@@ -756,7 +755,7 @@ withClientSession (inp, outp, cleanup) config userHandler =
             Handler $ \(e :: SomeException) ->
                 atomically $ TBMChan.writeTBMChan chan
                            $ Failed . T.encodeUtf8 . T.pack
-                           $ concat ["error from socket thread: " ++ show e]
+                           $ ("error from socket thread: " ++ show e)
             ]
 
     socketThreadProc chan restore = socketErrHandler chan $ restore $ do
@@ -870,4 +869,5 @@ processResponse cs resp = do
     dispatchResponse cs x resp
 
 
+throwS :: T.Text -> IO a
 throwS = throwIO . MempoolSocketException

@@ -20,6 +20,7 @@ import Test.Tasty.QuickCheck
 
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
+import qualified Chainweb.Test.BlockPayloadDB.FS
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.Socket
@@ -49,6 +50,7 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
+    , Chainweb.Test.BlockPayloadDB.FS.tests
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
