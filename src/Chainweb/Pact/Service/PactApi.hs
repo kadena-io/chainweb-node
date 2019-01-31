@@ -24,9 +24,13 @@ module Chainweb.Pact.Service.PactApi
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
+import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.STM
+
+import qualified Data.HashTable.IO as H
+import Data.HashTable.ST.Basic (HashTable)
 
 import Network.Wai
 
@@ -52,10 +56,12 @@ run request _respond = do
     let reqIdStm = (newTVar (RequestId 0) :: STM (TVar RequestId))
     let reqQStm  = (newTQueue :: STM (TQueue RequestMsg))
     let respQStm = (newTQueue :: STM (TQueue ResponseMsg))
+    ht <- H.new :: IO (H.IOHashTable HashTable RequestId BlockPayloadHash)
     let env = RequestIdEnv
           { _rieReqIdStm = reqIdStm
           , _rieReqQStm = reqQStm
-          , _rieRespQStm = respQStm }
+          , _rieRespQStm = respQStm
+          , _rieResponseMap = ht }
     liftIO $ withAsync
                 (initPactService reqQStm respQStm reqIdStm)
                 (\_ -> return ())
@@ -64,41 +70,76 @@ run request _respond = do
 app :: RequestIdEnv -> Application
 app env = serve pactAPI $ hoistServer pactAPI (toHandler env) pactServer
 
+incRequestId :: IO RequestId
+incRequestId = do
+    reqIdStm <- view rieReqIdStm
+    reqIdVar <- liftIO $ atomically reqIdStm
+    liftIO $ atomically $ modifyTVar' reqIdVar succ
+    newReqId <- liftIO $ atomically $ readTVar reqIdVar
+    return newReqId
+
 newBlockReq :: BlockHeader -> PactAppM (Either String BlockPayloadHash)
 newBlockReq bHeader = do
+    newReqId <- liftIO $ incRequestId
+    reqQStm <- view rieReqQStm
     let msg = RequestMsg
           { _reqRequestType = NewBlock
+          , _reqRequestId = newReqId
           , _reqBlockHeader = bHeader }
-    reqId <- liftIO $ addRequest msg
-    return $ waitForResponse reqId
-
-waitForResponse :: RequestId -> Either String BlockPayloadHash
-waitForResponse = undefined
+    liftIO $ addRequest reqQStm msg
+    waitForResponse newReqId
 
 newBlockAsyncReq :: BlockHeader -> PactAppM RequestId
 newBlockAsyncReq bHeader = do
+    newReqId <- liftIO $ incRequestId
+    reqQStm <- view rieReqQStm
     let msg = RequestMsg
           { _reqRequestType = NewBlock
           , _reqBlockHeader = bHeader }
-    reqId <- liftIO $ addRequest msg
-    return reqId
+    liftIO $ addRequest reqQStm msg
+    return newReqId
 
 validateBlockReq :: BlockHeader -> PactAppM (Either String BlockPayloadHash)
 validateBlockReq bHeader = do
+    newReqId <- liftIO $ incRequestId
+    reqQStm <- view rieReqQStm
     let msg = RequestMsg
           { _reqRequestType = ValidateBlock
           , _reqBlockHeader = bHeader }
-    reqId <- liftIO $ addRequest msg
-    return $ waitForResponse reqId
+    liftIO $ addRequest reqQStm msg
+    waitForResponse newReqId
 
 validateBlockAsyncReq :: BlockHeader -> PactAppM RequestId
 validateBlockAsyncReq bHeader = do
+    newReqId <- liftIO $ incRequestId
+    reqQStm <- view rieReqQStm
     let msg = RequestMsg
           { _reqRequestType = ValidateBlock
-
           , _reqBlockHeader = bHeader }
-    reqId <- liftIO $ addRequest msg
-    return reqId
+    liftIO $ addRequest reqQStm msg
+    return newReqId
+
+waitForResponse :: RequestId -> PactAppM (Either String BlockPayloadHash)
+waitForResponse requestId = do
+    t <- timeout (fromIntegral timeoutSeconds) go
+    case t of
+        Nothing -> Left $ "Timeout occured waiting for response to: " ++ show requestId
+        Just x -> return Right x
+    where
+        go :: BlockPayloadHash
+        go = do
+            respQStm <- view rieRespQStm
+            -- try to read Q, add to map, check map
+            resp <- getNextResponse respQStm
+            respMap <- view rieResponseMap
+            x <- lookup respMap requestId
+            case x of
+              Right payload -> return x
+              Left _ -> go
 
 pollForResponse :: RequestId -> PactAppM (Either String BlockPayloadHash)
-pollForResponse = undefined
+pollForResponse requestId = do
+    respQStm <- view rieRespQStm
+    resp <- getNextResponse respQStm
+    respMap <- view rieResponseMap
+    return $ lookup respMap requestId

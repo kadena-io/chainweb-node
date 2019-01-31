@@ -153,6 +153,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , hashable >= 1.2
+        , hashtables >= 1.2
         , heaps >= 0.3
         , http-client >= 0.5
         , ixset-typed >= 0.4

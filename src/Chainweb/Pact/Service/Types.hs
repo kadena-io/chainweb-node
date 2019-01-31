@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -15,11 +16,14 @@ module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
+import Control.Lens
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
 
 import Data.Aeson
 import Data.Bifunctor
+import qualified Data.HashTable.IO as H
+import qualified Data.HashTable.ST.Basic as H
 import Data.Int
 import Data.String.Conv (toS)
 
@@ -36,7 +40,8 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either Stri
 
 data RequestIdEnv = RequestIdEnv { _rieReqIdStm :: STM (TVar RequestId)
                                  , _rieReqQStm :: STM (TQueue RequestMsg)
-                                 , _rieRespQStm :: STM (TQueue ResponseMsg) }
+                                 , _rieRespQStm :: STM (TQueue ResponseMsg)
+                                 , _rieResponseMap :: H.IOHashTable H.HashTable RequestId BlockPayloadHash}
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
@@ -54,6 +59,7 @@ data RequestType = ValidateBlock | NewBlock
 
 data RequestMsg = RequestMsg
     { _reqRequestType :: RequestType
+    , _reqRequestId   :: RequestId
     , _reqBlockHeader :: BlockHeader
     }
 
@@ -62,3 +68,5 @@ data ResponseMsg = ResponseMsg
     , _respRequestId   :: RequestId
     , _respPayloadHash :: BlockPayloadHash
     }
+
+makeLenses ''RequestIdEnv

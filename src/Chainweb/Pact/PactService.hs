@@ -81,20 +81,15 @@ initPactService reqQStm respQStm reqIdStm = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ evalStateT (runReaderT (serviceRequests reqQStm respQStm reqIdStm) checkpointEnv) theState
+    void $ evalStateT (runReaderT (serviceRequests reqQStm respQStm) checkpointEnv) theState
 
-serviceRequests :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> STM (TVar RequestId) -> PactT ()
-serviceRequests reqQStm respQStm reqIdStm = forever $ run
+serviceRequests :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> PactT ()
+serviceRequests reqQStm respQStm = forever $ run
   where
     run :: PactT ()
     run = do
         reqQ <- liftIO $ atomically reqQStm
         reqMsg <- liftIO $ atomically $ readTQueue reqQ
-
-        -- increment the requestId
-        reqIdVar <- liftIO $ atomically reqIdStm
-        liftIO $ atomically $ modifyTVar' reqIdVar succ
-        newReqId <- liftIO $ atomically $ readTVar reqIdVar
 
         respQ <- liftIO $ atomically respQStm
         respMsg <- case _reqRequestType reqMsg of
@@ -102,13 +97,13 @@ serviceRequests reqQStm respQStm reqIdStm = forever $ run
                 h <- newBlock (_reqBlockHeader reqMsg)
                 return $ ResponseMsg
                     { _respRequestType = NewBlock
-                    , _respRequestId = newReqId
+                    , _respRequestId = _reqRequestId reqMsg
                     , _respPayloadHash = h }
             ValidateBlock -> do
                 h <- validateBlock (_reqBlockHeader reqMsg)
                 return $ ResponseMsg
                     { _respRequestType = ValidateBlock
-                    , _respRequestId = newReqId
+                    , _respRequestId = _reqRequestId reqMsg
                     , _respPayloadHash = h }
         _ <- liftIO $ atomically $ writeTQueue respQ respMsg
         return ()

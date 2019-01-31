@@ -21,16 +21,26 @@ module Chainweb.Pact.Service.PactQueue
     , ResponseMsg(..)
     ) where
 
+import Control.Concurrent.STM.TQueue
+import Control.Concurrent.STM.TVar
+import Control.Monad.STM
+
 import Chainweb.Pact.Service.Types
 
-addRequest :: RequestMsg -> IO RequestId
-addRequest _msg = undefined
+addRequest :: STM (TQueue RequestMsg) -> RequestMsg -> IO ()
+addRequest reqQStm msg = do
+    q <- atomically reqQStm
+    atomically $ writeTQueue q msg
 
-getNextRequest :: IO RequestMsg
-getNextRequest = undefined
+getNextRequest :: STM (TQueue RequestMsg) -> IO RequestMsg
+getNextRequest reqQStm = do
+    q <- atomically reqQStm
+    atomically $ readTQueue q
 
 addResponse :: ResponseMsg -> IO RequestId
 addResponse _msg = undefined
 
-getNextResponse :: IO ResponseMsg
-getNextResponse = undefined
+getNextResponse :: STM (TQueue ResponseMsg) -> IO ResponseMsg
+getNextResponse respQStm = do
+    q <- atomically respQStm
+    atomically $ readTQueue q
