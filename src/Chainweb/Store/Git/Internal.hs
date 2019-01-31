@@ -227,7 +227,7 @@ instance TreeDb GitStore where
             -> BlockHeight  -- ^ Height of the lowest `BlockHeader` to be streamed
             -> BlockHeight  -- ^ Height of the highest `BlockHeader` to be streamed
             -> Stream (Of (DbEntry GitStore)) IO ()
-        work ls highest lower upper = do
+        work ls highest !lower !upper = do
             let !cache = HM.empty
             ls' <- liftIO $ wither (seekHighest gs (lower, upper)) ls
             m <- liftIO $ foldM f cache ls'
