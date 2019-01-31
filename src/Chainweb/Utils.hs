@@ -647,7 +647,7 @@ reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 -- | TODO: maybe use Put/Get ?
 data Codec t = Codec {
     codecEncode :: t -> ByteString
-  , codecDecode :: ByteString -> Maybe t
+  , codecDecode :: ByteString -> Maybe t   -- TODO(greg): switch to Either
 }
 
 
