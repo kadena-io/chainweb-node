@@ -25,7 +25,6 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TQueue
 import Control.Exception
 import Control.Lens
 import Control.Monad
@@ -36,7 +35,6 @@ import Control.Monad.State
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
-import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -51,7 +49,6 @@ import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer
@@ -61,8 +58,8 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 
-initPactService :: TQueue RequestMsg -> TQueue ResponseMsg -> IO ()
-initPactService requestQ responseQ = do
+initPactService :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> STM (TVar RequestId) -> IO ()
+initPactService reqQStm respQStm reqIdStm = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
@@ -84,28 +81,36 @@ initPactService requestQ responseQ = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ evalStateT (runReaderT (serviceRequests requestQ responseQ) checkpointEnv) theState
+    void $ evalStateT (runReaderT (serviceRequests reqQStm respQStm reqIdStm) checkpointEnv) theState
 
-serviceRequests :: TQueue RequestMsg -> TQueue ResponseMsg -> PactT ()
-serviceRequests requestQ responseQ = forever $ run
+serviceRequests :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> STM (TVar RequestId) -> PactT ()
+serviceRequests reqQStm respQStm reqIdStm = forever $ run
   where
     run :: PactT ()
     run = do
-        reqMsg <- liftIO $ atomically $ readTQueue requestQ
-        let msgHeader = _reqBlockHeader reqMsg
-        let msgHeight = _blockHeight msgHeader
+        reqQ <- liftIO $ atomically reqQStm
+        reqMsg <- liftIO $ atomically $ readTQueue reqQ
+
+        -- increment the requestId
+        reqIdVar <- liftIO $ atomically reqIdStm
+        liftIO $ atomically $ modifyTVar' reqIdVar succ
+        newReqId <- liftIO $ atomically $ readTVar reqIdVar
+
+        respQ <- liftIO $ atomically respQStm
         respMsg <- case _reqRequestType reqMsg of
             NewBlock -> do
                 h <- newBlock (_reqBlockHeader reqMsg)
                 return $ ResponseMsg
                     { _respRequestType = NewBlock
-                    , _respBlockHeader = h }
+                    , _respRequestId = newReqId
+                    , _respPayloadHash = h }
             ValidateBlock -> do
                 h <- validateBlock (_reqBlockHeader reqMsg)
                 return $ ResponseMsg
                     { _respRequestType = ValidateBlock
-                    , _respBlockHeader = h }
-        _ <- liftIO $ atomically $ writeTQueue responseQ respMsg
+                    , _respRequestId = newReqId
+                    , _respPayloadHash = h }
+        _ <- liftIO $ atomically $ writeTQueue respQ respMsg
         return ()
 
 -- | BlockHeader here is the header of the parent of the new block
@@ -195,15 +200,15 @@ requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
 transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
-transactionsFromHeader bHeader = undefined
+transactionsFromHeader _bHeader = undefined
 
 mkPayloadHash :: Transactions -> IO BlockPayloadHash
 mkPayloadHash _trans = do
     bhb <- randomBlockHashBytes
     return $ BlockPayloadHash bhb
 
-getGasEnv :: PactT P.GasEnv
-getGasEnv = view cpeGasEnv
+_getGasEnv :: PactT P.GasEnv
+_getGasEnv = view cpeGasEnv
 
 parentFromHeader :: BlockHeader -> IO BlockHeader
 parentFromHeader header = return header

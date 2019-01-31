@@ -21,20 +21,16 @@ module Chainweb.Pact.Service.PactQueue
     , ResponseMsg(..)
     ) where
 
-import Data.Aeson
-import Data.Int
-
-import Chainweb.BlockHeader
 import Chainweb.Pact.Service.Types
 
 addRequest :: RequestMsg -> IO RequestId
-addRequest msg = undefined
+addRequest _msg = undefined
 
 getNextRequest :: IO RequestMsg
 getNextRequest = undefined
 
 addResponse :: ResponseMsg -> IO RequestId
-addResponse msg = undefined
+addResponse _msg = undefined
 
 getNextResponse :: IO ResponseMsg
 getNextResponse = undefined

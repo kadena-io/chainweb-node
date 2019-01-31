@@ -13,6 +13,7 @@
 
 module Chainweb.Pact.Service.Types where
 
+import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
@@ -21,12 +22,9 @@ import Data.Aeson
 import Data.Bifunctor
 import Data.Int
 import Data.String.Conv (toS)
-import Data.Text (Text)
 
 import Safe
 import Servant
-
-import Text.Read
 
 import Chainweb.BlockHeader
 
@@ -36,14 +34,16 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either Stri
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> Capture "requestId" RequestId :> Post '[JSON] (Either String BlockPayloadHash)
 
-newtype RequestIdEnv = RequestIdEnv { _getReqIdStm :: STM (TVar RequestId) }
+data RequestIdEnv = RequestIdEnv { _rieReqIdStm :: STM (TVar RequestId)
+                                 , _rieReqQStm :: STM (TQueue RequestMsg)
+                                 , _rieRespQStm :: STM (TQueue ResponseMsg) }
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
 
-newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (Read, Show, FromJSON, ToJSON)
+newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (Enum, Read, Show, FromJSON, ToJSON)
 
 instance FromHttpApiData RequestId where
     parseUrlPiece t =
@@ -54,12 +54,11 @@ data RequestType = ValidateBlock | NewBlock
 
 data RequestMsg = RequestMsg
     { _reqRequestType :: RequestType
-    , _reqAsyncRequestId   :: Maybe RequestId
     , _reqBlockHeader :: BlockHeader
     }
 
 data ResponseMsg = ResponseMsg
     { _respRequestType :: RequestType
-    , _respAsyncRequestId   :: Maybe RequestId
-    , _respBlockHeader :: BlockPayloadHash
+    , _respRequestId   :: RequestId
+    , _respPayloadHash :: BlockPayloadHash
     }
