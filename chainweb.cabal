@@ -96,6 +96,7 @@ library
         , Chainweb.Store.Git.Internal
         , Chainweb.Time
         , Chainweb.TreeDB
+        , Chainweb.TreeDB.HashTarget
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Sync
