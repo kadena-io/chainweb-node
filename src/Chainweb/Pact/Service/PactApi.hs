@@ -37,6 +37,7 @@ import Data.Int
 import Data.List
 import Data.Maybe
 import Data.Time.Calendar
+import qualified Data.Vault.Lazy as V
 
 import GHC.Generics
 
@@ -44,15 +45,22 @@ import Network.Wai
 import Network.Wai.Handler.Warp
 
 import Servant
-import System.Directory
+
+-- import System.Directory
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 
+{-
 type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
       :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
       :<|> "poll" :> Capture "requestId" RequestId :> Post '[JSON] BlockPayloadHash
+-}
+type PactAPI =
+    Vault :> "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
+        :<|> Vault :> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
+        :<|> Vault :> "poll" :> Capture "requestId" RequestId :> Post '[JSON] BlockPayloadHash
 
 pactServer :: Server PactAPI
 pactServer = addNewBlockReq
@@ -62,14 +70,29 @@ pactServer = addNewBlockReq
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
 
+{-
+>>> type API = Vault :> Get '[JSON] String
+
+data Key a
+data Vault
+
+newKey :: IO (Key a)
+empty  :: Vault
+lookup :: Key a -> Vault -> Maybe a
+insert :: Key a -> a -> Vault -> Vault
+delete :: Key a -> Vault -> Vault
+
+-}
 pactServiceApp :: Application
-pactServiceApp = do
+pactServiceApp request _respond = do
     let reqIdStm = (newTVar (fromIntegral 0) :: STM (TVar Int64))
-    reqIdVar <- liftIO $ atomically reqIdStm
+    reqIdVar <- atomically reqIdStm
+    let _v = V.insert "requestId" reqIdStm (vault request)
+
     let reqStm  = (newTQueue :: STM (TQueue RequestMsg))
-    requestQ <- liftIO $ atomically reqStm
+    requestQ <- atomically reqStm
     let respStm = (newTQueue :: STM (TQueue ResponseMsg))
-    responseQ <- liftIO $ atomically respStm
+    responseQ <- atomically respStm
     liftIO $ withAsync
                 (initPactService requestQ responseQ)
                 (\_ -> return ())
