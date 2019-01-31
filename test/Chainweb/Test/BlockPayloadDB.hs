@@ -51,15 +51,13 @@ encodeMockPayload :: MockPayload -> ByteString
 encodeMockPayload (MockPayload a b c d) =
     runPutS (mapM_ putWord64le [a, b, c, d])
 
-decodeMockPayload :: ByteString -> Maybe MockPayload
-decodeMockPayload s = toMaybe . flip runGetS s $ do
+decodeMockPayload :: ByteString -> Either String MockPayload
+decodeMockPayload s = flip runGetS s $ do
     a <- getWord64le
     b <- getWord64le
     c <- getWord64le
     d <- getWord64le
     return $ MockPayload a b c d
-  where
-    toMaybe = either (const Nothing) Just
 
 mockPayloadCodec :: Codec MockPayload
 mockPayloadCodec = Codec encodeMockPayload decodeMockPayload

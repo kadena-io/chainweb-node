@@ -239,8 +239,7 @@ encodeTx txcfg tx = encodeFramed $ codecEncode codec tx
 decodeTx :: TransactionConfig t -> Parser t
 decodeTx txcfg = p <?> "decodeTx"
   where
-    p = (codecDecode codec <$> decodeFramed) >>=
-        maybe (fail "transaction codec failed") return
+    p = (codecDecode codec <$> decodeFramed) >>= either fail return
     codec = txCodec txcfg
 
 
@@ -870,4 +869,5 @@ processResponse cs resp = do
     dispatchResponse cs x resp
 
 
+throwS :: T.Text -> IO a
 throwS = throwIO . MempoolSocketException

@@ -137,7 +137,7 @@ fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
         let fp = getBlockFilePath root h
         ex <- opDoesFileExist ops fp
         if ex
-          then decode <$> opReadFile ops fp
+          then (either (const Nothing) Just . decode) <$> opReadFile ops fp
           else return Nothing
 
 
