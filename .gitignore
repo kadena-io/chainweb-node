@@ -32,3 +32,4 @@ public
 log
 report.html
 .hlint.yaml
+*.svg

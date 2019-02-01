@@ -20,6 +20,7 @@ module Chainweb.Test.Utils
 (
 -- * BlockHeaderDb Generation
   toyBlockHeaderDb
+, toyGenesis
 , withDB
 , insertN
 , prettyTree
@@ -105,7 +106,8 @@ import Chainweb.Graph
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapCertificate, bootstrapKey)
+import Chainweb.Test.P2P.Peer.BootstrapConfig
+    (bootstrapCertificate, bootstrapKey)
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -120,6 +122,9 @@ import qualified P2P.Node.PeerDB as P2P
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
 
+toyGenesis :: ChainId -> BlockHeader
+toyGenesis cid = genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
 -- Borrowed from TrivialSync.hs
@@ -127,8 +132,7 @@ import qualified P2P.Node.PeerDB as P2P
 toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
 toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
   where
-    graph = toChainGraph (const cid) singleton
-    g = genesisBlockHeader Test graph cid
+    g = toyGenesis cid
 
 -- | Given a function that accepts a Genesis Block and
 -- an initialized `BlockHeaderDb`, perform some action

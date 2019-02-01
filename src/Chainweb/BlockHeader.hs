@@ -80,6 +80,9 @@ module Chainweb.BlockHeader
 , computeBlockHash
 , adjacentChainIds
 
+-- * IsBlockHeader
+, IsBlockHeader(..)
+
 -- * Genesis BlockHeader
 , genesisBlockHash
 , genesisBlockHeader
@@ -481,6 +484,17 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
+
+-- -------------------------------------------------------------------------- --
+-- IsBlockHeader
+
+-- | Any type which can purely produce a `BlockHeader`, or purely construct one.
+--
+class IsBlockHeader t where
+    isoBH :: Iso' t BlockHeader
+
+instance IsBlockHeader BlockHeader where
+    isoBH = id
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader

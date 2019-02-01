@@ -91,6 +91,8 @@ library
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Store.Git
+        , Chainweb.Store.Git.Internal
         , Chainweb.Time
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Persist
@@ -157,18 +159,20 @@ library
         , cryptohash-sha512 >= 0.11
         , data-dword >= 0.3
         , deepseq >= 1.4
-        , direct-sqlite >= 2.3
         , directory >= 1.3
         , errors >= 2.3
         , exceptions >= 0.8
+        , fast-builder >= 0.1
         , hashable >= 1.2
         , heaps >= 0.3
+        , hlibgit2 >= 0.18
         , http-client >= 0.5
         , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.2
+        , memory >= 0.14
         , mtl >= 2.2
         , mwc-random >= 0.13
         , network >= 2.6
@@ -186,21 +190,25 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , shelly >= 1.7
         , stm >= 2.4
         , stm-chans
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
-        , string-conv
+        , strict-tuple >= 0.1
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
         , time >= 1.8
         , transformers >= 0.5
+        , unliftio >= 0.2
         , unordered-containers >= 0.2
         , uuid >= 1.3
-        , vector
+        , vector >= 0.12
+        , vector-algorithms >= 0.8
         , warp >= 3.2
+        , witherable >= 0.2
         , yaml >= 0.8
 
         -- Network.X509.SelfSigned
@@ -263,9 +271,10 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
+        Chainweb.Test.Store.Git
         Chainweb.Test.TreeDB
-        Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Persistence
+        Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
         Network.X509.SelfSigned.Test
@@ -301,7 +310,6 @@ test-suite chainweb-tests
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random-bytestring >= 0.1
-        , reflection >= 2.1
         , resourcet >= 1.2
         , servant-client >= 0.13
         , stm
@@ -316,7 +324,7 @@ test-suite chainweb-tests
         , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
-        , vector
+        , vector >= 0.12
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
@@ -413,6 +421,36 @@ test-suite consensus-network-tests
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Benchmarking
+-- -------------------------------------------------------------------------- --
+
+benchmark chainweb-bench
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: Bench.hs
+  hs-source-dirs:
+      bench
+  ghc-options:
+      -Wall
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wredundant-constraints
+      -threaded
+      -O2
+      -with-rtsopts=-N
+  build-depends:
+        -- internal
+        chainweb
+
+        -- external
+        , base >= 4.11
+        , criterion >= 1.1
+        , deepseq
+        , streaming >= 0.2
+        , text
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
