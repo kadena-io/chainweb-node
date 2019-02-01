@@ -56,13 +56,13 @@ On startup a chainweb-node tries to connect to the P2P network. For that each
 chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
 chainweb-node, this is a single node with host-name `localhost`, and port
 `1789`. The hard-coded certificate for the *Test* bootstrap node is defined in
-the bootstrap configuration file `scripts/test-boostrap-node.config`.
+the bootstrap configuration file `scripts/test-bootstrap-node.config`.
 
 In order for a chainweb-node to be useful it must be able to connect to the
 bootstrap node. The *Test* bootstrap node can be started as follows:
 
 ```sh
-chainweb-node --node-id=0 --config-file=./scripts/test-boostrap-node.config`
+chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config`
 ```
 
 (`--interface=127.0.0.1` can be used to restrict availability of a node to the
