@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -14,11 +16,13 @@ module Chainweb.TreeDB.HashTarget
   ( hashTargetFromHistory
   ) where
 
+import Control.Lens ((^.))
+
 import Data.Function ((&))
+import qualified Data.HashSet as HS
 import Data.Int (Int64)
 import qualified Data.List.NonEmpty as NEL
 import Data.Semigroup (Max(..), Min(..))
-import qualified Data.HashSet as HS
 
 import Numeric.Additive (invert)
 import Numeric.AffineSpace (Diff, add, diff)
@@ -27,7 +31,8 @@ import qualified Streaming.Prelude as P
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader
+    (BlockHeader(..), IsBlockHeader(..), blockCreationTime, blockHeight)
 import Chainweb.Difficulty (HashTarget, calculateTarget)
 import Chainweb.Time (Time, TimeSpan)
 import Chainweb.TreeDB
@@ -52,14 +57,15 @@ A `BlockHashNat` is a newtype around a `Word256`, which comes from the `data-dwo
 -- in a window which goes back the given amount of time from its parent.
 --
 hashTargetFromHistory
-    :: TreeDb db
-    => DbEntry db ~ BlockHeader  -- TODO Use `IsBlockHeader` once Git Store PR is merged.
+    :: forall db. TreeDb db
+    => IsBlockHeader (DbEntry db)
     => db
     -> DbEntry db
     -> TimeSpan Int64
     -> IO HashTarget
 hashTargetFromHistory db bh ts = do
     es <- branchEntries db Nothing Nothing minr maxr lower upper
+          & P.map (^. isoBH)
           & P.takeWhile (\h -> _blockCreationTime h > time)
           & P.toList_
           & fmap (NEL.reverse . NEL.fromList)
@@ -68,17 +74,19 @@ hashTargetFromHistory db bh ts = do
         !deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
 
     let !start = _blockCreationTime $ NEL.head es
-        !end = _blockCreationTime bh
 
     pure $! calculateTarget (diff end start) deltas
   where
     timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
     timeDelta x y = diff (_blockCreationTime y) (_blockCreationTime x)
 
+    end :: Time Int64
+    end = bh ^. isoBH . blockCreationTime
+
     time :: Time Int64
-    time = invert ts `add` _blockCreationTime bh
+    time = invert ts `add` end
 
     minr = Just . MinRank $ Min 0
-    maxr = Just . MaxRank . Max . fromIntegral $ _blockHeight bh
+    maxr = Just . MaxRank . Max . fromIntegral $ bh ^. isoBH . blockHeight
     lower = HS.empty
     upper = HS.singleton . UpperBound $ key bh
