@@ -154,7 +154,7 @@ blockTimeSeconds = 4
 --
 config
     :: Port
-        -- ^ Port of boostrap node
+        -- ^ Port of bootstrap node
     -> Natural
         -- ^ number of nodes
     -> NodeId
@@ -218,7 +218,7 @@ node
 node loglevel write stateVar g bootstrapPortVar conf =
     withChainweb g conf logfuns $ \cw -> do
 
-        -- If this is the boostrap node we extract the port number and
+        -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
@@ -423,4 +423,3 @@ upperStats seconds = Stats
   where
     ebc :: Double
     ebc = int seconds * int (order graph) / int blockTimeSeconds
-
