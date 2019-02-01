@@ -358,6 +358,7 @@ miner logger conf nid db = singleChainMiner logger conf' nid db
         conf' = SingleChainMinerConfig
             { _configMeanBlockTimeSeconds = _meanBlockTimeSeconds conf
             , _configChainId = _nodeChainId conf
+            , _configTrivialTarget = True
             }
 
 -- -------------------------------------------------------------------------- --

@@ -94,7 +94,7 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
         p <- maxHeader db
 
         -- create entry
-        let e = testBlockHeader mid as (Nonce 0) p
+        let e = testBlockHeader mid as (Nonce 0) (_blockTarget p) p
 
         -- Add entry to database
         insert db e
