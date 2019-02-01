@@ -152,6 +152,7 @@ library
         , deepseq >= 1.4
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , hashable >= 1.2
         , hashtables >= 1.2
         , heaps >= 0.3

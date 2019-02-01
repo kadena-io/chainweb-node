@@ -58,8 +58,8 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 
-initPactService :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> STM (TVar RequestId) -> IO ()
-initPactService reqQStm respQStm reqIdStm = do
+initPactService :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> IO ()
+initPactService reqQStm respQStm = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
@@ -195,7 +195,7 @@ requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
 transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
-transactionsFromHeader _bHeader = undefined
+transactionsFromHeader _bHeader = return []
 
 mkPayloadHash :: Transactions -> IO BlockPayloadHash
 mkPayloadHash _trans = do

@@ -22,7 +22,6 @@ module Chainweb.Pact.Service.PactQueue
     ) where
 
 import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Chainweb.Pact.Service.Types
@@ -37,8 +36,10 @@ getNextRequest reqQStm = do
     q <- atomically reqQStm
     atomically $ readTQueue q
 
-addResponse :: ResponseMsg -> IO RequestId
-addResponse _msg = undefined
+addResponse :: STM (TQueue ResponseMsg) -> ResponseMsg -> IO ()
+addResponse respQStm msg = do
+    q <- atomically respQStm
+    atomically $ writeTQueue q msg
 
 getNextResponse :: STM (TQueue ResponseMsg) -> IO ResponseMsg
 getNextResponse respQStm = do

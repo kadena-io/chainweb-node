@@ -21,7 +21,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.STM
 
 import Data.Aeson
-import Data.Bifunctor
+import Data.Hashable
 import qualified Data.HashTable.IO as H
 import qualified Data.HashTable.ST.Basic as H
 import Data.Int
@@ -30,7 +30,8 @@ import Data.String.Conv (toS)
 import Safe
 import Servant
 
-import Chainweb.BlockHeader
+--TODO: How to get rid of the incorrect redundant import warning on this?
+import Chainweb.BlockHeader (BlockHeader, BlockPayloadHash)
 
 type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
           :<|> "newAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
@@ -48,7 +49,7 @@ type PactAppM = ReaderT RequestIdEnv Handler
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
 
-newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (Enum, Read, Show, FromJSON, ToJSON)
+newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (Enum, Eq, Hashable, Read, Show, FromJSON, ToJSON)
 
 instance FromHttpApiData RequestId where
     parseUrlPiece t =
