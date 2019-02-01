@@ -299,9 +299,11 @@ node cid t logger conf p2pConfig nid =
     reaperInterval = 60 * 60 * 1000000   -- one hour
     mempoolConfig = InMemConfig chainwebTransactionConfig blockSizeLimit reaperInterval
     minerConfig = SingleChainMinerConfig
-        (_numberOfNodes conf * _meanBlockTimeSeconds conf)
+        { _configMeanBlockTimeSeconds = _numberOfNodes conf * _meanBlockTimeSeconds conf
             -- We multiply these together, since this is now the mean time per node.
-        cid
+        , _configChainId = cid
+        , _configTrivialTarget = True
+        }
 
 withBlockHeaderDbGexf
     :: ChainwebVersion

@@ -39,7 +39,6 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
-, genesisBlockTarget
 , checkTarget
 , difficultyToTarget
 , targetToDifficulty

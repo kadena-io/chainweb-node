@@ -1,6 +1,9 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -25,11 +28,12 @@ import Configuration.Utils
 
 import Control.Concurrent
 import Control.Lens hiding ((.=))
-import Control.Monad
+
+import Data.Int (Int64)
 
 import GHC.Generics (Generic)
 
-import Numeric.Natural
+import Numeric.Natural (Natural)
 
 import qualified System.Logger as L
 import System.LogLevel
@@ -38,14 +42,18 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.TreeDB
-import Chainweb.ChainId
-import Chainweb.NodeId
-import Chainweb.Utils
+import Chainweb.BlockHash (BlockHashRecord(..))
+import Chainweb.BlockHeader (IsBlockHeader(..), Nonce(..), testBlockHeader)
+import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.NodeId (ChainNodeId)
+import Chainweb.Time (TimeSpan(..))
+import Chainweb.TreeDB (DbEntry, TreeDb, insert, maxHeader)
+import Chainweb.TreeDB.HashTarget (hashTargetFromHistory)
+import Chainweb.Utils (int, sshow)
 
-import Utils.Logging
+import P2P.Session (LogFunctionText)
+
+import Utils.Logging (Logger, loggerFunText)
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
@@ -53,6 +61,7 @@ import Utils.Logging
 data SingleChainMinerConfig = SingleChainMinerConfig
     { _configMeanBlockTimeSeconds :: !Natural
     , _configChainId :: !ChainId
+    , _configTrivialTarget :: !Bool
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -62,18 +71,21 @@ defaultSingleChainMinerConfig :: SingleChainMinerConfig
 defaultSingleChainMinerConfig = SingleChainMinerConfig
     { _configMeanBlockTimeSeconds = 10
     , _configChainId = testChainId 0
+    , _configTrivialTarget = False
     }
 
 instance ToJSON SingleChainMinerConfig where
     toJSON o = object
         [ "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
         , "chainId" .= _configChainId o
+        , "trivialTarget" .= _configTrivialTarget o
         ]
 
 instance FromJSON (SingleChainMinerConfig -> SingleChainMinerConfig) where
     parseJSON = withObject "SingleChainMinerConfig" $ \o -> id
         <$< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
         <*< configChainId ..: "chainId" % o
+        <*< configTrivialTarget ..: "configTrivialTarget" % o
 
 pSingleChainMinerConfig :: MParser SingleChainMinerConfig
 pSingleChainMinerConfig = id
@@ -85,6 +97,10 @@ pSingleChainMinerConfig = id
         % long "chainid"
         <> short 'c'
         <> help "the chain on which this miner mines"
+    <*< configTrivialTarget .:: boolOption_
+        % long "trivial-target"
+        <> short 't'
+        <> help "whether to use trivial difficulty targets (i.e. maxBound)"
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Miner
@@ -99,7 +115,7 @@ pSingleChainMinerConfig = id
 --
 singleChainMiner
     :: TreeDb db
-    => (DbEntry db ~ BlockHeader)
+    => IsBlockHeader (DbEntry db)
     => Logger
     -> SingleChainMinerConfig
     -> ChainNodeId
@@ -110,30 +126,41 @@ singleChainMiner logger conf nid db =
         let logg = loggerFunText logger'
         logg Info "Started Miner"
         gen <- MWC.createSystemRandom
-        go logg gen (1 :: Int)
+        go logg gen 1
   where
-    go logg gen i = do
+    go :: LogFunctionText -> MWC.GenIO -> Int -> IO ()
+    go logg gen !i = do
 
-        -- mine new block
+        -- Mine new block
         --
         d <- MWC.geometric1
             (1 / (int (_configMeanBlockTimeSeconds conf) * 1000000))
             gen
         threadDelay d
 
-        -- pick parent from longest branch
+        -- Pick parent from longest branch
         --
         p <- maxHeader db
 
-        -- create new (test) block header and add block header to the database
+        -- Difficulty Adjustment
         --
-        insert db $ testBlockHeader nid adjs (Nonce 0) p
-        void $ logg Debug $ "published new block " <> sshow i
+        target <- if | _configTrivialTarget conf -> pure maxBound
+                     | otherwise -> hashTargetFromHistory db p timeSpan
+        logg Debug $ "using hash target" <> sshow target
 
-        -- continue
+        -- Create new (test) block header and add block header to the database
+        --
+        insert db . (^. from isoBH) $ testBlockHeader nid adjs (Nonce 0) target $ p ^. isoBH
+        logg Debug $ "published new block " <> sshow i
+
+        -- Continue
         --
         go logg gen (i + 1)
 
+    expectedBlocks :: Natural
+    expectedBlocks = 10
+
+    timeSpan :: TimeSpan Int64
+    timeSpan = TimeSpan $ int (_configMeanBlockTimeSeconds conf * 1000000 * expectedBlocks)
+
     adjs = BlockHashRecord mempty
-
-

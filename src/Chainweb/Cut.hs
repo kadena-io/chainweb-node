@@ -584,7 +584,7 @@ testMineCutWithTime t n nid i c = do
     -- the block to mine on
     p = c ^?! ixg cid
 
-    newHeader as = testBlockHeaderWithTime t (nodeIdFromNodeId nid cid) as n p
+    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as n (_blockTarget p) t p
 
     -- try to get all adjacent hashes dependencies.
     newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
@@ -1004,4 +1004,3 @@ ioTest
     => (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
 ioTest f = T.monadicIO $ giveNewWebChain $ f >>= T.assert
-
