@@ -64,6 +64,22 @@ improvements (which are relevant to our use-case) have been made:
 
 `0.24.0` in particular may give us a nice improvement "for free".
 
+#### Cache leaves
+
+The complexity of `leaves` (and therefore `leafEntries`) is "`O(n)`-ish", in
+that, due to a detail of the `libgit2` library, the number of tags in `bh/`
+affects the speed at which we can read the tags in `leaf/`. Ideally, fetching
+leaves would be `O(1)`. To restore this, a `Map` of the current leaves could be
+kept in memory (say within `GitStoreData`), where it would be updated as leaves
+were added to or deleted from `leaf/`. `leaves` then becomes a `toList` of the
+`Map`, which would speed up a few operations elsewhere that depend on it.
+
+#### Custom `branchEntries`
+
+Using `walk` and `seekHighest`, a faster implementation of `branchEntries` could
+probably be written. Currently we rely on the default provided by `TreeDb`,
+which experimentally has been shown to be "fast enough".
+
 ### Correctness
 
 #### Expand `prune`
