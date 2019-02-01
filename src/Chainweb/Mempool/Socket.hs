@@ -9,6 +9,8 @@
 module Chainweb.Mempool.Socket
   ( withClient
   , withClientSession
+  , withTimeout
+  , defaultMempoolSocketTimeout
   , server
   , serverSession
   , ClientConfig(..)
@@ -437,9 +439,11 @@ serverSession :: Show t
                      -- ^ restore function to unmask exceptions.
               -> IO ()
 serverSession mempool streams restore =
-    withTimeout defaultTimeout streams (serverSession' mempool restore)
-  where
-    defaultTimeout = 120        -- TODO: configure
+    withTimeout defaultMempoolSocketTimeout streams (serverSession' mempool restore)
+
+
+defaultMempoolSocketTimeout :: Int
+defaultMempoolSocketTimeout = 120    -- TODO: configure
 
 
 serverSession'
@@ -592,10 +596,8 @@ withClient host port config handler = do
     (addr, sock) <- resolve host port
     N.connect sock addr
     streams0 <- toDebugStreams "client" sock
-    withTimeout defaultTimeout streams0
+    withTimeout defaultMempoolSocketTimeout streams0
         $ \streams -> withClientSession streams config handler
-  where
-    defaultTimeout = 120    -- TODO: configure
 
 
 toBackend :: Show t => ClientConfig t -> ClientState t -> MempoolBackend t
