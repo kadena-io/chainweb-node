@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -16,13 +17,15 @@
 module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import qualified Data.Aeson as A
+import Data.Bytes.Get
+import Data.Bytes.Put
+import Data.Bytes.Serial hiding (store)
+import qualified Data.ByteString as B
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
--- import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.String
 import Data.Serialize
--- import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.String
 
 import Control.Concurrent.MVar
 import Control.Exception
@@ -44,19 +47,25 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans
 import Chainweb.Pact.Backend.Types
 
-
 data DataToSave = DataToSave
   { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
   , _dtfTxId :: Maybe P.TxId
   , _dtfSQLiteConfig :: P.SQLiteConfig
   , _dtfCommandState :: P.CommandState
-  } deriving Generic
+  } deriving (Generic)
 
--- instance Serialize DataToSave where
---   put (DataToSave {..}) =
---     put _dtfTxRecord >> put _dtfTxId >> put _dtfSQLiteConfig >>
---     put _dtfCommandState
---   get = undefined
+instance Serialize DataToSave where
+  put (DataToSave {..}) = do
+    put _dtfTxRecord
+    put _dtfTxId
+    put _dtfSQLiteConfig
+    put _dtfCommandState
+  get = do
+    _dtfTxRecord <- get
+    _dtfTxId <- get
+    _dtfSQLiteConfig <- get
+    _dtfCommandState <- get
+    return $ DataToSave {..}
 
 makeLenses ''DataToSave
 
@@ -91,7 +100,7 @@ reinitDbEnv loggers funrec (DataToSave {..}) = do
   return (PactDbState (EnvPersist' (PactDbEnvPersist undefined (P.DbEnv {..}))) _dtfCommandState)
   where
     _persist = funrec
-    _logger = P.newLogger loggers (fromString "<to fill with something meaningful>")
+    _logger = P.newLogger loggers (fromString "<to fill with something meaningful>") -- TODO: Needs a better message
     _txRecord = _dtfTxRecord
     _txId = _dtfTxId
 
@@ -125,11 +134,11 @@ restore' lock height hash = do
 -- database (referenced by the aforementioned filename) is possible in
 -- a 'restore'.
 
--- prepareForValidBlock :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
-prepareForValidBlock = undefined
+-- -- prepareForValidBlock :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+-- prepareForValidBlock = undefined
 
 -- prepareForNewBlock :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
-prepareForNewBlock = undefined
+-- prepareForNewBlock = undefined
 
 -- This should close the database connection currently open upon
 -- arrival in this function. The database should either be closed (or
@@ -137,12 +146,20 @@ prepareForNewBlock = undefined
 -- be tests that assert this essential aspect of the 'save' semantics.
 save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
 save' lock height hash PactDbState {..}
-    -- Saving off checkpoint.
- = do
-  let datatosave = DataToSave undefined undefined undefined undefined
-  modifyMVarMasked_ lock (return . HMS.insert (height, hash) datatosave)
-    -- Closing database connection.
+ =
   case _pdbsDbEnv of
     EnvPersist' (PactDbEnvPersist {..}) ->
       case _pdepEnv of
-        P.DbEnv {..} -> closeDb _db
+        P.DbEnv {..} -> do
+          -- cfg <- getConfig _db
+          let cfg = undefined _db  -- TODO: how?
+          let datatosave = DataToSave _txRecord _txId cfg _pdbsState
+          let serializedData = encode datatosave
+          preparedFileName <- prepare _db serializedData
+          let serializedDataFileName = fromTempFileName preparedFileName
+          modifyMVarMasked_ lock (return . HMS.insert (height, hash) serializedDataFileName)
+             -- Closing database connection.
+          closeDb _db
+  where
+    prepare = undefined
+    fromTempFileName = undefined

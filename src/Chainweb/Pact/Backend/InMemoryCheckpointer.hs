@@ -11,15 +11,20 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
     ( initInMemoryCheckpointEnv
     ) where
 
+import qualified Data.Aeson as A
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
+import qualified Data.Map.Strict as M
 
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad.Catch
 
+import qualified Pact.Persist as P
+import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
@@ -32,6 +37,11 @@ import Chainweb.Pact.Backend.Types
 -- MIGHT INCLUDE THIS MODULE LATER
 
 data DataToSave = DataToSave
+  { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
+  , _dtfTxId :: Maybe P.TxId
+  , _dtfSQLiteConfig :: P.SQLiteConfig
+  , _dtfCommandState :: P.CommandState
+  }
 
 initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv cmdConfig logger gasEnv = do

@@ -1,8 +1,11 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -59,23 +62,28 @@ import Chainweb.BlockHeader
 class PactDbBackend e where
    openDb :: e -> IO ()
    closeDb :: e -> IO ()
+   -- getConfig :: e -> IO c
 
 data PactDbBackEndException  = PactDbBackEndException String
     deriving Show
 
 instance Exception PactDbBackEndException
 
+-- instance PactDbBackend P.PureDb () where
 instance PactDbBackend P.PureDb where
     openDb = const $ return ()
     closeDb = const $ return ()
+    -- getConfig = const $ return ()
 
+-- instance PactDbBackend P.SQLite P.SQLiteConfig where
 instance PactDbBackend P.SQLite where
     openDb = void . liftM2 P.initSQLite P.config (P.constLoggers . P.logger)
     closeDb =
       either (throwM . PactDbBackEndException) return <=< P.closeSQLite
+    -- getConfig = return . P.config
 
 data Env' =
-    forall a. PactDbBackend a =>
+  forall a. PactDbBackend a =>
               Env' (P.PactDbEnv (P.DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
