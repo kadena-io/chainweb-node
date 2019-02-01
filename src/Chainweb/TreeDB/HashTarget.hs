@@ -62,7 +62,7 @@ hashTargetFromHistory db bh ts = do
     es <- branchEntries db Nothing Nothing minr maxr lower upper
           & P.takeWhile (\h -> _blockCreationTime h > time)
           & P.toList_
-          & fmap NEL.fromList
+          & fmap (NEL.reverse . NEL.fromList)
 
     let deltas :: [(HashTarget, TimeSpan Int64)]
         !deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
@@ -70,8 +70,6 @@ hashTargetFromHistory db bh ts = do
     let !start = _blockCreationTime $ NEL.head es
         !end = _blockCreationTime bh
 
-    -- calculateTarget :: Integral a => TimeSpan a -> [(HashTarget, TimeSpan a)] -> HashTarget
-    -- TODO Why is passing the original @ts :: TimeSpan Int64@ not sufficient?
     pure $! calculateTarget (diff end start) deltas
   where
     timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)

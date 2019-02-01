@@ -39,6 +39,7 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, genesisBlockTarget
 , checkTarget
 , difficultyToTarget
 , targetToDifficulty
@@ -220,12 +221,11 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 
 -- | FIXME: make the overflow checks tight
 --
--- this algorithm introduces a rounding error in the order of
--- the length of the input list. We could reduce the error
--- at the cost of larger numbers (and thus more likely bound
--- violations). We could also eliminate the risk of bound
--- violations at the cost of larger rounding errors. The current
--- code is a compromise.
+-- this algorithm introduces a rounding error in the order of the length of the
+-- input list. We could reduce the error at the cost of larger numbers (and thus
+-- more likely bound violations). We could also eliminate the risk of bound
+-- violations at the cost of larger rounding errors. The current code is a
+-- compromise.
 --
 calculateTarget
     :: forall a
@@ -255,11 +255,11 @@ calculateTarget targetTime l = HashTarget $ sum
     --
     weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
     weightedTarget target timeSpan weight
-        | nominator < target = error "arithmetic overflow in hash target calculation"
+        | numerator < target = error "arithmetic overflow in hash target calculation"
         | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
-        | otherwise = nominator `div` denominator
+        | otherwise = numerator `div` denominator
       where
-        nominator = 2 * weight * target * t2h targetTime
+        numerator = 2 * weight * target * t2h targetTime
         denominator = n * (n + 1) * timeSpan
 
 -- -------------------------------------------------------------------------- --
@@ -280,4 +280,3 @@ properties :: [(String, Property)]
 properties =
     [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
     ]
-
