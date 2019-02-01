@@ -46,7 +46,7 @@ data Transaction = Transaction
     }
 makeLenses ''Transaction
 
-newtype Transactions = Transactions { _transactionPair :: [(Transaction, TransactionOutput)] }
+newtype Transactions = Transactions { _transactionPairs :: [(Transaction, TransactionOutput)] }
 
 data TransactionOutput = TransactionOutput
     { _getCommandResult :: P.CommandResult

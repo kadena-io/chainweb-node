@@ -18,7 +18,8 @@
 -- Pact execution HTTP API for Chainweb
 
 module Chainweb.Pact.Service.PactApi
-    ( run
+    ( pactServer
+    , pactServiceApp
     ) where
 
 import Control.Concurrent.Async
@@ -53,8 +54,8 @@ pactServer = newBlockReq
 toHandler :: RequestIdEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
-run :: Application
-run request _respond = do
+pactServiceApp :: Application
+pactServiceApp request _respond = do
     let reqIdStm = (newTVar (RequestId 0) :: STM (TVar RequestId))
     let reqQStm  = (newTQueue :: STM (TQueue RequestMsg))
     let respQStm = (newTQueue :: STM (TQueue ResponseMsg))

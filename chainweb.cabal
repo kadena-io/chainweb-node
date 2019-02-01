@@ -306,6 +306,7 @@ test-suite chainweb-tests
         cpp-options: -DWITH_PACT=1
         other-modules:
             Chainweb.Test.Pact
+            Chainweb.Test.PactService
         build-depends:
             pact >= 2.6
 

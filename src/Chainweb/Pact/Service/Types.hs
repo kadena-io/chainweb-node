@@ -30,14 +30,15 @@ import Data.String.Conv (toS)
 import Safe
 import Servant
 
---TODO: How to get rid of the incorrect redundant import warning on this?
+--TODO: How to get rid of the redundant import warning on this?
 import Chainweb.BlockHeader (BlockHeader, BlockPayloadHash)
 
 type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
           :<|> "newAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "poll" :> Capture "requestId" RequestId :> Post '[JSON] (Either String BlockPayloadHash)
+          -- :<|> "poll" :> Capture "requestId" RequestId :> Post '[JSON] (Either String BlockPayloadHash)
+          :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String BlockPayloadHash)
 
 data RequestIdEnv = RequestIdEnv { _rieReqIdStm :: STM (TVar RequestId)
                                  , _rieReqQStm :: STM (TQueue RequestMsg)

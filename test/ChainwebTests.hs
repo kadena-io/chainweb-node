@@ -52,7 +52,11 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Sync.tests
         ]
 #ifdef WITH_PACT
-    , Chainweb.Test.Pact.tests
+    [ testGroup "Pact Tests"
+        [ Chainweb.Test.Pact.tests
+        , Chainweb.Test.PactService
+        ]
+    ]
 #endif
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests

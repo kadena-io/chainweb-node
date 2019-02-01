@@ -34,7 +34,9 @@ import Control.Monad.State
 
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Maybe
+import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -57,6 +59,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+import Chainweb.Version
 
 initPactService :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> IO ()
 initPactService reqQStm respQStm = do
@@ -117,7 +120,7 @@ newBlock parentHeader@BlockHeader{..} = do
         cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
         updateState cpdata
     results <- execTransactions newTrans
-    liftIO $ mkPayloadHash results
+    return $ mkPayloadHash results
 
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: BlockHeader -> PactT BlockPayloadHash
@@ -133,7 +136,7 @@ validateBlock currHeader = do
     currentState <- get
     liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
              (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
-    liftIO $ mkPayloadHash results
+    return $ mkPayloadHash results
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -197,10 +200,41 @@ requestTransactions _crit = return []
 transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
 transactionsFromHeader _bHeader = return []
 
-mkPayloadHash :: Transactions -> IO BlockPayloadHash
-mkPayloadHash _trans = do
-    bhb <- randomBlockHashBytes
-    return $ BlockPayloadHash bhb
+-- TODO: Verify the contents of the PayloadHash (i.e., the pre-hashed data)
+mkPayloadHash :: Transactions -> BlockPayloadHash
+mkPayloadHash trans =
+    let theBs = BS.concat $ transToBs <$> _transactionPairs trans
+    in hashPayload Test theBs
+
+transToBs :: (Transaction, TransactionOutput) -> ByteString
+transToBs (t, tOut) =
+    P._cmdPayload (_tCmd t)
+    `BS.append`
+    toS (concat (_getTxLogs tOut))
+
+{-
+hashPayload :: ChainwebVersion -> ByteString -> BlockPayloadHash
+hashPayload v b = BlockPayloadHash $! cryptoHash v b
+    let hash = hashPayload Test bs
+
+newtype Transactions = Transactions { _transactionPair :: [(Transaction, TransactionOutput)] }
+
+data Transaction = Transaction
+    { _tTxId :: Word64
+    , _tCmd :: P.Command ByteString
+    }
+
+data Command a = Command
+  { _cmdPayload :: !a
+  , _cmdSigs :: ![UserSig]
+  , _cmdHash :: !Hash
+  } deriving (Eq,Show,Ord,Generic,Functor,Foldable,Traversable)
+
+data TransactionOutput = TransactionOutput
+    { _getCommandResult :: P.CommandResult
+    , _getTxLogs :: [P.TxLog A.Value]
+    }
+-}
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv
