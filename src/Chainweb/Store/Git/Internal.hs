@@ -39,7 +39,6 @@ module Chainweb.Store.Git.Internal
   , leaves
   , leaves'
   , highestLeaf
-  , allFromHeight
   , lookupByBlockHash
   , lookupTreeEntryByHash
   , readParent
@@ -548,22 +547,6 @@ lookupTreeEntryByHeight' gs leafTreeHash height (LeafTreeData (BlobEntry (TreeEn
             gh = _te_gitHash frst
         if | _te_blockHeight frst == height -> pure frst
            | otherwise -> lookupTreeEntryByHeight gs gh height
-
--- | All `BlockHeader` found in @refs\/tags\/bh\/@ at a given height.
---
-allFromHeight :: GitStore -> BlockHeight -> IO [BlockHeader]
-allFromHeight gs bh = do
-    ts <- allFromHeight' gs bh
-    lockGitStore gs $ \gsd ->
-        traverse (readHeader gsd) ts
-
--- | All `TreeEntry` found in @refs\/tags\/bh\/@ at a given height.
---
-allFromHeight' :: GitStore -> BlockHeight -> IO [TreeEntry]
-allFromHeight' gs (BlockHeight bh) = lockGitStore gs $ \gsd -> matchTags gsd bhPath 3
-  where
-    bhPath :: NullTerminated
-    bhPath = NullTerminated [ "bh/", FB.toStrictByteString (FB.word64HexFixed bh), "*\0" ]
 
 readParent :: GitStoreData -> GitHash -> IO TreeEntry
 readParent store treeGitHash = withTreeObject store treeGitHash (unsafeReadTree 1)
