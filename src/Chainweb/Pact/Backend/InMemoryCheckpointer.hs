@@ -39,7 +39,6 @@ import Chainweb.Pact.Backend.Types
 data DataToSave = DataToSave
   { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
   , _dtfTxId :: Maybe P.TxId
-  , _dtfSQLiteConfig :: P.SQLiteConfig
   , _dtfCommandState :: P.CommandState
   }
 

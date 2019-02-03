@@ -4,8 +4,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -37,6 +39,7 @@ module Chainweb.Pact.Backend.Types
     , PactDbState(..)
     , pdbsDbEnv
     , pdbsState
+    , SaveData(..)
     , usage
     ) where
 
@@ -44,43 +47,83 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson
+import qualified Data.Aeson as A
+import qualified Data.ByteString as B
+import qualified Data.Map as M
+import Data.Serialize
 
 import GHC.Generics
 
 import qualified Pact.Interpreter as P
+import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
+import Chainweb.Pact.Backend.Orphans
 
 class PactDbBackend e where
-   openDb :: e -> IO ()
-   closeDb :: e -> IO ()
-   -- getConfig :: e -> IO c
+  openDb :: e -> IO ()
+  closeDb :: e -> IO ()
+  saveDb :: PactDbEnvPersist e -> M.Map P.TxTable [P.TxLog A.Value] -> Maybe P.TxId -> P.CommandState -> IO (Maybe FilePath)
 
 data PactDbBackEndException  = PactDbBackEndException String
     deriving Show
 
 instance Exception PactDbBackEndException
 
--- instance PactDbBackend P.PureDb () where
 instance PactDbBackend P.PureDb where
     openDb = const $ return ()
     closeDb = const $ return ()
-    -- getConfig = const $ return ()
+    saveDb = savePure
 
--- instance PactDbBackend P.SQLite P.SQLiteConfig where
+savePure :: PactDbEnvPersist P.PureDb -> M.Map P.TxTable [P.TxLog A.Value] -> Maybe P.TxId -> P.CommandState -> IO (Maybe FilePath)
+savePure _ _ _ _ = return Nothing
+
 instance PactDbBackend P.SQLite where
     openDb = void . liftM2 P.initSQLite P.config (P.constLoggers . P.logger)
     closeDb =
       either (throwM . PactDbBackEndException) return <=< P.closeSQLite
-    -- getConfig = return . P.config
+    saveDb = saveSQLite
+
+saveSQLite :: PactDbEnvPersist P.SQLite -> M.Map P.TxTable [P.TxLog A.Value] -> Maybe P.TxId -> P.CommandState -> IO (Maybe FilePath)
+saveSQLite PactDbEnvPersist {..} txrecord txid commandstate =
+  case _pdepEnv of
+    p@(P.DbEnv {..}) -> do
+        let config = P.config (P._db p)
+            savedata = encode $ SaveData txrecord txid config commandstate
+        preparedFileName <- prepare _db savedata
+        return (Just $ fromTempFileName preparedFileName)
+  where
+    prepare = undefined
+    fromTempFileName = undefined
+-- B.writeFile
+
+data SaveData = SaveData
+  { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
+  , _dtfTxId :: Maybe P.TxId
+  , _dtfSQLiteConfig :: P.SQLiteConfig
+  , _dtfCommandState :: P.CommandState
+  } deriving (Generic)
+
+instance Serialize SaveData where
+  put (SaveData {..}) = do
+    put _dtfTxRecord
+    put _dtfTxId
+    put _dtfSQLiteConfig
+    put _dtfCommandState
+  get = do
+    _dtfTxRecord <- get
+    _dtfTxId <- get
+    _dtfSQLiteConfig <- get
+    _dtfCommandState <- get
+    return $ SaveData {..}
 
 data Env' =
   forall a. PactDbBackend a =>
@@ -92,6 +135,8 @@ data PactDbEnvPersist p = PactDbEnvPersist
     }
 
 makeLenses ''PactDbEnvPersist
+
+makeLenses ''SaveData
 
 data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
 
@@ -110,7 +155,7 @@ data PactDbConfig = PactDbConfig
     , _pdbcGasRate :: Maybe Int
     } deriving (Eq, Show, Generic)
 
-instance FromJSON PactDbConfig
+instance A.FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 

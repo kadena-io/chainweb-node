@@ -47,28 +47,6 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans
 import Chainweb.Pact.Backend.Types
 
-data DataToSave = DataToSave
-  { _dtfTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
-  , _dtfTxId :: Maybe P.TxId
-  , _dtfSQLiteConfig :: P.SQLiteConfig
-  , _dtfCommandState :: P.CommandState
-  } deriving (Generic)
-
-instance Serialize DataToSave where
-  put (DataToSave {..}) = do
-    put _dtfTxRecord
-    put _dtfTxId
-    put _dtfSQLiteConfig
-    put _dtfCommandState
-  get = do
-    _dtfTxRecord <- get
-    _dtfTxId <- get
-    _dtfSQLiteConfig <- get
-    _dtfCommandState <- get
-    return $ DataToSave {..}
-
-makeLenses ''DataToSave
-
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
     inmem <- newMVar mempty
@@ -84,7 +62,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) DataToSave
+type Store = HashMap (BlockHeight, BlockPayloadHash) SaveData
 
 changeSQLFilePath ::
        FilePath
@@ -94,8 +72,8 @@ changeSQLFilePath ::
 changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
     P.SQLiteConfig (f fp dbFile) pragmas
 
-reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> DataToSave -> IO PactDbState
-reinitDbEnv loggers funrec (DataToSave {..}) = do
+reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData -> IO PactDbState
+reinitDbEnv loggers funrec (SaveData {..}) = do
   _db <- P.initSQLite _dtfSQLiteConfig loggers
   return (PactDbState (EnvPersist' (PactDbEnvPersist undefined (P.DbEnv {..}))) _dtfCommandState)
   where
@@ -151,10 +129,9 @@ save' lock height hash PactDbState {..}
     EnvPersist' (PactDbEnvPersist {..}) ->
       case _pdepEnv of
         P.DbEnv {..} -> do
-          -- cfg <- getConfig _db
           let cfg = undefined _db  -- TODO: how?
-          let datatosave = DataToSave _txRecord _txId cfg _pdbsState
-          let serializedData = encode datatosave
+          let savedata = SaveData _txRecord _txId cfg _pdbsState
+          let serializedData = encode savedata
           preparedFileName <- prepare _db serializedData
           let serializedDataFileName = fromTempFileName preparedFileName
           modifyMVarMasked_ lock (return . HMS.insert (height, hash) serializedDataFileName)

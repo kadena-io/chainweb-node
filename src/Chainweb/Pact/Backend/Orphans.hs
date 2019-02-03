@@ -85,7 +85,7 @@ deriving instance Serial Ref
 instance Serial RefStore where
   serialize RefStore {..} = serialize _rsModules
   deserialize = do
-    let _rsNatives = undefined
+    let _rsNatives = undefined -- TODO:
     _rsModules <- deserialize
     return $ RefStore {..}
 
@@ -331,13 +331,16 @@ instance Serial1 Term where
         serialize _tInfo
       TBinding {..} -> do
         putWord8 7
-          -- serializeWith (serializeWith (serializeWith f)) _tBindPairs --TODO: come back here
+        pairListSerial1Helper
+          (serializeWith (serializeWith f))
+          (serializeWith f)
+          _tBindPairs
         serializeWith f _tBindBody
         serializeWith (serializeWith (serializeWith f)) _tBindType
         serialize _tInfo
       TObject {..} -> do
         putWord8 8
-          -- serializeWith (serializeWith f) _tObject
+        pairListSerial1Helper (serializeWith f) (serializeWith f) _tObject
         serializeWith (serializeWith f) _tObjectType
         serialize _tInfo
       TSchema {..} -> do
@@ -418,13 +421,17 @@ instance Serial1 Term where
           _tInfo <- deserialize
           return $ TVar {..}
         7 -> do
-          _tBindPairs <- undefined
+          _tBindPairs <-
+            pairListDeSerial1Helper
+              (deserializeWith . deserializeWith)
+              deserializeWith
+              m
           _tBindBody <- deserializeWith m
           _tBindType <- deserializeWith (deserializeWith (deserializeWith m))
           _tInfo <- deserialize
           return $ TBinding {..}
         8 -> do
-          _tObject <- undefined
+          _tObject <- pairListDeSerial1Helper deserializeWith deserializeWith m
           _tObjectType <- deserializeWith (deserializeWith m)
           _tInfo <- deserialize
           return $ TObject {..}
@@ -466,6 +473,22 @@ instance Serial1 Term where
           _tInfo <- deserialize
           return $ TTable {..}
         _ -> fail "Term: Deserialization error."
+
+pairListSerial1Helper _ _ [] = putWord8 1
+pairListSerial1Helper f g ((a, b):xs) =
+  putWord8 0 >> f a >> g b >>
+  pairListSerial1Helper f g xs
+
+pairListDeSerial1Helper f g m = fmap Prelude.reverse (go f g m)
+  where
+    go ff gg mm =
+      getWord8 >>= \a ->
+        case a of
+          0 -> do
+            pair <- liftM2 (,) (ff mm) (gg mm)
+            fmap (pair :) (go ff gg mm)
+          1 -> return []
+
 
 deriving instance Serial Module
 deriving instance Serial PrimType
@@ -578,7 +601,7 @@ deriving instance Serialize KeySetName
 instance Serialize RefStore where
   put RefStore {..} = put _rsModules
   get = do
-    let _rsNatives = undefined
+    let _rsNatives = undefined -- TODO:
     _rsModules <- get
     return $ RefStore {..}
 
