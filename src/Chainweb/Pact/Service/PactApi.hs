@@ -18,7 +18,8 @@
 -- Pact execution HTTP API for Chainweb
 
 module Chainweb.Pact.Service.PactApi
-    ( pactServer
+    ( newBlockReq
+    , pactServer
     , pactServiceApp
     ) where
 

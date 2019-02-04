@@ -184,7 +184,8 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
     case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv) eMode cmd procCmd
+            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
+                     eMode cmd procCmd
 
 updateState :: CheckpointData  -> PactT ()
 updateState CheckpointData {..} = do
@@ -208,9 +209,10 @@ mkPayloadHash trans =
 
 transToBs :: (Transaction, TransactionOutput) -> ByteString
 transToBs (t, tOut) =
-    P._cmdPayload (_tCmd t)
-    `BS.append`
-    toS (concat (_getTxLogs tOut))
+    let logsBS = BS.concat $ toS <$> A.encode <$> _getTxLogs tOut
+        cmdPayLoadBS = P._cmdPayload (_tCmd t)
+    in cmdPayLoadBS `BS.append` logsBS
+
 
 {-
 hashPayload :: ChainwebVersion -> ByteString -> BlockPayloadHash

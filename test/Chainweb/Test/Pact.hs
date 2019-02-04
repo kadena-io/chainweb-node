@@ -85,7 +85,7 @@ execTests = do
     let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
                          nonces intSeq cmdStrs
     results <- execTransactions trans
-    let outputs = snd <$> _transactionPair results
+    let outputs = snd <$> _transactionPairs results
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
