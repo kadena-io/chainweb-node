@@ -150,8 +150,10 @@ library
         , data-dword >= 0.3
         , Decimal >= 0.4.2 && < 0.6
         , deepseq >= 1.4
+        , directory >= 1.2
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , hashable >= 1.2
         , heaps >= 0.3
         , http-client >= 0.5

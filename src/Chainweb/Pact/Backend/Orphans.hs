@@ -247,17 +247,17 @@ instance Serial NativeDFun where
       (native_dfun_deserialize _nativeName)
 
 native_dfun_deserialize :: NativeDefName -> Maybe NativeDFun
-native_dfun_deserialize nativename = do
-  ref <- Data.HashMap.Strict.lookup name nativeDefs
-  case ref of
-    Direct t ->
-      case t of
-        TNative {..} -> return _tNativeFun
-        _ -> Nothing
-    _ -> Nothing
+native_dfun_deserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
   where
     getText (NativeDefName text) = text
     name = Name (getText nativename) def
+    go r =
+        case r of
+            Direct t ->
+                case t of
+                    TNative {..} -> return _tNativeFun
+                    _ -> Nothing
+            rr@(Ref _) -> go rr
 
 -- native_dfun_deserialize nativename = Prelude.foldr go Nothing nativeDefs
 --   where
@@ -329,15 +329,6 @@ deriving instance Serial ModuleGuard
 
 deriving instance Serial UserGuard
 
--- deriving instance Serial (TypeVar (Term Name))
--- deriving instance Serial (FunType (Term Name))
--- deriving instance Serial (BindType (Term Name))
--- deriving instance Serial (BindType (Type (Term Name)))
--- deriving instance Serial (Type (Term Name))
--- deriving instance Serial (Term Name)
--- deriving instance Serial (ConstVal (Term Name))
--- deriving instance Serial (App (Term Name))
--- deriving instance Serial (Def Name)
 deriving instance Serial KeySet
 
 deriving instance Serial KeySetName
