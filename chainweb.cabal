@@ -285,9 +285,11 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , random >= 1.1
         , resourcet >= 1.2
         , scientific >= 0.3
         , servant-client >= 0.13
+        , servant-server >= 0.13
         , streaming >= 0.2
         , tasty >= 1.0
         , tasty-hunit >= 0.9

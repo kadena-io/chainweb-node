@@ -49,7 +49,6 @@ import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
 
 -- internal modules
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.MemoryDb

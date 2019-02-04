@@ -57,6 +57,7 @@ toHandler env x = runReaderT x env
 
 pactServiceApp :: Application
 pactServiceApp request _respond = do
+    putStrLn "pactServiceApp called"
     let reqIdStm = (newTVar (RequestId 0) :: STM (TVar RequestId))
     let reqQStm  = (newTQueue :: STM (TQueue RequestMsg))
     let respQStm = (newTQueue :: STM (TQueue ResponseMsg))
@@ -84,6 +85,7 @@ incRequestId = do
 
 newBlockReq :: BlockHeader -> PactAppM (Either String BlockPayloadHash)
 newBlockReq bHeader = do
+    liftIO $ putStrLn "newBlockReq called"
     newReqId <- incRequestId
     reqQStm <- view rieReqQStm
     let msg = RequestMsg

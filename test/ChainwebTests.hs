@@ -30,6 +30,7 @@ import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
 #ifdef WITH_PACT
 import qualified Chainweb.Test.Pact
+import qualified Chainweb.Test.PactService
 #endif
 
 import qualified Data.DiGraph (properties)
@@ -51,13 +52,6 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
-#ifdef WITH_PACT
-    [ testGroup "Pact Tests"
-        [ Chainweb.Test.Pact.tests
-        , Chainweb.Test.PactService
-        ]
-    ]
-#endif
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
@@ -70,4 +64,10 @@ suite = testGroup "Unit Tests"
     -- , testGroup "Network.X05.SelfSigned.Test"
     --     [ Network.X509.SelfSigned.Test.tests
     --     ]
+#ifdef WITH_PACT
+    , testGroup "Pact Tests"
+        [ Chainweb.Test.Pact.tests
+        , Chainweb.Test.PactService.tests
+        ]
+#endif
     ]

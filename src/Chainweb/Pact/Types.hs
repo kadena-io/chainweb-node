@@ -37,7 +37,6 @@ import GHC.Word
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Persistence as P
 
-import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction

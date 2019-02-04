@@ -52,9 +52,7 @@ withPactServiceApp action = do
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))
 
-
 testGetNewBlock :: BlockHeader -> ClientM (Either String BlockPayloadHash)
--- testGetNewBlock :: BlockHeader -> Either String BlockPayloadHash
 testGetNewBlockAsync :: BlockHeader -> ClientM RequestId
 testValidate :: BlockHeader -> ClientM (Either String BlockPayloadHash)
 testValidateAsync :: BlockHeader -> ClientM RequestId
@@ -88,8 +86,3 @@ testPayloadHash :: IO (Either ServantError (Either String BlockPayloadHash))
 testPayloadHash = do
     bhb <- randomBlockHashBytes
     return $ Right $ Right $ BlockPayloadHash bhb
-
--- computeBlockHash :: BlockHeader -> BlockHash
--- newtype BlockPayloadHash = BlockPayloadHash BlockHashBytes
--- blockHashBytes :: MonadThrow m => B.ByteString -> m BlockHashBytes
--- randomBlockHashBytes :: MonadIO m => m BlockHashBytes
