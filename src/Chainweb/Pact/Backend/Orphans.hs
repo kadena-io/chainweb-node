@@ -10,13 +10,14 @@
 
 -- |
 -- Module: Chainweb.Pact.Backend.Orphans
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.Orphans where
 
+import Control.Applicative
 import Control.Monad
 
 import Data.Aeson
@@ -24,11 +25,13 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Serial
 import Data.Decimal
+import Data.Default
 import Data.Functor.Identity
 import Data.Hashable
 import Data.HashMap.Strict
 import Data.HashSet
 import Data.List.NonEmpty
+import Data.Maybe
 import Data.Serialize hiding (getWord8, putWord8)
 import Data.Thyme.Clock
 import Data.Thyme.Internal.Micro
@@ -235,8 +238,39 @@ instance Serial1 Def where
 deriving instance Serial NativeDefName
 
 instance Serial NativeDFun where
-    serialize (NativeDFun {..}) = serialize _nativeName
-    deserialize = undefined -- TODO: How do we get the actual native function back during deserialization?
+  serialize (NativeDFun {..}) = serialize _nativeName
+  deserialize = do
+    _nativeName <- deserialize
+    maybe
+      (fail "Serial NativeDFun: deserialization error.")
+      return
+      (native_dfun_deserialize _nativeName)
+
+native_dfun_deserialize :: NativeDefName -> Maybe NativeDFun
+native_dfun_deserialize nativename = do
+  ref <- Data.HashMap.Strict.lookup name nativeDefs
+  case ref of
+    Direct t ->
+      case t of
+        TNative {..} -> return _tNativeFun
+        _ -> Nothing
+    _ -> Nothing
+  where
+    getText (NativeDefName text) = text
+    name = Name (getText nativename) def
+
+-- native_dfun_deserialize nativename = Prelude.foldr go Nothing nativeDefs
+--   where
+--     go a b =
+--       case a of
+--         Direct t ->
+--           case t of
+--             TNative {..} ->
+--               if _tNativeName == nativename
+--                  then Just _tNativeFun <|> b
+--                  else b
+--             _ -> b
+--         Ref r -> go r b
 
 instance Serial1 ConstVal where
     serializeWith f t =
@@ -945,8 +979,10 @@ instance Serialize NativeDFun where
     put NativeDFun {..} = put _nativeName
     get = do
         _nativeName <- get
-        let _nativeFun = undefined -- TODO:Where do I to get this?
-        return $ NativeDFun {..}
+        maybe
+          (fail "Serial NativeDFun: deserialization error.")
+          return
+          (native_dfun_deserialize _nativeName)
 
 instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
     put = put . Data.HashSet.toList
