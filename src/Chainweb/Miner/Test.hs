@@ -31,6 +31,7 @@ import Control.Concurrent
 import Control.Lens hiding ((.=))
 import Control.Monad.STM
 
+import Data.Int (Int64)
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
 
@@ -45,11 +46,15 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Difficulty (HashTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
+import Chainweb.Time (TimeSpan(..))
+import Chainweb.TreeDB.HashTarget (hashTargetFromHistory)
 import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
 
@@ -142,11 +147,10 @@ miner logFun conf nid cutDb wcdb = do
                 cid <- randomChainId c
                 nonce <- MWC.uniform gen
 
-                -- | The parent block to mine on.
-                --
+                --  The parent block to mine on.
                 let p = c ^?! ixg cid
 
-                target <- getTarget p
+                target <- getTarget cid p
 
                 testMine (Nonce nonce) target nid cid c >>= \case
                     Nothing -> mine
@@ -164,7 +168,18 @@ miner logFun conf nid cutDb wcdb = do
         --
         go gen (i + 1)
 
-    getTarget :: BlockHeader -> IO HashTarget
-    getTarget bh
+    getTarget :: ChainId -> BlockHeader -> IO HashTarget
+    getTarget cid bh
         | _configTrivialTarget conf = pure $ _blockTarget bh
-        | otherwise = undefined
+        | otherwise = case blockDb cid of
+              Nothing -> pure $ _blockTarget bh
+              Just db -> hashTargetFromHistory db bh timeSpan
+
+    blockDb :: ChainId -> Maybe BlockHeaderDb
+    blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
+
+    expectedBlocks :: Natural
+    expectedBlocks = 10
+
+    timeSpan :: TimeSpan Int64
+    timeSpan = TimeSpan $ int (_configMeanBlockTimeSeconds conf * 1000000 * expectedBlocks)
