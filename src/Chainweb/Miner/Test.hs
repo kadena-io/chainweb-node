@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -46,6 +47,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Difficulty (HashTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Utils
@@ -57,8 +59,9 @@ import Data.LogMessage
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
 
-newtype MinerConfig = MinerConfig
-    { _configMeanBlockTimeSeconds :: Natural
+data MinerConfig = MinerConfig
+    { _configMeanBlockTimeSeconds :: !Natural
+    , _configTrivialTarget :: !Bool
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -67,16 +70,19 @@ makeLenses ''MinerConfig
 defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
     { _configMeanBlockTimeSeconds = 10
+    , _configTrivialTarget = False
     }
 
 instance ToJSON MinerConfig where
     toJSON o = object
         [ "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
+        , "trivialTarget" .= _configTrivialTarget o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
         <$< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
+        <*< configTrivialTarget ..: "configTrivialTarget" % o
 
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
@@ -84,6 +90,10 @@ pMinerConfig = id
         % long "mean-block-time"
         <> short 'b'
         <> help "mean time for mining a block seconds"
+    <*< configTrivialTarget .:: boolOption_
+        % long "trivial-target"
+        <> short 't'
+        <> help "whether to use trivial difficulty targets (i.e. maxBound)"
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -98,16 +108,16 @@ miner
 miner logFun conf nid cutDb wcdb = do
     logg Info "Started Miner"
     gen <- MWC.createSystemRandom
-    give wcdb $ go gen (1 :: Int)
-
+    give wcdb $ go gen 1
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
+    graph :: ChainGraph
     graph = _chainGraph cutDb
 
     go :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> IO ()
-    go gen i = do
+    go gen !i = do
 
         -- mine new block
         --
@@ -127,17 +137,24 @@ miner logFun conf nid cutDb wcdb = do
 
         -- create new (test) block header
         --
-        let mine = do
+        let mine :: IO Cut
+            mine = do
                 cid <- randomChainId c
                 nonce <- MWC.uniform gen
 
-                testMine (Nonce nonce) nid cid c >>= \case
+                -- | The parent block to mine on.
+                --
+                let p = c ^?! ixg cid
+
+                target <- getTarget p
+
+                testMine (Nonce nonce) target nid cid c >>= \case
                     Nothing -> mine
                     Just x -> return x
 
         c' <- mine
 
-        _ <- logg Info $ "created new block" <> sshow i
+        logg Info $ "created new block" <> sshow i
 
         -- public cut into CutDb (add to queue)
         --
@@ -147,3 +164,7 @@ miner logFun conf nid cutDb wcdb = do
         --
         go gen (i + 1)
 
+    getTarget :: BlockHeader -> IO HashTarget
+    getTarget bh
+        | _configTrivialTarget conf = pure $ _blockTarget bh
+        | otherwise = undefined

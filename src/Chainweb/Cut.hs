@@ -132,6 +132,7 @@ import qualified Test.QuickCheck.Monadic as T
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Difficulty (HashTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Time
@@ -555,58 +556,53 @@ testMine
     :: HasChainId cid
     => Given WebBlockHeaderDb
     => Nonce
+    -> HashTarget
     -> NodeId
     -> cid
     -> Cut
     -> IO (Maybe Cut)
-testMine n nid i c = do
-    t <- getCurrentTimeIntegral
-    forM (testMineCutWithTime t n nid i c) $ \(h, c') ->
+testMine n ht nid i c = do
+    ct <- getCurrentTimeIntegral
+    forM (testMineCut n ht ct nid i c) $ \(h, c') ->
         c' <$ insertWebBlockHeaderDb h
 
 -- | Only produces a new cut but doesn't insert it into the chain database.
 --
-testMineCutWithTime
-    :: HasCallStack
-    => HasChainId cid
-    => Time Int64
-    -> Nonce
-    -> NodeId
-    -> cid
-    -> Cut
-    -> Maybe (BlockHeader, Cut)
-testMineCutWithTime t n nid i c = do
-    h <- newHeader . BlockHashRecord <$> newAdjHashes
-    return (h, c & cutHeaders . ix cid .~ h)
-  where
-    cid = _chainId i
-
-    -- the block to mine on
-    p = c ^?! ixg cid
-
-    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as n (_blockTarget p) t p
-
-    -- try to get all adjacent hashes dependencies.
-    newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
-        c ^?! ixg (_chainId x) . to (tryAdj (_blockHeight p))
-
-    tryAdj h b
-        | _blockHeight b == h = Just (_blockHash b)
-        | _blockHeight b == h + 1 = Just $ _blockParent b
-        | otherwise = Nothing
-
 testMineCut
     :: HasCallStack
     => HasChainId cid
     => Nonce
+    -> HashTarget
+    -> Time Int64
     -> NodeId
     -> cid
     -> Cut
     -> Maybe (BlockHeader, Cut)
-testMineCut n nid i c = testMineCutWithTime (second `add` t) n nid i c
+testMineCut n ht ct nid i c = do
+    h <- newHeader . BlockHashRecord <$> newAdjHashes
+    Just (h, c & cutHeaders . ix cid .~ h)
   where
     cid = _chainId i
-    BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid
+
+    -- | The parent block to mine on.
+    --
+    p :: BlockHeader
+    p = c ^?! ixg cid
+
+    newHeader :: BlockHashRecord -> BlockHeader
+    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as n ht ct p
+
+    -- | Try to get all adjacent hashes dependencies.
+    --
+    newAdjHashes :: Maybe (HM.HashMap ChainId BlockHash)
+    newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
+        c ^?! ixg (_chainId x) . to (tryAdj (_blockHeight p))
+
+    tryAdj :: BlockHeight -> BlockHeader -> Maybe BlockHash
+    tryAdj h b
+        | _blockHeight b == h = Just (_blockHash b)
+        | _blockHeight b == h + 1 = Just $ _blockParent b
+        | otherwise = Nothing
 
 randomChainId :: HasChainGraph g => g -> IO ChainId
 randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
@@ -637,7 +633,7 @@ arbitraryCut = T.sized $ \s -> do
     mine c cid = do
         n <- Nonce <$> T.arbitrary
         nid <- T.arbitrary
-        return $ testMineCut n nid cid c
+        return $ testMineCut n genesisBlockTarget nid cid c
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList chainIds)
@@ -668,7 +664,7 @@ arbitraryWebChainCut initialCut = do
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
         nid <- T.pick T.arbitrary
-        liftIO $ testMine n nid cid c
+        liftIO $ testMine n genesisBlockTarget nid cid c
 
 arbitraryWebChainCut_
     :: HasCallStack
@@ -691,7 +687,7 @@ arbitraryWebChainCut_ initialCut = do
     mine c cid = do
         n <- Nonce <$> TT.liftGen T.arbitrary
         nid <- TT.liftGen T.arbitrary
-        liftIO $ testMine n nid cid c
+        liftIO $ testMine n genesisBlockTarget nid cid c
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork

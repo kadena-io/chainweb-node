@@ -49,7 +49,6 @@ module Chainweb.Difficulty
 , HashDifficulty(..)
 , encodeHashDifficulty
 , decodeHashDifficulty
-, calculateTarget
 
 -- * Test Properties
 , properties
@@ -80,7 +79,6 @@ import Test.QuickCheck (Property, property)
 import Chainweb.PowHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Time
 import Chainweb.Utils
 
 import Data.Word.Encoding hiding (properties)
@@ -226,40 +224,40 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 -- violations at the cost of larger rounding errors. The current code is a
 -- compromise.
 --
-calculateTarget
-    :: forall a
-    . Integral a
-    => TimeSpan a
-    -> [(HashTarget, TimeSpan a)]
-    -> HashTarget
-calculateTarget targetTime l = HashTarget $ sum
-    [ weightedTarget trg (t2h t) w
-    | (HashTarget trg, t) <- l
-    | w <- [ (1::PowHashNat) ..]
-    ]
-  where
-    n :: PowHashNat
-    n = int $ length l
+-- calculateTarget
+--     :: forall a
+--     . Integral a
+--     => TimeSpan a
+--     -> [(HashTarget, TimeSpan a)]
+--     -> HashTarget
+-- calculateTarget targetTime l = HashTarget $ sum
+--     [ weightedTarget trg (t2h t) w
+--     | (HashTarget trg, t) <- l
+--     | w <- [ (1::PowHashNat) ..]
+--     ]
+--   where
+--     n :: PowHashNat
+--     n = int $ length l
 
-    -- represent time span as integral number of milliseconds
-    --
-    t2h :: TimeSpan a -> PowHashNat
-    t2h t = int (coerce t :: a) `div` 1000
+--     -- represent time span as integral number of milliseconds
+--     --
+--     t2h :: TimeSpan a -> PowHashNat
+--     t2h t = int (coerce t :: a) `div` 1000
 
-    -- weight and n is in the order of 2^7
-    -- time spans are in the order of 2^17 milliseconds
-    --
-    -- Target should be < 2^231 (or difficulty should be larger than 2^25.
-    -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
-    --
-    weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
-    weightedTarget target timeSpan weight
-        | numerator < target = error "arithmetic overflow in hash target calculation"
-        | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
-        | otherwise = numerator `div` denominator
-      where
-        numerator = 2 * weight * target * t2h targetTime
-        denominator = n * (n + 1) * timeSpan
+--     -- weight and n is in the order of 2^7
+--     -- time spans are in the order of 2^17 milliseconds
+--     --
+--     -- Target should be < 2^231 (or difficulty should be larger than 2^25.
+--     -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
+--     --
+--     weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
+--     weightedTarget target timeSpan weight
+--         | numerator < target = error "arithmetic overflow in hash target calculation"
+--         | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
+--         | otherwise = numerator `div` denominator
+--       where
+--         numerator = 2 * weight * target * t2h targetTime
+--         denominator = n * (n + 1) * timeSpan
 
 -- -------------------------------------------------------------------------- --
 -- Properties
