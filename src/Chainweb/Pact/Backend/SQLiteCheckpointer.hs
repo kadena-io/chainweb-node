@@ -19,6 +19,7 @@ import qualified Data.HashMap.Strict as HMS
 import qualified Data.List as L
 import Data.List.Split
 import qualified Data.Map.Strict as M
+import Data.Maybe
 import Data.Monoid
 import Data.Serialize
 import Data.String
@@ -26,10 +27,13 @@ import Data.String
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import System.Directory
 import System.IO.Extra
+
+import Text.Printf
 
 import qualified Pact.Persist as P
 import qualified Pact.Persist.SQLite as P
@@ -77,6 +81,8 @@ data SQLiteCheckpointException
   | SaveKeyNotFoundException
   | ConfigurationException
   | VersionException (Maybe String) String
+  | PrefixNotSetException
+  | SaveDbException
   deriving (Show)
 
 instance Exception SQLiteCheckpointException
@@ -117,9 +123,11 @@ restore' lock height hash = do
 
       Nothing -> throwM RestoreNotFoundException
   where
-    versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") (splitOn "_" filename)
-    changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
-        P.SQLiteConfig (f fp dbFile) pragmas
+    versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") $ splitOn "_" filename
+
+changeSQLFilePath :: FilePath -> (FilePath -> FilePath -> FilePath) -> P.SQLiteConfig -> P.SQLiteConfig
+changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
+    P.SQLiteConfig (f fp dbFile) pragmas
 
 -- This should close the database connection currently open upon
 -- arrival in this function. The database should either be closed (or
@@ -133,9 +141,16 @@ save' lock height hash PactDbState {..} =
       Nothing -> do
         case _pdbsDbEnv of
           EnvPersist' (p@(PactDbEnvPersist {..})) -> do
-            (mf, toSave) <- saveDb p _pdbsState
-            undefined
-        undefined
-
--- TODO: still have to change filename for sqlite to be something meaningful
--- instead of the random assigned by `withTempFile`.
+            case _pdepEnv of
+              P.DbEnv {..} -> do
+                closeDb _db
+                (mf, toSave) <- saveDb p _pdbsState
+                let dbFile = P.dbFile <$> (_sSQLiteConfig toSave)
+                    newdbFile = (const properName) <$> dbFile
+                flip (maybe (throwM PrefixNotSetException)) mf $
+                     \prefix -> do
+                       let sd = encode toSave
+                       B.writeFile (prefix ++ properName) sd
+                       fromMaybe (throwM SaveDbException) (liftM2 copyFile dbFile newdbFile)
+  where
+    properName = printf "DbCheckpointAtHash=(%s)AndHeight=(%s).txt" (show hash) (show height)

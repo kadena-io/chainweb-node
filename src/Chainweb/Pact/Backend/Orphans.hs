@@ -17,7 +17,6 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.Orphans where
 
-import Control.Applicative
 import Control.Monad
 
 import Data.Aeson
@@ -26,17 +25,14 @@ import Data.Bytes.Put
 import Data.Bytes.Serial
 import Data.Decimal
 import Data.Default
-import Data.Functor.Identity
 import Data.Hashable
 import Data.HashMap.Strict
 import Data.HashSet
 import Data.List.NonEmpty
-import Data.Maybe
 import Data.Serialize hiding (getWord8, putWord8)
 import Data.Thyme.Clock
 import Data.Thyme.Internal.Micro
 import qualified Data.Vector as Vector
-import Data.Word
 
 import GHC.Generics hiding (Meta)
 
@@ -258,19 +254,6 @@ native_dfun_deserialize nativename = Data.HashMap.Strict.lookup name nativeDefs 
                     TNative {..} -> return _tNativeFun
                     _ -> Nothing
             rr@(Ref _) -> go rr
-
--- native_dfun_deserialize nativename = Prelude.foldr go Nothing nativeDefs
---   where
---     go a b =
---       case a of
---         Direct t ->
---           case t of
---             TNative {..} ->
---               if _tNativeName == nativename
---                  then Just _tNativeFun <|> b
---                  else b
---             _ -> b
---         Ref r -> go r b
 
 instance Serial1 ConstVal where
     serializeWith f t =

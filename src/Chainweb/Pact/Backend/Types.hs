@@ -74,7 +74,7 @@ import Chainweb.Pact.Backend.Orphans ()
 class PactDbBackend e where
     openDb :: e -> IO ()
     closeDb :: e -> IO ()
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe FilePath, SaveData e)
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
 
 data PactDbBackEndException =
     PactDbBackEndException String
@@ -100,7 +100,7 @@ instance PactDbBackend P.SQLite where
     closeDb = either (throwM . PactDbBackEndException) return <=< P.closeSQLite
     saveDb = saveSQLite
 
-saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe FilePath, SaveData P.SQLite)
+saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
 saveSQLite (PactDbEnvPersist {..}) commandState = do
     case _pdepEnv of
       P.DbEnv {..} -> do
@@ -108,10 +108,10 @@ saveSQLite (PactDbEnvPersist {..}) commandState = do
             _sTxId = _txId
             _sSQLiteConfig = Just $ P.config _db
             _sCommandState = commandState
-            filename = makeFileName $ P.dbFile $ P.config _db
-        return (Just filename, SaveData {..})
+            prefix = makeFileNamePrefix
+        return (Just prefix, SaveData {..})
   where
-    makeFileName file = "chainweb_pact_serialize_version=" ++ map go saveDataVersion ++ "_" ++ file
+    makeFileNamePrefix = "chainweb_pact_serialize_version=" ++ map go saveDataVersion ++ "_"
       where
         go x
            | x == '.' = '-'
