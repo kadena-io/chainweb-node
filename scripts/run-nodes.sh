@@ -85,7 +85,7 @@ echo "starting $N chainweb nodes"
 # chainweb-node application the bootstrap node peer-info is compiled
 # into the initial peer-database.
 
-run-node 0 "--config-file=scripts/test-boostrap-node.config"
+run-node 0 "--config-file=scripts/test-bootstrap-node.config"
 echo "started bootstrap node 0"
 
 # Start remaining nodes
@@ -101,4 +101,3 @@ for ((i=1; i<N; i++)) ; do
 done
 
 wait
-

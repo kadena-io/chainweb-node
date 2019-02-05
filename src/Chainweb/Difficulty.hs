@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
@@ -238,4 +239,3 @@ calculateTarget targetTime l = HashTarget $ sum
       where
         nominator = 2 * weight * target * t2h targetTime
         denominator = n * (n + 1) * timeSpan
-

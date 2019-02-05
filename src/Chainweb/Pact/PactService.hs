@@ -93,9 +93,8 @@ newTransactionBlock parentHeader bHeight = do
       cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
       updateState cpdata
     (results, updatedState) <- execTransactions newTrans
-    put updatedState
-    return
-      Block
+    put $! updatedState
+    return $! Block
         { _bHash = Nothing -- not yet computed
         , _bParentHeader = parentHeader
         , _bBlockHeight = succ bHeight
@@ -134,14 +133,15 @@ validateBlock Block {..} = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      updateState cpdata
+      updateState $! cpdata
     (_results, updatedState) <- execTransactions (fmap fst _bTransactions)
     put updatedState
+
     liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
                     (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
              -- TODO: TBD what do we need to do for validation and what is the return type?
 
---placeholder - get transactions from mem pool
+--placeholder - get transactions from mem pool tf
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
 requestTransactions _crit = return []
 
@@ -149,16 +149,15 @@ execTransactions :: [Transaction] -> PactT ([TransactionOutput], PactDbState)
 execTransactions xs = do
     cpEnv <- ask
     currentState <- get
-    let dbEnvPersist' = _pdbsDbEnv currentState
+    let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
-    mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
+    mvCmdState <- liftIO $ newMVar (_pdbsState $! currentState)
     results <- forM xs (\Transaction {..} -> do
                   let txId = P.Transactional (P.TxId _tTxId)
-                  (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
-                  return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
-
-    newCmdState <- liftIO $ readMVar mvCmdState
-    newEnvPersist' <- liftIO $ toEnvPersist' dbEnv'
+                  (result, txLogs) <- liftIO $! applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+                  return  TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+    newCmdState <- liftIO $! readMVar mvCmdState
+    newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState

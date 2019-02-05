@@ -70,6 +70,7 @@ import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.HostAddress
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -152,12 +153,14 @@ blockTimeSeconds = 4
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
-    :: Natural
+    :: Port
+        -- ^ Port of bootstrap node
+    -> Natural
         -- ^ number of nodes
     -> NodeId
         -- ^ NodeId
     -> ChainwebConfiguration
-config n nid = defaultChainwebConfiguration
+config p n nid = defaultChainwebConfiguration
     & set configNodeId nid
         -- Set the node id.
 
@@ -181,12 +184,25 @@ config n nid = defaultChainwebConfiguration
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressPort) p
+        -- The the port of the bootstrap node. Normally this is hard-coded.
+        -- But in test-suites that may run concurrently we want to use a port
+        -- that is assigned by the OS.
+
 bootstrapConfig
     :: Natural
         -- ^ number of nodes
     -> ChainwebConfiguration
-bootstrapConfig n = config n (NodeId 0)
-    & set (configP2p . p2pConfigPeer) (head $ bootstrapPeerConfig Test)
+bootstrapConfig n = config 0 {- unused -} n (NodeId 0)
+    & set (configP2p . p2pConfigPeer) peerConfig
+    & set (configP2p . p2pConfigKnownPeers) []
+  where
+    peerConfig = (head $ bootstrapPeerConfig Test)
+        & set (peerConfigAddr . hostAddressPort) 0
+        -- Normally, the port of bootstrap nodes is hard-coded. But in
+        -- test-suites that may run concurrently we want to use a port that is
+        -- assigned by the OS.
+
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -196,10 +212,17 @@ node
     -> (T.Text -> IO ())
     -> MVar ConsensusState
     -> ChainGraph
+    -> MVar Port
     -> ChainwebConfiguration
     -> IO ()
-node loglevel write stateVar g conf = withChainweb g conf logfuns $ \cw ->
-    runChainweb cw `finally` sample cw
+node loglevel write stateVar g bootstrapPortVar conf =
+    withChainweb g conf logfuns $ \cw -> do
+
+        -- If this is the bootstrap node we extract the port number and
+        -- publish via an MVar.
+        when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
+
+        runChainweb cw `finally` sample cw
   where
     nid = _configNodeId conf
 
@@ -212,6 +235,8 @@ node loglevel write stateVar g conf = withChainweb g conf logfuns $ \cw ->
             (view (chainwebCuts . cutsCutDb) cw)
             state
 
+    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _chainwebPeer
+
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
 
@@ -222,13 +247,23 @@ runNodes
     -> Natural
         -- ^ number of nodes
     -> IO ()
-runNodes loglevel write stateVar n
-    = forConcurrently_ [0 .. int n - 1] $ \i -> do
+runNodes loglevel write stateVar n = do
+    bootstrapPortVar <- newEmptyMVar
+        -- this is a hack for testing: normally bootstrap node peer infos are
+        -- hardcoded. To avoid conflicts in concurrent test runs we extract an
+        -- OS assigned port from the bootstrap node during startup and inject it
+        -- into the configuration of the remaining nodes.
+
+    forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500000 * int i)
-        node loglevel write stateVar graph . conf $ NodeId i
-  where
-    conf (NodeId 0) = bootstrapConfig n
-    conf i = config n i
+
+        conf <- if
+            | i == 0 -> return $ bootstrapConfig n
+            | otherwise -> do
+                bootstrapPort <- readMVar bootstrapPortVar
+                return $ config bootstrapPort n (NodeId i)
+
+        node loglevel write stateVar graph bootstrapPortVar conf
 
 runNodesForSeconds
     :: LogLevel
@@ -388,4 +423,3 @@ upperStats seconds = Stats
   where
     ebc :: Double
     ebc = int seconds * int (order graph) / int blockTimeSeconds
-

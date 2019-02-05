@@ -84,7 +84,7 @@ execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
                          nonces intSeq cmdStrs
-    (outputs, _) <- execTransactions trans
+    outputs <- fst <$> execTransactions trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 

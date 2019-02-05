@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -6,6 +8,7 @@
 -- Stability: experimental
 --
 -- Pact service for Chainweb
+
 module Chainweb.Pact.Utils
     ( toEnv'
     , toEnvPersist'
@@ -19,17 +22,17 @@ import Chainweb.Pact.Types
 
 toEnv' :: EnvPersist' -> IO Env'
 toEnv' (EnvPersist' ep') = do
-    let thePactDb = _pdepPactDb ep'
-    let theDbEnv = _pdepEnv ep'
+    let thePactDb = _pdepPactDb $! ep'
+    let theDbEnv = _pdepEnv $! ep'
     env <- mkPactDbEnv thePactDb theDbEnv
-    return $ Env' env
+    return $! Env' env
 
 toEnvPersist' :: Env' -> IO EnvPersist'
 toEnvPersist' (Env' pactDbEnv) = do
-    let mVar = pdPactDbVar pactDbEnv -- :: MVar (P.DbEnv a)
-    dbEnv <- readMVar mVar           -- :: P.DbEnv a
+    let mVar = pdPactDbVar $! pactDbEnv -- :: MVar (P.DbEnv a)
+    !dbEnv <- readMVar $! mVar           -- :: P.DbEnv a
     let pDbEnvPersist = PactDbEnvPersist
           { _pdepPactDb = pdPactDb pactDbEnv -- :: P.PactDb (P.DbEnv a)
           , _pdepEnv = dbEnv
           }
-    return $ EnvPersist' pDbEnvPersist
+    return $! EnvPersist' pDbEnvPersist

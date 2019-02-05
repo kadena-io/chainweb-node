@@ -395,11 +395,11 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         $ branchEntries db k l mir mar lower uppper
     {-# INLINEABLE branchKeys #-}
 
-    -- | @branchKeys n l mir mar lower upper@ returns all nodes within the given
-    -- range of minimum rank @mir@ and maximun rank @mar@ that are predecessors
-    -- of nodes in @upper@ and not predecessors of any node in @lower@, starting
-    -- at the entry after @n@. The number of items in the result is limited by
-    -- @l@. Items are returned in descending order.
+    -- | @branchEntries n l mir mar lower upper@ returns all nodes within the
+    -- given range of minimum rank @mir@ and maximun rank @mar@ that are
+    -- predecessors of nodes in @upper@ and not predecessors of any node in
+    -- @lower@, starting at the entry after @n@. The number of items in the
+    -- result is limited by @l@. Items are returned in descending order.
     --
     -- The result stream doesn't block. It may return less than the requested
     -- number of items.
@@ -752,8 +752,7 @@ toTree db = do
 -- Misc Utils
 
 forkEntry
-    :: HasCallStack
-    => TreeDb db
+    :: TreeDb db
     => db
     -> DbEntry db
     -> DbEntry db

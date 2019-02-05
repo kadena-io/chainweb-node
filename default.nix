@@ -7,7 +7,6 @@ let rp = builtins.fetchTarball {
       url = "https://github.com/reflex-frp/reflex-platform/archive/${rpRef}.tar.gz";
       sha256 = rpSha;
     };
-
 in
   (import rp { inherit system; }).project ({ pkgs, ... }:
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
@@ -50,6 +49,24 @@ in
           pkg = "generic-lens";
           ver = "1.1.0.0";
           sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
+        };
+
+        vector-algorithms = callHackageDirect {
+          pkg = "vector-algorithms";
+          ver = "0.8.0.1";
+          sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
+        };
+
+        fast-builder = callHackageDirect {
+          pkg = "fast-builder";
+          ver = "0.1.0.0";
+          sha256 = "1lww53vn38pin1kw87bambqjd7f4bsw1b5ix77zclvg4gj257pm1";
+        };
+
+        strict-tuple = callHackageDirect {
+          pkg = "strict-tuple";
+          ver = "0.1.2";
+          sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
         };
 
         # --- tasty and its downstream dependants --- #
