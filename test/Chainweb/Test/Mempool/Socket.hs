@@ -15,8 +15,7 @@ import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Socket as M
-import Chainweb.Test.Mempool
-    (MempoolWithFunc(..), MockTx(..), mockBlocksizeLimit, mockCodec)
+import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------

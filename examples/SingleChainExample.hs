@@ -25,7 +25,7 @@ module Main
 ( main
 ) where
 
-import Configuration.Utils hiding (Error, (<.>), Lens')
+import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -59,6 +59,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Graph
+import Chainweb.Mempool.InMem (InMemConfig(..), withInMemoryMempool)
 import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
@@ -279,20 +280,24 @@ node cid t logger conf p2pConfig nid =
         (c, sock, peer) <- allocatePeer $ _p2pConfigPeer p2pConfig
         let p2pConfig' = set p2pConfigPeer c p2pConfig
         let settings = peerServerSettings peer
-        let serve cdb pdb = serveSingleChainSocket settings sock Test
-                [(cid, cdb)]
+        let serve cdb pdb mempool = serveSingleChainSocket settings sock Test
+                [(cid, cdb, mempool)]
                 [(ChainNetwork cid, pdb)]
 
         withBlockHeaderDbGexf Test singletonChainGraph cid nid $ \cdb ->
             withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
-                withAsync (serve cdb pdb) $ \server -> do
-                    logfun Info "started server"
-                    runConcurrently
-                        $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
-                        <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb t)
-                        <> Concurrently (monitor logger' cdb)
-                    wait server
+            withInMemoryMempool mempoolConfig $ \mempool ->
+            withAsync (serve cdb pdb mempool) $ \server -> do
+                logfun Info "started server"
+                runConcurrently
+                    $ Concurrently (singleChainMiner logger' minerConfig nid cdb)
+                    <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb t)
+                    <> Concurrently (monitor logger' cdb)
+                wait server
   where
+    blockSizeLimit = 100000     -- fixme
+    reaperInterval = 60 * 60 * 1000000   -- one hour
+    mempoolConfig = InMemConfig chainwebTransactionConfig blockSizeLimit reaperInterval
     minerConfig = SingleChainMinerConfig
         (_numberOfNodes conf * _meanBlockTimeSeconds conf)
             -- We multiply these together, since this is now the mean time per node.

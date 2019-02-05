@@ -101,7 +101,7 @@ simpleSessionTests tls = withBlockHeaderDbsServer tls petersonGenesisBlockHeader
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (chainIds_ peterson)
 
-simpleClientSession :: IO TestClientEnv -> ChainId -> TestTree
+simpleClientSession :: IO (TestClientEnv ()) -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
         BlockHeaderDbsTestClientEnv env _ <- envIO
@@ -183,11 +183,11 @@ simpleTest
         -- ^ Success predicate
     -> (BlockHeader -> ClientM a)
         -- ^ Test HTTP client session
-    -> IO TestClientEnv
+    -> IO (TestClientEnv ())
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
-    BlockHeaderDbsTestClientEnv env [(_, db)] <- envIO
+    BlockHeaderDbsTestClientEnv env [(_, db, _)] <- envIO
     gbh <- head <$> headers db
     res <- runClientM (session gbh) env
     assertBool ("test failed with unexpected result: " <> sshow res) (p res)
@@ -195,30 +195,30 @@ simpleTest msg p session envIO = testCase msg $ do
 -- -------------------------------------------------------------------------- --
 -- Put Tests
 
-putNewBlockHeader :: IO TestClientEnv -> TestTree
+putNewBlockHeader :: IO (TestClientEnv ()) -> TestTree
 putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
     headerPutClient Test (_chainId h0)
         . head
         $ testBlockHeadersWithNonce (Nonce 1) h0
 
-putExisting :: IO TestClientEnv -> TestTree
+putExisting :: IO (TestClientEnv ()) -> TestTree
 putExisting = simpleTest "put existing block header" isRight $ \h0 ->
     headerPutClient Test (_chainId h0) h0
 
-putOnWrongChain :: IO TestClientEnv -> TestTree
+putOnWrongChain :: IO (TestClientEnv ()) -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
     $ \h0 -> headerPutClient Test (_chainId h0)
         . head
         . testBlockHeadersWithNonce (Nonce 2)
         $ genesisBlockHeader Test peterson (testChainId 1)
 
-putMissingParent :: IO TestClientEnv -> TestTree
+putMissingParent :: IO (TestClientEnv ()) -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
     headerPutClient Test (_chainId h0)
         . (!! 2)
         $ testBlockHeadersWithNonce (Nonce 3) h0
 
-put5NewBlockHeaders :: IO TestClientEnv -> TestTree
+put5NewBlockHeaders :: IO (TestClientEnv ()) -> TestTree
 put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
     mapM_ (headerPutClient Test (_chainId h0))
         . take 5
@@ -259,12 +259,12 @@ pagingTest
         -- set
     -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
-    -> IO TestClientEnv
+    -> IO (TestClientEnv ())
         -- ^ Test environment
     -> TestTree
 pagingTest name getDbItems getKey fin request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db, _)] <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
@@ -276,7 +276,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
     -- hitting `Limit 0`.
 
     , testCaseSteps "test next parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db, _)] <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
@@ -285,7 +285,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db, _)] <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env
@@ -295,7 +295,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db, _)] <- envIO
         missing <- missingKey db
         res <- flip runClientM env $ request cid Nothing (Just $ Exclusive missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
@@ -326,17 +326,17 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
         | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
-testPageLimitHeadersClient :: IO TestClientEnv -> TestTree
+testPageLimitHeadersClient :: IO (TestClientEnv ()) -> TestTree
 testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient Test cid l n Nothing Nothing
 
-testPageLimitHashesClient :: IO TestClientEnv -> TestTree
+testPageLimitHashesClient :: IO (TestClientEnv ()) -> TestTree
 testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient Test cid l n Nothing Nothing
 
-testPageLimitBranchesClient :: IO TestClientEnv -> TestTree
+testPageLimitBranchesClient :: IO (TestClientEnv ()) -> TestTree
 testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
   where
     request cid l n = leafHashesClient Test cid l n Nothing Nothing

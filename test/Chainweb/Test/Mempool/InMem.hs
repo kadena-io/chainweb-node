@@ -8,9 +8,7 @@ import Test.Tasty
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
-    (TransactionConfig(..), chainwebTestHashMeta, chainwebTestHasher)
-import Chainweb.Test.Mempool
-    (MempoolWithFunc(..), MockTx(..), mockBlocksizeLimit, mockCodec)
+import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------

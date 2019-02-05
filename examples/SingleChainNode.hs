@@ -58,6 +58,7 @@ import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Mempool.InMem (InMemConfig(..), withInMemoryMempool)
 import Chainweb.Node.SingleChainMiner
 import Chainweb.NodeId
 import Chainweb.RestAPI
@@ -290,19 +291,24 @@ node cid logger conf p2pConfig nid =
         (c, sock, peer) <- allocatePeer $ _p2pConfigPeer p2pConfig
         let p2pConfig' = set p2pConfigPeer c p2pConfig
         let settings = peerServerSettings peer
-        let serve cdb pdb = serveSingleChainSocket settings sock Test
-                [(cid, cdb)]
+        let serve cdb pdb mempool = serveSingleChainSocket settings sock Test
+                [(cid, cdb, mempool)]
                 [(ChainNetwork cid, pdb)]
 
         withBlockHeaderDb Test singletonChainGraph cid $ \cdb ->
             withPeerDb (HS.singleton $ ChainNetwork cid) p2pConfig' $ \pdb ->
-                withAsync (serve cdb pdb) $ \server -> do
-                    logfun Info "started server"
-                    runConcurrently
-                        $ Concurrently (miner logger' conf nid cdb)
-                        <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb)
-                        <> Concurrently (monitor logger' cdb)
-                    wait server
+            withInMemoryMempool mempoolConfig $ \mempool ->
+            withAsync (serve cdb pdb mempool) $ \server -> do
+                logfun Info "started server"
+                runConcurrently
+                    $ Concurrently (miner logger' conf nid cdb)
+                    <> Concurrently (syncer cid logger' p2pConfig' peer cdb pdb)
+                    <> Concurrently (monitor logger' cdb)
+                wait server
+  where
+    blockSizeLimit = 100000     -- fixme
+    reaperInterval = 60 * 60 * 1000000   -- one hour
+    mempoolConfig = InMemConfig chainwebTransactionConfig blockSizeLimit reaperInterval
 
 -- -------------------------------------------------------------------------- --
 -- Syncer

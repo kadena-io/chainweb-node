@@ -57,7 +57,6 @@ import System.Timeout (timeout)
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 
-import qualified Data.ByteString.Char8 as B
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -276,7 +275,8 @@ reaperThread :: InMemConfig t
              -> (forall a . IO a -> IO a)
              -> IO b
 reaperThread cfg dataLock restore = forever $ do
-    restore $ threadDelay interval
+    restore $ threadDelay interval   -- TODO: randomize wait time slightly to
+                                     -- avoid thundering herd on wakeup
     withMVar dataLock $ \mdata -> reap mdata
   where
     txcfg = _inmemTxCfg cfg

@@ -1,13 +1,23 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Chainweb.Mempool.Websocket (server, MempoolWebsocketApi, withClient) where
+module Chainweb.Mempool.Websocket
+  ( server
+  , MempoolWebsocketApi
+  , MempoolWebsocketApi_
+  , SomeMempoolBackend
+  , mempoolWebsocketApi
+  , withClient
+  , someMempoolServer
+  , someMempoolServers
+  ) where
 ------------------------------------------------------------------------------
 import Control.Exception
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -27,17 +37,17 @@ import Servant.API.WebSocket
 import System.IO.Streams (InputStream, OutputStream)
 import qualified System.IO.Streams as Streams
 ------------------------------------------------------------------------------
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Socket as Mempool
+import Chainweb.RestAPI.Utils
+import Chainweb.Version
 ------------------------------------------------------------------------------
 
-
-type MempoolWebsocketApi = "mempool" :> WebSocket
-
-server :: Show t => MempoolBackend t -> Server MempoolWebsocketApi
+server :: Show t => MempoolBackend t -> Server (MempoolWebsocketApi_ v c)
 server mempool = streamData
  where
-  streamData :: MonadIO m => WS.Connection -> m ()
+  -- streamData :: MonadIO m => WS.Connection -> m ()
   streamData conn = liftIO $ mask $ \restore -> do
       s <- connectionToStreams conn
       Mempool.serverSession mempool s restore
@@ -121,3 +131,36 @@ connectionOptions = defaultConnectionOptions
 
 headers :: WS.Headers
 headers = []
+
+
+-- Begin servant boilerplate --
+type MempoolWebsocketApi__ = "mempool" :> WebSocket
+type MempoolWebsocketApi_ (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> MempoolWebsocketApi__
+type MempoolWebsocketApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = Proxy (MempoolWebsocketApi_ v c)
+
+mempoolWebsocketApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+                    . MempoolWebsocketApi v c
+mempoolWebsocketApi = Proxy
+
+newtype MempoolBackend_ (v :: ChainwebVersionT) (c :: ChainIdT) t
+    = MempoolBackend_ { _unMempoolBackend :: MempoolBackend t }
+data SomeMempoolBackend = forall v c t
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, Show t)
+    => SomeMempoolBackend (MempoolBackend_ v c t)
+
+someMempoolBackendVal :: Show t => ChainwebVersion -> ChainId -> MempoolBackend t -> SomeMempoolBackend
+someMempoolBackendVal v cid mempool = case someChainwebVersionVal v of
+    (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
+        (SomeChainIdT (Proxy :: Proxy cidt)) -> SomeMempoolBackend (MempoolBackend_ @vt @cidt mempool)
+
+someMempoolServer :: SomeMempoolBackend -> SomeServer
+someMempoolServer (SomeMempoolBackend (mempool :: MempoolBackend_ v c t))
+    = SomeServer (Proxy @(MempoolWebsocketApi_ v c)) (server $ _unMempoolBackend mempool)
+
+someMempoolServers
+  :: Show t => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
+someMempoolServers v = mconcat
+    . fmap (someMempoolServer . uncurry (someMempoolBackendVal v))
+-- End servant boilerplate --
