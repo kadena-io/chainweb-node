@@ -177,6 +177,7 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , split
         , direct-sqlite >= 2.3
         , stm >= 2.4
         , streaming >= 0.2

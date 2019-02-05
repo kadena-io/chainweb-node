@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -39,6 +38,7 @@ module Chainweb.Pact.Backend.Types
     , pdbsDbEnv
     , pdbsState
     , SaveData(..)
+    , saveDataVersion
     , sTxRecord
     , sTxId
     , sSQLiteConfig
@@ -49,10 +49,9 @@ module Chainweb.Pact.Backend.Types
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
-import qualified Control.Monad.State as State
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString as B
+import qualified Data.ByteString as B ()
 import qualified Data.Map as M
 import Data.Serialize
 
@@ -70,12 +69,12 @@ import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
-import Chainweb.Pact.Backend.Orphans
+import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
     openDb :: e -> IO ()
     closeDb :: e -> IO ()
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe FilePath)
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe FilePath, SaveData e)
 
 data PactDbBackEndException =
     PactDbBackEndException String
@@ -86,38 +85,49 @@ instance Exception PactDbBackEndException
 instance PactDbBackend P.PureDb where
     openDb = const $ return ()
     closeDb = const $ return ()
-    saveDb _ _ = return Nothing
-
--- withDbEnvPersist :: (a -> b) -> PactDbEnvPersist a -> b
--- withDbEnvPersist f (PactDbEnvPersist {..}) =
---     case _pdepEnv of
---         P.DbEnv {..} -> f _db
+    saveDb (PactDbEnvPersist {..}) commandState =
+      case _pdepEnv of
+        P.DbEnv {..} -> do
+          let _sTxRecord = _txRecord
+              _sTxId = _txId
+              _sSQLiteConfig = Nothing
+              _sCommandState = commandState
+              _sVersion = saveDataVersion
+          return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
     openDb = void . liftM2 P.initSQLite P.config (P.constLoggers . P.logger)
     closeDb = either (throwM . PactDbBackEndException) return <=< P.closeSQLite
     saveDb = saveSQLite
 
-saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe FilePath)
-saveSQLite (PactDbEnvPersist {..}) commandstate =
+saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe FilePath, SaveData P.SQLite)
+saveSQLite (PactDbEnvPersist {..}) commandState = do
     case _pdepEnv of
-        p@(P.DbEnv {..}) -> do
-            let config = P.config (P._db p)
-                savedata = encode $ SaveData _txRecord _txId config commandstate
-            preparedFileName <- prepare _db savedata
-            return (Just $ fromTempFileName preparedFileName)
+      P.DbEnv {..} -> do
+        let _sTxRecord = _txRecord
+            _sTxId = _txId
+            _sSQLiteConfig = Just $ P.config _db
+            _sCommandState = commandState
+            filename = makeFileName $ P.dbFile $ P.config _db
+        return (Just filename, SaveData {..})
   where
-    prepare = undefined
-    fromTempFileName = undefined
+    makeFileName file = "chainweb_pact_serialize_version=" ++ map go saveDataVersion ++ "_" ++ file
+      where
+        go x
+           | x == '.' = '-'
+           | otherwise = x
 
-data SaveData = SaveData
+saveDataVersion :: String
+saveDataVersion = "0.0.0"
+
+data SaveData p = SaveData
     { _sTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
     , _sTxId :: Maybe P.TxId
-    , _sSQLiteConfig :: P.SQLiteConfig
+    , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
     } deriving (Generic)
 
-instance Serialize SaveData where
+instance Serialize (SaveData p) where
     put (SaveData {..}) = do
         put _sTxRecord
         put _sTxId

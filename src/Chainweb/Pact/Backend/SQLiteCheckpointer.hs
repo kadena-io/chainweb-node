@@ -1,11 +1,4 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.SQLiteCheckpointer
@@ -23,7 +16,10 @@ import Data.Bytes.Serial hiding (store)
 import qualified Data.ByteString as B
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
+import qualified Data.List as L
+import Data.List.Split
 import qualified Data.Map.Strict as M
+import Data.Monoid
 import Data.Serialize
 import Data.String
 
@@ -31,8 +27,6 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
 import Control.Monad.Catch
-
-import GHC.Generics
 
 import System.Directory
 import System.IO.Extra
@@ -67,17 +61,9 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
 
 type Store = HashMap (BlockHeight, BlockPayloadHash) FilePath
 
-changeSQLFilePath ::
-       FilePath
-    -> (FilePath -> FilePath -> FilePath)
-    -> P.SQLiteConfig
-    -> P.SQLiteConfig
-changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
-    P.SQLiteConfig (f fp dbFile) pragmas
-
-reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData -> IO PactDbState
+reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData P.SQLite -> IO PactDbState
 reinitDbEnv loggers funrec (SaveData {..}) = do
-    _db <- P.initSQLite _sSQLiteConfig loggers
+    _db <- maybe (throwM ConfigurationException) (flip P.initSQLite loggers) _sSQLiteConfig
     return (PactDbState (EnvPersist' (PactDbEnvPersist P.pactdb (P.DbEnv {..}))) _sCommandState)
     where
     _persist = funrec
@@ -85,7 +71,13 @@ reinitDbEnv loggers funrec (SaveData {..}) = do
     _txRecord = _sTxRecord
     _txId = _sTxId
 
-data SQLiteCheckpointException = RestoreNotFoundException | CheckpointDecodeException String deriving Show
+data SQLiteCheckpointException
+  = RestoreNotFoundException
+  | CheckpointDecodeException String
+  | SaveKeyNotFoundException
+  | ConfigurationException
+  | VersionException (Maybe String) String
+  deriving (Show)
 
 instance Exception SQLiteCheckpointException
 
@@ -94,79 +86,56 @@ instance Exception SQLiteCheckpointException
 --  essential aspect of the 'restore' semantics.
 restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO PactDbState
 restore' lock height hash = do
-    withMVarMasked lock $ \store -> do
+  withMVarMasked lock $ \store -> do
+    case HMS.lookup (height, hash) store of
+      Just cfile ->
 
-      case HMS.lookup (height, hash) store of
+        withTempFile $ \copy_c_file -> do
 
-        Just cfile -> do
+          --check that filename has the right version.
+          flip (maybe (throwM (VersionException Nothing saveDataVersion))) (versionCheck cfile) $
+               \version ->
+                 if version /= saveDataVersion
+                    then throwM (VersionException (Just version) saveDataVersion)
+                    else do
+                         copyFile cfile copy_c_file
+                         -- read back SaveData from copied file
+                         cdata <-
+                           do bytes <- B.readFile copy_c_file
+                              either (throwM . CheckpointDecodeException) return (decode bytes)
+                         -- create copy of the sqlite file
+                         withTempFile $ \copy_sqlite_file -> do
+                           let copy_data = over (sSQLiteConfig . _Just) (changeSQLFilePath copy_sqlite_file const) cdata
+                           -- Open a database connection.
+                           dbstate <- reinitDbEnv P.neverLog P.persister copy_data
+                           -- Some unpacking is necessary (look at datatypes).
+                           case _pdbsDbEnv dbstate of
+                             EnvPersist' (PactDbEnvPersist {..}) ->
+                               case _pdepEnv of
+                                 P.DbEnv {..} -> openDb _db
+                           return dbstate
 
-          let copy_c_file = "chainweb_pact_temp_" ++ cfile
-          copyFile cfile copy_c_file
-          cdata <- B.readFile copy_c_file >>= either (throwM . CheckpointDecodeException) return . decode
-
-          -- create copy of the sqlite file
-          let temp_c_data = over sSQLiteConfig (changeSQLFilePath "chainweb_pact_temp_" (++)) cdata
-
-          -- Open a database connection.
-          dbstate <- reinitDbEnv P.neverLog P.persister temp_c_data
-          case _pdbsDbEnv dbstate of
-            EnvPersist' (PactDbEnvPersist {..}) ->
-              case _pdepEnv of
-                P.DbEnv {..} -> openDb _db
-          return dbstate
-          -- need to return dbstate (should contain copy of sqlite file) copy_c_file (should contain copy of bytestring file)
-        Nothing -> throwM RestoreNotFoundException
-
--- Prepare/Save should change the field 'dbFile' (the filename of the
--- current database) of SQLiteConfig so that the retrieval of the
--- database (referenced by the aforementioned filename) is possible in
--- a 'restore'.
-
--- -- prepareForValidBlock :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
--- prepareForValidBlock = undefined
-
--- prepareForNewBlock :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
--- prepareForNewBlock = undefined
+      Nothing -> throwM RestoreNotFoundException
+  where
+    versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") (splitOn "_" filename)
+    changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
+        P.SQLiteConfig (f fp dbFile) pragmas
 
 -- This should close the database connection currently open upon
 -- arrival in this function. The database should either be closed (or
 -- throw an error) before departure from this function. There should
 -- be tests that assert this essential aspect of the 'save' semantics.
-
 save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
-save' lock height hash PactDbState {..}
- =
-  case _pdbsDbEnv of
-    EnvPersist' (PactDbEnvPersist {..}) ->
-      case _pdepEnv of
-        P.DbEnv {..} -> do
-          let cfg = undefined _db  -- TODO: how?
-          let savedata = SaveData _txRecord _txId cfg _pdbsState
-          let serializedData = encode savedata
-          preparedFileName <- prepare _db serializedData
-          let serializedDataFileName = fromTempFileName preparedFileName
-          modifyMVarMasked_ lock (return . HMS.insert (height, hash) serializedDataFileName)
-             -- Closing database connection.
-          closeDb _db
-  where
-    prepare = undefined
-    fromTempFileName = undefined
+save' lock height hash PactDbState {..} =
+  withMVarMasked lock $ \store ->
+    case HMS.lookup (height, hash) store of
+      Just _ -> throwM SaveKeyNotFoundException
+      Nothing -> do
+        case _pdbsDbEnv of
+          EnvPersist' (p@(PactDbEnvPersist {..})) -> do
+            (mf, toSave) <- saveDb p _pdbsState
+            undefined
+        undefined
 
--- save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
--- save' lock height hash PactDbState {..}
---  =
---   case _pdbsDbEnv of
---     EnvPersist' (PactDbEnvPersist {..}) ->
---       case _pdepEnv of
---         P.DbEnv {..} -> do
---           let cfg = undefined _db  -- TODO: how?
---           let savedata = SaveData _txRecord _txId cfg _pdbsState
---           let serializedData = encode savedata
---           preparedFileName <- prepare _db serializedData
---           let serializedDataFileName = fromTempFileName preparedFileName
---           modifyMVarMasked_ lock (return . HMS.insert (height, hash) serializedDataFileName)
---              -- Closing database connection.
---           closeDb _db
---   where
---     prepare = undefined
---     fromTempFileName = undefined
+-- TODO: still have to change filename for sqlite to be something meaningful
+-- instead of the random assigned by `withTempFile`.

@@ -79,9 +79,6 @@ restore' lock height hash = do
 save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
 save' lock height hash PactDbState {..} = do
 
-     -- case _pdsDbEnv of
-     --   EnvPersist -> undefined
-
      -- Saving off checkpoint.
      modifyMVarMasked_ lock (return . HMS.insert (height, hash) undefined)
 
