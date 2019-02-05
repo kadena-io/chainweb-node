@@ -1,4 +1,4 @@
-module Chainweb.Test.BlockPayloadDB.FS (tests) where
+module Chainweb.Test.Store.CAS.FS (tests) where
 
 ------------------------------------------------------------------------------
 import Control.Exception
@@ -10,9 +10,9 @@ import System.Path ((</>))
 import qualified System.Path as Path
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.BlockPayloadDB
-import qualified Chainweb.BlockPayloadDB.FS as FS
-import Chainweb.Test.BlockPayloadDB
+import Chainweb.Store.CAS
+import qualified Chainweb.Store.CAS.FS as FS
+import Chainweb.Test.Store.CAS
 
 
 -- TODO: plug in mock filesystem here so that we don't hammer the local filesystem?
@@ -31,4 +31,4 @@ withDB userFunc = bracket mkdir rmRF go
     rmRF = Dir.removeDirectoryRecursive
 
 tests :: TestTree
-tests = testGroup "BlockPayloadDB.FS" $ blockPayloadDBTests (PayloadDBWithFunc withDB)
+tests = testGroup "Chainweb.Store.CAS.FS" $ casDbTests (CasDbWithFunc withDB)

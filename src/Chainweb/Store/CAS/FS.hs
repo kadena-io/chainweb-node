@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.BlockPayloadDB.FS
+module Chainweb.Store.CAS.FS
   ( FsDB(..)
   , FsOps(..)
   , withDB
@@ -30,7 +30,7 @@ import qualified System.Random.MWC as MWC
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash (BlockHashBytes(..))
 import Chainweb.BlockHeader (BlockPayloadHash(..))
-import Chainweb.BlockPayloadDB
+import Chainweb.Store.CAS
 import Chainweb.Utils (Codec(..), eatIOExceptions)
 ------------------------------------------------------------------------------
 
@@ -99,10 +99,10 @@ withDB' ops root0 config userFunc = do
         root <- opMakeAbsolutePath ops root0
         opCreateDirectory ops $ Path.toFilePath root
         let fsdb = FsDB root config ops tp
-        let db = DB { payloadDbConfig = config
-                    , payloadLookup = fsLookup fsdb
-                    , payloadInsert = fsInsert fsdb
-                    , payloadDelete = fsDelete fsdb }
+        let db = DB { casDbConfig = config
+                    , casLookup = fsLookup fsdb
+                    , casInsert = fsInsert fsdb
+                    , casDelete = fsDelete fsdb }
         userFunc db
 
 
