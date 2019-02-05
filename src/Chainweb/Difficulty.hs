@@ -252,12 +252,15 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 --     --
 --     weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
 --     weightedTarget target timeSpan weight
---         | numerator < target = error "arithmetic overflow in hash target calculation"
---         | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
---         | otherwise = numerator `div` denominator
---       where
---         numerator = 2 * weight * target * t2h targetTime
---         denominator = n * (n + 1) * timeSpan
+      --   | target > limit =
+      --       let numerator = 2 * weight * t2h targetTime
+      --       in numerator * (target `div` denominator)
+      --   | otherwise =
+      --       let numerator = 2 * weight * target * t2h targetTime
+      --       in numerator `div` denominator
+      -- where
+      --   limit = 2 ^ (231 :: Int)
+      --   denominator = n * (n + 1) * timeSpan
 
 -- -------------------------------------------------------------------------- --
 -- Properties

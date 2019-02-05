@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
@@ -14,6 +13,7 @@
 --
 module Chainweb.TreeDB.HashTarget
   ( hashTargetFromHistory
+  , hashTargetFromHistory'
   ) where
 
 import Control.Lens ((^.))
@@ -70,16 +70,8 @@ hashTargetFromHistory db bh ts = do
           & P.toList_
           & fmap (NEL.reverse . NEL.fromList)
 
-    let deltas :: [(HashTarget, TimeSpan Int64)]
-        !deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
-
-    let !start = _blockCreationTime $ NEL.head es
-
-    pure $! calculateTarget (diff end start) deltas
+    pure $! hashTargetFromHistory' bh es
   where
-    timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
-    timeDelta x y = diff (_blockCreationTime y) (_blockCreationTime x)
-
     end :: Time Int64
     end = bh ^. isoBH . blockCreationTime
 
@@ -90,3 +82,20 @@ hashTargetFromHistory db bh ts = do
     maxr = Just . MaxRank . Max . fromIntegral $ bh ^. isoBH . blockHeight
     lower = HS.empty
     upper = HS.singleton . UpperBound $ key bh
+
+-- | A pure variant, for when you already have the window in memory. It's
+-- assumed that the `NEL.NonEmpty` is sorted by `BlockHeight`.
+--
+hashTargetFromHistory' :: IsBlockHeader bh => bh -> NEL.NonEmpty BlockHeader -> HashTarget
+hashTargetFromHistory' bh es = calculateTarget (diff end start) deltas
+  where
+    timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
+    timeDelta x y = diff (_blockCreationTime y) (_blockCreationTime x)
+
+    deltas :: [(HashTarget, TimeSpan Int64)]
+    deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
+
+    start = _blockCreationTime $ NEL.head es
+
+    end :: Time Int64
+    end = bh ^. isoBH . blockCreationTime

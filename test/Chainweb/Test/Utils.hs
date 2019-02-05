@@ -234,8 +234,10 @@ header h = do
     nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary
-    return $ fromLog $ newMerkleLog
-            $ _blockHash h
+    return
+        . fromLog
+        . newMerkleLog
+        $ _blockHash h
             :+: target
             :+: payload
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
@@ -534,4 +536,3 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
-
