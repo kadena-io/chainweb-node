@@ -63,9 +63,11 @@ toHandler env x = runReaderT x env
 
 withPactServiceApp :: Int -> IO () -> IO ()
 withPactServiceApp port action = do
-    let reqQ  = atomically $ (newTQueue :: STM (TQueue RequestMsg))
-    let respQ = atomically $ (newTQueue :: STM (TQueue ResponseMsg))
-    withAsync (initPactService reqQ respQ) $ \a -> do
+    reqQ <- atomically $ (newTQueue :: STM (TQueue RequestMsg))
+    let reqQVar = atomically $ newTVar reqQ
+    respQ  <- atomically $ (newTQueue :: STM (TQueue ResponseMsg))
+    let respQVar = atomically $ newTVar respQ
+    withAsync (initPactService reqQVar respQVar) $ \a -> do
         link a
         let threadId = asyncThreadId a
         let reqIdVar = trace ("async created with thread id: " ++ show (threadId))
@@ -74,8 +76,8 @@ withPactServiceApp port action = do
         let ht =  H.new :: IO (H.IOHashTable HashTable RequestId BlockPayloadHash)
         let env = RequestIdEnv
               { _rieReqIdVar = reqIdVar
-              , _rieReqQ = reqQ
-              , _rieRespQ = respQ
+              , _rieReqQ = reqQVar
+              , _rieRespQ = respQVar
               , _rieResponseMap = ht }
         bracket (liftIO $ forkIO $ Warp.run port (pactServiceApp env))
             killThread
@@ -146,10 +148,11 @@ timeoutSeconds = 30
 
 waitForResponse :: RequestId -> PactAppM (Either String BlockPayloadHash)
 waitForResponse requestId = do
-    respQ <- view rieRespQ
+    respQVar <- view rieRespQ
+    -- respQ <- liftIO $ atomically $ readTVar respQVar
     respHTableIO <- view rieResponseMap
     respHTable <- liftIO $ respHTableIO
-    t <- liftIO $ timeout (fromIntegral timeoutSeconds) (go respQ respHTable)
+    t <- liftIO $ timeout (fromIntegral timeoutSeconds) (go respQVar respHTable)
     case t of
         Nothing -> do
             _ <- error "Left"
@@ -159,12 +162,13 @@ waitForResponse requestId = do
             return $ Right payload
       where
         go
-            :: IO (TQueue ResponseMsg)
+            :: IO (TVar (TQueue ResponseMsg))
             -> H.IOHashTable HashTable RequestId BlockPayloadHash
             -> IO BlockPayloadHash
-        go rQ respTable = do
+        go respQVar respTable = do
             -- _ <- error "b4 getNextResponse"
-            resp <- getNextResponse rQ
+            resp <- getNextResponse respQVar
+            -- getNextResponse :: IO (TVar (TQueue ResponseMsg)) -> IO ResponseMsg
             _ <- error "aft getNextResponse"
             H.insert respTable (_respRequestId resp) (_respPayloadHash resp)
             x <- H.lookup respTable requestId
@@ -174,7 +178,7 @@ waitForResponse requestId = do
                   return payload
                 Nothing -> do
                   liftIO $ putStrLn "Lookup returned 'Nothing'"
-                  go rQ respTable
+                  go respQVar respTable
 
 pollForResponse :: RequestId -> PactAppM (Either String BlockPayloadHash)
 pollForResponse requestId = do

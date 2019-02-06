@@ -59,8 +59,8 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Version
 
-initPactService :: IO (TQueue RequestMsg) -> IO (TQueue ResponseMsg) -> IO ()
-initPactService reqQ respQ = do
+initPactService :: IO (TVar (TQueue RequestMsg)) -> IO (TVar (TQueue ResponseMsg)) -> IO ()
+initPactService reqQVar respQVar = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
@@ -82,28 +82,33 @@ initPactService reqQ respQ = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ evalStateT (runReaderT (serviceRequests reqQ respQ) checkpointEnv) theState
+    void $ evalStateT (runReaderT (serviceRequests reqQVar respQVar) checkpointEnv) theState
 
-serviceRequests :: IO (TQueue RequestMsg) ->  IO (TQueue ResponseMsg) -> PactT ()
+serviceRequests :: IO (TVar (TQueue RequestMsg)) -> IO (TVar (TQueue ResponseMsg)) -> PactT ()
 serviceRequests reqQ respQ = do
+    -- reqVar <- liftIO $ req
+    -- respVar <- liftIO $ resp
+    -- reqQue <- liftIO $ atomically $ readTVar reqVar
+    -- respQue <- liftIO $ atomically $ readTVar respVar
     liftIO $ putStrLn "Top of PactService.serviceRequest"
     forever $ run
       where
+        -- run :: TQueue RequestMsg -> PactT ()
         run :: PactT ()
         run = do
             -- _ <- error "run - b4"
             reqMsg <- liftIO $ getNextRequest reqQ
-            _ <- error "run - aft"
+            -- _ <- error "run - aft"
             respMsg <- case _reqRequestType reqMsg of
                 NewBlock -> do
-                    _ <- error "serviceRequest - NewBlock"
+                    -- _ <- error "serviceRequest - NewBlock"
                     h <- newBlock (_reqBlockHeader reqMsg)
                     return $ ResponseMsg
                         { _respRequestType = NewBlock
                         , _respRequestId = _reqRequestId reqMsg
                         , _respPayloadHash = h }
                 ValidateBlock -> do
-                    _ <- error "serviceRequest - ValidateBlock"
+                    -- _ <- error "serviceRequest - ValidateBlock"
                     h <- validateBlock (_reqBlockHeader reqMsg)
                     return $ ResponseMsg
                         { _respRequestType = ValidateBlock

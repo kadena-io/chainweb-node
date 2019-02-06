@@ -38,8 +38,8 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either Stri
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String BlockPayloadHash)
 data RequestIdEnv = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
-                                 , _rieReqQ :: IO (TQueue RequestMsg)
-                                 , _rieRespQ :: IO (TQueue ResponseMsg)
+                                 , _rieReqQ :: IO (TVar (TQueue RequestMsg))
+                                 , _rieRespQ :: IO (TVar (TQueue ResponseMsg))
                                  , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId BlockPayloadHash) }
 
 type PactAppM = ReaderT RequestIdEnv Handler
