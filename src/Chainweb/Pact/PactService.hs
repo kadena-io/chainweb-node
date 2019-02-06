@@ -28,7 +28,6 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
@@ -60,11 +59,11 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Version
 
-initPactService :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> IO ()
-initPactService reqQStm respQStm = do
+initPactService :: IO (TQueue RequestMsg) -> IO (TQueue ResponseMsg) -> IO ()
+initPactService reqQ respQ = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
+    pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
@@ -83,32 +82,35 @@ initPactService reqQStm respQStm = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ evalStateT (runReaderT (serviceRequests reqQStm respQStm) checkpointEnv) theState
+    void $ evalStateT (runReaderT (serviceRequests reqQ respQ) checkpointEnv) theState
 
-serviceRequests :: STM (TQueue RequestMsg) -> STM (TQueue ResponseMsg) -> PactT ()
-serviceRequests reqQStm respQStm = forever $ run
-  where
-    run :: PactT ()
-    run = do
-        reqQ <- liftIO $ atomically reqQStm
-        reqMsg <- liftIO $ atomically $ readTQueue reqQ
-
-        respQ <- liftIO $ atomically respQStm
-        respMsg <- case _reqRequestType reqMsg of
-            NewBlock -> do
-                h <- newBlock (_reqBlockHeader reqMsg)
-                return $ ResponseMsg
-                    { _respRequestType = NewBlock
-                    , _respRequestId = _reqRequestId reqMsg
-                    , _respPayloadHash = h }
-            ValidateBlock -> do
-                h <- validateBlock (_reqBlockHeader reqMsg)
-                return $ ResponseMsg
-                    { _respRequestType = ValidateBlock
-                    , _respRequestId = _reqRequestId reqMsg
-                    , _respPayloadHash = h }
-        _ <- liftIO $ atomically $ writeTQueue respQ respMsg
-        return ()
+serviceRequests :: IO (TQueue RequestMsg) ->  IO (TQueue ResponseMsg) -> PactT ()
+serviceRequests reqQ respQ = do
+    liftIO $ putStrLn "Top of PactService.serviceRequest"
+    forever $ run
+      where
+        run :: PactT ()
+        run = do
+            -- _ <- error "run - b4"
+            reqMsg <- liftIO $ getNextRequest reqQ
+            _ <- error "run - aft"
+            respMsg <- case _reqRequestType reqMsg of
+                NewBlock -> do
+                    _ <- error "serviceRequest - NewBlock"
+                    h <- newBlock (_reqBlockHeader reqMsg)
+                    return $ ResponseMsg
+                        { _respRequestType = NewBlock
+                        , _respRequestId = _reqRequestId reqMsg
+                        , _respPayloadHash = h }
+                ValidateBlock -> do
+                    _ <- error "serviceRequest - ValidateBlock"
+                    h <- validateBlock (_reqBlockHeader reqMsg)
+                    return $ ResponseMsg
+                        { _respRequestType = ValidateBlock
+                        , _respRequestId = _reqRequestId reqMsg
+                        , _respPayloadHash = h }
+            liftIO $ addResponse respQ respMsg
+            return ()
 
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: BlockHeader -> PactT BlockPayloadHash
@@ -191,6 +193,10 @@ updateState CheckpointData {..} = do
     pdbsDbEnv .= _cpPactDbEnv
     pdbsState .= _cpCommandState
 
+-- TODO: get from config
+pactFilesDir :: String
+pactFilesDir = "test/config/"
+
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
@@ -211,31 +217,6 @@ transToBs (t, tOut) =
     let logsBS = BS.concat $ toS <$> A.encode <$> _getTxLogs tOut
         cmdPayLoadBS = P._cmdPayload (_tCmd t)
     in cmdPayLoadBS `BS.append` logsBS
-
-
-{-
-hashPayload :: ChainwebVersion -> ByteString -> BlockPayloadHash
-hashPayload v b = BlockPayloadHash $! cryptoHash v b
-    let hash = hashPayload Test bs
-
-newtype Transactions = Transactions { _transactionPair :: [(Transaction, TransactionOutput)] }
-
-data Transaction = Transaction
-    { _tTxId :: Word64
-    , _tCmd :: P.Command ByteString
-    }
-
-data Command a = Command
-  { _cmdPayload :: !a
-  , _cmdSigs :: ![UserSig]
-  , _cmdHash :: !Hash
-  } deriving (Eq,Show,Ord,Generic,Functor,Foldable,Traversable)
-
-data TransactionOutput = TransactionOutput
-    { _getCommandResult :: P.CommandResult
-    , _getTxLogs :: [P.TxLog A.Value]
-    }
--}
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv

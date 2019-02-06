@@ -12,13 +12,7 @@
 
 module Chainweb.Test.PactService where
 
-import Control.Concurrent
-import Control.Exception
-import Control.Monad.IO.Class
-
 import Data.Word (Word32)
-
-import qualified Network.Wai.Handler.Warp as Warp
 
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 
@@ -42,12 +36,18 @@ import Chainweb.Version
 tests :: TestTree
 tests = testCase "Pact service tests" pactTestApp
 
-withPactServiceApp :: (Int -> IO ()) -> IO ()
-withPactServiceApp action = do
+pactTestApp :: IO ()
+pactTestApp = do
     port <- generatePort
-    bracket (liftIO $ forkIO $ Warp.run port pactServiceApp)
-        killThread
-        (const (action port))
+    withPactServiceApp port $ do
+        baseUrl <- parseBaseUrl ("http://localhost:" ++ show port)
+        putStrLn $ "pactTestApp - baseUrl: " ++ show baseUrl
+        manager <- newManager defaultManagerSettings
+        let clientEnv = mkClientEnv manager baseUrl
+        result <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
+        putStrLn $ "pactTestApp - result: " ++ show result
+        expected <- testPayloadHash
+        result @?= expected
 
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))
@@ -64,17 +64,6 @@ testGetNewBlock
     :<|> testValidateAsync
     :<|> testPoll
        = client (Proxy :: Proxy PactAPI)
-
-pactTestApp :: IO ()
-pactTestApp =
-    withPactServiceApp $ (\port -> do
-        baseUrl <- parseBaseUrl ("http://localhost:" ++ show port)
-        manager <- newManager defaultManagerSettings
-        let clientEnv = mkClientEnv manager baseUrl
-        result <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
-        expected <- testPayloadHash
-        result @?= expected
-    )
 
 getTestBlockHeader :: BlockHeader
 getTestBlockHeader = do

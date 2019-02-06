@@ -18,7 +18,6 @@ import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Lens
 import Control.Monad.Trans.Reader
-import Control.Monad.STM
 
 import Data.Aeson
 import Data.Hashable
@@ -37,13 +36,11 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either Stri
           :<|> "newAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          -- :<|> "poll" :> Capture "requestId" RequestId :> Post '[JSON] (Either String BlockPayloadHash)
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String BlockPayloadHash)
-
-data RequestIdEnv = RequestIdEnv { _rieReqIdStm :: STM (TVar RequestId)
-                                 , _rieReqQStm :: STM (TQueue RequestMsg)
-                                 , _rieRespQStm :: STM (TQueue ResponseMsg)
-                                 , _rieResponseMap :: H.IOHashTable H.HashTable RequestId BlockPayloadHash}
+data RequestIdEnv = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
+                                 , _rieReqQ :: IO (TQueue RequestMsg)
+                                 , _rieRespQ :: IO (TQueue ResponseMsg)
+                                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId BlockPayloadHash) }
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
@@ -57,18 +54,18 @@ instance FromHttpApiData RequestId where
         let e = readEitherSafe (toS t)
         in bimap toS RequestId e
 
-data RequestType = ValidateBlock | NewBlock
+data RequestType = ValidateBlock | NewBlock deriving (Show)
 
 data RequestMsg = RequestMsg
     { _reqRequestType :: RequestType
     , _reqRequestId   :: RequestId
     , _reqBlockHeader :: BlockHeader
-    }
+    } deriving (Show)
 
 data ResponseMsg = ResponseMsg
     { _respRequestType :: RequestType
     , _respRequestId   :: RequestId
     , _respPayloadHash :: BlockPayloadHash
-    }
+    } deriving (Show)
 
 makeLenses ''RequestIdEnv

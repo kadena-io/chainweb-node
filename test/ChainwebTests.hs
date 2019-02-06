@@ -46,6 +46,7 @@ main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "Unit Tests"
+{-
     [ testGroup "BlockHeaderDb"
         [ Chainweb.Test.BlockHeaderDB.tests
         , Chainweb.Test.TreeDB.RemoteDB.tests
@@ -64,8 +65,11 @@ suite = testGroup "Unit Tests"
     -- , testGroup "Network.X05.SelfSigned.Test"
     --     [ Network.X509.SelfSigned.Test.tests
     --     ]
+-}
 #ifdef WITH_PACT
-    , testGroup "Pact Tests"
+--    , testGroup "Pact Tests"
+     [ testGroup "Pact Tests"
+
         [ Chainweb.Test.Pact.tests
         , Chainweb.Test.PactService.tests
         ]

@@ -24,24 +24,56 @@ module Chainweb.Pact.Service.PactQueue
 import Control.Concurrent.STM.TQueue
 import Control.Monad.STM
 
+import Debug.Trace
+
+import System.Time.Extra
+
 import Chainweb.Pact.Service.Types
 
-addRequest :: STM (TQueue RequestMsg) -> RequestMsg -> IO ()
-addRequest reqQStm msg = do
-    q <- atomically reqQStm
+addRequest :: IO (TQueue RequestMsg) -> RequestMsg -> IO ()
+addRequest reqQ msg = do
+    q <- reqQ
     atomically $ writeTQueue q msg
+    trace ("addRequest -- added: " ++ show msg) (return ())
 
-getNextRequest :: STM (TQueue RequestMsg) -> IO RequestMsg
-getNextRequest reqQStm = do
-    q <- atomically reqQStm
-    atomically $ readTQueue q
+    -- TODO: remove this
+    maybePeek <- atomically $ tryPeekTQueue q
+    case maybePeek of
+        Just _mp -> do
+            trace "maybe peek works as expected" (return ())
+        Nothing -> do
+            trace "maybePeek failed??" (return ())
 
-addResponse :: STM (TQueue ResponseMsg) -> ResponseMsg -> IO ()
-addResponse respQStm msg = do
-    q <- atomically respQStm
+getNextRequest :: IO (TQueue RequestMsg) -> IO RequestMsg
+getNextRequest reqQ = do
+    q <- trace "top of getNextRequest" reqQ
+    -- reqMsg <- atomically $ readTQueue q
+    -- trace ("getNextRequest - received request msg: " ++ show reqMsg) $ return reqMsg
+
+    -- mayM <- timeout (fromIntegral 5) (tryRead q)
+    mayM <- timeout 5.0 (tryRead q)
+    case mayM of
+        Just m -> do
+            _ <- error "Yes! (tryRead)"
+            return m
+        Nothing -> error "No! (tryRead timeout)"
+      where
+        tryRead :: TQueue RequestMsg -> IO RequestMsg
+        tryRead ku = do
+            maybeMsg <- atomically $ tryReadTQueue ku
+            case maybeMsg of
+              Just msg -> do
+                  trace "Just msg" (return msg)
+              Nothing -> tryRead ku
+
+addResponse :: IO (TQueue ResponseMsg) -> ResponseMsg -> IO ()
+addResponse respQ msg = do
+    q <- respQ
     atomically $ writeTQueue q msg
+    trace ("addResponse -- added: " ++ show msg) (return ())
 
-getNextResponse :: STM (TQueue ResponseMsg) -> IO ResponseMsg
-getNextResponse respQStm = do
-    q <- atomically respQStm
-    atomically $ readTQueue q
+getNextResponse :: IO (TQueue ResponseMsg) -> IO ResponseMsg
+getNextResponse respQ = do
+    q <- respQ
+    respMsg <- atomically $ readTQueue q
+    trace ("getNextResponse - received response msg: " ++ show respMsg) $ return respMsg
