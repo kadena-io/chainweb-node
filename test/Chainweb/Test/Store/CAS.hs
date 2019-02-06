@@ -1,9 +1,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Chainweb.Test.BlockPayloadDB
-  ( blockPayloadDBTests
-  , PayloadDBWithFunc(..)
+module Chainweb.Test.Store.CAS
+  ( casDbTests
+  , CasDbWithFunc(..)
   , MockPayload(..)
   , mockPayloadConfig
   ) where
@@ -28,7 +28,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockPayloadDB
+import Chainweb.Store.CAS
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
@@ -65,10 +65,10 @@ mockPayloadCodec = Codec encodeMockPayload decodeMockPayload
 mockPayloadConfig :: PayloadConfig MockPayload
 mockPayloadConfig = PayloadConfig mockPayloadCodec hashMockPayload
 
-data PayloadDBWithFunc = PayloadDBWithFunc (forall a . (DB MockPayload -> IO a) -> IO a)
+data CasDbWithFunc = CasDbWithFunc (forall a . (DB MockPayload -> IO a) -> IO a)
 
-blockPayloadDBTests :: PayloadDBWithFunc -> [TestTree]
-blockPayloadDBTests withDB = map ($ withDB) [
+casDbTests :: CasDbWithFunc -> [TestTree]
+casDbTests withDB = map ($ withDB) [
       payloadProperty "insert + lookup" (pick arbitrary) propInsert
     , payloadProperty "lookup failure" (pick arbitrary) propLookupFail
     , payloadProperty "delete" (pick arbitrary) propDelete
@@ -77,9 +77,9 @@ blockPayloadDBTests withDB = map ($ withDB) [
 payloadProperty :: TestName
                 -> PropertyM IO a
                 -> (a -> DB MockPayload -> IO (Either String ()))
-                -> PayloadDBWithFunc
+                -> CasDbWithFunc
                 -> TestTree
-payloadProperty name gen test (PayloadDBWithFunc withDB) = testProperty name go
+payloadProperty name gen test (CasDbWithFunc withDB) = testProperty name go
   where
     go = monadicIO (gen >>= run . withDB . test >>= either fail return)
 
@@ -87,40 +87,40 @@ payloadProperty name gen test (PayloadDBWithFunc withDB) = testProperty name go
 propInsert :: [MockPayload] -> DB MockPayload -> IO (Either String ())
 propInsert payloads db = runExceptT $ do
     let payloadV = V.fromList payloads
-    liftIO (payloadInsert db payloadV)
-    lookups <- liftIO (payloadLookup db (V.map hash payloadV)) >>= mapM fromLookup
+    liftIO (casInsert db payloadV)
+    lookups <- liftIO (casLookup db (V.map hash payloadV)) >>= mapM fromLookup
     when (lookups /= payloadV) $ fail "payload contents didn't match on lookup"
 
   where
     fromLookup = maybe (fail "expected lookup to succeed") return
-    hash = payloadHash $ payloadDbConfig db
+    hash = payloadHash $ casDbConfig db
 
 
 propLookupFail :: ([MockPayload], [MockPayload]) -> DB MockPayload -> IO (Either String ())
 propLookupFail (ps0, fs0) db = runExceptT $ do
-    liftIO (payloadInsert db (V.fromList ps))
+    liftIO (casInsert db (V.fromList ps))
 
     -- lookups on fs should fail (we didn't insert these)
-    liftIO (payloadLookup db (V.fromList $ map hash fs)) >>= mapM_ checkLookupFailed
+    liftIO (casLookup db (V.fromList $ map hash fs)) >>= mapM_ checkLookupFailed
 
   where
     checkLookupFailed = maybe (return ()) (const $ fail "expected lookup to fail")
     ps = sort ps0
     psSet = Set.fromList ps
     fs = filter (not . flip Set.member psSet) fs0
-    hash = payloadHash $ payloadDbConfig db
+    hash = payloadHash $ casDbConfig db
 
 
 propDelete :: [MockPayload] -> DB MockPayload -> IO (Either String ())
 propDelete payloads db = runExceptT $ do
-    liftIO (payloadInsert db (V.fromList payloads))
-    liftIO (payloadLookup db hashes) >>= mapM_ checkLookup
-    liftIO (payloadDelete db hashes)
-    liftIO (payloadLookup db hashes) >>= mapM_ checkLookupFailed
+    liftIO (casInsert db (V.fromList payloads))
+    liftIO (casLookup db hashes) >>= mapM_ checkLookup
+    liftIO (casDelete db hashes)
+    liftIO (casLookup db hashes) >>= mapM_ checkLookupFailed
 
   where
     checkLookup = maybe (fail "expected lookup to succeed") (const $ return ())
     checkLookupFailed = maybe (return ()) (const $ fail "expected lookup to fail")
     deletes = V.fromList $ take 5 payloads
     hashes = V.map hash deletes
-    hash = payloadHash $ payloadDbConfig db
+    hash = payloadHash $ casDbConfig db
