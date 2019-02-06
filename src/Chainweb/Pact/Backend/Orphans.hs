@@ -3,10 +3,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Orphans
@@ -17,6 +17,7 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.Orphans where
 
+import Control.Applicative
 import Control.Monad
 
 import Data.Aeson
@@ -48,17 +49,17 @@ import Pact.Types.Server
 -----------------------
 -- GENERIC INSTANCES --
 -----------------------
-deriving instance Generic CommandPact
+deriving instance Generic CommandPact -- transferred
 
-deriving instance Generic ModuleData
+deriving instance Generic ModuleData -- transferred
 
-deriving instance Generic Ref
+deriving instance Generic Ref -- transferred
 
-deriving instance Generic RefStore
+deriving instance Generic RefStore -- transferred
 
-deriving instance Generic CommandState
+deriving instance Generic CommandState -- transferred
 
-deriving instance Generic DefName
+deriving instance Generic DefName -- transferred
 
 deriving instance Generic Decimal
 
@@ -70,13 +71,13 @@ deriving instance Generic TableName
 
 deriving instance Generic NativeDefName
 
-deriving instance (Generic n) => Generic (App (Term n))
+deriving instance Generic (App (Term n))
 
-deriving instance Generic n => Generic (BindType (Type (Term n)))
+deriving instance Generic (BindType (Type (Term n)))
 
-deriving instance Generic n => Generic (Term n)
+deriving instance Generic (Term n)
 
-deriving instance Generic n => Generic (Def n)
+deriving instance Generic (Def n)
 
 deriving instance Generic Module
 
@@ -545,18 +546,27 @@ instance Serial1 Term where
                     return $ TTable {..}
                 _ -> fail "Term: Deserialization error."
 
-pairListSerial1Helper _ _ [] = putWord8 1
-pairListSerial1Helper f g ((a, b):xs) = putWord8 0 >> f a >> g b >> pairListSerial1Helper f g xs
-
-pairListDeSerial1Helper f g m = fmap Prelude.reverse (go f g m)
+pairListSerial1Helper ::
+     (MonadPut m, Foldable t1)
+  => (t2 -> m a)
+  -> (t3 -> m b)
+  -> t1 (t2, t3)
+  -> m ()
+pairListSerial1Helper f g xs = forM_ xs (uncurry go) >> putWord8 1
   where
-    go ff gg mm =
-        getWord8 >>= \a ->
-            case a of
-                0 -> do
-                    pair <- liftM2 (,) (ff mm) (gg mm)
-                    fmap (pair :) (go ff gg mm)
-                1 -> return []
+    go a b = putWord8 0 >> f a >> g b
+
+pairListDeSerial1Helper ::
+     MonadGet m => (t -> m a1) -> (t -> m a2) -> t -> m [(a1, a2)]
+pairListDeSerial1Helper f g m = go id
+  where
+    go dl = do
+        a <- getWord8
+        if a == 1
+           then return $ dl []
+           else do
+            p <- (,) <$> f m <*> g m
+            go (dl . (p :))
 
 deriving instance Serial Module
 
@@ -600,12 +610,12 @@ instance Serial1 Type where
         getWord8 >>= \a ->
             case a of
                 0 -> return TyAny
-                1 -> liftM TyVar $ deserializeWith m
-                2 -> liftM TyPrim $ deserialize
-                3 -> liftM TyList $ deserializeWith m
-                4 -> liftM2 TySchema deserialize (deserializeWith m)
-                5 -> liftM TyFun $ deserializeWith m
-                6 -> liftM TyUser m
+                1 -> TyVar <$> deserializeWith m
+                2 -> TyPrim <$> deserialize
+                3 -> TyList <$> deserializeWith m
+                4 -> liftA2 TySchema deserialize (deserializeWith m)
+                5 -> TyFun <$> deserializeWith m
+                6 -> TyUser <$> m
                 _ -> fail "Type: Deserialization error."
 
 deriving instance Serial TypeVarName
@@ -635,11 +645,11 @@ deriving instance Serialize TableId
 
 instance Serialize (Table DataKey) where
     put (DataTable t) = put t
-    get = get >>= return . DataTable
+    get = DataTable <$> get
 
 instance Serialize (Table TxKey) where
     put (TxTable t) = put t
-    get = get >>= return . TxTable
+    get = TxTable <$> get
 
 deriving instance Serialize (TxLog Value)
 
@@ -733,15 +743,7 @@ instance (Generic n, Serialize n) => Serialize (Def n) where
         put _dDefBody
         put _dMeta
         put _dInfo
-    get = do
-        _dDefName <- get
-        _dModule <- get
-        _dDefType <- get
-        _dFunType <- get
-        _dDefBody <- get
-        _dMeta <- get
-        _dInfo <- get
-        return $ Def {..}
+    get = Def <$> get <*> get <*> get <*> get <*> get <*> get <*> get
 
 deriving instance Serialize NativeDefName
 

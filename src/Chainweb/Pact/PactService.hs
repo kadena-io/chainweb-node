@@ -91,7 +91,9 @@ newTransactionBlock parentHeader bHeight = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
-      updateState cpdata
+      case cpdata of
+        Left s -> fail s
+        Right r -> updateState r
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
     return $! Block
@@ -133,13 +135,20 @@ validateBlock Block {..} = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      updateState $! cpdata
+      case cpdata of
+        Left s -> fail s
+        Right r -> updateState $! r
     (_results, updatedState) <- execTransactions (fmap fst _bTransactions)
     put updatedState
 
-    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
-             -- TODO: TBD what do we need to do for validation and what is the return type?
+    estate <- liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
+                               (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
+
+    case estate of
+      Left s -> fail s
+      Right r -> return r
+
+-- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool tf
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
@@ -182,6 +191,3 @@ updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do
     pdbsDbEnv .= _pdbsDbEnv
     pdbsState .= _pdbsState
-
-getGasEnv :: PactT P.GasEnv
-getGasEnv = view cpeGasEnv

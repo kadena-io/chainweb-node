@@ -72,7 +72,6 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
-    openDb :: e -> IO ()
     closeDb :: e -> IO ()
     saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
 
@@ -83,9 +82,8 @@ data PactDbBackEndException =
 instance Exception PactDbBackEndException
 
 instance PactDbBackend P.PureDb where
-    openDb = const $ return ()
     closeDb = const $ return ()
-    saveDb (PactDbEnvPersist {..}) commandState =
+    saveDb PactDbEnvPersist {..} commandState =
       case _pdepEnv of
         P.DbEnv {..} -> do
           let _sTxRecord = _txRecord
@@ -96,12 +94,11 @@ instance PactDbBackend P.PureDb where
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
-    openDb = void . liftM2 P.initSQLite P.config (P.constLoggers . P.logger)
     closeDb = either (throwM . PactDbBackEndException) return <=< P.closeSQLite
     saveDb = saveSQLite
 
 saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
-saveSQLite (PactDbEnvPersist {..}) commandState = do
+saveSQLite PactDbEnvPersist {..} commandState = do
     case _pdepEnv of
       P.DbEnv {..} -> do
         let _sTxRecord = _txRecord
@@ -187,8 +184,8 @@ usage =
   \\n"
 
 data Checkpointer = Checkpointer
-    { restore :: BlockHeight -> BlockPayloadHash -> IO PactDbState
-    , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
+    { restore :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+    , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
     }
 
 -- functions like the ones below need to be implemented internally

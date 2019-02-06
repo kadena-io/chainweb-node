@@ -52,27 +52,21 @@ data InMemCheckpointException = RestoreNotFoundException deriving Show
 
 instance Exception InMemCheckpointException
 
-restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO PactDbState
+restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just dbstate -> do
-              case _pdbsDbEnv dbstate of
-                EnvPersist' (PactDbEnvPersist {..}) ->
-                  case _pdepEnv of
-                    P.DbEnv {..} -> openDb _db
-              return dbstate
+            Just dbstate -> return (Right dbstate)
+            Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
 
-            Nothing -> throwM RestoreNotFoundException
-
-save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO ()
-save' lock height hash PactDbState {..} = do
+save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+save' lock height hash p@(PactDbState {..}) = do
 
      -- Saving off checkpoint.
-     modifyMVarMasked_ lock (return . HMS.insert (height, hash) undefined)
+     modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
 
      -- Closing database connection.
      case _pdbsDbEnv of
-       EnvPersist' (PactDbEnvPersist {..}) ->
+       EnvPersist' PactDbEnvPersist {..} ->
          case _pdepEnv of
-           P.DbEnv {..} -> closeDb _db
+           P.DbEnv {..} -> Right <$> closeDb _db
