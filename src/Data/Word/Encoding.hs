@@ -20,7 +20,7 @@ import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import Data.DoubleWord(Word128(..), Word256(..))
+import Data.DoubleWord (Word128(..), Word256(..))
 import Data.Word
 
 import Test.QuickCheck
@@ -100,9 +100,9 @@ prop_bigEndian
     . Integral a
     => Bounded a
     => WordEncoding a
-    => Bits a
+    => FiniteBits a
     => Bool
-prop_bigEndian = all run [1 .. (bitSize (undefined :: a) `div` 8 -  1)]
+prop_bigEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 -  1)]
   where
     run i = (==) i
         $ length
@@ -117,9 +117,9 @@ prop_littleEndian
     . Integral a
     => Bounded a
     => WordEncoding a
-    => Bits a
+    => FiniteBits a
     => Bool
-prop_littleEndian = all run [1 .. (bitSize (undefined :: a) `div` 8 - 1)]
+prop_littleEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 - 1)]
   where
     run i = (==) i
         $ length
@@ -137,4 +137,3 @@ properties =
     , ("Word128 big endian encoding", property $ prop_bigEndian @Word128)
     , ("Word256 big endian encoding", property $ prop_bigEndian @Word128)
     ]
-
