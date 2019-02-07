@@ -16,7 +16,6 @@ import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
 import Control.Exception
-import Control.Monad.Catch
 
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
@@ -63,7 +62,8 @@ save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Eit
 save' lock height hash p@(PactDbState {..}) = do
 
      -- Saving off checkpoint.
-     modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
+     -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
+     modifyMVar_ lock (return . HMS.insert (height, hash) p)
 
      -- Closing database connection.
      case _pdbsDbEnv of

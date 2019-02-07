@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 -- |
 -- Module: Chainweb.Pact.Backend.SQLiteCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -15,14 +13,12 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 import qualified Data.List as L
 import Data.List.Split
-import Data.Maybe
 import Data.Monoid
 import Data.Serialize
 import Data.String
 
 import Control.Concurrent.MVar
 import Control.Lens
-import Control.Monad
 import Control.Monad.Except
 
 import System.Directory
@@ -59,15 +55,16 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
 type Store = HashMap (BlockHeight, BlockPayloadHash) FilePath
 
 reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData P.SQLite -> IO (Either String PactDbState)
-reinitDbEnv loggers funrec SaveData {..} = runExceptT $ do
-    _db <- ExceptT $ maybe err (fmap Right . (`P.initSQLite` loggers)) _sSQLiteConfig
-    return (PactDbState (EnvPersist' (PactDbEnvPersist P.pactdb (P.DbEnv {..}))) _sCommandState)
+reinitDbEnv loggers funrec savedata = runExceptT $ do
+    db <- ExceptT $ maybe err (fmap Right . (`P.initSQLite` loggers)) (_sSQLiteConfig savedata)
+    return (PactDbState (EnvPersist' (PactDbEnvPersist P.pactdb (mkDbEnv db))) (_sCommandState savedata))
     where
+    mkDbEnv db = P.DbEnv db persist logger txRecord txId
     err = return $ Left $ "SQLiteCheckpointer.reinitDbEnv: Configuration exception"
-    _persist = funrec
-    _logger = P.newLogger loggers (fromString "<to fill with something meaningful>") -- TODO: Needs a better message
-    _txRecord = _sTxRecord
-    _txId = _sTxId
+    persist = funrec
+    logger = P.newLogger loggers (fromString "<to fill with something meaningful>") -- TODO: Needs a better message
+    txRecord = _sTxRecord savedata
+    txId = _sTxId savedata
 
 -- This should open a connection with the assumption that there is not
 --  any connection open. There should be tests that assert this
@@ -76,32 +73,27 @@ restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String P
 restore' lock height hash = do
   withMVar lock $ \store -> do
     case HMS.lookup (height, hash) store of
-      Just cfile ->
+      Just chk_file -> do
 
-        withTempFile $ \copy_c_file -> do
+        --check that filename has the right version.
+        flip (maybe (return $ Left (err_version "nothing" saveDataVersion))) (versionCheck chk_file) $
+             \version ->
+               if version /= saveDataVersion
+                  then return $ Left (err_version version saveDataVersion)
+                  else runExceptT $ do
 
-          --check that filename has the right version.
-          flip (maybe (return $ Left (err_version "nothing" saveDataVersion))) (versionCheck cfile) $
-               \version ->
-                 if version /= saveDataVersion
-                    then return $ Left (err_version version saveDataVersion)
-                    else runExceptT $ do
+                       -- read back SaveData from copied file
+                       cdata <- do
+                         bytes <- liftIO $ B.readFile chk_file
+                         ExceptT $ return $ (first err_decode $ decode bytes)
 
-                         -- read back SaveData from copied file
-                         (savedata_bytes, cdata) <- do
-                           bytes <- liftIO $ B.readFile copy_c_file
-                           ExceptT $ return $ (first err_decode $ go bytes)
+                       ExceptT $ withTempFile $ \copy_sqlite_file -> do
 
-                         -- an "atomic copy"
-                         liftIO $ B.writeFile copy_c_file savedata_bytes
+                         -- create copy of the sqlite file
+                         let copy_data = over (sSQLiteConfig . _Just) (changeSQLFilePath copy_sqlite_file const) cdata
 
-                         ExceptT $ withTempFile $ \copy_sqlite_file -> do
-
-                           -- create copy of the sqlite file
-                           let copy_data = over (sSQLiteConfig . _Just) (changeSQLFilePath copy_sqlite_file const) cdata
-
-                           -- Open a database connection.
-                           reinitDbEnv P.neverLog P.persister copy_data
+                         -- Open a database connection.
+                         reinitDbEnv P.neverLog P.persister copy_data
 
       Nothing -> err_restore
   where
@@ -109,13 +101,9 @@ restore' lock height hash = do
     err_decode = printf "SQLiteCheckpointer.restore': Checkpoint decode exception= %s"
     err_restore = return $ Left "SQLiteCheckpointException.restore': Restore not found exception"
     versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") $ splitOn "_" filename
-    go bytes = do
+    {-go bytes = do
       decoded <- decode bytes
-      return (bytes, decoded)
-
--- atomic_copy_file :: FilePath -> FilePath -> IO ()
--- atomic_copy_file file newfile =
---   withTempFile  (\f -> undefined)
+      return (bytes, decoded)-}
 
 changeSQLFilePath :: FilePath -> (FilePath -> FilePath -> FilePath) -> P.SQLiteConfig -> P.SQLiteConfig
 changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
@@ -126,23 +114,51 @@ changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
 -- throw an error) before departure from this function. There should
 -- be tests that assert this essential aspect of the 'save' semantics.
 save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
-save' lock height hash PactDbState {..} =
+save' lock height hash pactdbstate =
   withMVar lock $ \store ->
     case HMS.lookup (height, hash) store of
-      Just _ -> return $ Left "SQLiteCheckpointer.save': Save key not found exception"
+      Just _ -> return $ Left msgSaveKeyError
       Nothing -> do
-        case _pdbsDbEnv of
-          EnvPersist' (p@(PactDbEnvPersist {..})) ->
-            case _pdepEnv of
-              P.DbEnv {..} -> do
-                closeDb _db
-                (mf, toSave) <- saveDb p _pdbsState
-                let dbFile = P.dbFile <$> (_sSQLiteConfig toSave)
-                    newdbFile = properName <$ dbFile
-                flip (maybe (return $ Left "SQLiteCheckpointer.save': PrefixNotSetException")) mf $
-                     \prefix -> do
-                       let sd = encode toSave
-                       B.writeFile (prefix ++ properName) sd
-                       sequence $ fromMaybe (Left "SQLiteCheckpointer.save': Save db exception") (Right <$> liftM2 copyFile dbFile newdbFile)
+
+        -- Those existentials make us do some unslightly unpacking. Can't put
+        -- lipstick on this pig.
+        case (_pdbsDbEnv pactdbstate) of
+          EnvPersist' (pactdbenvpersist@(PactDbEnvPersist _ _dbEnv)) ->
+            case _dbEnv of
+              dbEnv -> do
+
+              -- First, close the database connection.
+               closeDb (P._db dbEnv)
+
+               -- Then "save" it. Really we're computing the SaveData
+               -- data and the valid prefix for naming the file
+               -- containing serialized Pact values.
+               (mf, toSave) <- saveDb pactdbenvpersist (_pdbsState pactdbstate)
+               let dbFile = P.dbFile <$> (_sSQLiteConfig toSave)
+                   newdbFile = properName <$ dbFile
+
+               flip (maybe (return $ Left msgPrefixError)) mf $
+                    \prefix -> do
+
+                      -- Save serialized Pact values.
+                      let sd = encode toSave
+                      B.writeFile (prefix ++ properName) sd
+
+                      -- Copy the database file (the connection SHOULD
+                      -- be dead as roadkill).
+                      tempfile <- fst <$> newTempFileWithin "./" -- should we use Path instead of FilePath here?
+                      runExceptT $ do
+
+                         -- We write to a temporary file THEN rename it to
+                         -- get an atomic copy of the database file.
+                         contents <- helper msgDbFileError B.readFile dbFile
+                         -- onError
+                         liftIO $ B.writeFile tempfile contents
+                         helper msgWriteDbError (renameFile tempfile) newdbFile
   where
     properName = printf "chk.%s.%s" (show hash) (show height)
+    helper f g = ExceptT . maybe (return $ Left f) (fmap Right . g)
+    msgPrefixError = "SQLiteCheckpointer.save': Prefix not set exception"
+    msgDbFileError = "SQLiteCheckpointer.save': Copy dbFile error"
+    msgWriteDbError = "SQLiteCheckpointer.save': Write db error"
+    msgSaveKeyError = "SQLiteCheckpointer.save': Save key not found exception"
