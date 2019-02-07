@@ -11,6 +11,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -54,6 +55,11 @@ module Chainweb.BlockHeader
 , encodeNonce
 , decodeNonce
 
+-- * BlockCreationTime
+, BlockCreationTime(..)
+, encodeBlockCreationTime
+, decodeBlockCreationTime
+
 -- * BlockHeader
 , BlockHeader(..)
 , blockNonce
@@ -68,6 +74,8 @@ module Chainweb.BlockHeader
 , blockParent
 , blockPayloadHash
 , blockTarget
+, _blockPow
+, blockPow
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
 , encodeBlockHeader
@@ -84,7 +92,7 @@ module Chainweb.BlockHeader
 , IsBlockHeader(..)
 
 -- * Genesis BlockHeader
-, genesisBlockHash
+, genesisParentBlockHash
 , genesisBlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
@@ -114,6 +122,7 @@ import qualified Data.HashSet as HS
 import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
+import Data.MerkleLog hiding (Expected, Actual, MerkleHash)
 import Data.Reflection hiding (int)
 import Data.Serialize (Serialize(..))
 import Data.Word
@@ -126,11 +135,15 @@ import System.IO.Unsafe
 
 import Chainweb.BlockHash
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.Graph
+import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
 import Chainweb.NodeId
+import Chainweb.PowHash
 import Chainweb.Time
-import Chainweb.TreeDB
+import Chainweb.TreeDB (TreeDbEntry(..))
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -148,6 +161,13 @@ newtype BlockHeight = BlockHeight Word64
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , Num, Integral, Real, Enum
         )
+
+instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
+    type Tag BlockHeight = 'BlockHeightTag
+    toMerkleNode = encodeMerkleInputNode encodeBlockHeight
+    fromMerkleNode = decodeMerkleInputNode decodeBlockHeight
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
@@ -170,6 +190,13 @@ newtype BlockWeight = BlockWeight HashDifficulty
         , Num
         )
 
+instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
+    type Tag BlockWeight = 'BlockWeightTag
+    toMerkleNode = encodeMerkleInputNode encodeBlockWeight
+    fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
 encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 
@@ -179,16 +206,23 @@ decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
 
-newtype BlockPayloadHash = BlockPayloadHash BlockHashBytes
+newtype BlockPayloadHash = BlockPayloadHash MerkleLogHash
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
+instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
+    type Tag BlockPayloadHash = 'BlockPayloadHashTag
+    toMerkleNode = encodeMerkleInputNode encodeBlockPayloadHash
+    fromMerkleNode = decodeMerkleInputNode decodeBlockPayloadHash
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
 encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
-encodeBlockPayloadHash (BlockPayloadHash w) = encodeBlockHashBytes w
+encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
 
 decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
-decodeBlockPayloadHash = BlockPayloadHash <$> decodeBlockHashBytes
+decodeBlockPayloadHash = BlockPayloadHash <$> decodeMerkleLogHash
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -201,11 +235,39 @@ newtype Nonce = Nonce Word64
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable)
 
+instance IsMerkleLogEntry ChainwebHashTag Nonce where
+    type Tag Nonce = 'BlockNonceTag
+    toMerkleNode = encodeMerkleInputNode encodeNonce
+    fromMerkleNode = decodeMerkleInputNode decodeNonce
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
 encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n
 
 decodeNonce :: MonadGet m => m Nonce
 decodeNonce = Nonce <$> getWord64le
+
+-- -------------------------------------------------------------------------- --
+-- Block Creation Time
+
+newtype BlockCreationTime = BlockCreationTime (Time Int64)
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON, Hashable)
+
+instance IsMerkleLogEntry ChainwebHashTag BlockCreationTime where
+    type Tag BlockCreationTime = 'BlockCreationTimeTag
+    toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
+    fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
+encodeBlockCreationTime :: MonadPut m => BlockCreationTime -> m ()
+encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
+
+decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
+decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -214,7 +276,11 @@ decodeNonce = Nonce <$> getWord64le
 --
 -- Some redundant, aggregated information is included in the block and the block
 -- hash. This enables nodes to be checked inductively with respect to existing
--- blocks without recalculating the aggregated value from the genesis block onward.
+-- blocks without recalculating the aggregated value from the genesis block
+-- onward.
+--
+-- TODO: Separate the Merkle hash that is used to link the blocks from the POW
+-- hash.
 --
 data BlockHeader :: Type where
     BlockHeader ::
@@ -230,7 +296,7 @@ data BlockHeader :: Type where
         , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
             -- ^ authoritative
 
-        , _blockCreationTime :: {-# UNPACK #-} !(Time Int64)
+        , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
             -- ^ the time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
             -- with in the chain of blocks. The smallest allowed increment is
@@ -294,8 +360,6 @@ data BlockHeader :: Type where
 
         , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
-            -- The difficulty must match the block difficulty as stated in the respective
-            -- property.
         }
         -> BlockHeader
         deriving (Show, Generic)
@@ -323,29 +387,80 @@ instance Serialize BlockHeader where
     put = encodeBlockHeader
     get = decodeBlockHeader
 
-encodeBlockHeaderNoHash
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
-encodeBlockHeaderNoHash b = do
-    encodeBlockHash (_blockParent b)
-    encodeBlockHashRecord (_blockAdjacentHashes b)
-    encodeHashTarget (_blockTarget b)
-    encodeBlockPayloadHash (_blockPayloadHash b)
-    encodeTime (_blockCreationTime b)
-    encodeNonce (_blockNonce b)
-    encodeChainId (_blockChainId b)
-    encodeBlockWeight (_blockWeight b)
-    encodeBlockHeight (_blockHeight b)
-    encodeChainwebVersion (_blockChainwebVersion b)
-    encodeChainNodeId (_blockMiner b)
+instance HasMerkleLog ChainwebHashTag BlockHeader where
+    type MerkleLogHeader BlockHeader =
+        '[ BlockHash
+        , HashTarget
+        , BlockPayloadHash
+        , BlockCreationTime
+        , Nonce
+        , ChainId
+        , BlockWeight
+        , BlockHeight
+        , ChainwebVersion
+        , ChainNodeId
+        ]
+    type MerkleLogBody BlockHeader = BlockHash
+
+    toLog bh = merkleLog root entries
+      where
+        BlockHash _ (MerkleLogHash root) = _blockHash bh
+        entries = _blockParent bh
+            :+: _blockTarget bh
+            :+: _blockPayloadHash bh
+            :+: _blockCreationTime bh
+            :+: _blockNonce bh
+            :+: _blockChainId bh
+            :+: _blockWeight bh
+            :+: _blockHeight bh
+            :+: _blockChainwebVersion bh
+            :+: _blockMiner bh
+            :+: MerkleLogBody (blockHashRecordToSequence $ _blockAdjacentHashes bh)
+
+    fromLog l = BlockHeader
+            { _blockHash = BlockHash cid (MerkleLogHash $ _merkleLogRoot l)
+            , _blockParent = parentHash
+            , _blockTarget = target
+            , _blockPayloadHash = payload
+            , _blockCreationTime = time
+            , _blockNonce = nonce
+            , _blockChainId = cid
+            , _blockWeight = weight
+            , _blockHeight = height
+            , _blockChainwebVersion = cwv
+            , _blockMiner = miner
+            , _blockAdjacentHashes = blockHashRecordFromSequence adjParents
+            }
+      where
+        ( parentHash
+            :+: target
+            :+: payload
+            :+: time
+            :+: nonce
+            :+: cid
+            :+: weight
+            :+: height
+            :+: cwv
+            :+: miner
+            :+: MerkleLogBody adjParents
+            ) = _merkleLogEntries l
 
 encodeBlockHeader
     :: MonadPut m
     => BlockHeader
     -> m ()
 encodeBlockHeader b = do
-    encodeBlockHeaderNoHash b
+    encodeBlockHash (_blockParent b)
+    encodeBlockHashRecord (_blockAdjacentHashes b)
+    encodeHashTarget (_blockTarget b)
+    encodeBlockPayloadHash (_blockPayloadHash b)
+    encodeBlockCreationTime (_blockCreationTime b)
+    encodeNonce (_blockNonce b)
+    encodeChainId (_blockChainId b)
+    encodeBlockWeight (_blockWeight b)
+    encodeBlockHeight (_blockHeight b)
+    encodeChainwebVersion (_blockChainwebVersion b)
+    encodeChainNodeId (_blockMiner b)
     encodeBlockHash (_blockHash b)
 
 -- | Decode and check that
@@ -391,7 +506,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHashRecord
     <*> decodeHashTarget
     <*> decodeBlockPayloadHash
-    <*> decodeTime
+    <*> decodeBlockCreationTime
     <*> decodeNonce
     <*> decodeChainId
     <*> decodeBlockWeight
@@ -424,16 +539,23 @@ getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
 {-# INLINE getAdjacentHash #-}
 
 computeBlockHash :: BlockHeader -> BlockHash
-computeBlockHash b
-    | isGenesisBlockHeader b = genesisBlockHash (_blockChainwebVersion b) b
-    | otherwise = BlockHash (_chainId b)
-        $ cryptoHash (_blockChainwebVersion b) $ runPutS $ do
-            putLazyByteString "block"
-            encodeBlockHeaderNoHash b
+computeBlockHash h = BlockHash (_chainId h) $ MerkleLogHash $ computeMerkleLogRoot h
+{-# INLINE computeBlockHash #-}
 
 isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 {-# INLINE isGenesisBlockHeader #-}
+
+-- | The Proof-Of-Work hash includes all data in the block except for the
+-- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
+-- the value of '_blockTarget' (interpreted as 'BlockHashNat').
+--
+_blockPow :: BlockHeader -> PowHash
+_blockPow h = powHash (_blockChainwebVersion h) $ runPutS $ encodeBlockHeader h
+
+blockPow :: Getter BlockHeader PowHash
+blockPow = to _blockPow
+{-# INLINE blockPow #-}
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
@@ -499,18 +621,24 @@ instance IsBlockHeader BlockHeader where
 -- | The genesis block hash includes the Chainweb version and the 'ChainId'
 -- within the Chainweb version.
 --
-genesisBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
-genesisBlockHash v p =
-    BlockHash (_chainId p) . cryptoHash v . runPutS $ encodeChainId (_chainId p)
+-- It is the '_blockParent' of the genesis block
+--
+genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
+genesisParentBlockHash v p = BlockHash (_chainId p) $ MerkleLogHash
+    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
+        [ InputNode "CHAINWEB_GENESIS"
+        , encodeMerkleInputNode encodeChainwebVersion v
+        , encodeMerkleInputNode encodeChainId (_chainId p)
+        ]
 
 genesisBlockTarget :: ChainwebVersion -> HashTarget
 genesisBlockTarget _ = HashTarget maxBound
 
-genesisTime :: ChainwebVersion -> ChainId -> Time Int64
-genesisTime Test _ = epoche
-genesisTime TestWithTime _ = now
-genesisTime TestWithPow _ = now
-genesisTime Simulation _ = epoche
+genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
+genesisTime Test _ = BlockCreationTime epoche
+genesisTime TestWithTime _ = BlockCreationTime now
+genesisTime TestWithPow _ = BlockCreationTime now
+genesisTime Simulation _ = BlockCreationTime epoche
 genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
 
 now :: Time Int64
@@ -527,15 +655,19 @@ genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 -- TODO: characterize genesis block payload. Should this be the value of
 -- chainId instead of empty string?
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v c = hashPayload v s
-  where
-    s = runPutS $ do
-      putByteString "GENESIS:"
-      encodeChainwebVersion v
-      encodeChainId c
+genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
+    putByteString "GENESIS:"
+    encodeChainwebVersion v
+    encodeChainId c
 
-hashPayload :: ChainwebVersion -> ByteString -> BlockPayloadHash
-hashPayload v b = BlockPayloadHash $! cryptoHash v b
+hashPayload :: HasChainId p => ChainwebVersion -> p -> ByteString -> BlockPayloadHash
+hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
+    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
+        [ InputNode "CHAINWEB_PAYLOAD"
+        , encodeMerkleInputNode encodeChainwebVersion v
+        , encodeMerkleInputNode encodeChainId (_chainId cid)
+        , InputNode b
+        ]
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -551,23 +683,23 @@ genesisBlockHeader
     -> ChainGraph
     -> p
     -> BlockHeader
-genesisBlockHeader v g p = BlockHeader
-    { _blockParent = genesisBlockHash v cid
-    , _blockAdjacentHashes = BlockHashRecord $ HM.fromList $
-        (\c -> (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
-    , _blockTarget = genesisBlockTarget v
-    , _blockPayloadHash = genesisBlockPayloadHash v cid
-    , _blockNonce = Nonce 0
-    , _blockChainId = cid
-    , _blockWeight = BlockWeight 0
-    , _blockHeight = BlockHeight 0
-    , _blockChainwebVersion = v
-    , _blockCreationTime = genesisTime v cid
-    , _blockMiner = genesisMiner v cid
-    , _blockHash = genesisBlockHash v cid
-    }
+genesisBlockHeader v g p = fromLog mlog
   where
     cid = _chainId p
+    mlog = newMerkleLog
+        $ genesisParentBlockHash v cid
+        :+: genesisBlockTarget v
+        :+: genesisBlockPayloadHash v cid
+        :+: genesisTime v cid
+        :+: Nonce 0
+        :+: cid
+        :+: BlockWeight 0
+        :+: BlockHeight 0
+        :+: v
+        :+: genesisMiner v cid
+        :+: MerkleLogBody (blockHashRecordToSequence adjParents)
+    adjParents = BlockHashRecord $ HM.fromList $
+        (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 
 genesisBlockHeaders
     :: HasChainId p
@@ -585,42 +717,54 @@ instance TreeDbEntry BlockHeader where
     type Key BlockHeader = BlockHash
     key = _blockHash
     rank = int . _blockHeight
-    parent e = let p = _blockParent e in if p == key e then Nothing else Just p
+    parent e
+        | isGenesisBlockHeader e = Nothing
+        | otherwise = Just (_blockParent e)
 
 -- -------------------------------------------------------------------------- --
 -- Testing
 
 testBlockHeaderWithTime
     :: Time Int64
+        -- ^ Creation time of the block
     -> ChainNodeId
+        -- ^ Miner
     -> BlockHashRecord
+        -- ^ Adjacent parent hashes
     -> Nonce
+        -- ^ Nonce
     -> BlockHeader
+        -- ^ parent block header
     -> BlockHeader
-testBlockHeaderWithTime t m adj n b = b' { _blockHash = computeBlockHash b' }
+testBlockHeaderWithTime t m adj n b = fromLog $ newMerkleLog
+    $ _blockHash b
+    :+: target
+    :+: hashPayload (_blockChainwebVersion b) cid "TEST PAYLOAD"
+    :+: BlockCreationTime t
+    :+: n
+    :+: cid
+    :+: _blockWeight b + BlockWeight (targetToDifficulty target)
+    :+: _blockHeight b + 1
+    :+: _blockChainwebVersion b
+    :+: m
+    :+: MerkleLogBody (blockHashRecordToSequence adj)
   where
     target = _blockTarget b -- no difficulty adjustment
-    b' = b
-        { _blockParent = _blockHash b
-        , _blockAdjacentHashes = adj
-        , _blockTarget = target
-        , _blockPayloadHash = hashPayload (_blockChainwebVersion b) ""
-        , _blockNonce = n
-        , _blockWeight = _blockWeight b + BlockWeight (targetToDifficulty target)
-        , _blockHeight = _blockHeight b + 1
-        , _blockCreationTime = t
-        , _blockMiner = m
-        , _blockHash = _blockHash b -- preliminary, not used in hash
-        }
+    cid = _chainId b
 
 testBlockHeader
     :: ChainNodeId
+        -- ^ Miner
     -> BlockHashRecord
+        -- ^ Adjacent parent hashes
     -> Nonce
+        -- ^ Nonce
     -> BlockHeader
+        -- ^ parent block header
     -> BlockHeader
-testBlockHeader m adj n b
-    = testBlockHeaderWithTime (add second $ _blockCreationTime b) m adj n b
+testBlockHeader m adj n b = testBlockHeaderWithTime (add second t) m adj n b
+  where
+    BlockCreationTime t = _blockCreationTime b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.

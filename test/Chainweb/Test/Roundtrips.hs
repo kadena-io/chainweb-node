@@ -33,8 +33,11 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.HostAddress
+import Chainweb.MerkleLogHash
 import Chainweb.NodeId
+import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
@@ -43,8 +46,6 @@ import Chainweb.Version
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Peer
-
-import Chainweb.Test.Orphans.Internal ()
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests
@@ -72,14 +73,16 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeNodeId encodeNodeId
     , testProperty "ChainNodeId"
         $ prop_encodeDecodeRoundtrip decodeChainNodeId encodeChainNodeId
-    , testProperty "BlockHashBytes"
-        $ prop_encodeDecodeRoundtrip decodeBlockHashBytes encodeBlockHashBytes
+    , testProperty "MerkleLogHash"
+        $ prop_encodeDecodeRoundtrip decodeMerkleLogHash encodeMerkleLogHash
     , testProperty "BlockHash"
         $ prop_encodeDecodeRoundtrip decodeBlockHash encodeBlockHash
     , testProperty "BlockHeight"
         $ prop_encodeDecodeRoundtrip decodeBlockHeight encodeBlockHeight
-    , testProperty "BlockHashNat"
-        $ prop_encodeDecodeRoundtrip decodeBlockHashNat encodeBlockHashNat
+    , testProperty "PowHash"
+        $ prop_encodeDecodeRoundtrip decodePowHash encodePowHash
+    , testProperty "PowHashNat"
+        $ prop_encodeDecodeRoundtrip decodePowHashNat encodePowHashNat
     , testProperty "HashDifficulty"
         $ prop_encodeDecodeRoundtrip decodeHashDifficulty encodeHashDifficulty
     , testProperty "HashTarget"
@@ -122,8 +125,9 @@ jsonTestCases f =
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
     , testProperty "HashTarget" $ f @HashTarget
-    , testProperty "BlockHashBytes" $ f @BlockHashBytes
-    , testProperty "BlockHashNat" $ f @BlockHashNat
+    , testProperty "MerkleLogHash" $ f @MerkleLogHash
+    , testProperty "PowHash" $ f @PowHash
+    , testProperty "PowHashNat" $ f @PowHashNat
     , testProperty "BlockHash" $ f @BlockHash
     , testProperty "BlockHashRecord" $ f @BlockHashRecord
     , testProperty "BlockHeader" $ f @BlockHeader
@@ -159,11 +163,9 @@ jsonKeyTestCases
     -> [TestTree]
 jsonKeyTestCases f =
     [ testProperty "HashMap ChainId ()" $ f @(HM.HashMap ChainId ())
-    , testProperty "HashMap PeerId ()" $ f @(HM.HashMap BlockHash ())
     , testProperty "HashMap BlockHash ()" $ f @(HM.HashMap BlockHash ())
-    , testProperty "HashMap BlockWeight ()" $ f @(HM.HashMap BlockHash ())
-    , testProperty "HashMap BlockHashNat ()" $ f @(HM.HashMap BlockHash ())
-    , testProperty "HashMap HashDifficulty ()" $ f @(HM.HashMap BlockHash ())
+    , testProperty "HashMap BlockWeight ()" $ f @(HM.HashMap BlockWeight ())
+    , testProperty "HashMap HashDifficulty ()" $ f @(HM.HashMap HashDifficulty ())
     ]
 
 jsonKeyRoundtripTests :: TestTree

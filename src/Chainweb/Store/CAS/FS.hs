@@ -21,6 +21,7 @@ import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Random.MWC as MWCB
+import Data.Bytes.Put (runPutS)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified System.Directory as Dir
@@ -28,8 +29,7 @@ import System.Path (Absolute, Path, (</>))
 import qualified System.Path as Path
 import qualified System.Random.MWC as MWC
 ------------------------------------------------------------------------------
-import Chainweb.BlockHash (BlockHashBytes(..))
-import Chainweb.BlockHeader (BlockPayloadHash(..))
+import Chainweb.BlockHeader (BlockPayloadHash, encodeBlockPayloadHash)
 import Chainweb.Store.CAS
 import Chainweb.Utils (Codec(..), eatIOExceptions)
 ------------------------------------------------------------------------------
@@ -153,9 +153,9 @@ fsDelete fsdb v = TP.mapAction_ tp deleteOne (V.toList v)
 getBlockPath :: Path Absolute                  -- ^ payload store root
              -> BlockPayloadHash               -- ^ block payload hash
              -> (Path Absolute, FilePath)  -- ^ (dirname, filename)
-getBlockPath root (BlockPayloadHash (BlockHashBytes hash)) = (dir, B.unpack fn)
+getBlockPath root hash = (dir, B.unpack fn)
   where
-    b16hash = B16.encode hash
+    b16hash = B16.encode $ runPutS $ encodeBlockPayloadHash hash
     (pfx1, r1) = B.splitAt 3 b16hash
     (pfx2, fn) = B.splitAt 3 r1
     unp = Path.fromUnrootedFilePath . B.unpack

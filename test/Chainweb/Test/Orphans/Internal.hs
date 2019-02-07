@@ -15,6 +15,8 @@ module Chainweb.Test.Orphans.Internal
 (
 ) where
 
+import Control.Applicative
+
 import qualified Data.ByteString as B
 
 import Test.QuickCheck
@@ -25,8 +27,11 @@ import Test.QuickCheck.Gen (chooseAny)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
+import Chainweb.MerkleLogHash
 import Chainweb.NodeId
+import Chainweb.PowHash
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -41,8 +46,12 @@ instance Arbitrary ChainNodeId where
 instance Arbitrary BlockHash where
     arbitrary = BlockHash <$> pure (testChainId 0) <*> arbitrary
 
-instance Arbitrary BlockHashBytes where
-    arbitrary = BlockHashBytes . B.pack <$> vector (int blockHashBytesCount)
+instance Arbitrary PowHash where
+    arbitrary = unsafeMkPowHash . B.pack <$> vector (int powHashBytesCount)
+
+instance Arbitrary MerkleLogHash where
+    arbitrary = unsafeMerkleLogHash . B.pack
+        <$> vector (int merkleLogHashBytesCount)
 
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
@@ -53,8 +62,8 @@ instance Arbitrary BlockWeight where
 instance Arbitrary HashDifficulty where
     arbitrary = HashDifficulty <$> arbitrary
 
-instance Arbitrary BlockHashNat where
-    arbitrary = blockHashNat <$> arbitrary
+instance Arbitrary PowHashNat where
+    arbitrary = powHashNat <$> arbitrary
 
 instance Arbitrary HashTarget where
     arbitrary = HashTarget <$> arbitrary
@@ -70,19 +79,22 @@ instance Arbitrary BlockPayloadHash where
 instance Arbitrary Nonce where
     arbitrary = Nonce <$> arbitrary
 
+instance Arbitrary BlockCreationTime where
+    arbitrary = BlockCreationTime <$> arbitrary
+
 instance Arbitrary BlockHeader where
-    arbitrary = do
-      h <- BlockHeader
-          <$> arbitrary
-          <*> arbitrary
-          <*> arbitrary
-          <*> arbitrary
-          <*> arbitrary
-          <*> (Nonce <$> chooseAny)
-          <*> pure (testChainId 0)
-          <*> arbitrary
-          <*> arbitrary
-          <*> pure Test
-          <*> arbitrary
-          <*> arbitrary
-      pure $! h { _blockHash = computeBlockHash h }
+    arbitrary = fromLog . newMerkleLog <$> entries
+      where
+        entries
+            = liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) (Nonce <$> chooseAny)
+            $ liftA2 (:+:) (pure (testChainId 0))
+            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) (pure Test)
+            $ liftA2 (:+:) arbitrary
+            $ fmap MerkleLogBody arbitrary
+

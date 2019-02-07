@@ -71,7 +71,7 @@ import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
-import Data.Bifunctor
+import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Coerce (coerce)
@@ -104,6 +104,7 @@ import Text.Printf (printf)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (HashTarget(..), targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend(..), noopMempool)
@@ -120,6 +121,8 @@ import Chainweb.Version (ChainwebVersion(..))
 import qualified Data.DiGraph as G
 
 import Network.X509.SelfSigned
+
+import Numeric.AffineSpace
 
 import qualified P2P.Node.PeerDB as P2P
 
@@ -197,14 +200,8 @@ tree g = do
 --
 genesis :: Gen BlockHeader
 genesis = do
-    h <- arbitrary
-    let h' = h { _blockHeight = 0 }
-        hsh = computeBlockHash h'
-    pure $! h' { _blockHash = hsh
-               , _blockParent = hsh
-               , _blockTarget = genesisBlockTarget Test
-               , _blockWeight = 0
-               }
+    cid <- arbitrary
+    return $ genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -237,17 +234,21 @@ header h = do
     nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary
-    let (Time (TimeSpan ts)) = _blockCreationTime h
-        target = HashTarget maxBound
-        h' = h { _blockParent = _blockHash h
-               , _blockTarget = target
-               , _blockPayloadHash = payload
-               , _blockCreationTime = Time . TimeSpan $ ts + 10000000  -- 10 seconds
-               , _blockNonce = nonce
-               , _blockMiner = miner
-               , _blockWeight = BlockWeight (targetToDifficulty target) + _blockWeight h
-               , _blockHeight = succ $ _blockHeight h }
-    pure $! h' { _blockHash = computeBlockHash h' }
+    return $ fromLog $ newMerkleLog
+            $ _blockHash h
+            :+: target
+            :+: payload
+            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+            :+: nonce
+            :+: _chainId h
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
+            :+: succ (_blockHeight h)
+            :+: _blockChainwebVersion h
+            :+: miner
+            :+: MerkleLogBody mempty
+   where
+    BlockCreationTime t = _blockCreationTime h
+    target = HashTarget maxBound
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -299,11 +300,10 @@ starBlockHeaderDbs n genDbs = do
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (cid, db, _) = do
-        let gbh0 = genesisBlockHeader Test peterson cid
+    populateDb (_, db, _) = do
+        gbh0 <- root db
         traverse_ (\i -> insert db $ newEntry i gbh0) [0 .. (int n-1)]
 
-    newEntry :: Word64 -> BlockHeader -> BlockHeader
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 
 -- -------------------------------------------------------------------------- --

@@ -74,7 +74,7 @@ module Chainweb.Store.Git.Internal
   , getSpectrum
   , parseLeafTreeFileName
   , oidToByteString
-  , getBlockHashBytes
+  , getMerkleLogHash
   , mkTreeEntryNameWith
   , mkTagName
   ) where
@@ -134,8 +134,9 @@ import System.Path (Absolute, Path)
 
 -- internal modules
 
-import Chainweb.BlockHash (BlockHash(..), BlockHashBytes(..))
+import Chainweb.BlockHash (BlockHash(..))
 import Chainweb.BlockHeader
+import Chainweb.MerkleLogHash
 import Chainweb.TreeDB
 import Chainweb.Utils (int)
 import Chainweb.Utils.Paging (Limit(..), NextItem(..))
@@ -157,7 +158,7 @@ instance TreeDbEntry GitStoreBlockHeader where
     rank (GitStoreBlockHeader bh) = int $ _blockHeight bh
 
     parent (GitStoreBlockHeader bh)
-        | _blockParent bh == _blockHash bh = Nothing
+        | isGenesisBlockHeader bh = Nothing
         | otherwise = Just p
       where
         p = T2 (_blockHeight bh - 1) (_blockParent bh)
@@ -232,14 +233,14 @@ instance TreeDb GitStore where
             unless (upper >= highest) $
                 work ls highest (succ upper) (min (upper + pageSize) highest)
           where
-            f :: HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry)
+            f :: HM.HashMap (T2 BlockHeight MerkleLogHash) (T2 TreeEntry BlobEntry)
               -> TreeEntry
-              -> IO (HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry))
+              -> IO (HM.HashMap (T2 BlockHeight MerkleLogHash) (T2 TreeEntry BlobEntry))
             f cache nxt = lockGitStore gs $ \gsd -> do
                 let !start = T2 (_te_blockHeight nxt) (_te_blockHash nxt)
                 cachedWalk gsd start lower cache
 
-            g :: (T2 BlockHeight BlockHashBytes, T2 TreeEntry BlobEntry) -> IO GitStoreBlockHeader
+            g :: (T2 BlockHeight MerkleLogHash, T2 TreeEntry BlobEntry) -> IO GitStoreBlockHeader
             g (_, T2 _ blob) =
                 GitStoreBlockHeader <$> lockGitStore gs (\gsd -> readHeader' gsd blob)
 
@@ -310,7 +311,7 @@ data GitStoreConfig = GitStoreConfig {
 --
 data TreeEntry = TreeEntry {
     _te_blockHeight :: {-# UNPACK #-} !BlockHeight
-  , _te_blockHash :: {-# UNPACK #-} !BlockHashBytes
+  , _te_blockHash :: {-# UNPACK #-} !MerkleLogHash
   , _te_gitHash :: {-# UNPACK #-} !GitHash
 } deriving (Show, Eq, Ord, Generic, NFData)
 
@@ -484,14 +485,14 @@ matchTags (GitStoreData repo _ _) nt chop =
 
 lookupByBlockHash :: GitStore -> BlockHeight -> BlockHash -> IO (Maybe BlockHeader)
 lookupByBlockHash gs height bh = lockGitStore gs $ \store -> do
-    m <- lookupTreeEntryByHash store (getBlockHashBytes bh) (fromIntegral height)
+    m <- lookupTreeEntryByHash store (getMerkleLogHash bh) (fromIntegral height)
     traverse (readHeader store) m
 
 -- | Shouldn't throw, in theory.
 --
 lookupTreeEntryByHash
     :: GitStoreData
-    -> BlockHashBytes
+    -> MerkleLogHash
     -> BlockHeight
     -> IO (Maybe TreeEntry)
 lookupTreeEntryByHash gs bh height =
@@ -598,7 +599,7 @@ walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
 --
 walk'
     :: GitStoreData
-    -> T2 BlockHeight BlockHashBytes
+    -> T2 BlockHeight MerkleLogHash
     -> BlockHeight
     -> (TreeEntry -> IO ())
     -> (BlobEntry -> IO ())
@@ -626,10 +627,10 @@ walk' gsd (T2 height hash) target f g =
 --
 cachedWalk
     :: GitStoreData
-    -> T2 BlockHeight BlockHashBytes
+    -> T2 BlockHeight MerkleLogHash
     -> BlockHeight
-    -> HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry)
-    -> IO (HM.HashMap (T2 BlockHeight BlockHashBytes) (T2 TreeEntry BlobEntry))
+    -> HM.HashMap (T2 BlockHeight MerkleLogHash) (T2 TreeEntry BlobEntry)
+    -> IO (HM.HashMap (T2 BlockHeight MerkleLogHash) (T2 TreeEntry BlobEntry))
 cachedWalk gsd k@(T2 height hash) target cache
     | HM.member k cache = pure cache
     | otherwise = lookupTreeEntryByHash gsd hash height >>= \case
@@ -682,7 +683,7 @@ data InsertResult = Inserted | AlreadyExists deriving (Eq, Show)
 
 insertBlock :: GitStore -> BlockHeader -> IO InsertResult
 insertBlock gs bh = lockGitStore gs $ \store -> do
-    let hash = getBlockHashBytes $ _blockHash bh
+    let hash = getMerkleLogHash $ _blockHash bh
         height = fromIntegral $ _blockHeight bh
     m <- lookupTreeEntryByHash store hash height
     maybe (go store) (const $ pure AlreadyExists) m
@@ -724,11 +725,11 @@ createLeafTree store@(GitStoreData repo _ _) bh = withTreeBuilder $ \treeB -> do
     height :: BlockHeight
     height = _blockHeight bh
 
-    hash :: BlockHashBytes
-    hash = getBlockHashBytes $ _blockHash bh
+    hash :: MerkleLogHash
+    hash = getMerkleLogHash $ _blockHash bh
 
-    parentHash :: BlockHashBytes
-    parentHash = getBlockHashBytes $ _blockParent bh
+    parentHash :: MerkleLogHash
+    parentHash = getMerkleLogHash $ _blockParent bh
 
     spectrum :: Spectrum
     spectrum = getSpectrum height
@@ -736,7 +737,7 @@ createLeafTree store@(GitStoreData repo _ _) bh = withTreeBuilder $ \treeB -> do
     addTreeEntry :: Ptr G.C'git_treebuilder -> TreeEntry -> IO ()
     addTreeEntry tb (TreeEntry h hs gh) = tbInsert tb G.c'GIT_FILEMODE_TREE h hs gh
 
-addSelfEntry :: Ptr G.C'git_treebuilder -> BlockHeight -> BlockHashBytes -> GitHash -> IO ()
+addSelfEntry :: Ptr G.C'git_treebuilder -> BlockHeight -> MerkleLogHash -> GitHash -> IO ()
 addSelfEntry tb h hs gh = tbInsert tb G.c'GIT_FILEMODE_BLOB h hs gh
 
 -- | Insert a tree entry into a @git_treebuilder@.
@@ -745,7 +746,7 @@ tbInsert
     :: Ptr G.C'git_treebuilder
     -> G.C'git_filemode_t
     -> BlockHeight
-    -> BlockHashBytes
+    -> MerkleLogHash
     -> GitHash
     -> IO ()
 tbInsert tb mode h hs gh =
@@ -787,8 +788,8 @@ createBlockHeaderTag gs@(GitStoreData repo _ _) bh leafHash =
     height :: BlockHeight
     height = _blockHeight bh
 
-    hash :: BlockHashBytes
-    hash = getBlockHashBytes $ _blockHash bh
+    hash :: MerkleLogHash
+    hash = getMerkleLogHash $ _blockHash bh
 
     tagName :: NullTerminated
     tagName = mkTagName height hash
@@ -822,7 +823,7 @@ tagAsLeaf store@(GitStoreData repo _ _) leaf =
 mkName :: TreeEntry -> NullTerminated
 mkName (TreeEntry h bh _) = mkLeafTagName h bh
 
-mkLeafTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkLeafTagName :: BlockHeight -> MerkleLogHash -> NullTerminated
 mkLeafTagName = mkTreeEntryNameWith "leaf/"
 
 -----------
@@ -945,11 +946,11 @@ dedup (x:r@(y:_)) | x == y = dedup r
 -- |       `-- base64-encoded block hash
 -- `-- base64-encoded block height
 -- @
-parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, BlockHashBytes)
+parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, MerkleLogHash)
 parseLeafTreeFileName fn = do
     height <- decodeHeight heightStr
-    -- bh <- BlockHashBytes <$> hush (B64U.decode blockHash0)
-    bh <- BlockHashBytes <$> hush (convertFromBase Base64URLUnpadded blockHash0)
+    -- bh <- MerkleLogHash <$> hush (B64U.decode blockHash0)
+    bh <- unsafeMerkleLogHash <$> hush (convertFromBase Base64URLUnpadded $ blockHash0)
     pure (height, bh)
   where
     -- TODO if the `rest` is fixed-length, it would be faster to use `splitAt`.
@@ -964,24 +965,24 @@ oidToByteString pOid = bracket (G.c'git_oid_allocfmt pOid) free B.packCString
 
 -- | Mysteriously missing from the main API of `BlockHash`.
 --
-getBlockHashBytes :: BlockHash -> BlockHashBytes
-getBlockHashBytes (BlockHash _ bytes) = bytes
+getMerkleLogHash :: BlockHash -> MerkleLogHash
+getMerkleLogHash (BlockHash _ bytes) = bytes
 
 bhText :: BlockHeight -> Text
 bhText (BlockHeight h) = T.pack $ show h
 
-mkTagRef :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagRef :: BlockHeight -> MerkleLogHash -> NullTerminated
 mkTagRef height hash = nappend "tags/" (mkTagName height hash)
 
-mkTagName :: BlockHeight -> BlockHashBytes -> NullTerminated
+mkTagName :: BlockHeight -> MerkleLogHash -> NullTerminated
 mkTagName = mkTreeEntryNameWith "bh/"
 
--- | Encode a `BlockHeight` and `BlockHashBytes` into the expected format,
+-- | Encode a `BlockHeight` and `MerkleLogHash` into the expected format,
 -- append some decorator to the front (likely a section of a filepath), and
 -- postpend a null-terminator.
 --
-mkTreeEntryNameWith :: ByteString -> BlockHeight -> BlockHashBytes -> NullTerminated
-mkTreeEntryNameWith b (BlockHeight height) (BlockHashBytes hash) =
+mkTreeEntryNameWith :: ByteString -> BlockHeight -> MerkleLogHash -> NullTerminated
+mkTreeEntryNameWith b (BlockHeight height) (MerkleLogHash hash) =
     NullTerminated [ b, encHeight, ".", encBH, "\0" ]
   where
     encBH :: ByteString

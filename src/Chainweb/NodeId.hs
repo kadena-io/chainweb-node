@@ -4,10 +4,12 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeInType #-}
 
 -- |
@@ -59,6 +61,8 @@ import Test.QuickCheck
 -- Internal imports
 
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -110,6 +114,13 @@ instance HasTextRepresentation ChainNodeId where
     {-# INLINE toText #-}
     fromText = chainNodeIdFromText
     {-# INLINE fromText #-}
+
+instance IsMerkleLogEntry ChainwebHashTag ChainNodeId where
+    type Tag ChainNodeId = 'ChainNodeIdTag
+    toMerkleNode = encodeMerkleInputNode encodeChainNodeId
+    fromMerkleNode = decodeMerkleInputNode decodeChainNodeId
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb NodeId

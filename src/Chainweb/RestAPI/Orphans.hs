@@ -52,6 +52,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.HostAddress hiding (properties)
+import Chainweb.MerkleLogHash
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
@@ -161,8 +162,8 @@ instance ToParamSchema BlockHash where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & format ?~ "byte"
-        & maxLength ?~ int blockHashBytesCount
-        & minLength ?~ int blockHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
+        & minLength ?~ int merkleLogHashBytesCount
 
 instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
@@ -239,8 +240,8 @@ instance ToSchema HostAddress where
 
 instance ToSchema BlockHash where
     declareNamedSchema _ = return $ NamedSchema (Just "Key") $ byteSchema
-        & minLength ?~ int blockHashBytesCount
-        & maxLength ?~ int blockHashBytesCount
+        & minLength ?~ int merkleLogHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema

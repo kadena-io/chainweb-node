@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -70,6 +71,8 @@ import Test.QuickCheck (Arbitrary(..))
 
 -- internal imports
 
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
 import Data.Singletons
@@ -134,6 +137,13 @@ instance HasChainId a => HasChainId (Expected a) where
 instance HasChainId a => HasChainId (Actual a) where
     _chainId = _chainId . getActual
     {-# INLINE _chainId #-}
+
+instance IsMerkleLogEntry ChainwebHashTag ChainId where
+    type Tag ChainId = 'ChainIdTag
+    toMerkleNode = encodeMerkleInputNode encodeChainId
+    fromMerkleNode = decodeMerkleInputNode decodeChainId
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 checkChainId
     :: MonadThrow m

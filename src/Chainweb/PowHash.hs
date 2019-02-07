@@ -22,7 +22,9 @@
 --
 module Chainweb.PowHash
 ( PowHash
+, powHashBytes
 , mkPowHash
+, unsafeMkPowHash
 , PowHashBytesCount
 , powHashBytesCount
 , encodePowHash
@@ -47,6 +49,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Random as BR
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
+import Data.Maybe
 import Data.Proxy
 
 import Foreign.Storable
@@ -84,6 +87,10 @@ mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
 mkPowHash = runGet decodePowHash
 {-# INLINE mkPowHash #-}
 
+unsafeMkPowHash :: B.ByteString -> PowHash
+unsafeMkPowHash = fromJust . runGet decodePowHash
+{-# INLINE unsafeMkPowHash #-}
+
 instance IsMerkleLogEntry ChainwebHashTag PowHash where
     type Tag PowHash = 'PowHashTag
     toMerkleNode = encodeMerkleInputNode encodePowHash
@@ -94,6 +101,10 @@ instance IsMerkleLogEntry ChainwebHashTag PowHash where
 encodePowHash :: MonadPut m => PowHash -> m ()
 encodePowHash (PowHash w) = putByteString $ SB.fromShort w
 {-# INLINE encodePowHash #-}
+
+powHashBytes :: PowHash -> SB.ShortByteString
+powHashBytes (PowHash bytes) = bytes
+{-# INLINE powHashBytes #-}
 
 decodePowHash :: MonadGet m => m PowHash
 decodePowHash = PowHash . SB.toShort <$> getBytes (int powHashBytesCount)
@@ -126,8 +137,10 @@ randomPowHash = PowHash . SB.toShort <$> liftIO (BR.random powHashBytesCount)
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash
 
-powHash :: ChainwebVersion -> (B.ByteString -> PowHash)
+powHash :: ChainwebVersion -> B.ByteString -> PowHash
 powHash Test = cryptoHash @SHA512t_256
+powHash TestWithTime = cryptoHash @SHA512t_256
+powHash TestWithPow = cryptoHash @SHA512t_256
 powHash Simulation = cryptoHash @SHA512t_256
 powHash Testnet00 = cryptoHash @SHA512t_256
 
