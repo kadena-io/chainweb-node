@@ -202,7 +202,7 @@ targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
 {-# INLINE targetToDifficulty #-}
 
 checkTarget :: HashTarget -> PowHash -> Bool
-checkTarget target h = powHashNat h <= coerce target
+checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
 
 encodeHashTarget :: MonadPut m => HashTarget -> m ()

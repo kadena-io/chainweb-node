@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
@@ -12,90 +13,154 @@
 -- Stability: experimental
 --
 module Chainweb.TreeDB.HashTarget
-  ( hashTargetFromHistory
-  , hashTargetFromHistory'
+  ( hashTarget
   ) where
 
 import Control.Lens ((^.))
 
+import Data.DoubleWord (Word256)
 import Data.Function ((&))
 import qualified Data.HashSet as HS
 import Data.Int (Int64)
-import qualified Data.List.NonEmpty as NEL
+import Data.Maybe (fromJust)
 import Data.Semigroup (Max(..), Min(..))
-
-import Numeric.Additive (invert)
-import Numeric.AffineSpace (Diff, add, diff)
 
 import qualified Streaming.Prelude as P
 
 -- internal modules
 
-import Chainweb.BlockHeader
-    (BlockHeader(..), IsBlockHeader(..), blockCreationTime, blockHeight)
-import Chainweb.Difficulty (HashTarget, calculateTarget)
-import Chainweb.Time (Time, TimeSpan)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight, IsBlockHeader(..))
+import Chainweb.Difficulty
+import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.TreeDB
+import Chainweb.Utils (int)
 
 ---
-
-{- NOTES
-
-A `HashTarget` is a newtype around a `BlockHashNat`, and represents:
-
-    target = maxBound / (network hash rate * block time) = maxBound / difficulty
-    network hash rate is interpolated from observered past block times.
-
-Likewise, a `HashDifficulty` is another wrapper around a `BlockHashNat`.
-
-A `BlockHashNat` is a newtype around a `Word256`, which comes from the `data-dword` lib.
-
--}
-
 
 -- | Compute what the `HashTarget` ought to be for a block, using its ancestry
 -- in a window which goes back the given amount of time from its parent.
 --
-hashTargetFromHistory
-    :: forall db. TreeDb db
-    => IsBlockHeader (DbEntry db)
-    => db
-    -> DbEntry db
-    -> TimeSpan Int64
-    -> IO HashTarget
-hashTargetFromHistory db bh ts = do
-    es <- branchEntries db Nothing Nothing minr maxr lower upper
-          & P.map (^. isoBH)
-          & P.takeWhile (\h -> _blockCreationTime h > time)
-          & P.toList_
-          & fmap (NEL.reverse . NEL.fromList)
+-- hashTargetFromHistory
+--     :: forall db. TreeDb db
+--     => IsBlockHeader (DbEntry db)
+--     => db
+--     -> DbEntry db
+--     -> TimeSpan Int64
+--     -> IO (T2 HashTarget Int)
+-- hashTargetFromHistory db bh ts
+--     | _blockHeight bh' < 10 = pure (T2 maxTarget 0)
+--     | otherwise = do
+--         -- putStrLn "Walk the branch..." >> hFlush stdout
 
-    pure $! hashTargetFromHistory' bh es
-  where
-    end :: Time Int64
-    end = bh ^. isoBH . blockCreationTime
+--         -- Thanks to `P.takeWhile`, will not stream more than it has to.
+--         --
+--         -- INVARIANT: This excludes the genesis block, whose Creation Time is
+--         -- given as the Linux Epoch, @Time (TimeSpan 0)@ (at least for TestNet).
+--         -- Excluding the genesis block in this way ensures that the time gap
+--         -- between it and the first mined block won't adversely affect
+--         -- difficulty adjustment.
+--         --
+--         es <- branchEntries db Nothing Nothing minr maxr lower upper
+--               & P.map (^. isoBH)
+--               & P.takeWhile (\h -> _blockCreationTime h > time)
+--               & P.toList_
+--               & fmap (NEL.reverse . NEL.fromList)
 
-    time :: Time Int64
-    time = invert ts `add` end
+--         -- printf "WINDOW: %d\n" (length es) >> hFlush stdout
 
-    minr = Just . MinRank $ Min 0
-    maxr = Just . MaxRank . Max . fromIntegral $ bh ^. isoBH . blockHeight
-    lower = HS.empty
-    upper = HS.singleton . UpperBound $ key bh
+--         let !target = min maxTarget (hashTargetFromHistory' bh' es)
+
+--         ------------
+--         -- DEBUGGING
+--         ------------
+--         -- printf "WINDOW SIZE: %d. TARGET BITS: %d. TIME: %s\n" (length es) (popCount $! fwip target) (show time)
+--         -- hFlush stdout
+--         pure (T2 target $! length es)
+
+--     -- pure $! hashTargetFromHistory' bh' es
+--   where
+--     bh' :: BlockHeader
+--     bh' = bh ^. isoBH
+
+--     end :: Time Int64
+--     end = _blockCreationTime bh'
+
+--     time :: Time Int64
+--     time = invert ts `add` end
+
+--     minr = Just . MinRank $ Min 0
+--     maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
+--     lower = HS.empty
+--     upper = HS.singleton . UpperBound $! key bh
+
+--     maxTarget :: HashTarget
+--     maxTarget = HashTarget $! maxBound `div` 1024
+
+--     fwip :: HashTarget -> Word256
+--     fwip (HashTarget (BlockHashNat n)) = n
 
 -- | A pure variant, for when you already have the window in memory. It's
 -- assumed that the `NEL.NonEmpty` is sorted by `BlockHeight`.
 --
-hashTargetFromHistory' :: IsBlockHeader bh => bh -> NEL.NonEmpty BlockHeader -> HashTarget
-hashTargetFromHistory' bh es = calculateTarget (diff end start) deltas
+-- hashTargetFromHistory' :: BlockHeader -> NEL.NonEmpty BlockHeader -> HashTarget
+-- hashTargetFromHistory' bh es = calculateTarget (diff end start) deltas
+--   where
+--     timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
+--     timeDelta earlier later = diff (_blockCreationTime later) (_blockCreationTime earlier)
+
+--     deltas :: [(HashTarget, TimeSpan Int64)]
+--     deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
+
+--     start = _blockCreationTime $ NEL.head es
+
+--     end :: Time Int64
+--     end = _blockCreationTime bh
+
+-- | A potentially new `HashTarget`, based on the rate of mining success over
+-- the previous N blocks.
+--
+hashTarget
+    :: forall db. TreeDb db
+    => IsBlockHeader (DbEntry db)
+    => db
+    -> DbEntry db
+    -> IO HashTarget
+hashTarget db bh
+    | _blockHeight bh' == 0 = pure $! _blockTarget bh'
+    | _blockHeight bh' `mod` magicNumber /= 0 = pure $! _blockTarget bh'
+    | otherwise = do
+        start <- branchEntries db Nothing Nothing minr maxr lower upper
+                 & P.map (^. isoBH)
+                 & P.take (int magicNumber)
+                 & P.last_
+                 & fmap fromJust  -- Will include at least the parent block.
+
+        let delta :: Int64
+            !delta = taim (_blockCreationTime bh') - taim (_blockCreationTime start)
+            -- Microseconds. `succ` guards against divide-by-zero.
+            avg :: Int64
+            !avg = succ $ delta `div` int magicNumber
+
+            newDiff :: HashDifficulty
+            !newDiff = targetToDifficulty (_blockTarget bh') * int blockRate `div` int avg
+
+        pure $! difficultyToTarget newDiff
   where
-    timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
-    timeDelta x y = diff (_blockCreationTime y) (_blockCreationTime x)
+    magicNumber :: BlockHeight
+    magicNumber = 3  -- Ideally, three blocks in 30s. Not realistic, but I want
+                     -- to test. In prod this would come from config.
 
-    deltas :: [(HashTarget, TimeSpan Int64)]
-    deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
+    -- | 10 seconds as microseconds. In prod this should also come from config.
+    blockRate :: Word256
+    blockRate = 10 * 1000000
 
-    start = _blockCreationTime $ NEL.head es
+    bh' :: BlockHeader
+    bh' = bh ^. isoBH
 
-    end :: Time Int64
-    end = bh ^. isoBH . blockCreationTime
+    minr = Just . MinRank $ Min 0
+    maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
+    lower = HS.empty
+    upper = HS.singleton . UpperBound $! key bh
+
+    taim :: Time a -> a
+    taim (Time (TimeSpan n)) = n
