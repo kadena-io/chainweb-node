@@ -68,7 +68,7 @@ module Chainweb.Time
 import Control.DeepSeq
 import Control.Monad.Catch
 
-import Data.Aeson (ToJSON, FromJSON)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
@@ -84,9 +84,9 @@ import Test.QuickCheck (Arbitrary(..), Gen)
 
 -- internal imports
 
-import Numeric.AffineSpace
 import Chainweb.Utils
 import Numeric.Additive
+import Numeric.AffineSpace
 import Numeric.Cast
 
 -- -------------------------------------------------------------------------- --
@@ -158,6 +158,9 @@ epoche :: Num a => Time a
 epoche = Time (TimeSpan 0)
 {-# INLINE epoche #-}
 
+-- | Adhering to `Time`, this is the current number of microseconds since the
+-- epoch.
+--
 getCurrentTimeIntegral :: Integral a => IO (Time a)
 getCurrentTimeIntegral = do
     -- returns POSIX seconds with picosecond precision
@@ -260,4 +263,3 @@ instance Arbitrary a => Arbitrary (TimeSpan a) where
 
 instance Arbitrary Seconds where
     arbitrary = int <$> (arbitrary :: Gen Integer)
-

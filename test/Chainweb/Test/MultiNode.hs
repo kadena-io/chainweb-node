@@ -144,11 +144,11 @@ chainwebLogFunctions level write nid cids = ChainwebLogFunctions
 graph :: ChainGraph
 graph = petersonChainGraph
 
--- | block time seconds is set to 4 seconds. Since this test runs over the the
+-- | block time seconds is set to 10 seconds. Since this test runs over the the
 -- loopback device a very short block time should be fine.
 --
 blockTimeSeconds :: Natural
-blockTimeSeconds = 4
+blockTimeSeconds = 10
 
 -- | Test Configuration for a scaled down Test chainweb.
 --
