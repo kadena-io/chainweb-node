@@ -117,14 +117,6 @@ module Chainweb.Crypto.MerkleLog
 , entriesHeaderSize
 , entriesBody
 
--- ** IsMerkleLogEntry instance for use with @deriving via@
-, ByteArrayMerkleLogEntry(..)
-, MerkleRootLogEntry(..)
-, Word8MerkleLogEntry(..)
-, Word16BeMerkleLogEntry(..)
-, Word32BeMerkleLogEntry(..)
-, Word64BeMerkleLogEntry(..)
-
 -- * Merkle Log
 , MerkleLog(..)
 , HasMerkleLog(..)
@@ -146,6 +138,18 @@ module Chainweb.Crypto.MerkleLog
 , bodyTree_
 , proofSubject
 
+-- * Utils for Defining Instances
+, decodeMerkleInputNode
+, encodeMerkleInputNode
+
+-- ** IsMerkleLogEntry instance for use with @deriving via@
+, ByteArrayMerkleLogEntry(..)
+, MerkleRootLogEntry(..)
+, Word8MerkleLogEntry(..)
+, Word16BeMerkleLogEntry(..)
+, Word32BeMerkleLogEntry(..)
+, Word64BeMerkleLogEntry(..)
+
 -- * Exceptions
 , MerkleLogException(..)
 , expectedInputNodeException
@@ -157,6 +161,8 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import qualified Data.ByteArray as BA
+import Data.Bytes.Get
+import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Foldable
 import Data.Kind
@@ -688,6 +694,23 @@ proofSubject p = fromMerkleNodeTagged @u subj
   where
     MerkleProofSubject subj = _merkleProofSubject p
 {-# INLINE proofSubject #-}
+
+-- -------------------------------------------------------------------------- --
+-- Tools Defining Instances
+
+encodeMerkleInputNode
+    :: (forall m . MonadPut m => b -> m ())
+    -> b
+    -> MerkleNodeType a B.ByteString
+encodeMerkleInputNode encode = InputNode . runPutS . encode
+
+decodeMerkleInputNode
+    :: MonadThrow m
+    => (forall n . MonadGet n => n b)
+    -> MerkleNodeType a B.ByteString
+    -> m b
+decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes
+decodeMerkleInputNode _ (TreeNode _) = throwM expectedInputNodeException
 
 -- -------------------------------------------------------------------------- --
 -- Support for Deriving Via
