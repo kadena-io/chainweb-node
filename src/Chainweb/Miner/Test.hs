@@ -172,7 +172,7 @@ miner logFun conf nid cutDb wcdb = do
                         when (cid == testChainId 0) $ do
                           let thing :: String
                               thing = printf "%0256b" $ tiggy target
-                          printf "MINED on Chain %s. HASHES: %05d. TARGET: %s. PARENT-H:%d\n" (show cid) total (take 20 thing) (pheight p)
+                          printf "\nMINED on Chain %s. HASHES: %05d. TARGET: %s. PARENT-H:%d\n" (show cid) total (take 20 thing) (pheight p)
                         return $! Just x
 
         mine nonce0 >>= \case

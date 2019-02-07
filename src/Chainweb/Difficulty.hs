@@ -40,6 +40,7 @@ module Chainweb.Difficulty
 -- * HashTarget
 , HashTarget(..)
 , checkTarget
+, maxTarget
 , difficultyToTarget
 , targetToDifficulty
 , encodeHashTarget
@@ -58,6 +59,7 @@ module Chainweb.Difficulty
 import Control.DeepSeq
 import Control.Monad
 
+import Data.Bits
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
@@ -184,7 +186,15 @@ decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
 newtype HashTarget = HashTarget PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, Bounded, Enum)
+    deriving newtype (ToJSON, FromJSON, Hashable)
+    deriving newtype (Bounded, Enum, Num, Real, Integral, Bits, FiniteBits)
+
+-- | By maximum, we mean "easiest". This should only take a single block hash to
+-- succeed on.
+--
+maxTarget :: HashTarget
+maxTarget = maxBound
+{-# INLINE maxTarget #-}
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -194,9 +204,10 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     {-# INLINE fromMerkleNode #-}
 
 difficultyToTarget :: HashDifficulty -> HashTarget
-difficultyToTarget difficulty = HashTarget $ maxBound `div` coerce difficulty
+difficultyToTarget difficulty = maxTarget `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
+-- TODO Should this be in terms of `maxTarget` too?
 targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
 {-# INLINE targetToDifficulty #-}

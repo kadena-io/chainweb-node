@@ -18,6 +18,8 @@ module Chainweb.TreeDB.HashTarget
 
 import Control.Lens ((^.))
 
+import Data.Bits (countLeadingZeros)
+import Data.Coerce (coerce)
 import Data.DoubleWord (Word256)
 import Data.Function ((&))
 import qualified Data.HashSet as HS
@@ -133,18 +135,30 @@ hashTarget db bh
                  & P.map (^. isoBH)
                  & P.take (int magicNumber)
                  & P.last_
-                 & fmap fromJust  -- Will include at least the parent block.
+                 & fmap fromJust  -- Will include at least the parent block. In
+                                  -- the degenerate case, this is the genesis
+                                  -- block.
 
         let delta :: Int64
-            !delta = taim (_blockCreationTime bh') - taim (_blockCreationTime start)
-            -- Microseconds. `succ` guards against divide-by-zero.
+            !delta = coerce (_blockCreationTime bh') - coerce (_blockCreationTime start)
+
+            -- Microseconds. `succ` guards against divide-by-zero in `newDiff`,
+            -- which can occur when initial blocks are mined very quickly. In
+            -- this case, an average block creation time of @succ 0 == 1@ has
+            -- special meaning: "far too fast".
             avg :: Int64
             !avg = succ $ delta `div` int magicNumber
 
+            -- TODO Watch for overflows?
             newDiff :: HashDifficulty
             !newDiff = targetToDifficulty (_blockTarget bh') * int blockRate `div` int avg
 
-        pure $! difficultyToTarget newDiff
+            newTarget :: HashTarget
+            !newTarget = difficultyToTarget newDiff
+
+        if | newTarget < _blockTarget bh' -> pure $! max newTarget (_blockTarget bh' `div` 8)
+           | countLeadingZeros (_blockTarget bh') < 3 -> pure newTarget
+           | otherwise -> pure $! min newTarget (_blockTarget bh' * 8)
   where
     magicNumber :: BlockHeight
     magicNumber = 3  -- Ideally, three blocks in 30s. Not realistic, but I want
@@ -161,6 +175,3 @@ hashTarget db bh
     maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
     lower = HS.empty
     upper = HS.singleton . UpperBound $! key bh
-
-    taim :: Time a -> a
-    taim (Time (TimeSpan n)) = n
