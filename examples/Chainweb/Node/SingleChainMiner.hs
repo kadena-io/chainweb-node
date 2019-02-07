@@ -29,8 +29,6 @@ import Configuration.Utils
 import Control.Concurrent
 import Control.Lens hiding ((.=))
 
-import Data.Int (Int64)
-
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
@@ -46,9 +44,8 @@ import Chainweb.BlockHash (BlockHashRecord(..))
 import Chainweb.BlockHeader (IsBlockHeader(..), Nonce(..), testBlockHeader)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.NodeId (ChainNodeId)
-import Chainweb.Time (TimeSpan(..))
 import Chainweb.TreeDB (DbEntry, TreeDb, insert, maxHeader)
-import Chainweb.TreeDB.HashTarget (hashTargetFromHistory)
+import Chainweb.TreeDB.HashTarget (hashTarget)
 import Chainweb.Utils (int, sshow)
 
 import P2P.Session (LogFunctionText)
@@ -145,7 +142,7 @@ singleChainMiner logger conf nid db =
         -- Difficulty Adjustment
         --
         target <- if | _configTrivialTarget conf -> pure maxBound
-                     | otherwise -> hashTargetFromHistory db p timeSpan
+                     | otherwise -> hashTarget db p
         logg Debug $ "using hash target" <> sshow target
 
         -- Create new (test) block header and add block header to the database
@@ -156,11 +153,5 @@ singleChainMiner logger conf nid db =
         -- Continue
         --
         go logg gen (i + 1)
-
-    expectedBlocks :: Natural
-    expectedBlocks = 10
-
-    timeSpan :: TimeSpan Int64
-    timeSpan = TimeSpan $ int (_configMeanBlockTimeSeconds conf * 1000000 * expectedBlocks)
 
     adjs = BlockHashRecord mempty
