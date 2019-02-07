@@ -163,4 +163,8 @@ someMempoolServers
   :: Show t => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
 someMempoolServers v = mconcat
     . fmap (someMempoolServer . uncurry (someMempoolBackendVal v))
+
+instance HasLink WebSocket where
+    type MkLink WebSocket a = a
+    toLink toA _ = toA
 -- End servant boilerplate --
