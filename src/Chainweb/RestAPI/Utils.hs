@@ -165,12 +165,14 @@ instance
     hoistClientMonad pm _
         = hoistClientMonad pm $ Proxy @(ChainwebEndpointApi v api)
 
-instance (KnownChainwebVersionSymbol v, HasLink sub)
-    => HasLink ('ChainwebEndpoint v :> sub)
+instance
+    (KnownChainwebVersionSymbol v, HasLink api)
+    => HasLink ('ChainwebEndpoint v :> api)
   where
-    type MkLink ('ChainwebEndpoint v :> sub) a = MkLink sub a
-    toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol v :> sub))
+    type MkLink ('ChainwebEndpoint v :> api) a
+        = MkLink (ChainwebEndpointApi v api) a
 
+    toLink toA _ = toLink toA $ Proxy @(ChainwebEndpointApi v api)
 
 -- -------------------------------------------------------------------------- --
 -- Network API Endpoint
@@ -209,15 +211,6 @@ instance
     hoistServerWithContext _ = hoistServerWithContext
         (Proxy @(NetworkEndpointApi 'CutNetworkT api))
 
-instance
-    (HasLink api, KnownChainIdSymbol c, x ~ 'ChainNetworkT c)
-    => HasLink ('NetworkEndpoint ('ChainNetworkT c) :> api)
-  where
-    type MkLink ('NetworkEndpoint ('ChainNetworkT c) :> api) a
-        = MkLink api a
-
-    toLink toA _ = toLink toA (Proxy @(ChainIdSymbol c :> api))
-
 -- HasSwagger
 
 instance
@@ -255,6 +248,27 @@ instance
         = clientWithRoute pm $ Proxy @(NetworkEndpointApi 'CutNetworkT api)
     hoistClientMonad pm _
         = hoistClientMonad pm $ Proxy @(NetworkEndpointApi 'CutNetworkT api)
+
+-- Has Link
+
+instance
+    (KnownChainIdSymbol c, HasLink api)
+    => HasLink ('NetworkEndpoint ('ChainNetworkT c) :> api)
+  where
+    type MkLink ('NetworkEndpoint ('ChainNetworkT c) :> api) a
+        = MkLink (NetworkEndpointApi ('ChainNetworkT c) api) a
+
+    toLink toA _
+        = toLink toA $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
+
+instance
+    (KnownChainIdSymbol sym, HasLink api)
+    => HasLink ('NetworkEndpoint 'CutNetworkT :> api)
+  where
+    type MkLink ('NetworkEndpoint 'CutNetworkT :> api) a
+        = MkLink (NetworkEndpointApi 'CutNetworkT api) a
+
+    toLink toA _ = toLink toA $ Proxy @(NetworkEndpointApi 'CutNetworkT api)
 
 -- -------------------------------------------------------------------------- --
 -- Some API
