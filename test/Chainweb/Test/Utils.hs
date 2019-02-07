@@ -31,6 +31,7 @@ module Chainweb.Test.Utils
 , tree
 
 -- * Test BlockHeaderDbs Configurations
+, singleton
 , peterson
 , testBlockHeaderDbs
 , petersonGenesisBlockHeaderDbs
@@ -46,6 +47,7 @@ module Chainweb.Test.Utils
 , TestClientEnv(..)
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
+, withTestAppServer
 , withSingleChainTestServer
 , clientEnvWithSingleChainTestServer
 , withBlockHeaderDbsServer
@@ -306,6 +308,7 @@ starBlockHeaderDbs n genDbs = do
 -- -------------------------------------------------------------------------- --
 -- Toy Server Interaction
 
+--
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withSingleChainServer
@@ -346,6 +349,39 @@ pattern PeerDbsTestClientEnv
     -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
     = TestClientEnv _pdbEnvClientEnv [] _pdbEnvPeerDbs
+
+withTestAppServer
+    :: Bool
+    -> IO W.Application
+    -> (Int -> IO a)
+    -> (a -> IO b)
+    -> IO b
+withTestAppServer tls appIO envIO userFunc = bracket start stop go
+  where
+    start = do
+        app <- appIO
+        (port, sock) <- W.openFreePort
+        readyVar <- newEmptyMVar
+        server <- async $ do
+            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            if
+                | tls -> do
+                    let certBytes = bootstrapCertificate Test
+                    let keyBytes = bootstrapKey Test
+                    let tlsSettings = tlsServerSettings certBytes keyBytes
+                    W.runTLSSocket tlsSettings settings sock app
+                | otherwise ->
+                    W.runSettingsSocket settings sock app
+
+        link server
+        _ <- takeMVar readyVar
+        env <- envIO port
+        return (server, sock, env)
+    stop (server, sock, _) = do
+        uninterruptibleCancel server
+        close sock
+    go (_, _, env) = userFunc env
+
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
@@ -402,6 +438,7 @@ clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
             <$> chainDbsIO
             <*> peerDbsIO
 
+
 withPeerDbsServer
     :: Show t
     => Bool
@@ -418,6 +455,7 @@ withBlockHeaderDbsServer
     -> TestTree
 withBlockHeaderDbsServer tls chainDbsIO
     = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
+
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

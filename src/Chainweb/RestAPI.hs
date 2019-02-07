@@ -14,7 +14,7 @@
 -- This module collects and combines the APIs from all Chainweb components.
 --
 -- Every component that defines an API should add it to 'someChainwebApi' and
--- 'someCahinwebServer' and also re-export the module with API client functions.
+-- 'someChainwebServer' and also re-export the module with API client functions.
 --
 module Chainweb.RestAPI
 (

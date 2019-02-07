@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Chainweb.Test.Mempool.Socket
-  ( tests
-  ) where
+module Chainweb.Test.Mempool.Socket (tests) where
 
 ------------------------------------------------------------------------------
 import Test.Tasty
@@ -21,9 +19,10 @@ import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "mempool.socket" $ Chainweb.Test.Mempool.remoteTests
-                                   $ MempoolWithFunc
-                                   $ withRemoteMempool cfg "127.0.0.1"
+tests = testGroup "Chainweb.Mempool.Socket"
+            $ Chainweb.Test.Mempool.remoteTests
+            $ MempoolWithFunc
+            $ withRemoteMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
     -- run the reaper @100Hz for testing
@@ -34,13 +33,14 @@ tests = testGroup "mempool.socket" $ Chainweb.Test.Mempool.remoteTests
 
 
 withRemoteMempool
-  :: Show t => InMemConfig t -> ByteString -> (MempoolBackend t -> IO a) -> IO a
-withRemoteMempool inMemCfg host userFunc = do
+  :: Show t => InMemConfig t -> (MempoolBackend t -> IO a) -> IO a
+withRemoteMempool inMemCfg userFunc =
     InMem.withInMemoryMempool inMemCfg $ \inmem -> do
         mv <- newEmptyMVar
         bracket (forkIO $ M.server inmem host N.aNY_PORT mv)
                 killThread
                 (const (readMVar mv >>= runClient))
   where
+    host = "127.0.0.1"
     clientConfig = M.ClientConfig (_inmemTxCfg inMemCfg) 30
     runClient port = M.withClient host port clientConfig userFunc

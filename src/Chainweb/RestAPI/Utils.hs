@@ -165,6 +165,13 @@ instance
     hoistClientMonad pm _
         = hoistClientMonad pm $ Proxy @(ChainwebEndpointApi v api)
 
+instance (KnownChainwebVersionSymbol v, HasLink sub)
+    => HasLink ('ChainwebEndpoint v :> sub)
+  where
+    type MkLink ('ChainwebEndpoint v :> sub) a = MkLink sub a
+    toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol v :> sub))
+
+
 -- -------------------------------------------------------------------------- --
 -- Network API Endpoint
 
@@ -201,6 +208,15 @@ instance
 
     hoistServerWithContext _ = hoistServerWithContext
         (Proxy @(NetworkEndpointApi 'CutNetworkT api))
+
+instance
+    (HasLink api, KnownChainIdSymbol c, x ~ 'ChainNetworkT c)
+    => HasLink ('NetworkEndpoint ('ChainNetworkT c) :> api)
+  where
+    type MkLink ('NetworkEndpoint ('ChainNetworkT c) :> api) a
+        = MkLink api a
+
+    toLink toA _ = toLink toA (Proxy @(ChainIdSymbol c :> api))
 
 -- HasSwagger
 

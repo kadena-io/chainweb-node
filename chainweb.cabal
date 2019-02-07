@@ -284,6 +284,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.Socket
+        Chainweb.Test.Mempool.Websocket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.Store.CAS
@@ -328,6 +329,7 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , random-bytestring >= 0.1
         , resourcet >= 1.2
+        , servant >= 0.13
         , servant-client >= 0.13
         , stm
         , stm-chans
