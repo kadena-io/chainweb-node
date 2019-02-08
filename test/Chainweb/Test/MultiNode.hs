@@ -159,8 +159,10 @@ config
         -- ^ number of nodes
     -> NodeId
         -- ^ NodeId
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-config p n nid = defaultChainwebConfiguration
+config p n nid chainDbDir = defaultChainwebConfiguration
     & set configNodeId nid
         -- Set the node id.
 
@@ -189,11 +191,16 @@ config p n nid = defaultChainwebConfiguration
         -- But in test-suites that may run concurrently we want to use a port
         -- that is assigned by the OS.
 
+    & set configChainDbDirPath chainDbDir
+        -- place where the chaindbs are persisted.
+
 bootstrapConfig
     :: Natural
         -- ^ number of nodes
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-bootstrapConfig n = config 0 {- unused -} n (NodeId 0)
+bootstrapConfig n chainDbDir = config 0 {- unused -} n (NodeId 0) chainDbDir
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
@@ -202,7 +209,6 @@ bootstrapConfig n = config 0 {- unused -} n (NodeId 0)
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
         -- assigned by the OS.
-
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -246,8 +252,10 @@ runNodes
     -> MVar ConsensusState
     -> Natural
         -- ^ number of nodes
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> IO ()
-runNodes loglevel write stateVar n = do
+runNodes loglevel write stateVar n chainDbDir = do
     bootstrapPortVar <- newEmptyMVar
         -- this is a hack for testing: normally bootstrap node peer infos are
         -- hardcoded. To avoid conflicts in concurrent test runs we extract an
@@ -258,10 +266,10 @@ runNodes loglevel write stateVar n = do
         threadDelay (500000 * int i)
 
         conf <- if
-            | i == 0 -> return $ bootstrapConfig n
+            | i == 0 -> return $ bootstrapConfig n chainDbDir
             | otherwise -> do
                 bootstrapPort <- readMVar bootstrapPortVar
-                return $ config bootstrapPort n (NodeId i)
+                return $ config bootstrapPort n (NodeId i) chainDbDir
 
         node loglevel write stateVar graph bootstrapPortVar conf
 
@@ -272,12 +280,14 @@ runNodesForSeconds
         -- ^ Number of chainweb consensus nodes
     -> Seconds
         -- ^ test duration in seconds
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> (T.Text -> IO ())
         -- ^ logging backend callback
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel n seconds write = do
+runNodesForSeconds loglevel n seconds chainDbDir write = do
     stateVar <- newMVar emptyConsensusState
-    void $ timeout (int seconds * 1000000) (runNodes loglevel write stateVar n)
+    void $ timeout (int seconds * 1000000) (runNodes loglevel write stateVar n chainDbDir)
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -285,8 +295,8 @@ runNodesForSeconds loglevel n seconds write = do
 -- -------------------------------------------------------------------------- --
 -- Test
 
-test :: LogLevel -> Natural -> Seconds -> TestTree
-test loglevel n seconds = testCaseSteps label $ \f -> do
+test :: LogLevel -> Natural -> Seconds -> (Maybe FilePath) -> TestTree
+test loglevel n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if 1
     let logFun = tastylog
@@ -302,7 +312,7 @@ test loglevel n seconds = testCaseSteps label $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             if c < maxLogMsgs then logFun msg else return ()
 
-    runNodesForSeconds loglevel n seconds countedLog >>= \case
+    runNodesForSeconds loglevel n seconds chainDbDir countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
         Just stats -> do
             logsCount <- readMVar var

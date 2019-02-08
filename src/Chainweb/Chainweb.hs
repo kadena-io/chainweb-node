@@ -45,6 +45,7 @@ module Chainweb.Chainweb
 , configChainwebVersion
 , configMiner
 , configP2p
+, configChainDbDirPath
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -109,11 +110,11 @@ module Chainweb.Chainweb
 
 ) where
 
-import Configuration.Utils hiding (Lens')
+import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
@@ -132,7 +133,9 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setPort, setHost)
 
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.LogLevel
+import System.Path
 
 -- internal modules
 
@@ -147,6 +150,7 @@ import Chainweb.NodeId
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB.Persist
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
 import Chainweb.Utils
@@ -172,6 +176,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configNodeId :: !NodeId
     , _configMiner :: !MinerConfig
     , _configP2p :: !P2pConfiguration
+    , _configChainDbDirPath :: !(Maybe FilePath)
     }
     deriving (Show, Eq, Generic)
 
@@ -183,6 +188,7 @@ defaultChainwebConfiguration = ChainwebConfiguration
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultMinerConfig
     , _configP2p = defaultP2pConfiguration Test
+    , _configChainDbDirPath = Nothing
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -191,6 +197,7 @@ instance ToJSON ChainwebConfiguration where
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
+        , "chainDbDirPath" .= _configChainDbDirPath o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -199,6 +206,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
+        <*< configChainDbDirPath ..: "chainDbDirPath" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -212,6 +220,9 @@ pChainwebConfiguration = id
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pMinerConfig
     <*< configP2p %:: pP2pConfiguration Nothing
+    <*< configChainDbDirPath .:: fmap Just % textOption
+        % long "chain-db-dir"
+        <> help "directory where chain databases are persisted"
 
 -- -------------------------------------------------------------------------- --
 -- Allocate Peer Resources
@@ -321,12 +332,29 @@ withChain
     -> P2pConfiguration
     -> Peer
     -> PeerDb
+    -> (Maybe FilePath)
     -> ALogFunction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig peer peerDb logfun inner =
-    withBlockHeaderDb Test graph cid $ \cdb ->
-        inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
+withChain v graph cid p2pConfig peer peerDb chainDbDir logfun inner =
+    withBlockHeaderDb Test graph cid $ \cdb -> do
+        chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
+        withPersistedDb cid chainDbDirPath cdb $
+            inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
+
+withPersistedDb
+    :: ChainId
+    -> Maybe (Path Absolute)
+    -> BlockHeaderDb
+    -> IO a
+    -> IO a
+withPersistedDb _ Nothing _ = id
+withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
+  where
+    path = dir </> fragment "chain" <.> FileExt (T.unpack (toText cid))
+    load = do
+        createDirectoryIfMissing True (toFilePath dir)
+        whenM (doesFileExist $ toFilePath path) (restore path db)
 
 -- | Synchronize the local block database over the P2P network.
 --
@@ -466,7 +494,7 @@ withChainwebInternal graph conf logFuns socket peer inner = do
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf peer peerDb logfun $ \c ->
+            Just logfun -> withChain v graph cid p2pConf peer peerDb chainDbDir logfun $ \c ->
                 go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
@@ -491,6 +519,7 @@ withChainwebInternal graph conf logFuns socket peer inner = do
     cids = chainIds_ graph
     cwnid = _configNodeId conf
     p2pConf = _configP2p conf
+    chainDbDir = _configChainDbDirPath conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v graph)
