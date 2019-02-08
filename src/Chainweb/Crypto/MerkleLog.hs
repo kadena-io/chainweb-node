@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -51,7 +50,7 @@
 -- the relevant input in the right order.
 --
 -- Finally, authenticated values in block chains and values for content-
--- addressed key value stores in general, often included the key in the data
+-- addressed key value stores in general, often include the key in the data
 -- structure, which creates a cyclic dependency of a value on itself. When
 -- creating such a structure this is usually dealt with by lazily tying a knot,
 -- instantiating the key with a default value (e.g. 'Nothing') and replacing it
@@ -60,7 +59,7 @@
 -- data as input plus the hash. Often those functions take a large number of
 -- parameters and it can be hard to keep both in sync when maintaining the code.
 -- It is easy to add a parameter to the structure, but forget to update the hash
--- computation to include the new value, which hard to detect in tests but leads
+-- computation to include the new value, which is difficult to detect in tests and can lead
 -- to flawed security.
 --
 -- == What this Module Offers
@@ -73,8 +72,8 @@
 -- the code complies with the specification.
 --
 -- The tools in the module also automate some of the tedious and error prone
--- work of creating and verifying inclusion proof. The precise specification of
--- the construction of these proofs is key for a block chain application and
+-- work of creating and verifying inclusion proofs. The precise specification of
+-- the construction of these proofs is key for a block chain application, and
 -- this module should help to ensure that the specification is uniform across
 -- all proofs.
 --
@@ -90,16 +89,16 @@
 -- 1. serializable to a binary representation and
 -- 2. arranged in a arbitrary but fixed order.
 --
--- The types of entries that can be included as leaf of the same MerkleTree must
+-- The types of entries that can be included as leaves of the same MerkleTree must
 -- live in a closed universe. Each universe allows fixes the hash algorithm that
 -- is used for all Merkle trees over the universe. Using a closed universe
 -- prevents attacks that are based on using hashes of data from different
 -- domains with equal representation.
 --
 -- In our implementation we assume that each value for which a Merkle Log is
--- created can be represented as a shorte finite length header and a body that
+-- created can be represented as a short, finite length header and a body that
 -- is a sequence of values of the same type. The 'HasMerkleLog' class provides
--- defines the representation of a type as a Merkle log and the functions to
+-- the representation of a type as a Merkle log and the functions to
 -- transform a value to and from that representation.
 --
 module Chainweb.Crypto.MerkleLog
@@ -228,7 +227,7 @@ toWordBE bytes
 -- $inputs
 -- = Merkle Tree Inputs
 --
--- A framework for computing hashes from structures in a well defined way.
+-- A framework for computing hashes from structures in a well-defined way.
 --
 -- A structure that can be hashed is called a log. The elements of the structure
 -- that are inputs to the hash are called log entries. In order to use a type as
@@ -250,7 +249,7 @@ toWordBE bytes
 -- 1. Consider creating a specific newtype wrapper for the entry type, in
 --    particular, if the entry is of a generic type, like, for instance, 'Int'
 --    or 'B.ByteString'.
--- 2. Define and 'IsMerkleLogEntry' or derive it using the 'deriving via'
+-- 2. Define an 'IsMerkleLogEntry' instance or derive it using the 'deriving via'
 --    extension if available. For the 'Tag' associated type family pick the
 --    value from the Merkle universe type that corresponds to the entry type.
 --
@@ -263,9 +262,9 @@ toWordBE bytes
 -- Merkle Universe
 
 -- | A Kind that represents a closed universe of types that can be included as
--- leafs of the same MerkleTree.
+-- leaves of the same MerkleTree.
 --
--- The 'MerkleHash' type family defines the hash function that is used for
+-- The 'MerkleLogHash' type family defines the hash function that is used for
 -- Merkle trees within the universe.
 --
 -- The 'MerkleTagVal' type family is used to assing each type-constructor in the
@@ -284,7 +283,7 @@ tagVal = fromIntegral $ natVal (Proxy @(MerkleTagVal u t))
 -- -------------------------------------------------------------------------- --
 -- Merkle Log Entries
 
--- | A constraint that claims that a type is a Merkle universe and that it's
+-- | A constraint that claims that a type is a Merkle universe and that its
 -- 'MerkleTagVal' has a termlevel representation at runtime.
 --
 type InUniverse u (t :: u) = (MerkleUniverse u, KnownNat (MerkleTagVal u t))
@@ -402,7 +401,7 @@ data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
         -- it is instantiated lazily and only forced if actually required.
     }
 
--- | Class of types for which can be represented as a Merkle tree log.
+-- | Class of types which can be represented as a Merkle tree log.
 --
 -- An instance of 'HasMerkleLog' can be encoded as
 --
@@ -474,7 +473,7 @@ fromMerkleNodeTagged
     -> m b
 fromMerkleNodeTagged (InputNode bytes) = do
     w16 <- toWordBE @Word16 bytes
-    if (w16 /= tag)
+    if w16 /= tag
         then throwM
             $ MerkleLogWrongTagException (Expected (sshow tag)) (Actual (sshow w16))
         else fromMerkleNodeM @u $ InputNode (B.drop 2 bytes)
@@ -484,7 +483,7 @@ fromMerkleNodeTagged r = fromMerkleNodeM @u r
 
 -- | 'IsMerkleLog' values often include a hash of the value itself, which
 -- represents cyclic dependency of a value on itself. This function allows to
--- create such an value from it representation as a sequence of merkle log
+-- create such an value from its representation as a sequence of merkle log
 -- entries.
 --
 newMerkleLog
@@ -525,7 +524,7 @@ instance {-# INCOHERENT #-}
     HasHeader c (MerkleLog u t s) => HasHeader c (MerkleLog u (x ': t) s)
   where
     type HeaderPos c (MerkleLog u (x ': t) s) = 0
-    header (MerkleLog x (_ :+: t) ~y) = header (MerkleLog @u x t y)
+    header (MerkleLog x (_ :+: t) y) = header (MerkleLog @u x t y)
     headerPos = succ $ headerPos @c @(MerkleLog u t s)
 
 -- | Get the body sequence of a Merkle log.
