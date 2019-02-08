@@ -59,8 +59,12 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Version
 
-initPactService :: IO (TVar (TQueue RequestMsg)) -> IO (TVar (TQueue ResponseMsg)) -> IO ()
-initPactService reqQVar respQVar = do
+initPactService
+  :: IO (TVar (TQueue RequestMsg))
+  -> IO (TVar (TQueue ResponseMsg))
+  -> MemPoolAccess
+  -> IO ()
+initPactService reqQVar respQVar memPoolAccess = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
@@ -82,59 +86,58 @@ initPactService reqQVar respQVar = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ evalStateT (runReaderT (serviceRequests reqQVar respQVar) checkpointEnv) theState
+    void $ evalStateT
+           (runReaderT ((serviceRequests memPoolAccess) reqQVar respQVar) checkpointEnv)
+           theState
 
-serviceRequests :: IO (TVar (TQueue RequestMsg)) -> IO (TVar (TQueue ResponseMsg)) -> PactT ()
-serviceRequests reqQ respQ = do
-    -- reqVar <- liftIO $ req
-    -- respVar <- liftIO $ resp
-    -- reqQue <- liftIO $ atomically $ readTVar reqVar
-    -- respQue <- liftIO $ atomically $ readTVar respVar
+serviceRequests
+    :: MemPoolAccess
+    -> IO (TVar (TQueue RequestMsg))
+    -> IO (TVar (TQueue ResponseMsg))
+    -> PactT ()
+serviceRequests memPoolAccess reqQ respQ = do
     liftIO $ putStrLn "Top of PactService.serviceRequest"
     forever $ run
       where
-        -- run :: TQueue RequestMsg -> PactT ()
         run :: PactT ()
         run = do
-            -- _ <- error "run - b4"
             reqMsg <- liftIO $ getNextRequest reqQ
-            -- _ <- error "run - aft"
             respMsg <- case _reqRequestType reqMsg of
                 NewBlock -> do
-                    -- _ <- error "serviceRequest - NewBlock"
-                    h <- newBlock (_reqBlockHeader reqMsg)
+                    h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
                     return $ ResponseMsg
                         { _respRequestType = NewBlock
                         , _respRequestId = _reqRequestId reqMsg
-                        , _respPayloadHash = h }
+                        , _respPayload = h }
                 ValidateBlock -> do
-                    -- _ <- error "serviceRequest - ValidateBlock"
                     h <- validateBlock (_reqBlockHeader reqMsg)
                     return $ ResponseMsg
                         { _respRequestType = ValidateBlock
                         , _respRequestId = _reqRequestId reqMsg
-                        , _respPayloadHash = h }
+                        , _respPayload = h }
             liftIO $ addResponse respQ respMsg
             return ()
 
 -- | BlockHeader here is the header of the parent of the new block
-newBlock :: BlockHeader -> PactT BlockPayloadHash
-newBlock parentHeader@BlockHeader{..} = do
-    newTrans <- requestTransactions TransactionCriteria
+newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
+    newTrans <- liftIO $ memPoolAccess TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isGenesisBlockHeader parentHeader) $ do
+    -- replace for checkpoint testing
+    unless True {- (isGenesisBlockHeader _parentHeader) -} $ do
         cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
         updateState cpdata
     results <- execTransactions newTrans
-    return $ mkPayloadHash results
+    return results
 
 -- | BlockHeader here is the header of the block being validated
-validateBlock :: BlockHeader -> PactT BlockPayloadHash
+validateBlock :: BlockHeader -> PactT Transactions
 validateBlock currHeader = do
     trans <- liftIO $ transactionsFromHeader currHeader
     CheckpointEnv {..} <- ask
-    parentHeader <- liftIO $ parentFromHeader currHeader
-    unless (isGenesisBlockHeader parentHeader) $ do
+    --replace for checkpoint testing
+    unless True {- (isGenesisBlockHeader parentHeader)-} $ do
+        parentHeader <- liftIO $ parentFromHeader currHeader
         cpdata <- liftIO $ restore _cpeCheckpointer (_blockHeight parentHeader)
                   (_blockPayloadHash parentHeader)
         updateState cpdata
@@ -142,7 +145,7 @@ validateBlock currHeader = do
     currentState <- get
     liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
              (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
-    return $ mkPayloadHash results
+    return results
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -176,7 +179,7 @@ execTransactions xs = do
     txOuts <- forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
-        return TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+        return TransactionOutput {_getCommandResult = (P._crResult result), _getTxLogs = txLogs})
     return $ Transactions $ zip xs txOuts
 
 applyPactCmd
@@ -205,17 +208,8 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
-requestTransactions :: TransactionCriteria -> PactT [Transaction]
-requestTransactions _crit = return []
-
 transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
 transactionsFromHeader _bHeader = return []
-
--- TODO: Verify the contents of the PayloadHash (i.e., the pre-hashed data)
-mkPayloadHash :: Transactions -> BlockPayloadHash
-mkPayloadHash trans =
-    let theBs = BS.concat $ transToBs <$> _transactionPairs trans
-    in hashPayload Test theBs
 
 transToBs :: (Transaction, TransactionOutput) -> ByteString
 transToBs (t, tOut) =

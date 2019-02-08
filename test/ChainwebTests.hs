@@ -71,7 +71,7 @@ suite = testGroup "Unit Tests"
      [ testGroup "Pact Tests"
 
         [ Chainweb.Test.Pact.tests
-        , Chainweb.Test.PactService.tests
+        , Chainweb.Test.Pact.PactService.tests
         ]
 #endif
     ]

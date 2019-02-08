@@ -30,17 +30,18 @@ import Safe
 import Servant
 
 --TODO: How to get rid of the redundant import warning on this?
-import Chainweb.BlockHeader (BlockHeader, BlockPayloadHash)
+import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.Pact.Types
 
-type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
+type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
           :<|> "newAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String BlockPayloadHash)
+          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String BlockPayloadHash)
+          :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
 data RequestIdEnv = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
                                  , _rieReqQ :: IO (TVar (TQueue RequestMsg))
                                  , _rieRespQ :: IO (TVar (TQueue ResponseMsg))
-                                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId BlockPayloadHash) }
+                                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId Transactions) }
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
@@ -65,7 +66,7 @@ data RequestMsg = RequestMsg
 data ResponseMsg = ResponseMsg
     { _respRequestType :: RequestType
     , _respRequestId   :: RequestId
-    , _respPayloadHash :: BlockPayloadHash
+    , _respPayload :: Transactions
     } deriving (Show)
 
 makeLenses ''RequestIdEnv

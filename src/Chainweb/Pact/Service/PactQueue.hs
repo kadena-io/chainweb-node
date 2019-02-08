@@ -38,23 +38,10 @@ addRequest reqQVar msg = do
     atomically $ writeTQueue q msg
     trace ("addRequest -- added: " ++ show msg) (return ())
 
-    -- TODO: remove this
-    maybePeek <- atomically $ tryPeekTQueue q
-    case maybePeek of
-        Just _mp -> do
-            trace "maybe peek works as expected" (return ())
-        Nothing -> do
-            trace "maybePeek failed??" (return ())
-
 getNextRequest :: IO (TVar (TQueue RequestMsg)) -> IO RequestMsg
 getNextRequest reqQVar = do
     var <- reqQVar
-    -- q <- atomically $ readTVar var
     q <- trace "top of getNextRequest" (atomically $ readTVar var)
-    -- reqMsg <- atomically $ readTQueue q
-    -- trace ("getNextRequest - received request msg: " ++ show reqMsg) $ return reqMsg
-
-    -- mayM <- timeout (fromIntegral 5) (tryRead q)
     mayM <- timeout 5.0 (tryRead q)
     case mayM of
         Just m -> return m

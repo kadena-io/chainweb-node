@@ -10,7 +10,7 @@
 --
 -- Unit test for Pact execution in Chainweb
 
-module Chainweb.Test.PactService where
+module Chainweb.Test.Pact.PactService where
 
 import Data.Word (Word32)
 
@@ -30,6 +30,8 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Service.PactApi
 import Chainweb.Pact.Service.Types
+import Chainweb.Test.Pact.Utils
+import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Version
 
@@ -39,24 +41,24 @@ tests = testCase "Pact service tests" pactTestApp
 pactTestApp :: IO ()
 pactTestApp = do
     port <- generatePort
-    withPactServiceApp port $ do
+    withPactServiceApp port testMemPoolAccess $ do
         baseUrl <- parseBaseUrl ("http://localhost:" ++ show port)
         putStrLn $ "pactTestApp - baseUrl: " ++ show baseUrl
         manager <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv manager baseUrl
         result <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
         putStrLn $ "pactTestApp - result: " ++ show result
-        expected <- testPayloadHash
+        expected <- testPayload
         result @?= expected
 
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))
 
-testGetNewBlock :: BlockHeader -> ClientM (Either String BlockPayloadHash)
+testGetNewBlock :: BlockHeader -> ClientM (Either String Transactions)
 testGetNewBlockAsync :: BlockHeader -> ClientM RequestId
-testValidate :: BlockHeader -> ClientM (Either String BlockPayloadHash)
+testValidate :: BlockHeader -> ClientM (Either String Transactions)
 testValidateAsync :: BlockHeader -> ClientM RequestId
-testPoll :: RequestId -> ClientM (Either String BlockPayloadHash)
+testPoll :: RequestId -> ClientM (Either String Transactions)
 
 testGetNewBlock
     :<|> testGetNewBlockAsync
@@ -71,7 +73,6 @@ getTestBlockHeader = do
     let gbh0 = genesisBlockHeader Test peterson testId
     last $ take 2 $ testBlockHeaders gbh0
 
-testPayloadHash :: IO (Either ServantError (Either String BlockPayloadHash))
-testPayloadHash = do
-    bhb <- randomBlockHashBytes
-    return $ Right $ Right $ BlockPayloadHash bhb
+testPayload :: IO (Either ServantError (Either String Transactions))
+testPayload = do
+    return $ Right $ Right $ Transactions []
