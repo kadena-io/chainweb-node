@@ -307,59 +307,6 @@ instance Serial1 BindType where
                     return $ BindSchema _bType
                 _ -> fail "BindType: Deserialization error."
 
-deriving instance Serial Guard
-
-deriving instance Serial ModuleGuard
-
-deriving instance Serial UserGuard
-
-deriving instance Serial KeySet
-
-deriving instance Serial KeySetName
-
-deriving instance Serial Name
-
-deriving instance Serial PublicKey
-
-deriving instance Serial PactGuard
-
-deriving instance Serial PactId
-
-deriving instance Serial TypeName
-
-deriving instance Serial Use
-
-deriving instance Serial Hash
-
-deriving instance Serial Value
-
-instance Serial a => Serial (Vector.Vector a) where
-    serialize = mapM_ serialize . Vector.toList
-    deserialize = deserialize >>= return . Vector.fromList
-
-deriving instance Serial TableName
-
-deriving instance (Generic n, Serial n) => Serial (Arg (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Type (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (BindType (Type (Term n)))
-
-deriving instance (Generic n, Serial n) => Serial (Term n)
-
-deriving instance
-         (Generic n, Serial n) => Serial (FunType (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (ConstVal (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (App (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (TypeVar (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Def n)
 
 instance Serial1 Term where
     serializeWith f t =
@@ -567,6 +514,60 @@ pairListDeSerial1Helper f g m = go id
            else do
             p <- (,) <$> f m <*> g m
             go (dl . (p :))
+
+deriving instance Serial Guard
+
+deriving instance Serial ModuleGuard
+
+deriving instance Serial UserGuard
+
+deriving instance Serial KeySet
+
+deriving instance Serial KeySetName
+
+deriving instance Serial Name
+
+deriving instance Serial PublicKey
+
+deriving instance Serial PactGuard
+
+deriving instance Serial PactId
+
+deriving instance Serial TypeName
+
+deriving instance Serial Use
+
+deriving instance Serial Hash
+
+deriving instance Serial Value
+
+instance Serial a => Serial (Vector.Vector a) where
+    serialize = mapM_ serialize . Vector.toList
+    deserialize = deserialize >>= return . Vector.fromList
+
+deriving instance Serial TableName
+
+deriving instance (Generic n, Serial n) => Serial (Arg (Term n))
+
+deriving instance (Generic n, Serial n) => Serial (Type (Term n))
+
+deriving instance
+         (Generic n, Serial n) => Serial (BindType (Type (Term n)))
+
+deriving instance (Generic n, Serial n) => Serial (Term n)
+
+deriving instance
+         (Generic n, Serial n) => Serial (FunType (Term n))
+
+deriving instance
+         (Generic n, Serial n) => Serial (ConstVal (Term n))
+
+deriving instance (Generic n, Serial n) => Serial (App (Term n))
+
+deriving instance
+         (Generic n, Serial n) => Serial (TypeVar (Term n))
+
+deriving instance (Generic n, Serial n) => Serial (Def n)
 
 deriving instance Serial Module
 

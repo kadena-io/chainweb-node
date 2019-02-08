@@ -38,6 +38,7 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.PersistPactDb as P (DbEnv(..))
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
@@ -92,16 +93,27 @@ newTransactionBlock parentHeader bHeight = do
     unless (isFirstBlock bHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
       case cpdata of
-        Left s -> fail s
+        Left s -> closePactDb >> fail s -- see comment below
         Right r -> updateState r
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
+    closePactDb -- band-aid
     return $! Block
         { _bHash = Nothing -- not yet computed
         , _bParentHeader = parentHeader
         , _bBlockHeight = succ bHeight
         , _bTransactions = zip newTrans results
         }
+
+
+
+-- This is a band-aid solution; We're just going to close the
+-- database connection here to be safe.
+closePactDb :: PactT ()
+closePactDb = use pdbsDbEnv >>= go
+  where
+    go (EnvPersist' (PactDbEnvPersist _ p)) = liftIO $ closeDb (P._db p)
+
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -136,7 +148,7 @@ validateBlock Block {..} = do
     unless (isFirstBlock _bBlockHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
       case cpdata of
-        Left s -> fail s
+        Left s -> closePactDb >> fail s -- band-aid
         Right r -> updateState $! r
     (_results, updatedState) <- execTransactions (fmap fst _bTransactions)
     put updatedState
@@ -145,7 +157,13 @@ validateBlock Block {..} = do
                                (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
 
     case estate of
-      Left s -> fail s
+      Left s ->
+        -- This is a band-aid.
+        (when
+           -- If this error message does not appear, the database has been closed.
+           (s == "SQLiteCheckpointer.save': Save key not found exception")
+           closePactDb) >>
+        fail s
       Right r -> return r
 
 -- TODO: TBD what do we need to do for validation and what is the return type?
