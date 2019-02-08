@@ -12,6 +12,7 @@
 
 module Chainweb.Test.Pact.PactService where
 
+import Data.Aeson
 import Data.Word (Word32)
 
 import Network.HTTP.Client (newManager, defaultManagerSettings)
@@ -20,12 +21,12 @@ import Servant
 import Servant.Client
 import Servant.Client.Internal.HttpClient (ClientM(..))
 
+import System.IO.Extra
 import System.Random
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Service.PactApi
@@ -47,9 +48,23 @@ pactTestApp = do
         manager <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv manager baseUrl
         result <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
-        putStrLn $ "pactTestApp - result: " ++ show result
-        expected <- testPayload
-        result @?= expected
+        -- let h = result `asTypeOf` _ -- :: Either ServantError (Either String Transactions)
+        case result of
+          Left servantError -> do
+            -- putStrLn $ show servantError
+            assertFailure $ "Servant error: " ++ show servantError
+          Right x -> case x of
+            Left err -> do
+              -- putStrLn $ show err
+              assertFailure $ "Error in pact response: "  ++ show err
+            Right ts -> do
+                let jsonTrans = show (toJSON ts) ++ "\n"
+                putStrLn $ "pactTestApi - JSON results: \n\n" ++ jsonTrans
+                putStrLn "\n\n"
+
+                expectedPayload <- readFile' $ testPactFilesDir ++ "block-results-expected.txt"
+
+                jsonTrans @?= expectedPayload
 
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))
@@ -72,7 +87,3 @@ getTestBlockHeader = do
     let testId = testChainId $ (1 :: Word32)
     let gbh0 = genesisBlockHeader Test peterson testId
     last $ take 2 $ testBlockHeaders gbh0
-
-testPayload :: IO (Either ServantError (Either String Transactions))
-testPayload = do
-    return $ Right $ Right $ Transactions []

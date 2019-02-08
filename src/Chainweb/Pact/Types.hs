@@ -17,6 +17,7 @@ module Chainweb.Pact.Types
     ( PactDbStatePersist(..)
     , pdbspRestoreFile
     , pdbspPactDbState
+    , MemPoolAccess
     , PactT
     , Transaction(..)
     , Transactions(..)
@@ -44,7 +45,7 @@ import Chainweb.Pact.Backend.Types
 data Transaction = Transaction
     { _tTxId :: Word64
     , _tCmd :: P.Command ByteString
-    } deriving Show
+    } deriving (Show, Eq)
 makeLenses ''Transaction
 
 instance ToJSON Transaction where
@@ -63,7 +64,9 @@ newtype Transactions = Transactions { _transactionPairs :: [(Transaction, Transa
 
 instance Eq Transactions where
     (==) a b =
-    START HERE
+      let tpa = _transactionPairs a
+          tpb = _transactionPairs b
+      in (fst <$> tpa) == (fst <$> tpb) && (snd <$> tpa) == (snd <$> tpb)
 
 instance ToJSON Transactions where
     toJSON o = object
@@ -80,15 +83,14 @@ instance Show Transactions where
         let f x acc = "trans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
         in foldr f "" (_transactionPairs ts)
 
-
 data TransactionOutput = TransactionOutput
     { _getCommandResult :: A.Value
     , _getTxLogs :: [P.TxLog A.Value]
-    } deriving Show
+    } deriving (Show, Eq)
 
 instance ToJSON TransactionOutput where
     toJSON o = object
-        [ "getcommandResult" .= _getCommandResult o
+        [ "getCommandResult" .= _getCommandResult o
         , "getTxLogs" .= _getTxLogs o]
     {-# INLINE toJSON #-}
 

@@ -11,7 +11,6 @@
 -- Unit test for Pact execution in Chainweb
 
 module Chainweb.Test.Pact.Utils where
-import Chainweb.Test.Utils
 
 import Control.Monad.IO.Class
 import Control.Monad.Zip
@@ -27,14 +26,9 @@ import Data.Word
 import System.IO.Extra
 
 import qualified Pact.ApiReq as P
-import qualified Pact.Gas as P
-import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
-import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Logger as P
 import qualified Pact.Types.RPC as P
-import qualified Pact.Types.Server as P
 
 import Chainweb.Pact.Types
 
@@ -51,12 +45,10 @@ testMemPoolAccess _criteria = do
 mkPactTestTransactions :: [String] -> IO [Transaction]
 mkPactTestTransactions cmdStrs = do
     let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
-    -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
-    prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
     let intSeq = [0, 1 ..] :: [Word64]
-    let nonces = fmap (T.pack . (prefix ++) . show) intSeq
-    return $ zipWith3 (mkPactTransaction testKeyPairs theData)
-             nonces intSeq cmdStrs
+    -- using 0 as the nonce here so the hashes match for the same commands (for testing only)
+    return $ zipWith (mkPactTransaction testKeyPairs theData (T.pack (show 1.0)))
+             intSeq cmdStrs
 
 mkPactTransaction
   :: [P.KeyPair]

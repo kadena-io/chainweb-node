@@ -30,7 +30,7 @@ import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
 #ifdef WITH_PACT
 import qualified Chainweb.Test.Pact
-import qualified Chainweb.Test.PactService
+import qualified Chainweb.Test.Pact.PactService
 #endif
 
 import qualified Data.DiGraph (properties)

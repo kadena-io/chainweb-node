@@ -17,33 +17,23 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
-import Control.Monad.Zip
 
 import Data.Aeson
-import Data.ByteString (ByteString)
-import Data.Time.Clock
-import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import GHC.Word
-
 import System.IO.Extra
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import qualified Pact.ApiReq as P
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
-import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 import Chainweb.Pact.Backend.InMemoryCheckpointer

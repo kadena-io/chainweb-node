@@ -33,9 +33,7 @@ import Control.Monad.State
 
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import Data.Maybe
-import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -57,7 +55,6 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Version
 
 initPactService
   :: IO (TVar (TQueue RequestMsg))
@@ -210,12 +207,6 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
 transactionsFromHeader _bHeader = return []
-
-transToBs :: (Transaction, TransactionOutput) -> ByteString
-transToBs (t, tOut) =
-    let logsBS = BS.concat $ toS <$> A.encode <$> _getTxLogs tOut
-        cmdPayLoadBS = P._cmdPayload (_tCmd t)
-    in cmdPayLoadBS `BS.append` logsBS
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv
