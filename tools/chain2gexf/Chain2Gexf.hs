@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -50,4 +48,3 @@ main :: IO ()
 main = do
     outFile : inFiles <- getArgs >>= mapM (makeAbsolute . fromFilePath)
     db2gexf inFiles outFile
-
