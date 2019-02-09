@@ -127,7 +127,7 @@ module Chainweb.Crypto.MerkleLog
 , body
 , headerSize
 , bodySize
-, merkleLogHash
+, computeMerkleLogRoot
 
 -- * Merkle Log Proofs
 , headerProof
@@ -276,8 +276,8 @@ toWordBE bytes
 -- The 'MerkleTagVal' type family is used to assing each type-constructor in the
 -- universe a type-level 'Nat' that represents a 'Word16' value.
 --
-class (HashAlgorithm (MerkleLogHash k)) => MerkleUniverse k where
-    type MerkleLogHash k :: Type
+class (HashAlgorithm (HashAlg k)) => MerkleUniverse k where
+    type HashAlg k :: Type
     type MerkleTagVal k (a :: k) :: Nat
 
 -- | Term level representation of the 'MerkleTagVal' of a type in a Merkle
@@ -307,17 +307,17 @@ class (InUniverse u (Tag b)) => IsMerkleLogEntry u b | b -> u where
 
     toMerkleNode
         :: b
-        -> MerkleNodeType (MerkleLogHash u) B.ByteString
+        -> MerkleNodeType (HashAlg u) B.ByteString
 
     fromMerkleNode
-        :: MerkleNodeType (MerkleLogHash u) B.ByteString
+        :: MerkleNodeType (HashAlg u) B.ByteString
         -> Either SomeException b
 
 fromMerkleNodeM
     :: forall u b m
     . MonadThrow m
     => IsMerkleLogEntry u b
-    => MerkleNodeType (MerkleLogHash u) B.ByteString
+    => MerkleNodeType (HashAlg u) B.ByteString
     -> m b
 fromMerkleNodeM = either throwM return . fromMerkleNode @u
 {-# INLINE fromMerkleNodeM #-}
@@ -389,7 +389,7 @@ entriesBody (_ :+: t) = entriesBody t
 -- supports computing the root hash and a merkle tree.
 --
 data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
-    { _merkleLogRoot :: {-# UNPACK #-} !(MerkleRoot (MerkleLogHash u))
+    { _merkleLogRoot :: {-# UNPACK #-} !(MerkleRoot (HashAlg u))
         -- ^ The root hash of the Merkle tree of the log.
 
     , _merkleLogEntries :: !(MerkleLogEntries u h b)
@@ -399,7 +399,7 @@ data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
         -- lazy, too? For large entries it may be somewhat costly to pull it
         -- from the store.
 
-    , _merkleLogTree :: {- Lazy -} MerkleTree (MerkleLogHash u)
+    , _merkleLogTree :: {- Lazy -} MerkleTree (HashAlg u)
         -- ^ The merkle tree for the entries of the log. It is required to
         -- compute the root and for creating a merkle proofs.
         --
@@ -416,7 +416,7 @@ data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
 -- 2. a body that consists of a monomorphic sequence of 'IsMerkleEntry'
 --    instances.
 --
-class (MerkleUniverse u, HashAlgorithm (MerkleLogHash u)) => HasMerkleLog u b | b -> u where
+class (MerkleUniverse u, HashAlgorithm (HashAlg u)) => HasMerkleLog u b | b -> u where
     type MerkleLogHeader b :: [Type]
         -- The header of the Merkle log representation of the type.
 
@@ -441,8 +441,8 @@ type MkLogType u b = MerkleLog u (MerkleLogHeader b) (MerkleLogBody b)
 --
 merkleLog
     :: forall u h b
-    . HashAlgorithm (MerkleLogHash u)
-    => MerkleRoot (MerkleLogHash u)
+    . HashAlgorithm (HashAlg u)
+    => MerkleRoot (HashAlg u)
     -> MerkleLogEntries u h b
     -> MerkleLog u h b
 merkleLog root entries = MerkleLog
@@ -460,11 +460,11 @@ toMerkleNodeTagged
     :: forall u b
     . IsMerkleLogEntry u b
     => b
-    -> MerkleNodeType (MerkleLogHash u) B.ByteString
+    -> MerkleNodeType (HashAlg u) B.ByteString
 toMerkleNodeTagged b = case toMerkleNode @u @b b of
-    InputNode bytes -> InputNode @(MerkleLogHash u) @B.ByteString
+    InputNode bytes -> InputNode @(HashAlg u) @B.ByteString
         $ fromWordBE @Word16 tag <> bytes
-    TreeNode r -> TreeNode @(MerkleLogHash u) r
+    TreeNode r -> TreeNode @(HashAlg u) r
   where
     tag = fromIntegral $ tagVal @u @(Tag b)
 
@@ -475,7 +475,7 @@ fromMerkleNodeTagged
     :: forall u b m
     . MonadThrow m
     => IsMerkleLogEntry u b
-    => MerkleNodeType (MerkleLogHash u) B.ByteString
+    => MerkleNodeType (HashAlg u) B.ByteString
     -> m b
 fromMerkleNodeTagged (InputNode bytes) = do
     w16 <- toWordBE @Word16 bytes
@@ -556,13 +556,13 @@ bodySize = S.length . body
 -- @merkleLogHash b@ computes the merkle tree, which is linear in the size of
 -- the @b@. For large logs the hash or the full 'MerkleTree' should e cached.
 --
-merkleLogHash
+computeMerkleLogRoot
     :: forall u b
     . HasMerkleLog u b
     => b
-    -> MerkleRoot (MerkleLogHash u)
-merkleLogHash b = _merkleLogRoot @u (toLog @u b)
-{-# INLINE merkleLogHash #-}
+    -> MerkleRoot (HashAlg u)
+computeMerkleLogRoot b = _merkleLogRoot @u (toLog @u b)
+{-# INLINE computeMerkleLogRoot #-}
 
 -- -------------------------------------------------------------------------- --
 -- Proofs
@@ -587,7 +587,7 @@ headerProof
     => IsMerkleLogEntry u c
     => HasMerkleLog u b
     => b
-    -> m (MerkleProof (MerkleLogHash u))
+    -> m (MerkleProof (HashAlg u))
 headerProof = uncurry3 merkleProof . headerTree @c @u
 {-# INLINE headerProof #-}
 
@@ -603,7 +603,7 @@ headerTree
     => IsMerkleLogEntry u c
     => HasMerkleLog u b
     => b
-    -> (MerkleNodeType (MerkleLogHash u) B.ByteString, Int, MerkleTree (MerkleLogHash u))
+    -> (MerkleNodeType (HashAlg u) B.ByteString, Int, MerkleTree (HashAlg u))
 headerTree b = (node, p, _merkleLogTree @u mlog)
   where
     mlog = toLog @u b
@@ -621,7 +621,7 @@ headerTree_
     . HasHeader c (MkLogType u b)
     => HasMerkleLog u b
     => b
-    -> (Int, MerkleTree (MerkleLogHash u))
+    -> (Int, MerkleTree (HashAlg u))
 headerTree_ b = (p, _merkleLogTree @u mlog)
   where
     mlog = toLog @u b
@@ -641,7 +641,7 @@ bodyProof
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> m (MerkleProof (MerkleLogHash u))
+    -> m (MerkleProof (HashAlg u))
 bodyProof b = uncurry3 merkleProof . bodyTree @u b
 {-# INLINE bodyProof #-}
 
@@ -657,7 +657,7 @@ bodyTree
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (MerkleNodeType (MerkleLogHash u) B.ByteString, Int, MerkleTree (MerkleLogHash u))
+    -> (MerkleNodeType (HashAlg u) B.ByteString, Int, MerkleTree (HashAlg u))
 bodyTree b i = (node, i_, _merkleLogTree @u mlog)
   where
     mlog = toLog @u b
@@ -676,7 +676,7 @@ bodyTree_
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (Int, MerkleTree (MerkleLogHash u))
+    -> (Int, MerkleTree (HashAlg u))
 bodyTree_ b i = (i_, _merkleLogTree @u mlog)
   where
     mlog = toLog @u b
@@ -688,7 +688,7 @@ proofSubject
     :: forall u b m
     . MonadThrow m
     => IsMerkleLogEntry u b
-    => MerkleProof (MerkleLogHash u)
+    => MerkleProof (HashAlg u)
     -> m b
 proofSubject p = fromMerkleNodeTagged @u subj
   where
@@ -734,7 +734,7 @@ instance
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'MerkleRoot' via the @DerivingVia@ extension.
 --
-newtype MerkleRootLogEntry (t :: u) = MerkleRootLogEntry (MerkleRoot (MerkleLogHash u))
+newtype MerkleRootLogEntry (t :: u) = MerkleRootLogEntry (MerkleRoot (HashAlg u))
 
 instance (InUniverse u t) => IsMerkleLogEntry u (MerkleRootLogEntry (t :: u)) where
     type Tag (MerkleRootLogEntry t) = t

@@ -44,6 +44,8 @@ data ChainwebHashTag
     | ChainwebVersionTag
     | PowHashTag
     | BlockHashTag
+    | HashTargetTag
+    | ChainNodeIdTag
     -- | BlockOutputsHashTag
     -- | BlockTransactionsHashTag
     -- | TransactionTag
@@ -51,7 +53,7 @@ data ChainwebHashTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
-    type MerkleLogHash ChainwebHashTag = SHA512t_256
+    type HashAlg ChainwebHashTag = SHA512t_256
     type MerkleTagVal ChainwebHashTag 'VoidTag = 0x0000
     type MerkleTagVal ChainwebHashTag 'MerkleRootTag = 0x0001
     type MerkleTagVal ChainwebHashTag 'ChainIdTag = 0x0002
@@ -63,6 +65,8 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'ChainwebVersionTag = 0x0008
     type MerkleTagVal ChainwebHashTag 'PowHashTag = 0x0009
     type MerkleTagVal ChainwebHashTag 'BlockHashTag = 0x0010
+    type MerkleTagVal ChainwebHashTag 'HashTargetTag = 0x0011
+    type MerkleTagVal ChainwebHashTag 'ChainNodeIdTag = 0x0012
     -- type MerkleTagVal ChainwebHashTag 'BlockOutputsHashTag = 0x0004
     -- type MerkleTagVal ChainwebHashTag 'BlockTransactionsHashTag = 0x0005
     -- type MerkleTagVal ChainwebHashTag 'TransactionTag = 0x0006

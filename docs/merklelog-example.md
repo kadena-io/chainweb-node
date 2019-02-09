@@ -154,7 +154,7 @@ violation could potentially allow an attacker to issue phony proofs.
 data BugReportTag = BugIdTag | BugTimeTag | BugDescriptionTag | BugCommentTag
 
 instance MerkleUniverse BugReportTag where
-    type MerkleLogHash BugReportTag = SHA512t_256
+    type HashAlg BugReportTag = SHA512t_256
     type MerkleTagVal BugReportTag 'BugIdTag = 0x0001
     type MerkleTagVal BugReportTag 'BugTimeTag = 0x0002
     type MerkleTagVal BugReportTag 'BugDescriptionTag = 0x0003
