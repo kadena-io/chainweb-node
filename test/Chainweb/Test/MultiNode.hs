@@ -70,6 +70,7 @@ import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.HostAddress
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -152,12 +153,16 @@ blockTimeSeconds = 4
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
-    :: Natural
+    :: Port
+        -- ^ Port of bootstrap node
+    -> Natural
         -- ^ number of nodes
     -> NodeId
         -- ^ NodeId
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-config n nid = defaultChainwebConfiguration
+config p n nid chainDbDir = defaultChainwebConfiguration
     & set configNodeId nid
         -- Set the node id.
 
@@ -181,12 +186,29 @@ config n nid = defaultChainwebConfiguration
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressPort) p
+        -- The the port of the bootstrap node. Normally this is hard-coded.
+        -- But in test-suites that may run concurrently we want to use a port
+        -- that is assigned by the OS.
+
+    & set configChainDbDirPath chainDbDir
+        -- place where the chaindbs are persisted.
+
 bootstrapConfig
     :: Natural
         -- ^ number of nodes
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-bootstrapConfig n = config n (NodeId 0)
-    & set (configP2p . p2pConfigPeer) (head $ bootstrapPeerConfig Test)
+bootstrapConfig n chainDbDir = config 0 {- unused -} n (NodeId 0) chainDbDir
+    & set (configP2p . p2pConfigPeer) peerConfig
+    & set (configP2p . p2pConfigKnownPeers) []
+  where
+    peerConfig = (head $ bootstrapPeerConfig Test)
+        & set (peerConfigAddr . hostAddressPort) 0
+        -- Normally, the port of bootstrap nodes is hard-coded. But in
+        -- test-suites that may run concurrently we want to use a port that is
+        -- assigned by the OS.
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -196,10 +218,17 @@ node
     -> (T.Text -> IO ())
     -> MVar ConsensusState
     -> ChainGraph
+    -> MVar Port
     -> ChainwebConfiguration
     -> IO ()
-node loglevel write stateVar g conf = withChainweb g conf logfuns $ \cw ->
-    runChainweb cw `finally` sample cw
+node loglevel write stateVar g bootstrapPortVar conf =
+    withChainweb g conf logfuns $ \cw -> do
+
+        -- If this is the bootstrap node we extract the port number and
+        -- publish via an MVar.
+        when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
+
+        runChainweb cw `finally` sample cw
   where
     nid = _configNodeId conf
 
@@ -212,6 +241,8 @@ node loglevel write stateVar g conf = withChainweb g conf logfuns $ \cw ->
             (view (chainwebCuts . cutsCutDb) cw)
             state
 
+    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _chainwebPeer
+
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
 
@@ -221,14 +252,26 @@ runNodes
     -> MVar ConsensusState
     -> Natural
         -- ^ number of nodes
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> IO ()
-runNodes loglevel write stateVar n
-    = forConcurrently_ [0 .. int n - 1] $ \i -> do
+runNodes loglevel write stateVar n chainDbDir = do
+    bootstrapPortVar <- newEmptyMVar
+        -- this is a hack for testing: normally bootstrap node peer infos are
+        -- hardcoded. To avoid conflicts in concurrent test runs we extract an
+        -- OS assigned port from the bootstrap node during startup and inject it
+        -- into the configuration of the remaining nodes.
+
+    forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500000 * int i)
-        node loglevel write stateVar graph . conf $ NodeId i
-  where
-    conf (NodeId 0) = bootstrapConfig n
-    conf i = config n i
+
+        conf <- if
+            | i == 0 -> return $ bootstrapConfig n chainDbDir
+            | otherwise -> do
+                bootstrapPort <- readMVar bootstrapPortVar
+                return $ config bootstrapPort n (NodeId i) chainDbDir
+
+        node loglevel write stateVar graph bootstrapPortVar conf
 
 runNodesForSeconds
     :: LogLevel
@@ -237,12 +280,14 @@ runNodesForSeconds
         -- ^ Number of chainweb consensus nodes
     -> Seconds
         -- ^ test duration in seconds
+    -> (Maybe FilePath)
+        -- ^ directory where the chaindbs are persisted
     -> (T.Text -> IO ())
         -- ^ logging backend callback
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel n seconds write = do
+runNodesForSeconds loglevel n seconds chainDbDir write = do
     stateVar <- newMVar emptyConsensusState
-    void $ timeout (int seconds * 1000000) (runNodes loglevel write stateVar n)
+    void $ timeout (int seconds * 1000000) (runNodes loglevel write stateVar n chainDbDir)
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -250,8 +295,8 @@ runNodesForSeconds loglevel n seconds write = do
 -- -------------------------------------------------------------------------- --
 -- Test
 
-test :: LogLevel -> Natural -> Seconds -> TestTree
-test loglevel n seconds = testCaseSteps label $ \f -> do
+test :: LogLevel -> Natural -> Seconds -> (Maybe FilePath) -> TestTree
+test loglevel n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if 1
     let logFun = tastylog
@@ -267,7 +312,7 @@ test loglevel n seconds = testCaseSteps label $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             if c < maxLogMsgs then logFun msg else return ()
 
-    runNodesForSeconds loglevel n seconds countedLog >>= \case
+    runNodesForSeconds loglevel n seconds chainDbDir countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
         Just stats -> do
             logsCount <- readMVar var
@@ -388,4 +433,3 @@ upperStats seconds = Stats
   where
     ebc :: Double
     ebc = int seconds * int (order graph) / int blockTimeSeconds
-

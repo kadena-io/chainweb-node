@@ -70,9 +70,22 @@ pactExecTests = do
 execTests :: PactT ()
 execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
+
+{-
+<<<<<<< HEAD
     trans <- liftIO $ mkPactTestTransactions cmdStrs
     results <- execTransactions trans
     let outputs = snd <$> _transactionPairs results
+=======
+    let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
+                         nonces intSeq cmdStrs
+    outputs <- fst <$> execTransactions trans
+>>>>>>> origin/master
+-}
+    trans <- liftIO $ mkPactTestTransactions cmdStrs
+    results <- execTransactions trans
+    let outputs = snd <$> _transactionPairs results
+
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 

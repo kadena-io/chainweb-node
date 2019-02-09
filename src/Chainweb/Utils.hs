@@ -13,6 +13,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- ixg
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
@@ -68,6 +69,9 @@ module Chainweb.Utils
 , runGet
 , runGetEither
 
+-- ** Codecs
+, Codec(..)
+
 -- ** Text
 , sshow
 , tread
@@ -106,6 +110,7 @@ module Chainweb.Utils
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
+, eatIOExceptions
 
 -- * Command Line Options
 , OptionParser
@@ -127,13 +132,17 @@ module Chainweb.Utils
 , timeoutStream
 , reverseStream
 
+-- * Filesystem
+, withTempDir
+
 ) where
 
 import Configuration.Utils
 
+import Control.Exception (IOException, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans
 
@@ -143,6 +152,7 @@ import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
 import Data.Bytes.Get
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
@@ -159,6 +169,7 @@ import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
+import Data.Word (Word64)
 
 import GHC.Generics
 
@@ -169,9 +180,16 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, maps)
 import qualified Streaming.Prelude as S
 
+import System.Directory (removeDirectoryRecursive)
+import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
+import System.Path.IO (getTemporaryDirectory)
+import System.Random (randomIO)
 import System.Timeout
+import Text.Printf (printf)
 
 import Text.Read (readEither)
+
+import UnliftIO.Exception (bracket)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -637,3 +655,30 @@ streamToHashSet_ = fmap HS.fromList . S.toList_
 --
 reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
+
+-- | TODO: maybe use Put/Get ?
+data Codec t = Codec {
+    codecEncode :: t -> ByteString
+  , codecDecode :: ByteString -> Either String t
+}
+
+eatIOExceptions :: IO () -> IO ()
+eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
+
+-- | Perform an action over a random path under @/tmp@. Example path:
+--
+-- @
+-- Path "/tmp/chainweb-git-store-test-8086816238120523704"
+-- @
+--
+withTempDir :: String -> (Path Absolute -> IO a) -> IO a
+withTempDir tag f = bracket create delete f
+  where
+    create :: IO (Path Absolute)
+    create = do
+        tmp <- getTemporaryDirectory
+        suff <- randomIO @Word64
+        pure $ tmp </> fragment (printf "chainweb-%s-%d" tag suff)
+
+    delete :: Path Absolute -> IO ()
+    delete = toAbsoluteFilePath >=> removeDirectoryRecursive

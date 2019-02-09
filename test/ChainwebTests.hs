@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -19,23 +18,32 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
+import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
+import qualified Chainweb.Test.Mempool.InMem
+import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
+import qualified Chainweb.Test.Store.CAS.FS
+import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
+<<<<<<< HEAD
 #ifdef WITH_PACT
 import qualified Chainweb.Test.Pact
 import qualified Chainweb.Test.Pact.PactService
 #endif
+=======
+>>>>>>> origin/master
 
 import qualified Data.DiGraph (properties)
+import qualified Data.Word.Encoding (properties)
 
---import qualified Network.X509.SelfSigned.Test
+import qualified Network.X509.SelfSigned.Test
 
 import qualified P2P.Node.PeerDB (properties)
 
@@ -53,13 +61,21 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
+<<<<<<< HEAD
+=======
+    , Chainweb.Test.Store.CAS.FS.tests
+    , Chainweb.Test.Store.Git.tests
+>>>>>>> origin/master
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
+    , Chainweb.Test.Mempool.InMem.tests
+    , Chainweb.Test.Mempool.Socket.tests
     , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties
+<<<<<<< HEAD
 
     -- DB 2019-01-17 Disabling to fix CI
     -- , testGroup "Network.X05.SelfSigned.Test"
@@ -74,4 +90,11 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.Pact.PactService.tests
         ]
 #endif
+=======
+    , testGroup "Network.X05.SelfSigned.Test"
+        [ Network.X509.SelfSigned.Test.tests
+        ]
+    , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
+    , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+>>>>>>> origin/master
     ]

@@ -18,13 +18,14 @@ import Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils
 
 mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbState
-mkPureState env cmdCfg = do
+mkPureState env _cmdCfg = do
     P.initSchema env
+    envPersist' <- toEnvPersist' (Env' env)
     return $
         PactDbState
-            { _pdbsCommandConfig = cmdCfg
-            , _pdbsDbEnv = Env' env
+            { _pdbsDbEnv = envPersist'
             , _pdbsState = P.CommandState P.initRefStore M.empty
             }

@@ -1,9 +1,8 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: ConsensusNetworkTests
+-- Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -15,17 +14,16 @@ module Main
 ( main
 ) where
 
-import System.LogLevel
-
 import Test.Tasty
 
 -- internal modules
 
-import Chainweb.Test.MultiNode
+import qualified Chainweb.Test.Pact
 
 main :: IO ()
-main = defaultMain $ test Warn 10 (Seconds 120) Nothing
+main = defaultMain suite
 
--- Use the following to persist the databases.
--- main = defaultMain $ test Warn 10 (Seconds 120) (Just "./tmp/chaindb")
-
+suite :: TestTree
+suite = testGroup "Chainweb-Pact Unit Tests"
+    [ Chainweb.Test.Pact.tests
+    ]

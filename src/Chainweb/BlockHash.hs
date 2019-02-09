@@ -191,6 +191,7 @@ cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 -- |
 --
 -- Note:
+--
 -- *   Serialization as JSON key doesn't include the chain id. Note,
 --     however that the chain id is included in the hash.
 -- *   Serialization as JSON property includes the chain id, because

@@ -30,3 +30,6 @@ result-*
 .stylish-haskell.yaml
 public
 log
+report.html
+.hlint.yaml
+*.svg

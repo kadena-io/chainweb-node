@@ -25,7 +25,7 @@ import qualified Data.ByteString.Char8 as B8 (pack)
 
 import Network.HTTP.Client hiding (port)
 import Network.HTTP.Types (status200, statusIsSuccessful)
-import Network.Socket (Socket)
+import Network.Socket (Socket, close)
 import Network.Wai (responseLBS)
 import Network.Wai.Handler.Warp (openFreePort, defaultSettings)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
@@ -63,44 +63,44 @@ testCertType l = testCaseSteps l $ \step -> do
     let cred = unsafeMakeCredential cert key
 
     step "Start Server"
-    (p, sock) <- openFreePort
-    withAsync (serve cert key sock) $ \_ -> do
+    bracket openFreePort (close . snd) $ \(p, sock) -> do
+        withAsync (serve cert key sock) $ \_ -> do
 
-        let bp = B8.pack $ show p
+            let bp = B8.pack $ show p
 
-        -- Certificate Validation Cache
-        let check ("localhost", x) | x == bp = return $ Just fp
-            check ("127.0.0.1", x) | x == bp = return $ Just fp
-            check _ = return Nothing
+            -- Certificate Validation Cache
+            let check ("localhost", x) | x == bp = return $ Just fp
+                check ("127.0.0.1", x) | x == bp = return $ Just fp
+                check _ = return Nothing
 
-        -- Test Query
-        let query h (port :: Int) policy = do
-                let uri = "https://" <> h <> ":" <> show port
-                step $ "query " <> uri <> " with " <> showPolicy policy
-                mgr <- newManager =<< certificateCacheManagerSettings policy (Just cred)
-                req <- parseRequest uri
-                rsp <- httpLbs req mgr
-                return (statusIsSuccessful (responseStatus rsp), rsp)
+            -- Test Query
+            let query h (port :: Int) policy = do
+                    let uri = "https://" <> h <> ":" <> show port
+                    step $ "query " <> uri <> " with " <> showPolicy policy
+                    mgr <- newManager =<< certificateCacheManagerSettings policy (Just cred)
+                    req <- parseRequest uri
+                    rsp <- httpLbs req mgr
+                    return (statusIsSuccessful (responseStatus rsp), rsp)
 
-        -- Test Functions
-        let pass a = a >>= \(s,r) -> assertBool (show r) s
-            fail = assertException @HttpException
+            -- Test Functions
+            let pass a = a >>= \(s,r) -> assertBool (show r) s
+                fail = assertException @HttpException
 
-        step "start tests"
+            step "start tests"
 
-        pass $ query "localhost" p TlsInsecure
-        pass $ query "localhost" p $ TlsSecure True check
-        pass $ query "localhost" p $ TlsSecure False check
-        fail $ query "localhost" p $ TlsSecure True (\_ -> return Nothing)
-        fail $ query "localhost" p $ TlsSecure False (\_ -> return Nothing)
+            pass $ query "localhost" p TlsInsecure
+            pass $ query "localhost" p $ TlsSecure True check
+            pass $ query "localhost" p $ TlsSecure False check
+            fail $ query "localhost" p $ TlsSecure True (\_ -> return Nothing)
+            fail $ query "localhost" p $ TlsSecure False (\_ -> return Nothing)
 
-        pass $ query "127.0.0.1" p TlsInsecure
-        pass $ query "127.0.0.1" p $ TlsSecure True check
-        pass $ query "127.0.0.1" p $ TlsSecure False check
+            pass $ query "127.0.0.1" p TlsInsecure
+            pass $ query "127.0.0.1" p $ TlsSecure True check
+            pass $ query "127.0.0.1" p $ TlsSecure False check
 
-        pass $ query "google.com" 443 TlsInsecure
-        pass $ query "google.com" 443 $ TlsSecure True check
-        fail $ query "google.com" 443 $ TlsSecure False check
+            pass $ query "google.com" 443 TlsInsecure
+            pass $ query "google.com" 443 $ TlsSecure True check
+            fail $ query "google.com" 443 $ TlsSecure False check
 
 -- -------------------------------------------------------------------------- --
 -- Utils

@@ -1,7 +1,5 @@
 module Chainweb.Test.TreeDB.RemoteDB ( tests ) where
 
--- import qualified Streaming.Prelude as S
-
 import Test.Tasty
 -- import Test.Tasty.HUnit
 

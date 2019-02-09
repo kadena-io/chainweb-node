@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
@@ -47,6 +48,10 @@ module Chainweb.Difficulty
 , encodeHashDifficulty
 , decodeHashDifficulty
 , calculateTarget
+
+-- * Test Properties
+, properties
+, prop_littleEndian
 ) where
 
 import Control.DeepSeq
@@ -56,18 +61,21 @@ import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.ByteString as B
 import Data.Coerce
-import Data.Hashable
 import Data.DoubleWord
+import Data.Hashable
 
 import GHC.Generics
 import GHC.TypeNats
+
+import Test.QuickCheck (Property, property)
 
 -- internal imports
 
 import Chainweb.BlockHash
 import Numeric.Additive
-import Data.Word.Encoding
+import Data.Word.Encoding hiding (properties)
 import Chainweb.Time
 import Chainweb.Utils
 
@@ -238,4 +246,23 @@ calculateTarget targetTime l = HashTarget $ sum
       where
         nominator = 2 * weight * target * t2h targetTime
         denominator = n * (n + 1) * timeSpan
+
+-- -------------------------------------------------------------------------- --
+-- Properties
+
+prop_littleEndian :: Bool
+prop_littleEndian = all run [1..31]
+  where
+    run i = (==) i
+        $ length
+        $ takeWhile (== 0x00)
+        $ reverse
+        $ B.unpack
+        $ runPutS
+        $ encodeBlockHashNat (maxBound `div` 2^(8*i))
+
+properties :: [(String, Property)]
+properties =
+    [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
+    ]
 

@@ -51,7 +51,7 @@ bootstrapPeerConfig x = error
 -- chainweb version 'Test'.
 --
 -- The same certificate is also stored in the file
--- @./scripts/scripts/test-boostrap-node.config@.
+-- @./scripts/scripts/test-bootstrap-node.config@.
 --
 -- Public Chainweb versions should rely on public DNS names with official TLS
 -- certificates for bootstrapping.
@@ -167,4 +167,3 @@ bootstrapKey Test = X509KeyPem $ B8.intercalate "\n"
     ]
 #endif
 bootstrapKey x = error $ "bootstrap key isn't defined for chainweb version " <> sshow x
-
