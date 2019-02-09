@@ -26,11 +26,6 @@ module Chainweb.BlockHeaderDB
 , withBlockHeaderDb
 , copy
 
--- * Validation
-, isValidEntryDb
-, validateEntryDb
-, validateEntryDbM
-
 -- * Utils
 , childrenKeys
 ) where
@@ -62,10 +57,10 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Validation
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB
+import Chainweb.TreeDB.Validation
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -374,49 +369,4 @@ insertBlockHeaderDb db es = do
         return $!! x'
   where
     rankedAdditions = L.sortOn rank es
-
--- -------------------------------------------------------------------------- --
--- Validate Blockheader
-
--- | Tests if the block header is valid (i.e. 'validateBlockHeader' produces an
--- empty list)
---
-isValidEntryDb
-    :: BlockHeaderDb
-        -- ^ the database
-    -> BlockHeader
-        -- ^ The block header to be checked
-    -> IO Bool
-        -- ^ True if validation succeeded
-isValidEntryDb = isValidEntry . lookup
-
--- | Validate properties of the block header, producing a list of the validation
--- failures
---
-validateEntryDb
-    :: BlockHeaderDb
-        -- ^ the database
-    -> BlockHeader
-        -- ^ The block header to be checked
-    -> IO [ValidationFailureType]
-        -- ^ A list of ways in which the block header isn't valid
-validateEntryDb = validateEntry . lookup
-
--- | Validate properties of the block header, throwing an exception detailing
--- the failures if any.
---
-validateEntryDbM
-    :: BlockHeaderDb
-    -> BlockHeader
-    -> IO ()
-validateEntryDbM = validateEntryM . lookup
-
--- | Validate a set of additions that are supposed to be added atomically to
--- the database.
---
-validateAdditionsDbM
-    :: BlockHeaderDb
-    -> HM.HashMap BlockHash BlockHeader
-    -> IO ()
-validateAdditionsDbM = validateAdditionsM . lookup
 
