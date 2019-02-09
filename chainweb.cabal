@@ -65,6 +65,7 @@ library
     exposed-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client

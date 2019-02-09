@@ -95,12 +95,6 @@ module Chainweb.BlockHeader
 , testBlockHeaderWithTime
 , testBlockHeaders
 , testBlockHeadersWithNonce
-
--- * Properties
-, prop_block_difficulty
-, prop_block_hash
-, prop_block_genesis_parent
-, prop_block_genesis_target
 ) where
 
 import Control.Arrow ((&&&))
@@ -647,16 +641,4 @@ testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
-
-prop_block_difficulty :: BlockHeader -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
-
-prop_block_hash :: BlockHeader -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
-
-prop_block_genesis_parent :: BlockHeader -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
-
-prop_block_genesis_target :: BlockHeader -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget Test
 
