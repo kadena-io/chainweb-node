@@ -203,6 +203,7 @@ library
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
         , strict-tuple >= 0.1
+        , string-conv >= 0.1
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
@@ -356,7 +357,12 @@ test-suite pact-tests
     cpp-options: -DWITH_PACT=1
 
     other-modules:
+        Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact
+        Chainweb.Test.Pact.PactService
+        Chainweb.Test.Pact.Utils
+        Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Utils
 
     build-depends:
         -- internal
@@ -364,18 +370,33 @@ test-suite pact-tests
 
         -- external
         , aeson >= 1.4
+        , async >= 2.2
         , base >= 4.11
+        , bytes >= 0.15
         , bytestring >= 0.10
+        , containers >= 0.5
         , data-default >=0.7
         , extra >= 1.6
+        , http-client >= 0.5
+        , lens >= 4.16
+        , network >= 2.6
         , pact >= 2.6
+        , random >= 1.1
         , scientific >= 0.3
+        , servant >= 0.13
+        , servant-client >= 0.13
+        , servant-server >= 0.13
         , tasty >= 1.0
         , tasty-hunit >= 0.9
         , text >= 1.2
         , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
+        , QuickCheck >= 2.10
+        , QuickCheck-GenT >=0.2
+        , wai >= 3.2
+        , warp >= 3.2
+        , warp-tls >= 3.2
 
     if flag(with-pact)
         buildable: True
@@ -427,7 +448,6 @@ test-suite consensus-network-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
->>>>>>> origin/master
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1

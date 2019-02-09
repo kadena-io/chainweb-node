@@ -32,13 +32,6 @@ import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
-<<<<<<< HEAD
-#ifdef WITH_PACT
-import qualified Chainweb.Test.Pact
-import qualified Chainweb.Test.Pact.PactService
-#endif
-=======
->>>>>>> origin/master
 
 import qualified Data.DiGraph (properties)
 import qualified Data.Word.Encoding (properties)
@@ -54,18 +47,14 @@ main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "Unit Tests"
-{-
     [ testGroup "BlockHeaderDb"
         [ Chainweb.Test.BlockHeaderDB.tests
         , Chainweb.Test.TreeDB.RemoteDB.tests
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
-<<<<<<< HEAD
-=======
     , Chainweb.Test.Store.CAS.FS.tests
     , Chainweb.Test.Store.Git.tests
->>>>>>> origin/master
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
     , Chainweb.Test.DiGraph.tests
@@ -75,26 +64,9 @@ suite = testGroup "Unit Tests"
     , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
     , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
     , testProperties "Data.DiGraph" Data.DiGraph.properties
-<<<<<<< HEAD
-
-    -- DB 2019-01-17 Disabling to fix CI
-    -- , testGroup "Network.X05.SelfSigned.Test"
-    --     [ Network.X509.SelfSigned.Test.tests
-    --     ]
--}
-#ifdef WITH_PACT
---    , testGroup "Pact Tests"
-     [ testGroup "Pact Tests"
-
-        [ Chainweb.Test.Pact.tests
-        , Chainweb.Test.Pact.PactService.tests
-        ]
-#endif
-=======
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
     , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
     , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
->>>>>>> origin/master
     ]

@@ -12,7 +12,6 @@
 
 module Chainweb.Test.Pact.Utils where
 
-import Control.Monad.IO.Class
 import Control.Monad.Zip
 
 import Data.Aeson
@@ -20,7 +19,6 @@ import Data.ByteString (ByteString)
 import Data.Default
 import Data.Maybe
 import qualified Data.Text as T
-import Data.Time.Clock
 import Data.Word
 
 import System.IO.Extra
@@ -46,8 +44,8 @@ mkPactTestTransactions :: [String] -> IO [Transaction]
 mkPactTestTransactions cmdStrs = do
     let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
     let intSeq = [0, 1 ..] :: [Word64]
-    -- using 0 as the nonce here so the hashes match for the same commands (for testing only)
-    return $ zipWith (mkPactTransaction testKeyPairs theData (T.pack (show 1.0)))
+    -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
+    return $ zipWith (mkPactTransaction testKeyPairs theData "1" )
              intSeq cmdStrs
 
 mkPactTransaction

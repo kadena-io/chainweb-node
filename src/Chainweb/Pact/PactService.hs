@@ -315,7 +315,9 @@ execTransactions :: [Transaction] -> PactT Transactions
 execTransactions xs = do
     cpEnv <- ask
     currentState <- get
-    let dbEnv' = _pdbsDbEnv currentState
+    -- let dbEnv' = _pdbsDbEnv currentState
+    let dbEnvPersist' = _pdbsDbEnv $! currentState
+    dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
     txOuts <- forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
