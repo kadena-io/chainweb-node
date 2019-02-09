@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -66,7 +67,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
@@ -358,11 +359,12 @@ withTestAppServer
     -> IO b
 withTestAppServer tls appIO envIO userFunc = bracket start stop go
   where
+    eatExceptions = handle (\(_ :: SomeException) -> return ())
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
-        server <- async $ do
+        server <- async $ eatExceptions $ do
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do

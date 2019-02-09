@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -11,35 +12,27 @@ module Chainweb.Test.Mempool.Websocket (tests) where
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Control.Concurrent (forkIO, killThread, newEmptyMVar, readMVar)
 import Control.Exception
-import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as B
 import Data.Foldable (toList)
 import Data.Proxy
 import qualified Data.Text as T
-import qualified Network.Socket as N
 import Network.Wai (Application)
-import qualified Network.Wai as W
-import qualified Network.Wai.Handler.Warp as W
-import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
+import qualified Network.WebSockets as WS
 import Servant.API
-import Servant.Client
+import qualified System.IO.Streams as Streams
 ------------------------------------------------------------------------------
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
-import qualified Chainweb.Mempool.Socket as M
+import Chainweb.Mempool.Socket (ClientConfig(..))
 import qualified Chainweb.Mempool.Websocket as MWS
-import Chainweb.RestAPI
 import Chainweb.RestAPI.Utils
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 ------------------------------------------------------------------------------
@@ -72,7 +65,7 @@ withWebsocketMempool
   :: InMemConfig MockTx -> (MempoolBackend MockTx -> IO a) -> IO a
 withWebsocketMempool inMemCfg userFunc = do
     mp <- InMem.makeSelfFinalizingInMemPool inMemCfg
-    let (someServer, app) = mempoolApplication Test [(chain, mp)]
+    let (_, app) = mempoolApplication Test [(chain, mp)]
     let mempoolSubpath =
           case someChainwebVersionVal Test of
               (SomeChainwebVersionT (Proxy :: Proxy vt)) ->
@@ -85,5 +78,7 @@ withWebsocketMempool inMemCfg userFunc = do
         let path = '/' : mempoolSubpath
         MWS.withClient host (fromIntegral port) path clientConfig userFunc
   where
-    clientConfig = undefined
+    clientConfig = ClientConfig txcfg keepaliveInterval
+    keepaliveInterval = 60 * 60 * 4  -- 4 hours
+    txcfg = _inmemTxCfg inMemCfg
     chain = head $ toList $ chainIds_ singleton

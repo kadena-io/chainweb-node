@@ -1,5 +1,7 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -17,25 +19,30 @@ module Chainweb.Mempool.Websocket
   ) where
 ------------------------------------------------------------------------------
 import Control.Exception
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.ByteString.Lazy (toStrict)
 import qualified Data.ByteString.Lazy as L
+import Data.IORef
+import Debug.Trace
 import Network.Connection
     (Connection, ConnectionParams(..), TLSSettings(..), connectTo,
-    connectionGetChunk, connectionPut, initConnectionContext)
+    connectionClose, connectionGetChunk, connectionPut, initConnectionContext)
 import Network.Socket (PortNumber(..))
 import Network.WebSockets
     (ClientApp, ConnectionOptions, defaultConnectionOptions,
     runClientWithStream)
 import qualified Network.WebSockets as WS
+import qualified Network.WebSockets.Connection as WS
 import Network.WebSockets.Stream (makeStream)
 import Servant
 import Servant.API.WebSocket
 import System.IO.Streams (InputStream, OutputStream)
 import qualified System.IO.Streams as Streams
+import qualified System.IO.Streams.Debug as Streams
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -44,52 +51,139 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Version
 ------------------------------------------------------------------------------
 
+{-# INLINE trace' #-}
+{-# INLINE debug #-}
+
+#if 1
+
+trace' :: Show a => String -> a -> a
+trace' _ x = let _ = show x in x
+
+debug :: String -> String -> IO ()
+debug _ _ = return ()
+
+_shutupWarnings :: a
+_shutupWarnings = undefined Streams.debugInputBS trace
+
+#else
+
+-- change conditional to enable debug
+trace' :: Show a => String -> a -> a
+trace' s x = trace (s ++ show x) x
+debug :: String -> String -> IO ()
+debug pfx s = Streams.writeTo Streams.stderr $
+              Just (B.concat ["debug: WS: ", B.pack pfx, ": ", B.pack s, "\n"])
+#endif
+
 server :: Show t => MempoolBackend t -> Server (MempoolWebsocketApi_ v c)
 server mempool = streamData
- where
+  where
   -- streamData :: MonadIO m => WS.Connection -> m ()
-  streamData conn = liftIO $ mask $ \restore -> do
-      s <- connectionToStreams conn
-      Mempool.serverSession mempool s restore
+    streamData conn = liftIO $ mask $ \restore -> do
+        debug "server" "opening connection"
+        s <- connectionToStreams "server" conn
+        debug "server" "connection open, running session"
+        Mempool.serverSession mempool s restore `catch` closeEx
+
+    closeEx :: WS.ConnectionException -> IO ()
+    closeEx e = case e of
+                  (WS.CloseRequest _ _) -> debug "server closeEx" "got close request"
+                  WS.ConnectionClosed -> debug "server closeEx" "connection improperly closed"
+                  _ -> throwIO e
 
 
 withClient
-  :: Show t
-  => String                      -- ^ host
-  -> PortNumber                  -- ^ port
-  -> String                      -- ^ path
-  -> Mempool.ClientConfig t      -- ^ mempool client config
-  -> (MempoolBackend t -> IO a)  -- ^ user handler
-  -> IO a
+    :: Show t
+    => String                      -- ^ host
+    -> PortNumber                  -- ^ port
+    -> String                      -- ^ path
+    -> Mempool.ClientConfig t      -- ^ mempool client config
+    -> (MempoolBackend t -> IO a)  -- ^ user handler
+    -> IO a
 withClient host port path config userFunc = runSecureClient host port path app
   where
     app conn = do
-      s0 <- connectionToStreams conn
+      s0 <- connectionToStreams "client" conn
       Mempool.withTimeout Mempool.defaultMempoolSocketTimeout s0 $ \s ->
           Mempool.withClientSession s config userFunc
 
 
 connectionToStreams
-  :: WS.Connection -> IO (InputStream ByteString, OutputStream Builder, IO ())
-connectionToStreams conn = do
-    input <- Streams.makeInputStream rd
+    :: String
+    -> WS.Connection
+    -> IO (InputStream ByteString, OutputStream Builder, IO ())
+connectionToStreams pfx conn = do
+    gotClose <- newIORef False
+    input <- Streams.makeInputStream $ rd gotClose
     output <- Streams.makeOutputStream wr >>= Streams.builderStream
-    return $! (input, output, close)
+    return $! (input, output, cleanup gotClose)
 
   where
-    rd :: IO (Maybe ByteString)
-    rd = (Just <$> WS.receiveData conn) `catch` rdEx
+    rd :: IORef Bool -> IO (Maybe ByteString)
+    rd gotClose = do
+        debug pfx "calling ws connection read"
+        b <- readIORef gotClose
+        if b
+          then debug pfx "double read" >> return Nothing
+          else do
+            r <- (Just <$> WS.receiveData conn) `catch` rdEx gotClose
+            debug pfx "ws connection read ok"
+            return $! r
 
-    rdEx :: WS.ConnectionException -> IO (Maybe ByteString)
-    rdEx e = case e of
-               (WS.CloseRequest _ _) -> return Nothing
+    setClosed = flip writeIORef True
+
+    rdEx gotClose e =
+        case e of
+            (WS.CloseRequest _ _) -> do
+                debug pfx "on read: got close request"
+                setClosed gotClose
+                return Nothing
+            WS.ConnectionClosed -> do
+                debug pfx "on read: connection improperly closed"
+                setClosed gotClose
+                return Nothing
+            _ -> throwIO e
+
+    wrEx :: WS.ConnectionException -> IO ()
+    wrEx e = case e of
+               (WS.CloseRequest _ _) -> debug pfx "on write: got close request"
+               WS.ConnectionClosed -> debug pfx "on write: connection improperly closed"
                _ -> throwIO e
 
-    wr :: Maybe ByteString -> IO ()
-    wr Nothing = WS.sendClose conn B.empty
-    wr (Just s) = WS.sendBinaryData conn s
+    closeEx :: WS.ConnectionException -> IO ()
+    closeEx e = case e of
+                  (WS.CloseRequest _ _) -> debug pfx "on close: got CloseRequest"
+                  WS.ConnectionClosed -> debug pfx "on close: connection improperly closed"
+                  _ -> throwIO e
 
-    close = WS.sendClose conn B.empty
+    wr :: Maybe ByteString -> IO ()
+    wr Nothing = do
+        -- cooperative close, without slurp
+        debug pfx "write end got Nothing, closing"
+        alreadyClosed <- readIORef $ WS.connectionSentClose conn
+        unless alreadyClosed $ do
+            WS.sendClose conn closeMsg `catch` closeEx
+    wr (Just s) = do
+        debug pfx "calling WS.sendBinaryData"
+        WS.sendBinaryData conn s
+        debug pfx "WS.sendBinaryData OK"
+
+    closeMsg :: ByteString
+    closeMsg = "bye"
+
+    cleanup gc = do
+        debug pfx "connection cleanup"
+        alreadyClosed <- readIORef $ WS.connectionSentClose conn
+        unless alreadyClosed $ do
+            debug pfx "cleanup: sending close"
+            WS.sendClose conn closeMsg `catch` closeEx
+        -- slurp from socket until we get CloseRequest
+        debug pfx "cleanup: slurping until closed"
+        slurpUntilClosed gc
+
+    slurpUntilClosed gc =
+        let go = rd gc >>= maybe (return ()) (const go)
+        in go
 
 
 runSecureClient :: String -> PortNumber -> String -> ClientApp a -> IO a
@@ -98,6 +192,7 @@ runSecureClient host port path app = do
     connection <- connectTo context (connectionParams host port)
     stream <- makeStream (reader connection) (writer connection)
     runClientWithStream stream host path connectionOptions headers app
+      `onException` connectionClose connection
 
 
 connectionParams :: String -> PortNumber -> ConnectionParams
@@ -118,11 +213,28 @@ tlsSettings = TLSSettingsSimple
 
 
 reader :: Connection -> IO (Maybe ByteString)
-reader connection = Just <$> (connectionGetChunk connection)
+reader connection = do
+    debug pfx "connectionGetChunk: reading from socket"
+    s <- connectionGetChunk connection
+    if B.null s
+      then do debug pfx "got null read from socket, returning Nothing"
+              return Nothing
+      else do debug pfx "got nonempty chunk from socket"
+              return $! Just s
+  where
+    pfx = "client socket reader"
 
 
 writer :: Connection -> Maybe L.ByteString -> IO ()
-writer connection = maybe (return ()) (connectionPut connection . toStrict)
+writer connection m = maybe close putChunk m
+  where
+    close = do
+        debug pfx "got close, closing socket"
+        connectionClose connection
+    putChunk s = do
+        debug pfx "writing chunk out to socket"
+        connectionPut connection $ toStrict s
+    pfx = "client socket writer"
 
 
 connectionOptions :: ConnectionOptions

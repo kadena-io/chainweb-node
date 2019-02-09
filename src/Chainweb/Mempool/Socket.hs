@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -71,6 +72,7 @@ import Chainweb.Utils (Codec(..))
 {-# INLINE trace' #-}
 {-# INLINE debug #-}
 
+#if 1
 trace' :: Show a => String -> a -> a
 trace' _ x = let _ = show x in x
 
@@ -80,13 +82,15 @@ debug _ = return ()
 _shutupWarnings :: a
 _shutupWarnings = undefined Streams.debugInputBS trace
 
--- uncomment to enable debugging
--- trace' :: Show a => String -> a -> a
--- trace' s x = trace (s ++ show x) x
--- debug :: String -> IO ()
--- debug s = Streams.writeTo Streams.stderr $
---           Just (B.concat ["debug: ", BC.pack s, "\n"])
+#else
+-- change conditional to enable debug
 
+trace' :: Show a => String -> a -> a
+trace' s x = trace (s ++ show x) x
+debug :: String -> IO ()
+debug s = Streams.writeTo Streams.stderr $
+          Just (B.concat ["debug: MS: ", BC.pack s, "\n"])
+#endif
 
 ------------------------------------------------------------------------------
 data ClientConfig t = ClientConfig {
@@ -486,17 +490,21 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
             >>= Streams.skipToEof)
 
     startInputThread = do
+        debug "server: starting input thread"
         mv <- newMVar Nothing
+        doneMv <- newEmptyMVar
         remotePipe <- atomically $ TBMChan.newTBMChan 8
         tid <- forkIOWithUnmask $
                \r -> (r (inputThread remotePipe) `finally`
                          atomically (TBMChan.closeTBMChan remotePipe))
-        return (mv, remotePipe, tid)
+        return (doneMv, mv, remotePipe, tid)
 
-    killInputThread (mv, remotePipe, tid) = do
-        withMVar mv $ mapM_ (readIORef >=> mempoolSubFinal)
-        killThread tid
-        atomically $ TBMChan.closeTBMChan remotePipe
+    killInputThread (doneMv, mv, remotePipe, tid) =
+        flip finally (readMVar doneMv >> debug "server: input thread joined") $ do
+            debug "server: killing input thread"
+            withMVar mv $ mapM_ (readIORef >=> mempoolSubFinal)
+            killThread tid
+            atomically $ TBMChan.closeTBMChan remotePipe
 
     subToStm mv = withMVar mv $
                   maybe (return STM.retry)
@@ -505,7 +513,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     fetchSub c = Left <$> (TBMChan.readTBMChan c >>= maybe STM.retry return)
     fetchRemote c = Right <$> TBMChan.readTBMChan c
 
-    runOutputThread (mv, remotePipe, _) = do
+    runOutputThread (_, mv, remotePipe, _) = do
         -- say hello
         debug "server: output thread sending handshake"
         Streams.writeTo writeEnd
@@ -529,6 +537,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
         maybe (throwIO ThreadKilled) (processCommand mv) c
 
     respond s = do
+        debug $ "server: responding with " ++ show s
         Streams.writeTo writeEnd $ Just (encodeServerMessage txcfg s <> Builder.flush)
         when (msgIsFailed s) $ throwIO ThreadKilled
 
@@ -619,7 +628,9 @@ toBackend config (ClientState cChan _ _ _ _ _) =
         let c = f mv
         debug $ "client: writing cmd " ++ show c ++ " to channel"
         writeCmd c
-        takeResultMVar mv
+        v <- takeResultMVar mv
+        debug $ "client: got response for command " ++ show c
+        return v
 
 
     pLookup v = issueMvCmd $ CLookup v
@@ -671,14 +682,14 @@ withClientSession :: Show t
                   -> (MempoolBackend t -> IO a)
                   -> IO a
 withClientSession (inp, outp, cleanup) config userHandler =
-    bracket initialize destroy go `finally` cleanup
+    bracket initialize destroy go
 
   where
     txcfg = _ccTxCfg config
 
     keepaliveInterval = 1000000 * _ccKeepaliveIntervalSeconds config
 
-    go = userHandler . toBackend config
+    go (cs, _, _) = userHandler $ toBackend config cs
 
     initialize = do
         cchan <- atomically $ TBMChan.newTBMChan 8
@@ -689,19 +700,26 @@ withClientSession (inp, outp, cleanup) config userHandler =
         cb <- newMVar (const $ return ())
         let !cs = ClientState cchan cmv schan smv q cb
 
-        ctid <- forkIOWithUnmask $ commandThreadProc cs
-        stid <- forkIOWithUnmask $ socketThreadProc schan
+        done1 <- newEmptyMVar
+        done2 <- newEmptyMVar
+        ctid <- forkIOWithUnmask (\r -> commandThreadProc cs r `finally` putMVar done1 ())
+        stid <- forkIOWithUnmask (\r -> socketThreadProc schan r `finally` putMVar done2 ())
         putMVar cmv ctid
         putMVar smv stid
-        return cs
+        return (cs, done1, done2)
 
     smsgParser = (Atto.endOfInput *> pure Nothing) <|>
                  (Just <$> decodeServerMessage txcfg)
 
-    destroy cs@(ClientState _ cmv _ smv _ _) =
+    destroy (cs@(ClientState _ cmv _ _ _ _), done1, done2) = do
+        debug "client: begin destroy"
         closeChans cs `finally`
-        (readMVar cmv >>= killThread) `finally`
-        (readMVar smv >>= killThread)
+            (readMVar cmv >>= killThread) `finally`
+            takeMVar done1 `finally`
+            -- input thread will be closed by EOF on read
+            takeMVar done2 `finally`
+            cleanup
+        debug "client: destroyed"
 
     checkClosures cchan schan = do
         b1 <- TBMChan.isClosedTBMChan cchan
@@ -721,10 +739,14 @@ withClientSession (inp, outp, cleanup) config userHandler =
         return $! fromMaybe (Left CKeepalive) m
 
     commandThreadProc cs restore =
-        flip finally (closeChans cs)
+        flip finally (closeChans cs >> closeOut)
             $ restore $ forever (readChans cs >>= processElem cs)
 
     sendCommand = Streams.writeTo outp . Just . encodeCommand txcfg
+
+    closeOut = do
+        debug "client: command thread: sending eof"
+        Streams.write Nothing outp
 
     processElem cs = p
       where
@@ -754,17 +776,21 @@ withClientSession (inp, outp, cleanup) config userHandler =
 
     socketErrHandler chan =
         flip catches [
-            Handler $ \(e :: SomeException) ->
+            Handler $ \(_ :: AsyncException) -> return ()
+          , Handler $ \(e :: SomeException) -> do
+                debug $ "client: socketErrHandler: caught " ++ show e
                 atomically $ TBMChan.writeTBMChan chan
                            $ Failed . T.encodeUtf8 . T.pack
                            $ ("error from socket thread: " ++ show e)
-            ]
+          ]
 
     socketThreadProc chan restore = socketErrHandler chan $ restore $ do
         readHandshake
         debug "client: got handshake"
         Streams.parserToInputStream smsgParser inp
-            >>= Streams.mapM_ (writeChan chan)
+            >>= Streams.mapM_ (\x -> do
+                                  debug "client: socketThreadProc parsed msg, writing to chan"
+                                  writeChan chan x)
             >>= Streams.skipToEof
 
     readHandshake = Streams.parseFromStream parseHandshake inp
