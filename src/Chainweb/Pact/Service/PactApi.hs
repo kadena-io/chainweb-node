@@ -37,8 +37,6 @@ import Control.Monad.STM
 import qualified Data.HashTable.IO as H
 import Data.HashTable.ST.Basic (HashTable)
 
-import Debug.Trace
-
 import Network.Wai
 import qualified Network.Wai.Handler.Warp as Warp
 
@@ -70,10 +68,7 @@ withPactServiceApp port memPoolAccess action = do
     let respQVar = atomically $ newTVar respQ
     withAsync (initPactService reqQVar respQVar memPoolAccess) $ \a -> do
         link a
-        let threadId = asyncThreadId a
-        let reqIdVar = trace ("async created with thread id: " ++ show (threadId))
-                            (atomically $ (newTVar (RequestId 0) :: STM (TVar RequestId)))
-
+        let reqIdVar = atomically $ (newTVar (RequestId 0) :: STM (TVar RequestId))
         let ht =  H.new :: IO (H.IOHashTable HashTable RequestId Transactions)
         let env = RequestIdEnv
               { _rieReqIdVar = reqIdVar
@@ -163,11 +158,8 @@ waitForResponse requestId = do
             H.insert respTable (_respRequestId resp) (_respPayload resp)
             x <- H.lookup respTable requestId
             case x of
-                Just payload -> do
-                  trace "Lookup returned 'Just'" (return payload)
-                Nothing -> do
-                  trace "Lookup returned 'Nothing'"
-                        (go respQVar respTable)
+                Just payload -> return payload
+                Nothing -> go respQVar respTable
 
 pollForResponse :: RequestId -> PactAppM (Either String Transactions)
 pollForResponse requestId = do

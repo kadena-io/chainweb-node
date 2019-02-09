@@ -25,8 +25,6 @@ import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
-import Debug.Trace
-
 import System.Time.Extra
 
 import Chainweb.Pact.Service.Types
@@ -36,12 +34,12 @@ addRequest reqQVar msg = do
     var <- reqQVar
     q <- atomically $ readTVar var
     atomically $ writeTQueue q msg
-    trace ("addRequest -- added: " ++ show msg) (return ())
+    return ()
 
 getNextRequest :: IO (TVar (TQueue RequestMsg)) -> IO RequestMsg
 getNextRequest reqQVar = do
     var <- reqQVar
-    q <- trace "top of getNextRequest" (atomically $ readTVar var)
+    q <- atomically $ readTVar var
     mayM <- timeout 5.0 (tryRead q)
     case mayM of
         Just m -> return m
@@ -51,8 +49,7 @@ getNextRequest reqQVar = do
         tryRead ku = do
             maybeMsg <- atomically $ tryReadTQueue ku
             case maybeMsg of
-              Just msg -> do
-                  trace "Just msg" (return msg)
+              Just msg -> return msg
               Nothing -> tryRead ku
 
 addResponse :: IO (TVar (TQueue ResponseMsg)) -> ResponseMsg -> IO ()
@@ -60,11 +57,11 @@ addResponse respQVar msg = do
     var <- respQVar
     q <- atomically $ readTVar var
     atomically $ writeTQueue q msg
-    trace ("addResponse -- added: " ++ show msg) (return ())
+    return ()
 
 getNextResponse :: IO (TVar (TQueue ResponseMsg)) -> IO ResponseMsg
 getNextResponse respQVar = do
     var <- respQVar
     q <- atomically $ readTVar var
     respMsg <- atomically $ readTQueue q
-    trace ("getNextResponse - received response msg: " ++ show respMsg) $ return respMsg
+    return respMsg

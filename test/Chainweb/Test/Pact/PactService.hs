@@ -44,26 +44,20 @@ pactTestApp = do
     port <- generatePort
     withPactServiceApp port testMemPoolAccess $ do
         baseUrl <- parseBaseUrl ("http://localhost:" ++ show port)
-        putStrLn $ "pactTestApp - baseUrl: " ++ show baseUrl
         manager <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv manager baseUrl
         result <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
-        -- let h = result `asTypeOf` _ -- :: Either ServantError (Either String Transactions)
         case result of
           Left servantError -> do
-            -- putStrLn $ show servantError
             assertFailure $ "Servant error: " ++ show servantError
           Right x -> case x of
             Left err -> do
-              -- putStrLn $ show err
               assertFailure $ "Error in pact response: "  ++ show err
             Right ts -> do
                 let jsonTrans = show (toJSON ts) ++ "\n"
-                putStrLn $ "pactTestApi - JSON results: \n\n" ++ jsonTrans
-                putStrLn "\n\n"
-
+                -- uncomment to capture updated test results
+                -- putStrLn $ "\n\npactTestApi - JSON results: \n\n" ++ jsonTrans ++ "\n\n"
                 expectedPayload <- readFile' $ testPactFilesDir ++ "block-results-expected.txt"
-
                 jsonTrans @?= expectedPayload
 
 generatePort :: IO Int
