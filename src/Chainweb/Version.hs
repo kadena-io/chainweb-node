@@ -73,22 +73,57 @@ import Data.Singletons
 --
 data ChainwebVersion
     = Test
+        -- ^ Test instance with
+        --
+        --   * configurable graph,
+        --   * genesis block time is epoch,
+        --   * target is maxBound,
+        --   * nonce is constant,
+        --   * creationTime of BlockHeaders is parent time plus one second, and
+        --   * POW is simulated by poison process thread delay.
+        --
+
+    | TestWithTime
+        -- ^ Test instance with
+        --
+        --   * configurable graph,
+        --   * genesis block time current time
+        --   * target is maxBound,
+        --   * nonce is constant
+        --   * creationTime of BlockHeaders is actual time, and
+        --   * POW is simulated by poison process thread delay.
+        --
+
+    | TestWithPow
+        -- ^ Test instance with
+        --
+        --   * configurable graph,
+        --   * genesis block time current time
+        --   * target is maxBound,
+        --   * nonce is constant, and
+        --   * creationTime of BlockHeaders is actual time.
+        --
+
     | Simulation
     | Testnet00
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
     deriving anyclass (Hashable, NFData)
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
-encodeChainwebVersion Test = putWord32le 0x0
-encodeChainwebVersion Simulation = putWord32le 0x1
-encodeChainwebVersion Testnet00 = putWord32le 0x2
+encodeChainwebVersion Test = putWord32le 0x00000000
+encodeChainwebVersion TestWithTime = putWord32le 0x00000001
+encodeChainwebVersion TestWithPow = putWord32le 0x00000002
+encodeChainwebVersion Simulation = putWord32le 0x00000003
+encodeChainwebVersion Testnet00 = putWord32le 0x00010000
 {-# INLINABLE encodeChainwebVersion #-}
 
 decodeChainwebVersion :: MonadGet m => m ChainwebVersion
 decodeChainwebVersion = getWord32le >>= \case
-    0x0 -> return Test
-    0x1 -> return Simulation
-    0x2 -> return Testnet00
+    0x00000000 -> return Test
+    0x00000001 -> return TestWithTime
+    0x00000002 -> return TestWithPow
+    0x00000003 -> return Simulation
+    0x00010000 -> return Testnet00
     x -> fail $ "Unknown Chainweb version: " ++ show x
 {-# INLINABLE decodeChainwebVersion #-}
 
@@ -101,12 +136,16 @@ instance FromJSON ChainwebVersion where
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
 chainwebVersionToText Test = "test"
+chainwebVersionToText TestWithTime = "testWithTime"
+chainwebVersionToText TestWithPow = "testWithPow"
 chainwebVersionToText Simulation = "simulation"
 chainwebVersionToText Testnet00 = "testnet00"
 {-# INLINABLE chainwebVersionToText #-}
 
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "test" = return Test
+chainwebVersionFromText "testWithTime" = return TestWithTime
+chainwebVersionFromText "testWithPow" = return TestWithPow
 chainwebVersionFromText "simulation" =return Simulation
 chainwebVersionFromText "testnet00" = return Testnet00
 chainwebVersionFromText t = throwM . TextFormatException

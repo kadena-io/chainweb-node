@@ -163,6 +163,8 @@ config
         -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
 config p n nid chainDbDir = defaultChainwebConfiguration
+    & set configChainwebVersion TestWithTime
+
     & set configNodeId nid
         -- Set the node id.
 

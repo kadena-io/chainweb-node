@@ -189,7 +189,7 @@ tree g = do
     h <- genesis
     Node h <$> forest g h
 
--- | Generate a sane, legal genesis block.
+-- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: Gen BlockHeader
 genesis = do
@@ -198,7 +198,7 @@ genesis = do
         hsh = computeBlockHash h'
     pure $! h' { _blockHash = hsh
                , _blockParent = hsh
-               , _blockTarget = genesisBlockTarget
+               , _blockTarget = genesisBlockTarget Test
                , _blockWeight = 0
                }
 
