@@ -84,6 +84,7 @@ import qualified Bindings.Libgit2 as G
 import Control.Concurrent.MVar (MVar, withMVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistMaybe, hush, nothing)
+import Control.Exception (Exception, bracket, bracket_, mask, throwIO)
 import Control.Lens.Iso (iso)
 import Control.Monad (foldM, unless, void, when, (>=>))
 import Control.Monad.IO.Class (liftIO)
@@ -130,9 +131,6 @@ import Streaming (Of, Stream)
 import qualified Streaming.Prelude as P
 
 import System.Path (Absolute, Path)
-
-
-import UnliftIO.Exception (Exception, bracket, bracket_, mask, throwIO)
 
 -- internal modules
 

@@ -139,7 +139,7 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
-import Control.Exception (IOException, evaluate)
+import Control.Exception (IOException, evaluate, bracket)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -188,8 +188,6 @@ import System.Timeout
 import Text.Printf (printf)
 
 import Text.Read (readEither)
-
-import UnliftIO.Exception (bracket)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
