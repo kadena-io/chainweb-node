@@ -428,9 +428,9 @@ toStreams :: Socket
           -> IO (InputStream ByteString, OutputStream Builder, IO ())
 toStreams sock = do
     (readEnd, writeEnd0) <- Streams.socketToStreams sock
-    writeEnd <- Streams.atEndOfOutput (N.shutdown sock N.ShutdownSend) writeEnd0
+    writeEnd <- Streams.atEndOfOutput (eatExceptions $ N.shutdown sock N.ShutdownSend) writeEnd0
     writeEndB <- Streams.builderStream writeEnd
-    return (readEnd, writeEndB, N.close sock)
+    return (readEnd, writeEndB, eatExceptions $ N.close sock)
 
 
 -- | A single server session interacting with a remote client on an
@@ -451,6 +451,10 @@ defaultMempoolSocketTimeout :: Int
 defaultMempoolSocketTimeout = 120    -- TODO: configure
 
 
+eatExceptions :: IO () -> IO ()
+eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+
+
 serverSession'
   :: Show t
   => MempoolBackend t
@@ -469,7 +473,6 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     go = eatExceptions $ bracket startInputThread killInputThread $
          restore . runOutputThread
 
-    eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
     txcfg = mempoolTxConfig mempool
 
     -- We stuff the underlying mempool's subscription object into an mvar. Only
