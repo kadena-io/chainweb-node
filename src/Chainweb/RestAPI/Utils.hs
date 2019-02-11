@@ -328,4 +328,3 @@ bindPortTcp p interface = do
         return (int port, socket)
     N.listen sock (max 2048 N.maxListenQueue)
     return (port, sock)
-

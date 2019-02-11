@@ -36,7 +36,8 @@ import Control.Monad.Zip
 
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.Default
+import Data.Default (def)
+import Data.Time.Clock
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
@@ -79,12 +80,12 @@ execTests = do
     let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
     -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
     prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
-    let intSeq = [0, 1 ..] :: [Word64]
+    let intSeq = [0..] :: [Word64]
     let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
                          nonces intSeq cmdStrs
-    outputs <- fst <$> execTransactions trans
+    outputs <- fst <$> execTransactions defaultMiner trans
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
@@ -117,10 +118,9 @@ testKeyPairs =
     in maybeToList mKeyPair
 
 checkResponses :: [TestResponse] -> IO ()
-checkResponses responses = do
-    forM_ responses (\resp -> do
-        let evalFn = _trEval $ _trRequest resp
-        evalFn resp )
+checkResponses responses = forM_ responses $ \resp -> do
+    let evalFn = _trEval $ _trRequest resp
+    evalFn resp
 
 testPrivateBs :: ByteString
 testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
@@ -129,7 +129,7 @@ testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
 checkSuccessOnly :: TestResponse -> Assertion
-checkSuccessOnly resp = do
+checkSuccessOnly resp =
     case P._crResult $ _getCommandResult $ _trOutput resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _ -> assertFailure "Status returned does not equal \"success\""
@@ -172,6 +172,7 @@ fileCompareTxLogs fp resp = do
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
 ----------------------------------------------------------------------------------------------------
+
 data TestRequest = TestRequest
     { _trCmd :: TestSource
     , _trEval :: TestResponse -> Assertion
@@ -201,11 +202,18 @@ instance Show TestResponse where
 ----------------------------------------------------------------------------------------------------
 -- Pact test sample data
 ----------------------------------------------------------------------------------------------------
+
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
 
 testPactRequests :: [TestRequest]
-testPactRequests = [testReq1, testReq2, testReq3, testReq4, testReq5]
+testPactRequests =
+  [ testReq1
+  , testReq2
+  , testReq3
+  , testReq4
+  , testReq5
+  ]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest

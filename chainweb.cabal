@@ -184,6 +184,7 @@ library
         , memory >= 0.14
         , mtl >= 2.2
         , mwc-random >= 0.13
+        , neat-interpolation >= 0.3.2
         , network >= 2.6
         , optparse-applicative >= 0.14
         , paths >= 0.2
@@ -324,6 +325,7 @@ test-suite chainweb-tests
         , lens >= 4.16
         , massiv >= 0.2
         , mwc-random >= 0.13
+        , neat-interpolation >= 0.3.2
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3

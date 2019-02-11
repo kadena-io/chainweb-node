@@ -198,7 +198,7 @@ connectionParams host port = ConnectionParams
 
 tlsSettings :: TLSSettings
 tlsSettings = TLSSettingsSimple
-    { settingDisableCertificateValidation = True     -- ^ TODO: fix
+    { settingDisableCertificateValidation = True     -- TODO: fix
     , settingDisableSession = False
     , settingUseServerName = False
     }

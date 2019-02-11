@@ -17,7 +17,7 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.Orphans where
 
-import Control.Applicative
+
 import Control.Monad
 
 import Data.Aeson
@@ -535,6 +535,8 @@ deriving instance Serial PactId
 
 deriving instance Serial TypeName
 
+deriving instance Serial SchemaPartial
+
 deriving instance Serial Use
 
 deriving instance Serial Hash
@@ -614,7 +616,7 @@ instance Serial1 Type where
                 1 -> TyVar <$> deserializeWith m
                 2 -> TyPrim <$> deserialize
                 3 -> TyList <$> deserializeWith m
-                4 -> liftA2 TySchema deserialize (deserializeWith m)
+                4 -> TySchema <$> deserialize <*> (deserializeWith m) <*> deserialize
                 5 -> TyFun <$> deserializeWith m
                 6 -> TyUser <$> m
                 _ -> fail "Type: Deserialization error."
@@ -711,6 +713,7 @@ instance Serialize RefStore where
         _rsModules <- get
         return $ RefStore {..}
 
+deriving instance Serialize SchemaPartial
 deriving instance
          (Generic n, Serialize n) => Serialize (Type (Term n))
 

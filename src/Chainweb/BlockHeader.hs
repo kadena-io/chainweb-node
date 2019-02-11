@@ -287,7 +287,7 @@ data BlockHeader :: Type where
             -- of its parent.
 
         , _blockMiner :: {-# UNPACK #-} !ChainNodeId
-            -- ^ The public identifier of the miner of the block as self-idenfied
+            -- ^ The public identifier of the miner of the block as self-identified
             -- by the miner. The value is expected to correspond to the receiver
             -- of the block reward and any transactional fees, but this is not
             -- enforced. This information is merely informational.

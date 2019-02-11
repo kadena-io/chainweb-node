@@ -296,4 +296,3 @@ serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v cutDb chain
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
     app = chainwebApplication v cutDb chainDbs peerDbs
-
