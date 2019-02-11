@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Test.Pact
@@ -94,13 +93,13 @@ getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
 checkResponses :: [TestResponse] -> IO ()
-checkResponses responses = do
+checkResponses responses =
     forM_ responses (\resp -> do
         let evalFn = _trEval $ _trRequest resp
         evalFn resp )
 
 checkSuccessOnly :: TestResponse -> Assertion
-checkSuccessOnly resp = do
+checkSuccessOnly resp =
     case _getCommandResult $ _trOutput resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _          -> assertFailure "Status returned does not equal \"success\""

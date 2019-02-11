@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Test.PactService
@@ -44,9 +43,9 @@ pactTestApp :: IO ()
 pactTestApp = do
     port <- generatePort
     withPactServiceApp port testMemPoolAccess $ do
-        baseUrl <- parseBaseUrl ("http://localhost:" ++ show port)
-        manager <- newManager defaultManagerSettings
-        let clientEnv = mkClientEnv manager baseUrl
+        base <- parseBaseUrl ("http://localhost:" ++ show port)
+        mgr <- newManager defaultManagerSettings
+        let clientEnv = mkClientEnv mgr base
 
         -- testing:  /new
         response <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
@@ -82,8 +81,8 @@ pollForTestResp
     :: ClientEnv
     -> RequestId
     -> IO (Maybe (Either ServantError (Either String Transactions)))
-pollForTestResp clientEnv reqId = do
-    timeout (fromIntegral timeoutSeconds) $ do
+pollForTestResp clientEnv reqId =
+    timeout (fromIntegral timeoutSeconds) $
         runClientM (testPoll reqId) clientEnv
 
 timeoutSeconds :: Int
@@ -93,8 +92,7 @@ checkRespTrans :: FilePath -> Either ServantError (Either String Transactions) -
 checkRespTrans _ (Left servantError) = assertFailure $ "Servant error: " ++ show servantError
 checkRespTrans fp (Right x) =
     case x of
-        Left err -> do
-            assertFailure $ "Error in pact response: "  ++ show err
+        Left err -> assertFailure $ "Error in pact response: "  ++ show err
         Right ts -> do
             let jsonTrans = show (toJSON ts) ++ "\n"
             -- uncomment to capture updated test results
@@ -120,6 +118,6 @@ testGetNewBlock
 
 getTestBlockHeader :: BlockHeader
 getTestBlockHeader = do
-    let testId = testChainId $ (1 :: Word32)
+    let testId = testChainId (1 :: Word32)
     let gbh0 = genesisBlockHeader Test peterson testId
     last $ take 2 $ testBlockHeaders gbh0

@@ -422,14 +422,6 @@ test-suite consensus-network-tests
           chainweb
 
         -- external
-        , base >= 4.11
-        , criterion >= 1.1
-        , deepseq
-        , streaming >= 0.2
-        , text
-        , unordered-containers >= 0.2
-
-        -- external
         , QuickCheck >= 2.10
         , aeson >= 1.4
         , async >= 2.2
@@ -477,6 +469,14 @@ benchmark chainweb-bench
   build-depends:
         -- internal
         chainweb
+
+        -- external
+        , base >= 4.11
+        , criterion >= 1.1
+        , deepseq
+        , streaming >= 0.2
+        , text
+        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application

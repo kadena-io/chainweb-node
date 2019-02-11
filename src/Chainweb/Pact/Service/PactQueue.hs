@@ -1,6 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -32,14 +29,14 @@ import Chainweb.Pact.Service.Types
 addRequest :: IO (TVar (TQueue RequestMsg)) -> RequestMsg -> IO ()
 addRequest reqQVar msg = do
     var <- reqQVar
-    q <- atomically $ readTVar var
+    q <- readTVarIO var
     atomically $ writeTQueue q msg
     return ()
 
 getNextRequest :: IO (TVar (TQueue RequestMsg)) -> IO RequestMsg
 getNextRequest reqQVar = do
     var <- reqQVar
-    q <- atomically $ readTVar var
+    q <- readTVarIO var
     mayM <- timeout 5.0 (tryRead q)
     case mayM of
         Just m -> return m
@@ -55,13 +52,12 @@ getNextRequest reqQVar = do
 addResponse :: IO (TVar (TQueue ResponseMsg)) -> ResponseMsg -> IO ()
 addResponse respQVar msg = do
     var <- respQVar
-    q <- atomically $ readTVar var
+    q <- readTVarIO var
     atomically $ writeTQueue q msg
     return ()
 
 getNextResponse :: IO (TVar (TQueue ResponseMsg)) -> IO ResponseMsg
 getNextResponse respQVar = do
     var <- respQVar
-    q <- atomically $ readTVar var
-    respMsg <- atomically $ readTQueue q
-    return respMsg
+    q <- readTVarIO var
+    atomically $ readTQueue q

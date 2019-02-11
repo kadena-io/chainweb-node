@@ -85,7 +85,7 @@ initPactService reqQVar respQVar memPoolAccess = do
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
     void $ evalStateT
-           (runReaderT ((serviceRequests memPoolAccess) reqQVar respQVar) checkpointEnv)
+           (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
 serviceRequests
     :: MemPoolAccess
@@ -94,7 +94,7 @@ serviceRequests
     -> PactT ()
 serviceRequests memPoolAccess reqQ respQ = do
     liftIO $ putStrLn "Top of PactService.serviceRequest"
-    forever $ run
+    forever run
       where
         run :: PactT ()
         run = do
@@ -123,8 +123,7 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     unless True {- (isGenesisBlockHeader _parentHeader) -} $ do
         cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
         updateState cpdata
-    results <- execTransactions newTrans
-    return results
+    execTransactions newTrans
 
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
@@ -144,7 +143,7 @@ validateBlock memPoolAccess currHeader = do
     return results
 
 setupConfig :: FilePath -> IO PactDbConfig
-setupConfig configFile = do
+setupConfig configFile =
     Y.decodeFileEither configFile >>= \case
         Left e -> do
             putStrLn usage
@@ -177,7 +176,7 @@ execTransactions xs = do
     txOuts <- forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
         (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
-        return TransactionOutput {_getCommandResult = (P._crResult result), _getTxLogs = txLogs})
+        return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
     return $ Transactions $ zip xs txOuts
 
 applyPactCmd
@@ -187,7 +186,7 @@ applyPactCmd
   -> P.ExecutionMode
   -> P.Command ByteString
   -> IO (P.CommandResult, [P.TxLog A.Value])
-applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
+applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd =
     case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
@@ -206,7 +205,7 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
-transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [(Transaction)]
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
 transactionsFromHeader memPoolAccess _bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
     memPoolAccess TransactionCriteria
@@ -215,5 +214,5 @@ _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv
 
 parentFromHeader :: BlockHeader -> IO BlockHeader
-parentFromHeader header = return header
+parentFromHeader = return
 ----------------------------------------------------------------------------------------------------
