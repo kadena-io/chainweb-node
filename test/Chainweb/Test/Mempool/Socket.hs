@@ -6,7 +6,6 @@ import Test.Tasty
 ------------------------------------------------------------------------------
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, readMVar)
 import Control.Exception
-import Data.ByteString.Char8 (ByteString)
 import qualified Network.Socket as N
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.InMem (InMemConfig(..))
@@ -25,6 +24,7 @@ tests = testGroup "Chainweb.Mempool.Socket"
             $ withRemoteMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
+                              (const $ return True)
     -- run the reaper @100Hz for testing
     cfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
     hz x = 1000000 `div` x

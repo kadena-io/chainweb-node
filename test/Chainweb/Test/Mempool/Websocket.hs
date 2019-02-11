@@ -12,15 +12,11 @@ module Chainweb.Test.Mempool.Websocket (tests) where
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Control.Exception
-import qualified Data.ByteString.Char8 as B
 import Data.Foldable (toList)
 import Data.Proxy
 import qualified Data.Text as T
 import Network.Wai (Application)
-import qualified Network.WebSockets as WS
 import Servant.API
-import qualified System.IO.Streams as Streams
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -44,6 +40,7 @@ tests = testGroup "Chainweb.Mempool.Websocket"
             $ withWebsocketMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
+                              (const $ return True)
     -- run the reaper @100Hz for testing
     cfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
     hz x = 1000000 `div` x

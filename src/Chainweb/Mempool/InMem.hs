@@ -411,13 +411,12 @@ insertInMem broadcaster cfg lock txs = do
 
   where
     txcfg = _inmemTxCfg cfg
+    validateTx = txValidate txcfg
     getSize = txSize txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     hasher = txHasher txcfg
 
-    -- TODO: do more sophisticated transaction validation here (probably will
-    -- have to call out to pact)
-    isValid tx = getSize tx <= maxSize
+    sizeOK tx = getSize tx <= maxSize
     getPriority x = let r = txFees txcfg x
                         s = txSize txcfg x
                     in toPriority r s
@@ -427,7 +426,9 @@ insertInMem broadcaster cfg lock txs = do
         return $! (HashMap.member txhash valMap || HashSet.member txhash confMap)
     insOne mdata tx = do
         b <- exists mdata txhash
-        if not b && isValid tx
+        v <- validateTx tx
+        -- TODO: return error on unsuccessful validation?
+        if v && not b && sizeOK tx
           then do
             modifyIORef' (_inmemPending mdata) $
                PSQ.insert txhash (getPriority tx) tx
