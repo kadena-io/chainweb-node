@@ -107,7 +107,7 @@ serviceRequests memPoolAccess reqQ respQ = do
                         , _respRequestId = _reqRequestId reqMsg
                         , _respPayload = h }
                 ValidateBlock -> do
-                    h <- validateBlock (_reqBlockHeader reqMsg)
+                    h <- validateBlock memPoolAccess (_reqBlockHeader reqMsg)
                     return $ ResponseMsg
                         { _respRequestType = ValidateBlock
                         , _respRequestId = _reqRequestId reqMsg
@@ -127,9 +127,9 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     return results
 
 -- | BlockHeader here is the header of the block being validated
-validateBlock :: BlockHeader -> PactT Transactions
-validateBlock currHeader = do
-    trans <- liftIO $ transactionsFromHeader currHeader
+validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+validateBlock memPoolAccess currHeader = do
+    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     CheckpointEnv {..} <- ask
     --replace for checkpoint testing
     unless True {- (isGenesisBlockHeader parentHeader)-} $ do
@@ -206,8 +206,10 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
-transactionsFromHeader :: BlockHeader -> IO [(Transaction)]
-transactionsFromHeader _bHeader = return []
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [(Transaction)]
+transactionsFromHeader memPoolAccess _bHeader =
+    -- MemPoolAccess will be replaced with looking up transactsion from header...
+    memPoolAccess TransactionCriteria
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv

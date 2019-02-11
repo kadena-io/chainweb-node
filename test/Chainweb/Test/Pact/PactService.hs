@@ -52,7 +52,7 @@ pactTestApp = do
         response <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
         checkRespTrans "block-results-expected.txt" response
 
-        -- testing: /newAsync
+        -- testing: /newAsync and /poll
         idResponse <- runClientM (testGetNewBlockAsync getTestBlockHeader) clientEnv
         case idResponse of
             (Left servantError) -> assertFailure $
@@ -61,6 +61,21 @@ pactTestApp = do
                 rspM <- pollForTestResp clientEnv rqid
                 case rspM of
                     Nothing -> assertFailure "Polling timeout for testGetNewBlockAsync"
+                    Just rsp -> checkRespTrans "block-results-expected.txt" rsp
+
+        -- testing:  /validate
+        validateResp <- runClientM (testValidate getTestBlockHeader) clientEnv
+        checkRespTrans "block-results-expected.txt" validateResp
+
+        -- testing: /validateAsync and pol
+        idResp2 <- runClientM (testValidateAsync getTestBlockHeader) clientEnv
+        case idResp2 of
+            (Left servantError) -> assertFailure $
+                "No requestId returned from testValidateBlockAsync" ++ show servantError
+            (Right rqid) -> do
+                rspM <- pollForTestResp clientEnv rqid
+                case rspM of
+                    Nothing -> assertFailure "Polling timeout for testValidateBlockAsync"
                     Just rsp -> checkRespTrans "block-results-expected.txt" rsp
 
 pollForTestResp

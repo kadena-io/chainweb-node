@@ -38,17 +38,19 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either Stri
           :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
           :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
-data RequestIdEnv = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
-                                 , _rieReqQ :: IO (TVar (TQueue RequestMsg))
-                                 , _rieRespQ :: IO (TVar (TQueue ResponseMsg))
-                                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId Transactions) }
+data RequestIdEnv
+  = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
+                 , _rieReqQ :: IO (TVar (TQueue RequestMsg))
+                 , _rieRespQ :: IO (TVar (TQueue ResponseMsg))
+                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId Transactions) }
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
 
-newtype RequestId = RequestId { _getInt64 :: Int64 } deriving (Enum, Eq, Hashable, Read, Show, FromJSON, ToJSON)
+newtype RequestId = RequestId { _getInt64 :: Int64 }
+    deriving (Enum, Eq, Hashable, Read, Show, FromJSON, ToJSON)
 
 instance FromHttpApiData RequestId where
     parseUrlPiece t =
