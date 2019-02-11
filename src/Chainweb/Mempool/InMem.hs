@@ -15,6 +15,7 @@ module Chainweb.Mempool.InMem
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
+  , makeSelfFinalizingInMemPool
   , makeInMemPool
   , createTxBroadcaster
   , destroyTxBroadcaster
@@ -31,8 +32,8 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
-    (AsyncException(ThreadKilled), SomeException, bracket, evaluate, finally,
-    handle, mask_, throwIO)
+    (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
+    evaluate, finally, handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
 import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
@@ -43,7 +44,8 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
-    (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef)
+    (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef,
+    writeIORef)
 import Data.Maybe (fromJust, isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
@@ -57,7 +59,6 @@ import System.Timeout (timeout)
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 
-import qualified Data.ByteString.Char8 as B
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -270,13 +271,48 @@ makeInMemPool cfg txB = mask_ $ do
                                   <*> newIORef HashMap.empty
                                   <*> newIORef HashSet.empty
 
+
+------------------------------------------------------------------------------
+makeSelfFinalizingInMemPool :: InMemConfig t -> IO (MempoolBackend t)
+makeSelfFinalizingInMemPool cfg =
+    mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
+        mp <- makeInMemPool cfg txb
+        ref <- newIORef mp
+        wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
+        let back = toMempoolBackend mp
+        let txcfg = mempoolTxConfig back
+        let bsl = mempoolBlockSizeLimit back
+        return $! wrapBackend txcfg bsl (ref, wk)
+
+  where
+    withRef (ref, _wk) f = do
+        mp <- readIORef ref
+        x <- f (toMempoolBackend mp)
+        writeIORef ref mp
+        return x
+
+    wrapBackend txcfg bsl mp =
+        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9
+      where
+        f1 = withRef mp . flip mempoolLookup
+        f2 = withRef mp . flip mempoolInsert
+        f3 = withRef mp . flip mempoolGetBlock
+        f4 = withRef mp . flip mempoolMarkValidated
+        f5 = withRef mp . flip mempoolMarkConfirmed
+        f6 = withRef mp . flip mempoolReintroduce
+        f7 = withRef mp . flip mempoolGetPendingTransactions
+        f8 = withRef mp mempoolSubscribe
+        f9 = withRef mp mempoolShutdown
+
+
 ------------------------------------------------------------------------------
 reaperThread :: InMemConfig t
              -> MVar (InMemoryMempoolData t)
              -> (forall a . IO a -> IO a)
              -> IO b
 reaperThread cfg dataLock restore = forever $ do
-    restore $ threadDelay interval
+    restore $ threadDelay interval   -- TODO: randomize wait time slightly to
+                                     -- avoid thundering herd on wakeup
     withMVar dataLock $ \mdata -> reap mdata
   where
     txcfg = _inmemTxCfg cfg

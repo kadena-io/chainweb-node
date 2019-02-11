@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -31,6 +32,7 @@ module Chainweb.Test.Utils
 , tree
 
 -- * Test BlockHeaderDbs Configurations
+, singleton
 , peterson
 , testBlockHeaderDbs
 , petersonGenesisBlockHeaderDbs
@@ -46,6 +48,7 @@ module Chainweb.Test.Utils
 , TestClientEnv(..)
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
+, withTestAppServer
 , withSingleChainTestServer
 , clientEnvWithSingleChainTestServer
 , withBlockHeaderDbsServer
@@ -64,7 +67,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
@@ -103,6 +106,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Difficulty (HashTarget(..), targetToDifficulty)
 import Chainweb.Graph
+import Chainweb.Mempool.Mempool (MempoolBackend(..), noopMempool)
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
@@ -254,36 +258,48 @@ peterson = toChainGraph (testChainId . int) G.petersonGraph
 singleton :: ChainGraph
 singleton = toChainGraph (testChainId . int) G.singleton
 
-testBlockHeaderDbs :: ChainGraph -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
-testBlockHeaderDbs g v = mapM (\c -> (c,) <$> db c) $ toList $ chainIds_ g
+testBlockHeaderDbs
+    :: ChainGraph
+    -> ChainwebVersion
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+testBlockHeaderDbs g v = mapM toEntry $ toList $ chainIds_ g
   where
+    toEntry c = do
+        d <- db c
+        return $! (c, d, noopMempool)
     db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v g c
 
-petersonGenesisBlockHeaderDbs :: IO [(ChainId, BlockHeaderDb)]
+petersonGenesisBlockHeaderDbs
+    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
 petersonGenesisBlockHeaderDbs = testBlockHeaderDbs peterson Test
 
-singletonGenesisBlockHeaderDbs :: IO [(ChainId, BlockHeaderDb)]
+singletonGenesisBlockHeaderDbs
+    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
 singletonGenesisBlockHeaderDbs = testBlockHeaderDbs singleton Test
 
-linearBlockHeaderDbs :: Natural -> IO [(ChainId, BlockHeaderDb)] -> IO [(ChainId, BlockHeaderDb)]
+linearBlockHeaderDbs
+    :: Natural
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
 linearBlockHeaderDbs n genDbs = do
     dbs <- genDbs
-    mapM_ (uncurry populateDb) dbs
+    mapM_ populateDb dbs
     return dbs
   where
-    populateDb :: ChainId -> BlockHeaderDb -> IO ()
-    populateDb cid db = do
+    populateDb (cid, db, _) = do
         let gbh0 = genesisBlockHeader Test peterson cid
         traverse_ (insert db) . take (int n) $ testBlockHeaders gbh0
 
-starBlockHeaderDbs :: Natural -> IO [(ChainId, BlockHeaderDb)] -> IO [(ChainId, BlockHeaderDb)]
+starBlockHeaderDbs
+    :: Natural
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
 starBlockHeaderDbs n genDbs = do
     dbs <- genDbs
-    mapM_ (uncurry populateDb) dbs
+    mapM_ populateDb dbs
     return dbs
   where
-    populateDb :: ChainId -> BlockHeaderDb -> IO ()
-    populateDb cid db = do
+    populateDb (cid, db, _) = do
         let gbh0 = genesisBlockHeader Test peterson cid
         traverse_ (\i -> insert db $ newEntry i gbh0) [0 .. (int n-1)]
 
@@ -293,10 +309,12 @@ starBlockHeaderDbs n genDbs = do
 -- -------------------------------------------------------------------------- --
 -- Toy Server Interaction
 
+--
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withSingleChainServer
-    :: [(ChainId, BlockHeaderDb)]
+    :: Show t
+    => [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
@@ -313,25 +331,59 @@ withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
 testHost :: String
 testHost = "localhost"
 
-data TestClientEnv = TestClientEnv
+data TestClientEnv t = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
+    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb, MempoolBackend t)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
 pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, BlockHeaderDb)]
-    -> TestClientEnv
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> TestClientEnv t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
     = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
-    -> TestClientEnv
+    -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
     = TestClientEnv _pdbEnvClientEnv [] _pdbEnvPeerDbs
+
+withTestAppServer
+    :: Bool
+    -> IO W.Application
+    -> (Int -> IO a)
+    -> (a -> IO b)
+    -> IO b
+withTestAppServer tls appIO envIO userFunc = bracket start stop go
+  where
+    eatExceptions = handle (\(_ :: SomeException) -> return ())
+    start = do
+        app <- appIO
+        (port, sock) <- W.openFreePort
+        readyVar <- newEmptyMVar
+        server <- async $ eatExceptions $ do
+            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            if
+                | tls -> do
+                    let certBytes = bootstrapCertificate Test
+                    let keyBytes = bootstrapKey Test
+                    let tlsSettings = tlsServerSettings certBytes keyBytes
+                    W.runTLSSocket tlsSettings settings sock app
+                | otherwise ->
+                    W.runSettingsSocket settings sock app
+
+        link server
+        _ <- takeMVar readyVar
+        env <- envIO port
+        return (server, sock, env)
+    stop (server, sock, _) = do
+        uninterruptibleCancel server
+        close sock
+    go (_, _, env) = userFunc env
+
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
@@ -369,10 +421,11 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
         close sock
 
 clientEnvWithSingleChainTestServer
-    :: Bool
-    -> IO [(ChainId, BlockHeaderDb)]
+    :: Show t
+    => Bool
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO TestClientEnv -> TestTree)
+    -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
 clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
     = withSingleChainTestServer tls mkApp mkEnv
@@ -387,20 +440,24 @@ clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
             <$> chainDbsIO
             <*> peerDbsIO
 
+
 withPeerDbsServer
-    :: Bool
+    :: Show t
+    => Bool
     -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO TestClientEnv -> TestTree)
+    -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
 withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return [])
 
 withBlockHeaderDbsServer
-    :: Bool
-    -> IO [(ChainId, BlockHeaderDb)]
-    -> (IO TestClientEnv -> TestTree)
+    :: Show t
+    => Bool
+    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
 withBlockHeaderDbsServer tls chainDbsIO
     = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
+
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -127,6 +130,26 @@ instance ToHttpApiData (NextItem Int) where
 
 instance FromHttpApiData (NextItem Int) where
     parseUrlPiece = first sshow . fromText
+
+instance ToHttpApiData SomeChainwebVersionT where
+    toUrlPiece (SomeChainwebVersionT prox) = chainwebVersionSymbolVal prox
+
+instance ToHttpApiData SomeChainIdT where
+    toUrlPiece (SomeChainIdT prox) = chainIdSymbolVal prox
+
+instance
+    (KnownChainwebVersionSymbol sym, HasLink sub)
+    => HasLink (sym :> sub)
+  where
+    type MkLink (sym :> sub) a = MkLink sub a
+    toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol sym :> sub))
+
+instance
+    (KnownChainIdSymbol sym, HasLink sub)
+    => HasLink (sym :> sub)
+  where
+    type MkLink (sym :> sub) a = MkLink sub a
+    toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
 
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
