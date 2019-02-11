@@ -38,7 +38,7 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
-import qualified Pact.PersistPactDb as P (DbEnv(..))
+import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
@@ -93,27 +93,18 @@ newTransactionBlock parentHeader bHeight = do
     unless (isFirstBlock bHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
       case cpdata of
-        Left s -> closePactDb >> fail s -- see comment below
-        Right r -> updateState r
+        Left msg -> closePactDb >> fail msg
+        Right st -> updateState st
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
-    closePactDb -- band-aid
-    return $! Block
-        { _bHash = Nothing -- not yet computed
-        , _bParentHeader = parentHeader
-        , _bBlockHeight = succ bHeight
-        , _bTransactions = zip newTrans results
-        }
-
-
-
--- This is a band-aid solution; We're just going to close the
--- database connection here to be safe.
-closePactDb :: PactT ()
-closePactDb = use pdbsDbEnv >>= go
-  where
-    go (EnvPersist' (PactDbEnvPersist _ p)) = liftIO $ closeDb (P._db p)
-
+    close_status <- liftIO $ discard _cpeCheckpointer bHeight parentPayloadHash updatedState
+    flip (either fail) close_status $ \_ ->
+      return $! Block
+          { _bHash = Nothing -- not yet computed
+          , _bParentHeader = parentHeader
+          , _bBlockHeight = succ bHeight
+          , _bTransactions = zip newTrans results
+          }
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do

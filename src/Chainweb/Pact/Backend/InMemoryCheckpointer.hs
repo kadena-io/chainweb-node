@@ -15,7 +15,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
-import Control.Exception
 
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
@@ -39,6 +38,7 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                   Checkpointer
                       { restore = restore' inmem
                       , save = save' inmem
+                      , discard = discard' inmem
                       }
             , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger
@@ -46,10 +46,6 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
             }
 
 type Store = HashMap (BlockHeight, BlockPayloadHash) PactDbState
-
-data InMemCheckpointException = RestoreNotFoundException deriving Show
-
-instance Exception InMemCheckpointException
 
 restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 restore' lock height hash = do
@@ -69,4 +65,7 @@ save' lock height hash p@(PactDbState {..}) = do
      case _pdbsDbEnv of
        EnvPersist' PactDbEnvPersist {..} ->
          case _pdepEnv of
-           P.DbEnv {..} -> Right <$> closeDb _db
+           P.DbEnv {..} -> closeDb _db
+
+discard' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+discard' _ _ _ _ = return (Right ())

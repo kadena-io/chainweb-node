@@ -47,8 +47,6 @@ module Chainweb.Pact.Backend.Types
     ) where
 
 import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
 
 import qualified Data.Aeson as A
 import qualified Data.ByteString as B ()
@@ -72,17 +70,12 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
-    closeDb :: e -> IO ()
+    closeDb :: e -> IO (Either String ())
     saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
-
-data PactDbBackEndException =
-    PactDbBackEndException String
-    deriving (Show)
-
-instance Exception PactDbBackEndException
+    -- TODO: saveDb needs a better name
 
 instance PactDbBackend P.PureDb where
-    closeDb = const $ return ()
+    closeDb = const $ return $ Right ()
     saveDb PactDbEnvPersist {..} commandState =
       case _pdepEnv of
         P.DbEnv {..} -> do
@@ -94,7 +87,7 @@ instance PactDbBackend P.PureDb where
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
-    closeDb = either (throwM . PactDbBackEndException) return <=< P.closeSQLite
+    closeDb = P.closeSQLite
     saveDb = saveSQLite
 
 saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
@@ -186,6 +179,7 @@ usage =
 data Checkpointer = Checkpointer
     { restore :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
     , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+    , discard :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
     }
 
 -- functions like the ones below need to be implemented internally
