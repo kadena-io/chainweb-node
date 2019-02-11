@@ -38,6 +38,7 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
@@ -91,15 +92,19 @@ newTransactionBlock parentHeader bHeight = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock bHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
-      updateState cpdata
+      case cpdata of
+        Left msg -> closePactDb >> fail msg
+        Right st -> updateState st
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
-    return $! Block
-        { _bHash = Nothing -- not yet computed
-        , _bParentHeader = parentHeader
-        , _bBlockHeight = succ bHeight
-        , _bTransactions = zip newTrans results
-        }
+    close_status <- liftIO $ discard _cpeCheckpointer bHeight parentPayloadHash updatedState
+    flip (either fail) close_status $ \_ ->
+      return $! Block
+          { _bHash = Nothing -- not yet computed
+          , _bParentHeader = parentHeader
+          , _bBlockHeight = succ bHeight
+          , _bTransactions = zip newTrans results
+          }
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile = do
@@ -133,12 +138,26 @@ validateBlock Block {..} = do
     CheckpointEnv {..} <- ask
     unless (isFirstBlock _bBlockHeight) $ do
       cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      updateState $! cpdata
+      case cpdata of
+        Left s -> closePactDb >> fail s -- band-aid
+        Right r -> updateState $! r
     (_results, updatedState) <- execTransactions (fmap fst _bTransactions)
     put updatedState
-    liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                    (liftA2 CheckpointData _pdbsDbEnv _pdbsState updatedState)
-             -- TODO: TBD what do we need to do for validation and what is the return type?
+
+    estate <- liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
+                               (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
+
+    case estate of
+      Left s ->
+        -- This is a band-aid.
+        (when
+           -- If this error message does not appear, the database has been closed.
+           (s == "SQLiteCheckpointer.save': Save key not found exception")
+           closePactDb) >>
+        fail s
+      Right r -> return r
+
+-- TODO: TBD what do we need to do for validation and what is the return type?
 
 --placeholder - get transactions from mem pool tf
 requestTransactions :: TransactionCriteria -> PactT [Transaction]
@@ -177,7 +196,7 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd = do
             applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
                      eMode cmd procCmd
 
-updateState :: CheckpointData  -> PactT ()
-updateState CheckpointData {..} = do
-    pdbsDbEnv .= _cpPactDbEnv
-    pdbsState .= _cpCommandState
+updateState :: PactDbState  -> PactT ()
+updateState PactDbState {..} = do
+    pdbsDbEnv .= _pdbsDbEnv
+    pdbsState .= _pdbsState

@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -14,6 +16,7 @@ import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
 
+import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -35,25 +38,34 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                   Checkpointer
                       { restore = restore' inmem
                       , save = save' inmem
+                      , discard = discard' inmem
                       }
             , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) CheckpointData
+type Store = HashMap (BlockHeight, BlockPayloadHash) PactDbState
 
-restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO CheckpointData
+restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just old -> return old
-            -- This is just a placeholder for right now (the Nothing clause)
-            Nothing ->
-                fail "InMemoryCheckpointer.restore: There is no checkpoint that can be restored."
+            Just dbstate -> return (Right dbstate)
+            Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
 
--- There is no need for prepare to even exist for the in memory checkpointer.
+save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+save' lock height hash p@(PactDbState {..}) = do
 
-save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-save' lock height hash cpdata =
-     modifyMVarMasked_ lock (return . HMS.insert (height, hash) cpdata)
+     -- Saving off checkpoint.
+     -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
+     modifyMVar_ lock (return . HMS.insert (height, hash) p)
+
+     -- Closing database connection.
+     case _pdbsDbEnv of
+       EnvPersist' PactDbEnvPersist {..} ->
+         case _pdepEnv of
+           P.DbEnv {..} -> closeDb _db
+
+discard' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+discard' _ _ _ _ = return (Right ())

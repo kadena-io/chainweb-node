@@ -1,8 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -18,13 +21,10 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
-    , CheckpointData(..)
-    , cpPactDbEnv
-    , cpCommandState
     , Checkpointer(..)
     , Env'(..)
     , EnvPersist'(..)
-    , PactDbBackend
+    , PactDbBackend(..)
     , PactDbConfig(..)
     , pdbcGasLimit
     , pdbcGasRate
@@ -37,31 +37,98 @@ module Chainweb.Pact.Backend.Types
     , PactDbState(..)
     , pdbsDbEnv
     , pdbsState
+    , SaveData(..)
+    , saveDataVersion
+    , sTxRecord
+    , sTxId
+    , sSQLiteConfig
+    , sCommandState
     , usage
     ) where
 
 import Control.Lens
 
-import Data.Aeson
+import qualified Data.Aeson as A
+import qualified Data.ByteString as B ()
+import qualified Data.Map as M
+import Data.Serialize
 
 import GHC.Generics
 
 import qualified Pact.Interpreter as P
+import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
+import Chainweb.Pact.Backend.Orphans ()
 
-class PactDbBackend e
+class PactDbBackend e where
+    closeDb :: e -> IO (Either String ())
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
+    -- TODO: saveDb needs a better name
 
-instance PactDbBackend P.PureDb
+instance PactDbBackend P.PureDb where
+    closeDb = const $ return $ Right ()
+    saveDb PactDbEnvPersist {..} commandState =
+      case _pdepEnv of
+        P.DbEnv {..} -> do
+          let _sTxRecord = _txRecord
+              _sTxId = _txId
+              _sSQLiteConfig = Nothing
+              _sCommandState = commandState
+              _sVersion = saveDataVersion
+          return (Nothing, SaveData {..})
 
-instance PactDbBackend P.SQLite
+instance PactDbBackend P.SQLite where
+    closeDb = P.closeSQLite
+    saveDb = saveSQLite
+
+saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
+saveSQLite PactDbEnvPersist {..} commandState = do
+    case _pdepEnv of
+      P.DbEnv {..} -> do
+        let _sTxRecord = _txRecord
+            _sTxId = _txId
+            _sSQLiteConfig = Just $ P.config _db
+            _sCommandState = commandState
+            prefix = makeFileNamePrefix
+        return (Just prefix, SaveData {..})
+  where
+    makeFileNamePrefix = "chainweb_pact_serialize_version=" ++ map go saveDataVersion ++ "_"
+      where
+        go x
+           | x == '.' = '-'
+           | otherwise = x
+
+saveDataVersion :: String
+saveDataVersion = "0.0.0"
+
+data SaveData p = SaveData
+    { _sTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
+    , _sTxId :: Maybe P.TxId
+    , _sSQLiteConfig :: Maybe P.SQLiteConfig
+    , _sCommandState :: P.CommandState
+    } deriving (Generic)
+
+instance Serialize (SaveData p) where
+    put (SaveData {..}) = do
+        put _sTxRecord
+        put _sTxId
+        put _sSQLiteConfig
+        put _sCommandState
+    get = do
+        _sTxRecord <- get
+        _sTxId <- get
+        _sSQLiteConfig <- get
+        _sCommandState <- get
+        return $ SaveData {..}
 
 data Env' =
     forall a. PactDbBackend a =>
@@ -69,11 +136,16 @@ data Env' =
 
 data PactDbEnvPersist p = PactDbEnvPersist
     { _pdepPactDb :: P.PactDb (P.DbEnv p)
-    , _pdepEnv     :: P.DbEnv p
+    , _pdepEnv :: P.DbEnv p
     }
+
 makeLenses ''PactDbEnvPersist
 
-data EnvPersist' = forall a. PactDbBackend a => EnvPersist' (PactDbEnvPersist a)
+makeLenses ''SaveData
+
+data EnvPersist' =
+    forall a. PactDbBackend a =>
+              EnvPersist' (PactDbEnvPersist a)
 
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
@@ -90,7 +162,7 @@ data PactDbConfig = PactDbConfig
     , _pdbcGasRate :: Maybe Int
     } deriving (Eq, Show, Generic)
 
-instance FromJSON PactDbConfig
+instance A.FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
@@ -104,22 +176,15 @@ usage =
   \gasRate    - Gas price per action, defaults to 0 \n\
   \\n"
 
-data CheckpointData = CheckpointData
-    { _cpPactDbEnv :: EnvPersist'
-    , _cpCommandState :: P.CommandState
+data Checkpointer = Checkpointer
+    { restore :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+    , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+    , discard :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
     }
 
-makeLenses ''CheckpointData
-
-data Checkpointer = Checkpointer
-  { restore :: BlockHeight -> BlockPayloadHash -> IO CheckpointData
-  , save :: BlockHeight -> BlockPayloadHash -> CheckpointData -> IO ()
-  }
-
 -- functions like the ones below need to be implemented internally
--- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
--- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String CheckpointData)
-
+-- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+-- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer
     , _cpeCommandConfig :: P.CommandConfig
