@@ -366,7 +366,14 @@ instance FromJSON Peer where
 -- certificate, the peer id is the SHA256 hash of the X509 certificate.
 --
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
-bootstrapPeerInfos Test =
+bootstrapPeerInfos Test = testBootstrapPeerInfos
+bootstrapPeerInfos TestWithTime = testBootstrapPeerInfos
+bootstrapPeerInfos TestWithPow = testBootstrapPeerInfos
+bootstrapPeerInfos x = error
+    $ "bootstrap peer info isn't defined for chainweb version " <> sshow x
+
+testBootstrapPeerInfos :: [PeerInfo]
+testBootstrapPeerInfos =
     [ PeerInfo
 #if WITH_ED25519
         { _peerId = Just $ unsafeFromText "BMe2hSdSEGCzLwvoYXPuB1BqYEH5wiV5AvacutSGWmg"
@@ -385,9 +392,6 @@ bootstrapPeerInfos Test =
             }
         }
     ]
-
-bootstrapPeerInfos x = error
-    $ "bootstrap peer info isn't defined for chainweb version " <> sshow x
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances

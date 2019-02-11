@@ -65,6 +65,7 @@ library
     exposed-modules:
           Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
@@ -99,6 +100,7 @@ library
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Sync
+        , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Version

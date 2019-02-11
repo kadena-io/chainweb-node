@@ -337,7 +337,7 @@ withChain
     -> (Chain -> IO a)
     -> IO a
 withChain v graph cid p2pConfig peer peerDb chainDbDir logfun inner =
-    withBlockHeaderDb Test graph cid $ \cdb -> do
+    withBlockHeaderDb v graph cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
             inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)

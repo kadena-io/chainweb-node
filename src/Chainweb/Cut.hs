@@ -105,6 +105,7 @@ import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
+import Data.Int
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
@@ -133,10 +134,13 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.NodeId
+import Chainweb.Time
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+
+import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -555,20 +559,23 @@ testMine
     -> cid
     -> Cut
     -> IO (Maybe Cut)
-testMine n nid i c = forM (testMineCut n nid i c) $ \(h, c') ->
-    c' <$ insertWebBlockHeaderDb h
+testMine n nid i c = do
+    t <- getCurrentTimeIntegral
+    forM (testMineCutWithTime t n nid i c) $ \(h, c') ->
+        c' <$ insertWebBlockHeaderDb h
 
 -- | Only produces a new cut but doesn't insert it into the chain database.
 --
-testMineCut
+testMineCutWithTime
     :: HasCallStack
     => HasChainId cid
-    => Nonce
+    => Time Int64
+    -> Nonce
     -> NodeId
     -> cid
     -> Cut
     -> Maybe (BlockHeader, Cut)
-testMineCut n nid i c = do
+testMineCutWithTime t n nid i c = do
     h <- newHeader . BlockHashRecord <$> newAdjHashes
     return (h, c & cutHeaders . ix cid .~ h)
   where
@@ -577,7 +584,7 @@ testMineCut n nid i c = do
     -- the block to mine on
     p = c ^?! ixg cid
 
-    newHeader as = testBlockHeader (nodeIdFromNodeId nid cid) as n p
+    newHeader as = testBlockHeaderWithTime t (nodeIdFromNodeId nid cid) as n p
 
     -- try to get all adjacent hashes dependencies.
     newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
@@ -587,6 +594,19 @@ testMineCut n nid i c = do
         | _blockHeight b == h = Just (_blockHash b)
         | _blockHeight b == h + 1 = Just $ _blockParent b
         | otherwise = Nothing
+
+testMineCut
+    :: HasCallStack
+    => HasChainId cid
+    => Nonce
+    -> NodeId
+    -> cid
+    -> Cut
+    -> Maybe (BlockHeader, Cut)
+testMineCut n nid i c = testMineCutWithTime t n nid i c
+  where
+    cid = _chainId i
+    t = second `add` (_blockCreationTime $ c ^?! ixg cid)
 
 randomChainId :: HasChainGraph g => g -> IO ChainId
 randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)

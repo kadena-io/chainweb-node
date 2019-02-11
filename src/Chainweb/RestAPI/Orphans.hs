@@ -191,7 +191,7 @@ instance ToParamSchema ChainId where
 instance ToParamSchema ChainwebVersion where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
-        & enum_ ?~ (toJSON <$> [Simulation, Test, Testnet00])
+        & enum_ ?~ (toJSON <$> [Simulation, Test, TestWithTime, TestWithPow, Testnet00])
 
 -- -------------------------------------------------------------------------- --
 -- Swagger Schema

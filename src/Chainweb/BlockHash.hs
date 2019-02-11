@@ -182,6 +182,8 @@ instance FromJSON BlockHashBytes where
 
 cryptoHash :: ChainwebVersion -> (B.ByteString -> BlockHashBytes)
 cryptoHash Test = BlockHashBytes . B.take 32 . SHA512.hash
+cryptoHash TestWithTime = BlockHashBytes . B.take 32 . SHA512.hash
+cryptoHash TestWithPow = BlockHashBytes . B.take 32 . SHA512.hash
 cryptoHash Simulation = BlockHashBytes . B.take 32 . SHA512.hash
 cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 

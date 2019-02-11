@@ -90,16 +90,20 @@ instance Arbitrary P2pConfiguration where
         <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration Test = P2pConfiguration
+defaultP2pConfiguration Test = testP2pConfiguration Test
+defaultP2pConfiguration TestWithTime = testP2pConfiguration TestWithTime
+defaultP2pConfiguration TestWithPow = testP2pConfiguration TestWithPow
+defaultP2pConfiguration _ = error "TODO not implemented"
+
+testP2pConfiguration :: ChainwebVersion -> P2pConfiguration
+testP2pConfiguration v = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
-    , _p2pConfigKnownPeers = bootstrapPeerInfos Test
+    , _p2pConfigKnownPeers = bootstrapPeerInfos v
     , _p2pConfigPeerDbFilePath = Nothing
     }
-
-defaultP2pConfiguration _ = error "TODO not implemented"
 
 instance ToJSON P2pConfiguration where
     toJSON o = object
