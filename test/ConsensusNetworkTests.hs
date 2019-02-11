@@ -27,5 +27,5 @@ main :: IO ()
 main = defaultMain $ test Warn 10 (Seconds 120) Nothing
 
 -- Use the following to persist the databases.
--- main = defaultMain $ test Warn 10 (Seconds 120) (Just "./tmp/chaindb")
+-- main = defaultMain $ test Warn 10 (Seconds 300) (Just "./tmp/chaindb")
 

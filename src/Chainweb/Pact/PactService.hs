@@ -38,6 +38,7 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
@@ -87,6 +88,7 @@ initPactService reqQVar respQVar memPoolAccess = do
     void $ evalStateT
            (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
+
 serviceRequests
     :: MemPoolAccess
     -> IO (TVar (TQueue RequestMsg))
@@ -114,33 +116,43 @@ serviceRequests memPoolAccess reqQ respQ = do
                         , _respPayload = h }
             liftIO $ addResponse respQ respMsg
             return ()
+
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     newTrans <- liftIO $ memPoolAccess TransactionCriteria
     CheckpointEnv {..} <- ask
-    -- replace for checkpoint testing
-    unless True {- (isGenesisBlockHeader _parentHeader) -} $ do
+    unless (isGenesisBlockHeader _parentHeader) $ do
         cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
-        updateState cpdata
-    execTransactions newTrans
+        case cpdata of
+            Left msg -> closePactDb >> fail msg
+            Right st -> updateState st
+    (results, updatedState) <- execTransactions newTrans
+    put $! updatedState
+    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
+    flip (either fail) close_status $ \_ -> return results
 
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     CheckpointEnv {..} <- ask
-    --replace for checkpoint testing
-    unless True {- (isGenesisBlockHeader parentHeader)-} $ do
-        parentHeader <- liftIO $ parentFromHeader currHeader
+    parentHeader <- liftIO $ parentFromHeader currHeader
+    unless (isGenesisBlockHeader parentHeader) $ do
         cpdata <- liftIO $ restore _cpeCheckpointer (_blockHeight parentHeader)
                   (_blockPayloadHash parentHeader)
-        updateState cpdata
-    results <- execTransactions trans
-    currentState <- get
-    liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
-             (liftA2 CheckpointData _pdbsDbEnv _pdbsState currentState)
-    return results
+        case cpdata of
+            Left s -> closePactDb >> fail s -- band-aid
+            Right r -> updateState $! r
+    (results, updatedState) <- execTransactions trans
+    put updatedState
+    estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
+                  (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
+    case estate of
+      Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+          when (s == "SQLiteCheckpointer.save': Save key not found exception") closePactDb
+          fail s
+      Right _ -> return results
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile =
@@ -165,7 +177,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: [Transaction] -> PactT Transactions
+execTransactions :: [Transaction] -> PactT (Transactions, PactDbState)
 execTransactions xs = do
     cpEnv <- ask
     currentState <- get
@@ -177,7 +189,13 @@ execTransactions xs = do
         let txId = P.Transactional (P.TxId _tTxId)
         (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
         return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
-    return $ Transactions $ zip xs txOuts
+    newCmdState <- liftIO $! readMVar mvCmdState
+    newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
+    let updatedState = PactDbState
+          { _pdbsDbEnv = newEnvPersist'
+          , _pdbsState = newCmdState
+          }
+    return (Transactions (zip xs txOuts), updatedState)
 
 applyPactCmd
   :: CheckpointEnv
@@ -193,10 +211,10 @@ applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd =
             applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
                      eMode cmd procCmd
 
-updateState :: CheckpointData  -> PactT ()
-updateState CheckpointData {..} = do
-    pdbsDbEnv .= _cpPactDbEnv
-    pdbsState .= _cpCommandState
+updateState :: PactDbState  -> PactT ()
+updateState PactDbState {..} = do
+    pdbsDbEnv .= _pdbsDbEnv
+    pdbsState .= _pdbsState
 
 -- TODO: get from config
 pactFilesDir :: String

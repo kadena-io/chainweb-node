@@ -44,6 +44,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId

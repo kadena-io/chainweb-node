@@ -92,14 +92,9 @@ module Chainweb.BlockHeader
 
 -- * Testing
 , testBlockHeader
+, testBlockHeaderWithTime
 , testBlockHeaders
 , testBlockHeadersWithNonce
-
--- * Properties
-, prop_block_difficulty
-, prop_block_hash
-, prop_block_genesis_parent
-, prop_block_genesis_target
 ) where
 
 import Control.Arrow ((&&&))
@@ -124,6 +119,8 @@ import Data.Serialize (Serialize(..))
 import Data.Word
 
 import GHC.Generics (Generic)
+
+import System.IO.Unsafe
 
 -- Internal imports
 
@@ -506,16 +503,24 @@ genesisBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
 genesisBlockHash v p =
     BlockHash (_chainId p) . cryptoHash v . runPutS $ encodeChainId (_chainId p)
 
-genesisBlockTarget :: HashTarget
-genesisBlockTarget = HashTarget maxBound
+genesisBlockTarget :: ChainwebVersion -> HashTarget
+genesisBlockTarget _ = HashTarget maxBound
 
 genesisTime :: ChainwebVersion -> ChainId -> Time Int64
 genesisTime Test _ = epoche
+genesisTime TestWithTime _ = now
+genesisTime TestWithPow _ = now
 genesisTime Simulation _ = epoche
 genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
 
+now :: Time Int64
+now = unsafePerformIO getCurrentTimeIntegral
+{-# NOINLINE now #-}
+
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test p = ChainNodeId (_chainId p) 0
+genesisMiner TestWithTime p = ChainNodeId (_chainId p) 0
+genesisMiner TestWithPow p = ChainNodeId (_chainId p) 0
 genesisMiner Simulation p = ChainNodeId (_chainId p) 0
 genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 
@@ -550,7 +555,7 @@ genesisBlockHeader v g p = BlockHeader
     { _blockParent = genesisBlockHash v cid
     , _blockAdjacentHashes = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
-    , _blockTarget = genesisBlockTarget
+    , _blockTarget = genesisBlockTarget v
     , _blockPayloadHash = genesisBlockPayloadHash v cid
     , _blockNonce = Nonce 0
     , _blockChainId = cid
@@ -585,27 +590,37 @@ instance TreeDbEntry BlockHeader where
 -- -------------------------------------------------------------------------- --
 -- Testing
 
-testBlockHeader
-    :: ChainNodeId
+testBlockHeaderWithTime
+    :: Time Int64
+    -> ChainNodeId
     -> BlockHashRecord
     -> Nonce
     -> BlockHeader
     -> BlockHeader
-testBlockHeader m adj n b = b' { _blockHash = computeBlockHash b' }
+testBlockHeaderWithTime t m adj n b = b' { _blockHash = computeBlockHash b' }
   where
     target = _blockTarget b -- no difficulty adjustment
     b' = b
         { _blockParent = _blockHash b
         , _blockAdjacentHashes = adj
         , _blockTarget = target
-        , _blockPayloadHash = hashPayload Test ""
+        , _blockPayloadHash = hashPayload (_blockChainwebVersion b) ""
         , _blockNonce = n
         , _blockWeight = _blockWeight b + BlockWeight (targetToDifficulty target)
         , _blockHeight = _blockHeight b + 1
-        , _blockCreationTime = add second $ _blockCreationTime b
+        , _blockCreationTime = t
         , _blockMiner = m
         , _blockHash = _blockHash b -- preliminary, not used in hash
         }
+
+testBlockHeader
+    :: ChainNodeId
+    -> BlockHashRecord
+    -> Nonce
+    -> BlockHeader
+    -> BlockHeader
+testBlockHeader m adj n b
+    = testBlockHeaderWithTime (add second $ _blockCreationTime b) m adj n b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
@@ -627,14 +642,3 @@ testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
 
-prop_block_difficulty :: BlockHeader -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
-
-prop_block_hash :: BlockHeader -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
-
-prop_block_genesis_parent :: BlockHeader -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
-
-prop_block_genesis_target :: BlockHeader -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget
