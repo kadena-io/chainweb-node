@@ -252,6 +252,7 @@ library
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
+
 test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
@@ -315,11 +316,9 @@ test-suite chainweb-tests
         , network >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
         , servant-client >= 0.13
-        , servant-server >= 0.13
         , stm
         , stm-chans
         , streaming >= 0.2
@@ -339,27 +338,6 @@ test-suite chainweb-tests
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
-
-test-suite consensus-network-tests
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-        -threaded
-        -with-rtsopts=-N
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test
-    main-is: ConsensusNetworkTests.hs
-    other-modules:
-        Chainweb.Test.MultiNode
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Utils
-    build-depends:
-        -- internal
-          chainweb
 
 test-suite pact-tests
     default-language: Haskell2010
@@ -421,6 +399,28 @@ test-suite pact-tests
         buildable: True
     else
         buildable: False
+
+test-suite consensus-network-tests
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
+    type: exitcode-stdio-1.0
+    hs-source-dirs: test
+    main-is: ConsensusNetworkTests.hs
+    other-modules:
+        Chainweb.Test.MultiNode
+        Chainweb.Test.Orphans.Internal
+        Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Utils
+    build-depends:
+        -- internal
+          chainweb
+
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Benchmarking
