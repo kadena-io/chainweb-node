@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -fno-warn-orphans  #-}   -- instance HasLink WebSocket
 
 module Chainweb.Mempool.Websocket
   ( server
@@ -51,13 +52,9 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Version
 ------------------------------------------------------------------------------
 
-{-# INLINE trace' #-}
 {-# INLINE debug #-}
 
 #if 1
-
-trace' :: Show a => String -> a -> a
-trace' _ x = let _ = show x in x
 
 debug :: String -> String -> IO ()
 debug _ _ = return ()
@@ -68,8 +65,6 @@ _shutupWarnings = undefined Streams.debugInputBS trace
 #else
 
 -- change conditional to enable debug
-trace' :: Show a => String -> a -> a
-trace' s x = trace (s ++ show x) x
 debug :: String -> String -> IO ()
 debug pfx s = Streams.writeTo Streams.stderr $
               Just (B.concat ["debug: WS: ", B.pack pfx, ": ", B.pack s, "\n"])
@@ -114,8 +109,11 @@ connectionToStreams
     -> IO (InputStream ByteString, OutputStream Builder, IO ())
 connectionToStreams pfx conn = do
     gotClose <- newIORef False
-    input <- Streams.makeInputStream $ rd gotClose
-    output <- Streams.makeOutputStream wr >>= Streams.builderStream
+    input <- Streams.makeInputStream (rd gotClose) >>=
+             Streams.lockingInputStream
+    output <- Streams.makeOutputStream wr >>=
+              Streams.lockingOutputStream >>=
+              Streams.builderStream
     return $! (input, output, cleanup gotClose)
 
   where
@@ -143,12 +141,6 @@ connectionToStreams pfx conn = do
                 setClosed gotClose
                 return Nothing
             _ -> throwIO e
-
-    wrEx :: WS.ConnectionException -> IO ()
-    wrEx e = case e of
-               (WS.CloseRequest _ _) -> debug pfx "on write: got close request"
-               WS.ConnectionClosed -> debug pfx "on write: connection improperly closed"
-               _ -> throwIO e
 
     closeEx :: WS.ConnectionException -> IO ()
     closeEx e = case e of

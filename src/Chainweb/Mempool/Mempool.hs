@@ -28,13 +28,11 @@ import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
 import Control.Monad (replicateM)
 import Data.Bits (bit, shiftL, shiftR, (.&.))
-import Data.Bytes.Get (getWord64host, runGetS)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as S
-import Data.Decimal (Decimal)
-import Data.Decimal (DecimalRaw(..))
+import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Hashable (Hashable(..))
 import Data.Int (Int64)
 import Data.IORef (IORef)

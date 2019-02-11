@@ -427,7 +427,8 @@ toDebugStreams name sock = do
 toStreams :: Socket
           -> IO (InputStream ByteString, OutputStream Builder, IO ())
 toStreams sock = do
-    (readEnd, writeEnd) <- Streams.socketToStreams sock
+    (readEnd, writeEnd0) <- Streams.socketToStreams sock
+    writeEnd <- Streams.atEndOfOutput (N.shutdown sock N.ShutdownSend) writeEnd0
     writeEndB <- Streams.builderStream writeEnd
     return (readEnd, writeEndB, N.close sock)
 
@@ -496,13 +497,15 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
         remotePipe <- atomically $ TBMChan.newTBMChan 8
         tid <- forkIOWithUnmask $
                \r -> (r (inputThread remotePipe) `finally`
+                         putMVar doneMv () `finally`
                          atomically (TBMChan.closeTBMChan remotePipe))
         return (doneMv, mv, remotePipe, tid)
 
     killInputThread (doneMv, mv, remotePipe, tid) =
         flip finally (readMVar doneMv >> debug "server: input thread joined") $ do
-            debug "server: killing input thread"
+            debug "server: killing subscription"
             withMVar mv $ mapM_ (readIORef >=> mempoolSubFinal)
+            debug "server: killing input thread"
             killThread tid
             atomically $ TBMChan.closeTBMChan remotePipe
 

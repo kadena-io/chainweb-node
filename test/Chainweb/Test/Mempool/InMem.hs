@@ -14,9 +14,10 @@ import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "mempool.inmem" $ Chainweb.Test.Mempool.tests
-                                  $ MempoolWithFunc
-                                  $ InMem.withInMemoryMempool cfg
+tests = testGroup "Chainweb.Mempool.InMem"
+            $ Chainweb.Test.Mempool.tests
+            $ MempoolWithFunc
+            $ InMem.withInMemoryMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
     -- run the reaper @100Hz for testing
