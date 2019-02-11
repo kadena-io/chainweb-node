@@ -145,7 +145,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Cut
