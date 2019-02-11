@@ -36,6 +36,7 @@ module Chainweb.Store.Git
 import qualified Bindings.Libgit2 as G
 
 import Control.Concurrent.MVar
+import Control.Exception (bracket, bracketOnError, finally, mask)
 import Control.Monad (void)
 
 import Data.Bits ((.|.))
@@ -54,8 +55,6 @@ import Shelly (cd, fromText, run_, shelly)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem (performGC)
 import System.Path (toFilePath)
-
-import UnliftIO.Exception (bracket, bracketOnError, finally, mask)
 
 -- internal modules
 

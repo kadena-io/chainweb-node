@@ -121,12 +121,12 @@ in
         });
 
         # pact-2.6.1
-        pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        pact = addBuildDepend (dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
           rev = "3ac9a6d01bd5816ea4b7e47300012543510393ea";
           sha256 = "0fkhj1kzm51xynzziqrlzr0nv3gi7vifjikjaaggcy457zpn665w";
-        }) {}) pkgs.z3;
+        }) {})) pkgs.z3;
 
         streaming = callHackageDirect {
           pkg = "streaming";
@@ -148,6 +148,12 @@ in
             ver = "0.11.3";
             sha256 = "0y98macg977ps81h9mx3hzdmkxn5y14556a2dyvd22468nsmjid1";
         };
+
+        merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
+          url = "ssh://git@github.com/kadena-io/merkle-log.git";
+          rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
+          ref = "master";
+        }) {};
 
         ######################################################################
         # Dependencies from pact

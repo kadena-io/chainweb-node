@@ -69,8 +69,6 @@ library
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
-        , Chainweb.BlockPayloadDB
-        , Chainweb.BlockPayloadDB.FS
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Cut
@@ -79,6 +77,7 @@ library
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
+        , Chainweb.Crypto.MerkleLog
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -91,6 +90,8 @@ library
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Store.CAS
+        , Chainweb.Store.CAS.FS
         , Chainweb.Store.Git
         , Chainweb.Store.Git.Internal
         , Chainweb.Time
@@ -238,6 +239,9 @@ library
         , ekg >= 0.4
         , wai-middleware-metrics >= 0.2.4
 
+        --  doc
+        , merkle-log
+
     if flag(with-pact)
         cpp-options: -DWITH_PACT=1
         build-depends:
@@ -267,8 +271,6 @@ test-suite chainweb-tests
     main-is: ChainwebTests.hs
     other-modules:
         Chainweb.Test.BlockHeaderDB
-        Chainweb.Test.BlockPayloadDB
-        Chainweb.Test.BlockPayloadDB.FS
         Chainweb.Test.DiGraph
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
@@ -278,6 +280,8 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
+        Chainweb.Test.Store.CAS
+        Chainweb.Test.Store.CAS.FS
         Chainweb.Test.Store.Git
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence

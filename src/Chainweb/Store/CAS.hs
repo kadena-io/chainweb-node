@@ -1,5 +1,5 @@
--- | Block Payload DB API.
-module Chainweb.BlockPayloadDB
+-- | Content-addressable stores.
+module Chainweb.Store.CAS
   ( DB(..)
   , PayloadConfig(..)
   ) where
@@ -11,16 +11,16 @@ import Chainweb.BlockHeader (BlockPayloadHash(..))
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
--- | 'PayloadConfig' tells the block payload db how to interpret block payloads.
+-- | 'PayloadConfig' tells the CAS store how to interpret payloads.
 data PayloadConfig t = PayloadConfig {
     payloadCodec :: {-# UNPACK #-} !(Codec t)    -- ^ codec for the payload.
   , payloadHash :: t -> BlockPayloadHash         -- ^ hash function for the payload.
 }
 
--- | The block payload DB api.
+-- | The content-addressable store DB api.
 data DB t = DB {
-    payloadDbConfig :: PayloadConfig t
-  , payloadLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
-  , payloadInsert :: Vector t -> IO ()
-  , payloadDelete :: Vector BlockPayloadHash -> IO ()
+    casDbConfig :: PayloadConfig t
+  , casLookup :: Vector BlockPayloadHash -> IO (Vector (Maybe t))
+  , casInsert :: Vector t -> IO ()
+  , casDelete :: Vector BlockPayloadHash -> IO ()
 }

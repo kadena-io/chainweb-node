@@ -2,6 +2,7 @@ resolver: lts-12.26
 
 packages:
   - .
+  - tools/chain2gexf/
 
 extra-deps:
   - aeson-1.4.2.0
@@ -30,3 +31,5 @@ extra-deps:
     commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - git: git@github.com:kadena-io/merkle-log.git
+    commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376

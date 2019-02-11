@@ -18,14 +18,15 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
+import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
-import qualified Chainweb.Test.BlockPayloadDB.FS
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
+import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
@@ -33,6 +34,7 @@ import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
 
 import qualified Data.DiGraph (properties)
+import qualified Data.Word.Encoding (properties)
 
 import qualified Network.X509.SelfSigned.Test
 
@@ -51,7 +53,7 @@ suite = testGroup "Unit Tests"
         , Chainweb.Test.TreeDB.Persistence.tests
         , Chainweb.Test.TreeDB.Sync.tests
         ]
-    , Chainweb.Test.BlockPayloadDB.FS.tests
+    , Chainweb.Test.Store.CAS.FS.tests
     , Chainweb.Test.Store.Git.tests
     , Chainweb.Test.Roundtrips.tests
     , Chainweb.Test.RestAPI.tests
@@ -65,4 +67,6 @@ suite = testGroup "Unit Tests"
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
+    , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
+    , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
     ]
