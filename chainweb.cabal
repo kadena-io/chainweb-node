@@ -212,7 +212,6 @@ library
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
-        , thyme == 0.3.6.0
         , time >= 1.8
         , transformers >= 0.5
         , trifecta >= 2
@@ -252,7 +251,8 @@ library
     if flag(with-pact)
         cpp-options: -DWITH_PACT=1
         build-depends:
-          pact >= 2.4
+              pact >= 2.4
+            , thyme == 0.3.6.0
 
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
