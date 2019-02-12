@@ -279,9 +279,6 @@ decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 -- blocks without recalculating the aggregated value from the genesis block
 -- onward.
 --
--- TODO: Separate the Merkle hash that is used to link the blocks from the POW
--- hash.
---
 data BlockHeader :: Type where
     BlockHeader ::
         { _blockParent :: {-# UNPACK #-} !BlockHash

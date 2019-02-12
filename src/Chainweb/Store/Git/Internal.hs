@@ -90,6 +90,7 @@ import Control.Monad (foldM, unless, void, when, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
+import Data.Bifunctor (first)
 import Data.Bits (complement, unsafeShiftL, (.&.))
 import Data.ByteArray.Encoding (Base(..), convertFromBase, convertToBase)
 import Data.Bytes.Get (runGetS)
@@ -949,8 +950,7 @@ dedup (x:r@(y:_)) | x == y = dedup r
 parseLeafTreeFileName :: ByteString -> Maybe (BlockHeight, MerkleLogHash)
 parseLeafTreeFileName fn = do
     height <- decodeHeight heightStr
-    -- bh <- MerkleLogHash <$> hush (B64U.decode blockHash0)
-    bh <- unsafeMerkleLogHash <$> hush (convertFromBase Base64URLUnpadded $ blockHash0)
+    bh <- hush (first show . merkleLogHash =<< convertFromBase Base64URLUnpadded blockHash0)
     pure (height, bh)
   where
     -- TODO if the `rest` is fixed-length, it would be faster to use `splitAt`.

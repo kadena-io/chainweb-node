@@ -105,7 +105,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
-import Chainweb.Difficulty (HashTarget(..), targetToDifficulty)
+import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend(..), noopMempool)
 import Chainweb.RestAPI (singleChainApplication)
@@ -248,7 +248,7 @@ header h = do
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = HashTarget maxBound
+    target = _blockTarget h -- no difficulty adjustment
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
