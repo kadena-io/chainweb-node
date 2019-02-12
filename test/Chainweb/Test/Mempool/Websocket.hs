@@ -12,10 +12,12 @@ module Chainweb.Test.Mempool.Websocket (tests) where
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Control.Exception
 import Data.Foldable (toList)
 import Data.Proxy
 import qualified Data.Text as T
-import Network.Wai (Application)
+import Network.Wai (Application, mapResponseHeaders)
+import Network.Wai.Internal (ResponseReceived(..))
 import Servant.API
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
@@ -70,7 +72,7 @@ withWebsocketMempool inMemCfg userFunc = do
                     (SomeChainIdT (Proxy :: Proxy c)) ->
                         T.unpack $ toUrlPiece $
                         safeLink (MWS.mempoolWebsocketApi @vt @c) (MWS.mempoolWebsocketApi @vt @c)
-    withTestAppServer True (pure app) return $ \port -> do
+    withTestAppServer True (wrapApp app) return $ \port -> do
         let host = "localhost"
         let path = '/' : mempoolSubpath
         MWS.withClient host (fromIntegral port) path clientConfig userFunc
@@ -79,3 +81,12 @@ withWebsocketMempool inMemCfg userFunc = do
     keepaliveInterval = 60 * 60 * 4  -- 4 hours
     txcfg = _inmemTxCfg inMemCfg
     chain = head $ toList $ chainIds_ singleton
+
+
+
+wrapApp :: Application -> IO Application
+wrapApp app = return wrappedApp
+  where
+    wrappedApp req respond = app req (wrapRespond respond) `catch`
+                             (\(_ :: SomeException) -> return ResponseReceived)
+    wrapRespond respond = respond . mapResponseHeaders (("connection", "close"):)

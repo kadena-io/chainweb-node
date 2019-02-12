@@ -20,7 +20,7 @@ module Chainweb.Mempool.Websocket
   ) where
 ------------------------------------------------------------------------------
 import Control.Exception
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Char8 (ByteString)
@@ -178,13 +178,19 @@ connectionToStreams pfx conn = do
         in go
 
 
+eatExceptions :: IO () -> IO ()
+eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+
 runSecureClient :: String -> PortNumber -> String -> ClientApp a -> IO a
-runSecureClient host port path app = do
-    context <- initConnectionContext
-    connection <- connectTo context (connectionParams host port)
-    stream <- makeStream (reader connection) (writer connection)
-    runClientWithStream stream host path connectionOptions headers app
-      `onException` connectionClose connection
+runSecureClient host port path app = bracket create destroy go
+  where
+    create = do
+        context <- initConnectionContext
+        connectTo context (connectionParams host port)
+    go connection = do
+        stream <- makeStream (reader connection) (writer connection)
+        runClientWithStream stream host path connectionOptions headers app
+    destroy s = eatExceptions (connectionClose s)
 
 
 connectionParams :: String -> PortNumber -> ConnectionParams
