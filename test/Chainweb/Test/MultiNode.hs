@@ -153,8 +153,7 @@ blockTimeSeconds = 4
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
-    :: Port
-        -- ^ Port of bootstrap node
+    :: ChainwebVersion
     -> Natural
         -- ^ number of nodes
     -> NodeId
@@ -162,7 +161,7 @@ config
     -> (Maybe FilePath)
         -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-config p n nid chainDbDir = defaultChainwebConfiguration
+config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configChainwebVersion TestWithTime
 
     & set configNodeId nid
@@ -188,25 +187,32 @@ config p n nid chainDbDir = defaultChainwebConfiguration
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
-    & set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressPort) p
+    & set configChainDbDirPath chainDbDir
+        -- place where the chaindbs are persisted.
+
+-- | Set the boostrap node port of a 'ChainwebConfiguration'
+--
+setBootstrapPort
+    :: Port
+        -- ^ Port of bootstrap node
+    -> ChainwebConfiguration
+    -> ChainwebConfiguration
+setBootstrapPort
+    = set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressPort)
         -- The the port of the bootstrap node. Normally this is hard-coded.
         -- But in test-suites that may run concurrently we want to use a port
         -- that is assigned by the OS.
 
-    & set configChainDbDirPath chainDbDir
-        -- place where the chaindbs are persisted.
-
+-- | Configure a bootstrap node
+--
 bootstrapConfig
-    :: Natural
-        -- ^ number of nodes
-    -> (Maybe FilePath)
-        -- ^ directory where the chaindbs are persisted
+    :: ChainwebConfiguration
     -> ChainwebConfiguration
-bootstrapConfig n chainDbDir = config 0 {- unused -} n (NodeId 0) chainDbDir
+bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion config)
+    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
         & set (peerConfigAddr . hostAddressPort) 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
@@ -252,12 +258,13 @@ runNodes
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
+    -> ChainwebVersion
     -> Natural
         -- ^ number of nodes
     -> (Maybe FilePath)
         -- ^ directory where the chaindbs are persisted
     -> IO ()
-runNodes loglevel write stateVar n chainDbDir = do
+runNodes loglevel write stateVar v n chainDbDir = do
     bootstrapPortVar <- newEmptyMVar
         -- this is a hack for testing: normally bootstrap node peer infos are
         -- hardcoded. To avoid conflicts in concurrent test runs we extract an
@@ -267,17 +274,19 @@ runNodes loglevel write stateVar n chainDbDir = do
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500000 * int i)
 
+        let baseConf = config v n (NodeId i) chainDbDir
         conf <- if
-            | i == 0 -> return $ bootstrapConfig n chainDbDir
-            | otherwise -> do
-                bootstrapPort <- readMVar bootstrapPortVar
-                return $ config bootstrapPort n (NodeId i) chainDbDir
+            | i == 0 ->
+                return $ bootstrapConfig baseConf
+            | otherwise ->
+                setBootstrapPort <$> readMVar bootstrapPortVar <*> pure baseConf
 
         node loglevel write stateVar graph bootstrapPortVar conf
 
 runNodesForSeconds
     :: LogLevel
         -- ^ Loglevel
+    -> ChainwebVersion
     -> Natural
         -- ^ Number of chainweb consensus nodes
     -> Seconds
@@ -287,9 +296,10 @@ runNodesForSeconds
     -> (T.Text -> IO ())
         -- ^ logging backend callback
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel n seconds chainDbDir write = do
+runNodesForSeconds loglevel v n seconds chainDbDir write = do
     stateVar <- newMVar emptyConsensusState
-    void $ timeout (int seconds * 1000000) (runNodes loglevel write stateVar n chainDbDir)
+    void $ timeout (int seconds * 1000000)
+        $ runNodes loglevel write stateVar v n chainDbDir
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -297,8 +307,8 @@ runNodesForSeconds loglevel n seconds chainDbDir write = do
 -- -------------------------------------------------------------------------- --
 -- Test
 
-test :: LogLevel -> Natural -> Seconds -> (Maybe FilePath) -> TestTree
-test loglevel n seconds chainDbDir = testCaseSteps label $ \f -> do
+test :: LogLevel -> ChainwebVersion -> Natural -> Seconds -> (Maybe FilePath) -> TestTree
+test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if 1
     let logFun = tastylog
@@ -314,7 +324,7 @@ test loglevel n seconds chainDbDir = testCaseSteps label $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             if c < maxLogMsgs then logFun msg else return ()
 
-    runNodesForSeconds loglevel n seconds chainDbDir countedLog >>= \case
+    runNodesForSeconds loglevel v n seconds chainDbDir countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
         Just stats -> do
             logsCount <- readMVar var
