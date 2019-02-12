@@ -22,7 +22,6 @@ import qualified Data.ByteString.Char8 as B8
 
 -- internal modules
 
-import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Network.X509.SelfSigned
@@ -35,29 +34,45 @@ import P2P.Peer
 -- | Peer configuration for bootstrap hard-coded bootstrap peer infos.
 --
 bootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
-bootstrapPeerConfig Test =
+bootstrapPeerConfig Test = testBootstrapPeerConfig Test
+bootstrapPeerConfig TestWithTime = testBootstrapPeerConfig TestWithTime
+bootstrapPeerConfig TestWithPow = testBootstrapPeerConfig TestWithPow
+bootstrapPeerConfig Simulation = error
+    $ "bootstrap peer config isn't defined for chainweb version Simulation"
+bootstrapPeerConfig Testnet00 = error
+    $ "bootstrap peer config isn't defined for chainweb version Testnet00"
+
+testBootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
+testBootstrapPeerConfig v =
     [ PeerConfig
-        { _peerConfigAddr = _peerAddr $ head (bootstrapPeerInfos Test)
+        { _peerConfigAddr = _peerAddr $ head (bootstrapPeerInfos v)
         , _peerConfigInterface = "127.0.0.1"
-        , _peerConfigCertificate = Just $ bootstrapCertificate Test
-        , _peerConfigKey = Just $ bootstrapKey Test
+        , _peerConfigCertificate = Just $ bootstrapCertificate v
+        , _peerConfigKey = Just $ bootstrapKey v
         }
     ]
-bootstrapPeerConfig x = error
-    $ "bootstrap peer config isn't defined for chainweb version " <> sshow x
 
 -- | A self-signed certificate for localhost for testing purposes. The
 -- fingerprint of this certificate is hard-coded for chainweb-nodes for the
 -- chainweb version 'Test'.
 --
--- The same certificate is also stored in the file
--- @./scripts/scripts/test-bootstrap-node.config@.
---
 -- Public Chainweb versions should rely on public DNS names with official TLS
 -- certificates for bootstrapping.
 --
 bootstrapCertificate :: ChainwebVersion -> X509CertPem
-bootstrapCertificate Test = X509CertPem $ B8.intercalate "\n"
+bootstrapCertificate Test = testBootstrapCertificate
+bootstrapCertificate TestWithTime = testBootstrapCertificate
+bootstrapCertificate TestWithPow = testBootstrapCertificate
+bootstrapCertificate Simulation = error
+    $ "bootstrap certificate isn't defined for chainweb version Simulation"
+bootstrapCertificate Testnet00  = error
+    $ "bootstrap certificate isn't defined for chainweb version Testnet00"
+
+-- | The test certificate is also stored in the file
+-- @./scripts/scripts/test-bootstrap-node.config@.
+--
+testBootstrapCertificate :: X509CertPem
+testBootstrapCertificate = X509CertPem $ B8.intercalate "\n"
 #if WITH_ED25519
     [ "-----BEGIN CERTIFICATE-----"
     , "MIIBOzCB7KADAgECAgEBMAcGAytlcAUAMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAe"
@@ -101,12 +116,20 @@ bootstrapCertificate Test = X509CertPem $ B8.intercalate "\n"
     , "-----END CERTIFICATE-----"
     ]
 #endif
-bootstrapCertificate x = error $ "bootstrap certificate isn't defined for chainweb version " <> sshow x
+
+bootstrapKey :: ChainwebVersion -> X509KeyPem
+bootstrapKey Test = testBootstrapKey
+bootstrapKey TestWithTime = testBootstrapKey
+bootstrapKey TestWithPow = testBootstrapKey
+bootstrapKey Simulation = error
+    $ "bootstrap key isn't defined for chainweb version Simulation"
+bootstrapKey Testnet00 = error
+    $ "bootstrap key isn't defined for chainweb version Testnet00"
 
 -- | This is only defined for non-public Test instances
 --
-bootstrapKey :: ChainwebVersion -> X509KeyPem
-bootstrapKey Test = X509KeyPem $ B8.intercalate "\n"
+testBootstrapKey :: X509KeyPem
+testBootstrapKey = X509KeyPem $ B8.intercalate "\n"
 #if WITH_ED25519
     [ "-----BEGIN PRIVATE KEY-----"
     , "MC4CAQAwBQYDK2VwBCIEIPQZCpPI8qgkU/HlsIwQBC48QuXOl036aReJF6DFLLjR"
@@ -166,4 +189,3 @@ bootstrapKey Test = X509KeyPem $ B8.intercalate "\n"
     , "-----END PRIVATE KEY-----"
     ]
 #endif
-bootstrapKey x = error $ "bootstrap key isn't defined for chainweb version " <> sshow x

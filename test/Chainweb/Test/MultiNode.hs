@@ -206,7 +206,7 @@ bootstrapConfig n chainDbDir = config 0 {- unused -} n (NodeId 0) chainDbDir
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig Test)
+    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion config)
         & set (peerConfigAddr . hostAddressPort) 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
