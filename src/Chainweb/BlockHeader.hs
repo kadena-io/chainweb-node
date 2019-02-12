@@ -141,6 +141,7 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId
+import Chainweb.Payload (BlockPayloadHash(..), decodeBlockPayloadHash, encodeBlockPayloadHash)
 import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
@@ -202,27 +203,6 @@ encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 
 decodeBlockWeight :: MonadGet m => m BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
-
--- -------------------------------------------------------------------------- --
--- BlockPayloadHash
-
-newtype BlockPayloadHash = BlockPayloadHash MerkleLogHash
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (Hashable, ToJSON, FromJSON)
-
-instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
-    type Tag BlockPayloadHash = 'BlockPayloadHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockPayloadHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockPayloadHash
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
-encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
-
-decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
-decodeBlockPayloadHash = BlockPayloadHash <$> decodeMerkleLogHash
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -658,6 +638,8 @@ genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
     encodeChainwebVersion v
     encodeChainId c
 
+-- FIXME: only for testing:
+--
 hashPayload :: HasChainId p => ChainwebVersion -> p -> ByteString -> BlockPayloadHash
 hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
     $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)

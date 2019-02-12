@@ -87,6 +87,8 @@ library
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.Payload
+        , Chainweb.Payload.PayloadStore
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
@@ -110,6 +112,8 @@ library
 
         , Control.Concurrent.FixedThreadPool
 
+        , Data.CAS
+        , Data.CAS.HashMap
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
         , Data.LogMessage
