@@ -122,15 +122,18 @@ newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     newTrans <- liftIO $ memPoolAccess TransactionCriteria
     CheckpointEnv {..} <- ask
-    unless (isGenesisBlockHeader _parentHeader) $ do
+    -- TODO: Replace to test chckpointing
+    unless True {-(isGenesisBlockHeader _parentHeader)-} $ do
         cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
         case cpdata of
             Left msg -> closePactDb >> fail msg
             Right st -> updateState st
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
-    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
-    flip (either fail) close_status $ \_ -> return results
+    -- TODO: uncomment to test checkpointing
+    -- close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
+    -- flip (either fail) close_status $ \_ -> return results
+    return results
 
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
@@ -138,7 +141,8 @@ validateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     CheckpointEnv {..} <- ask
     parentHeader <- liftIO $ parentFromHeader currHeader
-    unless (isGenesisBlockHeader parentHeader) $ do
+    -- TODO: Replace to test chckpointing
+    unless True {- (isGenesisBlockHeader parentHeader) -} $ do
         cpdata <- liftIO $ restore _cpeCheckpointer (_blockHeight parentHeader)
                   (_blockPayloadHash parentHeader)
         case cpdata of
@@ -146,13 +150,16 @@ validateBlock memPoolAccess currHeader = do
             Right r -> updateState $! r
     (results, updatedState) <- execTransactions trans
     put updatedState
+    {- -- TODO: uncomment to test checkpointing
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
                   (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
     case estate of
-      Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-          when (s == "SQLiteCheckpointer.save': Save key not found exception") closePactDb
-          fail s
-      Right _ -> return results
+        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") closePactDb
+            fail s
+        Right _ -> return results
+    -}
+    return results
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile =
