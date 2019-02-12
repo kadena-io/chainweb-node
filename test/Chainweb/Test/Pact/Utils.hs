@@ -19,6 +19,8 @@ import Data.ByteString (ByteString)
 import Data.Default
 import Data.Maybe
 import qualified Data.Text as T
+import Data.Vector (Vector, (!))
+import qualified Data.Vector as V
 import Data.Word
 
 import System.IO.Extra
@@ -28,10 +30,11 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.RPC as P
 
+import Chainweb.BlockHeader
 import Chainweb.Pact.Types
 
-testMemPoolAccess :: TransactionCriteria -> IO [Transaction]
-testMemPoolAccess _criteria = do
+testMemPoolAccess :: BlockHeight -> IO [Transaction]
+testMemPoolAccess (BlockHeight 0) = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     let cmdStrs =
           [ moduleStr
@@ -39,6 +42,18 @@ testMemPoolAccess _criteria = do
           , "(test1.create-global-accounts)"
           , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
     mkPactTestTransactions cmdStrs
+testMemPoolAccess (BlockHeight n) = do
+    let cmdStrs = cmdBlocks ! fromIntegral n
+    mkPactTestTransactions cmdStrs
+
+cmdBlocks :: Vector [String]
+cmdBlocks =  V.fromList [ [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
+                          , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
+                        , [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
+                          , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
+                        , [ "(test1.transfer \"Acct1\" \"Acct2\" 100.00)"
+                          , "(test1.transfer \"Acct1\" \"Acct2\" 101.00)" ]
+                        ]
 
 mkPactTestTransactions :: [String] -> IO [Transaction]
 mkPactTestTransactions cmdStrs = do

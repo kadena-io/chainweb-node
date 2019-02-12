@@ -40,6 +40,7 @@ import GHC.Word
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Persistence as P
 
+import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
 data Transaction = Transaction
@@ -112,4 +113,4 @@ type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 data TransactionCriteria =
     TransactionCriteria
 
-type MemPoolAccess = TransactionCriteria -> IO [Transaction]
+type MemPoolAccess = BlockHeight -> IO [Transaction]

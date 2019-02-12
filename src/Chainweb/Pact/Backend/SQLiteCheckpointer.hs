@@ -45,7 +45,9 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             { _cpeCheckpointer =
                   Checkpointer
                       { restore = restore' inmem
+                      , restoreInitial = undefined
                       , save = save' inmem
+                      , saveInitial = undefined
                       , discard = discard' inmem
                       }
             , _cpeCommandConfig = cmdConfig

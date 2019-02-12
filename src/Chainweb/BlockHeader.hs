@@ -641,4 +641,3 @@ testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
     f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
-

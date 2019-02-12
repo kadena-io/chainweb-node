@@ -178,7 +178,9 @@ usage =
 
 data Checkpointer = Checkpointer
     { restore :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+    , restoreInitial ::IO (Either String PactDbState)
     , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+    , saveInitial :: PactDbState -> IO (Either String ())
     , discard :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
     }
 

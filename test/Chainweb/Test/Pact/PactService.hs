@@ -12,6 +12,8 @@
 module Chainweb.Test.Pact.PactService where
 
 import Data.Aeson
+import Data.Vector ((!))
+import qualified Data.Vector as V
 import Data.Word (Word32)
 
 import Network.HTTP.Client (newManager, defaultManagerSettings)
@@ -43,39 +45,36 @@ pactTestApp :: IO ()
 pactTestApp = do
     port <- generatePort
     withPactServiceApp port testMemPoolAccess $ do
+        let headers = V.fromList $ getBlockHeaders 4
+
+        mapM_ putStrLn $ (show . _blockHeight) <$> headers
+
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv mgr base
 
         -- testing:  /new
-        response <- runClientM (testGetNewBlock getTestBlockHeader) clientEnv
-        checkRespTrans "block-results-expected.txt" response
-
-        -- testing: /newAsync and /poll
-        idResponse <- runClientM (testGetNewBlockAsync getTestBlockHeader) clientEnv
-        case idResponse of
-            (Left servantError) -> assertFailure $
-                "No requestId returned from testGetNewBlockAsync" ++ show servantError
-            (Right rqid) -> do
-                rspM <- pollForTestResp clientEnv rqid
-                case rspM of
-                    Nothing -> assertFailure "Polling timeout for testGetNewBlockAsync"
-                    Just rsp -> checkRespTrans "block-results-expected.txt" rsp
+        response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
+        checkRespTrans "block-results-expected-0.txt" response0
 
         -- testing:  /validate
-        validateResp <- runClientM (testValidate getTestBlockHeader) clientEnv
-        checkRespTrans "block-results-expected.txt" validateResp
+        response0b <- runClientM (testValidate (headers ! 0)) clientEnv
+        checkRespTrans "block-results-expected-0.txt" response0b
 
-        -- testing: /validateAsync and pol
-        idResp2 <- runClientM (testValidateAsync getTestBlockHeader) clientEnv
-        case idResp2 of
+        -- testing:  /validate
+        validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
+        checkRespTrans "block-results-expected-1.txt" validateResp1
+
+        -- testing: /valiAsync and /poll
+        idResponse <- runClientM (testValidateAsync (headers ! 2)) clientEnv
+        case idResponse of
             (Left servantError) -> assertFailure $
-                "No requestId returned from testValidateBlockAsync" ++ show servantError
+                "No requestId returned from testValidateAsync" ++ show servantError
             (Right rqid) -> do
                 rspM <- pollForTestResp clientEnv rqid
                 case rspM of
-                    Nothing -> assertFailure "Polling timeout for testValidateBlockAsync"
-                    Just rsp -> checkRespTrans "block-results-expected.txt" rsp
+                    Nothing -> assertFailure "Polling timeout for testValidateAsync"
+                    Just rsp -> checkRespTrans "block-results-expected-2.txt" rsp
 
 pollForTestResp
     :: ClientEnv
@@ -116,8 +115,14 @@ testGetNewBlock
     :<|> testPoll
        = client (Proxy :: Proxy PactAPI)
 
-getTestBlockHeader :: BlockHeader
-getTestBlockHeader = do
+getGenesisBlockHeader :: BlockHeader
+getGenesisBlockHeader = do
+    let testId = testChainId (1 :: Word32)
+    genesisBlockHeader Test peterson testId
+
+getBlockHeaders :: Int -> [BlockHeader]
+getBlockHeaders n = do
     let testId = testChainId (1 :: Word32)
     let gbh0 = genesisBlockHeader Test peterson testId
-    last $ take 2 $ testBlockHeaders gbh0
+    let after0s = take (n - 1) $ testBlockHeaders gbh0
+    gbh0 : after0s

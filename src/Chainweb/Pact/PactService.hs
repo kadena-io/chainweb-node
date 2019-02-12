@@ -56,6 +56,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+
 import Chainweb.Pact.Utils
 
 initPactService
@@ -85,6 +86,13 @@ initPactService reqQVar respQVar memPoolAccess = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
+    putStrLn $ "saveInitial"
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
+    case estate of
+        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
+            fail s
+        Right _ -> return ()
     void $ evalStateT
            (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
@@ -95,7 +103,6 @@ serviceRequests
     -> IO (TVar (TQueue ResponseMsg))
     -> PactT ()
 serviceRequests memPoolAccess reqQ respQ = do
-    liftIO $ putStrLn "Top of PactService.serviceRequest"
     forever run
       where
         run :: PactT ()
@@ -104,6 +111,7 @@ serviceRequests memPoolAccess reqQ respQ = do
             respMsg <- case _reqRequestType reqMsg of
                 NewBlock -> do
                     h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
+
                     return $ ResponseMsg
                         { _respRequestType = NewBlock
                         , _respRequestId = _reqRequestId reqMsg
@@ -120,45 +128,50 @@ serviceRequests memPoolAccess reqQ respQ = do
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
-    newTrans <- liftIO $ memPoolAccess TransactionCriteria
+    newTrans <- liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
-    -- TODO: Replace to test chckpointing
-    unless True {-(isGenesisBlockHeader _parentHeader)-} $ do
-        cpdata <- liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
-        case cpdata of
-            Left msg -> closePactDb >> fail msg
-            Right st -> updateState st
+    cpdata <-
+      if (isGenesisBlockHeader _parentHeader)
+        then liftIO $ restoreInitial _cpeCheckpointer
+        else do
+          liftIO $ putStrLn $ "newBlock - restore (height = " ++ show _blockHeight ++ ")"
+          liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
+    case cpdata of
+        Left msg -> closePactDb <$> get >> fail msg
+        Right st -> updateState st
+
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
-    -- TODO: uncomment to test checkpointing
-    -- close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
-    -- flip (either fail) close_status $ \_ -> return results
+    liftIO $ putStrLn $ "newBlock - close (height = " ++ show _blockHeight ++ ")"
+    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
+    flip (either fail) close_status return
     return results
+
 
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     CheckpointEnv {..} <- ask
-    parentHeader <- liftIO $ parentFromHeader currHeader
-    -- TODO: Replace to test chckpointing
-    unless True {- (isGenesisBlockHeader parentHeader) -} $ do
-        cpdata <- liftIO $ restore _cpeCheckpointer (_blockHeight parentHeader)
-                  (_blockPayloadHash parentHeader)
-        case cpdata of
-            Left s -> closePactDb >> fail s -- band-aid
-            Right r -> updateState $! r
+    -- parentHeader <- liftIO $ parentFromHeader currHeader
+
+    liftIO $ putStrLn $ "validateBlock - restore (height = " ++ show (pred (_blockHeight currHeader)) ++ ")"
+    cpdata <- if (isGenesisBlockHeader currHeader)
+        then liftIO $ restoreInitial _cpeCheckpointer
+        else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (BlockPayloadHash (_blockParent currHeader))
+    case cpdata of
+        Left s -> ( get >>= liftIO . closePactDb ) >> fail s -- band-aid
+        Right r -> updateState $! r
     (results, updatedState) <- execTransactions trans
     put updatedState
-    {- -- TODO: uncomment to test checkpointing
+    liftIO $ putStrLn $ "validateBlock - save (height = " ++ show (_blockHeight currHeader) ++ ")"
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
                   (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
-    case estate of
+    _ <- case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception") closePactDb
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (get >>= liftIO . closePactDb)
             fail s
         Right _ -> return results
-    -}
     return results
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -231,13 +244,14 @@ pactFilesDir = "test/config/"
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
 transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
-transactionsFromHeader memPoolAccess _bHeader =
+transactionsFromHeader memPoolAccess bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
-    memPoolAccess TransactionCriteria
+    memPoolAccess (_blockHeight bHeader)
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv
 
 parentFromHeader :: BlockHeader -> IO BlockHeader
 parentFromHeader = return
+
 ----------------------------------------------------------------------------------------------------
