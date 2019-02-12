@@ -1,13 +1,11 @@
 packages: chainweb.cabal
 
-tests: True
 -- with-compiler: ghc-8.4.4
 
 package chainweb
-    documentation: False
-    optimization: 1
-    flags: -with-pact
+    tests: True
 
+-- this is for building on Mac OS X with openssl installed via homebrew
 package hlibgit2
     extra-lib-dirs: /usr/local/opt/openssl/lib
     extra-include-dirs: /usr/local/opt/openssl/include
@@ -37,3 +35,4 @@ source-repository-package
 
 constraints:
     megaparsec <7.0
+

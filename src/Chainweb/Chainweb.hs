@@ -189,12 +189,12 @@ data ChainwebConfiguration = ChainwebConfiguration
 
 makeLenses ''ChainwebConfiguration
 
-defaultChainwebConfiguration :: ChainwebConfiguration
-defaultChainwebConfiguration = ChainwebConfiguration
-    { _configChainwebVersion = Test
+defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
+defaultChainwebConfiguration v = ChainwebConfiguration
+    { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultMinerConfig
-    , _configP2p = defaultP2pConfiguration Test
+    , _configP2p = defaultP2pConfiguration v
     , _configChainDbDirPath = Nothing
     }
 

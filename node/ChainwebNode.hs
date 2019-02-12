@@ -58,6 +58,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Utils
+import Chainweb.Version
 
 import Data.LogMessage
 
@@ -75,9 +76,9 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
 
 makeLenses ''ChainwebNodeConfiguration
 
-defaultChainwebNodeConfiguration :: ChainwebNodeConfiguration
-defaultChainwebNodeConfiguration = ChainwebNodeConfiguration
-    { _nodeConfigChainweb = defaultChainwebConfiguration
+defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
+defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
+    { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = L.defaultLogConfig
         & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigCutsLogger =
@@ -176,7 +177,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    defaultChainwebNodeConfiguration
+    (defaultChainwebNodeConfiguration Test)
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
