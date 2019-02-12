@@ -184,7 +184,6 @@ library
         , memory >= 0.14
         , mtl >= 2.2
         , mwc-random >= 0.13
-        , neat-interpolation >= 0.3.2
         , network >= 2.6
         , optparse-applicative >= 0.14
         , paths >= 0.2
@@ -253,6 +252,7 @@ library
         build-depends:
               pact >= 2.4
             , thyme == 0.3.6.0
+            , neat-interpolation >= 0.3.2
 
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
