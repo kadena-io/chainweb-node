@@ -174,13 +174,15 @@ mkEdgeId :: NodeId -> NodeId -> EdgeId
 mkEdgeId s t = s <> "$" <> t
 
 creationTimeMs :: Integral a => BlockHeader -> a
-creationTimeMs b = int . msecs $ (b ^. blockCreationTime) `diff` epoche
+creationTimeMs b = int . msecs $ t `diff` epoche
   where
+    BlockCreationTime t = _blockCreationTime b
     msecs (TimeSpan x) = x `div` 1000
 
 creationTimeSeconds :: BlockHeader -> Double
-creationTimeSeconds b = secs $ (b ^. blockCreationTime) `diff` epoche
+creationTimeSeconds b = secs $ t `diff` epoche
   where
+    BlockCreationTime t = _blockCreationTime b
     secs (TimeSpan x) = int x / 1000000
 
 -- -------------------------------------------------------------------------- --

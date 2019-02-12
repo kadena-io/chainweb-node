@@ -72,13 +72,13 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
         , Chainweb.Chainweb
+        , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
-        , Chainweb.Crypto.MerkleLog
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -86,8 +86,11 @@ library
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.Socket
         , Chainweb.Mempool.Websocket
+        , Chainweb.MerkleLogHash
+        , Chainweb.MerkleUniverse
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans

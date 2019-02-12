@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
@@ -27,13 +28,17 @@ module Chainweb.Mempool.Mempool
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
 import Control.Monad (replicateM)
+import Crypto.Hash (hash)
+import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Bits (bit, shiftL, shiftR, (.&.))
+import Data.ByteArray (convert)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as S
-import Data.Decimal (Decimal, DecimalRaw(..))
-import Data.Hashable (Hashable(..))
+import Data.Decimal (Decimal)
+import Data.Decimal (DecimalRaw(..))
+import Data.Hashable (Hashable(hashWithSalt))
 import Data.Int (Int64)
 import Data.IORef (IORef)
 import Data.List (unfoldr)
@@ -50,7 +55,6 @@ import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version
 
 
 ------------------------------------------------------------------------------
@@ -180,7 +184,7 @@ data HashMeta = HashMeta {
 }
 
 chainwebTestHasher :: ByteString -> TransactionHash
-chainwebTestHasher s = let (BlockHashBytes b) = cryptoHash Test s
+chainwebTestHasher s = let b = convert $ hash @_ @SHA512t_256 $ "TEST" <> s
                        in TransactionHash b
 
 chainwebTestHashMeta :: HashMeta

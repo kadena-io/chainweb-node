@@ -603,10 +603,10 @@ testMineCut
     -> cid
     -> Cut
     -> Maybe (BlockHeader, Cut)
-testMineCut n nid i c = testMineCutWithTime t n nid i c
+testMineCut n nid i c = testMineCutWithTime (second `add` t) n nid i c
   where
     cid = _chainId i
-    t = second `add` (_blockCreationTime $ c ^?! ixg cid)
+    BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid
 
 randomChainId :: HasChainGraph g => g -> IO ChainId
 randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)

@@ -7,10 +7,12 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
@@ -29,11 +31,11 @@
 --
 module Chainweb.Difficulty
 (
--- * BlockHashNat
-  BlockHashNat(..)
-, blockHashNat
-, encodeBlockHashNat
-, decodeBlockHashNat
+-- * PowHashNat
+  PowHashNat(..)
+, powHashNat
+, encodePowHashNat
+, decodePowHashNat
 
 -- * HashTarget
 , HashTarget(..)
@@ -62,6 +64,7 @@ import Data.Aeson.Types (toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
@@ -73,11 +76,15 @@ import Test.QuickCheck (Property, property)
 
 -- internal imports
 
-import Chainweb.BlockHash
-import Numeric.Additive
-import Data.Word.Encoding hiding (properties)
+import Chainweb.PowHash
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils
+
+import Data.Word.Encoding hiding (properties)
+
+import Numeric.Additive
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
@@ -86,7 +93,7 @@ instance NFData Word128
 instance NFData Word256
 
 -- -------------------------------------------------------------------------- --
--- BlockHashNat
+-- PowHashNat
 
 -- | A type that maps block hashes to unsigned 256 bit integers by
 -- projecting onto the first 8 bytes (least significant in little
@@ -96,7 +103,7 @@ instance NFData Word256
 -- Arithmetic is defined as unsigned bounded integer arithmetic.
 -- Overflows result in an exception and may result in program abort.
 --
-newtype BlockHashNat = BlockHashNat Word256
+newtype PowHashNat = PowHashNat Word256
     deriving (Show, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Eq, Ord, Bounded, Enum)
@@ -107,39 +114,39 @@ newtype BlockHashNat = BlockHashNat Word256
     -- deriving newtype (MultiplicativeSemigroup, MultiplicativeAbelianSemigroup, MultiplicativeGroup)
         -- FIXME use checked arithmetic instead
 
-blockHashNat :: BlockHash -> BlockHashNat
-blockHashNat (BlockHash _ bytes) = BlockHashNat $ blockHashBytesToWord256 bytes
-{-# INLINE blockHashNat #-}
+powHashNat :: PowHash -> PowHashNat
+powHashNat = PowHashNat . powHashToWord256
+{-# INLINE powHashNat #-}
 
-blockHashBytesToWord256 :: 32 <= BlockHashBytesCount => BlockHashBytes -> Word256
-blockHashBytesToWord256 (BlockHashBytes bs) = either error id $ runGetS decodeWordLe bs
-{-# INLINE blockHashBytesToWord256 #-}
+powHashToWord256 :: 32 <= PowHashBytesCount => PowHash -> Word256
+powHashToWord256 = either error id . runGetS decodeWordLe . SB.fromShort . powHashBytes
+{-# INLINE powHashToWord256 #-}
 
-encodeBlockHashNat :: MonadPut m => BlockHashNat -> m ()
-encodeBlockHashNat (BlockHashNat n) = encodeWordLe n
-{-# INLINE encodeBlockHashNat #-}
+encodePowHashNat :: MonadPut m => PowHashNat -> m ()
+encodePowHashNat (PowHashNat n) = encodeWordLe n
+{-# INLINE encodePowHashNat #-}
 
-decodeBlockHashNat :: MonadGet m => m BlockHashNat
-decodeBlockHashNat = BlockHashNat <$> decodeWordLe
-{-# INLINE decodeBlockHashNat #-}
+decodePowHashNat :: MonadGet m => m PowHashNat
+decodePowHashNat = PowHashNat <$> decodeWordLe
+{-# INLINE decodePowHashNat #-}
 
-instance ToJSON BlockHashNat where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHashNat
+instance ToJSON PowHashNat where
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     {-# INLINE toJSON #-}
 
-instance FromJSON BlockHashNat where
-    parseJSON = withText "BlockHashNat" $ either (fail . show) return
-        . (runGet decodeBlockHashNat <=< decodeB64UrlNoPaddingText)
+instance FromJSON PowHashNat where
+    parseJSON = withText "PowHashNat" $ either (fail . show) return
+        . (runGet decodePowHashNat <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
-instance ToJSONKey BlockHashNat where
+instance ToJSONKey PowHashNat where
     toJSONKey = toJSONKeyText
-        $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHashNat
+        $ encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     {-# INLINE toJSONKey #-}
 
-instance FromJSONKey BlockHashNat where
+instance FromJSONKey PowHashNat where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
-        . (runGet decodeBlockHashNat <=< decodeB64UrlNoPaddingText)
+        . (runGet decodePowHashNat <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
 -- -------------------------------------------------------------------------- --
@@ -150,7 +157,7 @@ instance FromJSONKey BlockHashNat where
 -- difficulty = maxBound / target
 --            = network hash rate * block time
 --
-newtype HashDifficulty = HashDifficulty BlockHashNat
+newtype HashDifficulty = HashDifficulty PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Hashable, Bounded, Enum)
@@ -158,11 +165,11 @@ newtype HashDifficulty = HashDifficulty BlockHashNat
     deriving newtype (Num, Integral, Real)
 
 encodeHashDifficulty :: MonadPut m => HashDifficulty -> m ()
-encodeHashDifficulty (HashDifficulty x) = encodeBlockHashNat x
+encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 {-# INLINE encodeHashDifficulty #-}
 
 decodeHashDifficulty :: MonadGet m => m HashDifficulty
-decodeHashDifficulty = HashDifficulty <$> decodeBlockHashNat
+decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
 {-# INLINE decodeHashDifficulty #-}
 
 -- -------------------------------------------------------------------------- --
@@ -175,10 +182,17 @@ decodeHashDifficulty = HashDifficulty <$> decodeBlockHashNat
 --
 -- network hash rate is interpolated from observered past block times.
 --
-newtype HashTarget = HashTarget BlockHashNat
+newtype HashTarget = HashTarget PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded, Enum)
+
+instance IsMerkleLogEntry ChainwebHashTag HashTarget where
+    type Tag HashTarget = 'HashTargetTag
+    toMerkleNode = encodeMerkleInputNode encodeHashTarget
+    fromMerkleNode = decodeMerkleInputNode decodeHashTarget
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 difficultyToTarget :: HashDifficulty -> HashTarget
 difficultyToTarget difficulty = HashTarget $ maxBound `div` coerce difficulty
@@ -188,16 +202,16 @@ targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
 {-# INLINE targetToDifficulty #-}
 
-checkTarget :: HashTarget -> BlockHash -> Bool
-checkTarget target h = blockHashNat h <= coerce target
+checkTarget :: HashTarget -> PowHash -> Bool
+checkTarget target h = powHashNat h <= coerce target
 {-# INLINE checkTarget #-}
 
 encodeHashTarget :: MonadPut m => HashTarget -> m ()
-encodeHashTarget = encodeBlockHashNat . coerce
+encodeHashTarget = encodePowHashNat . coerce
 {-# INLINE encodeHashTarget #-}
 
 decodeHashTarget :: MonadGet m => m HashTarget
-decodeHashTarget = HashTarget <$> decodeBlockHashNat
+decodeHashTarget = HashTarget <$> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
 
 -- -------------------------------------------------------------------------- --
@@ -221,15 +235,15 @@ calculateTarget
 calculateTarget targetTime l = HashTarget $ sum
     [ weightedTarget trg (t2h t) w
     | (HashTarget trg, t) <- l
-    | w <- [ (1::BlockHashNat) ..]
+    | w <- [ (1::PowHashNat) ..]
     ]
   where
-    n :: BlockHashNat
+    n :: PowHashNat
     n = int $ length l
 
     -- represent time span as integral number of milliseconds
     --
-    t2h :: TimeSpan a -> BlockHashNat
+    t2h :: TimeSpan a -> PowHashNat
     t2h t = int (coerce t :: a) `div` 1000
 
     -- weight and n is in the order of 2^7
@@ -238,7 +252,7 @@ calculateTarget targetTime l = HashTarget $ sum
     -- Target should be < 2^231 (or difficulty should be larger than 2^25.
     -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
     --
-    weightedTarget :: BlockHashNat -> BlockHashNat -> BlockHashNat -> BlockHashNat
+    weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
     weightedTarget target timeSpan weight
         | nominator < target = error "arithmetic overflow in hash target calculation"
         | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
@@ -259,7 +273,7 @@ prop_littleEndian = all run [1..31]
         $ reverse
         $ B.unpack
         $ runPutS
-        $ encodeBlockHashNat (maxBound `div` 2^(8*i))
+        $ encodePowHashNat (maxBound `div` 2^(8*i))
 
 properties :: [(String, Property)]
 properties =

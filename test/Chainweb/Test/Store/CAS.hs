@@ -26,8 +26,8 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.QuickCheck hiding ((.&.))
 ------------------------------------------------------------------------------
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.MerkleLogHash
 import Chainweb.Store.CAS
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ instance Arbitrary MockPayload where
                             <*> chooseAny
 
 hashMockPayload :: MockPayload -> BlockPayloadHash
-hashMockPayload = BlockPayloadHash . BlockHashBytes . encodeMockPayload
+hashMockPayload = BlockPayloadHash . unsafeMerkleLogHash . encodeMockPayload
 
 encodeMockPayload :: MockPayload -> ByteString
 encodeMockPayload (MockPayload a b c d) =

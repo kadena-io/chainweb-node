@@ -35,25 +35,13 @@
 --
 module Chainweb.BlockHash
 (
--- * BlockHashBytes
-  BlockHashBytes(..) -- FIXME import this only internally
-, BlockHashBytesCount
-, blockHashBytesCount
-, blockHashBytes
-, encodeBlockHashBytes
-, decodeBlockHashBytes
-, nullHashBytes
-, oneHashBytes
-, randomBlockHashBytes
-
 -- * BlockHash
-, BlockHash(..)
+  BlockHash(..)
 , encodeBlockHash
 , decodeBlockHash
 , decodeBlockHashChecked
 , randomBlockHash
 , nullBlockHash
-, cryptoHash
 , blockHashToText
 , blockHashFromText
 
@@ -63,15 +51,16 @@ module Chainweb.BlockHash
 , encodeBlockHashRecord
 , decodeBlockHashRecord
 , decodeBlockHashRecordChecked
+, blockHashRecordToSequence
+, blockHashRecordFromSequence
 
 -- * Exceptions
-, BlockHashException(..)
 ) where
 
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (Exception, MonadThrow, throwM)
+import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.IO.Class (MonadIO(..))
 
 import Data.Aeson
@@ -79,113 +68,25 @@ import Data.Aeson
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bytes.Get
 import Data.Bytes.Put
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Random as BR
+import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
-import Data.Kind
 import Data.List (sort)
-import Data.Proxy
+import qualified Data.Sequence as S
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 
 import GHC.Generics
-import GHC.TypeNats
 
 import Numeric.Natural
 
-import qualified "cryptohash-sha512" Crypto.Hash.SHA512 as SHA512
-
 -- internal imports
 
+import Chainweb.MerkleLogHash
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Utils
-import Chainweb.Version
-
--- -------------------------------------------------------------------------- --
--- Exceptions
-
-data BlockHashException
-    = BlockHashBytesCountMismatch (Expected Natural) (Actual Natural)
-    | BlockHashNatOverflow (Actual Integer)
-    deriving (Show, Generic)
-
-instance Exception BlockHashException
-
--- -------------------------------------------------------------------------- --
--- BlockHashBytes
-
--- | TODO: consider parameterizing this value on the ChainwebVersion.
--- (e.g. for Test we may want to use just '()' or 'Int')
---
-type BlockHashBytesCount = 32
-
-blockHashBytesCount :: Natural
-blockHashBytesCount = natVal $ Proxy @BlockHashBytesCount
-{-# INLINE blockHashBytesCount #-}
-
-newtype BlockHashBytes :: Type where
-    BlockHashBytes :: B.ByteString -> BlockHashBytes
-    deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-
--- | Smart constructor
---
-blockHashBytes :: MonadThrow m => B.ByteString -> m BlockHashBytes
-blockHashBytes bytes
-    | B.length bytes == int blockHashBytesCount = return (BlockHashBytes bytes)
-    | otherwise = throwM
-        $ BlockHashBytesCountMismatch (Expected blockHashBytesCount) (Actual . int $ B.length bytes)
-{-# INLINE blockHashBytes #-}
-
-encodeBlockHashBytes :: MonadPut m => BlockHashBytes -> m ()
-encodeBlockHashBytes (BlockHashBytes bytes) = putByteString bytes
-{-# INLINE encodeBlockHashBytes #-}
-
-decodeBlockHashBytes :: MonadGet m => m BlockHashBytes
-decodeBlockHashBytes = BlockHashBytes <$> getBytes (int blockHashBytesCount)
-{-# INLINE decodeBlockHashBytes #-}
-
-instance Hashable BlockHashBytes where
-    hashWithSalt s (BlockHashBytes bs) = hashWithSalt s $ B.take 8 bs
-    -- BlockHashes are already cryptographically strong hashes
-    -- that include the chain id. It would be more efficient to use
-    -- the first 8 bytes directly as hash (and xor with the salt).
-    {-# INLINE hashWithSalt #-}
-
-nullHashBytes :: BlockHashBytes
-nullHashBytes = BlockHashBytes $ B.replicate (int blockHashBytesCount) 0x00
-{-# NOINLINE nullHashBytes #-}
-
-oneHashBytes :: BlockHashBytes
-oneHashBytes = BlockHashBytes $ B.replicate (int blockHashBytesCount) 0xff
-{-# NOINLINE oneHashBytes #-}
-
--- | This must be used only for testing. The result hash is uniformily
--- distributed, but not cryptographically safe.
---
-randomBlockHashBytes :: MonadIO m => m BlockHashBytes
-randomBlockHashBytes = BlockHashBytes <$> liftIO (BR.random blockHashBytesCount)
-
-instance ToJSON BlockHashBytes where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHashBytes
-    {-# INLINE toJSON #-}
-
-instance FromJSON BlockHashBytes where
-    parseJSON = withText "BlockHashBytes" $ \t ->
-        either (fail . show) return
-            $ runGet decodeBlockHashBytes =<< decodeB64UrlNoPaddingText t
-    {-# INLINE parseJSON #-}
-
--- -------------------------------------------------------------------------- --
--- Cryptographic Hash
-
-cryptoHash :: ChainwebVersion -> (B.ByteString -> BlockHashBytes)
-cryptoHash Test = BlockHashBytes . B.take 32 . SHA512.hash
-cryptoHash TestWithTime = BlockHashBytes . B.take 32 . SHA512.hash
-cryptoHash TestWithPow = BlockHashBytes . B.take 32 . SHA512.hash
-cryptoHash Simulation = BlockHashBytes . B.take 32 . SHA512.hash
-cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 
 -- -------------------------------------------------------------------------- --
 -- BlockHash
@@ -201,7 +102,7 @@ cryptoHash Testnet00 = BlockHashBytes . B.take 32 . SHA512.hash
 --     type safety across serialization roundtrips.
 --
 data BlockHash = BlockHash {-# UNPACK #-} !ChainId
-                           {-# UNPACK #-} !BlockHashBytes
+                           {-# UNPACK #-} !MerkleLogHash
     deriving stock (Eq, Ord, Generic)
     deriving anyclass (NFData)
 
@@ -220,16 +121,23 @@ instance Serialize BlockHash where
     put = encodeBlockHash
     get = decodeBlockHash
 
+instance IsMerkleLogEntry ChainwebHashTag BlockHash where
+    type Tag BlockHash = 'BlockHashTag
+    toMerkleNode = encodeMerkleInputNode encodeBlockHash
+    fromMerkleNode = decodeMerkleInputNode decodeBlockHash
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
 encodeBlockHash :: MonadPut m => BlockHash -> m ()
 encodeBlockHash (BlockHash cid bytes) = do
     encodeChainId cid
-    encodeBlockHashBytes bytes
+    encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
 decodeBlockHash :: MonadGet m => m BlockHash
 decodeBlockHash = BlockHash
     <$> decodeChainId
-    <*> decodeBlockHashBytes
+    <*> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
 decodeBlockHashChecked
@@ -240,7 +148,7 @@ decodeBlockHashChecked
     -> m BlockHash
 decodeBlockHashChecked p = BlockHash
     <$> decodeChainIdChecked p
-    <*> decodeBlockHashBytes
+    <*> decodeMerkleLogHash
 {-# INLINE decodeBlockHashChecked #-}
 
 instance ToJSON BlockHash where
@@ -263,7 +171,7 @@ instance FromJSONKey BlockHash where
     {-# INLINE fromJSONKey #-}
 
 randomBlockHash :: MonadIO m => HasChainId p => p -> m BlockHash
-randomBlockHash p = BlockHash (_chainId p) <$> randomBlockHashBytes
+randomBlockHash p = BlockHash (_chainId p) <$> randomMerkleLogHash
 {-# INLINE randomBlockHash #-}
 
 nullBlockHash :: HasChainId p => p -> BlockHash
@@ -336,3 +244,17 @@ decodeBlockHashRecordChecked ps = do
         $ BlockHashRecord
         $ HM.fromList
         $ (_chainId <$> getExpected ps) `zip` hashes
+
+blockHashRecordToSequence :: BlockHashRecord -> S.Seq BlockHash
+blockHashRecordToSequence = S.fromList
+    . fmap snd
+    . sort
+    . HM.toList
+    . _getBlockHashRecord
+
+blockHashRecordFromSequence :: S.Seq BlockHash -> BlockHashRecord
+blockHashRecordFromSequence = BlockHashRecord
+    . HM.fromList
+    . fmap (\x -> (_chainId x, x))
+    . toList
+
