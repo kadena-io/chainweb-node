@@ -35,6 +35,7 @@ import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHeader
+import Chainweb.BlockHash
 import Chainweb.Pact.Backend.Types
 
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
@@ -55,7 +56,7 @@ initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) FilePath
+type Store = HashMap (BlockHeight, BlockHash) FilePath
 
 reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData P.SQLite -> IO (Either String PactDbState)
 reinitDbEnv loggers funrec savedata = runExceptT $ do
@@ -72,7 +73,7 @@ reinitDbEnv loggers funrec savedata = runExceptT $ do
 maybeToExceptT :: Monad m => e -> (a -> m b) -> Maybe a -> ExceptT e m b
 maybeToExceptT f g = ExceptT . maybe (return $ Left f) (fmap Right . g)
 
-restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 restore' lock height hash =
   withMVar lock $ \store ->
     case HMS.lookup (height, hash) store of
@@ -110,7 +111,7 @@ changeSQLFilePath :: FilePath -> (FilePath -> FilePath -> FilePath) -> P.SQLiteC
 changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) =
     P.SQLiteConfig (f fp dbFile) pragmas
 
-save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash pactdbstate =
   withMVar lock $ \store ->
     case HMS.lookup (height, hash) store of
@@ -158,7 +159,7 @@ save' lock height hash pactdbstate =
     msgWriteDbError = "SQLiteCheckpointer.save': Write db error"
     msgSaveKeyError = "SQLiteCheckpointer.save': Save key not found exception"
 
-discard' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 discard' _ _ _ pactdbstate =
   case _pdbsDbEnv pactdbstate of
     EnvPersist' (PactDbEnvPersist _ _dbEnv) ->

@@ -35,6 +35,7 @@ import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
+import Debug.Trace
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
@@ -128,14 +129,14 @@ serviceRequests memPoolAccess reqQ respQ = do
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
-    newTrans <- liftIO $ memPoolAccess _blockHeight
+    newTrans <- trace ("Top of newBlock: height = " ++ show _blockHeight) $ liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
     cpdata <-
       if (isGenesisBlockHeader _parentHeader)
         then liftIO $ restoreInitial _cpeCheckpointer
         else do
           liftIO $ putStrLn $ "newBlock - restore (height = " ++ show _blockHeight ++ ")"
-          liftIO $ restore _cpeCheckpointer _blockHeight _blockPayloadHash
+          liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
     case cpdata of
         Left msg -> closePactDb <$> get >> fail msg
         Right st -> updateState st
@@ -143,7 +144,7 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     (results, updatedState) <- execTransactions newTrans
     put $! updatedState
     liftIO $ putStrLn $ "newBlock - close (height = " ++ show _blockHeight ++ ")"
-    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockPayloadHash updatedState
+    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
     flip (either fail) close_status return
     return results
 
@@ -151,21 +152,20 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
-    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
+    trans <- trace ( "Top of validateBlock - (height = " ++ show (_blockHeight currHeader) ++ ")") $ liftIO $ transactionsFromHeader memPoolAccess currHeader
     CheckpointEnv {..} <- ask
     -- parentHeader <- liftIO $ parentFromHeader currHeader
 
-    liftIO $ putStrLn $ "validateBlock - restore (height = " ++ show (pred (_blockHeight currHeader)) ++ ")"
     cpdata <- if (isGenesisBlockHeader currHeader)
         then liftIO $ restoreInitial _cpeCheckpointer
-        else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (BlockPayloadHash (_blockParent currHeader))
+        else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (_blockParent currHeader)
     case cpdata of
         Left s -> ( get >>= liftIO . closePactDb ) >> fail s -- band-aid
         Right r -> updateState $! r
     (results, updatedState) <- execTransactions trans
     put updatedState
     liftIO $ putStrLn $ "validateBlock - save (height = " ++ show (_blockHeight currHeader) ++ ")"
-    estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockPayloadHash currHeader)
+    estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
                   (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
     _ <- case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
@@ -250,8 +250,5 @@ transactionsFromHeader memPoolAccess bHeader =
 
 _getGasEnv :: PactT P.GasEnv
 _getGasEnv = view cpeGasEnv
-
-parentFromHeader :: BlockHeader -> IO BlockHeader
-parentFromHeader = return
 
 ----------------------------------------------------------------------------------------------------

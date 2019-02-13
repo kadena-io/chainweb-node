@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
@@ -25,6 +26,7 @@ import qualified Pact.Types.Server as P
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 
 -- MIGHT INCLUDE THIS MODULE LATER
@@ -49,9 +51,9 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockPayloadHash) PactDbState
+type Store = HashMap (BlockHeight, BlockHash) PactDbState
 
-restore' :: MVar Store -> BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
@@ -61,14 +63,19 @@ restore' lock height hash = do
             Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
-restoreInitial' lock = restore' lock (BlockHeight 0) $ BlockPayloadHash $ BlockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
+restoreInitial' lock = do
+    tempChainId <- (chainIdFromText "0")
+    bhb <- blockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
+    restore' lock (BlockHeight 0) $ BlockHash tempChainId $ bhb
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
 saveInitial' lock p@(PactDbState {..}) = do
-    let aHash = BlockPayloadHash $ BlockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
+    tempChainId <- (chainIdFromText "0")
+    bhb <- blockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
+    let aHash = BlockHash tempChainId bhb
     save' lock (BlockHeight 0) aHash p
 
-save' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@(PactDbState {..}) = do
      -- Saving off checkpoint.
      -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
@@ -81,5 +88,5 @@ save' lock height hash p@(PactDbState {..}) = do
          case _pdepEnv of
            P.DbEnv {..} -> closeDb _db
 
-discard' :: MVar Store -> BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 discard' _ _ _ _ = return (Right ())

@@ -95,7 +95,7 @@ checkRespTrans fp (Right x) =
         Right ts -> do
             let jsonTrans = show (toJSON ts) ++ "\n"
             -- uncomment to capture updated test results
-            -- putStrLn $ "\n\npactTestApi - JSON results: \n\n" ++ jsonTrans ++ "\n\n"
+            putStrLn $ "\n\npactTestApi - JSON results: \n\n" ++ jsonTrans ++ "\n\n"
             expectedPayload <- readFile' $ testPactFilesDir ++ fp
             jsonTrans @?= expectedPayload
 
