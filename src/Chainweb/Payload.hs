@@ -64,6 +64,8 @@ module Chainweb.Payload
 
 -- * API Payload Data
 , PayloadData(..)
+, payloadData
+, newPayloadData
 ) where
 
 import Control.DeepSeq
@@ -217,6 +219,14 @@ newtype TransactionOutput = TransactionOutput
     { _transactionOutputBytes :: B.ByteString }
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (BA.ByteArrayAccess)
+
+instance ToJSON TransactionOutput where
+    toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
+    {-# INLINE toJSON #-}
+
+instance FromJSON TransactionOutput where
+    parseJSON = parseJsonFromText "TransactionOutput"
+    {-# INLINE parseJSON #-}
 
 instance IsMerkleLogEntry ChainwebHashTag TransactionOutput where
     type Tag TransactionOutput = 'TransactionOutputTag
@@ -509,7 +519,8 @@ data PayloadData = PayloadData
     , _payloadDataTransactionsHash :: !BlockTransactionsHash
     , _payloadDataOutputsHash :: !BlockOutputsHash
     }
-    deriving (Show, Generic)
+    deriving (Eq, Show, Generic)
+    deriving anyclass (NFData)
 
 instance ToJSON PayloadData where
     toJSON o = object
@@ -526,3 +537,14 @@ instance FromJSON PayloadData where
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
+
+payloadData :: BlockTransactions -> BlockPayload -> PayloadData
+payloadData txs payload = PayloadData
+    { _payloadDataTransactions = _blockTransactions txs
+    , _payloadDataPayloadHash = _blockPayloadHash payload
+    , _payloadDataTransactionsHash = _blockPayloadTransactionsHash payload
+    , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
+    }
+
+newPayloadData :: BlockTransactions -> BlockOutputs -> PayloadData
+newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs

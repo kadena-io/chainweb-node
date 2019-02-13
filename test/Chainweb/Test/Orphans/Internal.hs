@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -31,9 +32,22 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.MerkleLogHash
 import Chainweb.NodeId
+import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Utils
 import Chainweb.Version
+
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+arbitraryBytes :: Int -> Gen B.ByteString
+arbitraryBytes i = B.pack <$> vector i
+
+arbitraryBytesSized :: Gen B.ByteString
+arbitraryBytesSized = sized $ \s -> choose (0, s) >>= arbitraryBytes
+
+-- -------------------------------------------------------------------------- --
+-- Basics
 
 instance Arbitrary ChainwebVersion where
     arbitrary = elements [minBound .. maxBound]
@@ -43,15 +57,30 @@ instance Arbitrary ChainNodeId where
       <$> pure (testChainId 0)
       <*> arbitrary
 
-instance Arbitrary BlockHash where
-    arbitrary = BlockHash <$> pure (testChainId 0) <*> arbitrary
-
-instance Arbitrary PowHash where
-    arbitrary = unsafeMkPowHash . B.pack <$> vector (int powHashBytesCount)
-
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
+
+-- -------------------------------------------------------------------------- --
+-- POW
+
+instance Arbitrary PowHashNat where
+    arbitrary = powHashNat <$> arbitrary
+
+instance Arbitrary PowHash where
+    arbitrary = unsafeMkPowHash <$> arbitraryBytes (int powHashBytesCount)
+
+instance Arbitrary HashTarget where
+    arbitrary = HashTarget <$> arbitrary
+
+instance Arbitrary HashDifficulty where
+    arbitrary = HashDifficulty <$> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Block Header
+
+instance Arbitrary BlockHash where
+    arbitrary = BlockHash <$> pure (testChainId 0) <*> arbitrary
 
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
@@ -59,22 +88,10 @@ instance Arbitrary BlockHeight where
 instance Arbitrary BlockWeight where
     arbitrary = BlockWeight <$> arbitrary
 
-instance Arbitrary HashDifficulty where
-    arbitrary = HashDifficulty <$> arbitrary
-
-instance Arbitrary PowHashNat where
-    arbitrary = powHashNat <$> arbitrary
-
-instance Arbitrary HashTarget where
-    arbitrary = HashTarget <$> arbitrary
-
 instance Arbitrary BlockHashRecord where
     arbitrary = pure $ BlockHashRecord mempty
     -- arbitrary = BlockHashRecord . HM.fromList . fmap (\x -> (_chainId x, x))
     --     <$> arbitrary
-
-instance Arbitrary BlockPayloadHash where
-    arbitrary = BlockPayloadHash <$> arbitrary
 
 instance Arbitrary Nonce where
     arbitrary = Nonce <$> arbitrary
@@ -97,4 +114,40 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (pure Test)
             $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Payload
+
+instance Arbitrary BlockPayloadHash where
+    arbitrary = BlockPayloadHash <$> arbitrary
+
+instance Arbitrary Transaction where
+    arbitrary = Transaction <$> arbitraryBytesSized
+
+instance Arbitrary TransactionOutput where
+    arbitrary = TransactionOutput <$> arbitraryBytesSized
+
+instance Arbitrary BlockTransactionsHash where
+    arbitrary = BlockTransactionsHash <$> arbitrary
+
+instance Arbitrary BlockOutputsHash where
+    arbitrary = BlockOutputsHash <$> arbitrary
+
+instance Arbitrary BlockTransactions where
+    arbitrary = fromLog
+        <$> newMerkleLog
+        <$> MerkleLogBody
+        <$> arbitrary
+
+instance Arbitrary BlockOutputs where
+    arbitrary = fromLog
+        <$> newMerkleLog
+        <$> MerkleLogBody
+        <$> arbitrary
+
+instance Arbitrary BlockPayload where
+    arbitrary = blockPayload <$> arbitrary <*> arbitrary
+
+instance Arbitrary PayloadData where
+    arbitrary = newPayloadData <$> arbitrary <*> arbitrary
 

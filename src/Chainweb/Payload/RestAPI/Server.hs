@@ -71,12 +71,7 @@ payloadHandler db k = run >>= \case
         txs <- MaybeT $ liftIO $ casLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
-        return $ PayloadData
-            { _payloadDataTransactions = _blockTransactions txs
-            , _payloadDataPayloadHash = k
-            , _payloadDataTransactionsHash = _blockPayloadTransactionsHash payload
-            , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
-            }
+        return $ payloadData txs payload
 
 err404Msg :: ToJSON msg  => msg -> ServantErr
 err404Msg msg = ServantErr
