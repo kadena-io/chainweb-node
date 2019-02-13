@@ -326,6 +326,7 @@ chainwebTransactionConfig =
                               Mempool.mockFees
                               Mempool.mockSize
                               Mempool.mockMeta
+                              (const $ return True)
   where
     mockHash = Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec
 
@@ -501,18 +502,9 @@ withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, soc
     confLens = configP2p . p2pConfigPeer
 
 
--- TODO: plug in real config here
-mempoolTxCfg :: Mempool.TransactionConfig Mempool.MockTx
-mempoolTxCfg = Mempool.TransactionConfig
-                   Mempool.mockCodec
-                   (Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec)
-                   Mempool.chainwebTestHashMeta
-                   Mempool.mockFees
-                   Mempool.mockSize
-                   Mempool.mockMeta
-
 mempoolConfig :: Mempool.InMemConfig Mempool.MockTx
-mempoolConfig = Mempool.InMemConfig mempoolTxCfg Mempool.mockBlocksizeLimit mempoolReapInterval
+mempoolConfig = Mempool.InMemConfig chainwebTransactionConfig Mempool.mockBlocksizeLimit
+                                    mempoolReapInterval
   where
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
 

@@ -20,7 +20,7 @@ module Chainweb.Mempool.Websocket
   ) where
 ------------------------------------------------------------------------------
 import Control.Exception
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Char8 (ByteString)
@@ -74,7 +74,7 @@ server :: Show t => MempoolBackend t -> Server (MempoolWebsocketApi_ v c)
 server mempool = streamData
   where
   -- streamData :: MonadIO m => WS.Connection -> m ()
-    streamData conn = liftIO $ mask $ \restore -> do
+    streamData conn = liftIO $ mask $ \restore -> eatExceptions $ do
         debug "server" "opening connection"
         s <- connectionToStreams "server" conn
         debug "server" "connection open, running session"
@@ -178,13 +178,19 @@ connectionToStreams pfx conn = do
         in go
 
 
+eatExceptions :: IO () -> IO ()
+eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+
 runSecureClient :: String -> PortNumber -> String -> ClientApp a -> IO a
-runSecureClient host port path app = do
-    context <- initConnectionContext
-    connection <- connectTo context (connectionParams host port)
-    stream <- makeStream (reader connection) (writer connection)
-    runClientWithStream stream host path connectionOptions headers app
-      `onException` connectionClose connection
+runSecureClient host port path app = bracket create destroy go
+  where
+    create = do
+        context <- initConnectionContext
+        connectTo context (connectionParams host port)
+    go connection = do
+        stream <- makeStream (reader connection) (writer connection)
+        runClientWithStream stream host path connectionOptions headers app
+    destroy s = eatExceptions (connectionClose s)
 
 
 connectionParams :: String -> PortNumber -> ConnectionParams
@@ -222,7 +228,7 @@ writer connection m = maybe close putChunk m
   where
     close = do
         debug pfx "got close, closing socket"
-        connectionClose connection
+        eatExceptions $ connectionClose connection
     putChunk s = do
         debug pfx "writing chunk out to socket"
         connectionPut connection $ toStrict s
@@ -234,7 +240,7 @@ connectionOptions = defaultConnectionOptions
 
 
 headers :: WS.Headers
-headers = []
+headers = [("connection", "close")]
 
 
 -- Begin servant boilerplate --

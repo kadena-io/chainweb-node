@@ -13,14 +13,12 @@ module Chainweb.Test.Mempool.Websocket (tests) where
 import Test.Tasty
 ------------------------------------------------------------------------------
 import Control.Exception
-import qualified Data.ByteString.Char8 as B
 import Data.Foldable (toList)
 import Data.Proxy
 import qualified Data.Text as T
-import Network.Wai (Application)
-import qualified Network.WebSockets as WS
+import Network.Wai (Application, mapResponseHeaders)
+import Network.Wai.Internal (ResponseReceived(..))
 import Servant.API
-import qualified System.IO.Streams as Streams
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -44,6 +42,7 @@ tests = testGroup "Chainweb.Mempool.Websocket"
             $ withWebsocketMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
+                              (const $ return True)
     -- run the reaper @100Hz for testing
     cfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
     hz x = 1000000 `div` x
@@ -73,7 +72,7 @@ withWebsocketMempool inMemCfg userFunc = do
                     (SomeChainIdT (Proxy :: Proxy c)) ->
                         T.unpack $ toUrlPiece $
                         safeLink (MWS.mempoolWebsocketApi @vt @c) (MWS.mempoolWebsocketApi @vt @c)
-    withTestAppServer True (pure app) return $ \port -> do
+    withTestAppServer True (wrapApp app) return $ \port -> do
         let host = "localhost"
         let path = '/' : mempoolSubpath
         MWS.withClient host (fromIntegral port) path clientConfig userFunc
@@ -82,3 +81,12 @@ withWebsocketMempool inMemCfg userFunc = do
     keepaliveInterval = 60 * 60 * 4  -- 4 hours
     txcfg = _inmemTxCfg inMemCfg
     chain = head $ toList $ chainIds_ singleton
+
+
+
+wrapApp :: Application -> IO Application
+wrapApp app = return wrappedApp
+  where
+    wrappedApp req respond = app req (wrapRespond respond) `catch`
+                             (\(_ :: SomeException) -> return ResponseReceived)
+    wrapRespond respond = respond . mapResponseHeaders (("connection", "close"):)

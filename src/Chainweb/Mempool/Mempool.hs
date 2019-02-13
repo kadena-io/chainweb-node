@@ -81,6 +81,7 @@ data TransactionConfig t = TransactionConfig {
     -- | getter for transaction size.
   , txSize :: t -> Int64
   , txMetadata :: t -> TransactionMetadata
+  , txValidate :: t -> IO Bool
   }
 
 ------------------------------------------------------------------------------
@@ -134,7 +135,7 @@ noopMempool = MempoolBackend txcfg 1000 noopLookup noopInsert noopGetBlock
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopFees noopSize
-                              noopMeta
+                              noopMeta (const $ return True)
 
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
