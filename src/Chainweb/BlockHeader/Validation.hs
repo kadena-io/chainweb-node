@@ -254,4 +254,3 @@ prop_block_weight p b
 
 prop_block_chainId :: BlockHeader -> BlockHeader -> Bool
 prop_block_chainId = (==) `on` _blockChainId
-

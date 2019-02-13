@@ -629,7 +629,8 @@ genesisParentBlockHash v p = BlockHash (_chainId p) $ MerkleLogHash
         ]
 
 genesisBlockTarget :: ChainwebVersion -> HashTarget
-genesisBlockTarget _ = HashTarget maxBound
+genesisBlockTarget TestWithPow = maxTarget
+genesisBlockTarget _ = maxBound
 
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
 genesisTime Test _ = BlockCreationTime epoche
@@ -680,9 +681,13 @@ genesisBlockHeader
     -> ChainGraph
     -> p
     -> BlockHeader
-genesisBlockHeader v g p = fromLog mlog
+genesisBlockHeader v g p = gbh
   where
     cid = _chainId p
+
+    gbh :: BlockHeader
+    gbh = fromLog mlog
+
     mlog = newMerkleLog
         $ genesisParentBlockHash v cid
         :+: genesisBlockTarget v

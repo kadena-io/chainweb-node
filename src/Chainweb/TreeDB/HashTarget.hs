@@ -17,21 +17,25 @@ module Chainweb.TreeDB.HashTarget
   ) where
 
 import Control.Lens ((^.))
+import Control.Monad (when)
 
+import Debug.Trace
 import Data.Bits (countLeadingZeros)
-import Data.Coerce (coerce)
 import Data.DoubleWord (Word256)
 import Data.Function ((&))
 import qualified Data.HashSet as HS
 import Data.Int (Int64)
 import Data.Maybe (fromJust)
+import Data.Ratio
 import Data.Semigroup (Max(..), Min(..))
+import Text.Printf
 
 import qualified Streaming.Prelude as P
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight, IsBlockHeader(..))
+import Chainweb.ChainId
+import Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.TreeDB
@@ -128,7 +132,7 @@ hashTarget
     -> DbEntry db
     -> IO HashTarget
 hashTarget db bh
-    | _blockHeight bh' == 0 = pure $! _blockTarget bh'
+    | isGenesisBlockHeader bh' = pure $! _blockTarget bh'
     | _blockHeight bh' `mod` magicNumber /= 0 = pure $! _blockTarget bh'
     | otherwise = do
         start <- branchEntries db Nothing Nothing minr maxr lower upper
@@ -140,33 +144,71 @@ hashTarget db bh
                                   -- block.
 
         let delta :: Int64
-            !delta = coerce (_blockCreationTime bh') - coerce (_blockCreationTime start)
+            !delta = time bh' - time start
 
             -- Microseconds. `succ` guards against divide-by-zero in `newDiff`,
             -- which can occur when initial blocks are mined very quickly. In
             -- this case, an average block creation time of @succ 0 == 1@ has
             -- special meaning: "far too fast".
-            avg :: Int64
-            !avg = succ $ delta `div` int magicNumber
+            avg :: Ratio Word256
+            -- !avg = succ $ delta `div` int magicNumber
+            !avg | delta < 0 = error "Negative delta! Should be impossible!"
+                 | delta == 0 = error "ZERO DELTA"
+                 | otherwise = (int delta % int magicNumber) / 1000000 -- SECONDS!!
+
+            oldDiff :: Ratio Word256
+            !oldDiff = targetToDifficulty' $ _blockTarget bh'
 
             -- TODO Watch for overflows?
-            newDiff :: HashDifficulty
-            !newDiff = targetToDifficulty (_blockTarget bh') * int blockRate `div` int avg
+            -- TODO Is this just totally wrong?
+            -- TODO Remove the Numeric instances for HashDifficulty and HashTarget!
+            -- TODO Should `HashDifficulty` use `Ratio` internally, for perfect precision?
+            newDiff :: Ratio Word256
+            -- !newDiff = (targetToDifficulty (_blockTarget bh') * int blockRate) `div` int avg
+            !newDiff = oldDiff * blockRate / avg
 
             newTarget :: HashTarget
-            !newTarget = difficultyToTarget newDiff
+            !newTarget = difficultyToTarget' newDiff
 
-        if | newTarget < _blockTarget bh' -> pure $! max newTarget (_blockTarget bh' `div` 8)
-           | countLeadingZeros (_blockTarget bh') < 3 -> pure newTarget
-           | otherwise -> pure $! min newTarget (_blockTarget bh' * 8)
+        -- pure newTarget
+        -- TODO This is "adjustment capping". Explain this!
+        let !actual = if | newTarget < _blockTarget bh' -> max newTarget (_blockTarget bh' `div` 8)
+                         | countLeadingZeros (_blockTarget bh') < 3 -> newTarget
+                         | otherwise -> min newTarget (_blockTarget bh' * 8)
+
+        when (_blockChainId bh' == testChainId 0)
+            $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
+                  (show $ _blockChainId bh')
+                  (show $ _blockHeight bh')
+                  (floating avg)
+                  (floating oldDiff)
+                  (floating newDiff)
+                  (take 256 $ thing $ _blockTarget bh')
+                  (take 256 $ thing newTarget)
+                  (take 256 $ thing actual)
+
+        pure actual
   where
     magicNumber :: BlockHeight
-    magicNumber = 3  -- Ideally, three blocks in 30s. Not realistic, but I want
+    magicNumber = 5  -- Ideally, three blocks in 30s. Not realistic, but I want
                      -- to test. In prod this would come from config.
 
-    -- | 10 seconds as microseconds. In prod this should also come from config.
-    blockRate :: Word256
-    blockRate = 10 * 1000000
+    thing :: HashTarget -> String
+    thing = printf "%0256b" . tiggy
+
+    floating :: Ratio Word256 -> Double
+    floating = realToFrac
+
+    tiggy :: HashTarget -> Integer
+    tiggy (HashTarget (PowHashNat w)) = fromIntegral w
+
+    -- -- | 10 seconds as microseconds. In prod this should also come from config.
+    -- blockRate :: Ratio Word256
+    -- blockRate = 10 * 1000000
+
+    -- | Seconds.
+    blockRate :: Ratio Word256
+    blockRate = 10
 
     bh' :: BlockHeader
     bh' = bh ^. isoBH
@@ -175,3 +217,6 @@ hashTarget db bh
     maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
     lower = HS.empty
     upper = HS.singleton . UpperBound $! key bh
+
+    time :: BlockHeader -> Int64
+    time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n

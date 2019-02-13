@@ -58,7 +58,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Utils
-import Chainweb.Version
+import Chainweb.Version (ChainwebVersion(..))
 
 import Data.LogMessage
 
@@ -183,4 +183,3 @@ main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) (_nodeConfigCutsLogger conf) $ \logger ->
         node petersonChainGraph (_nodeConfigChainweb conf) logger
-

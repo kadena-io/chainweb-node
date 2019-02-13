@@ -42,7 +42,9 @@ module Chainweb.Difficulty
 , checkTarget
 , maxTarget
 , difficultyToTarget
+, difficultyToTarget'
 , targetToDifficulty
+, targetToDifficulty'
 , encodeHashTarget
 , decodeHashTarget
 
@@ -59,7 +61,6 @@ module Chainweb.Difficulty
 import Control.DeepSeq
 import Control.Monad
 
-import Data.Bits
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
@@ -70,6 +71,7 @@ import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
+import Data.Ratio
 
 import GHC.Generics
 import GHC.TypeNats
@@ -189,12 +191,17 @@ newtype HashTarget = HashTarget PowHashNat
     deriving newtype (ToJSON, FromJSON, Hashable)
     deriving newtype (Bounded, Enum, Num, Real, Integral, Bits, FiniteBits)
 
--- | By maximum, we mean "easiest". This should only take a single block hash to
--- succeed on.
+-- | By maximum, we mean "easiest". This is reduced down from `maxBound` so that
+-- the mining of initial blocks doesn't occur too quickly, stressing the system,
+-- or otherwise negatively affecting difficulty adjustment with very brief time
+-- deltas between blocks.
 --
 maxTarget :: HashTarget
-maxTarget = maxBound
-{-# INLINE maxTarget #-}
+maxTarget = HashTarget $! PowHashNat maxTarget'
+
+maxTarget' :: Word256
+-- maxTarget' = maxBound `div` (2 ^ (10 :: Int))
+maxTarget' = maxBound
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -203,14 +210,21 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+-- TODO These conversions depend on the `ChainwebVersion`!
 difficultyToTarget :: HashDifficulty -> HashTarget
 difficultyToTarget difficulty = maxTarget `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
--- TODO Should this be in terms of `maxTarget` too?
+-- TODO inline?
+difficultyToTarget' :: Ratio Word256 -> HashTarget
+difficultyToTarget' difficulty = HashTarget . PowHashNat $ maxTarget' `div` floor difficulty
+
 targetToDifficulty :: HashTarget -> HashDifficulty
-targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
+targetToDifficulty target = HashDifficulty . coerce $ maxTarget `div` target
 {-# INLINE targetToDifficulty #-}
+
+targetToDifficulty' :: HashTarget -> Ratio Word256
+targetToDifficulty' (HashTarget (PowHashNat target)) = maxTarget' % target
 
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target

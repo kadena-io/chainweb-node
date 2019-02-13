@@ -139,7 +139,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty (HashTarget, checkTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
-import Chainweb.Time (Time, getCurrentTimeIntegral)
+import Chainweb.Time (Time, getCurrentTimeIntegral, minTime)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
@@ -566,10 +566,10 @@ testMine
     -> NodeId
     -> cid
     -> Cut
-    -> IO (Either MineFailure Cut)
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine n ht ct nid i c =
-    forM (testMineCut n ht ct nid i c) $ \(T2 h c') ->
-        c' <$ insertWebBlockHeaderDb h
+    forM (testMineCut n ht ct nid i c) $ \p@(T2 h _) ->
+        p <$ insertWebBlockHeaderDb h
 
 -- | Only produces a new cut but doesn't insert it into the chain database.
 --
@@ -585,7 +585,7 @@ testMineCut
     -> Either MineFailure (T2 BlockHeader Cut)
 testMineCut n ht ct nid i c = do
     h0 <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    h <- bool (Left BadNonce) (Right h0) . checkTarget ht $ _blockHash h0
+    h <- bool (Left BadNonce) (Right h0) . checkTarget ht $ _blockPow h0
     Right $! T2 h (c & cutHeaders . ix cid .~ h)
   where
     cid = _chainId i
@@ -639,7 +639,7 @@ arbitraryCut = T.sized $ \s -> do
     mine c cid = do
         n <- Nonce <$> T.arbitrary
         nid <- T.arbitrary
-        return . hush $ testMineCut n (genesisBlockTarget Test) minBound nid cid c
+        return . hush $ testMineCut n (genesisBlockTarget Test) minTime nid cid c
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList chainIds)
@@ -664,6 +664,7 @@ arbitraryWebChainCut initialCut = do
         cids <- T.pick $ T.shuffle (toList chainIds)
         S.each cids
             & S.mapMaybeM (mine c)
+            & S.map (\(T2 _ c') -> c')
             & S.head_
             & fmap fromJust
 
@@ -688,6 +689,7 @@ arbitraryWebChainCut_ initialCut = do
         cids <- TT.liftGen $ T.shuffle (toList chainIds)
         S.each cids
             & S.mapMaybeM (fmap hush . mine c)
+            & S.map (\(T2 _ c') -> c')
             & S.head_
             & fmap fromJust
 

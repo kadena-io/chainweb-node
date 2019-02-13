@@ -82,6 +82,8 @@ import Data.Tree
 import qualified Data.Tree.Lens as LT
 import Data.Word (Word64)
 
+import Debug.Trace
+
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
@@ -181,7 +183,7 @@ treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
 instance Arbitrary SparseTree where
-    arbitrary = SparseTree <$> tree Randomly
+    arbitrary = SparseTree <$> tree Test Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -191,17 +193,18 @@ data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 -- The values of the tree constitute a legal chain, i.e. block heights start
 -- from 0 and increment, parent hashes propagate properly, etc.
 --
-tree :: Growth -> Gen (Tree BlockHeader)
-tree g = do
-    h <- genesis
+tree :: ChainwebVersion -> Growth -> Gen (Tree BlockHeader)
+tree v g = do
+    h <- genesis v
     Node h <$> forest g h
 
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
-genesis :: Gen BlockHeader
-genesis = do
+genesis :: ChainwebVersion -> Gen BlockHeader
+genesis v = do
+    "OH CRAP" `trace` pure ()
     cid <- arbitrary
-    return $ genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+    return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -231,6 +234,7 @@ trunk g h = do
 --
 header :: BlockHeader -> Gen BlockHeader
 header h = do
+    "CRAP HERE TOO" `trace` pure ()
     nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary

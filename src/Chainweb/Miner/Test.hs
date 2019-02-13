@@ -18,6 +18,7 @@
 --
 -- TODO
 --
+
 module Chainweb.Miner.Test
 ( MinerConfig(..)
 , configMeanBlockTimeSeconds
@@ -33,6 +34,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad (when)
 import Control.Monad.STM
 
+import Data.Tuple.Strict (T2(..))
 import Data.IORef
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
@@ -55,7 +57,7 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Difficulty (BlockHashNat(..), HashTarget(..))
+import Chainweb.Difficulty (HashDifficulty(..), PowHashNat(..), HashTarget(..))
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Time (getCurrentTimeIntegral)
@@ -137,28 +139,37 @@ miner logFun conf nid cutDb wcdb = do
                 gen
             threadDelay d
 
-        -- get current longest cut
-        --
-        c <- _cut cutDb
-
-        -- pick ChainId to mine on
-        --
-        -- chose randomly
-        --
-        cid <- randomChainId c
-
         -- Calculate the hash difficulty for the chosen Chain
         --
-        let p = c ^?! ixg cid  -- The parent block the mine on
-        target <- getTarget cid p
         nonce0 <- MWC.uniform gen
         counter <- newIORef (1 :: Int)
 
+        go' gen i nonce0 counter
+
+    go' :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> Word64 -> IORef Int -> IO ()
+    go' gen !i !nonce0 counter = do
+
         -- create new (test) block header
         --
-        let mine :: Word64 -> IO (Maybe Cut)
+        let mine :: Word64 -> IO (Either Word64 Cut)
             mine !nonce = do
                 ct <- getCurrentTimeIntegral
+
+                -- get current longest cut
+                --
+                c <- _cut cutDb
+
+                -- pick ChainId to mine on
+                --
+                -- chose randomly
+                --
+                cid <- randomChainId c
+
+                let !p = c ^?! ixg cid  -- The parent block the mine on
+                target <- getTarget cid p
+
+                let thing :: String
+                    thing = printf "%0256b" $ tiggy target
 
                 -- Loops (i.e. "mines") if a non-matching nonce was generated
                 testMine (Nonce nonce) target ct nid cid c >>= \case
@@ -166,18 +177,16 @@ miner logFun conf nid cutDb wcdb = do
                         -- TODO Move nonce retrying inside of `testMine`!
                         atomicModifyIORef' counter (\n -> (succ n, ()))
                         mine $! succ nonce
-                    Left BadAdjacents -> pure Nothing
-                    Right x -> do
-                        total <- readIORef counter
-                        when (cid == testChainId 0) $ do
-                          let thing :: String
-                              thing = printf "%0256b" $ tiggy target
-                          printf "\nMINED on Chain %s. HASHES: %05d. TARGET: %s. PARENT-H:%d\n" (show cid) total (take 20 thing) (pheight p)
-                        return $! Just x
+                    Left BadAdjacents -> pure (Left nonce)
+                    Right (T2 newBh newCut) -> do
+                        -- total <- readIORef counter
+                        -- when (cid == testChainId 0) $ do
+                        --   printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s\n" (_nodeIdId nid) total (take 30 thing) (drop 226 thing) (pheight p) (pweight p) (take 8 . drop 5 . show $ _blockHash p) (take 8 . drop 5 . show $ _blockHash newBh)
+                        return $! Right newCut
 
         mine nonce0 >>= \case
-          Nothing -> go gen i
-          Just c' -> do
+          Left nonce -> go' gen i nonce counter
+          Right c' -> do
               logg Info $! "created new block" <> sshow i
 
               -- public cut into CutDb (add to queue)
@@ -190,10 +199,14 @@ miner logFun conf nid cutDb wcdb = do
 
     -- | Number of set bits in the `HashTarget`. The more bits, the easier it is.
     tiggy :: HashTarget -> Integer
-    tiggy (HashTarget (BlockHashNat w)) = fromIntegral w
+    tiggy (HashTarget (PowHashNat w)) = fromIntegral w
 
     pheight :: BlockHeader -> Word64
     pheight bh = case _blockHeight bh of BlockHeight w -> w
+
+    pweight :: BlockHeader -> Integer
+    pweight bh = case _blockWeight bh of
+        BlockWeight (HashDifficulty (PowHashNat w)) -> int w
 
     getTarget :: ChainId -> BlockHeader -> IO HashTarget
     getTarget cid bh

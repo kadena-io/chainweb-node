@@ -162,7 +162,6 @@ config
         -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
 config v n nid chainDbDir = defaultChainwebConfiguration v
-
     & set configNodeId nid
         -- Set the node id.
 
@@ -182,7 +181,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
         -- at last no being a clique) and to also limit the number of
         -- port allocations
 
-    & set (configP2p . p2pConfigSessionTimeout) 10
+    & set (configP2p . p2pConfigSessionTimeout) 60
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
