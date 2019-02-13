@@ -47,7 +47,7 @@ pactTestApp = do
     withPactServiceApp port testMemPoolAccess $ do
         let headers = V.fromList $ getBlockHeaders 4
 
-        mapM_ putStrLn $ (show . _blockHeight) <$> headers
+        mapM_ putStrLn $ show . _blockHeight <$> headers
 
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings

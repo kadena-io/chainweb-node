@@ -119,7 +119,7 @@ data SaveData p = SaveData
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
-    put (SaveData {..}) = do
+    put SaveData {..} = do
         put _sTxRecord
         put _sTxId
         put _sSQLiteConfig

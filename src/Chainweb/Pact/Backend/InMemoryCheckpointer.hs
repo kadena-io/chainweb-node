@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 -- |
@@ -63,18 +62,18 @@ restore' lock height hash = do
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
 restoreInitial' lock = do
-    tempChainId <- (chainIdFromText "0")
+    tempChainId <- chainIdFromText "0"
     let bh = nullBlockHash tempChainId
     restore' lock (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
 saveInitial' lock p@(PactDbState {..}) = do
-    tempChainId <- (chainIdFromText "0")
+    tempChainId <- chainIdFromText "0"
     let bh = nullBlockHash tempChainId
     save' lock (BlockHeight 0) bh p
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-save' lock height hash p@(PactDbState {..}) = do
+save' lock height hash p@PactDbState {..} = do
      -- Saving off checkpoint.
      -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
      modifyMVar_ lock (return . HMS.insert (height, hash) p)

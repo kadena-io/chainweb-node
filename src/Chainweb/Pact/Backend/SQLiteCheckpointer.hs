@@ -89,7 +89,7 @@ restore' lock height hash =
                        -- read back SaveData from copied file
                        cdata <- do
                          bytes <- liftIO $ B.readFile chk_file
-                         ExceptT $ return $ (first err_decode $ decode bytes)
+                         ExceptT $ return (first err_decode $ decode bytes)
 
                        ExceptT $ withTempFile $ \copy_sqlite_file -> do
 

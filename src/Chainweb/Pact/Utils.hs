@@ -45,4 +45,4 @@ closePactDb :: PactDbState -> IO ()
 closePactDb =  go . _pdbsDbEnv
   where
     go (EnvPersist' (PactDbEnvPersist _ dbEnv)) =
-      (either fail return) =<< closeDb (P._db dbEnv)
+      either fail return =<< closeDb (P._db dbEnv)

@@ -35,7 +35,6 @@ import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Yaml as Y
-import Debug.Trace
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
@@ -87,7 +86,6 @@ initPactService reqQVar respQVar memPoolAccess = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    putStrLn $ "saveInitial"
     estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
@@ -97,7 +95,6 @@ initPactService reqQVar respQVar memPoolAccess = do
     void $ evalStateT
            (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
-
 
 serviceRequests
     :: MemPoolAccess
@@ -127,28 +124,24 @@ serviceRequests memPoolAccess reqQ respQ = do
             liftIO $ addResponse respQ respMsg
             return ()
 
-
-
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     -- TODO: miner data needs to be addeded to BlockHeader...
     let miner = defaultMiner
-    newTrans <- trace ("Top of newBlock: height = " ++ show _blockHeight) $ liftIO $ memPoolAccess _blockHeight
+    newTrans <- liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
     cpdata <-
-      if (isGenesisBlockHeader _parentHeader)
+      if isGenesisBlockHeader _parentHeader
         then liftIO $ restoreInitial _cpeCheckpointer
         else do
-          liftIO $ putStrLn $ "newBlock - restore (height = " ++ show _blockHeight ++ ")"
           liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
     case cpdata of
-        Left msg -> closePactDb <$> get >> fail msg
+        Left msg -> gets closePactDb >> fail msg
         Right st -> updateState st
 
     (results, updatedState) <- execTransactions miner newTrans
     put $! updatedState
-    liftIO $ putStrLn $ "newBlock - close (height = " ++ show _blockHeight ++ ")"
     close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
     flip (either fail) close_status return
     return results
@@ -156,11 +149,10 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
-    trans <- trace ( "Top of validateBlock - (height = " ++ show (_blockHeight currHeader) ++ ")") $
-      liftIO $ transactionsFromHeader memPoolAccess currHeader
+    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     let miner = defaultMiner
     CheckpointEnv {..} <- ask
-    cpdata <- if (isGenesisBlockHeader currHeader)
+    cpdata <- if isGenesisBlockHeader currHeader
         then liftIO $ restoreInitial _cpeCheckpointer
         else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (_blockParent currHeader)
     case cpdata of
@@ -168,7 +160,6 @@ validateBlock memPoolAccess currHeader = do
         Right r -> updateState $! r
     (results, updatedState) <- execTransactions miner trans
     put updatedState
-    liftIO $ putStrLn $ "validateBlock - save (height = " ++ show (_blockHeight currHeader) ++ ")"
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
                   (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
     _ <- case estate of
@@ -252,8 +243,4 @@ transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
 transactionsFromHeader memPoolAccess bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
     memPoolAccess (_blockHeight bHeader)
-
-_getGasEnv :: PactT P.GasEnv
-_getGasEnv = view cpeGasEnv
-
 ----------------------------------------------------------------------------------------------------
