@@ -35,6 +35,7 @@ import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Server as P
 
+
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
@@ -68,11 +69,6 @@ pactExecTests = do
 
 execTests :: PactT ()
 execTests = do
-    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
-    -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
-    prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
-    let intSeq = [0..] :: [Word64]
-    let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
     (results, _dbState) <- execTransactions defaultMiner trans
@@ -164,10 +160,6 @@ instance Show TestResponse where
 ----------------------------------------------------------------------------------------------------
 -- Pact test sample data
 ----------------------------------------------------------------------------------------------------
-
-testPactFilesDir :: String
-testPactFilesDir = "test/config/"
-
 testPactRequests :: [TestRequest]
 testPactRequests =
   [ testReq1

@@ -72,21 +72,25 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
         , Chainweb.Chainweb
+        , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
-        , Chainweb.Crypto.MerkleLog
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.Socket
+        , Chainweb.Mempool.Websocket
+        , Chainweb.MerkleLogHash
+        , Chainweb.MerkleUniverse
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
@@ -201,6 +205,7 @@ library
         , servant-client >= 0.13
         , servant-server >= 0.13
         , servant-swagger >= 1.1
+        , servant-websockets >= 1.1
         , split >= 0.2
         , direct-sqlite >= 2.3
         , shelly >= 1.7
@@ -225,6 +230,7 @@ library
         , vector >= 0.12
         , vector-algorithms >= 0.8
         , warp >= 3.2
+        , websockets >= 0.12.5
         , witherable >= 0.2
         , yaml >= 0.8
 
@@ -287,6 +293,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.Socket
+        Chainweb.Test.Mempool.Websocket
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.Store.CAS
@@ -332,6 +339,7 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , random-bytestring >= 0.1
         , resourcet >= 1.2
+        , servant >= 0.13
         , servant-client >= 0.13
         , stm
         , stm-chans

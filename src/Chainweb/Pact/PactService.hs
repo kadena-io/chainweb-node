@@ -158,7 +158,7 @@ validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
     trans <- trace ( "Top of validateBlock - (height = " ++ show (_blockHeight currHeader) ++ ")") $
       liftIO $ transactionsFromHeader memPoolAccess currHeader
-    miner = defaultMiner
+    let miner = defaultMiner
     CheckpointEnv {..} <- ask
     cpdata <- if (isGenesisBlockHeader currHeader)
         then liftIO $ restoreInitial _cpeCheckpointer
@@ -166,7 +166,7 @@ validateBlock memPoolAccess currHeader = do
     case cpdata of
         Left s -> ( get >>= liftIO . closePactDb ) >> fail s -- band-aid
         Right r -> updateState $! r
-    (results, updatedState) <- execTransactions trans
+    (results, updatedState) <- execTransactions miner trans
     put updatedState
     liftIO $ putStrLn $ "validateBlock - save (height = " ++ show (_blockHeight currHeader) ++ ")"
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)

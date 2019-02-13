@@ -12,7 +12,6 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
     ( initInMemoryCheckpointEnv
     ) where
 
-import qualified  Data.ByteString as B
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 
@@ -65,15 +64,14 @@ restore' lock height hash = do
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
 restoreInitial' lock = do
     tempChainId <- (chainIdFromText "0")
-    bhb <- blockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
-    restore' lock (BlockHeight 0) $ BlockHash tempChainId $ bhb
+    let bh = nullBlockHash tempChainId
+    restore' lock (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
 saveInitial' lock p@(PactDbState {..}) = do
     tempChainId <- (chainIdFromText "0")
-    bhb <- blockHashBytes $ B.replicate (fromIntegral blockHashBytesCount) 48
-    let aHash = BlockHash tempChainId bhb
-    save' lock (BlockHeight 0) aHash p
+    let bh = nullBlockHash tempChainId
+    save' lock (BlockHeight 0) bh p
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@(PactDbState {..}) = do
