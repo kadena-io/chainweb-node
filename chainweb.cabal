@@ -89,6 +89,9 @@ library
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
+        , Chainweb.Payload.RestAPI
+        , Chainweb.Payload.RestAPI.Server
+        , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID

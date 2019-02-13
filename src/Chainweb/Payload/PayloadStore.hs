@@ -40,6 +40,7 @@ module Chainweb.Payload.PayloadStore
 -- * Payload Database
 
 , PayloadDb(..)
+, PayloadCas
 , payloadCache
 , transactionDb
 , emptyPayloadDb

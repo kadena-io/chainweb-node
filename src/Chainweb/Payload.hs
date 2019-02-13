@@ -61,6 +61,9 @@ module Chainweb.Payload
 , blockOutputLog
 
 , blockPayload
+
+-- * API Payload Data
+, PayloadData(..)
 ) where
 
 import Control.DeepSeq
@@ -76,6 +79,7 @@ import qualified Data.ByteString as B
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Sequence as S
+import qualified Data.Text as T
 import Data.Void
 
 import GHC.Generics
@@ -85,6 +89,7 @@ import GHC.Generics
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Utils
 
 import Data.CAS
 
@@ -163,14 +168,42 @@ instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
 -- transaction is only known to pact.
 --
 newtype Transaction = Transaction { _transactionBytes :: B.ByteString }
-    deriving (Show, Eq, Ord, Generic)
-    deriving newtype (BA.ByteArrayAccess)
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (BA.ByteArrayAccess, Hashable)
+
+instance Show Transaction where
+    show = T.unpack . encodeToText
+    {-# INLINE show #-}
+
+instance ToJSON Transaction where
+    toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionBytes
+    {-# INLINE toJSON #-}
+
+instance FromJSON Transaction where
+    parseJSON = parseJsonFromText "Transaction"
+    {-# INLINE parseJSON #-}
 
 instance IsMerkleLogEntry ChainwebHashTag Transaction where
     type Tag Transaction = 'TransactionTag
     toMerkleNode = InputNode . _transactionBytes
     fromMerkleNode (InputNode bytes) = Right $ Transaction bytes
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
+
+transactionToText :: Transaction -> T.Text
+transactionToText = encodeB64UrlNoPaddingText . _transactionBytes
+{-# INLINE transactionToText #-}
+
+transactionFromText :: MonadThrow m => T.Text -> m Transaction
+transactionFromText t = either (throwM . TextFormatException . sshow) return
+    $ Transaction <$> decodeB64UrlNoPaddingText t
+{-# INLINE transactionFromText #-}
+
+instance HasTextRepresentation Transaction where
+    toText = transactionToText
+    {-# INLINE toText #-}
+    fromText = transactionFromText
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Transaction Output
@@ -190,6 +223,21 @@ instance IsMerkleLogEntry ChainwebHashTag TransactionOutput where
     toMerkleNode = InputNode . _transactionOutputBytes
     fromMerkleNode (InputNode bytes) = Right $ TransactionOutput bytes
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
+
+transactionOutputToText :: TransactionOutput -> T.Text
+transactionOutputToText = encodeB64UrlNoPaddingText . _transactionOutputBytes
+{-# INLINE transactionOutputToText #-}
+
+transactionOutputFromText :: MonadThrow m => T.Text -> m TransactionOutput
+transactionOutputFromText t = either (throwM . TextFormatException . sshow) return
+    $ TransactionOutput <$> decodeB64UrlNoPaddingText t
+{-# INLINE transactionOutputFromText #-}
+
+instance HasTextRepresentation TransactionOutput where
+    toText = transactionOutputToText
+    {-# INLINE toText #-}
+    fromText = transactionOutputFromText
+    {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Block Payloads
@@ -451,4 +499,30 @@ blockPayload txs outs
         $ _blockTransactionsHash txs
         :+: _blockOutputsHash outs
         :+: emptyBody
+
+-- -------------------------------------------------------------------------- --
+-- Payload Data
+
+data PayloadData = PayloadData
+    { _payloadDataTransactions :: !(S.Seq Transaction)
+    , _payloadDataPayloadHash :: !BlockPayloadHash
+    , _payloadDataTransactionsHash :: !BlockTransactionsHash
+    , _payloadDataOutputsHash :: !BlockOutputsHash
+    }
+    deriving (Show, Generic)
+
+instance ToJSON PayloadData where
+    toJSON o = object
+        [ "transactions" .= _payloadDataTransactions o
+        , "payloadHash" .= _payloadDataPayloadHash o
+        , "transactionsHash" .= _payloadDataTransactionsHash o
+        , "outputsHash" .= _payloadDataOutputsHash o
+        ]
+
+instance FromJSON PayloadData where
+    parseJSON = withObject "PayloadData" $ \o -> PayloadData
+        <$> o .: "transactions"
+        <*> o .: "payloadHash"
+        <*> o .: "transactionsHash"
+        <*> o .: "outputsHash"
 
