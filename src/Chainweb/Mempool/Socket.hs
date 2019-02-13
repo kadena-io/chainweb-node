@@ -906,7 +906,7 @@ dispatchResponse _ (CSubscribe _) _ = dispatchMismatch
 
 dispatchResponse _ CShutdown _ = error "impossible, CShutdown doesn't queue"
 
-dispatchResponse _ (CGoodbye m) OK = putMVar m (Right ()) >> throwIO ThreadKilled
+dispatchResponse _ (CGoodbye m) OK = putMVar m (Right ())
 dispatchResponse _ (CGoodbye _) _ = dispatchMismatch
 
 

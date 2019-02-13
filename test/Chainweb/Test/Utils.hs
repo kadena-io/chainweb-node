@@ -360,12 +360,14 @@ withTestAppServer
 withTestAppServer tls appIO envIO userFunc = bracket start stop go
   where
     eatExceptions = handle (\(_ :: SomeException) -> return ())
+    warpOnException _ _ = return ()
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ eatExceptions $ do
-            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            let settings = W.setOnException warpOnException $
+                           W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
                     let certBytes = bootstrapCertificate Test

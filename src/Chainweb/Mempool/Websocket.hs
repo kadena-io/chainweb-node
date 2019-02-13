@@ -74,7 +74,7 @@ server :: Show t => MempoolBackend t -> Server (MempoolWebsocketApi_ v c)
 server mempool = streamData
   where
   -- streamData :: MonadIO m => WS.Connection -> m ()
-    streamData conn = liftIO $ mask $ \restore -> do
+    streamData conn = liftIO $ mask $ \restore -> eatExceptions $ do
         debug "server" "opening connection"
         s <- connectionToStreams "server" conn
         debug "server" "connection open, running session"
@@ -228,7 +228,7 @@ writer connection m = maybe close putChunk m
   where
     close = do
         debug pfx "got close, closing socket"
-        connectionClose connection
+        eatExceptions $ connectionClose connection
     putChunk s = do
         debug pfx "writing chunk out to socket"
         connectionPut connection $ toStrict s
@@ -240,7 +240,7 @@ connectionOptions = defaultConnectionOptions
 
 
 headers :: WS.Headers
-headers = []
+headers = [("connection", "close")]
 
 
 -- Begin servant boilerplate --
