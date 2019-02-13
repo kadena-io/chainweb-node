@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Pact.Types
@@ -14,19 +15,26 @@
 --
 -- Pact Types module for Chainweb
 module Chainweb.Pact.Types
-    ( PactDbStatePersist(..)
-    , pdbspRestoreFile
-    , pdbspPactDbState
-    , MemPoolAccess
-    , PactT
-    , Transaction(..)
-    , Transactions(..)
-    , tCmd
-    , tTxId
-    , TransactionCriteria(..)
-    , TransactionOutput(..)
-    , module Chainweb.Pact.Backend.Types
-    ) where
+  ( PactDbStatePersist(..)
+  , PactT
+  , Transaction(..)
+  , Transactions(..)
+  , TransactionOutput(..)
+  , MemPoolAccess
+  , MinerInfo(..)
+    -- * optics
+  , bMinerInfo
+  , pdbspRestoreFile
+  , pdbspPactDbState
+  , tCmd
+  , tTxId
+  , minerAccount
+  , minerKeys
+    -- * defaults
+  , defaultMiner
+    -- * module exports
+  , module Chainweb.Pact.Backend.Types
+  ) where
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Trans.Reader
@@ -34,14 +42,22 @@ import Control.Monad.Trans.State
 
 import Data.Aeson as A
 import Data.ByteString (ByteString)
+import Data.Default (def)
+import Data.Text (Text)
 
 import GHC.Word
 
+-- internal pact modules
+
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Persistence as P
+import Pact.Types.Term (KeySet(..), Name(..))
+
+-- internal chainweb modules
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
+
 
 data Transaction = Transaction
     { _tTxId :: Word64
@@ -94,6 +110,17 @@ instance ToJSON TransactionOutput where
         [ "getCommandResult" .= _getCommandResult o
         , "getTxLogs" .= _getTxLogs o]
     {-# INLINE toJSON #-}
+
+data MinerInfo = MinerInfo
+  { _minerAccount :: Text
+  , _minerKeys :: KeySet
+  }
+makeLenses ''MinerInfo
+
+defaultMiner :: MinerInfo
+defaultMiner = MinerInfo "" $ KeySet [] (Name "" def)
+
+
 
 instance FromJSON TransactionOutput where
     parseJSON = withObject "TransactionOutput" $ \o -> TransactionOutput

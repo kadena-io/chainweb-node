@@ -1,7 +1,9 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
@@ -13,22 +15,37 @@ module Chainweb.Mempool.Mempool
   , ValidationInfo(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
+  , MockTx(..)
+  , mockCodec
+  , mockBlocksizeLimit
+  , mockFeesLimit
   , finalizeSubscriptionImmediately
   , chainwebTestHasher
   , chainwebTestHashMeta
+  , noopMempool
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
-import Data.Bytes.Get (getWord64host, runGetS)
+import Control.Monad (replicateM)
+import Crypto.Hash (hash)
+import Crypto.Hash.Algorithms (SHA512t_256)
+import Data.Bits (bit, shiftL, shiftR, (.&.))
+import Data.ByteArray (convert)
+import Data.Bytes.Get
+import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as S
 import Data.Decimal (Decimal)
-import Data.Hashable (Hashable(..))
+import Data.Decimal (DecimalRaw(..))
+import Data.Hashable (Hashable(hashWithSalt))
 import Data.Int (Int64)
 import Data.IORef (IORef)
+import Data.List (unfoldr)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 
 
@@ -36,8 +53,8 @@ import GHC.Generics (Generic)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
+import qualified Chainweb.Time as Time
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version
 
 
 ------------------------------------------------------------------------------
@@ -64,6 +81,7 @@ data TransactionConfig t = TransactionConfig {
     -- | getter for transaction size.
   , txSize :: t -> Int64
   , txMetadata :: t -> TransactionMetadata
+  , txValidate :: t -> IO Bool
   }
 
 ------------------------------------------------------------------------------
@@ -104,6 +122,32 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
+noopMempool :: MempoolBackend t
+noopMempool = MempoolBackend txcfg 1000 noopLookup noopInsert noopGetBlock
+                             noopMarkValidated noopMarkConfirmed noopReintroduce
+                             noopGetPending noopSubscribe noopShutdown
+  where
+    unimplemented = fail "unimplemented"
+    noopCodec = Codec (const "") (const $ Left "unimplemented")
+    noopHasher = const $ chainwebTestHasher "noopMempool"
+    noopHashMeta = chainwebTestHashMeta
+    noopFees = const 0
+    noopSize = const 1
+    noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
+    txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopFees noopSize
+                              noopMeta (const $ return True)
+
+    noopLookup v = return $ V.replicate (V.length v) Missing
+    noopInsert = const $ return ()
+    noopGetBlock = const $ return V.empty
+    noopMarkValidated = const $ return ()
+    noopMarkConfirmed = const $ return ()
+    noopReintroduce = const $ return ()
+    noopGetPending = const $ return ()
+    noopSubscribe = unimplemented
+    noopShutdown = return ()
+
+
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.
 --
@@ -141,7 +185,7 @@ data HashMeta = HashMeta {
 }
 
 chainwebTestHasher :: ByteString -> TransactionHash
-chainwebTestHasher s = let (BlockHashBytes b) = cryptoHash Test s
+chainwebTestHasher s = let b = convert $ hash @_ @SHA512t_256 $ "TEST" <> s
                        in TransactionHash b
 
 chainwebTestHashMeta :: HashMeta
@@ -172,3 +216,76 @@ data ValidatedTransaction t = ValidatedTransaction {
 ------------------------------------------------------------------------------
 finalizeSubscriptionImmediately :: Subscription t -> IO ()
 finalizeSubscriptionImmediately = mempoolSubFinal
+
+
+-- | Mempool only cares about a few projected values from the transaction type
+-- (fees, hash, tx size, metadata), so our mock transaction type will only
+-- contain these (plus a nonce)
+data MockTx = MockTx {
+    mockNonce :: {-# UNPACK #-} !Int64
+  , mockFees :: {-# UNPACK #-} !Decimal
+  , mockSize :: {-# UNPACK #-} !Int64
+  , mockMeta :: {-# UNPACK #-} !TransactionMetadata
+} deriving (Eq, Ord, Show, Generic)
+
+
+mockBlocksizeLimit :: Int64
+mockBlocksizeLimit = 65535
+
+
+mockFeesLimit :: Decimal
+mockFeesLimit = fromIntegral mockBlocksizeLimit * 4
+
+
+-- | A codec for transactions when sending them over the wire.
+mockCodec :: Codec MockTx
+mockCodec = Codec mockEncode mockDecode
+
+
+mockEncode :: MockTx -> ByteString
+mockEncode (MockTx sz fees nonce meta) = runPutS $ do
+    putWord64le $ fromIntegral sz
+    putDecimal fees
+    putWord64le $ fromIntegral nonce
+    Time.encodeTime $ txMetaCreationTime meta
+    Time.encodeTime $ txMetaExpiryTime meta
+
+
+putDecimal :: MonadPut m => Decimal -> m ()
+putDecimal (Decimal places mantissa) = do
+    putWord8 places
+    putWord8 $ if mantissa >= 0 then 0 else 1
+    let ws = toWordList $ if mantissa >= 0 then mantissa else -mantissa
+    putWord16le $ fromIntegral $ length ws
+    mapM_ putWord64le ws
+  where
+    toWordList = unfoldr $
+                 \d -> if d == 0
+                         then Nothing
+                         else let !a  = fromIntegral (d .&. (bit 64 - 1))
+                                  !d' = d `shiftR` 64
+                              in Just (a, d')
+
+
+getDecimal :: MonadGet m => m Decimal
+getDecimal = do
+    !places <- fromIntegral <$> getWord8
+    !negative <- getWord8
+    numWords <- fromIntegral <$> getWord16le
+    mantissaWords <- replicateM numWords getWord64le
+    let (!mantissa, _) = foldl go (0,0) mantissaWords
+    return $! Decimal places (if negative == 0 then mantissa else -mantissa)
+  where
+    go :: (Integer, Int) -> Word64 -> (Integer, Int)
+    go (!soFar, !shiftVal) !next =
+        let !i = toInteger next + soFar `shiftL` shiftVal
+            !s = shiftVal + 64
+        in (i, s)
+
+
+mockDecode :: ByteString -> Either String MockTx
+mockDecode = runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
+  where
+    getI64 = fromIntegral <$> getWord64le
+    getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+

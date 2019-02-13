@@ -68,9 +68,14 @@ pactExecTests = do
 
 execTests :: PactT ()
 execTests = do
+    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
+    -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
+    prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
+    let intSeq = [0..] :: [Word64]
+    let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
-    (results, _dbState) <- execTransactions trans
+    (results, _dbState) <- execTransactions defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
@@ -129,6 +134,7 @@ fileCompareTxLogs fp resp = do
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
 ----------------------------------------------------------------------------------------------------
+
 data TestRequest = TestRequest
     { _trCmd :: TestSource
     , _trEval :: TestResponse -> Assertion
@@ -158,8 +164,18 @@ instance Show TestResponse where
 ----------------------------------------------------------------------------------------------------
 -- Pact test sample data
 ----------------------------------------------------------------------------------------------------
+
+testPactFilesDir :: String
+testPactFilesDir = "test/config/"
+
 testPactRequests :: [TestRequest]
-testPactRequests = [testReq1, testReq2, testReq3, testReq4, testReq5]
+testPactRequests =
+  [ testReq1
+  , testReq2
+  , testReq3
+  , testReq4
+  , testReq5
+  ]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest

@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -49,6 +52,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.HostAddress hiding (properties)
+import Chainweb.MerkleLogHash
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
@@ -128,6 +132,26 @@ instance ToHttpApiData (NextItem Int) where
 instance FromHttpApiData (NextItem Int) where
     parseUrlPiece = first sshow . fromText
 
+instance ToHttpApiData SomeChainwebVersionT where
+    toUrlPiece (SomeChainwebVersionT prox) = chainwebVersionSymbolVal prox
+
+instance ToHttpApiData SomeChainIdT where
+    toUrlPiece (SomeChainIdT prox) = chainIdSymbolVal prox
+
+instance
+    (KnownChainwebVersionSymbol sym, HasLink sub)
+    => HasLink (sym :> sub)
+  where
+    type MkLink (sym :> sub) a = MkLink sub a
+    toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol sym :> sub))
+
+instance
+    (KnownChainIdSymbol sym, HasLink sub)
+    => HasLink (sym :> sub)
+  where
+    type MkLink (sym :> sub) a = MkLink sub a
+    toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
+
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -138,8 +162,8 @@ instance ToParamSchema BlockHash where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & format ?~ "byte"
-        & maxLength ?~ int blockHashBytesCount
-        & minLength ?~ int blockHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
+        & minLength ?~ int merkleLogHashBytesCount
 
 instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
@@ -216,8 +240,8 @@ instance ToSchema HostAddress where
 
 instance ToSchema BlockHash where
     declareNamedSchema _ = return $ NamedSchema (Just "Key") $ byteSchema
-        & minLength ?~ int blockHashBytesCount
-        & maxLength ?~ int blockHashBytesCount
+        & minLength ?~ int merkleLogHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema

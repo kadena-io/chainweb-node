@@ -120,7 +120,7 @@ parentIsLastInSpectrum gs = do
         --------------------------------
         ltd <- readLeafTree gsd gh
         let parent = V.last $ _ltd_spectrum ltd
-        _te_blockHash parent @?= (getBlockHashBytes $ _blockParent bh)
+        _te_blockHash parent @?= (getMerkleLogHash $ _blockParent bh)
 
 -- | INVARIANT: The second-last entry of a given @git_tree_entry@ should be the
 -- parent of the current node.
@@ -136,7 +136,7 @@ parentIsSecondLastEntry gs = do
         -- Via raw, undecoded tree entry
         --------------------------------
         prnt <- readParent gsd gh
-        _te_blockHash prnt @?= (getBlockHashBytes $ _blockParent bh)
+        _te_blockHash prnt @?= (getMerkleLogHash $ _blockParent bh)
 
 -- | INVARIANT: The `LeafTreeData` of the genesis block has an empty spectrum
 -- Vector, since it is the ultimate parent node.

@@ -53,9 +53,9 @@ import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Utils
-import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
@@ -214,16 +214,22 @@ validateParent p b = concat
 -- Intrinsic BlockHeader properties
 
 prop_block_difficulty :: BlockHeader -> Bool
-prop_block_difficulty b = checkTarget (_blockTarget b) (_blockHash b)
+prop_block_difficulty b = checkTarget (_blockTarget b) (_blockPow b)
 
 prop_block_hash :: BlockHeader -> Bool
 prop_block_hash b = _blockHash b == computeBlockHash b
 
 prop_block_genesis_parent :: BlockHeader -> Bool
-prop_block_genesis_parent b = isGenesisBlockHeader b ==> _blockParent b == _blockHash b
+prop_block_genesis_parent b
+    = isGenesisBlockHeader b ==> hasGenesisParentHash b
+    && hasGenesisParentHash b ==> isGenesisBlockHeader b
+  where
+    hasGenesisParentHash b' =
+        _blockParent b' == genesisParentBlockHash (_blockChainwebVersion b') (_chainId b')
 
 prop_block_genesis_target :: BlockHeader -> Bool
-prop_block_genesis_target b = isGenesisBlockHeader b ==> _blockTarget b == genesisBlockTarget Test
+prop_block_genesis_target b = isGenesisBlockHeader b
+    ==> _blockTarget b == genesisBlockTarget (_blockChainwebVersion b)
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

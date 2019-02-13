@@ -190,7 +190,7 @@ _prop_spectra_sorted = all (_isSorted . _spectrum) $ map getSpectrum [1,10000000
 insertGenesisBlock :: BlockHeader -> GitStoreData -> IO ()
 insertGenesisBlock g store@(GitStoreData repo _ _) = withTreeBuilder $ \treeB -> do
     newHeaderGitHash <- insertBlockHeaderIntoOdb store g
-    addSelfEntry treeB (_blockHeight g) (getBlockHashBytes $ _blockHash g) newHeaderGitHash
+    addSelfEntry treeB (_blockHeight g) (getMerkleLogHash $ _blockHash g) newHeaderGitHash
     treeHash <- alloca $ \oid -> do
         throwOnGitError "insertGenesisBlock" "git_treebuilder_write" $
             G.c'git_treebuilder_write oid repo treeB
@@ -198,4 +198,4 @@ insertGenesisBlock g store@(GitStoreData repo _ _) = withTreeBuilder $ \treeB ->
     -- Store a tag in @.git/refs/tags/bh/@
     createBlockHeaderTag store g treeHash
     -- Mark this entry (it's the only entry!) as a "leaf" in @.git/refs/tags/leaf/@.
-    tagAsLeaf store (TreeEntry 0 (getBlockHashBytes $ _blockHash g) treeHash)
+    tagAsLeaf store (TreeEntry 0 (getMerkleLogHash $ _blockHash g) treeHash)

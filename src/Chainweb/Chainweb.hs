@@ -78,6 +78,7 @@ module Chainweb.Chainweb
 , chainPeerDb
 , chainLogFun
 , chainSyncDepth
+, chainMempool
 
 , withChain
 , runChainSyncClient
@@ -102,6 +103,10 @@ module Chainweb.Chainweb
 , chainwebSocket
 , chainwebPeer
 
+-- ** Mempool integration
+, ChainwebTransaction
+, chainwebTransactionConfig
+
 , withChainweb
 , runChainweb
 
@@ -118,7 +123,6 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Bifunctor
 import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
@@ -131,7 +135,7 @@ import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
-import Network.Wai.Handler.Warp (Settings, defaultSettings, setPort, setHost)
+import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.LogLevel
@@ -145,6 +149,9 @@ import Chainweb.CutDB
 import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Graph
 import Chainweb.HostAddress
+import qualified Chainweb.Mempool.InMem as Mempool
+import Chainweb.Mempool.Mempool (MempoolBackend)
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.RestAPI
@@ -182,12 +189,12 @@ data ChainwebConfiguration = ChainwebConfiguration
 
 makeLenses ''ChainwebConfiguration
 
-defaultChainwebConfiguration :: ChainwebConfiguration
-defaultChainwebConfiguration = ChainwebConfiguration
-    { _configChainwebVersion = Test
+defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
+defaultChainwebConfiguration v = ChainwebConfiguration
+    { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultMinerConfig
-    , _configP2p = defaultP2pConfiguration Test
+    , _configP2p = defaultP2pConfiguration v
     , _configChainDbDirPath = Nothing
     }
 
@@ -308,6 +315,21 @@ runCutsSyncClient mgr cuts = do
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
 
+-- TODO: unify this with pact transaction type
+type ChainwebTransaction = Mempool.MockTx
+
+chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
+chainwebTransactionConfig =
+    Mempool.TransactionConfig Mempool.mockCodec
+                              mockHash
+                              Mempool.chainwebTestHashMeta
+                              Mempool.mockFees
+                              Mempool.mockSize
+                              Mempool.mockMeta
+                              (const $ return True)
+  where
+    mockHash = Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec
+
 data Chain = Chain
     { _chainChainId :: !ChainId
     , _chainChainwebVersion :: !ChainwebVersion
@@ -319,6 +341,7 @@ data Chain = Chain
     , _chainPeerDb :: !PeerDb
     , _chainLogFun :: !ALogFunction
     , _chainSyncDepth :: !Depth
+    , _chainMempool :: !(MempoolBackend ChainwebTransaction)
     }
 
 makeLenses ''Chain
@@ -334,13 +357,16 @@ withChain
     -> PeerDb
     -> (Maybe FilePath)
     -> ALogFunction
+    -> Mempool.InMemConfig ChainwebTransaction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig peer peerDb chainDbDir logfun inner =
+withChain v graph cid p2pConfig peer peerDb chainDbDir logfun mempoolCfg inner =
+    Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
     withBlockHeaderDb v graph cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
             inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
+                          mempool
 
 withPersistedDb
     :: ChainId
@@ -475,6 +501,14 @@ withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, soc
     confLens :: Lens' ChainwebConfiguration PeerConfig
     confLens = configP2p . p2pConfigPeer
 
+
+mempoolConfig :: Mempool.InMemConfig Mempool.MockTx
+mempoolConfig = Mempool.InMemConfig chainwebTransactionConfig Mempool.mockBlocksizeLimit
+                                    mempoolReapInterval
+  where
+    mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
+
+
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainwebInternal
@@ -494,7 +528,8 @@ withChainwebInternal graph conf logFuns socket peer inner = do
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf peer peerDb chainDbDir logfun $ \c ->
+            Just logfun -> withChain v graph cid p2pConf peer peerDb chainDbDir
+                                     logfun mempoolConfig $ \c ->
                 go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
@@ -543,7 +578,9 @@ runChainweb cw = do
     --
 
     -- collect server resources
-    let chainDbsToServe = second _chainBlockHeaderDb <$> HM.toList (_chainwebChains cw)
+    let chains = HM.toList (_chainwebChains cw)
+        chainDbsToServe = flip map chains $ \(k, ch) ->
+                          (k, _chainBlockHeaderDb ch, _chainMempool ch)
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
         serverSettings = peerServerSettings (_chainwebPeer cw)

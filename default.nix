@@ -7,8 +7,20 @@ let rp = builtins.fetchTarball {
       url = "https://github.com/reflex-frp/reflex-platform/archive/${rpRef}.tar.gz";
       sha256 = rpSha;
     };
+
+overlay = self: super: {
+  z3 = super.z3.overrideAttrs (drv: {
+    src = self.fetchFromGitHub {
+      owner = "Z3Prover";
+      repo = "z3";
+      rev = "727929c9af003d71eab1f0d90cc8e01761943491";
+      sha256 = "02p8rhflimc852ysgf7nmaypz6ga3w4iss3z8d3qrby5a2d464p9";
+    };
+  });
+};
+
 in
-  (import rp { inherit system; }).project ({ pkgs, ... }:
+  (import rp { inherit system; nixpkgsOverlays = [ overlay ]; }).project ({ pkgs, ... }:
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
         owner = "siers";
         repo = "nix-gitignore";
@@ -121,11 +133,11 @@ in
         });
 
         # pact-2.6.1
-        pact = addBuildDepend (dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        pact = addBuildDepend ( dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "3ac9a6d01bd5816ea4b7e47300012543510393ea";
-          sha256 = "0fkhj1kzm51xynzziqrlzr0nv3gi7vifjikjaaggcy457zpn665w";
+          rev = "842cde333baeca588fb87dd67d20d8e74c4411ab";
+          sha256 = "0vvyp3vfkgd85i6yaz1kwml73mfics2q8a76fcc89w0h454i4794";
         }) {})) pkgs.z3;
 
         streaming = callHackageDirect {
@@ -148,6 +160,14 @@ in
             ver = "0.11.3";
             sha256 = "0y98macg977ps81h9mx3hzdmkxn5y14556a2dyvd22468nsmjid1";
         };
+
+        # need crackNum 2.3
+        crackNum = pkgs.haskell.lib.dontCheck (self.callCabal2nix "crackNum" (pkgs.fetchFromGitHub {
+          owner = "LeventErkok";
+          repo = "crackNum";
+          rev = "54cf70861a921062db762b3c50e933e73446c3b2";
+          sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
+        }) {});
 
         merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
           url = "ssh://git@github.com/kadena-io/merkle-log.git";
@@ -187,10 +207,10 @@ in
 
         # specific revision needed by pact
         sbv = pkgs.haskell.lib.dontCheck (self.callCabal2nix "sbv" (pkgs.fetchFromGitHub {
-          owner = "LeventErkok";
+          owner = "joelburget";
           repo = "sbv";
-          rev = "3dc60340634c82f39f6c5dca2b3859d10925cfdf";
-          sha256 = "18xcxg1h19zx6gdzk3dfs87447k3xjqn40raghjz53bg5k8cdc31";
+          rev = "25d9357ff8eaac697eb6fde96598d7beb587b4e9";
+          sha256 = "0i0ajrw8j9hc208hizi4rnj5giqhbawjfgdbacswwfvgfqvvb69z";
         }) {});
 
         # Our own custom fork

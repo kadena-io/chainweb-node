@@ -98,6 +98,7 @@ initPactService reqQVar respQVar memPoolAccess = do
            (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
 
+
 serviceRequests
     :: MemPoolAccess
     -> IO (TVar (TQueue RequestMsg))
@@ -126,9 +127,13 @@ serviceRequests memPoolAccess reqQ respQ = do
             liftIO $ addResponse respQ respMsg
             return ()
 
+
+
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
+    -- TODO: miner data needs to be addeded to BlockHeader...
+    let miner = defaultMiner
     newTrans <- trace ("Top of newBlock: height = " ++ show _blockHeight) $ liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
     cpdata <-
@@ -141,21 +146,20 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
         Left msg -> closePactDb <$> get >> fail msg
         Right st -> updateState st
 
-    (results, updatedState) <- execTransactions newTrans
+    (results, updatedState) <- execTransactions miner newTrans
     put $! updatedState
     liftIO $ putStrLn $ "newBlock - close (height = " ++ show _blockHeight ++ ")"
     close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
     flip (either fail) close_status return
     return results
 
-
 -- | BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
-    trans <- trace ( "Top of validateBlock - (height = " ++ show (_blockHeight currHeader) ++ ")") $ liftIO $ transactionsFromHeader memPoolAccess currHeader
+    trans <- trace ( "Top of validateBlock - (height = " ++ show (_blockHeight currHeader) ++ ")") $
+      liftIO $ transactionsFromHeader memPoolAccess currHeader
+    miner = defaultMiner
     CheckpointEnv {..} <- ask
-    -- parentHeader <- liftIO $ parentFromHeader currHeader
-
     cpdata <- if (isGenesisBlockHeader currHeader)
         then liftIO $ restoreInitial _cpeCheckpointer
         else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (_blockParent currHeader)
@@ -180,7 +184,7 @@ setupConfig configFile =
         Left e -> do
             putStrLn usage
             throwIO (userError ("Error loading config file: " ++ show e))
-        (Right v) -> return v
+        Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} =
@@ -194,11 +198,11 @@ toCommandConfig PactDbConfig {..} =
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
 -- sqlite databases -- hence this is here and not in the Sqlite specific module
 mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
-mkSqliteConfig (Just f) xs = Just P.SQLiteConfig {dbFile = f, pragmas = xs}
+mkSqliteConfig (Just f) xs = Just P.SQLiteConfig { _dbFile = f, _pragmas = xs }
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: [Transaction] -> PactT (Transactions, PactDbState)
-execTransactions xs = do
+execTransactions :: MinerInfo -> [Transaction] -> PactT (Transactions, PactDbState)
+execTransactions miner xs = do
     cpEnv <- ask
     currentState <- get
     -- let dbEnv' = _pdbsDbEnv currentState
@@ -207,7 +211,7 @@ execTransactions xs = do
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
     txOuts <- forM xs (\Transaction {..} -> do
         let txId = P.Transactional (P.TxId _tTxId)
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd miner
         return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
@@ -223,12 +227,13 @@ applyPactCmd
   -> MVar P.CommandState
   -> P.ExecutionMode
   -> P.Command ByteString
+  -> MinerInfo
   -> IO (P.CommandResult, [P.TxLog A.Value])
-applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd =
+applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd miner =
     case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
+            applyCmd _cpeLogger Nothing miner pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
                      eMode cmd procCmd
 
 updateState :: PactDbState  -> PactT ()

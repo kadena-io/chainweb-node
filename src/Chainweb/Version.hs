@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -55,6 +56,8 @@ import GHC.TypeLits
 
 -- internal modules
 
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
 import Data.Singletons
@@ -133,6 +136,13 @@ instance ToJSON ChainwebVersion where
 
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
+
+instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
+    type Tag ChainwebVersion = 'ChainwebVersionTag
+    toMerkleNode = encodeMerkleInputNode encodeChainwebVersion
+    fromMerkleNode = decodeMerkleInputNode decodeChainwebVersion
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
 chainwebVersionToText Test = "test"

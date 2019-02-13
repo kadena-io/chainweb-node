@@ -39,6 +39,7 @@ import Test.Tasty.QuickCheck
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils (len)
@@ -74,11 +75,11 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
         [ testGroup "Shape"
             [ testProperty "Conversion to and from Tree" $ treeIso_prop f
             , schedule rs "Conversion to and from Tree" $
-                  testProperty "Root node is its own parent" $ rootParent_prop f
+                  testProperty "Root node has genesis parent hash" $ rootParent_prop f
             ]
         , testGroup "Basic Streaming"
               [ testGroup "Self-reported Stream Length"
-                    [ schedule rs "Root node is its own parent" $  testProperty "keys"
+                    [ schedule rs "Root node has genesis parent hash" $  testProperty "keys"
                           $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
                     , schedule rs "keys" $ testProperty "entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
@@ -185,7 +186,7 @@ rootParent_prop
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 rootParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     r <- (^. isoBH) <$> root db
-    pure $ _blockParent r == _blockHash r
+    pure $ prop_block_genesis_parent r
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
@@ -264,7 +265,7 @@ entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     pure . isJust $ foldlM g S.empty hs
   where
     g acc h = let acc' = S.insert (_blockHash h) acc
-              in bool Nothing (Just acc') $ S.member (_blockParent h) acc'
+              in bool Nothing (Just acc') $ isGenesisBlockHeader h || S.member (_blockParent h) acc'
 
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0

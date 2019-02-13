@@ -264,7 +264,7 @@ data EntryTag
 
 
 instance MerkleUniverse EntryTag where
-    type MerkleLogHash EntryTag = SHA512t_256
+    type HashAlg EntryTag = SHA512t_256
     type MerkleTagVal EntryTag 'BlockHeaderHashTag = 0x0001
     type MerkleTagVal EntryTag 'BlockPayloadHashTag = 0x0002
     type MerkleTagVal EntryTag 'HashTagTag = 0x0003

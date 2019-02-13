@@ -22,9 +22,10 @@ import Test.Tasty
 -- internal modules
 
 import Chainweb.Test.MultiNode
+import Chainweb.Version
 
 main :: IO ()
-main = defaultMain $ test Warn 10 (Seconds 120) Nothing
+main = defaultMain $ test Warn TestWithTime 10 (Seconds 120) Nothing
 
 -- Use the following to persist the databases.
 -- main = defaultMain $ test Warn 10 (Seconds 300) (Just "./tmp/chaindb")

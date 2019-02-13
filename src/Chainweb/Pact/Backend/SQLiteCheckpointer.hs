@@ -133,7 +133,7 @@ save' lock height hash pactdbstate =
                 -- data and the valid prefix for naming the file
                 -- containing serialized Pact values.
                 (mprefix, toSave) <- liftIO $ saveDb pactdbenvpersist (_pdbsState pactdbstate)
-                let dbFile = P.dbFile <$> (_sSQLiteConfig toSave)
+                let dbFile = P._dbFile <$> (_sSQLiteConfig toSave)
                     newdbFile = properName <$ dbFile
 
                 flip (maybe (ExceptT $ return $ Left msgPrefixError)) mprefix $

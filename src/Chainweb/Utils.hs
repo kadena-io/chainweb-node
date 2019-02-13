@@ -378,7 +378,7 @@ eitherFromText = either f return . fromText
   where
     f e = Left $ case fromException e of
         Just (TextFormatException err) -> T.unpack err
-        _ -> show e
+        _ -> displayException e
 {-# INLINE eitherFromText #-}
 
 unsafeFromText :: HasTextRepresentation a => T.Text -> a

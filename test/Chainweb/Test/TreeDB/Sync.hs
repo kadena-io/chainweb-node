@@ -12,6 +12,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB (copy)
 import Chainweb.ChainId (ChainId, testChainId)
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Test.Utils (insertN, withDB, withSingleChainServer)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
@@ -41,10 +42,15 @@ diam = Depth 6
 cid :: ChainId
 cid = testChainId 0
 
+noopMempool :: Mempool.MempoolBackend ()
+noopMempool = Mempool.noopMempool
+
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
 noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \g db -> withSingleChainServer [(cid, db)] [] $ \env -> do
+noopSingletonSync = withDB cid $ \g db ->
+                    withSingleChainServer [(cid, db, noopMempool)] [] $
+                    \env -> do
     linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
     maxRank db >>= (@?= 0)
 
@@ -55,7 +61,7 @@ noopLongSync :: Assertion
 noopLongSync = withDB cid $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    withSingleChainServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer, noopMempool)] [] $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
@@ -67,7 +73,7 @@ noopNewerNode = withDB cid $ \g peer -> do
     db <- copy peer
     h <- maxHeader db
     void $ insertN 90 h db
-    withSingleChainServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer, noopMempool)] [] $ \env -> do
         let remote = PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         linearSync diam db remote
         maxRank db >>= (@?= 100)
@@ -80,7 +86,7 @@ newNode = withDB cid $ \g db -> do
     peer <- copy db
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
-    withSingleChainServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer, noopMempool)] [] $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
@@ -94,6 +100,6 @@ oldNode = withDB cid $ \g db -> do
     void $ insertN 90 h peer
     maxRank db >>= (@?= 10)
     maxRank peer >>= (@?= 100)
-    withSingleChainServer [(cid, peer)] [] $ \env -> do
+    withSingleChainServer [(cid, peer, noopMempool)] [] $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)

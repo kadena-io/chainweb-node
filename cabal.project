@@ -1,17 +1,27 @@
 packages: chainweb.cabal
 
+-- with-compiler: ghc-8.4.4
+
+package chainweb
+    tests: True
+
+-- this is for building on Mac OS X with openssl installed via homebrew
+package hlibgit2
+    extra-lib-dirs: /usr/local/opt/openssl/lib
+    extra-include-dirs: /usr/local/opt/openssl/include
+
 package aeson
     flags: +cffi
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 3ac9a6d01bd5816ea4b7e47300012543510393ea
+    tag: 842cde333baeca588fb87dd67d20d8e74c4411ab
 
 source-repository-package
     type: git
-    location: https://github.com/LeventErkok/sbv.git
-    tag: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
+    location: https://github.com/joelburget/sbv.git
+    tag: 8d13e26255178c5ee5b5b3fad97873ff214d7470
 
 source-repository-package
     type: git
@@ -25,3 +35,4 @@ source-repository-package
 
 constraints:
     megaparsec <7.0
+

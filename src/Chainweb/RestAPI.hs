@@ -14,7 +14,7 @@
 -- This module collects and combines the APIs from all Chainweb components.
 --
 -- Every component that defines an API should add it to 'someChainwebApi' and
--- 'someCahinwebServer' and also re-export the module with API client functions.
+-- 'someChainwebServer' and also re-export the module with API client functions.
 --
 module Chainweb.RestAPI
 (
@@ -85,6 +85,8 @@ import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
+import Chainweb.Mempool.Mempool (MempoolBackend)
+import qualified Chainweb.Mempool.Websocket as Mempool
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
@@ -144,48 +146,54 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
     $ chainwebSwagger v cs
 
 -- -------------------------------------------------------------------------- --
--- Singel Chain Server
+-- Single Chain Server
 
 someSingleChainServer
-    :: ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    :: Show t
+    => ChainwebVersion
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> SomeServer
 someSingleChainServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
-    <> someBlockHeaderDbServers v chainDbs
+    <> someBlockHeaderDbServers v (map (\(x, y, _) -> (x, y)) chainDbs)
+    <> Mempool.someMempoolServers v (map (\(x, _, y) -> (x, y)) chainDbs)
     <> someP2pServers v peerDbs
 
 singleChainApplication
-    :: ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    :: Show t
+    => ChainwebVersion
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> Application
 singleChainApplication v chainDbs peerDbs = someServerApplication
     $ someSingleChainServer v chainDbs peerDbs
 
 serveSingleChainOnPort
-    :: Port
+    :: Show t
+    => Port
     -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveSingleChainOnPort p v chainDbs peerDbs = run (int p)
     $ singleChainApplication v chainDbs peerDbs
 
 serveSingleChain
-    :: Settings
+    :: Show t
+    => Settings
     -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveSingleChain s v chainDbs peerDbs = runSettings s
     $ singleChainApplication v chainDbs peerDbs
 
 serveSingleChainSocket
-    :: Settings
+    :: Show t
+    => Settings
     -> Socket
     -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveSingleChainSocket s sock v chainDbs peerDbs = runSettingsSocket s sock
@@ -195,64 +203,71 @@ serveSingleChainSocket s sock v chainDbs peerDbs = runSettingsSocket s sock
 -- Chainweb Server
 
 someChainwebServer
-    :: ChainwebVersion
+    :: Show t
+    => ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> SomeServer
 someChainwebServer v cutDb chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
     <> someCutServer v cutDb
-    <> someBlockHeaderDbServers v chainDbs
+    <> someBlockHeaderDbServers v (map (\(x, y, _) -> (x, y)) chainDbs)
+    <> Mempool.someMempoolServers v (map (\(x, _, y) -> (x, y)) chainDbs)
     <> someP2pServers v peerDbs
 
 chainwebApplication
-    :: ChainwebVersion
+    :: Show t
+    => ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> Application
 chainwebApplication v cutDb chainDbs peerDbs = someServerApplication
     $ someChainwebServer v cutDb chainDbs peerDbs
 
 serveChainwebOnPort
-    :: Port
+    :: Show t
+    => Port
     -> ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebOnPort p v cutDb chainDbs peerDbs = run (int p)
     $ chainwebApplication v cutDb chainDbs peerDbs
 
 serveChainweb
-    :: Settings
+    :: Show t
+    => Settings
     -> ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainweb s v cutDb chainDbs peerDbs = runSettings s
     $ chainwebApplication v cutDb chainDbs peerDbs
 
 serveChainwebSocket
-    :: Settings
+    :: Show t
+    => Settings
     -> Socket
     -> ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebSocket s sock v cutDb chainDbs peerDbs = runSettingsSocket s sock
     $ chainwebApplication v cutDb chainDbs peerDbs
 
 serveChainwebSocketTls
-    :: Settings
+    :: Show t
+    => Settings
     -> X509CertPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebSocketTls settings certBytes keyBytes sock v cutDb chainDbs peerDbs
@@ -262,7 +277,8 @@ serveChainwebSocketTls settings certBytes keyBytes sock v cutDb chainDbs peerDbs
     app = chainwebApplication v cutDb chainDbs peerDbs
 
 serveChainwebSocketTlsEkg
-    :: Port
+    :: Show t
+    => Port
         -- ^ EKG port
     -> Settings
     -> X509CertPem
@@ -270,7 +286,7 @@ serveChainwebSocketTlsEkg
     -> Socket
     -> ChainwebVersion
     -> CutDb
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v cutDb chainDbs peerDbs = do
@@ -280,4 +296,3 @@ serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v cutDb chain
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
     app = chainwebApplication v cutDb chainDbs peerDbs
-

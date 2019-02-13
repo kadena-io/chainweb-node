@@ -8,7 +8,7 @@ extra-deps:
   - aeson-1.4.2.0
   - compactable-0.1.2.2
   - configuration-tools-0.4.0
-  - crackNum-2.2
+  - crackNum-2.3
   - ed25519-donna-0.1.1
   - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
   - FloatingHex-0.4
@@ -26,10 +26,12 @@ extra-deps:
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
   - git: https://github.com/kadena-io/pact.git
-    commit: 3ac9a6d01bd5816ea4b7e47300012543510393ea
-  - git: https://github.com/LeventErkok/sbv.git
-    commit: 3dc60340634c82f39f6c5dca2b3859d10925cfdf
+    commit: 842cde333baeca588fb87dd67d20d8e74c4411ab
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  # temporarily using a patched fork of sbv to disable "unsupported query call"
+  # until it's fixed upstream
+  - git: https://github.com/joelburget/sbv.git
+    commit: 8d13e26255178c5ee5b5b3fad97873ff214d7470
   - git: git@github.com:kadena-io/merkle-log.git
     commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376

@@ -5,14 +5,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Chainweb.Test.Mempool
   ( tests
   , remoteTests
-  , MockTx(..)
   , MempoolWithFunc(..)
-  , mockCodec
-  , mockBlocksizeLimit
-  , mockFeesLimit
   ) where
 
 import Control.Applicative
@@ -24,21 +21,15 @@ import Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Monad (replicateM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
-import Data.Bits (bit, shiftL, shiftR, (.&.))
-import Data.Bytes.Get
-import Data.Bytes.Put
-import Data.ByteString.Char8 (ByteString)
-import Data.Decimal (Decimal, DecimalRaw(..))
+import Data.Decimal (Decimal)
 import Data.Foldable (for_, traverse_)
 import Data.Function (on)
 import Data.Int (Int64)
 import Data.IORef
-import Data.List (sort, sortBy, unfoldr)
+import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
-import Data.Word (Word64)
-import GHC.Generics
 import Prelude hiding (lookup)
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen (Gen, chooseAny, generate, resize)
@@ -49,7 +40,6 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (Codec(..))
 import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------
@@ -80,25 +70,6 @@ tests withMempool = map ($ withMempool) [
     , mempoolTestCase "old transactions are reaped" testTooOld
     ] ++ remoteTests withMempool
 
--- | Mempool only cares about a few projected values from the transaction type
--- (fees, hash, tx size, metadata), so our mock transaction type will only
--- contain these (plus a nonce)
-data MockTx = MockTx {
-    mockNonce :: {-# UNPACK #-} !Int64
-  , mockFees :: {-# UNPACK #-} !Decimal
-  , mockSize :: {-# UNPACK #-} !Int64
-  , mockMeta :: {-# UNPACK #-} !TransactionMetadata
-} deriving (Eq, Ord, Show, Generic)
-
-
-mockBlocksizeLimit :: Int64
-mockBlocksizeLimit = 65535
-
-
-mockFeesLimit :: Decimal
-mockFeesLimit = fromIntegral mockBlocksizeLimit * 4
-
-
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
     i <- (arbitrary :: Gen Int64)
@@ -113,59 +84,6 @@ instance Arbitrary MockTx where
                         <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata Time.minTime Time.maxTime
-
--- | A codec for transactions when sending them over the wire.
-mockCodec :: Codec MockTx
-mockCodec = Codec mockEncode mockDecode
-
-
-mockEncode :: MockTx -> ByteString
-mockEncode (MockTx sz fees nonce meta) = runPutS $ do
-    putWord64le $ fromIntegral sz
-    putDecimal fees
-    putWord64le $ fromIntegral nonce
-    Time.encodeTime $ txMetaCreationTime meta
-    Time.encodeTime $ txMetaExpiryTime meta
-
-
-putDecimal :: MonadPut m => Decimal -> m ()
-putDecimal (Decimal places mantissa) = do
-    putWord8 places
-    putWord8 $ if mantissa >= 0 then 0 else 1
-    let ws = toWordList $ if mantissa >= 0 then mantissa else -mantissa
-    putWord16le $ fromIntegral $ length ws
-    mapM_ putWord64le ws
-  where
-    toWordList = unfoldr $
-                 \d -> if d == 0
-                         then Nothing
-                         else let !a  = fromIntegral (d .&. (bit 64 - 1))
-                                  !d' = d `shiftR` 64
-                              in Just (a, d')
-
-
-getDecimal :: MonadGet m => m Decimal
-getDecimal = do
-    !places <- fromIntegral <$> getWord8
-    !negative <- getWord8
-    numWords <- fromIntegral <$> getWord16le
-    mantissaWords <- replicateM numWords getWord64le
-    let (!mantissa, _) = foldl go (0,0) mantissaWords
-    return $! Decimal places (if negative == 0 then mantissa else -mantissa)
-  where
-    go :: (Integer, Int) -> Word64 -> (Integer, Int)
-    go (!soFar, !shiftVal) !next =
-        let !i = toInteger next + soFar `shiftL` shiftVal
-            !s = shiftVal + 64
-        in (i, s)
-
-
-mockDecode :: ByteString -> Either String MockTx
-mockDecode = runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
-  where
-    getI64 = fromIntegral <$> getWord64le
-    getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-
 
 data MempoolWithFunc = MempoolWithFunc (forall a . (MempoolBackend MockTx -> IO a) -> IO a)
 
