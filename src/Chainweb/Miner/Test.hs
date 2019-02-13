@@ -179,9 +179,9 @@ miner logFun conf nid cutDb wcdb = do
                         mine $! succ nonce
                     Left BadAdjacents -> pure (Left nonce)
                     Right (T2 newBh newCut) -> do
-                        -- total <- readIORef counter
-                        -- when (cid == testChainId 0) $ do
-                        --   printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s\n" (_nodeIdId nid) total (take 30 thing) (drop 226 thing) (pheight p) (pweight p) (take 8 . drop 5 . show $ _blockHash p) (take 8 . drop 5 . show $ _blockHash newBh)
+                        total <- readIORef counter
+                        when (cid == testChainId 0) $ do
+                          printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s\n" (_nodeIdId nid) total (take 30 thing) (drop 226 thing) (pheight p) (pweight p) (take 8 . drop 5 . show $ _blockHash p) (take 8 . drop 5 . show $ _blockHash newBh)
                         return $! Right newCut
 
         mine nonce0 >>= \case

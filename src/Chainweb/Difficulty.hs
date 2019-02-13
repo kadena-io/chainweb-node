@@ -203,6 +203,9 @@ maxTarget' :: Word256
 -- maxTarget' = maxBound `div` (2 ^ (10 :: Int))
 maxTarget' = maxBound
 
+maxTarget'' :: Integer
+maxTarget'' = int maxTarget'
+
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
     toMerkleNode = encodeMerkleInputNode encodeHashTarget
@@ -216,15 +219,15 @@ difficultyToTarget difficulty = maxTarget `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
 -- TODO inline?
-difficultyToTarget' :: Ratio Word256 -> HashTarget
+difficultyToTarget' :: Rational -> HashTarget
 difficultyToTarget' difficulty = HashTarget . PowHashNat $ maxTarget' `div` floor difficulty
 
 targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty target = HashDifficulty . coerce $ maxTarget `div` target
 {-# INLINE targetToDifficulty #-}
 
-targetToDifficulty' :: HashTarget -> Ratio Word256
-targetToDifficulty' (HashTarget (PowHashNat target)) = maxTarget' % target
+targetToDifficulty' :: HashTarget -> Rational
+targetToDifficulty' (HashTarget (PowHashNat target)) = maxTarget'' % int target
 
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target

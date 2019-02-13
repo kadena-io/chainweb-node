@@ -150,20 +150,20 @@ hashTarget db bh
             -- which can occur when initial blocks are mined very quickly. In
             -- this case, an average block creation time of @succ 0 == 1@ has
             -- special meaning: "far too fast".
-            avg :: Ratio Word256
+            avg :: Rational
             -- !avg = succ $ delta `div` int magicNumber
             !avg | delta < 0 = error "Negative delta! Should be impossible!"
                  | delta == 0 = error "ZERO DELTA"
                  | otherwise = (int delta % int magicNumber) / 1000000 -- SECONDS!!
 
-            oldDiff :: Ratio Word256
+            oldDiff :: Rational
             !oldDiff = targetToDifficulty' $ _blockTarget bh'
 
             -- TODO Watch for overflows?
             -- TODO Is this just totally wrong?
             -- TODO Remove the Numeric instances for HashDifficulty and HashTarget!
             -- TODO Should `HashDifficulty` use `Ratio` internally, for perfect precision?
-            newDiff :: Ratio Word256
+            newDiff :: Rational
             -- !newDiff = (targetToDifficulty (_blockTarget bh') * int blockRate) `div` int avg
             !newDiff = oldDiff * blockRate / avg
 
@@ -176,16 +176,16 @@ hashTarget db bh
                          | countLeadingZeros (_blockTarget bh') < 3 -> newTarget
                          | otherwise -> min newTarget (_blockTarget bh' * 8)
 
-        when (_blockChainId bh' == testChainId 0)
-            $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
-                  (show $ _blockChainId bh')
-                  (show $ _blockHeight bh')
-                  (floating avg)
-                  (floating oldDiff)
-                  (floating newDiff)
-                  (take 256 $ thing $ _blockTarget bh')
-                  (take 256 $ thing newTarget)
-                  (take 256 $ thing actual)
+        -- when (_blockChainId bh' == testChainId 0)
+        --     $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
+        --           (show $ _blockChainId bh')
+        --           (show $ _blockHeight bh')
+        --           (floating avg)
+        --           (floating oldDiff)
+        --           (floating newDiff)
+        --           (take 256 $ thing $ _blockTarget bh')
+        --           (take 256 $ thing newTarget)
+        --           (take 256 $ thing actual)
 
         pure actual
   where
@@ -196,7 +196,7 @@ hashTarget db bh
     thing :: HashTarget -> String
     thing = printf "%0256b" . tiggy
 
-    floating :: Ratio Word256 -> Double
+    floating :: Rational -> Double
     floating = realToFrac
 
     tiggy :: HashTarget -> Integer
@@ -207,7 +207,7 @@ hashTarget db bh
     -- blockRate = 10 * 1000000
 
     -- | Seconds.
-    blockRate :: Ratio Word256
+    blockRate :: Rational
     blockRate = 10
 
     bh' :: BlockHeader
