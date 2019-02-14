@@ -23,11 +23,17 @@ module Chainweb.Mempool.Mempool
   , chainwebTestHasher
   , chainwebTestHashMeta
   , noopMempool
+  , syncMempools
   ) where
 ------------------------------------------------------------------------------
+import Control.Concurrent (myThreadId)
+import qualified Control.Concurrent.Async as Async
+import Control.Concurrent.STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
+import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.DeepSeq (NFData)
-import Control.Monad (replicateM)
+import Control.Exception
+import Control.Monad (replicateM, unless, when)
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Bits (bit, shiftL, shiftR, (.&.))
@@ -35,19 +41,20 @@ import Data.ByteArray (convert)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as S
+import qualified Data.ByteString.Char8 as B
 import Data.Decimal (Decimal)
 import Data.Decimal (DecimalRaw(..))
+import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.Int (Int64)
-import Data.IORef (IORef)
+import Data.IORef
 import Data.List (unfoldr)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+import Foreign.StablePtr
 import GHC.Generics (Generic)
-
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
@@ -92,6 +99,9 @@ data MempoolBackend t = MempoolBackend {
     -- TODO: move this inside TransactionConfig ?
   , mempoolBlockSizeLimit :: Int64
 
+    -- | Returns true if the given transaction hash is known to this mempool.
+  , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
+
     -- | Lookup transactions in the pending queue by hash.
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
@@ -123,7 +133,7 @@ data MempoolBackend t = MempoolBackend {
 
 
 noopMempool :: MempoolBackend t
-noopMempool = MempoolBackend txcfg 1000 noopLookup noopInsert noopGetBlock
+noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
                              noopMarkValidated noopMarkConfirmed noopReintroduce
                              noopGetPending noopSubscribe noopShutdown
   where
@@ -137,6 +147,7 @@ noopMempool = MempoolBackend txcfg 1000 noopLookup noopInsert noopGetBlock
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopFees noopSize
                               noopMeta (const $ return True)
 
+    noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopGetBlock = const $ return V.empty
@@ -146,6 +157,98 @@ noopMempool = MempoolBackend txcfg 1000 noopLookup noopInsert noopGetBlock
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented
     noopShutdown = return ()
+
+
+------------------------------------------------------------------------------
+data SyncState = SyncState {
+    _syncCount :: {-# UNPACK #-} !Int64
+  , _syncMissing :: ![Vector TransactionHash]
+  , _syncTooMany :: !Bool
+  }
+
+-- | Pulls any missing pending transactions from a remote mempool.
+--
+-- The sync procedure:
+--
+--    1. begin subscription with remote's mempool
+--    2. get the list of pending transaction hashes from remote.
+--    3. lookup any hashes that are missing, and insert them into local
+--    4. block forever, waiting to be killed (subscription will still be active.)
+--
+-- Blocks until killed, or until the underlying mempool connection throws an
+-- exception.
+
+syncMempools
+    :: Show t
+    => MempoolBackend t     -- ^ local mempool
+    -> MempoolBackend t     -- ^ remote mempool
+    -> IO ()
+syncMempools localMempool remoteMempool =
+    bracket startSubscription cleanupSubscription sync
+
+  where
+    startSubscription = do
+        sub <- mempoolSubscribe remoteMempool
+        th <- readIORef sub >>= Async.async . subThread
+        Async.link th
+        p <- myThreadId >>= newStablePtr  -- otherwise we will get "blocked
+                                          -- indefinitely on mvar" during sync
+        return (sub, th, p)
+
+    cleanupSubscription (sub, th, p) = do
+      Async.uninterruptibleCancel th
+      freeStablePtr p
+      mempoolSubFinal <$> readIORef sub
+
+    -- TODO: update a counter and bug out if too many new txs read
+    subThread sub =
+        let chan = mempoolSubChan sub
+            go = do
+                m <- atomically (TBMChan.readTBMChan chan)
+                maybe (return ()) (\v -> mempoolInsert localMempool v >> go) m
+        in go
+
+    maxCnt = 10000   -- don't pull more than this many new transactions from a
+                     -- single peer in a session.
+
+    syncChunk missing hashes = do
+        res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
+        let !newMissing = V.map snd $ V.filter (not . fst) res
+        let !newMissingCnt = V.length newMissing
+        when (newMissingCnt > 0) $ do
+            (SyncState cnt chunks tooMany) <- readIORef missing
+            when (not tooMany) $ do
+                let !newCnt = cnt + fromIntegral newMissingCnt
+                let !tooMany' = (newCnt >= maxCnt)
+
+                writeIORef missing $!
+                    if tooMany'
+                        then SyncState cnt chunks True
+                        else SyncState newCnt (newMissing : chunks) False
+
+    fromPending (Pending t) = t
+    fromPending _ = error "impossible"
+
+    isPending (Pending _) = True
+    isPending _ = False
+
+    fetchMissing chunk = do
+        res <- mempoolLookup remoteMempool chunk
+        let !newTxs = V.map fromPending $ V.filter isPending res
+        mempoolInsert localMempool newTxs
+
+    sync _ = do
+        missing <- newIORef $ SyncState 0 [] False
+        mempoolGetPendingTransactions remoteMempool $ syncChunk missing
+        (SyncState _ missingChunks tooMany) <- readIORef missing
+
+        -- Go fetch missing transactions from remote
+        traverse_ fetchMissing missingChunks
+        -- We're done syncing. If we cut off the sync session because of too
+        -- many remote txs, we are free to go now, but otherwise we'll block
+        -- indefinitely waiting for the p2p session to kill us (and slurping
+        -- from the remote subscription queue).
+        unless tooMany $ atomically retry
 
 
 ------------------------------------------------------------------------------
@@ -161,7 +264,7 @@ newtype TransactionHash = TransactionHash ByteString
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
-      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (S.take 8 h)
+      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 h)
   {-# INLINE hashWithSalt #-}
 
 
