@@ -34,6 +34,22 @@ stack install --test
 This will build the chainweb library, the `chainweb-node` executable, the main
 test suite, and a few extra example executables.
 
+### Running the test suite
+
+There have been some issues with the test suite running out of file
+descriptors. This may cause test suite failures.  This can be fixed by raising
+ulimits as follows:
+
+On linux add the following line to `/etc/security/limits.conf`:
+
+```
+*               soft    nofile            1048576
+```
+
+On mac follow instructions [here](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
+Create the file `/Library/LaunchDaemons/limit.maxfiles.plist`.
+
+
 ## Running a chainweb-node
 
 A chainweb-node has two identifiers:
