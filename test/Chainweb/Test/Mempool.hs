@@ -10,6 +10,12 @@ module Chainweb.Test.Mempool
   ( tests
   , remoteTests
   , MempoolWithFunc(..)
+  , mempoolTestCase
+  , mempoolProperty
+  , lookupIsPending
+  , lookupIsValidated
+  , lookupIsConfirmed
+  , lookupIsMissing
   ) where
 
 import Control.Applicative

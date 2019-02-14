@@ -26,6 +26,7 @@ import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.Socket
+import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mempool.Websocket
 import qualified Chainweb.Test.MultiNode
 import qualified Chainweb.Test.Pact
@@ -65,6 +66,7 @@ suite = testGroup "ChainwebTests"
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Socket.tests
+        , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.Websocket.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties

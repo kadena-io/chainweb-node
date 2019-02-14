@@ -292,17 +292,18 @@ makeSelfFinalizingInMemPool cfg =
         return x
 
     wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9
+        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10
       where
-        f1 = withRef mp . flip mempoolLookup
-        f2 = withRef mp . flip mempoolInsert
-        f3 = withRef mp . flip mempoolGetBlock
-        f4 = withRef mp . flip mempoolMarkValidated
-        f5 = withRef mp . flip mempoolMarkConfirmed
-        f6 = withRef mp . flip mempoolReintroduce
-        f7 = withRef mp . flip mempoolGetPendingTransactions
-        f8 = withRef mp mempoolSubscribe
-        f9 = withRef mp mempoolShutdown
+        f1 = withRef mp . flip mempoolMember
+        f2 = withRef mp . flip mempoolLookup
+        f3 = withRef mp . flip mempoolInsert
+        f4 = withRef mp . flip mempoolGetBlock
+        f5 = withRef mp . flip mempoolMarkValidated
+        f6 = withRef mp . flip mempoolMarkConfirmed
+        f7 = withRef mp . flip mempoolReintroduce
+        f8 = withRef mp . flip mempoolGetPendingTransactions
+        f9 = withRef mp mempoolSubscribe
+        f10 = withRef mp mempoolShutdown
 
 
 ------------------------------------------------------------------------------
@@ -333,9 +334,10 @@ reaperThread cfg dataLock restore = forever $ do
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lock broadcaster _) =
-    MempoolBackend tcfg blockSizeLimit lookup insert getBlock markValidated
+    MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
                    markConfirmed reintroduce getPending subscribe shutdown
   where
+    member = memberInMem lock
     lookup = lookupInMem lock
     insert = insertInMem broadcaster cfg lock
     getBlock = getBlockInMem cfg lock
@@ -362,6 +364,25 @@ withInMemoryMempool cfg f = withTxBroadcaster $ \txB ->
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t -> IO ()
 destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
+
+
+------------------------------------------------------------------------------
+memberInMem :: MVar (InMemoryMempoolData t)
+            -> Vector TransactionHash
+            -> IO (Vector Bool)
+memberInMem lock txs = do
+    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
+        q <- readIORef $ _inmemPending mdata
+        validated <- readIORef $ _inmemValidated mdata
+        confirmed <- readIORef $ _inmemConfirmed mdata
+        return $! (q, validated, confirmed)
+    return $! V.map (memberOne q validated confirmed) txs
+
+  where
+    memberOne q validated confirmed txHash =
+        PSQ.member txHash q ||
+        HashMap.member txHash validated ||
+        HashSet.member txHash confirmed
 
 
 ------------------------------------------------------------------------------

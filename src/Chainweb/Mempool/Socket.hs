@@ -102,6 +102,7 @@ data ClientConfig t = ClientConfig {
 -- encoded/decoded and sent over the socket.
 data Command t = Keepalive
                | Insert !(Vector t)
+               | Member !(Vector TransactionHash)
                | Lookup !(Vector TransactionHash)
                | GetPending
                | GetBlock !Int64
@@ -113,6 +114,7 @@ data Command t = Keepalive
 data ServerMessage t = OK
                      | Failed ByteString
                      | LookupResults (Vector (LookupResult t))
+                     | MemberResults (Vector Bool)
                      | Block (Vector t)
                      | HashChunk (Vector TransactionHash)
                      | ChunksFinished
@@ -198,33 +200,45 @@ encodeServerMessage :: TransactionConfig t
                     -> Builder
 encodeServerMessage _ OK = Builder.word8 0
 encodeServerMessage _ (Failed b) = Builder.word8 1 <> encodeFramed b
+encodeServerMessage _ (MemberResults v) =
+    Builder.word8 2 <> encodeVector encodeMemberResult v
 encodeServerMessage txcfg (LookupResults v) =
-    Builder.word8 2 <> encodeVector (encodeLookupResult txcfg) v
+    Builder.word8 3 <> encodeVector (encodeLookupResult txcfg) v
 encodeServerMessage txcfg (Block t) =
-    Builder.word8 3 <> encodeVector (encodeTx txcfg) t
+    Builder.word8 4 <> encodeVector (encodeTx txcfg) t
 encodeServerMessage _ (HashChunk t) =
-    Builder.word8 4 <> encodeVector encodeTransactionHash t
-encodeServerMessage _ ChunksFinished = Builder.word8 5
+    Builder.word8 5 <> encodeVector encodeTransactionHash t
+encodeServerMessage _ ChunksFinished = Builder.word8 6
 encodeServerMessage txcfg (SubscriptionUpdates t) =
-    Builder.word8 6 <> encodeVector (encodeTx txcfg) t
+    Builder.word8 7 <> encodeVector (encodeTx txcfg) t
 
+encodeMemberResult :: Bool -> Builder
+encodeMemberResult True = Builder.word8 1
+encodeMemberResult False = Builder.word8 0
+
+decodeMemberResult :: Parser Bool
+decodeMemberResult = do
+    d <- Atto.anyWord8
+    return $! d /= 0
 
 decodeServerMessage :: TransactionConfig t
                     -> Parser (ServerMessage t)
 decodeServerMessage txcfg =
-    Atto.choice [ pOK, pFailed, pLookupResults, pBlock, pHashChunk
-                , pChunksFinished, pSubUpdates ]
+    Atto.choice [ pOK, pFailed, pMemberResults, pLookupResults, pBlock
+                , pHashChunk, pChunksFinished, pSubUpdates ]
   where
     pOK = Atto.word8 0 *> pure OK
     pFailed = Failed <$> (Atto.word8 1 *> decodeFramed)
-    pLookupResults = LookupResults <$> (Atto.word8 2 *>
+    pMemberResults = MemberResults <$> (Atto.word8 2 *>
+                                        decodeVector decodeMemberResult)
+    pLookupResults = LookupResults <$> (Atto.word8 3 *>
                                         decodeVector (decodeLookupResult txcfg))
-    pBlock = Block <$> (Atto.word8 3 *> decodeVector (decodeTx txcfg))
+    pBlock = Block <$> (Atto.word8 4 *> decodeVector (decodeTx txcfg))
     pHashChunk = HashChunk <$>
-                 (Atto.word8 4 *> decodeVector decodeTransactionHash)
-    pChunksFinished = Atto.word8 5 *> pure ChunksFinished
+                 (Atto.word8 5 *> decodeVector decodeTransactionHash)
+    pChunksFinished = Atto.word8 6 *> pure ChunksFinished
     pSubUpdates = SubscriptionUpdates <$>
-                  (Atto.word8 6 *> decodeVector (decodeTx txcfg))
+                  (Atto.word8 7 *> decodeVector (decodeTx txcfg))
 
 
 encodeTransactionHash :: TransactionHash -> Builder
@@ -316,15 +330,17 @@ decodeCommand txcfg = (<?> "decodeCommand") $ do
     case cmd of
       0 -> return Keepalive
       1 -> decodeInsert
-      2 -> decodeLookup
-      3 -> return GetPending
-      4 -> GetBlock . fromIntegral <$> parseU64LE
-      5 -> return Subscribe
-      6 -> return Goodbye
+      2 -> decodeMember
+      3 -> decodeLookup
+      4 -> return GetPending
+      5 -> GetBlock . fromIntegral <$> parseU64LE
+      6 -> return Subscribe
+      7 -> return Goodbye
       _ -> fail "bad command code"
   where
     decodeInsert = (Insert . trace' "decodeInsert got: ") <$> decodeVector (decodeTx txcfg)
     decodeLookup = Lookup <$> decodeVector decodeTransactionHash
+    decodeMember = Member <$> decodeVector decodeTransactionHash
 
 
 encodeCommand :: TransactionConfig t -> Command t -> Builder
@@ -332,11 +348,12 @@ encodeCommand txcfg = (<> Builder.flush) . go
   where
     go Keepalive = Builder.word8 0
     go (Insert v) = Builder.word8 1 <> encodeVector (encodeTx txcfg) v
-    go (Lookup v) = Builder.word8 2 <> encodeVector encodeTransactionHash v
-    go GetPending = Builder.word8 3
-    go (GetBlock x) = Builder.word8 4 <> Builder.word64LE (fromIntegral x)
-    go Subscribe = Builder.word8 5
-    go Goodbye = Builder.word8 6
+    go (Member v) = Builder.word8 2 <> encodeVector encodeTransactionHash v
+    go (Lookup v) = Builder.word8 3 <> encodeVector encodeTransactionHash v
+    go GetPending = Builder.word8 4
+    go (GetBlock x) = Builder.word8 5 <> Builder.word64LE (fromIntegral x)
+    go Subscribe = Builder.word8 6
+    go Goodbye = Builder.word8 7
 
 ------------------------------------------------------------------------------
 newtype MempoolSocketException = MempoolSocketException T.Text
@@ -560,6 +577,9 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
     -- 'processCommand' just delegates to the underlying mempool.
     processCommand _ Keepalive = respond OK
     processCommand _ (Insert txs) = mempoolInsert mempool txs >> respond OK
+    processCommand _ (Member txhashes) = do
+        memberResults <- mempoolMember mempool txhashes
+        respond $ MemberResults memberResults
     processCommand _ (Lookup txhashes) = do
         lookupResults <- mempoolLookup mempool txhashes
         respond $ LookupResults lookupResults
@@ -584,6 +604,7 @@ type ClientMVar a = MVar (Either ByteString a)
 
 data ClientCommand t = CKeepalive
                      | CInsert !(Vector t) (ClientMVar ())
+                     | CMember !(Vector TransactionHash) !(ClientMVar (Vector Bool))
                      | CLookup !(Vector TransactionHash) !(ClientMVar (Vector (LookupResult t)))
                      | CGetPending (ClientMVar (Maybe (Vector TransactionHash)))
                      | CGetBlock Int64 (ClientMVar (Vector t))
@@ -593,6 +614,7 @@ data ClientCommand t = CKeepalive
 instance Show t => Show (ClientCommand t) where
     show CKeepalive = "<<CKeepalive>>"
     show (CInsert v _) = "<<CInsert " ++ show v ++ ">>"
+    show (CMember v _) = "<<CMember " ++ show v ++ ">>"
     show (CLookup v _) = "<<CLookup " ++ show v ++ ">>"
     show (CGetPending _) = "<<CGetPending>>"
     show (CGetBlock k _) = "<<CGetBlock " ++ show k ++ ">>"
@@ -646,8 +668,8 @@ sayGoodbye (ClientState cChan _ _ _ _ _) = do
 
 toBackend :: Show t => ClientConfig t -> ClientState t -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _) =
-    MempoolBackend txcfg blockSizeLimit pLookup pInsert pGetBlock
-                   unsupported unsupported unsupported
+    MempoolBackend txcfg blockSizeLimit pMember pLookup pInsert
+                   pGetBlock unsupported unsupported unsupported
                    pGetPending pSubscribe pShutdown
   where
     txcfg = _ccTxCfg config
@@ -667,6 +689,7 @@ toBackend config (ClientState cChan _ _ _ _ _) =
 
 
     pLookup v = issueMvCmd $ CLookup v
+    pMember v = issueMvCmd $ CMember v
     pInsert v = do
         debug "client: pInsert begin"
         issueMvCmd $ CInsert v
@@ -844,6 +867,7 @@ parseHandshake = (<?> "handshake") $ do
 ccmdToCmd :: ClientCommand t -> Command t
 ccmdToCmd CKeepalive = Keepalive
 ccmdToCmd (CInsert v _) = Insert v
+ccmdToCmd (CMember v _) = Member v
 ccmdToCmd (CLookup v _) = Lookup v
 ccmdToCmd (CGetPending _) = GetPending
 ccmdToCmd (CGetBlock x _) = GetBlock x
@@ -873,6 +897,7 @@ sendFailedToAllPending cs r =
                         _ -> Left "mempool shutdown"
     cancel CKeepalive = return ()
     cancel (CInsert _ m) = putMVar m failure
+    cancel (CMember _ m) = putMVar m failure
     cancel (CLookup _ m) = putMVar m failure
     cancel (CGetPending m) = putMVar m failure
     cancel (CGetBlock _ m) = putMVar m failure
@@ -889,6 +914,9 @@ dispatchResponse _ CKeepalive _ = dispatchMismatch
 dispatchResponse _ (CInsert _ m) OK = debug "client: got OK for insert"
                                           >> putMVar m (Right ())
 dispatchResponse _ (CInsert _ _) _ = dispatchMismatch
+
+dispatchResponse _ (CMember _ m) (MemberResults v) = putMVar m $ Right v
+dispatchResponse _ (CMember _ _) _ = dispatchMismatch
 
 dispatchResponse _ (CLookup _ m) (LookupResults v) = putMVar m $ Right v
 dispatchResponse _ (CLookup _ _) _ = dispatchMismatch
