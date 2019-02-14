@@ -68,6 +68,13 @@ import Chainweb.WebBlockHeaderDB
 import Data.DiGraph
 import Data.LogMessage
 
+-- DEBUGGING --
+import Chainweb.ChainId (testChainId)
+import Chainweb.Difficulty (PowHashNat(..), HashDifficulty(..))
+import Chainweb.Time (Time(..), TimeSpan(..))
+import Data.Int (Int64)
+import Text.Printf (printf)
+
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
 
@@ -139,6 +146,11 @@ miner logFun conf nid cutDb wcdb = do
 
         -- Create a new (test) block header.
         --
+        -- INVARIANT: A new cut, chain, and parent header is reselected after
+        -- each hash failure. This ensures that the Cut the miner is working on
+        -- doesn't grow stale, and cause forks. Without this condition (or a
+        -- similar one), the miners cause forks quite aggressively.
+        --
         let mine :: Word64 -> IO (Either Word64 Cut)
             mine !nonce = do
                 -- Get the current longest cut.
@@ -163,6 +175,7 @@ miner logFun conf nid cutDb wcdb = do
                 -- proof-of-work mining.
                 --
                 when (not . usePOW $ _blockChainwebVersion p) $ do
+                    putStrLn "SLEEPY!!!"
                     d <- MWC.geometric1
                          (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
                          gen
@@ -173,8 +186,8 @@ miner logFun conf nid cutDb wcdb = do
                 --
                 ct <- getCurrentTimeIntegral
 
-                -- let targetBits :: String
-                --     targetBits = printf "%0256b" $ htInteger target
+                let targetBits :: String
+                    targetBits = printf "%0256b" $ htInteger target
 
                 -- Loops (i.e. "mines") if a non-matching nonce was generated.
                 --
@@ -183,11 +196,11 @@ miner logFun conf nid cutDb wcdb = do
                 --
                 testMine (Nonce nonce) target ct nid cid c >>= \case
                     Left BadNonce -> do
-                        -- atomicModifyIORef' counter (\n -> (succ n, ()))
+                        atomicModifyIORef' counter (\n -> (succ n, ()))
                         mine $! succ nonce
                     Left BadAdjacents ->
                         pure $! Left nonce
-                    Right (T2 _ {- newBh -} newCut) -> do
+                    Right (T2 newBh newCut) -> do
 
                         -- DEBUGGING --
                         -- Uncomment the following for a live view of mining
@@ -195,17 +208,18 @@ miner logFun conf nid cutDb wcdb = do
                         -- number of surrounding helper values and readd some
                         -- imports.
 
-                        -- total <- readIORef counter
-                        -- when (cid == testChainId 0) $ do
-                        --   printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s\n"
-                        --       (_nodeIdId nid)
-                        --       total
-                        --       (take 30 targetBits)
-                        --       (drop 226 targetBits)
-                        --       (pheight p)
-                        --       (pweight p)
-                        --       (take 8 . drop 5 . show $ _blockHash p)
-                        --       (take 8 . drop 5 . show $ _blockHash newBh)
+                        total <- readIORef counter
+                        when (cid == testChainId 0) $ do
+                          printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s TIME:%f\n"
+                              (_nodeIdId nid)
+                              total
+                              (take 30 targetBits)
+                              (drop 226 targetBits)
+                              (pheight p)
+                              (pweight p)
+                              (take 8 . drop 5 . show $ _blockHash p)
+                              (take 8 . drop 5 . show $ _blockHash newBh)
+                              (int (time newBh - time p) / 1000000 :: Float)
 
                         pure $! Right newCut
 
@@ -232,12 +246,15 @@ miner logFun conf nid cutDb wcdb = do
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
 
-    -- htInteger :: HashTarget -> Integer
-    -- htInteger (HashTarget (PowHashNat w)) = fromIntegral w
+    htInteger :: HashTarget -> Integer
+    htInteger (HashTarget (PowHashNat w)) = fromIntegral w
 
-    -- pheight :: BlockHeader -> Word64
-    -- pheight bh = case _blockHeight bh of BlockHeight w -> w
+    pheight :: BlockHeader -> Word64
+    pheight bh = case _blockHeight bh of BlockHeight w -> w
 
-    -- pweight :: BlockHeader -> Integer
-    -- pweight bh = case _blockWeight bh of
-    --     BlockWeight (HashDifficulty (PowHashNat w)) -> int w
+    pweight :: BlockHeader -> Integer
+    pweight bh = case _blockWeight bh of
+        BlockWeight (HashDifficulty (PowHashNat w)) -> int w
+
+    time :: BlockHeader -> Int64
+    time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n

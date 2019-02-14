@@ -39,8 +39,10 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, targetBits
 , checkTarget
 , maxTarget
+, prereduction
 , difficultyToTarget
 , difficultyToTarget'
 , targetToDifficulty
@@ -64,6 +66,7 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
+import Data.Bool (bool)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
@@ -77,6 +80,8 @@ import GHC.Generics
 import GHC.TypeNats
 
 import Test.QuickCheck (Property, property)
+
+import Text.Printf (printf)
 
 -- internal imports
 
@@ -192,6 +197,10 @@ newtype HashTarget = HashTarget PowHashNat
     deriving newtype (ToJSON, FromJSON, Hashable)
     deriving newtype (Bounded, Enum, Num, Real, Integral, Bits, FiniteBits)
 
+-- | A visualization of a `HashTarget` as binary.
+targetBits :: HashTarget -> String
+targetBits (HashTarget (PowHashNat n)) = printf "%0256b" $ (int n :: Integer)
+
 -- | By maximum, we mean "easiest". For POW-based chainwebs, this is reduced
 -- down from `maxBound` so that the mining of initial blocks doesn't occur too
 -- quickly, stressing the system, or otherwise negatively affecting difficulty
@@ -203,19 +212,21 @@ newtype HashTarget = HashTarget PowHashNat
 maxTarget :: ChainwebVersion -> HashTarget
 maxTarget = HashTarget . PowHashNat . maxTarget'
 
--- TODO This should probably dispatch on different values for `TestWithPow` and
--- `TestNet*` specifically.
 -- | A pre-reduction of 9 bits has experimentally been shown to be an
 -- equilibrium point for the hash power provided by a single, reasonably
 -- performant laptop in early 2019. It is further reduced from 9 to be merciful
 -- to CI machines.
 --
 maxTarget' :: ChainwebVersion -> Word256
-maxTarget' v | usePOW v = maxBound `div` (2 ^ (7 :: Int))
-             | otherwise = maxBound
+maxTarget' v = maxBound `div` (2 ^ prereduction v)
 
 maxTarget'' :: ChainwebVersion -> Integer
 maxTarget'' = int . maxTarget'
+
+-- TODO This should probably dispatch on different values for `TestWithPow` and
+-- `TestNet*` specifically.
+prereduction :: ChainwebVersion -> Int
+prereduction v = bool 0 7 $ usePOW v
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -255,55 +266,6 @@ encodeHashTarget = encodePowHashNat . coerce
 decodeHashTarget :: MonadGet m => m HashTarget
 decodeHashTarget = HashTarget <$> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
-
--- -------------------------------------------------------------------------- --
--- Difficulty Computation
-
--- | FIXME: make the overflow checks tight
---
--- this algorithm introduces a rounding error in the order of the length of the
--- input list. We could reduce the error at the cost of larger numbers (and thus
--- more likely bound violations). We could also eliminate the risk of bound
--- violations at the cost of larger rounding errors. The current code is a
--- compromise.
---
--- calculateTarget
---     :: forall a
---     . Integral a
---     => TimeSpan a
---     -> [(HashTarget, TimeSpan a)]
---     -> HashTarget
--- calculateTarget targetTime l = HashTarget $ sum
---     [ weightedTarget trg (t2h t) w
---     | (HashTarget trg, t) <- l
---     | w <- [ (1::PowHashNat) ..]
---     ]
---   where
---     n :: PowHashNat
---     n = int $ length l
-
---     -- represent time span as integral number of milliseconds
---     --
---     t2h :: TimeSpan a -> PowHashNat
---     t2h t = int (coerce t :: a) `div` 1000
-
---     -- weight and n is in the order of 2^7
---     -- time spans are in the order of 2^17 milliseconds
---     --
---     -- Target should be < 2^231 (or difficulty should be larger than 2^25.
---     -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
---     --
---     weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
---     weightedTarget target timeSpan weight
-      --   | target > limit =
-      --       let numerator = 2 * weight * t2h targetTime
-      --       in numerator * (target `div` denominator)
-      --   | otherwise =
-      --       let numerator = 2 * weight * target * t2h targetTime
-      --       in numerator `div` denominator
-      -- where
-      --   limit = 2 ^ (231 :: Int)
-      --   denominator = n * (n + 1) * timeSpan
 
 -- -------------------------------------------------------------------------- --
 -- Properties

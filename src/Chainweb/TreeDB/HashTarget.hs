@@ -39,6 +39,11 @@ import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.TreeDB
 import Chainweb.Utils (int)
 
+-- DEBUGGING ---
+import Control.Monad (when)
+import Chainweb.ChainId (testChainId)
+import Text.Printf (printf)
+
 ---
 
 -- | The gap in SECONDS that we desire between the Creation Time of subsequent
@@ -107,31 +112,38 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
                 -- Intent: When increasing the difficulty (thereby lowering the
                 -- target toward 0), the leading 1-bit must not move more than 3
                 -- bits at a time.
-                | newTarget < _blockTarget bh' = max newTarget (_blockTarget bh' `div` 8)
+                | newTarget < _blockTarget bh' =
+                      max newTarget (_blockTarget bh' `div` 8)
+                -- Intent: Cap the new target back down, if it somehow managed
+                -- to go over the maximum. This is possible during POW, since we
+                -- assume @maxTarget < @maxBound@.
+                | newTarget > maxTarget ver =
+                      maxTarget ver
                 -- Intent: When decreasing the difficulty (thereby raising the
-                -- target toward `maxTarget`), avoid a potential `Word256`
-                -- overflow. TODO: count of leading zeros should depend on
-                -- `maxTarget`!
-                | countLeadingZeros (_blockTarget bh') < 3 = newTarget
-                -- Intent: Otherwise, ensure that the new target does not
-                -- increase by more than 3 bits at a time.
-                | otherwise = min newTarget (_blockTarget bh' * 8)
+                -- target toward `maxTarget`), ensure that the new target does
+                -- not increase by more than 3 bits at a time. Using
+                -- `countLeadingZeros` like this also helps avoid a `Word256`
+                -- overflow.
+                | countLeadingZeros (_blockTarget bh') - countLeadingZeros newTarget > 3 =
+                      _blockTarget bh' * 8
+                | otherwise =
+                      newTarget
 
         -- DEBUGGING --
         -- Uncomment the following to get a live view of difficulty adjustment.
         -- You will have to readd a few imports, and also uncomment a few helper
         -- functions below.
 
-        -- when (_blockChainId bh' == testChainId 0)
-        --     $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
-        --           (show $ _blockChainId bh')
-        --           (show $ _blockHeight bh')
-        --           (floating avg)
-        --           (floating oldDiff)
-        --           (floating newDiff)
-        --           (targetBits $ _blockTarget bh')
-        --           (targetBits newTarget)
-        --           (targetBits actual)
+        when (_blockChainId bh' == testChainId 0)
+            $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
+                  (show $ _blockChainId bh')
+                  (show $ _blockHeight bh')
+                  (floating avg)
+                  (floating oldDiff)
+                  (floating newDiff)
+                  (targetBits $ _blockTarget bh')
+                  (targetBits newTarget)
+                  (targetBits actual)
 
         pure actual
   where
@@ -149,11 +161,5 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
     time :: BlockHeader -> Int64
     time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
 
-    -- targetBits :: HashTarget -> String
-    -- targetBits = printf "%0256b" . htInteger
-
-    -- floating :: Rational -> Double
-    -- floating = realToFrac
-
-    -- htInteger :: HashTarget -> Integer
-    -- htInteger (HashTarget (PowHashNat w)) = fromIntegral w
+    floating :: Rational -> Double
+    floating = realToFrac

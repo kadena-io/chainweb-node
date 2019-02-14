@@ -234,7 +234,6 @@ trunk g h = do
 --
 header :: BlockHeader -> Gen BlockHeader
 header h = do
-    "CRAP HERE TOO" `trace` pure ()
     nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary
