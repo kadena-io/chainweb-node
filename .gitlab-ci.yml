@@ -79,7 +79,3 @@ nightly-nix:
     - nix-build -A ghc.chainweb.doc
     - scripts/collectArtifacts.sh
 
-nightly-stack:
-  script:
-    - echo This is a nightly stack build!
-    - nix-shell --pure -p stack libiconv zlib ncurses gmp git perl darwin.security_tool --run "stack test --fast"
