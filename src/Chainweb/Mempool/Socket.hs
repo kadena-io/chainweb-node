@@ -418,11 +418,11 @@ server :: Show t
        -> MVar N.PortNumber     -- ^ real bound port number is written here.
                                 -- MVar must be empty.
        -> IO ()
-server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) -> do
-    bindSock <- bind host port
-    N.listen bindSock 5
-    N.socketPort bindSock >>= putMVar mvar
-    forever (restore (N.accept bindSock) >>= launch)
+server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) ->
+    bracket (bind host port) N.close $ \bindSock -> do
+        restore $ N.listen bindSock 5
+        N.socketPort bindSock >>= putMVar mvar
+        forever (restore (N.accept bindSock) >>= launch)
   where
     launch (sock, _) = do
         s <- toDebugStreams "server" sock
@@ -769,8 +769,8 @@ withClientSession (inp, outp, cleanup) config userHandler =
 
     destroy (cs@(ClientState _ cmv _ _ _ _), done1, done2) = eatExceptions $ do
         debug "client: begin destroy"
-        sayGoodbye cs
-        closeChans cs `finally`
+        sayGoodbye cs `finally`
+            closeChans cs `finally`
             (readMVar cmv >>= killThread) `finally`
             takeMVar done1 `finally`
             -- input thread will be closed by EOF on read
