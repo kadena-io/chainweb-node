@@ -12,8 +12,8 @@ import Control.Exception
 import Control.Monad (void, when, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
-import qualified Data.ByteString.Char8 as B
 import Data.IORef
+import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import System.Timeout
@@ -32,9 +32,12 @@ tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
   where
     withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg)
     gen = do
-      vs@(xs, ys) <- pick arbitrary
-      pre (not (null xs || null ys) && length ys < 10000)
-      return vs
+      (xs, ys, zs) <- pick arbitrary
+      let xss = Set.fromList xs
+      let yss = Set.fromList ys `Set.difference` xss
+      let zss = Set.fromList zs `Set.difference` (xss `Set.union` yss)
+      pre (not (Set.null xss || Set.null yss || Set.null zss) && length ys < 10000 && length zs < 10000)
+      return (xss, yss, zss)
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
@@ -47,8 +50,8 @@ testInMemCfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 
-propSync :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propSync (txs0, missing0) localMempool =
+propSync :: (Set MockTx, Set MockTx, Set MockTx) -> MempoolBackend MockTx -> IO (Either String ())
+propSync (txs, missing, later) localMempool =
     withInMemoryMempool testInMemCfg $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
@@ -61,9 +64,14 @@ propSync (txs0, missing0) localMempool =
                      (readIORef >=> mempoolSubFinal) $ \subRef -> do
                  syncThMv <- newEmptyMVar
                  subStarted <- newEmptyMVar
-                 tb <- mkTimeBomb (V.length missingV)
-                                  (readMVar syncThMv >>=
-                                   Async.uninterruptibleCancel)
+                 syncFinished <- newEmptyMVar
+                 tb1 <- mkTimeBomb (V.length missingV)
+                                   (tryPutMVar syncFinished ())
+                 tb2 <- mkTimeBomb (V.length missingV + V.length laterV)
+                                   (do readMVar syncThMv >>=
+                                          Async.uninterruptibleCancel
+                                       throwIO ThreadKilled)
+                 let tb x = tb1 x `finally` tb2 x
                  sub <- readIORef subRef
                  subTh <- Async.async (subThread tb sub subStarted)
                  Async.link subTh
@@ -73,13 +81,24 @@ propSync (txs0, missing0) localMempool =
                  putMVar syncThMv syncTh
                  Async.link syncTh
 
+                 -- Wait until time bomb 1 goes off
+                 takeMVar syncFinished
+
+                 -- We should now be subscribed and waiting for V.length laterV
+                 -- more transactions before getting killed. Transactions
+                 -- inserted into remote should get synced to us.
+                 mempoolInsert remoteMempool laterV
+
                  Async.wait syncTh `finally` Async.wait subTh
+
         maybe (fail "timeout") return m
 
         -- we synced the right number of transactions. verify they're all
         -- there.
         runExceptT $ do
             liftIO (mempoolLookup localMempool missingHashes) >>=
+                V.mapM_ lookupIsPending
+            liftIO (mempoolLookup localMempool laterHashes) >>=
                 V.mapM_ lookupIsPending
 
   where
@@ -90,16 +109,12 @@ propSync (txs0, missing0) localMempool =
         return $ \v -> do
             c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
                                                in (x', x'))
-            when (c == 0) $ do
-                void act
-                throwIO ThreadKilled
+            when (c == 0) $ void act
 
     syncThread remoteMempool = eatExceptions $ syncMempools localMempool remoteMempool
 
     -- a thread that reads from a mempool subscription and calls a handler for
     -- each element that comes through the channel.
-    subThread
-        :: (V.Vector MockTx -> IO ()) -> Subscription MockTx -> MVar () -> IO ()
     subThread onElem sub subStarted =
         eatExceptions $ flip finally (mempoolSubFinal sub) $ do
             let chan = mempoolSubChan sub
@@ -109,11 +124,12 @@ propSync (txs0, missing0) localMempool =
             go
 
     hash = txHasher $ mempoolTxConfig localMempool
-    txs = Set.fromList txs0
     txsV = V.fromList $ Set.toList txs
-    missing = Set.difference (Set.fromList missing0) txs
     missingV = V.fromList $ Set.toList missing
     missingHashes = V.map hash missingV
+
+    laterV = V.fromList $ Set.toList later
+    laterHashes = V.map hash laterV
 
 eatExceptions :: IO () -> IO ()
 eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
