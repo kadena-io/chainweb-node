@@ -24,6 +24,7 @@ module Utils.Gexf
 import Control.Lens
 
 import Data.Aeson
+import Data.Bits
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Foldable
@@ -37,7 +38,9 @@ import Text.XML.Generator
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Difficulty
 import Chainweb.HostAddress
+import Chainweb.NodeId hiding (NodeId)
 import Chainweb.Time
 import Chainweb.Utils
 
@@ -125,8 +128,11 @@ blocks2graph blocks = gexfDiGraph
     nodeAttr =
         [ ("chain", "int")
         , ("height", "int")
-        , ("creationTime", "float")
+        , ("creationTime", "double")
         , ("miner", "string")
+        , ("target", "integer")
+        , ("weight", "integer")
+        , ("nonce", "string")
         ]
     edgeAttr =
         [ ("isParent", "boolean")
@@ -145,14 +151,23 @@ block2node b = gexfNode i i t $ Just
     [ ("chain", b ^. blockChainId . to toText)
     , ("height", sshow (b ^. blockHeight . to int :: Int))
     , ("creationTime", b ^. to creationTimeSeconds . to sshow)
-    , ("miner", b ^. blockMiner . to toText)
+    , ("miner", b ^. blockMiner . chainNodeIdId . to sshow)
+    , ("target", sshow (log2 trg))
+    , ("weight", sshow (log2 w))
+    , ("nonce", sshow n)
     ]
   where
     i = toText $ b ^. blockHash
     t = Just $ creationTimeMs b
+    HashTarget trg = _blockTarget b
+    BlockWeight (HashDifficulty w) = _blockWeight b
+    Nonce n = _blockNonce b
+    log2 x = finiteBitSize x - 1 - countLeadingZeros x
 
 block2edges :: BlockHeader -> [Gexf 'GexfEdge]
-block2edges b = pe : ae
+block2edges b
+    | isGenesisBlockHeader b = []
+    | otherwise = pe : ae
   where
     pe = gexfEdge (mkEdgeId i parentTarget) Nothing (Just 1)
         (Just [("isParent", "true")])

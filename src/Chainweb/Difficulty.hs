@@ -61,6 +61,7 @@ import Control.Monad
 
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
+import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
@@ -107,7 +108,7 @@ newtype PowHashNat = PowHashNat Word256
     deriving (Show, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Eq, Ord, Bounded, Enum)
-    deriving newtype (Num, Integral, Real)
+    deriving newtype (Num, Integral, Real, Bits, FiniteBits)
         -- FIXME implement checked arithmetic
         -- FIXME avoid usage of Num and co
     deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
