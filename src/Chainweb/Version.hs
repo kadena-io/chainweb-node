@@ -24,6 +24,7 @@
 --
 module Chainweb.Version
 ( ChainwebVersion(..)
+, usePOW
 , encodeChainwebVersion
 , decodeChainwebVersion
 
@@ -37,7 +38,7 @@ module Chainweb.Version
 
 -- * Singletons
 , Sing(SChainwebVersion)
-, type SChainwebVersion
+, SChainwebVersion
 
 ) where
 
@@ -111,6 +112,15 @@ data ChainwebVersion
     | Testnet00
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
     deriving anyclass (Hashable, NFData)
+
+-- | Given a type of chainweb, should we perform POW mining?
+--
+usePOW :: ChainwebVersion -> Bool
+usePOW Test = False
+usePOW TestWithTime = False
+usePOW TestWithPow = True
+usePOW Simulation = False
+usePOW Testnet00 = True
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
 encodeChainwebVersion Test = putWord32le 0x00000000
@@ -207,4 +217,3 @@ instance SingKind ChainwebVersionT where
 
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
-

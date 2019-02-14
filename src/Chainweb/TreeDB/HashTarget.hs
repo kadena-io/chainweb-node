@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -13,28 +12,27 @@
 -- Stability: experimental
 --
 module Chainweb.TreeDB.HashTarget
-  ( hashTarget
+  ( BlockRate(..)
+  , WindowWidth(..)
+  , hashTarget
   ) where
 
 import Control.Lens ((^.))
-import Control.Monad (when)
 
-import Debug.Trace
 import Data.Bits (countLeadingZeros)
-import Data.DoubleWord (Word256)
 import Data.Function ((&))
 import qualified Data.HashSet as HS
 import Data.Int (Int64)
 import Data.Maybe (fromJust)
 import Data.Ratio
 import Data.Semigroup (Max(..), Min(..))
-import Text.Printf
+
+import Numeric.Natural (Natural)
 
 import qualified Streaming.Prelude as P
 
 -- internal modules
 
-import Chainweb.ChainId
 import Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.Time (Time(..), TimeSpan(..))
@@ -43,84 +41,16 @@ import Chainweb.Utils (int)
 
 ---
 
--- | Compute what the `HashTarget` ought to be for a block, using its ancestry
--- in a window which goes back the given amount of time from its parent.
+-- | The gap in SECONDS that we desire between the Creation Time of subsequent
+-- blocks in some chain.
 --
--- hashTargetFromHistory
---     :: forall db. TreeDb db
---     => IsBlockHeader (DbEntry db)
---     => db
---     -> DbEntry db
---     -> TimeSpan Int64
---     -> IO (T2 HashTarget Int)
--- hashTargetFromHistory db bh ts
---     | _blockHeight bh' < 10 = pure (T2 maxTarget 0)
---     | otherwise = do
---         -- putStrLn "Walk the branch..." >> hFlush stdout
+newtype BlockRate = BlockRate Natural
 
---         -- Thanks to `P.takeWhile`, will not stream more than it has to.
---         --
---         -- INVARIANT: This excludes the genesis block, whose Creation Time is
---         -- given as the Linux Epoch, @Time (TimeSpan 0)@ (at least for TestNet).
---         -- Excluding the genesis block in this way ensures that the time gap
---         -- between it and the first mined block won't adversely affect
---         -- difficulty adjustment.
---         --
---         es <- branchEntries db Nothing Nothing minr maxr lower upper
---               & P.map (^. isoBH)
---               & P.takeWhile (\h -> _blockCreationTime h > time)
---               & P.toList_
---               & fmap (NEL.reverse . NEL.fromList)
-
---         -- printf "WINDOW: %d\n" (length es) >> hFlush stdout
-
---         let !target = min maxTarget (hashTargetFromHistory' bh' es)
-
---         ------------
---         -- DEBUGGING
---         ------------
---         -- printf "WINDOW SIZE: %d. TARGET BITS: %d. TIME: %s\n" (length es) (popCount $! fwip target) (show time)
---         -- hFlush stdout
---         pure (T2 target $! length es)
-
---     -- pure $! hashTargetFromHistory' bh' es
---   where
---     bh' :: BlockHeader
---     bh' = bh ^. isoBH
-
---     end :: Time Int64
---     end = _blockCreationTime bh'
-
---     time :: Time Int64
---     time = invert ts `add` end
-
---     minr = Just . MinRank $ Min 0
---     maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
---     lower = HS.empty
---     upper = HS.singleton . UpperBound $! key bh
-
---     maxTarget :: HashTarget
---     maxTarget = HashTarget $! maxBound `div` 1024
-
---     fwip :: HashTarget -> Word256
---     fwip (HashTarget (BlockHashNat n)) = n
-
--- | A pure variant, for when you already have the window in memory. It's
--- assumed that the `NEL.NonEmpty` is sorted by `BlockHeight`.
+-- | The number of blocks to be mined after a difficulty adjustment, before
+-- considering a further adjustment. Critical for the "epoch-based" adjustment
+-- algorithm seen in `hashTarget.`
 --
--- hashTargetFromHistory' :: BlockHeader -> NEL.NonEmpty BlockHeader -> HashTarget
--- hashTargetFromHistory' bh es = calculateTarget (diff end start) deltas
---   where
---     timeDelta :: BlockHeader -> BlockHeader -> Diff (Time Int64)
---     timeDelta earlier later = diff (_blockCreationTime later) (_blockCreationTime earlier)
-
---     deltas :: [(HashTarget, TimeSpan Int64)]
---     deltas = zipWith (\x y -> (_blockTarget x, timeDelta x y)) (NEL.toList es) $ NEL.tail es
-
---     start = _blockCreationTime $ NEL.head es
-
---     end :: Time Int64
---     end = _blockCreationTime bh
+newtype WindowWidth = WindowWidth Natural
 
 -- | A potentially new `HashTarget`, based on the rate of mining success over
 -- the previous N blocks.
@@ -130,51 +60,67 @@ hashTarget
     => IsBlockHeader (DbEntry db)
     => db
     -> DbEntry db
+    -> BlockRate
+    -> WindowWidth
     -> IO HashTarget
-hashTarget db bh
+hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
+    -- Intent: Neither the genesis block, nor any block whose height is not a
+    -- multiple of the `BlockRate` shall be considered for adjustment.
     | isGenesisBlockHeader bh' = pure $! _blockTarget bh'
-    | _blockHeight bh' `mod` magicNumber /= 0 = pure $! _blockTarget bh'
+    | int (_blockHeight bh') `mod` ww /= 0 = pure $! _blockTarget bh'
     | otherwise = do
         start <- branchEntries db Nothing Nothing minr maxr lower upper
                  & P.map (^. isoBH)
-                 & P.take (int magicNumber)
+                 & P.take (int ww)
                  & P.last_
-                 & fmap fromJust  -- Will include at least the parent block. In
-                                  -- the degenerate case, this is the genesis
-                                  -- block.
+                 & fmap fromJust  -- Thanks to the two guard conditions above,
+                                  -- this will (should) always succeed.
 
-        let delta :: Int64
+        let
+            -- The time difference in microseconds between when the earliest and
+            -- latest blocks in the window were mined.
+            delta :: Int64
             !delta = time bh' - time start
 
-            -- Microseconds. `succ` guards against divide-by-zero in `newDiff`,
-            -- which can occur when initial blocks are mined very quickly. In
-            -- this case, an average block creation time of @succ 0 == 1@ has
-            -- special meaning: "far too fast".
+            -- The average time in seconds that it took to mine each block in
+            -- the given window.
             avg :: Rational
-            -- !avg = succ $ delta `div` int magicNumber
-            !avg | delta < 0 = error "Negative delta! Should be impossible!"
-                 | delta == 0 = error "ZERO DELTA"
-                 | otherwise = (int delta % int magicNumber) / 1000000 -- SECONDS!!
+            !avg | delta < 0 = error "hashTarget: Impossibly negative delta!"
+                 | otherwise = (int delta % int ww) / 1000000
 
+            -- The mining difficulty of the previous block (the parent) as a
+            -- function of its `HashTarget`.
             oldDiff :: Rational
             !oldDiff = targetToDifficulty' $ _blockTarget bh'
 
-            -- TODO Watch for overflows?
-            -- TODO Is this just totally wrong?
-            -- TODO Remove the Numeric instances for HashDifficulty and HashTarget!
-            -- TODO Should `HashDifficulty` use `Ratio` internally, for perfect precision?
+            -- The adjusted difficulty, following the formula explained in the
+            -- docstring of this function.
             newDiff :: Rational
-            -- !newDiff = (targetToDifficulty (_blockTarget bh') * int blockRate) `div` int avg
-            !newDiff = oldDiff * blockRate / avg
+            !newDiff = oldDiff * int blockRate / avg
 
             newTarget :: HashTarget
             !newTarget = difficultyToTarget' newDiff
 
-        -- pure newTarget
-        -- TODO This is "adjustment capping". Explain this!
-        let !actual = if | newTarget < _blockTarget bh' -> max newTarget (_blockTarget bh' `div` 8)
-                         | countLeadingZeros (_blockTarget bh') < 3 -> newTarget
-                         | otherwise -> min newTarget (_blockTarget bh' * 8)
+            -- `newTarget` subjected to the "adjustment limit".
+            actual :: HashTarget
+            !actual
+                -- Intent: When increasing the difficulty (thereby lowering the
+                -- target toward 0), the leading 1-bit must not move more than 3
+                -- bits at a time.
+                | newTarget < _blockTarget bh' = max newTarget (_blockTarget bh' `div` 8)
+                -- Intent: When decreasing the difficulty (thereby raising the
+                -- target toward `maxTarget`), avoid a potential `Word256`
+                -- overflow. TODO: count of leading zeros should depend on
+                -- `maxTarget`!
+                | countLeadingZeros (_blockTarget bh') < 3 = newTarget
+                -- Intent: Otherwise, ensure that the new target does not
+                -- increase by more than 3 bits at a time.
+                | otherwise = min newTarget (_blockTarget bh' * 8)
+
+        -- DEBUGGING --
+        -- Uncomment the following to get a live view of difficulty adjustment.
+        -- You will have to readd a few imports, and also uncomment a few helper
+        -- functions below.
 
         -- when (_blockChainId bh' == testChainId 0)
         --     $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
@@ -183,36 +129,16 @@ hashTarget db bh
         --           (floating avg)
         --           (floating oldDiff)
         --           (floating newDiff)
-        --           (take 256 $ thing $ _blockTarget bh')
-        --           (take 256 $ thing newTarget)
-        --           (take 256 $ thing actual)
+        --           (targetBits $ _blockTarget bh')
+        --           (targetBits newTarget)
+        --           (targetBits actual)
 
         pure actual
   where
-    magicNumber :: BlockHeight
-    magicNumber = 5  -- Ideally, three blocks in 30s. Not realistic, but I want
-                     -- to test. In prod this would come from config.
-
-    thing :: HashTarget -> String
-    thing = printf "%0256b" . tiggy
-
-    floating :: Rational -> Double
-    floating = realToFrac
-
-    tiggy :: HashTarget -> Integer
-    tiggy (HashTarget (PowHashNat w)) = fromIntegral w
-
-    -- -- | 10 seconds as microseconds. In prod this should also come from config.
-    -- blockRate :: Ratio Word256
-    -- blockRate = 10 * 1000000
-
-    -- | Seconds.
-    blockRate :: Rational
-    blockRate = 10
-
     bh' :: BlockHeader
     bh' = bh ^. isoBH
 
+    -- Query parameters for `branchEntries`.
     minr = Just . MinRank $ Min 0
     maxr = Just . MaxRank . Max . fromIntegral $! _blockHeight bh'
     lower = HS.empty
@@ -220,3 +146,12 @@ hashTarget db bh
 
     time :: BlockHeader -> Int64
     time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
+
+    -- targetBits :: HashTarget -> String
+    -- targetBits = printf "%0256b" . htInteger
+
+    -- floating :: Rational -> Double
+    -- floating = realToFrac
+
+    -- htInteger :: HashTarget -> Integer
+    -- htInteger (HashTarget (PowHashNat w)) = fromIntegral w
