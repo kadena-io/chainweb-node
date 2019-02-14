@@ -242,8 +242,6 @@ syncMempools localMempool remoteMempool =
         mempoolGetPendingTransactions remoteMempool $ syncChunk missing
         (SyncState _ missingChunks tooMany) <- readIORef missing
 
-        let numTxs = foldl (\s v -> s + V.length v) 0 missingChunks
-
         -- Go fetch missing transactions from remote
         traverse_ fetchMissing missingChunks
         -- We're done syncing. If we cut off the sync session because of too
