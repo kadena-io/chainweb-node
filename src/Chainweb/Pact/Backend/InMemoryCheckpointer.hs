@@ -55,9 +55,7 @@ restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbSt
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just dbstate -> do
-              putStrLn $ "restore' - dbState = " ++ show (_pdbsState dbstate)
-              return (Right dbstate)
+            Just dbstate -> return (Right dbstate)
             Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
@@ -77,8 +75,6 @@ save' lock height hash p@PactDbState {..} = do
      -- Saving off checkpoint.
      -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
      modifyMVar_ lock (return . HMS.insert (height, hash) p)
-
-     putStrLn $ "save' - dbState = " ++ show _pdbsState
      -- Closing database connection.
      case _pdbsDbEnv of
        EnvPersist' PactDbEnvPersist {..} ->

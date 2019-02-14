@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Test.Pact
@@ -16,23 +17,31 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
+import Control.Monad.Zip
 
 import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word
 
 import System.IO.Extra
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import qualified Pact.ApiReq as P
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
 
@@ -40,7 +49,6 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Test.Pact.Utils
 
 tests :: TestTree
 tests = testCase "Pact unit tests" pactExecTests
@@ -157,6 +165,46 @@ instance Show TestResponse where
         in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
            ++ "TxLogs: " ++ txLogsStr
 
+mkPactTestTransactions :: [String] -> IO [Transaction]
+mkPactTestTransactions cmdStrs = do
+    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
+    let intSeq = [0, 1 ..] :: [Word64]
+    -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
+    return $ zipWith (mkPactTransaction testKeyPairs theData "1" )
+             intSeq cmdStrs
+
+mkPactTransaction
+  :: [P.KeyPair]
+  -> Value
+  -> T.Text
+  -> Word64
+  -> String
+  -> Transaction
+mkPactTransaction keyPair theData nonce txId theCode =
+    let pubMeta = def :: P.PublicMeta
+        cmd = P.mkCommand
+              (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
+              pubMeta
+              nonce
+              (P.Exec (P.ExecMsg (T.pack theCode) theData))
+    in Transaction {_tTxId = txId, _tCmd = cmd}
+
+testKeyPairs :: [P.KeyPair]
+testKeyPairs =
+    let mPair = mzip (P.importPrivate testPrivateBs) (P.importPublic testPublicBs)
+        mKeyPair = fmap
+                   (\(sec, pub) -> P.KeyPair {_kpSecret = sec, _kpPublic = pub})
+                   mPair
+    in maybeToList mKeyPair
+
+testPactFilesDir :: String
+testPactFilesDir = "test/config/"
+
+testPrivateBs :: ByteString
+testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+
+testPublicBs :: ByteString
+testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 ----------------------------------------------------------------------------------------------------
 -- Pact test sample data
 ----------------------------------------------------------------------------------------------------

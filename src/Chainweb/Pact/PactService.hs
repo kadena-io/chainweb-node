@@ -102,15 +102,12 @@ serviceRequests
     -> IO (TVar (TQueue ResponseMsg))
     -> PactT ()
 serviceRequests memPoolAccess reqQ respQ = do
-    forever run
-      where
-        run :: PactT ()
+    forever run where
         run = do
             reqMsg <- liftIO $ getNextRequest reqQ
             respMsg <- case _reqRequestType reqMsg of
                 NewBlock -> do
                     h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
-
                     return $ ResponseMsg
                         { _respRequestType = NewBlock
                         , _respRequestId = _reqRequestId reqMsg
@@ -121,8 +118,7 @@ serviceRequests memPoolAccess reqQ respQ = do
                         { _respRequestType = ValidateBlock
                         , _respRequestId = _reqRequestId reqMsg
                         , _respPayload = h }
-            liftIO $ addResponse respQ respMsg
-            return ()
+            void . liftIO $ addResponse respQ respMsg
 
 -- | BlockHeader here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
@@ -131,19 +127,16 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     let miner = defaultMiner
     newTrans <- liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
-    cpdata <-
-      if isGenesisBlockHeader _parentHeader
+    cpdata <- if isGenesisBlockHeader _parentHeader
         then liftIO $ restoreInitial _cpeCheckpointer
-        else do
-          liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
+        else liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
     case cpdata of
         Left msg -> gets closePactDb >> fail msg
         Right st -> updateState st
-
     (results, updatedState) <- execTransactions miner newTrans
     put $! updatedState
     close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
-    flip (either fail) close_status return
+    either fail return close_status
     return results
 
 -- | BlockHeader here is the header of the block being validated
@@ -213,13 +206,13 @@ execTransactions miner xs = do
     return (Transactions (zip xs txOuts), updatedState)
 
 applyPactCmd
-  :: CheckpointEnv
-  -> Env'
-  -> MVar P.CommandState
-  -> P.ExecutionMode
-  -> P.Command ByteString
-  -> MinerInfo
-  -> IO (P.CommandResult, [P.TxLog A.Value])
+    :: CheckpointEnv
+    -> Env'
+    -> MVar P.CommandState
+    -> P.ExecutionMode
+    -> P.Command ByteString
+    -> MinerInfo
+    -> IO (P.CommandResult, [P.TxLog A.Value])
 applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd miner =
     case dbEnv' of
         Env' pactDbEnv -> do
