@@ -91,7 +91,7 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
             -- The mining difficulty of the previous block (the parent) as a
             -- function of its `HashTarget`.
             oldDiff :: Rational
-            !oldDiff = targetToDifficulty' $ _blockTarget bh'
+            !oldDiff = targetToDifficulty' ver $ _blockTarget bh'
 
             -- The adjusted difficulty, following the formula explained in the
             -- docstring of this function.
@@ -99,7 +99,7 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
             !newDiff = oldDiff * int blockRate / avg
 
             newTarget :: HashTarget
-            !newTarget = difficultyToTarget' newDiff
+            !newTarget = difficultyToTarget' ver newDiff
 
             -- `newTarget` subjected to the "adjustment limit".
             actual :: HashTarget
@@ -137,6 +137,8 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
   where
     bh' :: BlockHeader
     bh' = bh ^. isoBH
+
+    ver = _blockChainwebVersion bh'
 
     -- Query parameters for `branchEntries`.
     minr = Just . MinRank $ Min 0

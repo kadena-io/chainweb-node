@@ -247,14 +247,15 @@ header h = do
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
             :+: nonce
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
             :+: succ (_blockHeight h)
-            :+: _blockChainwebVersion h
+            :+: v
             :+: miner
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
     target = _blockTarget h -- no difficulty adjustment
+    v = _blockChainwebVersion h
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations

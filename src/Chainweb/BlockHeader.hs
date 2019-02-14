@@ -628,9 +628,9 @@ genesisParentBlockHash v p = BlockHash (_chainId p) $ MerkleLogHash
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
 
+-- `maxTarget` likewise varies via `ChainwebVersion`.
 genesisBlockTarget :: ChainwebVersion -> HashTarget
-genesisBlockTarget TestWithPow = maxTarget
-genesisBlockTarget _ = maxBound
+genesisBlockTarget = maxTarget
 
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
 genesisTime Test _ = BlockCreationTime epoche
@@ -747,13 +747,14 @@ testBlockHeader' m adj n ht ct b = fromLog $ newMerkleLog
     :+: BlockCreationTime ct
     :+: n
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty ht)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty v ht)
     :+: _blockHeight b + 1
-    :+: _blockChainwebVersion b
+    :+: v
     :+: m
     :+: MerkleLogBody (blockHashRecordToSequence adj)
   where
     cid = _chainId b
+    v = _blockChainwebVersion b
 
 testBlockHeader
     :: ChainNodeId

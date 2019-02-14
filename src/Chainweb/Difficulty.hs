@@ -84,6 +84,7 @@ import Chainweb.PowHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion, usePOW)
 
 import Data.Word.Encoding hiding (properties)
 
@@ -191,20 +192,30 @@ newtype HashTarget = HashTarget PowHashNat
     deriving newtype (ToJSON, FromJSON, Hashable)
     deriving newtype (Bounded, Enum, Num, Real, Integral, Bits, FiniteBits)
 
--- | By maximum, we mean "easiest". This is reduced down from `maxBound` so that
--- the mining of initial blocks doesn't occur too quickly, stressing the system,
--- or otherwise negatively affecting difficulty adjustment with very brief time
--- deltas between blocks.
+-- | By maximum, we mean "easiest". For POW-based chainwebs, this is reduced
+-- down from `maxBound` so that the mining of initial blocks doesn't occur too
+-- quickly, stressing the system, or otherwise negatively affecting difficulty
+-- adjustment with very brief time deltas between blocks.
 --
-maxTarget :: HashTarget
-maxTarget = HashTarget $! PowHashNat maxTarget'
+-- Otherwise, chainwebs with "trivial targets" expect this to be `maxBound` and
+-- never change.
+--
+maxTarget :: ChainwebVersion -> HashTarget
+maxTarget = HashTarget . PowHashNat . maxTarget'
 
-maxTarget' :: Word256
--- maxTarget' = maxBound `div` (2 ^ (10 :: Int))
-maxTarget' = maxBound
+-- TODO This should probably dispatch on different values for `TestWithPow` and
+-- `TestNet*` specifically.
+-- | A pre-reduction of 9 bits has experimentally been shown to be an
+-- equilibrium point for the hash power provided by a single, reasonably
+-- performant laptop in early 2019. It is further reduced from 9 to be merciful
+-- to CI machines.
+--
+maxTarget' :: ChainwebVersion -> Word256
+maxTarget' v | usePOW v = maxBound `div` (2 ^ (7 :: Int))
+             | otherwise = maxBound
 
-maxTarget'' :: Integer
-maxTarget'' = int maxTarget'
+maxTarget'' :: ChainwebVersion -> Integer
+maxTarget'' = int . maxTarget'
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -213,21 +224,25 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
--- TODO These conversions depend on the `ChainwebVersion`!
-difficultyToTarget :: HashDifficulty -> HashTarget
-difficultyToTarget difficulty = maxTarget `div` coerce difficulty
+difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
+difficultyToTarget v difficulty =
+    maxTarget v `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
--- TODO inline?
-difficultyToTarget' :: Rational -> HashTarget
-difficultyToTarget' difficulty = HashTarget . PowHashNat $ maxTarget' `div` floor difficulty
+difficultyToTarget' :: ChainwebVersion -> Rational -> HashTarget
+difficultyToTarget' v difficulty =
+    HashTarget . PowHashNat $ maxTarget' v `div` floor difficulty
+{-# INLINE difficultyToTarget' #-}
 
-targetToDifficulty :: HashTarget -> HashDifficulty
-targetToDifficulty target = HashDifficulty . coerce $ maxTarget `div` target
+targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
+targetToDifficulty v target =
+    HashDifficulty . coerce $ maxTarget v `div` target
 {-# INLINE targetToDifficulty #-}
 
-targetToDifficulty' :: HashTarget -> Rational
-targetToDifficulty' (HashTarget (PowHashNat target)) = maxTarget'' % int target
+targetToDifficulty' :: ChainwebVersion -> HashTarget -> Rational
+targetToDifficulty' v (HashTarget (PowHashNat target)) =
+    maxTarget'' v % int target
+{-# INLINE targetToDifficulty' #-}
 
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
