@@ -31,8 +31,8 @@ module Chainweb.Miner.Test
 import Configuration.Utils
 
 import Control.Concurrent
-import Control.Lens hiding ((.=), _Unwrapped)
-import Control.Monad (when)
+import Control.Lens hiding ((.=))
+import Control.Monad (unless)
 import Control.Monad.STM
 
 import qualified Data.HashMap.Strict as HM
@@ -185,7 +185,7 @@ miner logFun conf nid cutDb wcdb = do
                 -- Artificially delay the mining process when not using
                 -- proof-of-work mining.
                 --
-                when (not . usePOW $ _blockChainwebVersion p) $ do
+                unless (usePOW $ _blockChainwebVersion p) $ do
                     d <- MWC.geometric1
                          (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
                          gen
