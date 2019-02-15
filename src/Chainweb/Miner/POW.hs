@@ -38,11 +38,11 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Difficulty (HashTarget(..))
+import Chainweb.Difficulty
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Time (getCurrentTimeIntegral)
-import Chainweb.TreeDB.Difficulty (BlockRate(..), WindowWidth(..), hashTarget)
+import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
 
