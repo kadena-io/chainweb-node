@@ -36,10 +36,9 @@ import Control.Monad (when)
 import Control.Monad.STM
 
 import qualified Data.HashMap.Strict as HM
-import Data.IORef
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64)
 
 import GHC.Generics (Generic)
@@ -75,6 +74,7 @@ import Data.LogMessage
 -- import Chainweb.Difficulty (PowHashNat(..), HashDifficulty(..))
 -- import Chainweb.Time (Time(..), TimeSpan(..))
 -- import Data.Generics.Wrapped (_Unwrapped)
+-- import Data.IORef
 -- import Data.Int (Int64)
 -- import System.IO (hFlush, stdout)
 -- import Text.Printf (printf)
@@ -146,19 +146,11 @@ miner logFun conf nid cutDb wcdb = do
        -> Int
        -> Adjustments
        -> IO ()
-    go gen !i adjustments = do
-        nonce0 <- MWC.uniform gen
-        counter <- newIORef (1 :: Int)
-        go' gen i nonce0 counter adjustments
+    go gen !i !adjustments0 = do
 
-    go' :: Given WebBlockHeaderDb
-        => MWC.GenIO
-        -> Int
-        -> Word64
-        -> IORef Int
-        -> Adjustments
-        -> IO ()
-    go' gen !i !nonce0 counter adjustments0 = do
+        nonce0 <- MWC.uniform gen
+
+        -- counter <- newIORef (1 :: Int)
 
         -- Create a new (test) block header.
         --
@@ -170,7 +162,7 @@ miner logFun conf nid cutDb wcdb = do
         let mine
                 :: Word64
                 -> Adjustments
-                -> IO (T2 Cut Adjustments)
+                -> IO (T3 BlockHeader Cut Adjustments)
             mine !nonce !adjustments = do
                 -- Get the current longest cut.
                 --
@@ -211,13 +203,11 @@ miner logFun conf nid cutDb wcdb = do
                 --
                 testMine (Nonce nonce) target ct nid cid c >>= \case
                     Left BadNonce -> do
-                        atomicModifyIORef' counter (\n -> (succ n, ()))
+                        -- atomicModifyIORef' counter (\n -> (succ n, ()))
                         mine (succ nonce) adjustments'
                     Left BadAdjacents ->
                         mine nonce adjustments'
                     Right (T2 newBh newCut) -> do
-
-                        let !limit = _blockHeight newBh - BlockHeight (int window)
 
                         -- DEBUGGING --
                         -- Uncomment the following for a live view of mining
@@ -231,7 +221,7 @@ miner logFun conf nid cutDb wcdb = do
                         --     targetBits = printf "%0256b" $ htInteger target
 
                         -- when (cid == testChainId 0) $ do
-                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%03.2f LIMIT:%d\n"
+                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
                         --         (_nodeIdId nid)
                         --         total
                         --         (take 30 targetBits)
@@ -241,27 +231,13 @@ miner logFun conf nid cutDb wcdb = do
                         --         (take 8 . drop 5 . show $ _blockHash p)
                         --         (take 8 . drop 5 . show $ _blockHash newBh)
                         --         (int (time newBh - time p) / 1000000 :: Float)
-                        --         (limit ^. _Unwrapped)
                         --     hFlush stdout
 
-                        -- Since mining has been successful, we prune the
-                        -- `HashMap` of adjustment values that we've seen.
-                        --
-                        -- Due to this pruning, the `HashMap` should only ever
-                        -- contain approximately N entries, where:
-                        --
-                        -- @
-                        -- C := number of chains
-                        -- W := number of blocks in the epoch window
-                        --
-                        -- N = W * C
-                        -- @
-                        --
-                        pure $! T2 newCut (HM.filter (\(T2 h _) -> h > limit) adjustments')
+                        pure $! T3 newBh newCut adjustments'
 
         -- Mine a new block
         --
-        T2 c' adjustments' <- mine nonce0 adjustments0
+        T3 newBh c' adjustments' <- mine nonce0 adjustments0
 
         logg Info $! "created new block" <> sshow i
 
@@ -269,8 +245,24 @@ miner logFun conf nid cutDb wcdb = do
         --
         atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
 
-        go gen (i + 1) adjustments'
+        let !limit = _blockHeight newBh - BlockHeight (int window)
 
+        -- Since mining has been successful, we prune the
+        -- `HashMap` of adjustment values that we've seen.
+        --
+        -- Due to this pruning, the `HashMap` should only ever
+        -- contain approximately N entries, where:
+        --
+        -- @
+        -- C := number of chains
+        -- W := number of blocks in the epoch window
+        --
+        -- N = W * C
+        -- @
+        --
+        go gen (i + 1) (HM.filter (\(T2 h _) -> h > limit) adjustments')
+
+    window :: Natural
     window = _configWindowWidth conf
 
     getTarget
