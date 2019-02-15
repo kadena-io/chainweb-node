@@ -46,8 +46,7 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
 
-import Data.DiGraph (order)
-import Data.LogMessage (LogFunction)
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Test Miner

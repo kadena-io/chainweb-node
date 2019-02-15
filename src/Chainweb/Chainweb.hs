@@ -166,7 +166,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.DiGraph
 import Data.LogMessage
 
 import Network.X509.SelfSigned
@@ -427,9 +426,7 @@ chainSyncP2pSession depth db logg env = do
     chainSyncSession db peer depth logg
 
 syncDepth :: ChainGraph -> Depth
-syncDepth g = case diameter g of
-    Nothing -> error "Failed to compute diameter of ChainGraph. Most likely the graph is not suitable as chainweb graph"
-    Just x -> Depth (2 * x)
+syncDepth g = Depth (2 * diameter g)
 {-# NOINLINE syncDepth #-}
 
 -- -------------------------------------------------------------------------- --

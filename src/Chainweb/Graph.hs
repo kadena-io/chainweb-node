@@ -53,6 +53,13 @@ module Chainweb.Graph
 , adjs
 , adjsOfVertex
 
+-- * Graph Properties
+, shortestPath
+, diameter
+, size
+, order
+, degree
+
 -- * Checks with a given chain graph
 
 , isWebChain
@@ -68,23 +75,29 @@ module Chainweb.Graph
 , petersonChainGraph
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
+import Data.Maybe
 import Data.Reflection hiding (int)
 
 import GHC.Generics hiding (to)
+
+import Numeric.Natural
 
 -- internal imports
 
 import Chainweb.Utils
 import Chainweb.ChainId
 
-import Data.DiGraph
+import Data.DiGraph hiding (shortestPath, diameter, size, order)
+import qualified Data.DiGraph as G
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -115,14 +128,48 @@ instance Exception ChainGraphException
 -- -------------------------------------------------------------------------- --
 -- Chainweb Graph
 
-type ChainGraph = DiGraph ChainId
+data ChainGraph = ChainGraph
+    { _chainGraphGraph :: !(DiGraph ChainId)
+    , _chainGraphShortestPathCache :: {- lazy -} ShortestPathCache ChainId
+    }
+    deriving (Generic)
+    deriving anyclass (NFData)
 
+instance Show ChainGraph where
+    show = show . _chainGraphGraph
+
+instance Eq ChainGraph where
+    (==) = (==) `on` _chainGraphGraph
+
+instance Ord ChainGraph where
+    compare = compare `on` _chainGraphGraph
+
+-- | This function is unsafe, it throws an error if the graph isn't a valid
+-- chain graph. That's OK, since chaingraphs are hard-coded in the code and
+-- won't change dinamically, except for during testing.
+--
 toChainGraph :: (a -> ChainId) -> DiGraph a -> ChainGraph
-toChainGraph = mapVertices
+toChainGraph f g
+    | validChainGraph c = ChainGraph
+        { _chainGraphGraph = c
+        , _chainGraphShortestPathCache = shortestPathCache c
+        }
+    | otherwise = error "the given graph is not a valid chain graph"
+  where
+    c = mapVertices f g
 {-# INLINE toChainGraph #-}
 
+-- | A valid chain graph is symmetric, regular, and the out-degree
+-- is at least 1 if the graph has at least two vertices.
+--
+-- These properties imply that the graph is strongly connected.
+--
 validChainGraph :: DiGraph ChainId -> Bool
-validChainGraph g = isDiGraph g && isSymmetric g && isRegular g
+validChainGraph g
+    = isDiGraph g
+    && isSymmetric g
+    && isRegular g
+    && (G.order g <= 1 || G.size g > 1)
 {-# INLINE validChainGraph #-}
 
 adjacentChainIds
@@ -130,7 +177,7 @@ adjacentChainIds
     => ChainGraph
     -> p
     -> HS.HashSet ChainId
-adjacentChainIds g cid = adjacents (_chainId cid) g
+adjacentChainIds (ChainGraph g _) cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
@@ -151,7 +198,7 @@ pattern Adj a b <- AdjPair (a, b)
 adjs
     :: ChainGraph
     -> HS.HashSet (AdjPair ChainId)
-adjs = HS.map (uncurry Adj) . edges
+adjs = HS.map (uncurry Adj) . edges . _chainGraphGraph
 {-# INLINE adjs #-}
 
 adjsOfVertex
@@ -160,6 +207,28 @@ adjsOfVertex
     -> p
     -> HS.HashSet (AdjPair ChainId)
 adjsOfVertex g a = HS.map (Adj (_chainId a)) $ adjacentChainIds g a
+
+-- -------------------------------------------------------------------------- --
+-- Properties
+
+size :: ChainGraph -> Natural
+size = G.size . _chainGraphGraph
+
+order :: ChainGraph -> Natural
+order = G.order . _chainGraphGraph
+
+degree :: ChainGraph -> Natural
+degree = G.minOutDegree . _chainGraphGraph
+
+diameter :: ChainGraph -> Natural
+diameter = fromJust . diameter_ . _chainGraphShortestPathCache
+    -- this is safe, because we know that the graph is strongly connected
+
+shortestPath :: ChainId -> ChainId -> ChainGraph -> [ChainId]
+shortestPath src trg = fromJust
+    . shortestPath_ src trg
+    . _chainGraphShortestPathCache
+    -- this is safe, because we know that the graph is strongly connected
 
 -- -------------------------------------------------------------------------- --
 -- HasChainGraph
@@ -184,11 +253,11 @@ instance HasChainGraph ChainGraph where
 -- Checks with a given Graphs
 
 chainIds :: Given ChainGraph => HS.HashSet ChainId
-chainIds = vertices given
+chainIds = vertices (_chainGraphGraph given)
 {-# INLINE chainIds #-}
 
 chainIds_ :: ChainGraph -> HS.HashSet ChainId
-chainIds_ = vertices
+chainIds_ = vertices . _chainGraphGraph
 {-# INLINE chainIds_ #-}
 
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
@@ -197,11 +266,11 @@ chainIds_ = vertices
 checkWebChainId :: MonadThrow m => Given ChainGraph => HasChainId p => p -> m ()
 checkWebChainId p = unless (isWebChain p)
     $ throwM $ ChainNotInChainGraphException
-        (Expected (vertices given))
+        (Expected (vertices $ _chainGraphGraph given))
         (Actual (_chainId p))
 
 isWebChain :: Given ChainGraph => HasChainId p => p -> Bool
-isWebChain p = isVertex (_chainId p) given
+isWebChain p = isVertex (_chainId p) (_chainGraphGraph given)
 {-# INLINE isWebChain #-}
 
 -- | Given a 'ChainGraph' @g@, @checkAdjacentChainIds cid as@ checks that the
@@ -220,7 +289,7 @@ checkAdjacentChainIds cid expectedAdj = do
     checkWebChainId cid
     void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
-        (Actual $ adjacents (_chainId cid) given)
+        (Actual $ adjacents (_chainId cid) (_chainGraphGraph given))
     return (getExpected expectedAdj)
 
 -- -------------------------------------------------------------------------- --
