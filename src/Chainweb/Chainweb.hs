@@ -153,6 +153,7 @@ import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config
+import Chainweb.Miner.POW
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.RestAPI
@@ -449,14 +450,28 @@ withMiner logFun conf nid cutDb webDb inner = inner $ Miner
     , _minerConfig = conf
     }
 
-runMiner :: Miner -> IO ()
-runMiner m =
-    testMiner
+runMiner :: ChainwebVersion -> Miner -> IO ()
+runMiner v m =
+    (chooseMiner v)
         (_getLogFunction $ _minerLogFun m)
         (_minerConfig m)
         (_minerNodeId m)
         (_minerCutDb m)
         (_minerWebBlockHeaderDb m)
+  where
+    chooseMiner
+        :: ChainwebVersion
+        -> LogFunction
+        -> MinerConfig
+        -> NodeId
+        -> CutDb
+        -> WebBlockHeaderDb
+        -> IO ()
+    chooseMiner Test = testMiner
+    chooseMiner TestWithTime = testMiner
+    chooseMiner TestWithPow = powMiner
+    chooseMiner Simulation = testMiner
+    chooseMiner Testnet00 = powMiner
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Log Functions
@@ -650,7 +665,7 @@ runChainweb cw = do
             $ logClientConnections
                 -- TODO: should we place this behind a CPP _DEBUG_ flag?
 
-            : runMiner (_chainwebMiner cw)
+            : runMiner (_chainwebVersion cw) (_chainwebMiner cw)
                 -- FIXME: should we start mining with some delay, so that
                 -- the block header base is up to date?
             : runCutsSyncClient mgr (_chainwebCuts cw)

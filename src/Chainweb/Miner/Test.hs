@@ -11,7 +11,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- This is a miner for testing purposes only - it performs no Proof of Work, but
+-- instead simulates mining via a geometrically distributed thread delay.
 --
 
 module Chainweb.Miner.Test ( testMiner ) where
