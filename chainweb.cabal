@@ -83,6 +83,8 @@ library
         , Chainweb.Mempool.Websocket
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
+        , Chainweb.Miner.Config
+        , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.PowHash

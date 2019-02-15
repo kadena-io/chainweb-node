@@ -152,6 +152,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Miner.Config
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.RestAPI
@@ -450,7 +451,7 @@ withMiner logFun conf nid cutDb webDb inner = inner $ Miner
 
 runMiner :: Miner -> IO ()
 runMiner m =
-    miner
+    testMiner
         (_getLogFunction $ _minerLogFun m)
         (_minerConfig m)
         (_minerNodeId m)

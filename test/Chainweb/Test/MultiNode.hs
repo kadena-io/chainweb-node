@@ -71,7 +71,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Miner.Test
+import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
