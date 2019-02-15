@@ -61,7 +61,7 @@ import Chainweb.Difficulty (HashTarget(..))
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Time (getCurrentTimeIntegral)
-import Chainweb.TreeDB.HashTarget (BlockRate(..), WindowWidth(..), hashTarget)
+import Chainweb.TreeDB.Difficulty (BlockRate(..), WindowWidth(..), hashTarget)
 import Chainweb.Utils
 import Chainweb.Version (usePOW)
 import Chainweb.WebBlockHeaderDB

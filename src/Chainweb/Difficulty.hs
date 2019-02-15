@@ -39,7 +39,7 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
-, targetBits
+, showTargetBits
 , checkTarget
 , maxTarget
 , difficultyToTarget
@@ -74,6 +74,7 @@ import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
 import Data.Ratio
+import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeNats
@@ -196,8 +197,8 @@ newtype HashTarget = HashTarget PowHashNat
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
 
 -- | A visualization of a `HashTarget` as binary.
-targetBits :: HashTarget -> String
-targetBits (HashTarget (PowHashNat n)) = printf "%0256b" $ (int n :: Integer)
+showTargetBits :: HashTarget -> T.Text
+showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
 
 -- | By maximum, we mean "easiest". For POW-based chainwebs, this is reduced
 -- down from `maxBound` so that the mining of initial blocks doesn't occur too

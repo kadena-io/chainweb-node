@@ -5,13 +5,13 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.TreeDB.HashTarget
+-- Module: Chainweb.TreeDB.Difficulty
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
-module Chainweb.TreeDB.HashTarget
+module Chainweb.TreeDB.Difficulty
   ( -- * Epoch-based Adjustment
     BlockRate(..)
   , WindowWidth(..)
