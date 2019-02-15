@@ -42,11 +42,10 @@ module Chainweb.Difficulty
 , targetBits
 , checkTarget
 , maxTarget
-, prereduction
 , difficultyToTarget
-, difficultyToTarget'
+, difficultyToTargetR
 , targetToDifficulty
-, targetToDifficulty'
+, targetToDifficultyR
 , encodeHashTarget
 , decodeHashTarget
 
@@ -207,21 +206,18 @@ targetBits (HashTarget (PowHashNat n)) = printf "%0256b" $ (int n :: Integer)
 -- adjustment with very brief time deltas between blocks.
 --
 -- Otherwise, chainwebs with "trivial targets" expect this to be `maxBound` and
--- never change.
+-- never change. See also `Chainweb.Version.usePOW`.
 --
 maxTarget :: ChainwebVersion -> HashTarget
-maxTarget = HashTarget . PowHashNat . maxTarget'
+maxTarget = HashTarget . PowHashNat . maxTargetWord
 
 -- | A pre-reduction of 9 bits has experimentally been shown to be an
 -- equilibrium point for the hash power provided by a single, reasonably
 -- performant laptop in early 2019. It is further reduced from 9 to be merciful
 -- to CI machines.
 --
-maxTarget' :: ChainwebVersion -> Word256
-maxTarget' v = maxBound `div` (2 ^ prereduction v)
-
-maxTarget'' :: ChainwebVersion -> Integer
-maxTarget'' = int . maxTarget'
+maxTargetWord :: ChainwebVersion -> Word256
+maxTargetWord v = maxBound `div` (2 ^ prereduction v)
 
 -- TODO This should probably dispatch on different values for `TestWithPow` and
 -- `TestNet*` specifically.
@@ -235,26 +231,37 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+-- | Given the same `ChainwebVersion`, forms an isomorphism with
+-- `targetToDifficulty`.
 difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
 difficultyToTarget v difficulty =
     maxTarget v `div` coerce difficulty
 {-# INLINE difficultyToTarget #-}
 
-difficultyToTarget' :: ChainwebVersion -> Rational -> HashTarget
-difficultyToTarget' v difficulty =
-    HashTarget . PowHashNat $ maxTarget' v `div` floor difficulty
-{-# INLINE difficultyToTarget' #-}
+-- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
+-- produced by `targetToDifficultyR` and then further manipulated during
+-- Difficulty Adjustment.
+difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
+difficultyToTargetR v difficulty =
+    HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
+{-# INLINE difficultyToTargetR #-}
 
+-- | Given the same `ChainwebVersion`, forms an isomorphism with
+-- `difficultyToTarget`.
 targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
 targetToDifficulty v target =
     HashDifficulty . coerce $ maxTarget v `div` target
 {-# INLINE targetToDifficulty #-}
 
-targetToDifficulty' :: ChainwebVersion -> HashTarget -> Rational
-targetToDifficulty' v (HashTarget (PowHashNat target)) =
-    maxTarget'' v % int target
-{-# INLINE targetToDifficulty' #-}
+-- | Like `targetToDifficulty`, but yields a `Rational` for lossless
+-- calculations in Difficulty Adjustment.
+targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
+targetToDifficultyR v (HashTarget (PowHashNat target)) =
+    int (maxTargetWord v) % int target
+{-# INLINE targetToDifficultyR #-}
 
+-- | The critical check in Proof-of-Work mining: did the generated hash match
+-- the target?
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
