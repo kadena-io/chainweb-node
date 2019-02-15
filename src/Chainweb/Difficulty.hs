@@ -193,8 +193,7 @@ decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
 newtype HashTarget = HashTarget PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable)
-    deriving newtype (Bounded, Enum, Num, Real, Integral, Bits, FiniteBits)
+    deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
 
 -- | A visualization of a `HashTarget` as binary.
 targetBits :: HashTarget -> String
@@ -234,8 +233,8 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `targetToDifficulty`.
 difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
-difficultyToTarget v difficulty =
-    maxTarget v `div` coerce difficulty
+difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
+    HashTarget . PowHashNat $ maxTargetWord v `div` difficulty
 {-# INLINE difficultyToTarget #-}
 
 -- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
@@ -249,8 +248,8 @@ difficultyToTargetR v difficulty =
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
 targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
-targetToDifficulty v target =
-    HashDifficulty . coerce $ maxTarget v `div` target
+targetToDifficulty v (HashTarget (PowHashNat target)) =
+    HashDifficulty . PowHashNat $ maxTargetWord v `div` target
 {-# INLINE targetToDifficulty #-}
 
 -- | Like `targetToDifficulty`, but yields a `Rational` for lossless

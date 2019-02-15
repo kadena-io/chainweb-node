@@ -39,6 +39,7 @@ import Chainweb.Difficulty
 import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.TreeDB
 import Chainweb.Utils (int)
+import Chainweb.Version (ChainwebVersion)
 
 -- DEBUGGING ---
 -- import Control.Monad (when)
@@ -103,7 +104,7 @@ newtype WindowWidth = WindowWidth Natural
 -- Given some difficulty \(D\), its corresponding `HashTarget` can be found by:
 --
 -- \[
--- \text{Target} = \frac{\text{maxTarget}}{D}
+-- \text{Target} = \frac{\text{MaxTarget}}{D}
 -- \]
 --
 -- During adjustment, we seek to solve for some new \(D\). From the above, it
@@ -155,6 +156,7 @@ newtype WindowWidth = WindowWidth Natural
 --   * adjustment actually occurs
 --   * small, incremental adjustments are allowed to build into greater change over time
 --   * `Word256`-based overflows do not occur
+--   * the algorithm is simple
 --
 -- we use the infinite-precision `Rational` type in the calculation of the new
 -- \(D\). Only when being converted to a final `HashTarget` is the non-integer
@@ -226,7 +228,7 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
                 -- target toward 0), the leading 1-bit must not move more than 3
                 -- bits at a time.
                 | newTarget < _blockTarget bh' =
-                      max newTarget (_blockTarget bh' `div` 8)
+                      max newTarget (HashTarget $! bhNat `div` 8)
                 -- Intent: Cap the new target back down, if it somehow managed
                 -- to go over the maximum. This is possible during POW, since we
                 -- assume @maxTarget < @maxBound@.
@@ -237,8 +239,8 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
                 -- not increase by more than 3 bits at a time. Using
                 -- `countLeadingZeros` like this also helps avoid a `Word256`
                 -- overflow.
-                | countLeadingZeros (_blockTarget bh') - countLeadingZeros newTarget > 3 =
-                      _blockTarget bh' * 8
+                | countLeadingZeros bhNat - countLeadingZeros (nat newTarget) > 3 =
+                      HashTarget $! bhNat * 8
                 | otherwise =
                       newTarget
 
@@ -265,6 +267,10 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
     bh' :: BlockHeader
     bh' = bh ^. isoBH
 
+    bhNat :: PowHashNat
+    bhNat = nat $ _blockTarget bh'
+
+    ver :: ChainwebVersion
     ver = _blockChainwebVersion bh'
 
     -- Query parameters for `branchEntries`.
@@ -275,6 +281,9 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
 
     time :: BlockHeader -> Int64
     time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
+
+    nat :: HashTarget -> PowHashNat
+    nat (HashTarget n) = n
 
     -- floating :: Rational -> Double
     -- floating = realToFrac
