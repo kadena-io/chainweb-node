@@ -40,9 +40,10 @@ import Chainweb.TreeDB
 import Chainweb.Utils (int)
 
 -- DEBUGGING ---
-import Control.Monad (when)
-import Chainweb.ChainId (testChainId)
-import Text.Printf (printf)
+-- import Control.Monad (when)
+-- import Chainweb.ChainId (testChainId)
+-- import System.IO (hFlush, stdout)
+-- import Text.Printf (printf)
 
 ---
 
@@ -134,16 +135,18 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
         -- You will have to readd a few imports, and also uncomment a few helper
         -- functions below.
 
-        when (_blockChainId bh' == testChainId 0)
-            $ printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG: %f\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
-                  (show $ _blockChainId bh')
-                  (show $ _blockHeight bh')
-                  (floating avg)
-                  (floating oldDiff)
-                  (floating newDiff)
-                  (targetBits $ _blockTarget bh')
-                  (targetBits newTarget)
-                  (targetBits actual)
+        -- when (_blockChainId bh' == testChainId 0) $ do
+        --     printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG:%f\n=== RATE:%d\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
+        --         (show $ _blockChainId bh')
+        --         (show $ _blockHeight bh')
+        --         (floating avg)
+        --         blockRate
+        --         (floating oldDiff)
+        --         (floating newDiff)
+        --         (targetBits $ _blockTarget bh')
+        --         (targetBits newTarget)
+        --         (targetBits actual)
+        --     hFlush stdout
 
         pure actual
   where
@@ -161,5 +164,5 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
     time :: BlockHeader -> Int64
     time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
 
-    floating :: Rational -> Double
-    floating = realToFrac
+    -- floating :: Rational -> Double
+    -- floating = realToFrac

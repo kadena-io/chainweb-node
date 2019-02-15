@@ -31,10 +31,11 @@ module Chainweb.Miner.Test
 import Configuration.Utils
 
 import Control.Concurrent
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), _Unwrapped)
 import Control.Monad (when)
 import Control.Monad.STM
 
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
@@ -51,6 +52,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
@@ -69,11 +71,13 @@ import Data.DiGraph
 import Data.LogMessage
 
 -- DEBUGGING --
-import Chainweb.ChainId (testChainId)
-import Chainweb.Difficulty (PowHashNat(..), HashDifficulty(..))
-import Chainweb.Time (Time(..), TimeSpan(..))
-import Data.Int (Int64)
-import Text.Printf (printf)
+-- import Chainweb.ChainId (testChainId)
+-- import Chainweb.Difficulty (PowHashNat(..), HashDifficulty(..))
+-- import Chainweb.Time (Time(..), TimeSpan(..))
+-- import Data.Generics.Wrapped (_Unwrapped)
+-- import Data.Int (Int64)
+-- import System.IO (hFlush, stdout)
+-- import Text.Printf (printf)
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
@@ -117,6 +121,8 @@ pMinerConfig = id
 -- -------------------------------------------------------------------------- --
 -- Miner
 
+type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
+
 miner
     :: LogFunction
     -> MinerConfig
@@ -127,7 +133,7 @@ miner
 miner logFun conf nid cutDb wcdb = do
     logg Info "Started Miner"
     gen <- MWC.createSystemRandom
-    give wcdb $ go gen 1
+    give wcdb $ go gen 1 HM.empty
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
@@ -135,14 +141,24 @@ miner logFun conf nid cutDb wcdb = do
     graph :: ChainGraph
     graph = _chainGraph cutDb
 
-    go :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> IO ()
-    go gen !i = do
+    go :: Given WebBlockHeaderDb
+       => MWC.GenIO
+       -> Int
+       -> Adjustments
+       -> IO ()
+    go gen !i adjustments = do
         nonce0 <- MWC.uniform gen
         counter <- newIORef (1 :: Int)
-        go' gen i nonce0 counter
+        go' gen i nonce0 counter adjustments
 
-    go' :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> Word64 -> IORef Int -> IO ()
-    go' gen !i !nonce0 counter = do
+    go' :: Given WebBlockHeaderDb
+        => MWC.GenIO
+        -> Int
+        -> Word64
+        -> IORef Int
+        -> Adjustments
+        -> IO ()
+    go' gen !i !nonce0 counter adjustments0 = do
 
         -- Create a new (test) block header.
         --
@@ -151,8 +167,11 @@ miner logFun conf nid cutDb wcdb = do
         -- doesn't grow stale, and cause forks. Without this condition (or a
         -- similar one), the miners cause forks quite aggressively.
         --
-        let mine :: Word64 -> IO (Either Word64 Cut)
-            mine !nonce = do
+        let mine
+                :: Word64
+                -> Adjustments
+                -> IO (T2 Cut Adjustments)
+            mine !nonce !adjustments = do
                 -- Get the current longest cut.
                 --
                 c <- _cut cutDb
@@ -169,13 +188,12 @@ miner logFun conf nid cutDb wcdb = do
 
                 -- The hashing target to be lower than.
                 --
-                target <- getTarget cid p
+                T2 target adjustments' <- getTarget cid p adjustments
 
                 -- Artificially delay the mining process when not using
                 -- proof-of-work mining.
                 --
                 when (not . usePOW $ _blockChainwebVersion p) $ do
-                    putStrLn "SLEEPY!!!"
                     d <- MWC.geometric1
                          (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
                          gen
@@ -186,9 +204,6 @@ miner logFun conf nid cutDb wcdb = do
                 --
                 ct <- getCurrentTimeIntegral
 
-                let targetBits :: String
-                    targetBits = printf "%0256b" $ htInteger target
-
                 -- Loops (i.e. "mines") if a non-matching nonce was generated.
                 --
                 -- INVARIANT: `testMine` will succeed on the first attempt when
@@ -197,10 +212,12 @@ miner logFun conf nid cutDb wcdb = do
                 testMine (Nonce nonce) target ct nid cid c >>= \case
                     Left BadNonce -> do
                         atomicModifyIORef' counter (\n -> (succ n, ()))
-                        mine $! succ nonce
+                        mine (succ nonce) adjustments'
                     Left BadAdjacents ->
-                        pure $! Left nonce
+                        mine nonce adjustments'
                     Right (T2 newBh newCut) -> do
+
+                        let !limit = _blockHeight newBh - BlockHeight (int window)
 
                         -- DEBUGGING --
                         -- Uncomment the following for a live view of mining
@@ -208,53 +225,70 @@ miner logFun conf nid cutDb wcdb = do
                         -- number of surrounding helper values and readd some
                         -- imports.
 
-                        total <- readIORef counter
-                        when (cid == testChainId 0) $ do
-                          printf "\n--- NODE:%02d success! HASHES:%06x TARGET:%s...%s PARENT-H:%03x PARENT-W:%06x PARENT:%s NEW:%s TIME:%f\n"
-                              (_nodeIdId nid)
-                              total
-                              (take 30 targetBits)
-                              (drop 226 targetBits)
-                              (pheight p)
-                              (pweight p)
-                              (take 8 . drop 5 . show $ _blockHash p)
-                              (take 8 . drop 5 . show $ _blockHash newBh)
-                              (int (time newBh - time p) / 1000000 :: Float)
+                        -- total <- readIORef counter
 
-                        pure $! Right newCut
+                        -- let targetBits :: String
+                        --     targetBits = printf "%0256b" $ htInteger target
 
-        mine nonce0 >>= \case
-          Left nonce -> go' gen i nonce counter
-          Right c' -> do
-              logg Info $! "created new block" <> sshow i
+                        -- when (cid == testChainId 0) $ do
+                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%03.2f LIMIT:%d\n"
+                        --         (_nodeIdId nid)
+                        --         total
+                        --         (take 30 targetBits)
+                        --         (drop 226 targetBits)
+                        --         (pheight newBh)
+                        --         (pweight newBh)
+                        --         (take 8 . drop 5 . show $ _blockHash p)
+                        --         (take 8 . drop 5 . show $ _blockHash newBh)
+                        --         (int (time newBh - time p) / 1000000 :: Float)
+                        --         (limit ^. _Unwrapped)
+                        --     hFlush stdout
 
-              -- Publish the new Cut into the CutDb (add to queue).
-              --
-              atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+                        pure $! T2 newCut (HM.filter (\(T2 h _) -> h > limit) adjustments')
 
-              go gen (i + 1)
+        -- Mine a new block
+        --
+        T2 c' adjustments' <- mine nonce0 adjustments0
 
-    getTarget :: ChainId -> BlockHeader -> IO HashTarget
-    getTarget cid bh
-        | not $ usePOW (_blockChainwebVersion bh) = pure $! _blockTarget bh
-        | otherwise = case blockDb cid of
-              Nothing -> pure $! _blockTarget bh
-              Just db -> hashTarget db bh
-                             (BlockRate $ _configMeanBlockTimeSeconds conf)
-                             (WindowWidth $ _configWindowWidth conf)
+        logg Info $! "created new block" <> sshow i
+
+        -- Publish the new Cut into the CutDb (add to queue).
+        --
+        atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+
+        go gen (i + 1) adjustments'
+
+    window = _configWindowWidth conf
+
+    getTarget
+        :: ChainId
+        -> BlockHeader
+        -> Adjustments
+        -> IO (T2 HashTarget Adjustments)
+    getTarget cid bh adjustments
+        | not $ usePOW (_blockChainwebVersion bh) = pure $! T2 (_blockTarget bh) adjustments
+        | otherwise = case HM.lookup (_blockHash bh) adjustments of
+              Just (T2 _ t) -> pure $! T2 t adjustments
+              Nothing -> case blockDb cid of
+                  Nothing -> pure $! T2 (_blockTarget bh) adjustments
+                  Just db -> do
+                      t <- hashTarget db bh
+                           (BlockRate $ _configMeanBlockTimeSeconds conf)
+                           (WindowWidth $ _configWindowWidth conf)
+                      pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
 
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
 
-    htInteger :: HashTarget -> Integer
-    htInteger (HashTarget (PowHashNat w)) = fromIntegral w
+    -- htInteger :: HashTarget -> Integer
+    -- htInteger (HashTarget (PowHashNat w)) = fromIntegral w
 
-    pheight :: BlockHeader -> Word64
-    pheight bh = case _blockHeight bh of BlockHeight w -> w
+    -- pheight :: BlockHeader -> Word64
+    -- pheight bh = case _blockHeight bh of BlockHeight w -> w
 
-    pweight :: BlockHeader -> Integer
-    pweight bh = case _blockWeight bh of
-        BlockWeight (HashDifficulty (PowHashNat w)) -> int w
+    -- pweight :: BlockHeader -> Integer
+    -- pweight bh = case _blockWeight bh of
+    --     BlockWeight (HashDifficulty (PowHashNat w)) -> int w
 
-    time :: BlockHeader -> Int64
-    time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
+    -- time :: BlockHeader -> Int64
+    -- time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n

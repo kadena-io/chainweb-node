@@ -169,9 +169,9 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
 
-    & set (configMiner . configMeanBlockTimeSeconds) (blockTimeSeconds  * n)
+    & set (configMiner . configMeanBlockTimeSeconds) blockTimeSeconds -- (blockTimeSeconds * n)
         -- The block time for an indiviual miner, such that the overall block
-        -- time is 'blockTimeSeconds'.
+        -- time is 'blockTimeSeconds'. TODO What?
 
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
         -- We make room for all test peers in peer db.
