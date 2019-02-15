@@ -82,8 +82,6 @@ import Data.Tree
 import qualified Data.Tree.Lens as LT
 import Data.Word (Word64)
 
-import Debug.Trace
-
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
@@ -202,7 +200,6 @@ tree v g = do
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
 genesis v = do
-    "OH CRAP" `trace` pure ()
     cid <- arbitrary
     return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
 

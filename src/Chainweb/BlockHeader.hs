@@ -681,12 +681,9 @@ genesisBlockHeader
     -> ChainGraph
     -> p
     -> BlockHeader
-genesisBlockHeader v g p = gbh
+genesisBlockHeader v g p = fromLog mlog
   where
     cid = _chainId p
-
-    gbh :: BlockHeader
-    gbh = fromLog mlog
 
     mlog = newMerkleLog
         $ genesisParentBlockHash v cid

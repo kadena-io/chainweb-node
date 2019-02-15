@@ -244,6 +244,19 @@ miner logFun conf nid cutDb wcdb = do
                         --         (limit ^. _Unwrapped)
                         --     hFlush stdout
 
+                        -- Since mining has been successful, we prune the
+                        -- `HashMap` of adjustment values that we've seen.
+                        --
+                        -- Due to this pruning, the `HashMap` should only ever
+                        -- contain approximately N entries, where:
+                        --
+                        -- @
+                        -- C := number of chains
+                        -- W := number of blocks in the epoch window
+                        --
+                        -- N = W * C
+                        -- @
+                        --
                         pure $! T2 newCut (HM.filter (\(T2 h _) -> h > limit) adjustments')
 
         -- Mine a new block
