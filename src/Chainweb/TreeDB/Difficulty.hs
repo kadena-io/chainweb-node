@@ -287,3 +287,18 @@ hashTarget db bh (BlockRate blockRate) (WindowWidth ww)
 
     -- floating :: Rational -> Double
     -- floating = realToFrac
+
+-- | Like `targetToDifficulty`, but yields a `Rational` for lossless
+-- calculations in Difficulty Adjustment.
+targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
+targetToDifficultyR v (HashTarget (PowHashNat target)) =
+    int (maxTargetWord v) % int target
+{-# INLINE targetToDifficultyR #-}
+
+-- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
+-- produced by `targetToDifficultyR` and then further manipulated during
+-- Difficulty Adjustment.
+difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
+difficultyToTargetR v difficulty =
+    HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
+{-# INLINE difficultyToTargetR #-}

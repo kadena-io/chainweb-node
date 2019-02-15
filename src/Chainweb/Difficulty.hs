@@ -42,10 +42,9 @@ module Chainweb.Difficulty
 , showTargetBits
 , checkTarget
 , maxTarget
+, maxTargetWord
 , difficultyToTarget
-, difficultyToTargetR
 , targetToDifficulty
-, targetToDifficultyR
 , encodeHashTarget
 , decodeHashTarget
 
@@ -73,7 +72,6 @@ import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
-import Data.Ratio
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -238,27 +236,12 @@ difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
     HashTarget . PowHashNat $ maxTargetWord v `div` difficulty
 {-# INLINE difficultyToTarget #-}
 
--- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
--- produced by `targetToDifficultyR` and then further manipulated during
--- Difficulty Adjustment.
-difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
-difficultyToTargetR v difficulty =
-    HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
-{-# INLINE difficultyToTargetR #-}
-
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
 targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
 targetToDifficulty v (HashTarget (PowHashNat target)) =
     HashDifficulty . PowHashNat $ maxTargetWord v `div` target
 {-# INLINE targetToDifficulty #-}
-
--- | Like `targetToDifficulty`, but yields a `Rational` for lossless
--- calculations in Difficulty Adjustment.
-targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
-targetToDifficultyR v (HashTarget (PowHashNat target)) =
-    int (maxTargetWord v) % int target
-{-# INLINE targetToDifficultyR #-}
 
 -- | The critical check in Proof-of-Work mining: did the generated hash match
 -- the target?
