@@ -58,7 +58,7 @@ pactServer = newBlockReq
 toHandler :: RequestIdEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
-withPactServiceApp :: Int -> MemPoolAccess -> IO () -> IO ()
+withPactServiceApp :: Int -> MemPoolAccess -> IO a -> IO a
 withPactServiceApp port memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     let reqQVar = atomically $ newTVar reqQ

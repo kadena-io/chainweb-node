@@ -16,16 +16,13 @@ module Main
 
 import Test.Tasty
 
--- internal modules
-
 import qualified Chainweb.Test.Pact
 import qualified Chainweb.Test.Pact.PactService
 
 main :: IO ()
-main = defaultMain suite
-
-suite :: TestTree
-suite = testGroup "Chainweb-Pact Unit Tests"
-    [ Chainweb.Test.Pact.tests
-    , Chainweb.Test.Pact.PactService.tests
-    ]
+main = do
+    pactTests <- Chainweb.Test.Pact.tests
+    pactServiceTests <- Chainweb.Test.Pact.PactService.tests
+    defaultMain $ testGroup "Chainweb-Pact Unit Tests"
+        [ pactTests
+        , pactServiceTests ]

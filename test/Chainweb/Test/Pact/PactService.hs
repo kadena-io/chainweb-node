@@ -18,6 +18,7 @@ import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Default
 import Data.Maybe
+import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
@@ -29,11 +30,13 @@ import Servant
 import Servant.Client
 import Servant.Client.Internal.HttpClient (ClientM(..))
 
+import System.FilePath
 import System.IO.Extra
 import System.Random
 import System.Time.Extra
 
 import Test.Tasty
+import Test.Tasty.Golden
 import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
@@ -49,43 +52,43 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.RPC as P
 
-tests :: TestTree
-tests = testCase "Pact service tests" pactTestApp
+tests :: IO TestTree
+tests = do
+  xs <- pactTestApp
+  return $ testGroup "Pact service tests" xs
 
-pactTestApp :: IO ()
+pactTestApp :: IO [TestTree]
 pactTestApp = do
     port <- generatePort
     withPactServiceApp port testMemPoolAccess $ do
         let headers = V.fromList $ getBlockHeaders 4
-
-        mapM_ putStrLn $ show . _blockHeight <$> headers
-
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv mgr base
 
         -- testing:  /new
         response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
-        checkRespTrans "block-results-expected-0.txt" response0
+        tt0 <- checkRespTrans "block-results-expected-0.txt" response0
 
         -- testing:  /validate
         response0b <- runClientM (testValidate (headers ! 0)) clientEnv
-        checkRespTrans "block-results-expected-0.txt" response0b
+        tt0b <- checkRespTrans "block-results-expected-0.txt" response0b
 
         -- testing:  /validate
         validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
-        checkRespTrans "block-results-expected-1.txt" validateResp1
+        tt1 <- checkRespTrans "block-results-expected-1.txt" validateResp1
 
         -- testing: /valiAsync and /poll
         idResponse <- runClientM (testValidateAsync (headers ! 2)) clientEnv
-        case idResponse of
-            (Left servantError) -> assertFailure $
-                "No requestId returned from testValidateAsync" ++ show servantError
-            (Right rqid) -> do
-                rspM <- pollForTestResp clientEnv rqid
-                case rspM of
-                    Nothing -> assertFailure "Polling timeout for testValidateAsync"
-                    Just rsp -> checkRespTrans "block-results-expected-2.txt" rsp
+        tt2 <- case idResponse of
+                  (Left servantError) -> assertFailure $
+                      "No requestId returned from testValidateAsync" ++ show servantError
+                  (Right rqid) -> do
+                      rspM <- pollForTestResp clientEnv rqid
+                      case rspM of
+                          Nothing -> assertFailure "Polling timeout for testValidateAsync"
+                          Just rsp -> checkRespTrans "block-results-expected-2.txt" rsp
+        return $ tt0 : tt0b : tt1 : [tt2]
 
 pollForTestResp
     :: ClientEnv
@@ -98,17 +101,15 @@ pollForTestResp clientEnv reqId =
 timeoutSeconds :: Int
 timeoutSeconds = 30 -- seconds
 
-checkRespTrans :: FilePath -> Either ServantError (Either String Transactions) -> Assertion
+checkRespTrans :: FilePath -> Either ServantError (Either String Transactions) -> IO TestTree
 checkRespTrans _ (Left servantError) = assertFailure $ "Servant error: " ++ show servantError
 checkRespTrans fp (Right x) =
     case x of
         Left err -> assertFailure $ "Error in pact response: "  ++ show err
-        Right ts -> do
-            let jsonTrans = show (toJSON ts) ++ "\n"
-            -- uncomment to capture updated test results
-            putStrLn $ "\n\npactTestApi - JSON results: \n\n" ++ jsonTrans ++ "\n\n"
-            expectedPayload <- readFile' $ testPactFilesDir ++ fp
-            jsonTrans @?= expectedPayload
+        Right ts ->
+            return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+            where
+                ioBs = return $ toS $ show $ toJSON ts
 
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))

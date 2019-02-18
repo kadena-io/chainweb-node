@@ -395,6 +395,7 @@ test-suite pact-tests
         , containers >= 0.5
         , data-default >=0.7
         , extra >= 1.6
+        , filepath >= 1.4
         , http-client >= 0.5
         , lens >= 4.16
         , network >= 2.6
@@ -404,7 +405,9 @@ test-suite pact-tests
         , servant >= 0.13
         , servant-client >= 0.13
         , servant-server >= 0.13
+        , string-conv >= 0.1
         , tasty >= 1.0
+        , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , text >= 1.2
         , time >= 1.8

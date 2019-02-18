@@ -13,7 +13,6 @@
 module Chainweb.Test.Pact where
 
 import Control.Applicative
-import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
@@ -25,14 +24,17 @@ import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
+import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word
 
+import System.FilePath
 import System.IO.Extra
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.Golden
 
 import qualified Pact.ApiReq as P
 import qualified Pact.Gas as P
@@ -44,16 +46,17 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
-
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 
-tests :: TestTree
-tests = testCase "Pact unit tests" pactExecTests
+tests :: IO TestTree
+tests = do
+  xs <- pactExecTests
+  return $ testGroup "Simple pact execution tests" xs
 
-pactExecTests :: IO ()
+pactExecTests :: IO [TestTree]
 pactExecTests = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
@@ -73,9 +76,9 @@ pactExecTests = do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runStateT (runReaderT execTests checkpointEnv) theState
+    fst <$> runStateT (runReaderT execTests checkpointEnv) theState
 
-execTests :: PactT ()
+execTests :: PactT [TestTree]
 execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
@@ -88,11 +91,8 @@ getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
-checkResponses :: [TestResponse] -> IO ()
-checkResponses responses =
-    forM_ responses (\resp -> do
-        let evalFn = _trEval $ _trRequest resp
-        evalFn resp )
+checkResponses :: [TestResponse] -> IO [TestTree]
+checkResponses responses = traverse (\resp -> _trEval (_trRequest resp ) resp) responses
 
 checkSuccessOnly :: TestResponse -> Assertion
 checkSuccessOnly resp =
@@ -129,41 +129,11 @@ parseText (Object o) =
     Just _ -> Nothing
 parseText _ = Nothing
 
-fileCompareTxLogs :: FilePath -> TestResponse -> Assertion
+fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
 fileCompareTxLogs fp resp = do
-    contents <- readFile' $ testPactFilesDir ++ fp
-    let txLogsStr = unlines $ fmap show $ _getTxLogs $ _trOutput resp
-    txLogsStr @?= contents
-
-----------------------------------------------------------------------------------------------------
--- Pact test datatypes
-----------------------------------------------------------------------------------------------------
-
-data TestRequest = TestRequest
-    { _trCmd :: TestSource
-    , _trEval :: TestResponse -> Assertion
-    , _trDisplayStr :: String
-    }
-
-data TestSource = File FilePath | Code String
-  deriving Show
-
-data TestResponse = TestResponse
-    { _trRequest :: TestRequest
-    , _trOutput :: TransactionOutput
-    }
-
-instance Show TestRequest where
-    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: "
-              ++ show (_trDisplayStr tr)
-
-instance Show TestResponse where
-    show tr =
-        let tOutput = _trOutput tr
-            cmdResultStr = show $ _getCommandResult tOutput
-            txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
-        in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
-           ++ "TxLogs: " ++ txLogsStr
+    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+    where
+        ioBs = return $ toS $ show <$> _getTxLogs $ _trOutput resp
 
 mkPactTestTransactions :: [String] -> IO [Transaction]
 mkPactTestTransactions cmdStrs = do
@@ -197,6 +167,38 @@ testKeyPairs =
                    mPair
     in maybeToList mKeyPair
 
+----------------------------------------------------------------------------------------------------
+-- Pact test datatypes
+----------------------------------------------------------------------------------------------------
+data TestRequest = TestRequest
+    { _trCmd :: TestSource
+    , _trEval :: TestResponse -> IO TestTree
+    , _trDisplayStr :: String
+    }
+
+data TestSource = File FilePath | Code String
+  deriving Show
+
+data TestResponse = TestResponse
+    { _trRequest :: TestRequest
+    , _trOutput :: TransactionOutput
+    }
+
+instance Show TestRequest where
+    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: "
+              ++ show (_trDisplayStr tr)
+
+instance Show TestResponse where
+    show tr =
+        let tOutput = _trOutput tr
+            cmdResultStr = show $ _getCommandResult tOutput
+            txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
+        in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
+           ++ "TxLogs: " ++ txLogsStr
+
+----------------------------------------------------------------------------------------------------
+-- Pact test sample data
+----------------------------------------------------------------------------------------------------
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
 
@@ -205,9 +207,7 @@ testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d
 
 testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
-----------------------------------------------------------------------------------------------------
--- Pact test sample data
-----------------------------------------------------------------------------------------------------
+
 testPactRequests :: [TestRequest]
 testPactRequests =
   [ testReq1
@@ -220,13 +220,13 @@ testPactRequests =
 testReq1 :: TestRequest
 testReq1 = TestRequest
     { _trCmd = Code "(+ 1 1)"
-    , _trEval = checkScientific (scientific 2 0)
+    , _trEval = (\tr -> return $ testCase "addition" (checkScientific (scientific 2 0) tr))
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
 
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    , _trEval = checkSuccessOnly
+    , _trEval = (\tr -> return $ testCase "load module" (checkSuccessOnly tr))
     , _trDisplayStr = "Loads a pact module" }
 
 testReq3 :: TestRequest
