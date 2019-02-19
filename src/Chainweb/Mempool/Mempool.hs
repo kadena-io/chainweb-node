@@ -36,6 +36,7 @@ import Control.Exception
 import Control.Monad (replicateM, unless, when)
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
+import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
 import Data.Bytes.Get
@@ -54,7 +55,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Foreign.StablePtr
-import GHC.Generics (Generic)
+import GHC.Generics
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
@@ -69,7 +70,8 @@ data LookupResult t = Missing
                     | Validated (ValidatedTransaction t)
                     | Confirmed
                     | Pending t
-  deriving (Show)
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
 data TransactionConfig t = TransactionConfig {
@@ -308,12 +310,16 @@ data Subscription t = Subscription {
 data ValidationInfo = ValidationInfo {
     validatedHeight :: {-# UNPACK #-} !BlockHeight
   , validatedHash :: {-# UNPACK #-} !BlockHash
-} deriving (Show)
+  }
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 data ValidatedTransaction t = ValidatedTransaction {
     validatedForks :: Vector ValidationInfo
   , validatedTransaction :: t
-} deriving (Show)
+  }
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 
 ------------------------------------------------------------------------------

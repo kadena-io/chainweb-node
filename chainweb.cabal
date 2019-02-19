@@ -79,8 +79,8 @@ library
         , Chainweb.HostAddress
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
+        , Chainweb.Mempool.RestAPI
         , Chainweb.Mempool.Socket
-        , Chainweb.Mempool.Websocket
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
@@ -251,7 +251,6 @@ library
         , wai-middleware-metrics >= 0.2.4
         , warp >= 3.2
         , warp-tls >= 3.2
-        , websockets >= 0.12.5
         , witherable >= 0.2
         , x509 >=1.7
         , x509-system >=1.6
@@ -287,7 +286,6 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.Mempool.Sync
-        Chainweb.Test.Mempool.Websocket
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
@@ -372,7 +370,6 @@ test-suite chainweb-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
-        , websockets >= 0.12.5
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
