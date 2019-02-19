@@ -24,7 +24,6 @@
 --
 module Chainweb.Version
 ( ChainwebVersion(..)
-, usePOW
 , encodeChainwebVersion
 , decodeChainwebVersion
 

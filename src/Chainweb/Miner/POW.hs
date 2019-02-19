@@ -25,8 +25,6 @@ import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64)
 
-import Numeric.Natural (Natural)
-
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
@@ -70,7 +68,7 @@ powMiner
     -> CutDb
     -> WebBlockHeaderDb
     -> IO ()
-powMiner logFun conf nid cutDb wcdb = do
+powMiner logFun _ nid cutDb wcdb = do
     logg Info "Started Proof-of-Work Miner"
     gen <- MWC.createSystemRandom
     give wcdb $ go gen 1 HM.empty
@@ -99,7 +97,11 @@ powMiner logFun conf nid cutDb wcdb = do
         --
         atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
 
-        let !limit = _blockHeight newBh - BlockHeight (int window)
+        let !wh = case window $ _blockChainwebVersion newBh of
+              Just (WindowWidth w) -> BlockHeight (int w)
+              Nothing -> error "POW miner used with non-POW chainweb!"
+            !limit | _blockHeight newBh < wh = 0
+                   | otherwise = _blockHeight newBh - wh
 
         -- Since mining has been successful, we prune the
         -- `HashMap` of adjustment values that we've seen.
@@ -185,9 +187,6 @@ powMiner logFun conf nid cutDb wcdb = do
 
                 pure $! T3 newBh newCut adjustments'
 
-    window :: Natural
-    window = _configWindowWidth conf
-
     getTarget
         :: ChainId
         -> BlockHeader
@@ -199,8 +198,6 @@ powMiner logFun conf nid cutDb wcdb = do
             Nothing -> pure $! T2 (_blockTarget bh) adjustments
             Just db -> do
                 t <- hashTarget db bh
-                     (BlockRate $ _configMeanBlockTimeSeconds conf)
-                     (WindowWidth $ _configWindowWidth conf)
                 pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
 
     blockDb :: ChainId -> Maybe BlockHeaderDb

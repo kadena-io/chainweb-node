@@ -56,8 +56,16 @@ module Chainweb.Difficulty
 , decodeHashDifficulty
 
 -- * Difficulty Adjustment
+-- ** Fork-specific Settings
+-- | Values here represent fixed settings specific to a particular chainweb.
+-- __Changing any of these for a live Proof-of-Work chainweb will result in a hard fork.__
 , BlockRate(..)
+, blockRate
 , WindowWidth(..)
+, window
+, MaxAdjustment(..)
+, maxAdjust
+-- ** Adjustment
 , adjust
 
 -- * Test Properties
@@ -68,12 +76,9 @@ module Chainweb.Difficulty
 import Control.DeepSeq
 import Control.Monad
 
-import Data.Int (Int64)
-import Data.Ratio ((%))
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
-import Data.Bool (bool)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
@@ -81,6 +86,8 @@ import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
+import Data.Int (Int64)
+import Data.Ratio ((%))
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -99,7 +106,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.PowHash
 import Chainweb.Time (TimeSpan(..))
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, usePOW)
+import Chainweb.Version (ChainwebVersion(..))
 
 import Data.Word.Encoding hiding (properties)
 
@@ -305,11 +312,44 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 --
 newtype BlockRate = BlockRate Natural
 
+-- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+blockRate :: ChainwebVersion -> Maybe BlockRate
+blockRate Test = Nothing
+blockRate TestWithTime = Nothing
+blockRate TestWithPow = Just $! BlockRate 10
+blockRate Simulation = Nothing
+blockRate Testnet00 = error "Block Rate for Testnet00 not yet defined!"
+
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
 -- algorithm seen in `hashTarget`.
 --
 newtype WindowWidth = WindowWidth Natural
+
+-- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+window :: ChainwebVersion -> Maybe WindowWidth
+window Test = Nothing
+window TestWithTime = Nothing
+window TestWithPow = Just $! WindowWidth 5
+window Simulation = Nothing
+window Testnet00 = error "Epoch Window Width for Testnet00 not yet defined!"
+
+-- | The maximum number of bits that a single application of `adjust` can apply
+-- to some `HashTarget`. As mentioned in `adjust`, this value should be above
+-- \(e = 2.71828\cdots\).
+--
+newtype MaxAdjustment = MaxAdjustment Natural
+
+-- | The Proof-of-Work `MaxAdjustment` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+maxAdjust :: ChainwebVersion -> Maybe MaxAdjustment
+maxAdjust Test = Nothing
+maxAdjust TestWithTime = Nothing
+maxAdjust TestWithPow = Just $! MaxAdjustment 3
+maxAdjust Simulation = Nothing
+maxAdjust Testnet00 = error "Max Adjustment for Testnet00 not yet defined!"
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.
@@ -422,12 +462,12 @@ newtype WindowWidth = WindowWidth Natural
 --
 -- Spikes in /HashRate/ may occur as the mining network grows. To ensure that
 -- adjustment does not occur too quickly, we cap the total "significant bits of
--- change" as to no more than 3 bits in either the "harder" or "easier" direction
--- at one time. Experimentally, it has been shown than the maximum change should
--- be greater than \(e = 2.71828\cdots\) (/source needed/).
+-- change" as to no more than \(Z\) bits in either the "harder" or "easier"
+-- direction at one time. Experimentally, it has been shown that \(Z\) should be
+-- greater than \(e = 2.71828\cdots\) (/source needed/). See `maxAdjust`.
 --
-adjust :: ChainwebVersion -> WindowWidth -> BlockRate -> TimeSpan Int64 -> HashTarget -> HashTarget
-adjust ver (WindowWidth ww) (BlockRate blockRate) (TimeSpan delta) oldTarget
+adjust :: ChainwebVersion -> TimeSpan Int64 -> HashTarget -> HashTarget
+adjust ver (TimeSpan delta) oldTarget
     -- Intent: When increasing the difficulty (thereby lowering the target
     -- toward 0), the leading 1-bit must not move more than 3 bits at a time.
     | newTarget < oldTarget = max newTarget (HashTarget $! oldNat `div` 8)
@@ -439,7 +479,7 @@ adjust ver (WindowWidth ww) (BlockRate blockRate) (TimeSpan delta) oldTarget
     -- `maxTarget`), ensure that the new target does not increase by more than 3
     -- bits at a time. Using `countLeadingZeros` like this also helps avoid a
     -- `Word256` overflow.
-    | countLeadingZeros oldNat - countLeadingZeros (nat newTarget) > 3 = HashTarget $! oldNat * 8
+    | countLeadingZeros oldNat - countLeadingZeros (nat newTarget) > maxAdj = HashTarget $! oldNat * 8
     | otherwise = newTarget
 
     -- DEBUGGING --
@@ -460,6 +500,21 @@ adjust ver (WindowWidth ww) (BlockRate blockRate) (TimeSpan delta) oldTarget
     --         (targetBits actual)
     --     hFlush stdout
   where
+    br :: Natural
+    br = case blockRate ver of
+        Just (BlockRate n) -> n
+        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+
+    ww :: Natural
+    ww = case window ver of
+        Just (WindowWidth n) -> n
+        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+
+    maxAdj :: Int
+    maxAdj = case maxAdjust ver of
+        Just (MaxAdjustment n) -> int n
+        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+
     -- The average time in seconds that it took to mine each block in
     -- the given window.
     avg :: Rational
@@ -474,7 +529,7 @@ adjust ver (WindowWidth ww) (BlockRate blockRate) (TimeSpan delta) oldTarget
     -- The adjusted difficulty, following the formula explained in the
     -- docstring of this function.
     newDiff :: Rational
-    newDiff = oldDiff * int blockRate / avg
+    newDiff = oldDiff * int br / avg
 
     newTarget :: HashTarget
     newTarget = difficultyToTargetR ver newDiff

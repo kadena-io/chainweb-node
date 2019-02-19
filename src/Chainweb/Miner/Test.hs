@@ -105,6 +105,9 @@ testMiner logFun conf nid cutDb wcdb = do
         -- Artificially delay the mining process since we are not using
         -- proof-of-work mining.
         --
+        -- TODO Should this be in `go` instead? What if the @Left BadAdjacents@
+        -- branch is hit? Is that possible in the testing scenario?
+        --
         d <- MWC.geometric1
                 (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
                 gen

@@ -21,6 +21,8 @@ import Data.Int (Int64)
 import Data.Maybe (fromJust)
 import Data.Semigroup (Max(..), Min(..))
 
+import Numeric.Natural (Natural)
+
 import qualified Streaming.Prelude as P
 
 -- internal modules
@@ -40,18 +42,16 @@ hashTarget
     => IsBlockHeader (DbEntry db)
     => db
     -> DbEntry db
-    -> BlockRate
-    -> WindowWidth
     -> IO HashTarget
-hashTarget db bh blockRate ww@(WindowWidth w)
+hashTarget db bh
     -- Intent: Neither the genesis block, nor any block whose height is not a
     -- multiple of the `BlockRate` shall be considered for adjustment.
     | isGenesisBlockHeader bh' = pure $! _blockTarget bh'
-    | int (_blockHeight bh') `mod` w /= 0 = pure $! _blockTarget bh'
+    | int (_blockHeight bh') `mod` ww /= 0 = pure $! _blockTarget bh'
     | otherwise = do
         start <- branchEntries db Nothing Nothing minr maxr lower upper
                  & P.map (^. isoBH)
-                 & P.take (int w)
+                 & P.take (int ww)
                  & P.last_
                  & fmap fromJust  -- Thanks to the two guard conditions above,
                                   -- this will (should) always succeed.
@@ -62,10 +62,15 @@ hashTarget db bh blockRate ww@(WindowWidth w)
             delta :: TimeSpan Int64
             !delta = TimeSpan $ time bh' - time start
 
-        pure . adjust ver ww blockRate delta $ _blockTarget bh'
+        pure . adjust ver delta $ _blockTarget bh'
   where
     bh' :: BlockHeader
     bh' = bh ^. isoBH
+
+    ww :: Natural
+    ww = case window ver of
+      Just (WindowWidth n) -> n
+      Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     ver :: ChainwebVersion
     ver = _blockChainwebVersion bh'
