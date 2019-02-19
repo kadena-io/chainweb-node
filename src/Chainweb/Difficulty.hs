@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -43,6 +44,7 @@ module Chainweb.Difficulty
 , checkTarget
 , maxTarget
 , maxTargetWord
+, prereduction
 , difficultyToTarget
 , targetToDifficulty
 , encodeHashTarget
@@ -141,7 +143,7 @@ powHashNat :: PowHash -> PowHashNat
 powHashNat = PowHashNat . powHashToWord256
 {-# INLINE powHashNat #-}
 
-powHashToWord256 :: 32 <= PowHashBytesCount => PowHash -> Word256
+powHashToWord256 :: (32 <= PowHashBytesCount) => PowHash -> Word256
 powHashToWord256 = either error id . runGetS decodeWordLe . SB.fromShort . powHashBytes
 {-# INLINE powHashToWord256 #-}
 
@@ -220,7 +222,7 @@ showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :
 -- adjustment with very brief time deltas between blocks.
 --
 -- Otherwise, chainwebs with "trivial targets" expect this to be `maxBound` and
--- never change. See also `Chainweb.Version.usePOW`.
+-- never change. See also `prereduction`.
 --
 maxTarget :: ChainwebVersion -> HashTarget
 maxTarget = HashTarget . PowHashNat . maxTargetWord
@@ -233,10 +235,17 @@ maxTarget = HashTarget . PowHashNat . maxTargetWord
 maxTargetWord :: ChainwebVersion -> Word256
 maxTargetWord v = maxBound `div` (2 ^ prereduction v)
 
--- TODO This should probably dispatch on different values for `TestWithPow` and
--- `TestNet*` specifically.
+-- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
+-- enforce a "minimum difficulty", beyond which mining cannot become easier.
+--
+-- See `adjust`.
+--
 prereduction :: ChainwebVersion -> Int
-prereduction v = bool 0 7 $ usePOW v
+prereduction Test = 0
+prereduction TestWithTime = 0
+prereduction TestWithPow = 7
+prereduction Simulation = 0
+prereduction Testnet00 = error "Bit reduction for Testnet00 not yet defined!"
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag

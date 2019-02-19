@@ -113,15 +113,6 @@ data ChainwebVersion
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
     deriving anyclass (Hashable, NFData)
 
--- | Given a type of chainweb, should we perform POW mining?
---
-usePOW :: ChainwebVersion -> Bool
-usePOW Test = False
-usePOW TestWithTime = False
-usePOW TestWithPow = True
-usePOW Simulation = False
-usePOW Testnet00 = True
-
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
 encodeChainwebVersion Test = putWord32le 0x00000000
 encodeChainwebVersion TestWithTime = putWord32le 0x00000001
