@@ -41,6 +41,7 @@ import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion)
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
 
 import Data.DiGraph (order)
@@ -59,7 +60,10 @@ testMiner
 testMiner logFun _ nid cutDb wcdb = do
     logg Info "Started Test Miner"
     gen <- MWC.createSystemRandom
-    give wcdb $ go gen 1
+
+    ver <- getVer
+
+    give wcdb $ go gen ver 1
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
@@ -67,9 +71,23 @@ testMiner logFun _ nid cutDb wcdb = do
     graph :: ChainGraph
     graph = _chainGraph cutDb
 
-    go :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> IO ()
-    go gen !i = do
+    getVer :: IO ChainwebVersion
+    getVer = do
+        c <- _cut cutDb
+        cid <- randomChainId c
+        pure . _blockChainwebVersion $ c ^?! ixg cid
+
+    go :: Given WebBlockHeaderDb => MWC.GenIO -> ChainwebVersion -> Int -> IO ()
+    go gen ver !i = do
         nonce0 <- MWC.uniform gen
+
+        -- Artificially delay the mining process since we are not using
+        -- proof-of-work mining.
+        --
+        d <- MWC.geometric1
+                (int (order graph) / (meanBlockTime * 1000000))
+                gen
+        threadDelay d
 
         -- Mine a new block
         --
@@ -81,7 +99,12 @@ testMiner logFun _ nid cutDb wcdb = do
         --
         atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
 
-        go gen (i + 1)
+        go gen ver (i + 1)
+      where
+        meanBlockTime :: Double
+        meanBlockTime = case blockRate ver of
+            Just (BlockRate n) -> int n
+            Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
     mine :: Given WebBlockHeaderDb => MWC.GenIO -> Word64 -> IO Cut
     mine gen !nonce = do
@@ -102,23 +125,6 @@ testMiner logFun _ nid cutDb wcdb = do
         -- The hashing target to be lower than.
         --
         let !target = _blockTarget p
-
-        let !ver = _blockChainwebVersion p
-
-        let !meanBlockTime = case blockRate ver of
-              Just (BlockRate n) -> n
-              Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
-
-        -- Artificially delay the mining process since we are not using
-        -- proof-of-work mining.
-        --
-        -- TODO Should this be in `go` instead? What if the @Left BadAdjacents@
-        -- branch is hit? Is that possible in the testing scenario?
-        --
-        d <- MWC.geometric1
-                (int (order graph) / (int meanBlockTime * 1000000))
-                gen
-        threadDelay d
 
         -- The new block's creation time. Must come after any simulated
         -- delay.

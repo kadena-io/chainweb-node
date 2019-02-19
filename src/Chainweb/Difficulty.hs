@@ -104,7 +104,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (TimeSpan(..))
+import Chainweb.Time (Seconds, TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -298,12 +298,12 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 -- | The gap in SECONDS that we desire between the Creation Time of subsequent
 -- blocks in some chain.
 --
-newtype BlockRate = BlockRate Natural
+newtype BlockRate = BlockRate Seconds
 
 -- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
 blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test = Nothing
-blockRate TestWithTime = Just $! BlockRate 1
+blockRate TestWithTime = Just $! BlockRate 100
 blockRate TestWithPow = Just $! BlockRate 10
 blockRate Simulation = Nothing
 blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"
@@ -501,7 +501,7 @@ adjust ver (TimeSpan delta) oldTarget
   where
     br :: Natural
     br = case blockRate ver of
-        Just (BlockRate n) -> n
+        Just (BlockRate n) -> int n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     ww :: Natural

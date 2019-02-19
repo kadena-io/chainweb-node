@@ -29,16 +29,13 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode
-( test
-, Seconds(..)
-) where
+module Chainweb.Test.MultiNode ( test ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens hiding ((.=))
+import Control.Lens (set, view, _head)
 import Control.Monad
 
 import Data.Aeson
@@ -75,6 +72,7 @@ import Chainweb.HostAddress
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
+import Chainweb.Time (Seconds)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -84,9 +82,6 @@ import Data.LogMessage
 
 import P2P.Node.Configuration
 import P2P.Peer
-
-newtype Seconds = Seconds Natural
-    deriving newtype (Show, Eq, Ord, Num, Enum, Integral, Real)
 
 -- -------------------------------------------------------------------------- --
 -- Generic Log Functions
@@ -408,11 +403,11 @@ expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
 expectedBlockCount v seconds = round ebc
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order graph) / (int br / 10)
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> n
+        Just (BlockRate n) -> int n
         Nothing -> error $ "expectedBlockCount: ChainwebVersion with no BlockRate given: " <> show v
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
@@ -425,11 +420,11 @@ lowerStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order graph) / (int br / 10)
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> n
+        Just (BlockRate n) -> int n
         Nothing -> error $ "lowerStats: ChainwebVersion with no BlockRate given: " <> show v
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
@@ -442,9 +437,9 @@ upperStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order graph) / (int br / 10)
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> n
+        Just (BlockRate n) -> int n
         Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v
