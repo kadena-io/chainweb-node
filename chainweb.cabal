@@ -219,13 +219,12 @@ library
         , safe >= 0.3
         , safe-exceptions >= 0.1
         , safeio >= 0.0
-        , servant >= 0.13
-        , servant-client >= 0.13
-        , servant-server >= 0.13
+        , servant >= 0.14
+        , servant-client >= 0.14
+        , servant-server >= 0.14
         , servant-swagger >= 1.1
-        , servant-websockets >= 1.1
-        , split >= 0.2
         , shelly >= 1.7
+        , split >= 0.2
         , stm >= 2.4
         , stm-chans
         , streaming >= 0.2
@@ -348,9 +347,9 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resourcet >= 1.2
         , scientific >= 0.3
-        , servant >= 0.13
-        , servant-client >= 0.13
-        , servant-server >= 0.13
+        , servant >= 0.14.1
+        , servant-client >= 0.14
+        , servant-server >= 0.14.1
         , string-conv >= 0.1
         , stm
         , stm-chans

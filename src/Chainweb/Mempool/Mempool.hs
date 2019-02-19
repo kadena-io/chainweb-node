@@ -62,7 +62,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (Codec(..))
+import Chainweb.Utils
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText)
 
 
 ------------------------------------------------------------------------------
@@ -98,7 +99,7 @@ data TransactionConfig t = TransactionConfig {
 data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
-    -- TODO: move this inside TransactionConfig ?
+    -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockSizeLimit :: Int64
 
     -- | Returns true if the given transaction hash is known to this mempool.
@@ -269,6 +270,13 @@ instance Hashable TransactionHash where
       hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 h)
   {-# INLINE hashWithSalt #-}
 
+instance ToJSON TransactionHash where
+  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText x
+instance FromJSON TransactionHash where
+  parseJSON = withText "TransactionHash" (either (fail . show) return . p)
+    where
+      p :: Text -> Either SomeException TransactionHash
+      p = (TransactionHash <$>) . decodeB64UrlNoPaddingText
 
 ------------------------------------------------------------------------------
 -- | Fees to be awarded to the miner for processing a transaction. Higher is better
