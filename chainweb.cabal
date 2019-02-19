@@ -45,11 +45,6 @@ flag ed25519
     default: False
     manual: True
 
-flag with-pact
-    description: include pact
-    default: True
-    manual: True
-
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -133,22 +128,20 @@ library
         , P2P.Peer
         , P2P.Session
 
-    if flag(with-pact)
-
-        exposed-modules:
-              Chainweb.Pact.Backend.InMemoryCheckpointer
-            , Chainweb.Pact.Backend.MemoryDb
-            , Chainweb.Pact.Backend.Orphans
-            , Chainweb.Pact.Backend.SQLiteCheckpointer
-            , Chainweb.Pact.Backend.SqliteDb
-            , Chainweb.Pact.Backend.Types
-            , Chainweb.Pact.PactService
-            , Chainweb.Pact.Service.PactApi
-            , Chainweb.Pact.Service.PactQueue
-            , Chainweb.Pact.Service.Types
-            , Chainweb.Pact.TransactionExec
-            , Chainweb.Pact.Types
-            , Chainweb.Pact.Utils
+        -- pact
+        , Chainweb.Pact.Backend.InMemoryCheckpointer
+        , Chainweb.Pact.Backend.MemoryDb
+        , Chainweb.Pact.Backend.Orphans
+        , Chainweb.Pact.Backend.SQLiteCheckpointer
+        , Chainweb.Pact.Backend.SqliteDb
+        , Chainweb.Pact.Backend.Types
+        , Chainweb.Pact.PactService
+        , Chainweb.Pact.Service.PactApi
+        , Chainweb.Pact.Service.PactQueue
+        , Chainweb.Pact.Service.Types
+        , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Types
+        , Chainweb.Pact.Utils
 
     build-depends:
           Decimal >= 0.4.2
@@ -192,6 +185,7 @@ library
         , mwc-random >= 0.13
         , network >= 2.6
         , optparse-applicative >= 0.14
+        , pact >= 2.6
         , paths >= 0.2
         , psqueues >= 0.2.7.0
         , quickcheck-instances >= 0.3
@@ -257,11 +251,6 @@ library
         --  doc
         , merkle-log
 
-    if flag(with-pact)
-        cpp-options: -DWITH_PACT=1
-        build-depends:
-          pact >= 2.6
-
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
 
@@ -287,13 +276,17 @@ test-suite chainweb-tests
     other-modules:
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.DiGraph
-        Chainweb.Test.Orphans.External
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.Socket
+        -- Chainweb.Test.Mempool.Sync
         Chainweb.Test.Mempool.Websocket
+        Chainweb.Test.MultiNode
+        Chainweb.Test.Orphans.External
+        Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Pact
+        Chainweb.Test.Pact.PactService
+        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.Store.CAS
@@ -320,10 +313,13 @@ test-suite chainweb-tests
         , bytes >= 0.15
         , bytestring >= 0.10
         , containers >= 0.5
+        , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , extra >= 1.6
+        , filepath >= 1.4
         , fgl >= 5.6
         , generic-lens >= 1.1
         , hashable >= 1.2
@@ -331,20 +327,27 @@ test-suite chainweb-tests
         , http-types >= 0.12
         , io-streams >= 1.5
         , lens >= 4.16
+        , loglevel >= 0.1
         , massiv >= 0.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
+        , pact >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
+        , scientific >= 0.3
         , servant >= 0.13
         , servant-client >= 0.13
+        , servant-server >= 0.13
+        , string-conv >= 0.1
         , stm
         , stm-chans
-        , streaming >= 0.2
+        , streaming >= 0.2.2
         , tasty >= 1.0
+        , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , text >= 1.2
@@ -357,122 +360,11 @@ test-suite chainweb-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
+        , websockets >= 0.12.5
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
 
-test-suite pact-tests
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-        -threaded
-        -with-rtsopts=-N
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test
-    main-is: PactTests.hs
-    cpp-options: -DWITH_PACT=1
-
-    other-modules:
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Pact
-        Chainweb.Test.Pact.PactService
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Utils
-
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , aeson >= 1.4
-        , async >= 2.2
-        , base >= 4.11
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , containers >= 0.5
-        , data-default >=0.7
-        , extra >= 1.6
-        , filepath >= 1.4
-        , http-client >= 0.5
-        , lens >= 4.16
-        , network >= 2.6
-        , pact >= 2.6
-        , random >= 1.1
-        , scientific >= 0.3
-        , servant >= 0.13
-        , servant-client >= 0.13
-        , servant-server >= 0.13
-        , string-conv >= 0.1
-        , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-hunit >= 0.9
-        , text >= 1.2
-        , time >= 1.8
-        , transformers >= 0.5
-        , unordered-containers >= 0.2
-        , QuickCheck >= 2.10
-        , QuickCheck-GenT >=0.2
-        , vector >= 0.12
-        , wai >= 3.2
-        , warp >= 3.2
-        , warp-tls >= 3.2
-
-    if flag(with-pact)
-        buildable: True
-    else
-        buildable: False
-
-test-suite consensus-network-tests
-    default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-        -threaded
-        -with-rtsopts=-N
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test
-    main-is: ConsensusNetworkTests.hs
-    other-modules:
-        Chainweb.Test.MultiNode
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Utils
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , QuickCheck >= 2.10
-        , aeson >= 1.4
-        , async >= 2.2
-        , base >= 4.11
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , containers >= 0.5
-        , deepseq >= 1.4
-        , http-client >= 0.5
-        , lens >= 4.16
-        , network >= 2.6
-        , loglevel >= 0.1
-        , servant-client >= 0.13
-        , streaming >= 0.2.2
-        , tasty >= 1.0
-        , tasty-hunit >= 0.9
-        , text >=1.2
-        , time >= 1.8
-        , tls >=1.4
-        , unordered-containers >= 0.2
-        , wai >= 3.2
-        , warp >= 3.2
-        , warp-tls >= 3.2
-
-    if flag(ed25519)
-        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Benchmarking
