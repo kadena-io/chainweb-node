@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)

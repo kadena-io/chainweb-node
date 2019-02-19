@@ -20,7 +20,7 @@
 
 module Chainweb.Mempool.RestAPI
   ( Mempool_(..)
-  , SomeMempool
+  , SomeMempool(..)
   , someMempoolVal
   , MempoolApi
   , MempoolApi_

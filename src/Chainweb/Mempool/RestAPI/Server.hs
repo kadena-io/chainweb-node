@@ -10,6 +10,9 @@
 
 module Chainweb.Mempool.RestAPI.Server
   ( mempoolServer
+  , someMempoolServer
+  , someMempoolServers
+  , mempoolApp
   ) where
 
 ------------------------------------------------------------------------------
@@ -19,6 +22,7 @@ import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
+import Data.Aeson.Types (FromJSON, ToJSON)
 import Data.Int
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -28,22 +32,15 @@ import qualified System.IO.Streams as Streams
 import System.Timeout
 
 ------------------------------------------------------------------------------
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
 import Chainweb.Utils
+import Chainweb.Version
 
 ------------------------------------------------------------------------------
-mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c t)
-mempoolServer (Mempool_ keepaliveSecs mempool) =
-    insertHandler mempool
-    :<|> memberHandler mempool
-    :<|> lookupHandler mempool
-    :<|> getBlockHandler mempool
-    :<|> getPendingHandler mempool
-    :<|> subscribeHandler keepaliveSecs mempool
-
-
 insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
 insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)
   where
@@ -122,3 +119,35 @@ handleErrs :: Handler a -> Handler a
 handleErrs = (`catch` \(e :: SomeException) ->
                  throwError $ err400 { errBody = sshow e })
 
+
+
+
+someMempoolServer :: (Show t, ToJSON t, FromJSON t) => SomeMempool t -> SomeServer
+someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
+  = SomeServer (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
+
+someMempoolServers
+    :: (Show t, ToJSON t, FromJSON t)
+    => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
+someMempoolServers v = mconcat
+    . fmap (someMempoolServer . uncurry (someMempoolVal v))
+
+mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c t)
+mempoolServer (Mempool_ keepaliveSecs mempool) =
+    insertHandler mempool
+    :<|> memberHandler mempool
+    :<|> lookupHandler mempool
+    :<|> getBlockHandler mempool
+    :<|> getPendingHandler mempool
+    :<|> subscribeHandler keepaliveSecs mempool
+
+mempoolApp
+    :: forall v c t
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => FromJSON t
+    => ToJSON t
+    => Show t
+    => Mempool_ v c t
+    -> Application
+mempoolApp mempool = serve (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
