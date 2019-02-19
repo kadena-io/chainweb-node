@@ -35,6 +35,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
@@ -55,7 +56,7 @@ testMiner
     -> CutDb
     -> WebBlockHeaderDb
     -> IO ()
-testMiner logFun conf nid cutDb wcdb = do
+testMiner logFun _ nid cutDb wcdb = do
     logg Info "Started Test Miner"
     gen <- MWC.createSystemRandom
     give wcdb $ go gen 1
@@ -102,6 +103,12 @@ testMiner logFun conf nid cutDb wcdb = do
         --
         let !target = _blockTarget p
 
+        let !ver = _blockChainwebVersion p
+
+        let !meanBlockTime = case blockRate ver of
+              Just (BlockRate n) -> n
+              Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
+
         -- Artificially delay the mining process since we are not using
         -- proof-of-work mining.
         --
@@ -109,7 +116,7 @@ testMiner logFun conf nid cutDb wcdb = do
         -- branch is hit? Is that possible in the testing scenario?
         --
         d <- MWC.geometric1
-                (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
+                (int (order graph) / (int meanBlockTime * 1000000))
                 gen
         threadDelay d
 

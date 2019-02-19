@@ -70,7 +70,7 @@ hashTarget db bh
     ww :: Natural
     ww = case window ver of
       Just (WindowWidth n) -> n
-      Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+      Nothing -> error $ "hashTarget: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     ver :: ChainwebVersion
     ver = _blockChainwebVersion bh'

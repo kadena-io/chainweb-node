@@ -69,9 +69,9 @@ import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -144,12 +144,6 @@ chainwebLogFunctions level write nid cids = ChainwebLogFunctions
 graph :: ChainGraph
 graph = petersonChainGraph
 
--- | block time seconds is set to 10 seconds. Since this test runs over the the
--- loopback device a very short block time should be fine.
---
-blockTimeSeconds :: Natural
-blockTimeSeconds = 10
-
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
@@ -168,10 +162,6 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigPeer . peerConfigInterface) "127.0.0.1"
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
-
-    & set (configMiner . configMeanBlockTimeSeconds) blockTimeSeconds -- (blockTimeSeconds * n)
-        -- The block time for an indiviual miner, such that the overall block
-        -- time is 'blockTimeSeconds'. TODO What?
 
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
         -- We make room for all test peers in peer db.
@@ -327,7 +317,7 @@ test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
         Just stats -> do
             logsCount <- readMVar var
             tastylog $ "Number of logs: " <> sshow logsCount
-            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount seconds)
+            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds)
             tastylog $ encodeToText stats
             tastylog $ encodeToText $ object
                 [ "maxEfficiency%" .= (realToFrac (_statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
@@ -348,8 +338,8 @@ test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
             (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
 
   where
-    l = lowerStats seconds
-    u = upperStats seconds
+    l = lowerStats v seconds
+    u = upperStats v seconds
 
     label = "Chainweb Network (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
@@ -414,14 +404,19 @@ consensusStateSummary s
     avgHeight = avg $ HM.elems cutHeights
     medHeight = median $ HM.elems cutHeights
 
-expectedBlockCount :: Seconds -> Natural
-expectedBlockCount seconds = round ebc
+expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
+expectedBlockCount v seconds = round ebc
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int blockTimeSeconds
+    ebc = int seconds * int (order graph) / int br
 
-lowerStats :: Seconds -> Stats
-lowerStats seconds = Stats
+    br :: Natural
+    br = case blockRate v of
+        Just (BlockRate n) -> n
+        Nothing -> error $ "expectedBlockCount: ChainwebVersion with no BlockRate given: " <> show v
+
+lowerStats :: ChainwebVersion -> Seconds -> Stats
+lowerStats v seconds = Stats
     { _statBlockCount = round $ ebc * 0.8
     , _statMaxHeight = round $ ebc * 0.7
     , _statMinHeight = round $ ebc * 0.3
@@ -430,10 +425,15 @@ lowerStats seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int blockTimeSeconds
+    ebc = int seconds * int (order graph) / int br
 
-upperStats :: Seconds -> Stats
-upperStats seconds = Stats
+    br :: Natural
+    br = case blockRate v of
+        Just (BlockRate n) -> n
+        Nothing -> error $ "lowerStats: ChainwebVersion with no BlockRate given: " <> show v
+
+upperStats :: ChainwebVersion -> Seconds -> Stats
+upperStats v seconds = Stats
     { _statBlockCount = round $ ebc * 1.2
     , _statMaxHeight = round $ ebc * 1.2
     , _statMinHeight = round $ ebc * 1.2
@@ -442,4 +442,9 @@ upperStats seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int blockTimeSeconds
+    ebc = int seconds * int (order graph) / int br
+
+    br :: Natural
+    br = case blockRate v of
+        Just (BlockRate n) -> n
+        Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v

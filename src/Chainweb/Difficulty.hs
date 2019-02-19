@@ -44,7 +44,6 @@ module Chainweb.Difficulty
 , checkTarget
 , maxTarget
 , maxTargetWord
-, prereduction
 , difficultyToTarget
 , targetToDifficulty
 , encodeHashTarget
@@ -65,6 +64,7 @@ module Chainweb.Difficulty
 , window
 , MaxAdjustment(..)
 , maxAdjust
+, prereduction
 -- ** Adjustment
 , adjust
 
@@ -242,18 +242,6 @@ maxTarget = HashTarget . PowHashNat . maxTargetWord
 maxTargetWord :: ChainwebVersion -> Word256
 maxTargetWord v = maxBound `div` (2 ^ prereduction v)
 
--- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
--- enforce a "minimum difficulty", beyond which mining cannot become easier.
---
--- See `adjust`.
---
-prereduction :: ChainwebVersion -> Int
-prereduction Test = 0
-prereduction TestWithTime = 0
-prereduction TestWithPow = 7
-prereduction Simulation = 0
-prereduction Testnet00 = error "Bit reduction for Testnet00 not yet defined!"
-
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
     toMerkleNode = encodeMerkleInputNode encodeHashTarget
@@ -312,14 +300,13 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 --
 newtype BlockRate = BlockRate Natural
 
--- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
+-- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
 blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test = Nothing
-blockRate TestWithTime = Nothing
+blockRate TestWithTime = Just $! BlockRate 1
 blockRate TestWithPow = Just $! BlockRate 10
 blockRate Simulation = Nothing
-blockRate Testnet00 = error "Block Rate for Testnet00 not yet defined!"
+blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -334,7 +321,7 @@ window Test = Nothing
 window TestWithTime = Nothing
 window TestWithPow = Just $! WindowWidth 5
 window Simulation = Nothing
-window Testnet00 = error "Epoch Window Width for Testnet00 not yet defined!"
+window Testnet00 = error "window: Epoch Window Width for Testnet00 not yet defined!"
 
 -- | The maximum number of bits that a single application of `adjust` can apply
 -- to some `HashTarget`. As mentioned in `adjust`, this value should be above
@@ -349,7 +336,19 @@ maxAdjust Test = Nothing
 maxAdjust TestWithTime = Nothing
 maxAdjust TestWithPow = Just $! MaxAdjustment 3
 maxAdjust Simulation = Nothing
-maxAdjust Testnet00 = error "Max Adjustment for Testnet00 not yet defined!"
+maxAdjust Testnet00 = error "maxAdjust: Max Adjustment for Testnet00 not yet defined!"
+
+-- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
+-- enforce a "minimum difficulty", beyond which mining cannot become easier.
+--
+-- See `adjust`.
+--
+prereduction :: ChainwebVersion -> Int
+prereduction Test = 0
+prereduction TestWithTime = 0
+prereduction TestWithPow = 7
+prereduction Simulation = 0
+prereduction Testnet00 = error "prereduction: Bit reduction for Testnet00 not yet defined!"
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.
@@ -503,22 +502,22 @@ adjust ver (TimeSpan delta) oldTarget
     br :: Natural
     br = case blockRate ver of
         Just (BlockRate n) -> n
-        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     ww :: Natural
     ww = case window ver of
         Just (WindowWidth n) -> n
-        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     maxAdj :: Int
     maxAdj = case maxAdjust ver of
         Just (MaxAdjustment n) -> int n
-        Nothing -> error $ "Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.
     avg :: Rational
-    avg | delta < 0 = error "hashTarget: Impossibly negative delta!"
+    avg | delta < 0 = error "adjust: Impossibly negative delta!"
         | otherwise = (int delta % int ww) / 1000000
 
     -- The mining difficulty of the previous block (the parent) as a

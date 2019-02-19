@@ -43,9 +43,10 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHash (BlockHashRecord(..))
 import Chainweb.BlockHeader (IsBlockHeader(..), Nonce(..), testBlockHeader)
 import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.Difficulty (BlockRate(..), WindowWidth(..))
 import Chainweb.NodeId (ChainNodeId)
 import Chainweb.TreeDB (DbEntry, TreeDb, insert, maxHeader)
-import Chainweb.TreeDB.HashTarget (BlockRate(..), WindowWidth(..), hashTarget)
+import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils (int, sshow)
 
 import P2P.Session (LogFunctionText)
@@ -143,8 +144,6 @@ singleChainMiner logger conf nid db =
         --
         target <- if | _configTrivialTarget conf -> pure maxBound
                      | otherwise -> hashTarget db p
-                                    (BlockRate $ _configMeanBlockTimeSeconds conf)
-                                    (WindowWidth 5)
         logg Debug $ "using hash target" <> sshow target
 
         -- Create new (test) block header and add block header to the database
