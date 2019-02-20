@@ -137,7 +137,7 @@ in
           owner = "kadena-io";
           repo = "pact";
           rev = "83d3f2b4c32d93d970f6adda825a02d73ea34663";
-          sha256 = "0000000000000000000000000000000000000000000000000000";
+          sha256 = "0ghzcz8w7aydignlswwaglg9xa9x0xbkjhrr567d6zbqs90aymj6";
         }) {})) pkgs.z3;
 
         streaming = callHackageDirect {
