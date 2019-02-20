@@ -369,4 +369,3 @@ insertBlockHeaderDb db es = do
         return $!! x'
   where
     rankedAdditions = L.sortOn rank es
-

@@ -100,7 +100,7 @@ module Chainweb.BlockHeader
 
 -- * Testing
 , testBlockHeader
-, testBlockHeaderWithTime
+, testBlockHeader'
 , testBlockHeaders
 , testBlockHeadersWithNonce
 ) where
@@ -122,7 +122,7 @@ import qualified Data.HashSet as HS
 import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
-import Data.MerkleLog hiding (Expected, Actual, MerkleHash)
+import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Reflection hiding (int)
 import Data.Serialize (Serialize(..))
 import Data.Word
@@ -628,8 +628,9 @@ genesisParentBlockHash v p = BlockHash (_chainId p) $ MerkleLogHash
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
 
+-- `maxTarget` likewise varies via `ChainwebVersion`.
 genesisBlockTarget :: ChainwebVersion -> HashTarget
-genesisBlockTarget _ = HashTarget maxBound
+genesisBlockTarget = maxTarget
 
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
 genesisTime Test _ = BlockCreationTime epoche
@@ -683,6 +684,7 @@ genesisBlockHeader
 genesisBlockHeader v g p = fromLog mlog
   where
     cid = _chainId p
+
     mlog = newMerkleLog
         $ genesisParentBlockHash v cid
         :+: genesisBlockTarget v
@@ -721,33 +723,35 @@ instance TreeDbEntry BlockHeader where
 -- -------------------------------------------------------------------------- --
 -- Testing
 
-testBlockHeaderWithTime
-    :: Time Int64
-        -- ^ Creation time of the block
-    -> ChainNodeId
+testBlockHeader'
+    :: ChainNodeId
         -- ^ Miner
     -> BlockHashRecord
         -- ^ Adjacent parent hashes
     -> Nonce
-        -- ^ Nonce
+        -- ^ Randomness to affect the block hash
+    -> HashTarget
+        -- ^ New target for POW-mining
+    -> Time Int64
+        -- ^ Creation time of the block
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeaderWithTime t m adj n b = fromLog $ newMerkleLog
+testBlockHeader' m adj n ht ct b = fromLog $ newMerkleLog
     $ _blockHash b
-    :+: target
+    :+: ht
     :+: hashPayload (_blockChainwebVersion b) cid "TEST PAYLOAD"
-    :+: BlockCreationTime t
+    :+: BlockCreationTime ct
     :+: n
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty target)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty v ht)
     :+: _blockHeight b + 1
-    :+: _blockChainwebVersion b
+    :+: v
     :+: m
     :+: MerkleLogBody (blockHashRecordToSequence adj)
   where
-    target = _blockTarget b -- no difficulty adjustment
     cid = _chainId b
+    v = _blockChainwebVersion b
 
 testBlockHeader
     :: ChainNodeId
@@ -755,11 +759,13 @@ testBlockHeader
     -> BlockHashRecord
         -- ^ Adjacent parent hashes
     -> Nonce
-        -- ^ Nonce
+        -- ^ Randomness to affect the block hash
+    -> HashTarget
+        -- ^ New target for POW-mining
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader m adj n b = testBlockHeaderWithTime (add second t) m adj n b
+testBlockHeader m adj n ht b = testBlockHeader' m adj n ht (add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 
@@ -771,7 +777,7 @@ testBlockHeader m adj n b = testBlockHeaderWithTime (add second t) m adj n b
 testBlockHeaders :: BlockHeader -> [BlockHeader]
 testBlockHeaders = unfoldr (Just . (id &&& id) . f)
   where
-    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) (_blockNonce b) b
+    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) (_blockNonce b) (_blockTarget b) b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
@@ -781,5 +787,4 @@ testBlockHeaders = unfoldr (Just . (id &&& id) . f)
 testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
-    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
-
+    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n (_blockTarget b) b
