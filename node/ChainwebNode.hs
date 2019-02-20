@@ -126,13 +126,14 @@ runMonitor logger db =
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: ChainGraph -> ChainwebConfiguration -> Logger -> IO ()
-node graph conf logger =
-    withChainweb graph conf logfuns $ \cw ->
+node :: ChainwebConfiguration -> Logger -> IO ()
+node conf logger =
+    withChainweb conf logfuns $ \cw ->
         race_
             (runChainweb cw)
             (runMonitor logger (_cutsCutDb $ _chainwebCuts cw))
   where
+    graph = _chainGraph conf
     logfuns = chainwebLogFunctions (chainIds_ graph) logger
 
 withNodeLogger :: L.LogConfig -> EnableConfig JsonLoggerConfig -> (Logger -> IO a) -> IO a
@@ -177,9 +178,10 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration TestWithTime)
+    (defaultChainwebNodeConfiguration (TestWithTime petersonChainGraph))
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) (_nodeConfigCutsLogger conf) $ \logger ->
-        node petersonChainGraph (_nodeConfigChainweb conf) logger
+        node (_nodeConfigChainweb conf) logger
+

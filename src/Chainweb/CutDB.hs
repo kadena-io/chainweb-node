@@ -120,9 +120,9 @@ data CutDbConfig = CutDbConfig
 
 makeLenses ''CutDbConfig
 
-defaultCutDbConfig :: ChainwebVersion -> ChainGraph -> CutDbConfig
-defaultCutDbConfig v g = CutDbConfig
-    { _cutDbConfigInitialCut = genesisCut_ g v
+defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
+defaultCutDbConfig v = CutDbConfig
+    { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
     , _cutDbConfigBufferSize = 10
         -- FIXME this should probably depend on the diameter of the graph
@@ -177,6 +177,10 @@ instance HasChainGraph CutDb where
     _chainGraph = _chainGraph . _cutDbWebBlockHeaderDb
     {-# INLINE _chainGraph #-}
 
+instance HasChainwebVersion CutDb where
+    _chainwebVersion = _chainwebVersion . _cutDbWebBlockHeaderDb
+    {-# INLINE _chainwebVersion #-}
+
 -- We export the 'WebBlockHeaderDb' read-only
 --
 cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
@@ -213,8 +217,8 @@ _cutStm = readTVar . _cutDbCut
 cutStm :: Getter CutDb (STM Cut)
 cutStm = to _cutStm
 
-member :: CutDb -> BlockHash -> IO Bool
-member db h = do
+member :: CutDb -> ChainId -> BlockHash -> IO Bool
+member db cid h = do
     th <- maxHeader chainDb
     lookup chainDb h >>= \case
         Nothing -> return False
@@ -222,7 +226,6 @@ member db h = do
             fh <- forkEntry chainDb th lh
             return $ fh == lh
   where
-    cid = _chainId h
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 withCutDb :: CutDbConfig -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
@@ -296,7 +299,7 @@ cutHashesToBlockHeaderMap hs = do
         else return $ Left missing
   where
     tryLookup (cid, h) =
-        (Right <$> mapM lookupWebBlockHeaderDb (cid, h)) `catch` \case
+        (Right <$> mapM (lookupWebBlockHeaderDb cid) (cid, h)) `catch` \case
             (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                 return $ Left (cid, h)
             e ->

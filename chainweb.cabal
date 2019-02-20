@@ -354,6 +354,7 @@ test-suite chainweb-tests
         , stm
         , stm-chans
         , streaming >= 0.2.2
+        , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9

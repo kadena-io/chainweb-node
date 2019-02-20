@@ -27,12 +27,15 @@ import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
+import qualified Data.ByteArray as BA
+import qualified Data.ByteArray.Encoding as BA
 import qualified Data.List.NonEmpty as N
 import Data.Maybe
 import Data.MerkleLog
 import Data.Reflection (Given, give, given)
-import qualified Data.Sequence as S
 import qualified Data.Text as T
+
+import Debug.Trace
 
 import GHC.Stack
 
@@ -92,14 +95,14 @@ data TransactionProof a = TransactionProof ChainId (MerkleProof a)
 --
 runTransactionProof :: TransactionProof SHA512t_256 -> BlockHash
 runTransactionProof (TransactionProof cid p)
-    = BlockHash cid $ MerkleLogHash $ runMerkleProof p
+    = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 verifyTransactionProof
     :: CutDb
     -> TransactionProof SHA512t_256
     -> IO Transaction
-verifyTransactionProof cutDb proof@(TransactionProof _ p) = do
-    unlessM (member cutDb h) $ throwM
+verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
+    unlessM (member cutDb cid h) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
   where
@@ -180,20 +183,35 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
 
     Just payload <- casLookup pDb (_blockPayloadHash txHeader)
     let txsHash = _blockPayloadTransactionsHash payload
+    print $ hex $ _blockPayloadPayloadHash payload
+    print $ hex $ _blockPayloadTransactionsHash payload
 
     -- 1. TX proof
     --
     Just txs <- casLookup txsDb txsHash
-    -- txTree <- casLookup txsHash (_chainCacheTransactionTrees cache)
-    -- let txLog = transactionLog txs txTree
+    Just txTree <- casLookup txTreeCache txsHash
+    let txLog = transactionLog txs txTree
+    print $ hex $ merkleRoot $ _transactionTree $ txTree
 
-    let (subj, txsPos, txst) = bodyTree @ChainwebHashTag txs txIx -- FIXME use log
+    let (subj, txsPos, txst) = trace "txTree" $ bodyTree @ChainwebHashTag txs txIx -- FIXME use log
     let txsTree = (txsPos, txst)
+    print txsPos
+    print $ hex $ merkleRoot txst
+    print $ hex $ txst
     -- we blindly trust the ix
 
     -- 2. Payload proof
     --
-    let payloadTree = headerTree_ @BlockTransactionsHash payload
+    let payloadTree = trace "payload tree" $ headerTree_ @BlockTransactionsHash payload
+    print ("payload Tree" :: String)
+    let l = toLog payload
+    print $ hex $ _merkleLogRoot l
+    let (a :+: b :+: _) = _merkleLogEntries l
+    print $ hex a
+    print $ hex b
+    print $ fst payloadTree
+    print $ hex $ snd payloadTree
+    print $ hex $ merkleRoot $ snd payloadTree
 
     -- 3. BlockHeader proof
     --
@@ -203,25 +221,25 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
             , _spvExceptionMsgPayloadHash = _blockPayloadHash txHeader
             }
             -- this indicates that the payload store is inconsistent
-    let blockHeaderTree = headerTree_ @BlockPayloadHash txHeader
+    let blockHeaderTree = trace "block Header tree" $ headerTree_ @BlockPayloadHash txHeader
 
     -- 4. BlockHeader Chain Proof
     --
     let go [] = []
         go (h : t) = headerTree_ @BlockHash h : go t
 
-        chainTrees = go chain
+        chainTrees = trace "block header chain tree" $ go chain
 
     -- 5. Cross Chain Proof
     --
     let cross [] = []
         cross ((i,h) : t) = bodyTree_ h i : cross t
 
-        crossTrees = cross crossChain
+        crossTrees = trace "cross hain tree" $ cross crossChain
 
     -- Put proofs together
     --
-    proof <- merkleProof_ subj $ (N.:|) txsTree $
+    proof <- trace "proof" $ merkleProof_ subj $ (N.:|) txsTree $
         [ payloadTree
         , blockHeaderTree
         ]
@@ -232,8 +250,12 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
   where
     txsDb = _transactionDbBlockTransactions $ _transactionDb payloadDb
     pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
+    txTreeCache = _payloadCacheTransactionTrees $ _payloadCache payloadDb
     trgChain = headerDb ^?! ixg tcid
     headerDb = view cutDbWebBlockHeaderDb cutDb
+
+hex :: BA.ByteArrayAccess b => b -> BA.Bytes
+hex = BA.convertToBase @_ @BA.Bytes BA.Base16
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -276,7 +298,11 @@ crumbsToChain srcCid trgHeader
     graph = _chainGraph @WebBlockHeaderDb given
     path = shortestPath (_chainId trgHeader) srcCid graph
 
-    go :: BlockHeader -> [ChainId] -> [(Int, BlockHeader)] -> IO (BlockHeader, [(Int, BlockHeader)])
+    go
+        :: BlockHeader
+        -> [ChainId]
+        -> [(Int, BlockHeader)]
+        -> IO (BlockHeader, [(Int, BlockHeader)])
     go cur [] acc = return (cur, acc)
     go cur (h:t) acc = do
         adjpHdr <- lookupAdjacentParentHeader cur h
@@ -284,7 +310,6 @@ crumbsToChain srcCid trgHeader
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
 
-        let s = blockHashRecordToSequence (_blockAdjacentHashes cur)
-        let adjIdx = fromJust $ S.findIndexL ((==) h . _chainId) s
+        let adjIdx = fromJust $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)
 

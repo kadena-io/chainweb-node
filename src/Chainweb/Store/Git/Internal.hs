@@ -586,7 +586,7 @@ unsafeReadTree offset pTree = do
 -- associated `BlockHeader` along the way.
 --
 walk :: GitStore -> BlockHeight -> BlockHash -> (BlockHeader -> IO ()) -> IO ()
-walk gs height (BlockHash _ bhb) f = lockGitStore gs $ \gsd -> do
+walk gs height (BlockHash bhb) f = lockGitStore gs $ \gsd -> do
     let f' :: BlobEntry -> IO ()
         f' = readHeader' gsd >=> f
     walk' gsd (T2 height bhb) 0 (const $ pure ()) f'
@@ -966,7 +966,7 @@ oidToByteString pOid = bracket (G.c'git_oid_allocfmt pOid) free B.packCString
 -- | Mysteriously missing from the main API of `BlockHash`.
 --
 getMerkleLogHash :: BlockHash -> MerkleLogHash
-getMerkleLogHash (BlockHash _ bytes) = bytes
+getMerkleLogHash (BlockHash bytes) = bytes
 
 bhText :: BlockHeight -> Text
 bhText (BlockHeight h) = T.pack $ show h

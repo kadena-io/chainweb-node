@@ -46,7 +46,6 @@ module Chainweb.Cut
 
 -- * Genesis Cut
 , genesisCut
-, genesisCut_
 
 -- * Checks
 , checkBraidingOfCut
@@ -73,6 +72,7 @@ module Chainweb.Cut
 
 , MineFailure(..)
 , testMine
+, createNewCut
 , randomChainId
 , arbitraryChainGraphChainId
 , giveNewWebChain
@@ -164,7 +164,7 @@ import Numeric.AffineSpace
 --
 data Cut = Cut
     { _cutHeaders :: !(HM.HashMap ChainId BlockHeader)
-    , _cutGraph :: !ChainGraph
+    , _cutChainwebVersion :: !ChainwebVersion
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -172,8 +172,12 @@ data Cut = Cut
 makeLenses ''Cut
 
 instance HasChainGraph Cut where
-    _chainGraph = view cutGraph
+    _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
+
+instance HasChainwebVersion Cut where
+    _chainwebVersion = view cutChainwebVersion
+    {-# INLINE _chainwebVersion #-}
 
 type instance Index Cut = ChainId
 type instance IxValue Cut = BlockHeader
@@ -216,7 +220,7 @@ cutHeight = to _cutHeight
 -- | All adjacent pairs of a cut
 --
 _cutAdjPairs :: Cut -> HS.HashSet (AdjPair BlockHeader)
-_cutAdjPairs c = HS.map (fmap (\x -> c ^?! ixg x)) . adjs $ _cutGraph c
+_cutAdjPairs c = HS.map (fmap (\x -> c ^?! ixg x)) . adjs $ _chainGraph c
 
 cutAdjPairs :: Getter Cut (HS.HashSet (AdjPair BlockHeader))
 cutAdjPairs = to _cutAdjPairs
@@ -231,7 +235,7 @@ cutAdjs
     -> HM.HashMap ChainId BlockHeader
 cutAdjs c cid = HM.intersection
     (_cutHeaders c)
-    (HS.toMap (adjacentChainIds (_cutGraph c) cid))
+    (HS.toMap (adjacentChainIds (_chainGraph c) cid))
 
 -- -------------------------------------------------------------------------- --
 -- Genesis Cut
@@ -248,20 +252,11 @@ cutAdjs c cid = HM.intersection
 -- These properties are maintained as inductive invariants for all Cuts.
 --
 genesisCut
-    :: Given ChainGraph
-    => ChainwebVersion
+    :: ChainwebVersion
     -> Cut
-genesisCut = genesisCut_ given
-
-genesisCut_
-    :: ChainGraph
-    -> ChainwebVersion
-    -> Cut
-genesisCut_ graph v = Cut
-    { _cutHeaders = HM.mapWithKey (\cid _ -> genesisBlockHeader v graph cid)
-        . HS.toMap
-        $ chainIds_ graph
-    , _cutGraph = graph
+genesisCut v = Cut
+    { _cutHeaders = genesisBlockHeaders v
+    , _cutChainwebVersion = v
     }
 
 -- -------------------------------------------------------------------------- --
@@ -343,13 +338,13 @@ isMonotonicCutExtension
     => Cut
     -> BlockHeader
     -> m Bool
-isMonotonicCutExtension c h = give (_cutGraph c) $ do
+isMonotonicCutExtension c h = do
     checkBlockHeaderGraph h
     return $ monotonic && validBraiding
   where
     monotonic = _blockParent h == c ^?! ixg (_chainId h) . blockHash
-    validBraiding = getAll $ foldMap
-        (\v -> All $ let a = c ^?! ixg (_chainId v) in _blockHash a == v || _blockParent a == v)
+    validBraiding = getAll $ ifoldMap
+        (\cid v -> All $ let a = c ^?! ixg cid in _blockHash a == v || _blockParent a == v)
         (_getBlockHashRecord $ _blockAdjacentHashes h)
 
 monotonicCutExtension
@@ -402,9 +397,9 @@ join_
     -> HM.HashMap ChainId BlockHeader
     -> HM.HashMap ChainId BlockHeader
     -> IO (Join a)
-join_ prioFun a b = give (_chainGraph (given @WebBlockHeaderDb)) $ do
+join_ prioFun a b = do
     (m, h) <- foldM f (mempty, mempty) (zipChainIdMaps a b)
-    return $ Join (Cut m given) h
+    return $ Join (Cut m (_chainwebVersion @WebBlockHeaderDb given)) h
   where
     f
         :: (HM.HashMap ChainId BlockHeader, JoinQueue a)
@@ -525,7 +520,7 @@ meet
     -> IO Cut
 meet a b = do
     r <- HM.fromList <$> mapM f (zipCuts a b)
-    return $ Cut r (_chainGraph (given @WebBlockHeaderDb))
+    return $ Cut r (_chainwebVersion @WebBlockHeaderDb given)
   where
     f (cid, x, y) = (cid,) <$> do
         db <- getWebBlockHeaderDb cid
@@ -604,8 +599,8 @@ createNewCut n target t pay nid i c = do
     -- | Try to get all adjacent hashes dependencies.
     --
     newAdjHashes :: Maybe (HM.HashMap ChainId BlockHash)
-    newAdjHashes = forM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \x ->
-        c ^?! ixg (_chainId x) . to (tryAdj (_blockHeight p))
+    newAdjHashes = iforM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \xcid _ ->
+        c ^?! ixg xcid . to (tryAdj (_blockHeight p))
 
     tryAdj :: BlockHeight -> BlockHeader -> Maybe BlockHash
     tryAdj h b
@@ -642,15 +637,15 @@ randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
 
 arbitraryCut
     :: HasCallStack
-    => Given ChainGraph
-    => T.Gen Cut
-arbitraryCut = T.sized $ \s -> do
+    => ChainwebVersion
+    -> T.Gen Cut
+arbitraryCut v = T.sized $ \s -> do
     k <- T.choose (0,s)
-    foldlM (\c _ -> genCut c) (genesisCut Test) [0..(k-1)]
+    foldlM (\c _ -> genCut c) (genesisCut v) [0..(k-1)]
   where
     genCut :: Cut -> T.Gen Cut
     genCut c = do
-        cids <- T.shuffle (toList chainIds)
+        cids <- T.shuffle (toList $ chainIds_ $ _chainGraph v)
         S.each cids
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ x) -> x)
@@ -661,22 +656,21 @@ arbitraryCut = T.sized $ \s -> do
     mine c cid = do
         n <- Nonce <$> T.arbitrary
         nid <- T.arbitrary
-        let pay = hashPayload Test cid "TEST PAYLOAD"
+        let pay = hashPayload v cid "TEST PAYLOAD"
         return $ createNewCutWithoutTime n target pay nid cid c
 
-    target = genesisBlockTarget Test
+    target = genesisBlockTarget v
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList chainIds)
 
-instance Given ChainGraph => T.Arbitrary Cut where
-    arbitrary = arbitraryCut
+instance Given ChainwebVersion => T.Arbitrary Cut where
+    arbitrary = arbitraryCut given
 
 -- | Provide option to provide db with a branch/cut.
 --
 arbitraryWebChainCut
     :: HasCallStack
-    => Given ChainGraph
     => Given WebBlockHeaderDb
     => Cut
         -- @genesisCut Test@ is always a valid cut
@@ -686,7 +680,11 @@ arbitraryWebChainCut initialCut = do
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
     genCut c = do
-        cids <- T.pick $ T.shuffle (toList chainIds)
+        cids <- T.pick
+            $ T.shuffle
+            $ toList
+            $ chainIds_
+            $ _chainGraph @WebBlockHeaderDb given
         S.each cids
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ c') -> c')
@@ -697,14 +695,14 @@ arbitraryWebChainCut initialCut = do
         n <- T.pick $ Nonce <$> T.arbitrary
         nid <- T.pick T.arbitrary
         t <- liftIO  getCurrentTimeIntegral
-        let pay = hashPayload Test cid "TEST PAYLOAD"
+        let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ hush <$> testMine n target t pay nid cid c
 
-    target = genesisBlockTarget Test
+    target = genesisBlockTarget v
+    v = Test (_chainGraph @WebBlockHeaderDb given)
 
 arbitraryWebChainCut_
     :: HasCallStack
-    => Given ChainGraph
     => Given WebBlockHeaderDb
     => Cut
         -- @genesisCut Test@ is always a valid cut
@@ -714,7 +712,11 @@ arbitraryWebChainCut_ initialCut = do
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
     genCut c = do
-        cids <- TT.liftGen $ T.shuffle (toList chainIds)
+        cids <- TT.liftGen
+            $ T.shuffle
+            $ toList
+            $ chainIds_
+            $ _chainGraph @WebBlockHeaderDb given
         S.each cids
             & S.mapMaybeM (fmap hush . mine c)
             & S.map (\(T2 _ c') -> c')
@@ -725,13 +727,17 @@ arbitraryWebChainCut_ initialCut = do
         n <- Nonce <$> TT.liftGen T.arbitrary
         nid <- TT.liftGen T.arbitrary
         t <- liftIO getCurrentTimeIntegral
-        let pay = hashPayload Test cid "TEST PAYLOAD"
+        let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ testMine n target t pay nid cid c
 
-    target = genesisBlockTarget Test
+    target = genesisBlockTarget v
+    v = Test $ _chainGraph @WebBlockHeaderDb given
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork
+
+testGenCut :: Given WebBlockHeaderDb => Cut
+testGenCut = genesisCut $ Test $ _chainGraph @WebBlockHeaderDb given
 
 data TestFork = TestFork
     { _testForkBase :: !Cut
@@ -740,10 +746,10 @@ data TestFork = TestFork
     }
     deriving (Show, Eq, Ord, Generic)
 
-instance (Given ChainGraph, Given WebBlockHeaderDb) => T.Arbitrary (IO TestFork) where
+instance (Given WebBlockHeaderDb) => T.Arbitrary (IO TestFork) where
     arbitrary = TT.runGenT arbitraryFork_
 
-instance (Given ChainGraph, Given WebBlockHeaderDb) => T.Arbitrary (IO (Join Int)) where
+instance (Given WebBlockHeaderDb) => T.Arbitrary (IO (Join Int)) where
     arbitrary = TT.runGenT $ do
         TestFork _ cl cr <- arbitraryFork_
         liftIO $ join (prioritizeHeavier cl cr) cl cr
@@ -753,21 +759,19 @@ instance (Given ChainGraph, Given WebBlockHeaderDb) => T.Arbitrary (IO (Join Int
 -- TODO: provide option to fork of elsewhere
 --
 arbitraryFork
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO TestFork
 arbitraryFork = do
-    base <- arbitraryWebChainCut (genesisCut Test)
+    base <- arbitraryWebChainCut testGenCut
     TestFork base
         <$> arbitraryWebChainCut base
         <*> arbitraryWebChainCut base
 
 arbitraryFork_
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => TT.GenT IO TestFork
 arbitraryFork_ = do
-    base <- arbitraryWebChainCut_ (genesisCut Test)
+    base <- arbitraryWebChainCut_ testGenCut
     TestFork base
         <$> arbitraryWebChainCut_ base
         <*> arbitraryWebChainCut_ base
@@ -795,17 +799,15 @@ arbitraryFork_ = do
 -- Join
 
 prop_joinIdempotent
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_joinIdempotent = do
-    c <- arbitraryWebChainCut (genesisCut Test)
+    c <- arbitraryWebChainCut testGenCut
     T.run $ (==) c <$> joinIntoHeavier c c
 
 -- FIXME!
 prop_joinCommutative
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_joinCommutative = do
     TestFork _ cl cr <- arbitraryFork
@@ -816,8 +818,7 @@ prop_joinCommutative = do
 -- Fails for heuristic joins
 --
 prop_joinAssociative
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_joinAssociative = do
     TestFork _ c0 c1 <- arbitraryFork
@@ -839,26 +840,23 @@ prop_joinAssociative = do
             <*> (m c0 c10 >>= \x -> m x c11)
 
 prop_joinIdentity
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_joinIdentity = do
-    c <- arbitraryWebChainCut (genesisCut Test)
-    T.run $ (==) c <$> joinIntoHeavier (genesisCut Test) c
+    c <- arbitraryWebChainCut testGenCut
+    T.run $ (==) c <$> joinIntoHeavier testGenCut c
 
 -- Meet
 
 prop_meetIdempotent
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_meetIdempotent = do
-    c <- arbitraryWebChainCut (genesisCut Test)
+    c <- arbitraryWebChainCut testGenCut
     T.run $ (==) c <$> meet c c
 
 prop_meetCommutative
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_meetCommutative = do
     TestFork _ cl cr <- arbitraryFork
@@ -867,8 +865,7 @@ prop_meetCommutative = do
         <*> meet cr cl
 
 prop_meetAssociative
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_meetAssociative = do
     TestFork _ c0 c1 <- arbitraryFork
@@ -884,18 +881,16 @@ prop_meetAssociative = do
 -- | this a corollary of 'prop_joinIdentity' and 'prop_meetJoinAbsorption'
 --
 prop_meetZeroAbsorption
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_meetZeroAbsorption = do
-    c <- arbitraryWebChainCut (genesisCut Test)
+    c <- arbitraryWebChainCut testGenCut
     T.run $ do
-        c' <- meet (genesisCut Test) c
+        c' <- meet testGenCut c
         return (c == c')
 
 prop_joinMeetAbsorption
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_joinMeetAbsorption = do
     TestFork _ c0 c1 <- arbitraryFork
@@ -904,8 +899,7 @@ prop_joinMeetAbsorption = do
         return (c0' == c0)
 
 prop_meetJoinAbsorption
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
+    :: Given WebBlockHeaderDb
     => T.PropertyM IO Bool
 prop_meetJoinAbsorption = do
     TestFork _ c0 c1 <- arbitraryFork
@@ -913,44 +907,44 @@ prop_meetJoinAbsorption = do
         c0' <- meet c0 =<< joinIntoHeavier c0 c1
         return (c0' == c0)
 
-properties_lattice :: Given ChainGraph => [(String, T.Property)]
-properties_lattice =
-    [ ("joinIdemPotent", ioTest prop_joinIdempotent)
-    , ("joinCommutative", ioTest prop_joinCommutative)
-    , ("joinAssociative", ioTest prop_joinAssociative) -- Fails
-    , ("joinIdentity", ioTest prop_joinIdentity)
+properties_lattice :: ChainwebVersion -> [(String, T.Property)]
+properties_lattice v =
+    [ ("joinIdemPotent", ioTest v prop_joinIdempotent)
+    , ("joinCommutative", ioTest v prop_joinCommutative)
+    , ("joinAssociative", ioTest v prop_joinAssociative) -- Fails
+    , ("joinIdentity", ioTest v prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest prop_meetIdempotent)
-    , ("meetCommutative", ioTest prop_meetCommutative)
-    , ("meetAssociative", ioTest prop_meetAssociative)
-    , ("meetZeroAbsorption", ioTest prop_meetZeroAbsorption) -- Fails
+    , ("meetIdemPotent", ioTest v prop_meetIdempotent)
+    , ("meetCommutative", ioTest v prop_meetCommutative)
+    , ("meetAssociative", ioTest v prop_meetAssociative)
+    , ("meetZeroAbsorption", ioTest v prop_meetZeroAbsorption) -- Fails
 
-    , ("joinMeetAbsorption", ioTest prop_joinMeetAbsorption)
-    , ("meetJoinAbsorption", ioTest prop_meetJoinAbsorption) -- Fails
+    , ("joinMeetAbsorption", ioTest v prop_joinMeetAbsorption)
+    , ("meetJoinAbsorption", ioTest v prop_meetJoinAbsorption) -- Fails
     ]
 
-properties_lattice_passing :: Given ChainGraph => [(String, T.Property)]
-properties_lattice_passing =
-    [ ("joinIdemPotent", ioTest prop_joinIdempotent)
-    , ("joinCommutative", ioTest prop_joinCommutative)
-    , ("joinIdentity", ioTest prop_joinIdentity)
+properties_lattice_passing :: ChainwebVersion -> [(String, T.Property)]
+properties_lattice_passing v =
+    [ ("joinIdemPotent", ioTest v prop_joinIdempotent)
+    , ("joinCommutative", ioTest v prop_joinCommutative)
+    , ("joinIdentity", ioTest v prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest prop_meetIdempotent)
-    , ("meetCommutative", ioTest prop_meetCommutative)
-    , ("meetAssociative", ioTest prop_meetAssociative)
+    , ("meetIdemPotent", ioTest v prop_meetIdempotent)
+    , ("meetCommutative", ioTest v prop_meetCommutative)
+    , ("meetAssociative", ioTest v prop_meetAssociative)
 
-    , ("joinMeetAbsorption", ioTest prop_joinMeetAbsorption)
+    , ("joinMeetAbsorption", ioTest v prop_joinMeetAbsorption)
     ]
 
 -- -------------------------------------------------------------------------- --
 -- Cut Properties
 
-prop_cutBraiding :: Given ChainGraph => Cut -> Bool
+prop_cutBraiding :: Cut -> Bool
 prop_cutBraiding = either throw (const True) . checkBraidingOfCut
 
-prop_cutBraidingGenesis :: Given ChainGraph => Bool
-prop_cutBraidingGenesis = either throw (const True)
-    $ checkBraidingOfCut (genesisCut Test)
+prop_cutBraidingGenesis :: ChainwebVersion -> Bool
+prop_cutBraidingGenesis v = either throw (const True)
+    $ checkBraidingOfCut (genesisCut v)
 
 -- TODO
 --
@@ -959,85 +953,83 @@ prop_cutBraidingGenesis = either throw (const True)
 --
 -- * this order induces a lattice
 
-properties_cut :: Given ChainGraph => [(String, T.Property)]
-properties_cut =
-    [ ("Cut has valid braiding", T.property prop_cutBraiding)
-    , ("Genesis Cut has valid braiding", T.property prop_cutBraidingGenesis)
+properties_cut :: ChainwebVersion -> [(String, T.Property)]
+properties_cut v =
+    [ ("Cut has valid braiding", give v $ T.property prop_cutBraiding)
+    , ("Genesis Cut has valid braiding", T.property (prop_cutBraidingGenesis v))
     ]
 
 -- -------------------------------------------------------------------------- --
 -- Meet Properties
 
-prop_meetGenesisCut
-    :: Given ChainGraph
-    => Given WebBlockHeaderDb
-    => T.PropertyM IO Bool
+prop_meetGenesisCut :: Given WebBlockHeaderDb => T.PropertyM IO Bool
 prop_meetGenesisCut = liftIO $ (==) c <$> meet c c
   where
-    c = genesisCut Test
+    c = testGenCut
 
 -- -------------------------------------------------------------------------- --
 -- Misc Properties
 
-prop_arbitraryForkBraiding :: Given ChainGraph => T.Property
-prop_arbitraryForkBraiding = ioTest $ do
+prop_arbitraryForkBraiding :: ChainwebVersion -> T.Property
+prop_arbitraryForkBraiding v = ioTest v $ give (_chainGraph v) $ do
     TestFork b cl cr <- arbitraryFork
     T.assert (prop_cutBraiding b)
     T.assert (prop_cutBraiding cl)
     T.assert (prop_cutBraiding cr)
     return True
 
-prop_joinBase :: Given ChainGraph => T.Property
-prop_joinBase = ioTest $ do
+prop_joinBase :: ChainwebVersion -> T.Property
+prop_joinBase v = ioTest v $ do
     TestFork b cl cr <- arbitraryFork
     m <- liftIO $ join (prioritizeHeavier cl cr) cl cr
     return (_joinBase m == b)
 
-prop_joinBaseMeet
-    :: Given ChainGraph
-    => T.Property
-prop_joinBaseMeet = ioTest $ do
+prop_joinBaseMeet :: ChainwebVersion -> T.Property
+prop_joinBaseMeet v = ioTest v $ do
     TestFork _ a b <- arbitraryFork
     liftIO $ (==)
         <$> meet a b
         <*> (_joinBase <$> join (prioritizeHeavier a b) a b)
 
-properties_testMining :: Given ChainGraph => [(String, T.Property)]
-properties_testMining =
-    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding)]
+properties_testMining :: ChainwebVersion -> [(String, T.Property)]
+properties_testMining v =
+    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding v)]
 
-properties_misc :: Given ChainGraph => [(String, T.Property)]
-properties_misc =
-    [ ("prop_joinBase", prop_joinBase)
-    , ("prop_joinBaseMeet", prop_joinBaseMeet)
-    , ("prop_meetGenesisCut", ioTest prop_meetGenesisCut)
-    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding)
+properties_misc :: ChainwebVersion -> [(String, T.Property)]
+properties_misc v =
+    [ ("prop_joinBase", prop_joinBase v)
+    , ("prop_joinBaseMeet", prop_joinBaseMeet v)
+    , ("prop_meetGenesisCut", ioTest v prop_meetGenesisCut)
+    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding v)
     ]
 
 -- -------------------------------------------------------------------------- --
 -- "Valid" Properties
 
 properties :: [(String, T.Property)]
-properties = give pairChainGraph
-    $ properties_lattice_passing
-    <> properties_cut
-    <> properties_testMining
-    <> properties_misc
+properties
+    = properties_lattice_passing v
+    <> properties_cut v
+    <> properties_testMining v
+    <> properties_misc v
+  where
+    v = Test pairChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- TestTools
 
 giveNewWebChain
     :: MonadIO m
-    => Given ChainGraph
-    => (Given WebBlockHeaderDb => m a)
+    => ChainwebVersion
+    -> (Given WebBlockHeaderDb => m a)
     -> m a
-giveNewWebChain f = do
-    db <- liftIO (initWebBlockHeaderDb Test)
+giveNewWebChain v f = do
+    db <- liftIO (initWebBlockHeaderDb v)
     give db f
 
 ioTest
-    :: Given ChainGraph
-    => (Given WebBlockHeaderDb => T.PropertyM IO Bool)
+    :: ChainwebVersion
+    -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
-ioTest f = T.monadicIO $ giveNewWebChain $ f >>= T.assert
+ioTest v f = T.monadicIO $ giveNewWebChain v $ f >>= T.assert
+

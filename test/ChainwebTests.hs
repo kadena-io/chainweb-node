@@ -21,6 +21,7 @@ import Test.Tasty.QuickCheck
 -- internal modules
 
 import qualified Chainweb.Difficulty (properties)
+import Chainweb.Graph
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
@@ -94,6 +95,7 @@ suite =
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         ]
     , testGroupSch "Slow Tests"
-        [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
+        [ Chainweb.Test.MultiNode.test Warn (TestWithTime petersonChainGraph) 10 120 Nothing
         ]
     ]
+
