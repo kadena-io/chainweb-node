@@ -130,7 +130,7 @@ type DiEdge a = (a, a)
 --
 newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
+    deriving anyclass (NFData, Hashable)
 
 instance (Hashable a, Eq a) => Semigroup (DiGraph a) where
     (DiGraph a) <> (DiGraph b) = DiGraph (HM.unionWith (<>) a b)
