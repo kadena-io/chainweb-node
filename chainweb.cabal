@@ -92,6 +92,7 @@ library
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
+        , Chainweb.Payload.SPV
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.NetworkID
