@@ -61,6 +61,7 @@ module Chainweb.Payload
 , blockOutputLog
 
 , blockPayload
+, newBlockPayload
 
 -- * API Payload Data
 , PayloadData(..)
@@ -509,6 +510,14 @@ blockPayload txs outs
         $ _blockTransactionsHash txs
         :+: _blockOutputsHash outs
         :+: emptyBody
+
+newBlockPayload
+    :: S.Seq (Transaction, TransactionOutput)
+    -> BlockPayload
+newBlockPayload s = blockPayload txs outs
+  where
+    (_, txs) = newBlockTransactions (fst <$> s)
+    (_, outs) = newBlockOutputs (snd <$> s)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Data

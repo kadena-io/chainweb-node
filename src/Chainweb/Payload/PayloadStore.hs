@@ -48,7 +48,7 @@ module Chainweb.Payload.PayloadStore
 -- **  insert new payload
 
 , addPayload
-, newPayload
+, addNewPayload
 ) where
 
 import Control.Lens
@@ -196,12 +196,12 @@ addPayload db txs txTree outs outTree = do
 -- | Create block payload data from a sequence of transaction and insert it into
 -- the database.
 --
-newPayload
+addNewPayload
     :: PayloadCas cas
     => PayloadDb cas
     -> S.Seq (Transaction, TransactionOutput)
     -> IO ()
-newPayload db s = addPayload db txs txTree outs outTree
+addNewPayload db s = addPayload db txs txTree outs outTree
   where
     (txTree, txs) = newBlockTransactions (fst <$> s)
     (outTree, outs) = newBlockOutputs (snd <$> s)
