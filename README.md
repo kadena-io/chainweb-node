@@ -155,8 +155,7 @@ stack exec single-chain-example
 A base docker image containing all of Chainweb's dependencies and executables can be created as
 
 ```sh
-nix-build docker.nix
-docker load --input result
+docker load --input $(nix-build --no-out-link docker.nix)
 ```
 
 ## Component Structure

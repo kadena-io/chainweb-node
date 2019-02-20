@@ -3,7 +3,7 @@
 let
     inherit (nixpkgs) pkgs;
     inherit (nixpkgs.haskell.lib) justStaticExecutables dontCheck;
-    chainwebDrv = ( import ./. { system = "x86_64-linux"; } ).passthru.ghc.chainweb;
+    chainwebDrv = ( import ./. { system = "x86_64-linux"; } ).ghc.chainweb;
     chainwebStatic = justStaticExecutables 
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv);
 in {
