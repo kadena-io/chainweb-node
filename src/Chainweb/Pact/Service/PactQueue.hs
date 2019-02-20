@@ -22,46 +22,30 @@ import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
-import System.Time.Extra
-
 import Chainweb.Pact.Service.Types
 
 -- | Add a request to the Pact execution queue
-addRequest :: IO (TVar (TQueue RequestMsg)) -> RequestMsg -> IO ()
-addRequest reqQVar msg = do
-    var <- reqQVar
+addRequest :: TVar (TQueue RequestMsg) -> RequestMsg -> IO ()
+addRequest var msg = do
     q <- readTVarIO var
     atomically $ writeTQueue q msg
     return ()
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: IO (TVar (TQueue RequestMsg)) -> IO RequestMsg
-getNextRequest reqQVar = do
-    var <- reqQVar
+getNextRequest :: TVar (TQueue RequestMsg) -> IO RequestMsg
+getNextRequest var = do
     q <- readTVarIO var
-    mayM <- timeout 5.0 (tryRead q)
-    case mayM of
-        Just m -> return m
-        Nothing -> error "No! (tryRead timeout)"
-      where
-        tryRead :: TQueue RequestMsg -> IO RequestMsg
-        tryRead ku = do
-            maybeMsg <- atomically $ tryReadTQueue ku
-            case maybeMsg of
-              Just msg -> return msg
-              Nothing -> tryRead ku
+    atomically $ readTQueue q
 
 -- | Add a response to the Pact execution response queue
-addResponse :: IO (TVar (TQueue ResponseMsg)) -> ResponseMsg -> IO ()
-addResponse respQVar msg = do
-    var <- respQVar
+addResponse :: TVar (TQueue ResponseMsg) -> ResponseMsg -> IO ()
+addResponse var msg = do
     q <- readTVarIO var
     atomically $ writeTQueue q msg
     return ()
 
 -- | Get the next available response from the Pact execution response queue
-getNextResponse :: IO (TVar (TQueue ResponseMsg)) -> IO ResponseMsg
-getNextResponse respQVar = do
-    var <- respQVar
+getNextResponse :: TVar (TQueue ResponseMsg) -> IO ResponseMsg
+getNextResponse var = do
     q <- readTVarIO var
     atomically $ readTQueue q

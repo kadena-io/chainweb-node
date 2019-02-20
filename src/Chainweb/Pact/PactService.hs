@@ -61,8 +61,8 @@ import Chainweb.Pact.Utils
 
 -- | Initilization for the Pact execution service, including initialization for the execution queues, the MemPool, and the Checkpointer
 initPactService
-  :: IO (TVar (TQueue RequestMsg))
-  -> IO (TVar (TQueue ResponseMsg))
+  :: TVar (TQueue RequestMsg)
+  -> TVar (TQueue ResponseMsg)
   -> MemPoolAccess
   -> IO ()
 initPactService reqQVar respQVar memPoolAccess = do
@@ -100,8 +100,8 @@ initPactService reqQVar respQVar memPoolAccess = do
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests
     :: MemPoolAccess
-    -> IO (TVar (TQueue RequestMsg))
-    -> IO (TVar (TQueue ResponseMsg))
+    -> TVar (TQueue RequestMsg)
+    -> TVar (TQueue ResponseMsg)
     -> PactT ()
 serviceRequests memPoolAccess reqQ respQ =
     forever run where

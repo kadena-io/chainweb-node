@@ -65,28 +65,48 @@ pactTestApp = do
         let clientEnv = mkClientEnv mgr base
 
         -- testing:  /new
-        response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
-        tt0 <- checkRespTrans "block-results-expected-0.txt" response0
-
-        -- testing:  /validate
-        response0b <- runClientM (testValidate (headers ! 0)) clientEnv
-        tt0b <- checkRespTrans "block-results-expected-0.txt" response0b
-
-        -- testing:  /validate
-        validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
-        tt1 <- checkRespTrans "block-results-expected-1.txt" validateResp1
-
-        -- testing: /valiAsync and /poll
-        idResponse <- runClientM (testValidateAsync (headers ! 2)) clientEnv
-        tt2 <- case idResponse of
+        -- response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
+        -- tt0 <- checkRespTrans "block-results-expected-0.txt" response0
+        idResp0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
+        tt0 <- case idResp0 of
                   (Left servantError) -> assertFailure $
-                      "No requestId returned from testValidateAsync" ++ show servantError
+                      "No requestId returned from testGetBlock" ++ show servantError
                   (Right rqid) -> do
                       rspM <- pollForTestResp clientEnv rqid
                       case rspM of
-                          Nothing -> assertFailure "Polling timeout for testValidateAsync"
-                          Just rsp -> checkRespTrans "block-results-expected-2.txt" rsp
-        return $ tt0 : tt0b : tt1 : [tt2]
+                          Nothing -> assertFailure "Polling timeout for testGetNewBlock"
+                          Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
+
+
+
+        -- testing:  /validate
+        -- response0b <- runClientM (testValidate (headers ! 0)) clientEnv
+        -- tt0b <- checkRespTrans "block-results-expected-0.txt" response0b
+        idResp0b <- runClientM (testValidate (headers ! 0)) clientEnv
+        tt0b <- case idResp0b of
+                  (Left servantError) -> assertFailure $
+                      "No requestId returned from testValidate" ++ show servantError
+                  (Right rqid) -> do
+                      rspM <- pollForTestResp clientEnv rqid
+                      case rspM of
+                          Nothing -> assertFailure "Polling timeout for testValidate"
+                          Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
+
+
+        -- testing:  /validate
+        -- validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
+        -- tt1 <- checkRespTrans "block-results-expected-1.txt" validateResp1
+        idResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
+        tt1 <- case idResp1 of
+                  (Left servantError) -> assertFailure $
+                      "No requestId returned from testValidate" ++ show servantError
+                  (Right rqid) -> do
+                      rspM <- pollForTestResp clientEnv rqid
+                      case rspM of
+                          Nothing -> assertFailure "Polling timeout for testValidate"
+                          Just rsp -> checkRespTrans "block-results-expected-1.txt" rsp
+
+        return $ tt0 : tt0b : [tt1]
 
 pollForTestResp
     :: ClientEnv
@@ -112,16 +132,12 @@ checkRespTrans fp (Right x) =
 generatePort :: IO Int
 generatePort = getStdRandom (randomR (1024,65535))
 
-testGetNewBlock :: BlockHeader -> ClientM (Either String Transactions)
-testGetNewBlockAsync :: BlockHeader -> ClientM RequestId
-testValidate :: BlockHeader -> ClientM (Either String Transactions)
-testValidateAsync :: BlockHeader -> ClientM RequestId
+testGetNewBlock :: BlockHeader -> ClientM RequestId
+testValidate :: BlockHeader -> ClientM RequestId
 testPoll :: RequestId -> ClientM (Either String Transactions)
 
 testGetNewBlock
-    :<|> testGetNewBlockAsync
     :<|> testValidate
-    :<|> testValidateAsync
     :<|> testPoll
        = client (Proxy :: Proxy PactAPI)
 
@@ -155,8 +171,6 @@ cmdBlocks =  V.fromList [ [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
                           , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
                         , [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
                           , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
-                        , [ "(test1.transfer \"Acct1\" \"Acct2\" 100.00)"
-                          , "(test1.transfer \"Acct1\" \"Acct2\" 101.00)" ]
                         ]
 
 mkPactTestTransactions :: [String] -> IO [Transaction]

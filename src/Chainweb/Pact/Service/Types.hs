@@ -33,16 +33,14 @@ import Servant
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 
-type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
-          :<|> "newAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
-          :<|> "validateAsync" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
+type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
+          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
 data RequestIdEnv
-  = RequestIdEnv { _rieReqIdVar :: IO (TVar RequestId)
-                 , _rieReqQ :: IO (TVar (TQueue RequestMsg))
-                 , _rieRespQ :: IO (TVar (TQueue ResponseMsg))
-                 , _rieResponseMap :: IO (H.IOHashTable H.HashTable RequestId Transactions) }
+  = RequestIdEnv { _rieReqIdVar :: TVar RequestId
+                 , _rieReqQ :: TVar (TQueue RequestMsg)
+                 , _rieRespQ :: TVar (TQueue ResponseMsg)
+                 , _rieResponseMap :: H.IOHashTable H.HashTable RequestId Transactions }
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
