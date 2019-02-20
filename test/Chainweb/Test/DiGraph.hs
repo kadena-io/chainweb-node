@@ -340,10 +340,11 @@ gnpProperty p = property $ \(Gnp g :: Gnp n) ->
 -- Properties of graph algorithms
 
 prop_shortestPaths :: DiGraph Int -> Property
-prop_shortestPaths g = fglShortestPaths fglG === FW.shortestPaths denseG
+prop_shortestPaths g = fglShortestPaths fglG === M.computeAs M.U (M.map fst m)
   where
     fglG = toFglGraph @G.Gr g
     denseG = FW.fromAdjacencySets $ adjacencySets g
+    FW.ShortestPathMatrix m = FW.floydWarshall denseG
 
 prop_diameter :: DiGraph Int -> Property
 prop_diameter g = fglDiameter (toFglGraph @G.Gr g) === diameter g

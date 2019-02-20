@@ -10,6 +10,12 @@ module Chainweb.Test.Mempool
   ( tests
   , remoteTests
   , MempoolWithFunc(..)
+  , mempoolTestCase
+  , mempoolProperty
+  , lookupIsPending
+  , lookupIsValidated
+  , lookupIsConfirmed
+  , lookupIsMissing
   ) where
 
 import Control.Applicative
@@ -31,6 +37,7 @@ import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
+import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen (Gen, chooseAny, generate, resize)
 import Test.QuickCheck.Monadic
@@ -87,12 +94,14 @@ instance Arbitrary MockTx where
 
 data MempoolWithFunc = MempoolWithFunc (forall a . (MempoolBackend MockTx -> IO a) -> IO a)
 
-
 mempoolTestCase :: TestName
                 -> (MempoolBackend MockTx -> IO ())
                 -> MempoolWithFunc
                 -> TestTree
-mempoolTestCase name test (MempoolWithFunc withMempool) = testCase name $ withMempool test
+mempoolTestCase name test (MempoolWithFunc withMempool) =
+    testCase name $ tout $ withMempool test
+  where
+    tout m = timeout 30000000 m >>= maybe (fail "timeout") return
 
 
 mempoolProperty :: TestName
@@ -102,8 +111,10 @@ mempoolProperty :: TestName
                 -> TestTree
 mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name go
   where
-    go = monadicIO (gen >>= run . withMempool . test >>= either fail return)
+    go = monadicIO (gen >>= run . tout . withMempool . test
+                        >>= either fail return)
 
+    tout m = timeout 30000000 m >>= maybe (fail "timeout") return
 
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()

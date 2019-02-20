@@ -65,3 +65,17 @@ pages:
   artifacts:
     paths:
     - public/
+
+##############################################################################
+# Nightly jobs
+##############################################################################
+
+nightly-nix:
+  only:
+    - schedules
+  script:
+    - echo This is a nightly build!
+    - nix-build
+    - nix-build -A ghc.chainweb.doc
+    - scripts/collectArtifacts.sh
+

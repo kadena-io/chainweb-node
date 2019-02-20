@@ -65,7 +65,15 @@ module Data.DiGraph
 , minInDegree
 , isEdge
 , isVertex
+
+-- * Distances, Shortest Paths, and Diameter
+, ShortestPathCache
+, shortestPath
+, shortestPath_
+, distance
+, distance_
 , diameter
+, diameter_
 
 -- * Test Properties
 , properties
@@ -361,14 +369,54 @@ maxInDegree = maxOutDegree . transpose
 minInDegree :: Eq a => Hashable a => DiGraph a -> Natural
 minInDegree = minOutDegree . transpose
 
--- | This is expensive for larger graphs. Use with care and
--- consider caching the result.
---
-diameter ::Eq a => Hashable a => DiGraph a -> Maybe Natural
-diameter g = FW.diameter $ FW.fromAdjacencySets (unGraph ig)
+-- -------------------------------------------------------------------------- --
+-- Distances, Shortest Paths, and Diameter
+
+data ShortestPathCache a = ShortestPathCache
+    FW.ShortestPathMatrix
+    (HM.HashMap a Int)
+    (HM.HashMap Int a)
+
+shortestPathCache :: Eq a => Hashable a => DiGraph a -> ShortestPathCache a
+shortestPathCache g = ShortestPathCache m vmap rvmap
   where
-    vmap = HM.fromList $ zip (HS.toList $ vertices g) [0..]
+    m = FW.floydWarshall $ FW.fromAdjacencySets (unGraph ig)
     ig = mapVertices (vmap HM.!) g
+    vmap = HM.fromList $ zip (HS.toList $ vertices g) [0..]
+    rvmap = HM.fromList $ zip [0..] (HS.toList $ vertices g)
+
+-- | This is expensive for larger graphs. If also the shortest paths or
+-- distances are needed, one should use 'shortestPathCache' to cache the result
+-- of the search and use the 'diameter_', 'shortestPath_', and 'distance_' to
+-- query the respective results from the cache.
+--
+diameter :: Eq a => Hashable a => DiGraph a -> Maybe Natural
+diameter = diameter_ . shortestPathCache
+
+diameter_ :: ShortestPathCache a -> Maybe Natural
+diameter_ (ShortestPathCache m _ _) = round <$> FW.diameter m
+
+-- | This is expensive for larger graphs. If more than one path is needed one
+-- should use 'shortestPathCache' to cache the result of the search and use
+-- 'shortestPath_' to query paths from the cache.
+--
+shortestPath :: Eq a => Hashable a => a -> a -> DiGraph a -> Maybe [a]
+shortestPath src trg = shortestPath_ src trg . shortestPathCache
+
+shortestPath_ :: Eq a => Hashable a => a -> a -> ShortestPathCache a -> Maybe [a]
+shortestPath_ src trg (ShortestPathCache c m r)
+    = fmap ((HM.!) r) <$> FW.shortestPath c (m HM.! src) (m HM.! trg)
+
+-- | This is expensive for larger graphs. If more than one distance is needed
+-- one should use 'shortestPathCache' to cache the result of the search and use
+-- 'distance_' to query paths from the cache.
+--
+distance :: Eq a => Hashable a => a -> a -> DiGraph a -> Maybe Natural
+distance src trg = distance_ src trg . shortestPathCache
+
+distance_ :: Eq a => Hashable a => a -> a -> ShortestPathCache a -> Maybe Natural
+distance_ src trg (ShortestPathCache c m _)
+    = round <$> FW.distance c (m HM.! src) (m HM.! trg)
 
 -- -------------------------------------------------------------------------- --
 -- Properties

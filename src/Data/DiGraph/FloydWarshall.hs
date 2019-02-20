@@ -21,8 +21,15 @@ module Data.DiGraph.FloydWarshall
 , toAdjacencySets
 
 -- * FloydWarshall Algorithm
-, shortestPaths
+, ShortestPathMatrix(..)
+, floydWarshall
+, shortestPath
+, distance
 , diameter
+
+-- * Legacy exports
+, diameter_
+, shortestPaths_
 ) where
 
 import Data.Foldable
@@ -65,13 +72,98 @@ toAdjacencySets = ifoldlS f mempty
         | otherwise = HM.insertWith (<>) i (HS.singleton j) a
 
 -- -------------------------------------------------------------------------- --
--- Floyd Warshall
+-- Floyd Warshall with Paths
 
-distMatrix
+newtype ShortestPathMatrix = ShortestPathMatrix (Array U Ix2 (Double, Int))
+
+-- Shortest path computation for integral matrixes
+--
+floydWarshall :: Unbox a => Real a => Array U Ix2 a -> ShortestPathMatrix
+floydWarshall = ShortestPathMatrix
+    . floydWarshallInternal
+    . computeAs U
+    . intDistMatrix
+
+shortestPath
+    :: ShortestPathMatrix
+    -> Int
+    -> Int
+    -> Maybe [Int]
+shortestPath (ShortestPathMatrix m) src trg
+    | M.isEmpty mat = Nothing
+    | not (M.isSafeIndex (size m) (src :. trg)) = Nothing
+    | (mat M.! (src :. trg)) == (-1) = Nothing
+    | otherwise = go src trg
+  where
+    mat = M.computeAs U $ M.map snd m
+    go a b
+        | a == b = return []
+        | otherwise = do
+            n <- M.index mat (a :. b)
+            (:) n <$> go n b
+
+distance :: ShortestPathMatrix -> Int -> Int -> Maybe Double
+distance (ShortestPathMatrix m) src trg
+    | M.isEmpty m = Nothing
+    | otherwise = toDistance . fst =<< M.index m (src :. trg)
+
+diameter :: ShortestPathMatrix -> Maybe Double
+diameter (ShortestPathMatrix m)
+    | M.isEmpty m = Just 0
+    | otherwise = toDistance $ M.maximum $ M.map fst m
+
+-- -------------------------------------------------------------------------- --
+-- Internal
+
+toDistance :: RealFrac a => a -> Maybe a
+toDistance x
+    | x == 1/0 = Nothing
+    | otherwise = Just x
+
+-- Distance matrix for int inputs.
+--
+intDistMatrix
+    :: Real a
+    => Source r Ix2 a
+    => Array r Ix2 a
+    -> Array M.D Ix2 (Double, Int)
+intDistMatrix = M.imap go
+  where
+    go (x :. y) e
+        | x == y = (0, y)
+        | e > 0 = (realToFrac e, y)
+        | otherwise = (1/0, -1)
+
+-- | Floyd-Warshall With Path Matrix
+--
+-- TODO: use a mutable array?
+-- TODO: implement Dijkstra's algorithm for adj matrix representation.
+--
+floydWarshallInternal
+    :: Array U Ix2 (Double, Int)
+    -> (Array U Ix2 (Double,Int))
+floydWarshallInternal a = foldl' go a [0..n-1]
+  where
+    (n :. _) = size a
+
+    go :: Array U Ix2 (Double, Int) -> Int -> (Array U Ix2 (Double,Int))
+    go c k = makeArray Seq (n :. n) $ \(x :. y) ->
+        let
+            !xy = fst $! c M.! (x :. y)
+            !xk = fst $! c M.! (x :. k)
+            !ky = fst $! c M.! (k :. y)
+            !nxy = snd $! c M.! (x :. y)
+            !nxk = snd $! c M.! (x :. k)
+        in if xy > xk + ky then (xk + ky, nxk) else (xy, nxy)
+
+-- -------------------------------------------------------------------------- --
+-- Floyd Warshall Without Paths (more efficient, by factor of 2)
+
+distMatrix_
     :: Source r Ix2 Int
     => Array r Ix2 Int
     -> Array M.D Ix2 Double
-distMatrix = M.imap go
+distMatrix_ = M.imap go
   where
     go (x :. y) e
         | x == y = 0
@@ -83,10 +175,10 @@ distMatrix = M.imap go
 -- TODO: use a mutable array?
 -- TODO: implement Dijkstra's algorithm for adj matrix representation.
 --
-floydWarshall
+floydWarshall_
     :: Array U Ix2 Double
     -> Array U Ix2 Double
-floydWarshall a = foldl' go a [0..n-1]
+floydWarshall_ a = foldl' go a [0..n-1]
   where
     (n :. _) = size a
 
@@ -100,12 +192,12 @@ floydWarshall a = foldl' go a [0..n-1]
 
 -- | All entries of the result matrix are either whole numbers or 'Infinity'.
 --
-shortestPaths :: Array U Ix2 Int -> Array U Ix2 Double
-shortestPaths = floydWarshall . computeAs U . distMatrix
+shortestPaths_ :: Array U Ix2 Int -> Array U Ix2 Double
+shortestPaths_ = floydWarshall_ . computeAs U . distMatrix_
 
-diameter :: Array U Ix2 Int -> Maybe Natural
-diameter g
+diameter_ :: Array U Ix2 Int -> Maybe Natural
+diameter_ g
     | M.isEmpty g = Just 0
-    | otherwise = let x = round $ M.maximum $ shortestPaths g
+    | otherwise = let x = round $ M.maximum $ shortestPaths_ g
         in if x == round (1/0 :: Double) then Nothing else Just x
 

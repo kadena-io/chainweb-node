@@ -224,7 +224,8 @@ in
 
       };
     packages = {
-      chainweb = gitignore.gitignoreSource [] ./.;
+      chainweb = gitignore.gitignoreSource
+        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-ork.md"] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

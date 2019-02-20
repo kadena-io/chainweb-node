@@ -13,8 +13,7 @@
 
 module Main ( main ) where
 
--- import System.LogLevel
-
+import System.LogLevel
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
@@ -25,10 +24,10 @@ import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
--- import qualified Chainweb.Test.Mempool.Socket
--- import qualified Chainweb.Test.Mempool.Sync
--- import qualified Chainweb.Test.Mempool.Websocket
--- import qualified Chainweb.Test.MultiNode
+import qualified Chainweb.Test.Mempool.Socket
+import qualified Chainweb.Test.Mempool.Sync
+import qualified Chainweb.Test.Mempool.Websocket
+import qualified Chainweb.Test.MultiNode
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactService
 import qualified Chainweb.Test.RestAPI
@@ -39,6 +38,7 @@ import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import qualified Chainweb.Utils.Paging (properties)
+import Chainweb.Version
 
 import qualified Data.DiGraph (properties)
 import qualified Data.Word.Encoding (properties)
@@ -46,8 +46,6 @@ import qualified Data.Word.Encoding (properties)
 import qualified Network.X509.SelfSigned.Test
 
 import qualified P2P.Node.PeerDB (properties)
-
----
 
 main :: IO ()
 main = do
@@ -64,11 +62,6 @@ pactTestSuite = do
     return $ testGroup "Chainweb-Pact Unit Tests"
         [ pactTests
         , pactServiceTests ]
-{-
-PactExec  -- tests :: IO TestTree
-PactService -- tests :: IO TestTree
-testGroup :: TestName -> [TestTree] -> TestTree
--}
 
 suite :: TestTree
 suite = testGroup "Chainweb Unit Tests"
@@ -84,8 +77,8 @@ suite = testGroup "Chainweb Unit Tests"
             , Chainweb.Test.RestAPI.tests
             , Chainweb.Test.DiGraph.tests
             , Chainweb.Test.Mempool.InMem.tests
-        --     , Chainweb.Test.Mempool.Socket.tests
-        --     , Chainweb.Test.Mempool.Sync.tests
+            , Chainweb.Test.Mempool.Socket.tests
+            , Chainweb.Test.Mempool.Sync.tests
         --     , Chainweb.Test.Mempool.Websocket.tests
             , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
             , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
@@ -94,6 +87,8 @@ suite = testGroup "Chainweb Unit Tests"
             , testGroup "Network.X05.SelfSigned.Test"
                 [ Network.X509.SelfSigned.Test.tests
                 ]
-            , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+            , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
+            , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
             ]
-        -- , Chainweb.Test.MultiNode.test Warn TestWithTime 10 (Chainweb.Test.MultiNode.Seconds 120) Nothing
+       , Chainweb.Test.MultiNode.test Warn TestWithTime 10 (Chainweb.Test.MultiNode.Seconds 120) Nothing
+       ]
