@@ -150,6 +150,15 @@ cabal run single-chain-example
 stack exec single-chain-example
 ```
 
+## Chainweb Orchestration
+
+A base docker image containing all of Chainweb's dependencies and executables can be created as
+
+```sh
+nix-build docker.nix
+docker load --input result
+```
+
 ## Component Structure
 
 The production components are:
