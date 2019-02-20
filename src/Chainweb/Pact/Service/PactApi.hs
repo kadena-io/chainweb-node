@@ -48,6 +48,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
+-- | Servant definition for Pact Execution as a service
 pactServer :: ServerT PactAPI PactAppM
 pactServer = newBlockReq
         :<|> newBlockAsyncReq
@@ -58,6 +59,7 @@ pactServer = newBlockReq
 toHandler :: RequestIdEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
+-- | Entry point for Pact Execution service
 withPactServiceApp :: Int -> MemPoolAccess -> IO a -> IO a
 withPactServiceApp port memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
@@ -87,6 +89,7 @@ incRequestId = do
     liftIO $ atomically $ modifyTVar' reqIdVar succ
     liftIO $ readTVarIO reqIdVar
 
+-- | Handler for new block requests (blocking)
 newBlockReq :: BlockHeader -> PactAppM (Either String Transactions)
 newBlockReq bHeader = do
     newReqId <- incRequestId
@@ -98,6 +101,7 @@ newBlockReq bHeader = do
     liftIO $ addRequest reqQ msg
     waitForResponse newReqId
 
+-- | Handler for new block requests (async, returning RequestId immediately for future polling)
 newBlockAsyncReq :: BlockHeader -> PactAppM RequestId
 newBlockAsyncReq bHeader = do
     newReqId <- incRequestId
@@ -109,6 +113,7 @@ newBlockAsyncReq bHeader = do
     liftIO $ addRequest reqQ msg
     return newReqId
 
+-- | Handler for validate block requests (blocking)
 validateBlockReq :: BlockHeader -> PactAppM (Either String Transactions)
 validateBlockReq bHeader = do
     newReqId <- incRequestId
@@ -120,6 +125,7 @@ validateBlockReq bHeader = do
     liftIO $ addRequest reqQ msg
     waitForResponse newReqId
 
+-- | Handler for validate block requests (async, returning RequestId immediately for future polling)
 validateBlockAsyncReq :: BlockHeader -> PactAppM RequestId
 validateBlockAsyncReq bHeader = do
     newReqId <- incRequestId
@@ -135,6 +141,7 @@ validateBlockAsyncReq bHeader = do
 timeoutSeconds :: Int
 timeoutSeconds = 30
 
+-- | For a given RequestId, wait for response arrives or ntil timeout occurs
 waitForResponse :: RequestId -> PactAppM (Either String Transactions)
 waitForResponse requestId = do
     respQVar <- view rieRespQ
@@ -156,6 +163,7 @@ waitForResponse requestId = do
                 Just payload -> return payload
                 Nothing -> go respQVar respTable
 
+-- | Handler for polling on a RequestId
 pollForResponse :: RequestId -> PactAppM (Either String Transactions)
 pollForResponse requestId = do
     respQ <- view rieRespQ

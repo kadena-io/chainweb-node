@@ -10,7 +10,7 @@
 --
 -- Unit test for Pact execution in Chainweb
 
-module Chainweb.Test.Pact where
+module Chainweb.Test.Pact.PactExec where
 
 import Control.Applicative
 import Control.Monad.IO.Class

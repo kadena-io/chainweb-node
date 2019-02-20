@@ -26,6 +26,7 @@ import System.Time.Extra
 
 import Chainweb.Pact.Service.Types
 
+-- | Add a request to the Pact execution queue
 addRequest :: IO (TVar (TQueue RequestMsg)) -> RequestMsg -> IO ()
 addRequest reqQVar msg = do
     var <- reqQVar
@@ -33,6 +34,7 @@ addRequest reqQVar msg = do
     atomically $ writeTQueue q msg
     return ()
 
+-- | Get the next available request from the Pact execution queue
 getNextRequest :: IO (TVar (TQueue RequestMsg)) -> IO RequestMsg
 getNextRequest reqQVar = do
     var <- reqQVar
@@ -49,6 +51,7 @@ getNextRequest reqQVar = do
               Just msg -> return msg
               Nothing -> tryRead ku
 
+-- | Add a response to the Pact execution response queue
 addResponse :: IO (TVar (TQueue ResponseMsg)) -> ResponseMsg -> IO ()
 addResponse respQVar msg = do
     var <- respQVar
@@ -56,6 +59,7 @@ addResponse respQVar msg = do
     atomically $ writeTQueue q msg
     return ()
 
+-- | Get the next available response from the Pact execution response queue
 getNextResponse :: IO (TVar (TQueue ResponseMsg)) -> IO ResponseMsg
 getNextResponse respQVar = do
     var <- respQVar

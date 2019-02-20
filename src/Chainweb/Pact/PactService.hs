@@ -59,6 +59,7 @@ import Chainweb.Pact.Types
 
 import Chainweb.Pact.Utils
 
+-- | Initilization for the Pact execution service, including initialization for the execution queues, the MemPool, and the Checkpointer
 initPactService
   :: IO (TVar (TQueue RequestMsg))
   -> IO (TVar (TQueue ResponseMsg))
@@ -96,12 +97,13 @@ initPactService reqQVar respQVar memPoolAccess = do
            (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
 
+-- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests
     :: MemPoolAccess
     -> IO (TVar (TQueue RequestMsg))
     -> IO (TVar (TQueue ResponseMsg))
     -> PactT ()
-serviceRequests memPoolAccess reqQ respQ = do
+serviceRequests memPoolAccess reqQ respQ =
     forever run where
         run = do
             reqMsg <- liftIO $ getNextRequest reqQ
@@ -120,7 +122,8 @@ serviceRequests memPoolAccess reqQ respQ = do
                         , _respPayload = h }
             void . liftIO $ addResponse respQ respMsg
 
--- | BlockHeader here is the header of the parent of the new block
+-- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
+-- | Note: The BlockHeader param here is the header of the parent of the new block
 newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     -- TODO: miner data needs to be addeded to BlockHeader...
@@ -139,7 +142,8 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     either fail return close_status
     return results
 
--- | BlockHeader here is the header of the block being validated
+-- | Validate a mined block.  Execute the transactions in Pact again as validation
+-- | Note: The BlockHeader here is the header of the block being validated
 validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 validateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
