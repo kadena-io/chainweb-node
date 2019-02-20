@@ -84,7 +84,7 @@ instance Exception SpvException
 -- -------------------------------------------------------------------------- --
 -- ChainProof
 
--- | Witness that a transaction in is included in the head of a chain in a
+-- | Witness that a transaction is included in the head of a chain in a
 -- chainweb.
 --
 data TransactionProof a = TransactionProof ChainId (MerkleProof a)
