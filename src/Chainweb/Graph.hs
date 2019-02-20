@@ -75,11 +75,13 @@ module Chainweb.Graph
 , petersonChainGraph
 ) where
 
+import Control.Arrow
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Bits
 import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -131,6 +133,7 @@ instance Exception ChainGraphException
 data ChainGraph = ChainGraph
     { _chainGraphGraph :: !(DiGraph ChainId)
     , _chainGraphShortestPathCache :: {- lazy -} ShortestPathCache ChainId
+    , _chainGraphHash :: {- lazy -} Int
     }
     deriving (Generic)
     deriving anyclass (NFData)
@@ -139,10 +142,13 @@ instance Show ChainGraph where
     show = show . _chainGraphGraph
 
 instance Eq ChainGraph where
-    (==) = (==) `on` _chainGraphGraph
+    (==) = (==) `on` (_chainGraphHash &&& _chainGraphGraph)
 
 instance Ord ChainGraph where
-    compare = compare `on` _chainGraphGraph
+    compare = compare `on` (_chainGraphHash &&& _chainGraphGraph)
+
+instance Hashable ChainGraph where
+    hashWithSalt s = xor s . _chainGraphHash
 
 -- | This function is unsafe, it throws an error if the graph isn't a valid
 -- chain graph. That's OK, since chaingraphs are hard-coded in the code and
@@ -153,6 +159,7 @@ toChainGraph f g
     | validChainGraph c = ChainGraph
         { _chainGraphGraph = c
         , _chainGraphShortestPathCache = shortestPathCache c
+        , _chainGraphHash = hash c
         }
     | otherwise = error "the given graph is not a valid chain graph"
   where
@@ -177,7 +184,7 @@ adjacentChainIds
     => ChainGraph
     -> p
     -> HS.HashSet ChainId
-adjacentChainIds (ChainGraph g _) cid = adjacents (_chainId cid) g
+adjacentChainIds (ChainGraph g _ _) cid = adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
