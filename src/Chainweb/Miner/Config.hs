@@ -21,20 +21,37 @@ import Control.Lens hiding ((.=))
 
 import GHC.Generics (Generic)
 
+import Numeric.Natural (Natural)
+
 ---
 
-data MinerConfig = MinerConfig deriving (Show, Eq, Ord, Generic)
+newtype MinerCount = MinerCount { _minerCount :: Natural }
+    deriving (Eq, Ord, Show)
+
+makeLenses ''MinerCount
+
+data MinerConfig = MinerConfig { _configTestMiners :: MinerCount }
+    deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''MinerConfig
 
 defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
+    { _configTestMiners = MinerCount 10
+    }
 
 instance ToJSON MinerConfig where
-    toJSON _ = object []
+    toJSON o = object
+        [ "configTestMiners" .= _minerCount (_configTestMiners o)
+        ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
-    parseJSON = withObject "MinerConfig" $ \_ -> pure id
+    parseJSON = withObject "MinerConfig" $ \o -> id
+        <$< (configTestMiners . minerCount) ..: "testMiners" % o
 
 pMinerConfig :: MParser MinerConfig
-pMinerConfig = pure id
+pMinerConfig = id
+    <$< (configTestMiners . minerCount) .:: option auto
+        % long "test-miners"
+        <> short 'm'
+        <> help "testing only: number of known miner nodes"

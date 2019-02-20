@@ -26,6 +26,8 @@ import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
+import Numeric.Natural (Natural)
+
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -37,7 +39,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
-import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
@@ -57,7 +59,7 @@ testMiner
     -> CutDb
     -> WebBlockHeaderDb
     -> IO ()
-testMiner logFun _ nid cutDb wcdb = do
+testMiner logFun conf nid cutDb wcdb = do
     logg Info "Started Test Miner"
     gen <- MWC.createSystemRandom
 
@@ -71,21 +73,27 @@ testMiner logFun _ nid cutDb wcdb = do
     graph :: ChainGraph
     graph = _chainGraph cutDb
 
+    graphOrder :: Natural
+    graphOrder = order graph
+
     getVer :: IO ChainwebVersion
     getVer = do
         c <- _cut cutDb
         cid <- randomChainId c
         pure . _blockChainwebVersion $ c ^?! ixg cid
 
+    miners :: Natural
+    miners = _minerCount $ _configTestMiners conf
+
     go :: Given WebBlockHeaderDb => MWC.GenIO -> ChainwebVersion -> Int -> IO ()
     go gen ver !i = do
         nonce0 <- MWC.uniform gen
 
         -- Artificially delay the mining process since we are not using
-        -- proof-of-work mining.
+        -- Proof-of-Work mining.
         --
         d <- MWC.geometric1
-                (int (order graph) / (meanBlockTime * 1000000))
+                (int graphOrder / (int miners * meanBlockTime * 1000000))
                 gen
         threadDelay d
 
