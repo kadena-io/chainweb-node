@@ -80,6 +80,8 @@ library
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.RestAPI
+        , Chainweb.Mempool.RestAPI.Client
+        , Chainweb.Mempool.RestAPI.Server
         , Chainweb.Mempool.Socket
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse

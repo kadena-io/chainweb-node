@@ -52,6 +52,7 @@ import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -288,7 +289,8 @@ type TransactionFees = Decimal
 data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Int64)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Int64)
-} deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Generic)
+    deriving anyclass (FromJSON, ToJSON)
 
 
 ------------------------------------------------------------------------------
@@ -344,7 +346,18 @@ data MockTx = MockTx {
   , mockFees :: {-# UNPACK #-} !Decimal
   , mockSize :: {-# UNPACK #-} !Int64
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
-} deriving (Eq, Ord, Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+
+instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
+    toJSON d = let s = T.pack $ show d
+               in toJSON s
+
+instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
+    parseJSON v = do
+        s <- T.unpack <$> parseJSON v
+        return $! read s
 
 
 mockBlocksizeLimit :: Int64
