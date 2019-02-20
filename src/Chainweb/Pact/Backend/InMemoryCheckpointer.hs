@@ -65,7 +65,7 @@ restoreInitial' lock = do
     restore' lock (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
-saveInitial' lock p@(PactDbState {..}) = do
+saveInitial' lock p@PactDbState {..} = do
     tempChainId <- chainIdFromText "0"
     let bh = nullBlockHash tempChainId
     save' lock (BlockHeight 0) bh p

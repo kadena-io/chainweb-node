@@ -50,21 +50,22 @@ import qualified P2P.Node.PeerDB (properties)
 main :: IO ()
 main = do
   pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
-  let allSuites = testGroup "Unit Tests"
-                 [ suite
-                 , pactSuite ]
-  defaultMain allSuites
+  let allTests = testGroup "Chainweb Tests"
+                     [ suite
+                     , pactSuite
+                     , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing ]
+  defaultMain allTests
 
 pactTestSuite :: IO TestTree
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
     pactServiceTests <- Chainweb.Test.Pact.PactService.tests
-    return $ testGroup "Chainweb-Pact Unit Tests"
+    return $ testGroup "Chainweb-Pact Tests"
         [ pactTests
         , pactServiceTests ]
 
 suite :: TestTree
-suite = testGroup "Chainweb Unit Tests"
+suite = testGroup "Unit Tests"
             [ testGroup "BlockHeaderDb"
                 [ Chainweb.Test.BlockHeaderDB.tests
                 , Chainweb.Test.TreeDB.RemoteDB.tests
@@ -90,5 +91,3 @@ suite = testGroup "Chainweb Unit Tests"
             , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
             , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
             ]
-        , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
-        ]

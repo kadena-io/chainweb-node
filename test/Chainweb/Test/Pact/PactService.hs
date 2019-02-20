@@ -53,9 +53,7 @@ import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.RPC as P
 
 tests :: IO TestTree
-tests = do
-  xs <- pactTestApp
-  return $ testGroup "Pact service tests" xs
+tests = testGroup "Pact service tests" <$> pactTestApp
 
 pactTestApp :: IO [TestTree]
 pactTestApp = do

@@ -52,9 +52,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 
 tests :: IO TestTree
-tests = do
-  xs <- pactExecTests
-  return $ testGroup "Simple pact execution tests" xs
+tests = testGroup "Simple pact execution tests" <$> pactExecTests
 
 pactExecTests :: IO [TestTree]
 pactExecTests = do
@@ -130,7 +128,7 @@ parseText (Object o) =
 parseText _ = Nothing
 
 fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
-fileCompareTxLogs fp resp = do
+fileCompareTxLogs fp resp =
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
     where
         ioBs = return $ toS $ show <$> _getTxLogs $ _trOutput resp
@@ -220,13 +218,13 @@ testPactRequests =
 testReq1 :: TestRequest
 testReq1 = TestRequest
     { _trCmd = Code "(+ 1 1)"
-    , _trEval = (\tr -> return $ testCase "addition" (checkScientific (scientific 2 0) tr))
+    , _trEval = return . testCase "addition" . checkScientific (scientific 2 0)
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
 
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    , _trEval = (\tr -> return $ testCase "load module" (checkSuccessOnly tr))
+    , _trEval = return . testCase "load module" . checkSuccessOnly
     , _trDisplayStr = "Loads a pact module" }
 
 testReq3 :: TestRequest
