@@ -40,6 +40,7 @@ module Chainweb.CutDB
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
+, member
 , cut
 , _cut
 , _cutStm
@@ -211,6 +212,18 @@ _cutStm = readTVar . _cutDbCut
 --
 cutStm :: Getter CutDb (STM Cut)
 cutStm = to _cutStm
+
+member :: CutDb -> BlockHash -> IO Bool
+member db h = do
+    th <- maxHeader chainDb
+    lookup chainDb h >>= \case
+        Nothing -> return False
+        Just lh -> do
+            fh <- forkEntry chainDb th lh
+            return $ fh == lh
+  where
+    cid = _chainId h
+    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 withCutDb :: CutDbConfig -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
 withCutDb config wdb = bracket (startCutDb config wdb) stopCutDb
