@@ -76,6 +76,7 @@ module Chainweb.Cut
 , testMineCut
 , randomChainId
 , arbitraryChainGraphChainId
+, giveNewWebChain
 
 -- ** properties
 , prop_cutBraiding
