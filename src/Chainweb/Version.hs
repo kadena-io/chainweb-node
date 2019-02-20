@@ -37,7 +37,7 @@ module Chainweb.Version
 
 -- * Singletons
 , Sing(SChainwebVersion)
-, type SChainwebVersion
+, SChainwebVersion
 
 ) where
 
@@ -207,4 +207,3 @@ instance SingKind ChainwebVersionT where
 
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
-

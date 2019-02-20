@@ -181,7 +181,7 @@ treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
 instance Arbitrary SparseTree where
-    arbitrary = SparseTree <$> tree Randomly
+    arbitrary = SparseTree <$> tree Test Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -191,17 +191,17 @@ data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 -- The values of the tree constitute a legal chain, i.e. block heights start
 -- from 0 and increment, parent hashes propagate properly, etc.
 --
-tree :: Growth -> Gen (Tree BlockHeader)
-tree g = do
-    h <- genesis
+tree :: ChainwebVersion -> Growth -> Gen (Tree BlockHeader)
+tree v g = do
+    h <- genesis v
     Node h <$> forest g h
 
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
-genesis :: Gen BlockHeader
-genesis = do
+genesis :: ChainwebVersion -> Gen BlockHeader
+genesis v = do
     cid <- arbitrary
-    return $ genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+    return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -234,21 +234,24 @@ header h = do
     nonce <- Nonce <$> chooseAny
     payload <- arbitrary
     miner <- arbitrary
-    return $ fromLog $ newMerkleLog
-            $ _blockHash h
+    return
+        . fromLog
+        . newMerkleLog
+        $ _blockHash h
             :+: target
             :+: payload
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
             :+: nonce
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
             :+: succ (_blockHeight h)
-            :+: _blockChainwebVersion h
+            :+: v
             :+: miner
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
     target = _blockTarget h -- no difficulty adjustment
+    v = _blockChainwebVersion h
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -534,4 +537,3 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
-

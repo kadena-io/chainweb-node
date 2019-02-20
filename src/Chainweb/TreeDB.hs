@@ -41,7 +41,6 @@ module Chainweb.TreeDB
 , TreeDb(..)
 
 -- * Utils
-
 , root
 , maxHeader
 , toTree

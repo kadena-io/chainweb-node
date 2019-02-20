@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -39,7 +40,10 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, showTargetBits
 , checkTarget
+, maxTarget
+, maxTargetWord
 , difficultyToTarget
 , targetToDifficulty
 , encodeHashTarget
@@ -49,7 +53,20 @@ module Chainweb.Difficulty
 , HashDifficulty(..)
 , encodeHashDifficulty
 , decodeHashDifficulty
-, calculateTarget
+
+-- * Difficulty Adjustment
+-- ** Fork-specific Settings
+-- | Values here represent fixed settings specific to a particular chainweb.
+-- __Changing any of these for a live Proof-of-Work chainweb will result in a hard fork.__
+, BlockRate(..)
+, blockRate
+, WindowWidth(..)
+, window
+, MaxAdjustment(..)
+, maxAdjust
+, prereduction
+-- ** Adjustment
+, adjust
 
 -- * Test Properties
 , properties
@@ -69,23 +86,37 @@ import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
+import Data.Int (Int64)
+import Data.Ratio ((%))
+import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeNats
 
+import Numeric.Natural (Natural)
+
 import Test.QuickCheck (Property, property)
+
+import Text.Printf (printf)
 
 -- internal imports
 
-import Chainweb.PowHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
-import Chainweb.Time
+import Chainweb.PowHash
+import Chainweb.Time (Seconds, TimeSpan(..))
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..))
 
 import Data.Word.Encoding hiding (properties)
 
 import Numeric.Additive
+
+-- DEBUGGING ---
+-- import Control.Monad (when)
+-- import Chainweb.ChainId (testChainId)
+-- import System.IO (hFlush, stdout)
+-- import Text.Printf (printf)
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
@@ -119,7 +150,7 @@ powHashNat :: PowHash -> PowHashNat
 powHashNat = PowHashNat . powHashToWord256
 {-# INLINE powHashNat #-}
 
-powHashToWord256 :: 32 <= PowHashBytesCount => PowHash -> Word256
+powHashToWord256 :: (32 <= PowHashBytesCount) => PowHash -> Word256
 powHashToWord256 = either error id . runGetS decodeWordLe . SB.fromShort . powHashBytes
 {-# INLINE powHashToWord256 #-}
 
@@ -186,7 +217,30 @@ decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
 newtype HashTarget = HashTarget PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, Bounded, Enum)
+    deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
+
+-- | A visualization of a `HashTarget` as binary.
+showTargetBits :: HashTarget -> T.Text
+showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
+
+-- | By maximum, we mean "easiest". For POW-based chainwebs, this is reduced
+-- down from `maxBound` so that the mining of initial blocks doesn't occur too
+-- quickly, stressing the system, or otherwise negatively affecting difficulty
+-- adjustment with very brief time deltas between blocks.
+--
+-- Otherwise, chainwebs with "trivial targets" expect this to be `maxBound` and
+-- never change. See also `prereduction`.
+--
+maxTarget :: ChainwebVersion -> HashTarget
+maxTarget = HashTarget . PowHashNat . maxTargetWord
+
+-- | A pre-reduction of 9 bits has experimentally been shown to be an
+-- equilibrium point for the hash power provided by a single, reasonably
+-- performant laptop in early 2019. It is further reduced from 9 to be merciful
+-- to CI machines.
+--
+maxTargetWord :: ChainwebVersion -> Word256
+maxTargetWord v = maxBound `div` (2 ^ prereduction v)
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -195,16 +249,39 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-difficultyToTarget :: HashDifficulty -> HashTarget
-difficultyToTarget difficulty = HashTarget $ maxBound `div` coerce difficulty
+-- | Given the same `ChainwebVersion`, forms an isomorphism with
+-- `targetToDifficulty`.
+difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
+difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
+    HashTarget . PowHashNat $ maxTargetWord v `div` difficulty
 {-# INLINE difficultyToTarget #-}
 
-targetToDifficulty :: HashTarget -> HashDifficulty
-targetToDifficulty target = HashDifficulty $ maxBound `div` coerce target
+-- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
+-- produced by `targetToDifficultyR` and then further manipulated during
+-- Difficulty Adjustment.
+difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
+difficultyToTargetR v difficulty =
+    HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
+{-# INLINE difficultyToTargetR #-}
+
+-- | Given the same `ChainwebVersion`, forms an isomorphism with
+-- `difficultyToTarget`.
+targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
+targetToDifficulty v (HashTarget (PowHashNat target)) =
+    HashDifficulty . PowHashNat $ maxTargetWord v `div` target
 {-# INLINE targetToDifficulty #-}
 
+-- | Like `targetToDifficulty`, but yields a `Rational` for lossless
+-- calculations in Difficulty Adjustment.
+targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
+targetToDifficultyR v (HashTarget (PowHashNat target)) =
+    int (maxTargetWord v) % int target
+{-# INLINE targetToDifficultyR #-}
+
+-- | The critical check in Proof-of-Work mining: did the generated hash match
+-- the target?
 checkTarget :: HashTarget -> PowHash -> Bool
-checkTarget target h = powHashNat h <= coerce target
+checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
 
 encodeHashTarget :: MonadPut m => HashTarget -> m ()
@@ -216,51 +293,254 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
 
 -- -------------------------------------------------------------------------- --
--- Difficulty Computation
+-- Difficulty Adjustment
 
--- | FIXME: make the overflow checks tight
+-- | The gap in SECONDS that we desire between the Creation Time of subsequent
+-- blocks in some chain.
 --
--- this algorithm introduces a rounding error in the order of
--- the length of the input list. We could reduce the error
--- at the cost of larger numbers (and thus more likely bound
--- violations). We could also eliminate the risk of bound
--- violations at the cost of larger rounding errors. The current
--- code is a compromise.
+newtype BlockRate = BlockRate Seconds
+
+-- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
+blockRate :: ChainwebVersion -> Maybe BlockRate
+blockRate Test = Nothing
+blockRate TestWithTime = Just $! BlockRate 100
+blockRate TestWithPow = Just $! BlockRate 10
+blockRate Simulation = Nothing
+blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"
+
+-- | The number of blocks to be mined after a difficulty adjustment, before
+-- considering a further adjustment. Critical for the "epoch-based" adjustment
+-- algorithm seen in `hashTarget`.
 --
-calculateTarget
-    :: forall a
-    . Integral a
-    => TimeSpan a
-    -> [(HashTarget, TimeSpan a)]
-    -> HashTarget
-calculateTarget targetTime l = HashTarget $ sum
-    [ weightedTarget trg (t2h t) w
-    | (HashTarget trg, t) <- l
-    | w <- [ (1::PowHashNat) ..]
-    ]
+newtype WindowWidth = WindowWidth Natural
+
+-- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+window :: ChainwebVersion -> Maybe WindowWidth
+window Test = Nothing
+window TestWithTime = Nothing
+window TestWithPow = Just $! WindowWidth 5
+window Simulation = Nothing
+window Testnet00 = error "window: Epoch Window Width for Testnet00 not yet defined!"
+
+-- | The maximum number of bits that a single application of `adjust` can apply
+-- to some `HashTarget`. As mentioned in `adjust`, this value should be above
+-- \(e = 2.71828\cdots\).
+--
+newtype MaxAdjustment = MaxAdjustment Natural
+
+-- | The Proof-of-Work `MaxAdjustment` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+maxAdjust :: ChainwebVersion -> Maybe MaxAdjustment
+maxAdjust Test = Nothing
+maxAdjust TestWithTime = Nothing
+maxAdjust TestWithPow = Just $! MaxAdjustment 3
+maxAdjust Simulation = Nothing
+maxAdjust Testnet00 = error "maxAdjust: Max Adjustment for Testnet00 not yet defined!"
+
+-- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
+-- enforce a "minimum difficulty", beyond which mining cannot become easier.
+--
+-- See `adjust`.
+--
+prereduction :: ChainwebVersion -> Int
+prereduction Test = 0
+prereduction TestWithTime = 0
+prereduction TestWithPow = 7
+prereduction Simulation = 0
+prereduction Testnet00 = error "prereduction: Bit reduction for Testnet00 not yet defined!"
+
+-- | A new `HashTarget`, based on the rate of mining success over the previous N
+-- blocks.
+--
+-- == Epoch-based Difficulty Adjustment
+--
+-- This function represents a Bitcoin-inspired, "epoch-based" adjustment
+-- algorithm. For every N blocks (as defined by `WindowWidth`), we perform an
+-- adjustment.
+--
+-- === Terminology
+--
+-- `BlockHeader` stores a 256-bit measure of difficulty: `HashTarget`. More
+-- precisely, `HashTarget` is a derivation (seen below) of the `HashDifficulty`.
+-- `HashDifficulty` in itself is roughly a measure of the number of hashes
+-- necessary to "solve" a block. For non-POW testing scenarios that use trivial
+-- targets (i.e. `maxBound`), then difficulty is exactly the number of necessary
+-- hashes. For POW mining, this is offset. See `maxTarget`.
+--
+-- A `HashDifficulty` of 1 is considered the "easiest" difficulty, and
+-- represents a `HashTarget` of `maxTarget`. There must never be a difficulty of
+-- 0.
+--
+-- Given the same `Chainweb.Version.ChainwebVersion`, the functions
+-- `targetToDifficulty` and `difficultyToTarget` form an isomorphism between the
+-- above mentioned types.
+--
+-- === Justification
+--
+-- We define the maximum possible hash target (the "easiest" target) as follows:
+--
+-- \[
+-- \begin{align*}
+--   \text{MaxBound} &= 2^{256} - 1 \\
+--   \text{MaxTarget} &= \frac{\text{MaxBound}}{2^{\text{offset}}}
+-- \end{align*}
+-- \]
+--
+-- where /offset/ is some number of bits, 0 for trivial scenarios and some
+-- experimentally discovered \(N\) for real POW mining scenarios. For Bitcoin,
+-- \(N = 32\).
+--
+-- Given some difficulty \(D\), its corresponding `HashTarget` can be found by:
+--
+-- \[
+-- \text{Target} = \frac{\text{MaxTarget}}{D}
+-- \]
+--
+-- During adjustment, we seek to solve for some new \(D\). From the above, it
+-- follows that the expected number of hashes necessary to "solve" a block
+-- becomes:
+--
+-- \[
+-- \text{Expected} = \frac{D * \text{MaxBound}}{\text{MaxTarget}}
+-- \]
+--
+-- If we expect a block to be solved every \(R\) seconds, we find our total
+-- Network Hash Rate:
+--
+-- \[
+-- \text{HashRate} = \frac{\text{Expected}}{R}
+-- \]
+--
+-- But, as a block chain is a dynamic system, the real time it took to mine some
+-- block would likely not be exactly \(R\). This implies:
+--
+-- \[
+-- \begin{align*}
+--   \frac{\text{Expected}}{R} &= \text{HashRate} = \frac{\text{Expected}'}{M} \\
+--   \frac{D * \text{MaxBound}}{R * \text{MaxTarget}} &= \text{HashRate} = \frac{D' * \text{MaxBound}}{M * \text{MaxTarget}} \\
+--   \frac{D}{R} &= \text{HashRate} = \frac{D'}{M}
+-- \end{align*}
+-- \]
+--
+-- where \(D'\) is the known difficulty from the previous block, \(M\) is the
+-- average time in seconds it took to calculate the previous \(B\) blocks. The
+-- value of \(B\) is assumed to be configurable.
+--
+-- Given this, our new \(D\) is a simple ratio:
+--
+-- \[
+-- D = \frac{D' * R}{M}
+-- \]
+--
+-- /HashRate/ will of course not stay fixed as the network grows. Luckily, the
+-- difference in \(M\) values will naturally correct for this in the calculation
+-- of a new \(D\).
+--
+-- === Precision
+--
+-- In real systems, the difference between \(M\) and \(R\) may be minute. To
+-- ensure that:
+--
+--   * differences are not lost to integer-math rounding errors
+--   * adjustment actually occurs
+--   * small, incremental adjustments are allowed to build into greater change over time
+--   * `Word256`-based overflows do not occur
+--   * the algorithm is simple
+--
+-- we use the infinite-precision `Rational` type in the calculation of the new
+-- \(D\). Only when being converted to a final `HashTarget` is the non-integer
+-- precision discarded.
+--
+-- /Note/: Use of `Rational` is likely not our final solution, and complicates
+-- any cross-language spec we would write regarding adjustment algorithm
+-- expectations. For now, however, `Rational` is stable for a Haskell-only
+-- environment.
+--
+-- === Adjustment Limits
+--
+-- Spikes in /HashRate/ may occur as the mining network grows. To ensure that
+-- adjustment does not occur too quickly, we cap the total "significant bits of
+-- change" as to no more than \(Z\) bits in either the "harder" or "easier"
+-- direction at one time. Experimentally, it has been shown that \(Z\) should be
+-- greater than \(e = 2.71828\cdots\) (/source needed/). See `maxAdjust`.
+--
+adjust :: ChainwebVersion -> TimeSpan Int64 -> HashTarget -> HashTarget
+adjust ver (TimeSpan delta) oldTarget
+    -- Intent: When increasing the difficulty (thereby lowering the target
+    -- toward 0), the leading 1-bit must not move more than 3 bits at a time.
+    | newTarget < oldTarget = max newTarget (HashTarget $! oldNat `div` 8)
+    -- Intent: Cap the new target back down, if it somehow managed to go over
+    -- the maximum. This is possible during POW, since we assume
+    -- @maxTarget < maxBound@.
+    | newTarget > maxTarget ver = maxTarget ver
+    -- Intent: When decreasing the difficulty (thereby raising the target toward
+    -- `maxTarget`), ensure that the new target does not increase by more than 3
+    -- bits at a time. Using `countLeadingZeros` like this also helps avoid a
+    -- `Word256` overflow.
+    | countLeadingZeros oldNat - countLeadingZeros (nat newTarget) > maxAdj = HashTarget $! oldNat * 8
+    | otherwise = newTarget
+
+    -- DEBUGGING --
+    -- Uncomment the following to get a live view of difficulty adjustment. You
+    -- will have to readd a few imports, and also uncomment a few helper
+    -- functions below.
+
+    -- when (_blockChainId bh' == testChainId 0) $ do
+    --     printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG:%f\n=== RATE:%d\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
+    --         (show $ _blockChainId bh')
+    --         (show $ _blockHeight bh')
+    --         (floating avg)
+    --         blockRate
+    --         (floating oldDiff)
+    --         (floating newDiff)
+    --         (targetBits $ _blockTarget bh')
+    --         (targetBits newTarget)
+    --         (targetBits actual)
+    --     hFlush stdout
   where
-    n :: PowHashNat
-    n = int $ length l
+    br :: Natural
+    br = case blockRate ver of
+        Just (BlockRate n) -> int n
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
-    -- represent time span as integral number of milliseconds
-    --
-    t2h :: TimeSpan a -> PowHashNat
-    t2h t = int (coerce t :: a) `div` 1000
+    ww :: Natural
+    ww = case window ver of
+        Just (WindowWidth n) -> n
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
-    -- weight and n is in the order of 2^7
-    -- time spans are in the order of 2^17 milliseconds
-    --
-    -- Target should be < 2^231 (or difficulty should be larger than 2^25.
-    -- This corresponds to a hashrate of about 10M #/s with a 10s block time.
-    --
-    weightedTarget :: PowHashNat -> PowHashNat -> PowHashNat -> PowHashNat
-    weightedTarget target timeSpan weight
-        | nominator < target = error "arithmetic overflow in hash target calculation"
-        | denominator < timeSpan = error "arithmetic overfow in hash target calculation"
-        | otherwise = nominator `div` denominator
-      where
-        nominator = 2 * weight * target * t2h targetTime
-        denominator = n * (n + 1) * timeSpan
+    maxAdj :: Int
+    maxAdj = case maxAdjust ver of
+        Just (MaxAdjustment n) -> int n
+        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+
+    -- The average time in seconds that it took to mine each block in
+    -- the given window.
+    avg :: Rational
+    avg | delta < 0 = error "adjust: Impossibly negative delta!"
+        | otherwise = (int delta % int ww) / 1000000
+
+    -- The mining difficulty of the previous block (the parent) as a
+    -- function of its `HashTarget`.
+    oldDiff :: Rational
+    oldDiff = targetToDifficultyR ver oldTarget
+
+    -- The adjusted difficulty, following the formula explained in the
+    -- docstring of this function.
+    newDiff :: Rational
+    newDiff = oldDiff * int br / avg
+
+    newTarget :: HashTarget
+    newTarget = difficultyToTargetR ver newDiff
+
+    nat :: HashTarget -> PowHashNat
+    nat (HashTarget n) = n
+
+    oldNat :: PowHashNat
+    oldNat = nat oldTarget
+
+    -- floating :: Rational -> Double
+    -- floating = realToFrac
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -280,4 +560,3 @@ properties :: [(String, Property)]
 properties =
     [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
     ]
-

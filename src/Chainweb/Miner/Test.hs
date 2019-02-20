@@ -1,11 +1,8 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Miner.Test
@@ -14,30 +11,22 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- This is a miner for testing purposes only - it performs no Proof of Work, but
+-- instead simulates mining via a geometrically distributed thread delay.
 --
-module Chainweb.Miner.Test
-( MinerConfig(..)
-, configMeanBlockTimeSeconds
-, defaultMinerConfig
-, pMinerConfig
-, miner
-) where
 
-import Configuration.Utils
+module Chainweb.Miner.Test ( testMiner ) where
 
-import Control.Concurrent
-import Control.Lens hiding ((.=))
-import Control.Monad.STM
+import Control.Concurrent (threadDelay)
+import Control.Lens ((^?!))
+import Control.Monad.STM (atomically)
 
-import Data.Reflection hiding (int)
+import Data.Reflection (Given, give)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
+import Data.Word (Word64)
 
-import GHC.Generics (Generic)
-
-import Numeric.Natural
-
-import System.LogLevel
+import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
 
@@ -46,104 +35,108 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
-import Chainweb.NodeId
+import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.NodeId (NodeId)
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
-import Chainweb.WebBlockHeaderDB
+import Chainweb.Version (ChainwebVersion)
+import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
 
-import Data.DiGraph
-import Data.LogMessage
-
--- -------------------------------------------------------------------------- --
--- Configuration of Example
-
-newtype MinerConfig = MinerConfig
-    { _configMeanBlockTimeSeconds :: Natural
-    }
-    deriving (Show, Eq, Ord, Generic)
-
-makeLenses ''MinerConfig
-
-defaultMinerConfig :: MinerConfig
-defaultMinerConfig = MinerConfig
-    { _configMeanBlockTimeSeconds = 10
-    }
-
-instance ToJSON MinerConfig where
-    toJSON o = object
-        [ "meanBlockTimeSeconds" .= _configMeanBlockTimeSeconds o
-        ]
-
-instance FromJSON (MinerConfig -> MinerConfig) where
-    parseJSON = withObject "MinerConfig" $ \o -> id
-        <$< configMeanBlockTimeSeconds ..: "meanBlockTimeSeconds" % o
-
-pMinerConfig :: MParser MinerConfig
-pMinerConfig = id
-    <$< configMeanBlockTimeSeconds .:: option auto
-        % long "mean-block-time"
-        <> short 'b'
-        <> help "mean time for mining a block seconds"
+import Data.DiGraph (order)
+import Data.LogMessage (LogFunction)
 
 -- -------------------------------------------------------------------------- --
--- Miner
+-- Test Miner
 
-miner
+testMiner
     :: LogFunction
     -> MinerConfig
     -> NodeId
     -> CutDb
     -> WebBlockHeaderDb
     -> IO ()
-miner logFun conf nid cutDb wcdb = do
-    logg Info "Started Miner"
+testMiner logFun _ nid cutDb wcdb = do
+    logg Info "Started Test Miner"
     gen <- MWC.createSystemRandom
-    give wcdb $ go gen (1 :: Int)
 
+    ver <- getVer
+
+    give wcdb $ go gen ver 1
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
+    graph :: ChainGraph
     graph = _chainGraph cutDb
 
-    go :: Given WebBlockHeaderDb => MWC.GenIO -> Int -> IO ()
-    go gen i = do
+    getVer :: IO ChainwebVersion
+    getVer = do
+        c <- _cut cutDb
+        cid <- randomChainId c
+        pure . _blockChainwebVersion $ c ^?! ixg cid
 
-        -- mine new block
+    go :: Given WebBlockHeaderDb => MWC.GenIO -> ChainwebVersion -> Int -> IO ()
+    go gen ver !i = do
+        nonce0 <- MWC.uniform gen
+
+        -- Artificially delay the mining process since we are not using
+        -- proof-of-work mining.
         --
         d <- MWC.geometric1
-            (int (order graph) / (int (_configMeanBlockTimeSeconds conf) * 1000000))
-            gen
+                (int (order graph) / (meanBlockTime * 1000000))
+                gen
         threadDelay d
 
-        -- get current longest cut
+        -- Mine a new block
+        --
+        c' <- mine gen nonce0
+
+        logg Info $! "created new block" <> sshow i
+
+        -- Publish the new Cut into the CutDb (add to queue).
+        --
+        atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+
+        go gen ver (i + 1)
+      where
+        meanBlockTime :: Double
+        meanBlockTime = case blockRate ver of
+            Just (BlockRate n) -> int n
+            Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
+
+    mine :: Given WebBlockHeaderDb => MWC.GenIO -> Word64 -> IO Cut
+    mine gen !nonce = do
+        -- Get the current longest cut.
         --
         c <- _cut cutDb
 
-        -- pick ChainId to mine on
+        -- Randomly pick a chain to mine on.
         --
-        -- chose randomly
+        cid <- randomChainId c
+
+        -- The parent block the mine on. Any given chain will always
+        -- contain at least a genesis block, so this otherwise naughty
+        -- `^?!` will always succeed.
         --
+        let !p = c ^?! ixg cid
 
-        -- create new (test) block header
+        -- The hashing target to be lower than.
         --
-        let mine = do
-                cid <- randomChainId c
-                nonce <- MWC.uniform gen
+        let !target = _blockTarget p
 
-                testMine (Nonce nonce) nid cid c >>= \case
-                    Nothing -> mine
-                    Just x -> return x
-
-        c' <- mine
-
-        _ <- logg Info $ "created new block" <> sshow i
-
-        -- public cut into CutDb (add to queue)
+        -- The new block's creation time. Must come after any simulated
+        -- delay.
         --
-        atomically $ addCutHashes cutDb (cutToCutHashes Nothing c')
+        ct <- getCurrentTimeIntegral
 
-        -- continue
+        -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-        go gen (i + 1)
-
+        -- INVARIANT: `testMine` will succeed on the first attempt when
+        -- POW is not used.
+        --
+        testMine (Nonce nonce) target ct nid cid c >>= \case
+            Left BadNonce -> mine gen (succ nonce)
+            Left BadAdjacents -> mine gen nonce
+            Right (T2 _ newCut) -> pure newCut

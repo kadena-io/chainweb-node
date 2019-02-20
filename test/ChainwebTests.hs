@@ -79,7 +79,6 @@ suite = testGroup "ChainwebTests"
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         ]
 
-    , Chainweb.Test.MultiNode.test Warn TestWithTime 10 (Chainweb.Test.MultiNode.Seconds 120) Nothing
+    , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
     , Chainweb.Test.Pact.tests
     ]
-
