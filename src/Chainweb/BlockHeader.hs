@@ -97,6 +97,8 @@ module Chainweb.BlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
 , genesisBlockTarget
+, genesisBlockPayload
+, genesisBlockPayloadHash
 
 -- * Testing
 , testBlockHeader
@@ -141,7 +143,7 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId
-import Chainweb.Payload (BlockPayloadHash(..), decodeBlockPayloadHash, encodeBlockPayloadHash)
+import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
@@ -633,10 +635,19 @@ genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 -- TODO: characterize genesis block payload. Should this be the value of
 -- chainId instead of empty string?
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
+genesisBlockPayloadHash Test c
+    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload Test c
 genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
     putByteString "GENESIS:"
     encodeChainwebVersion v
     encodeChainId c
+
+genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
+genesisBlockPayload Test _ = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this chainweb version"
 
 -- FIXME: only for testing:
 --
@@ -704,6 +715,9 @@ instance TreeDbEntry BlockHeader where
 
 -- -------------------------------------------------------------------------- --
 -- Testing
+
+testBlockPayload :: BlockHeader -> BlockPayloadHash
+testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
 
 testBlockHeader'
     :: ChainNodeId
