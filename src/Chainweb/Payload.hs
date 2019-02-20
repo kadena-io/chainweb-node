@@ -269,10 +269,10 @@ instance HasTextRepresentation TransactionOutput where
 -- would be possible to discover the order of blocks from the block transactions
 -- structure which isn't the case. Instead the order of the blocks is discovered
 -- from the 'BlockHeader' chain and block transactions for a given block height
--- are looked up by @_blockPayloadTransactionsHash . _blockPayloadHash@.
+-- are looked up by @_blockPayloadTransactionsHash . _blockPayloadPayloadHash@.
 --
 data BlockPayload = BlockPayload
-    { _blockPayloadHash :: !BlockPayloadHash
+    { _blockPayloadPayloadHash :: !BlockPayloadHash
         -- ^ Hash of '_blockPayloadTransactionsHash' and '_blockPayloadTransactionsHash'.
         -- Primary key of 'BlockPayloadStore'.
 
@@ -288,7 +288,7 @@ data BlockPayload = BlockPayload
 
 instance IsCasValue BlockPayload where
     type CasKeyType BlockPayload = BlockPayloadHash
-    casKey = _blockPayloadHash
+    casKey = _blockPayloadPayloadHash
 
 instance HasMerkleLog ChainwebHashTag BlockPayload where
     type MerkleLogHeader BlockPayload = '[BlockTransactionsHash, BlockOutputsHash]
@@ -296,13 +296,13 @@ instance HasMerkleLog ChainwebHashTag BlockPayload where
 
     toLog a = merkleLog root entries
       where
-        BlockPayloadHash (MerkleLogHash root) = _blockPayloadHash a
+        BlockPayloadHash (MerkleLogHash root) = _blockPayloadPayloadHash a
         entries = _blockPayloadTransactionsHash a
             :+: _blockPayloadOutputsHash a
             :+: emptyBody
 
     fromLog l = BlockPayload
-        { _blockPayloadHash = BlockPayloadHash $ MerkleLogHash $ _merkleLogRoot l
+        { _blockPayloadPayloadHash = BlockPayloadHash $ MerkleLogHash $ _merkleLogRoot l
         , _blockPayloadTransactionsHash = txHash
         , _blockPayloadOutputsHash = outHash
         }
@@ -541,7 +541,7 @@ instance FromJSON PayloadData where
 payloadData :: BlockTransactions -> BlockPayload -> PayloadData
 payloadData txs payload = PayloadData
     { _payloadDataTransactions = _blockTransactions txs
-    , _payloadDataPayloadHash = _blockPayloadHash payload
+    , _payloadDataPayloadHash = _blockPayloadPayloadHash payload
     , _payloadDataTransactionsHash = _blockPayloadTransactionsHash payload
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
     }
