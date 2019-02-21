@@ -23,6 +23,7 @@ module Chainweb.Mempool.RestAPI.Client
   ) where
 
 ------------------------------------------------------------------------------
+import Control.Concurrent
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
@@ -30,6 +31,7 @@ import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Exception
 import Control.Monad
 import Control.Monad.Identity
+import Control.Monad.IO.Class
 import Data.Aeson.Types (FromJSON, ToJSON)
 import Data.Int
 import Data.IORef
@@ -47,9 +49,11 @@ import Chainweb.Mempool.RestAPI
 import Chainweb.Version
 ------------------------------------------------------------------------------
 
+import qualified Data.ByteString.Char8 as B
 
+-- TODO: all of these operations need timeout support.
 toMempool
-    :: (FromJSON t, ToJSON t)
+    :: (Show t, FromJSON t, ToJSON t)
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
@@ -71,13 +75,18 @@ toMempool version chain txcfg blocksizeLimit env =
                     Streams.mapM_ (cb . V.fromList) >>=
                     Streams.skipToEof
 
-    subscribe = mask_ $ do
-        chan <- atomically $ TBMChan.newTBMChan 8
-        t <- Async.asyncWithUnmask $ subThread chan
-        let finalize = Async.uninterruptibleCancel t
-        let sub = Subscription chan finalize
-        ref <- newIORef sub
-        void $ mkWeakIORef ref finalize
+    subscribe = do
+        mv <- newEmptyMVar
+        ref <- mask_ $ do
+            chan <- atomically $ TBMChan.newTBMChan 8
+            t <- Async.asyncWithUnmask $ subThread mv chan
+            let finalize = Async.uninterruptibleCancel t
+            let sub = Subscription chan finalize
+            r <- newIORef sub
+            void $ mkWeakIORef r finalize
+            return r
+        -- make sure subscription is initialized before returning.
+        takeMVar mv
         return ref
 
     shutdown = return ()
@@ -87,14 +96,16 @@ toMempool version chain txcfg blocksizeLimit env =
     markConfirmed _ = unsupported
     reintroduce _ = unsupported
 
-    subThread chan restore =
-        flip finally (atomically $ TBMChan.closeTBMChan chan) $ restore $ do
-            is <- go (subscribeClient version chain)
-
-            Streams.filter (not . null) is
-                >>= Streams.mapM_ (atomically . TBMChan.writeTBMChan chan
-                                              . V.fromList)
-                >>= Streams.skipToEof
+    subThread mv chan restore =
+        flip finally (tryPutMVar mv () `finally`
+                      (atomically $ TBMChan.closeTBMChan chan)) $
+        restore $ flip runClientM env $ do
+            is <- subscribeClient version chain
+            liftIO (Streams.mapM_ (const $ tryPutMVar mv ()) is
+                    >>= Streams.filter (not . null)
+                    >>= Streams.mapM_ (atomically . TBMChan.writeTBMChan chan
+                                                  . V.fromList)
+                    >>= Streams.skipToEof)
 
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
@@ -189,12 +200,14 @@ getPendingClient v c = runIdentity $ do
 ------------------------------------------------------------------------------
 subscribeClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t, Show t)
     => ClientM (Streams.InputStream [t])
-subscribeClient_ = client (mempoolSubscribeApi @v @c)
+subscribeClient_ = do
+    is <- client (mempoolSubscribeApi @v @c)
+    liftIO $ evaluate is
 
 subscribeClient
-  :: FromJSON t
+  :: (FromJSON t, Show t)
   => ChainwebVersion
   -> ChainId
   -> ClientM (Streams.InputStream [t])
@@ -208,7 +221,7 @@ subscribeClient v c = runIdentity $ do
 #if MIN_VERSION_servant(0,15,0)
 #error TODO: need to support servant >= 0.15
 #else
-asIoStream :: ResultStream a -> (Streams.InputStream a -> IO b) -> IO b
+asIoStream :: Show a => ResultStream a -> (Streams.InputStream a -> IO b) -> IO b
 asIoStream (ResultStream func) withFunc = func $ \popper -> do
     s <- Streams.makeInputStream $ f popper
     withFunc s
@@ -221,8 +234,9 @@ asIoStream (ResultStream func) withFunc = func $ \popper -> do
             (Just (Right x)) -> return $! Just x
 
 
-instance BuildFromStream a (Streams.InputStream a) where
-  buildFromStream rs = unsafePerformIO go
+instance Show a => BuildFromStream a (Streams.InputStream a) where
+  buildFromStream rs = let out = unsafePerformIO go
+                       in out `seq` out
     where
       createThread = do
           chan <- atomically $ Chan.newTBMChan 4
@@ -241,5 +255,9 @@ instance BuildFromStream a (Streams.InputStream a) where
 
       go = do
           (ref, _) <- createThread
-          Streams.makeInputStream (readIORef ref >>= atomically . Chan.readTBMChan . fst)
+          Streams.makeInputStream $ do
+              chan <- fst <$> readIORef ref
+              m <- atomically $ Chan.readTBMChan chan
+              return m
+
 #endif

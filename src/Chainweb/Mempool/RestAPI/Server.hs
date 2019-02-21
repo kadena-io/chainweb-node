@@ -40,6 +40,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
+import qualified Data.ByteString.Char8 as B
+
 ------------------------------------------------------------------------------
 insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
 insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)
@@ -101,15 +103,18 @@ getPendingHandler mempool = liftIO $ mask_ $ do
 subscribeHandler :: Show t => Int -> MempoolBackend t -> Handler (Streams.InputStream [t])
 subscribeHandler keepaliveSecs mempool = liftIO $ do
     subRef <- mempoolSubscribe mempool
-    Streams.makeInputStream (streamAction subRef)
+    s <- Streams.fromList [[],[]]  -- send empty message to start
+    -- send empty messages -- servant is messing up the framing
+    t <- Streams.makeInputStream (streamAction subRef) >>= Streams.concatLists
+    Streams.appendInputStream s t
 
   where
     streamAction subRef = do
         chan <- mempoolSubChan <$> readIORef subRef
         m <- tout $ atomically $ Chan.readTBMChan chan
         case m of
-          Nothing -> return $! Just []   -- keepalive
-          Just (Just xs) -> return $! Just $! V.toList xs
+          Nothing -> return $! Just [[],[]]   -- keepalive
+          Just (Just xs) -> return $! Just [ V.toList xs, [] ]
           Just Nothing -> return Nothing
 
     tout = timeout (keepaliveSecs * 1000000)

@@ -23,7 +23,6 @@ module Chainweb.Mempool.RestAPI
   , SomeMempool(..)
   , someMempoolVal
   , MempoolApi
-  , MempoolApi_
   , mempoolApi
 
   , MempoolInsertApi
@@ -52,6 +51,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
+import qualified Data.ByteString.Char8 as B
+
 ------------------------------------------------------------------------------
 -- type-indexed mempool
 data Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) = Mempool_ {
@@ -74,18 +75,16 @@ someMempoolVal v cid m =
 
 ------------------------------------------------------------------------------
 -- servant sub-api
-type MempoolApi (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> MempoolApi_ v c t
 mempoolApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) .
               Proxy (MempoolApi v c t)
 mempoolApi = Proxy
 
-type MempoolApi_ v c t = MempoolInsertApi v c t :<|>
-                         MempoolMemberApi v c t :<|>
-                         MempoolLookupApi v c t :<|>
-                         MempoolGetBlockApi v c t :<|>
-                         MempoolGetPendingApi v c t :<|>
-                         MempoolSubscribeApi v c t
+type MempoolApi v c t = MempoolInsertApi v c t :<|>
+                        MempoolMemberApi v c t :<|>
+                        MempoolLookupApi v c t :<|>
+                        MempoolGetBlockApi v c t :<|>
+                        MempoolGetPendingApi v c t :<|>
+                        MempoolSubscribeApi v c t
 
 type MempoolInsertApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "insert" :>
@@ -105,10 +104,10 @@ type MempoolGetBlockApi v c t =
 #else
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
-    StreamPost NewlineFraming JSON (Streams.InputStream [TransactionHash])
+    StreamPost NetstringFraming JSON (Streams.InputStream [TransactionHash])
 type MempoolSubscribeApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "subscribe" :>
-    StreamPost NewlineFraming JSON (Streams.InputStream [t])
+    StreamPost NetstringFraming JSON (Streams.InputStream [t])
 #endif
 
 mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
@@ -124,15 +123,15 @@ mempoolLookupApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
 mempoolLookupApi = Proxy
 
 mempoolGetBlockApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolGetBlockApi v c t)
+                   . Proxy (MempoolGetBlockApi v c t)
 mempoolGetBlockApi = Proxy
 
 mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolGetPendingApi v c t)
+                     . Proxy (MempoolGetPendingApi v c t)
 mempoolGetPendingApi = Proxy
 
 mempoolSubscribeApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolSubscribeApi v c t)
+                          . Proxy (MempoolSubscribeApi v c t)
 mempoolSubscribeApi = Proxy
 
 
@@ -146,7 +145,7 @@ instance ToSourceIO t (Streams.InputStream t) where
       slurp = maybe Stop (flip Yield go) <$> Streams.read is
 #else
 
-instance ToStreamGenerator (Streams.InputStream a) a where
+instance Show a => ToStreamGenerator (Streams.InputStream a) a where
   toStreamGenerator s = StreamGenerator $ \firstIO restIO -> do
       firstRef <- newIORef True
       Streams.mapM_ (f firstRef firstIO restIO) s >>= Streams.skipToEof
