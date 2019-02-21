@@ -303,7 +303,7 @@ newtype BlockRate = BlockRate Seconds
 -- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
 blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test = Nothing
-blockRate TestWithTime = Just $! BlockRate 10
+blockRate TestWithTime = Just $! BlockRate 4
 blockRate TestWithPow = Just $! BlockRate 10
 blockRate Simulation = Nothing
 blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"

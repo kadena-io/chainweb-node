@@ -339,7 +339,7 @@ test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     l = lowerStats v seconds
     u = upperStats v seconds
 
-    label = "Chainweb Network (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+    label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
 -- -------------------------------------------------------------------------- --
 -- Results

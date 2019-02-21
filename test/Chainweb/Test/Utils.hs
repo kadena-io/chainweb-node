@@ -63,6 +63,14 @@ module Chainweb.Test.Utils
 , assertExpectation
 , assertGe
 , assertLe
+
+-- * Scheduling Tests
+, RunStyle(..)
+, ScheduledTest
+, schedule
+, testCaseSch
+, testGroupSch
+, testPropertySch
 ) where
 
 import Control.Concurrent
@@ -96,6 +104,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 import Text.Printf (printf)
 
@@ -534,3 +543,33 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
+
+-- -------------------------------------------------------------------------- --
+-- Scheduling Tests
+
+data RunStyle = Sequential | Parallel
+
+-- | A structure similar to that procuded by `testGroup`, except that we can
+-- optionally schedule groups of this type.
+--
+data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree }
+
+testCaseSch :: String -> Assertion -> ScheduledTest
+testCaseSch l a = ScheduledTest l $ testCase l a
+
+testGroupSch :: String -> [TestTree] -> ScheduledTest
+testGroupSch l ts = ScheduledTest l $ testGroup l ts
+
+testPropertySch :: Testable a => String -> a -> ScheduledTest
+testPropertySch l p = ScheduledTest l $ testProperty l p
+
+-- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
+-- each group will be made to run one after another. This can be used to prevent
+-- various tests from starving each other of resources.
+--
+schedule :: RunStyle -> [ScheduledTest] -> [TestTree]
+schedule _ [] = []
+schedule Parallel tgs = map _schTest tgs
+schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
+  where
+    f a b = after AllFinish (_schLabel a) $ _schTest b
