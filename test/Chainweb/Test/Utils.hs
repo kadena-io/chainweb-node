@@ -200,7 +200,7 @@ tree v g = do
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
 genesis v = do
-    cid <- arbitrary
+    let cid = testChainId 0
     return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
