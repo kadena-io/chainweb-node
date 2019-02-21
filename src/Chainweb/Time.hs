@@ -193,11 +193,11 @@ floorTime (Time a) = Time (floorTimeSpan a)
 
 minTime :: Bounded a => Time a
 minTime = minBound
-{-# INLINE maxTime #-}
+{-# INLINE minTime #-}
 
 maxTime :: Bounded a => Time a
 maxTime = maxBound
-{-# INLINE minTime #-}
+{-# INLINE maxTime #-}
 
 -- -------------------------------------------------------------------------- --
 -- Time Span Values

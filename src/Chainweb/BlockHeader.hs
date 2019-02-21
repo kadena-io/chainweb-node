@@ -97,12 +97,15 @@ module Chainweb.BlockHeader
 , genesisBlockHeaders
 , isGenesisBlockHeader
 , genesisBlockTarget
+, genesisBlockPayload
+, genesisBlockPayloadHash
 
 -- * Testing
 , testBlockHeader
 , testBlockHeader'
 , testBlockHeaders
 , testBlockHeadersWithNonce
+, testBlockPayload
 ) where
 
 import Control.Arrow ((&&&))
@@ -141,6 +144,7 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId
+import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
@@ -202,27 +206,6 @@ encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 
 decodeBlockWeight :: MonadGet m => m BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
-
--- -------------------------------------------------------------------------- --
--- BlockPayloadHash
-
-newtype BlockPayloadHash = BlockPayloadHash MerkleLogHash
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (Hashable, ToJSON, FromJSON)
-
-instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
-    type Tag BlockPayloadHash = 'BlockPayloadHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockPayloadHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockPayloadHash
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
-encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
-
-decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
-decodeBlockPayloadHash = BlockPayloadHash <$> decodeMerkleLogHash
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -653,11 +636,22 @@ genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
 -- TODO: characterize genesis block payload. Should this be the value of
 -- chainId instead of empty string?
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
+genesisBlockPayloadHash Test c
+    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload Test c
 genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
     putByteString "GENESIS:"
     encodeChainwebVersion v
     encodeChainId c
 
+genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
+genesisBlockPayload Test _ = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this chainweb version"
+
+-- FIXME: only for testing:
+--
 hashPayload :: HasChainId p => ChainwebVersion -> p -> ByteString -> BlockPayloadHash
 hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
     $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
@@ -723,11 +717,16 @@ instance TreeDbEntry BlockHeader where
 -- -------------------------------------------------------------------------- --
 -- Testing
 
+testBlockPayload :: BlockHeader -> BlockPayloadHash
+testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
+
 testBlockHeader'
     :: ChainNodeId
         -- ^ Miner
     -> BlockHashRecord
         -- ^ Adjacent parent hashes
+    -> BlockPayloadHash
+        -- ^ payload hash
     -> Nonce
         -- ^ Randomness to affect the block hash
     -> HashTarget
@@ -737,17 +736,17 @@ testBlockHeader'
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader' m adj n ht ct b = fromLog $ newMerkleLog
+testBlockHeader' miner adj pay nonce target t b = fromLog $ newMerkleLog
     $ _blockHash b
-    :+: ht
-    :+: hashPayload (_blockChainwebVersion b) cid "TEST PAYLOAD"
-    :+: BlockCreationTime ct
-    :+: n
+    :+: target
+    :+: pay
+    :+: BlockCreationTime t
+    :+: nonce
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty v ht)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
     :+: _blockHeight b + 1
     :+: v
-    :+: m
+    :+: miner
     :+: MerkleLogBody (blockHashRecordToSequence adj)
   where
     cid = _chainId b
@@ -765,7 +764,8 @@ testBlockHeader
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader m adj n ht b = testBlockHeader' m adj n ht (add second t) b
+testBlockHeader miner adj nonce target b
+    = testBlockHeader' miner adj (testBlockPayload b) nonce target (add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 

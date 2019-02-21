@@ -68,6 +68,7 @@ module Data.DiGraph
 
 -- * Distances, Shortest Paths, and Diameter
 , ShortestPathCache
+, shortestPathCache
 , shortestPath
 , shortestPath_
 , distance
@@ -129,7 +130,7 @@ type DiEdge a = (a, a)
 --
 newtype DiGraph a = DiGraph { unGraph :: HM.HashMap a (HS.HashSet a) }
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
+    deriving anyclass (NFData, Hashable)
 
 instance (Hashable a, Eq a) => Semigroup (DiGraph a) where
     (DiGraph a) <> (DiGraph b) = DiGraph (HM.unionWith (<>) a b)
@@ -376,6 +377,8 @@ data ShortestPathCache a = ShortestPathCache
     FW.ShortestPathMatrix
     (HM.HashMap a Int)
     (HM.HashMap Int a)
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 shortestPathCache :: Eq a => Hashable a => DiGraph a -> ShortestPathCache a
 shortestPathCache g = ShortestPathCache m vmap rvmap

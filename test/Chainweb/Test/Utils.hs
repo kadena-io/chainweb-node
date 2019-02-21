@@ -118,8 +118,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
-import qualified Data.DiGraph as G
-
 import Network.X509.SelfSigned
 
 import Numeric.AffineSpace
@@ -130,7 +128,7 @@ import qualified P2P.Node.PeerDB as P2P
 -- BlockHeaderDb Generation
 
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+toyGenesis cid = genesisBlockHeader Test singletonChainGraph cid
 
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
@@ -200,8 +198,8 @@ tree v g = do
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
 genesis v = do
-    cid <- arbitrary
-    return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
+    let cid = testChainId 0
+    return $ genesisBlockHeader v singletonChainGraph cid
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -232,14 +230,13 @@ trunk g h = do
 header :: BlockHeader -> Gen BlockHeader
 header h = do
     nonce <- Nonce <$> chooseAny
-    payload <- arbitrary
     miner <- arbitrary
     return
         . fromLog
         . newMerkleLog
         $ _blockHash h
             :+: target
-            :+: payload
+            :+: testBlockPayload h
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
             :+: nonce
             :+: _chainId h
@@ -257,10 +254,10 @@ header h = do
 -- Test Chain Database Configurations
 
 peterson :: ChainGraph
-peterson = toChainGraph (testChainId . int) G.petersonGraph
+peterson = petersonChainGraph
 
 singleton :: ChainGraph
-singleton = toChainGraph (testChainId . int) G.singleton
+singleton = singletonChainGraph
 
 testBlockHeaderDbs
     :: ChainGraph

@@ -31,10 +31,10 @@ import Control.Monad
 
 import Data.Aeson hiding (decode, encode)
 import Data.Bifunctor
+import Data.Bytes.Put
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
-import Data.Serialize (decode, encode)
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -53,6 +53,7 @@ import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash
+import Chainweb.Payload
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
@@ -73,10 +74,18 @@ instance FromHttpApiData HostAddress where
     parseUrlPiece = first sshow . readHostAddressBytes . T.encodeUtf8
 
 instance FromHttpApiData BlockHash where
-    parseUrlPiece = first sshow . (decode <=< first show . decodeB64UrlNoPaddingText)
+    parseUrlPiece = first sshow
+        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData BlockHash where
-    toUrlPiece = encodeB64UrlNoPaddingText . encode
+    toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+
+instance FromHttpApiData BlockPayloadHash where
+    parseUrlPiece = first sshow
+        . (runGet decodeBlockPayloadHash <=< decodeB64UrlNoPaddingText)
+
+instance ToHttpApiData BlockPayloadHash where
+    toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
 
 instance FromHttpApiData ChainwebVersion where
     parseUrlPiece = first T.pack . eitherFromText
@@ -165,6 +174,13 @@ instance ToParamSchema BlockHash where
         & maxLength ?~ int merkleLogHashBytesCount
         & minLength ?~ int merkleLogHashBytesCount
 
+instance ToParamSchema BlockPayloadHash where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & format ?~ "byte"
+        & maxLength ?~ int merkleLogHashBytesCount
+        & minLength ?~ int merkleLogHashBytesCount
+
 instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
@@ -242,6 +258,40 @@ instance ToSchema BlockHash where
     declareNamedSchema _ = return $ NamedSchema (Just "Key") $ byteSchema
         & minLength ?~ int merkleLogHashBytesCount
         & maxLength ?~ int merkleLogHashBytesCount
+
+instance ToSchema BlockPayloadHash where
+    declareNamedSchema _ = return $ NamedSchema (Just "BlockPayloadHash") $ byteSchema
+        & minLength ?~ int merkleLogHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
+
+instance ToSchema BlockTransactionsHash where
+    declareNamedSchema _ = return $ NamedSchema (Just "BlockTransactionsHash") $ byteSchema
+        & minLength ?~ int merkleLogHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
+
+instance ToSchema BlockOutputsHash where
+    declareNamedSchema _ = return $ NamedSchema (Just "BlockOutputsHash") $ byteSchema
+        & minLength ?~ int merkleLogHashBytesCount
+        & maxLength ?~ int merkleLogHashBytesCount
+
+instance ToSchema Transaction where
+    declareNamedSchema _ = return $ NamedSchema (Just "Transaction") $ byteSchema
+
+instance ToSchema PayloadData where
+    declareNamedSchema _ = do
+        transactionsSchema <- declareSchemaRef (Proxy @[Transaction])
+        payloadHashSchema <- declareSchemaRef (Proxy @BlockPayloadHash)
+        transactionsHashSchema <- declareSchemaRef (Proxy @BlockTransactionsHash)
+        outputsHashSchema <- declareSchemaRef (Proxy @BlockOutputsHash)
+        return $ NamedSchema (Just "PayloadData") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("transactions", transactionsSchema)
+                , ("payloadHash", payloadHashSchema)
+                , ("transactionsHash", transactionsHashSchema)
+                , ("outputsHash", outputsHashSchema)
+                ]
+            & required .~ [ "limit", "items" ]
 
 instance ToSchema BlockHeader where
     declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema

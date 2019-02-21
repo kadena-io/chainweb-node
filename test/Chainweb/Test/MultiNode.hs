@@ -78,7 +78,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.DiGraph
 import Data.LogMessage
 
 import P2P.Node.Configuration

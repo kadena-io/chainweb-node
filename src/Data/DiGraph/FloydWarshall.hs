@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Data.DiGraph.FloydWarshall
@@ -32,10 +35,14 @@ module Data.DiGraph.FloydWarshall
 , shortestPaths_
 ) where
 
+import Control.DeepSeq
+
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Massiv.Array as M
+
+import GHC.Generics
 
 import Numeric.Natural
 
@@ -75,6 +82,8 @@ toAdjacencySets = ifoldlS f mempty
 -- Floyd Warshall with Paths
 
 newtype ShortestPathMatrix = ShortestPathMatrix (Array U Ix2 (Double, Int))
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (NFData)
 
 -- Shortest path computation for integral matrixes
 --
