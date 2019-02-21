@@ -45,6 +45,10 @@ module Chainweb.Payload.PayloadStore
 , transactionDb
 , emptyPayloadDb
 
+-- ** Initialize Payload Database with Genesis Payloads
+
+, initializePayloadDb
+
 -- **  insert new payload
 
 , addPayload
@@ -53,11 +57,15 @@ module Chainweb.Payload.PayloadStore
 
 import Control.Lens
 
+import Data.Foldable
 import qualified Data.Sequence as S
 
 -- internal modules
 
+import Chainweb.BlockHeader
+import Chainweb.Graph
 import Chainweb.Payload
+import Chainweb.Version
 
 import Data.CAS
 
@@ -170,6 +178,23 @@ type PayloadCas cas =
 
 emptyPayloadDb :: PayloadCas cas => IO (PayloadDb cas)
 emptyPayloadDb = PayloadDb <$> emptyTransactionDb <*> emptyPayloadCache
+
+-- -------------------------------------------------------------------------- --
+-- Initialize a PayloadDb with Genesis Payloads
+
+-- | Initialize a PayloadDb with genesis payloads for the given chainweb
+-- version.
+--
+initializePayloadDb
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> PayloadDb cas
+    -> IO ()
+initializePayloadDb v db = traverse_ initForChain $ chainIds_ $ _chainGraph v
+  where
+    initForChain cid = do
+        let (txs, outs) = genesisBlockPayload v cid
+        addNewPayload db $ S.zip (_blockTransactions txs) (_blockOutputs outs)
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
