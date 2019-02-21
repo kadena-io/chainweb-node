@@ -65,29 +65,37 @@ pactTestSuite = do
         , pactServiceTests ]
 
 suite :: TestTree
-suite = testGroup "Unit Tests"
-            [ testGroup "BlockHeaderDb"
-                [ Chainweb.Test.BlockHeaderDB.tests
-                , Chainweb.Test.TreeDB.RemoteDB.tests
-                , Chainweb.Test.TreeDB.Persistence.tests
-                , Chainweb.Test.TreeDB.Sync.tests
-                ]
-            , Chainweb.Test.Store.CAS.FS.tests
-            , Chainweb.Test.Store.Git.tests
-            , Chainweb.Test.Roundtrips.tests
-            , Chainweb.Test.RestAPI.tests
-            , Chainweb.Test.DiGraph.tests
-            , Chainweb.Test.Mempool.InMem.tests
-            , Chainweb.Test.Mempool.Socket.tests
-            , Chainweb.Test.Mempool.Sync.tests
-        --     , Chainweb.Test.Mempool.Websocket.tests
-            , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
-            , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
-            , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
-            , testProperties "Data.DiGraph" Data.DiGraph.properties
-            , testGroup "Network.X05.SelfSigned.Test"
-                [ Network.X509.SelfSigned.Test.tests
-                ]
-            , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
-            , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+suite = testGroup "ChainwebTests"
+    [ testGroup "Chainweb Unit Tests"
+        [ testGroup "BlockHeaderDb"
+            [ Chainweb.Test.BlockHeaderDB.tests
+            , Chainweb.Test.TreeDB.RemoteDB.tests
+            , Chainweb.Test.TreeDB.Persistence.tests
+            , Chainweb.Test.TreeDB.Sync.tests
             ]
+        , Chainweb.Test.Store.CAS.FS.tests
+        , Chainweb.Test.Store.Git.tests
+        , Chainweb.Test.Roundtrips.tests
+        , Chainweb.Test.RestAPI.tests
+        , Chainweb.Test.DiGraph.tests
+        , Chainweb.Test.Mempool.InMem.tests
+        , Chainweb.Test.Mempool.Socket.tests
+        , Chainweb.Test.Mempool.Sync.tests
+--         , Chainweb.Test.Mempool.Websocket.tests
+        , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
+        , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+        , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
+        , testProperties "Data.DiGraph" Data.DiGraph.properties
+        , testGroup "Network.X05.SelfSigned.Test"
+            [ Network.X509.SelfSigned.Test.tests
+            ]
+        , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
+        , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+        ]
+    , after AllFinish "Chainweb Unit Tests" $ testGroup "Pact Tests"
+        [ Chainweb.Test.Pact.tests
+        ]
+    , after AllFinish "Pact Tests" $ testGroup "Slow Tests"
+        [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
+        ]
+    ]
