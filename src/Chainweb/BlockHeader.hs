@@ -361,6 +361,10 @@ instance HasChainId BlockHeader where
     _chainId = _blockChainId
     {-# INLINE _chainId #-}
 
+instance HasChainwebVersion BlockHeader where
+    _chainwebVersion = _blockChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
 makeLenses ''BlockHeader
 
 instance Serialize BlockHeader where

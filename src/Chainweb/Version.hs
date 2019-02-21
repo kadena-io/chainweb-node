@@ -39,9 +39,13 @@ module Chainweb.Version
 , Sing(SChainwebVersion)
 , SChainwebVersion
 
+-- * HasChainwebVersion
+, HasChainwebVersion(..)
+
 ) where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -51,7 +55,7 @@ import Data.Hashable (Hashable)
 import Data.Proxy
 import qualified Data.Text as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 import GHC.TypeLits
 
 -- internal modules
@@ -207,3 +211,22 @@ instance SingKind ChainwebVersionT where
 
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
+
+-- -------------------------------------------------------------------------- --
+-- HasChainwebVersion Class
+
+class HasChainwebVersion a where
+    _chainwebVersion :: a -> ChainwebVersion
+    _chainwebVersion = view chainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+    chainwebVersion :: Getter a ChainwebVersion
+    chainwebVersion = to _chainwebVersion
+    {-# INLINE chainwebVersion #-}
+
+    {-# MINIMAL _chainwebVersion | chainwebVersion #-}
+
+instance HasChainwebVersion ChainwebVersion where
+    _chainwebVersion = id
+    {-# INLINE _chainwebVersion #-}
+
