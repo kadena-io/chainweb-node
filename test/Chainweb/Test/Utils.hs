@@ -66,7 +66,7 @@ module Chainweb.Test.Utils
 
 -- * Scheduling Tests
 , RunStyle(..)
-, Scheduled
+, ScheduledTest
 , schedule
 , testCaseSch
 , testGroupSch
@@ -552,22 +552,22 @@ data RunStyle = Sequential | Parallel
 -- | A structure similar to that procuded by `testGroup`, except that we can
 -- optionally schedule groups of this type.
 --
-data Scheduled = Scheduled { _schLabel :: String , _schTest :: TestTree }
+data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree }
 
-testCaseSch :: String -> Assertion -> Scheduled
-testCaseSch l a = Scheduled l $ testCase l a
+testCaseSch :: String -> Assertion -> ScheduledTest
+testCaseSch l a = ScheduledTest l $ testCase l a
 
-testGroupSch :: String -> [TestTree] -> Scheduled
-testGroupSch l ts = Scheduled l $ testGroup l ts
+testGroupSch :: String -> [TestTree] -> ScheduledTest
+testGroupSch l ts = ScheduledTest l $ testGroup l ts
 
-testPropertySch :: Testable a => String -> a -> Scheduled
-testPropertySch l p = Scheduled l $ testProperty l p
+testPropertySch :: Testable a => String -> a -> ScheduledTest
+testPropertySch l p = ScheduledTest l $ testProperty l p
 
 -- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
 -- each group will be made to run one after another. This can be used to prevent
 -- various tests from starving each other of resources.
 --
-schedule :: RunStyle -> [Scheduled] -> [TestTree]
+schedule :: RunStyle -> [ScheduledTest] -> [TestTree]
 schedule _ [] = []
 schedule Parallel tgs = map _schTest tgs
 schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)

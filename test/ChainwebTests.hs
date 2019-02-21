@@ -37,7 +37,7 @@ import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
-import Chainweb.Test.Utils (RunStyle(..), schedule, testGroupSch)
+import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
 import qualified Chainweb.Utils.Paging (properties)
 import Chainweb.Version
 
@@ -51,22 +51,22 @@ import qualified P2P.Node.PeerDB (properties)
 main :: IO ()
 main = do
   pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
-  let allTests = testGroup "Chainweb Tests"
-                     [ suite
-                     , pactSuite
-                     , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing ]
+  let allTests =
+        testGroup "Chainweb Tests"
+        . schedule Sequential
+        $ pactSuite : suite
   defaultMain allTests
 
-pactTestSuite :: IO TestTree
+pactTestSuite :: IO ScheduledTest
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
     pactServiceTests <- Chainweb.Test.Pact.PactService.tests
-    return $ testGroup "Chainweb-Pact Tests"
+    pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
         , pactServiceTests ]
 
-suite :: TestTree
-suite = testGroup "ChainwebTests" $ schedule Sequential
+suite :: [ScheduledTest]
+suite =
     [ testGroupSch "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests
@@ -92,9 +92,6 @@ suite = testGroup "ChainwebTests" $ schedule Sequential
             ]
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        ]
-    , testGroupSch "Pact Tests"
-        [ Chainweb.Test.Pact.tests
         ]
     , testGroupSch "Slow Tests"
         [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
