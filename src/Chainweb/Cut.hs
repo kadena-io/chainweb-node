@@ -73,7 +73,6 @@ module Chainweb.Cut
 
 , MineFailure(..)
 , testMine
-, testMineCut
 , randomChainId
 , arbitraryChainGraphChainId
 , giveNewWebChain
@@ -102,7 +101,6 @@ import Control.Monad hiding (join)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Bool (bool)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -140,12 +138,13 @@ import Chainweb.ChainId
 import Chainweb.Difficulty (HashTarget, checkTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
-import Chainweb.Time (Time, getCurrentTimeIntegral, minTime)
+import Chainweb.Time (Time, getCurrentTimeIntegral, second)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -564,30 +563,33 @@ testMine
     => Nonce
     -> HashTarget
     -> Time Int64
+    -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMine n ht ct nid i c =
-    forM (testMineCut n ht ct nid i c) $ \p@(T2 h _) ->
+testMine n target t pay nid i c =
+    forM (createNewCut n target t pay nid i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
--- | Only produces a new cut but doesn't insert it into the chain database.
+-- | Create a new block. Only produces a new cut but doesn't insert it into the
+-- chain database.
 --
-testMineCut
+createNewCut
     :: HasCallStack
     => HasChainId cid
     => Nonce
     -> HashTarget
     -> Time Int64
+    -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> Either MineFailure (T2 BlockHeader Cut)
-testMineCut n ht ct nid i c = do
-    h0 <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    h <- bool (Left BadNonce) (Right h0) . checkTarget ht $ _blockPow h0
-    Right $! T2 h (c & cutHeaders . ix cid .~ h)
+createNewCut n target t pay nid i c = do
+    h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
+    unless (checkTarget target $ _blockPow h) $ Left BadNonce
+    return $ T2 h (c & cutHeaders . ix cid .~ h)
   where
     cid = _chainId i
 
@@ -597,7 +599,7 @@ testMineCut n ht ct nid i c = do
     p = c ^?! ixg cid
 
     newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as n ht ct p
+    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as pay n target t p
 
     -- | Try to get all adjacent hashes dependencies.
     --
@@ -610,6 +612,25 @@ testMineCut n ht ct nid i c = do
         | _blockHeight b == h = Just $! _blockHash b
         | _blockHeight b == h + 1 = Just $! _blockParent b
         | otherwise = Nothing
+
+-- | Create a new cut where the new block has a creation time of one second
+-- after its parent.
+--
+createNewCutWithoutTime
+    :: HasCallStack
+    => HasChainId cid
+    => Nonce
+    -> HashTarget
+    -> BlockPayloadHash
+    -> NodeId
+    -> cid
+    -> Cut
+    -> Maybe (T2 BlockHeader Cut)
+createNewCutWithoutTime n target pay nid i c
+    = hush $ createNewCut n target (add second t) pay nid i c
+  where
+    cid = _chainId i
+    BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid
 
 randomChainId :: HasChainGraph g => g -> IO ChainId
 randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
@@ -640,7 +661,10 @@ arbitraryCut = T.sized $ \s -> do
     mine c cid = do
         n <- Nonce <$> T.arbitrary
         nid <- T.arbitrary
-        return . hush $ testMineCut n (genesisBlockTarget Test) minTime nid cid c
+        let pay = hashPayload Test cid "TEST PAYLOAD"
+        return $ createNewCutWithoutTime n target pay nid cid c
+
+    target = genesisBlockTarget Test
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList chainIds)
@@ -672,8 +696,11 @@ arbitraryWebChainCut initialCut = do
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
         nid <- T.pick T.arbitrary
-        ct <- liftIO getCurrentTimeIntegral
-        liftIO . fmap hush $ testMine n (genesisBlockTarget Test) ct nid cid c
+        t <- liftIO  getCurrentTimeIntegral
+        let pay = hashPayload Test cid "TEST PAYLOAD"
+        liftIO $ hush <$> testMine n target t pay nid cid c
+
+    target = genesisBlockTarget Test
 
 arbitraryWebChainCut_
     :: HasCallStack
@@ -697,8 +724,11 @@ arbitraryWebChainCut_ initialCut = do
     mine c cid = do
         n <- Nonce <$> TT.liftGen T.arbitrary
         nid <- TT.liftGen T.arbitrary
-        ct <- liftIO getCurrentTimeIntegral
-        liftIO $ testMine n (genesisBlockTarget Test) ct nid cid c
+        t <- liftIO getCurrentTimeIntegral
+        let pay = hashPayload Test cid "TEST PAYLOAD"
+        liftIO $ testMine n target t pay nid cid c
+
+    target = genesisBlockTarget Test
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork

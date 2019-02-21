@@ -143,7 +143,8 @@ testMiner logFun conf nid cutDb wcdb = do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        testMine (Nonce nonce) target ct nid cid c >>= \case
+        let payloadHash = testBlockPayload p
+        testMine (Nonce nonce) target ct payloadHash nid cid c >>= \case
             Left BadNonce -> mine gen (succ nonce)
             Left BadAdjacents -> mine gen nonce
             Right (T2 _ newCut) -> pure newCut

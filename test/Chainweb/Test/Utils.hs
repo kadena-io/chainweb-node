@@ -230,14 +230,13 @@ trunk g h = do
 header :: BlockHeader -> Gen BlockHeader
 header h = do
     nonce <- Nonce <$> chooseAny
-    payload <- arbitrary
     miner <- arbitrary
     return
         . fromLog
         . newMerkleLog
         $ _blockHash h
             :+: target
-            :+: payload
+            :+: testBlockPayload h
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
             :+: nonce
             :+: _chainId h

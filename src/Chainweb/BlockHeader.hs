@@ -105,6 +105,7 @@ module Chainweb.BlockHeader
 , testBlockHeader'
 , testBlockHeaders
 , testBlockHeadersWithNonce
+, testBlockPayload
 ) where
 
 import Control.Arrow ((&&&))
@@ -724,6 +725,8 @@ testBlockHeader'
         -- ^ Miner
     -> BlockHashRecord
         -- ^ Adjacent parent hashes
+    -> BlockPayloadHash
+        -- ^ payload hash
     -> Nonce
         -- ^ Randomness to affect the block hash
     -> HashTarget
@@ -733,17 +736,17 @@ testBlockHeader'
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader' m adj n ht ct b = fromLog $ newMerkleLog
+testBlockHeader' miner adj pay nonce target t b = fromLog $ newMerkleLog
     $ _blockHash b
-    :+: ht
-    :+: hashPayload (_blockChainwebVersion b) cid "TEST PAYLOAD"
-    :+: BlockCreationTime ct
-    :+: n
+    :+: target
+    :+: pay
+    :+: BlockCreationTime t
+    :+: nonce
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty v ht)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
     :+: _blockHeight b + 1
     :+: v
-    :+: m
+    :+: miner
     :+: MerkleLogBody (blockHashRecordToSequence adj)
   where
     cid = _chainId b
@@ -761,7 +764,8 @@ testBlockHeader
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader m adj n ht b = testBlockHeader' m adj n ht (add second t) b
+testBlockHeader miner adj nonce target b
+    = testBlockHeader' miner adj (testBlockPayload b) nonce target (add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 
