@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE QuasiQuotes #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  (C) 2018 Mark NIchols
@@ -89,7 +88,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc
                 logDebugRequestKey logger requestKey "successful gas redemption for requestkey"
                 pure (cmdResult, redeemLogs)
   where
-    jsonErrorResult k e txLogs gas = pure $
+    jsonErrorResult k e txLogs gas = pure
       (jsonResult exMode k gas $ CommandError "Command execution failed" (Just . show $ e)
       , txLogs
       )

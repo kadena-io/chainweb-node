@@ -15,7 +15,7 @@ module Chainweb.Pact.PactService
     , initPactService
     , mkPureState
     , mkSQLiteState
-    , newTransactionBlock
+    , newBlock
     , serviceRequests
     , setupConfig
     , toCommandConfig
@@ -24,10 +24,10 @@ module Chainweb.Pact.PactService
 
 import Control.Applicative
 import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State
 
@@ -53,15 +53,22 @@ import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.Backend.SqliteDb
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+
 import Chainweb.Pact.Utils
 
-initPactService :: IO ()
-initPactService = do
+-- | Initilization for the Pact execution service, including initialization for the execution queues, the MemPool, and the Checkpointer
+initPactService
+  :: TVar (TQueue RequestMsg)
+  -> TVar (TQueue ResponseMsg)
+  -> MemPoolAccess
+  -> IO ()
+initPactService reqQVar respQVar memPoolAccess = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig "pact.yaml" -- TODO: file name/location from configuration
+    pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
@@ -80,38 +87,87 @@ initPactService = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    evalStateT (runReaderT serviceRequests checkpointEnv) theState
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
+    case estate of
+        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
+            fail s
+        Right _ -> return ()
+    void $ evalStateT
+           (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
+           theState
 
-serviceRequests :: PactT ()
-serviceRequests = forever $ return () --TODO: get / service requests for new blocks and verification
+-- | Forever loop serving Pact ececution requests and reponses from the queues
+serviceRequests
+    :: MemPoolAccess
+    -> TVar (TQueue RequestMsg)
+    -> TVar (TQueue ResponseMsg)
+    -> PactT ()
+serviceRequests memPoolAccess reqQ respQ =
+    forever run where
+        run = do
+            reqMsg <- liftIO $ getNextRequest reqQ
+            respMsg <- case _reqRequestType reqMsg of
+                NewBlock -> do
+                    h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
+                    return $ ResponseMsg
+                        { _respRequestType = NewBlock
+                        , _respRequestId = _reqRequestId reqMsg
+                        , _respPayload = h }
+                ValidateBlock -> do
+                    h <- validateBlock memPoolAccess (_reqBlockHeader reqMsg)
+                    return $ ResponseMsg
+                        { _respRequestType = ValidateBlock
+                        , _respRequestId = _reqRequestId reqMsg
+                        , _respPayload = h }
+            void . liftIO $ addResponse respQ respMsg
 
--- TODO: Should we include miner info in block header?
-newTransactionBlock :: BlockHeader -> BlockHeight -> PactT Block
-newTransactionBlock parentHeader bHeight = do
-    let parentPayloadHash = _blockPayloadHash parentHeader
-        miner = defaultMiner
-
-    newTrans <- requestTransactions TransactionCriteria
+-- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
+-- | Note: The BlockHeader param here is the header of the parent of the new block
+newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
+    -- TODO: miner data needs to be addeded to BlockHeader...
+    let miner = defaultMiner
+    newTrans <- liftIO $ memPoolAccess _blockHeight
     CheckpointEnv {..} <- ask
-    unless (isFirstBlock bHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer bHeight parentPayloadHash
-      case cpdata of
-        Left msg -> closePactDb >> fail msg
+    cpdata <- if isGenesisBlockHeader _parentHeader
+        then liftIO $ restoreInitial _cpeCheckpointer
+        else liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
+    case cpdata of
+        Left msg -> gets closePactDb >> fail msg
         Right st -> updateState st
     (results, updatedState) <- execTransactions miner newTrans
     put $! updatedState
-    close_status <- liftIO $ discard _cpeCheckpointer bHeight parentPayloadHash updatedState
-    flip (either fail) close_status $ \_ ->
-      return $! Block
-          { _bHash = Nothing -- not yet computed
-          , _bParentHeader = parentHeader
-          , _bBlockHeight = succ bHeight
-          , _bTransactions = zip newTrans results
-          , _bMinerInfo = miner
-          }
+    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
+    either fail return close_status
+    return results
+
+-- | Validate a mined block.  Execute the transactions in Pact again as validation
+-- | Note: The BlockHeader here is the header of the block being validated
+validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+validateBlock memPoolAccess currHeader = do
+    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
+    let miner = defaultMiner
+    CheckpointEnv {..} <- ask
+    cpdata <- if isGenesisBlockHeader currHeader
+        then liftIO $ restoreInitial _cpeCheckpointer
+        else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (_blockParent currHeader)
+    case cpdata of
+        Left s -> ( get >>= liftIO . closePactDb ) >> fail s -- band-aid
+        Right r -> updateState $! r
+    (results, updatedState) <- execTransactions miner trans
+    put updatedState
+    estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
+                  (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
+    _ <- case estate of
+        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (get >>= liftIO . closePactDb)
+            fail s
+        Right _ -> return results
+    return results
 
 setupConfig :: FilePath -> IO PactDbConfig
-setupConfig configFile = do
+setupConfig configFile =
     Y.decodeFileEither configFile >>= \case
         Left e -> do
             putStrLn usage
@@ -133,59 +189,25 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig { _dbFile = f, _pragmas = xs }
 mkSqliteConfig _ _ = Nothing
 
-isFirstBlock :: BlockHeight -> Bool
-isFirstBlock height = height == 0
-
-validateBlock :: Block -> PactT ()
-validateBlock Block {..} = do
-    let parentPayloadHash = _blockPayloadHash _bParentHeader
-        miner = defaultMiner
-    CheckpointEnv {..} <- ask
-    unless (isFirstBlock _bBlockHeight) $ do
-      cpdata <- liftIO $ restore _cpeCheckpointer _bBlockHeight parentPayloadHash
-      case cpdata of
-        Left s -> closePactDb >> fail s -- band-aid
-        Right r -> updateState $! r
-    (_results, updatedState) <- execTransactions miner (fmap fst _bTransactions)
-    put updatedState
-    estate <- liftIO $ save _cpeCheckpointer _bBlockHeight parentPayloadHash
-                               (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
-    case estate of
-      Left s ->
-        -- This is a band-aid.
-        (when
-           -- If this error message does not appear, the database has been closed.
-           (s == "SQLiteCheckpointer.save': Save key not found exception")
-           closePactDb) >>
-        fail s
-      Right r -> return r
-
--- TODO: TBD what do we need to do for validation and what is the return type?
---placeholder - get transactions from mem pool tf
-requestTransactions :: TransactionCriteria -> PactT [Transaction]
-requestTransactions _crit = return []
-
-execTransactions
-    :: MinerInfo
-    -> [Transaction]
-    -> PactT ([TransactionOutput], PactDbState)
+execTransactions :: MinerInfo -> [Transaction] -> PactT (Transactions, PactDbState)
 execTransactions miner xs = do
     cpEnv <- ask
     currentState <- get
+    -- let dbEnv' = _pdbsDbEnv currentState
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
-    mvCmdState <- liftIO $ newMVar (_pdbsState $! currentState)
-    results <- forM xs (\Transaction {..} -> do
-                  let txId = P.Transactional (P.TxId _tTxId)
-                  (result, txLogs) <- liftIO $! applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd miner
-                  return  TransactionOutput {_getCommandResult = result, _getTxLogs = txLogs})
+    mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
+    txOuts <- forM xs (\Transaction {..} -> do
+        let txId = P.Transactional (P.TxId _tTxId)
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd miner
+        return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
           }
-    return (results, updatedState)
+    return (Transactions (zip xs txOuts), updatedState)
 
 applyPactCmd
     :: CheckpointEnv
@@ -195,7 +217,7 @@ applyPactCmd
     -> P.Command ByteString
     -> MinerInfo
     -> IO (P.CommandResult, [P.TxLog A.Value])
-applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd miner = do
+applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd miner =
     case dbEnv' of
         Env' pactDbEnv -> do
             let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
@@ -206,3 +228,16 @@ updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do
     pdbsDbEnv .= _pdbsDbEnv
     pdbsState .= _pdbsState
+
+-- TODO: get from config
+pactFilesDir :: String
+pactFilesDir = "test/config/"
+
+----------------------------------------------------------------------------------------------------
+-- TODO: Replace these placeholders with the real API functions:
+----------------------------------------------------------------------------------------------------
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
+transactionsFromHeader memPoolAccess bHeader =
+    -- MemPoolAccess will be replaced with looking up transactsion from header...
+    memPoolAccess (_blockHeight bHeader)
+----------------------------------------------------------------------------------------------------

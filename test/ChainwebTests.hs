@@ -14,7 +14,6 @@
 module Main ( main ) where
 
 import System.LogLevel
-
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
@@ -29,7 +28,8 @@ import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mempool.Websocket
 import qualified Chainweb.Test.MultiNode
-import qualified Chainweb.Test.Pact
+import qualified Chainweb.Test.Pact.PactExec
+import qualified Chainweb.Test.Pact.PactService
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.Store.CAS.FS
@@ -48,37 +48,46 @@ import qualified Network.X509.SelfSigned.Test
 import qualified P2P.Node.PeerDB (properties)
 
 main :: IO ()
-main = defaultMain suite
+main = do
+  pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
+  let allTests = testGroup "Chainweb Tests"
+                     [ suite
+                     , pactSuite
+                     , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing ]
+  defaultMain allTests
+
+pactTestSuite :: IO TestTree
+pactTestSuite = do
+    pactTests <- Chainweb.Test.Pact.PactExec.tests
+    pactServiceTests <- Chainweb.Test.Pact.PactService.tests
+    return $ testGroup "Chainweb-Pact Tests"
+        [ pactTests
+        , pactServiceTests ]
 
 suite :: TestTree
-suite = testGroup "ChainwebTests"
-    [ testGroup "Unit Tests"
-        [ testGroup "BlockHeaderDb"
-            [ Chainweb.Test.BlockHeaderDB.tests
-            , Chainweb.Test.TreeDB.RemoteDB.tests
-            , Chainweb.Test.TreeDB.Persistence.tests
-            , Chainweb.Test.TreeDB.Sync.tests
+suite = testGroup "Unit Tests"
+            [ testGroup "BlockHeaderDb"
+                [ Chainweb.Test.BlockHeaderDB.tests
+                , Chainweb.Test.TreeDB.RemoteDB.tests
+                , Chainweb.Test.TreeDB.Persistence.tests
+                , Chainweb.Test.TreeDB.Sync.tests
+                ]
+            , Chainweb.Test.Store.CAS.FS.tests
+            , Chainweb.Test.Store.Git.tests
+            , Chainweb.Test.Roundtrips.tests
+            , Chainweb.Test.RestAPI.tests
+            , Chainweb.Test.DiGraph.tests
+            , Chainweb.Test.Mempool.InMem.tests
+            , Chainweb.Test.Mempool.Socket.tests
+            , Chainweb.Test.Mempool.Sync.tests
+        --     , Chainweb.Test.Mempool.Websocket.tests
+            , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
+            , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+            , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
+            , testProperties "Data.DiGraph" Data.DiGraph.properties
+            , testGroup "Network.X05.SelfSigned.Test"
+                [ Network.X509.SelfSigned.Test.tests
+                ]
+            , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
+            , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
             ]
-        , Chainweb.Test.Store.CAS.FS.tests
-        , Chainweb.Test.Store.Git.tests
-        , Chainweb.Test.Roundtrips.tests
-        , Chainweb.Test.RestAPI.tests
-        , Chainweb.Test.DiGraph.tests
-        , Chainweb.Test.Mempool.InMem.tests
-        , Chainweb.Test.Mempool.Socket.tests
-        , Chainweb.Test.Mempool.Sync.tests
---         , Chainweb.Test.Mempool.Websocket.tests
-        , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
-        , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
-        , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
-        , testProperties "Data.DiGraph" Data.DiGraph.properties
-        , testGroup "Network.X05.SelfSigned.Test"
-            [ Network.X509.SelfSigned.Test.tests
-            ]
-        , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
-        , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        ]
-
-    , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
-    , Chainweb.Test.Pact.tests
-    ]

@@ -10,12 +10,31 @@
 --
 -- Unit test for Pact execution in Chainweb
 
-module Chainweb.Test.Pact where
+module Chainweb.Test.Pact.PactExec where
 
-import Chainweb.Pact.Backend.InMemoryCheckpointer
-import Chainweb.Pact.Backend.SQLiteCheckpointer
-import Chainweb.Pact.PactService
-import Chainweb.Pact.Types
+import Control.Applicative
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
+import Control.Monad.Zip
+
+import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.Default
+import qualified Data.HashMap.Strict as HM
+import Data.Maybe
+import Data.Scientific
+import Data.String.Conv (toS)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Word
+
+import System.FilePath
+import System.IO.Extra
+
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.Golden
 
 import qualified Pact.ApiReq as P
 import qualified Pact.Gas as P
@@ -27,33 +46,15 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Server as P
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State
-import Control.Monad.Zip
+import Chainweb.Pact.Backend.InMemoryCheckpointer
+import Chainweb.Pact.Backend.SQLiteCheckpointer
+import Chainweb.Pact.PactService
+import Chainweb.Pact.Types
 
-import Data.Aeson
-import Data.ByteString (ByteString)
-import Data.Default (def)
-import Data.Time.Clock
-import qualified Data.HashMap.Strict as HM
-import Data.Maybe
-import Data.Scientific
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Time.Clock
+tests :: IO TestTree
+tests = testGroup "Simple pact execution tests" <$> pactExecTests
 
-import GHC.Word
-import System.IO.Extra
-import Test.Tasty
-import Test.Tasty.HUnit
-
-tests :: TestTree
-tests = testCase "Pact unit tests" pactExecTests
-
-pactExecTests :: IO ()
+pactExecTests :: IO [TestTree]
 pactExecTests = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
@@ -73,25 +74,72 @@ pactExecTests = do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    void $ runStateT (runReaderT execTests checkpointEnv) theState
+    fst <$> runStateT (runReaderT execTests checkpointEnv) theState
 
-execTests :: PactT ()
+execTests :: PactT [TestTree]
 execTests = do
-    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
-    -- create test nonce values of form <current-time>:0, <current-time>:1, etc.
-    prefix <- liftIO (( ++ ":") . show <$> getCurrentTime)
-    let intSeq = [0..] :: [Word64]
-    let nonces = fmap (T.pack . (prefix ++) . show) intSeq
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
-    let trans = zipWith3 (mkPactTransaction testKeyPairs theData)
-                         nonces intSeq cmdStrs
-    outputs <- fst <$> execTransactions defaultMiner trans
+    trans <- liftIO $ mkPactTestTransactions cmdStrs
+    (results, _dbState) <- execTransactions defaultMiner trans
+    let outputs = snd <$> _transactionPairs results
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
 getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
+
+checkResponses :: [TestResponse] -> IO [TestTree]
+checkResponses responses = traverse (\resp -> _trEval (_trRequest resp ) resp) responses
+
+checkSuccessOnly :: TestResponse -> Assertion
+checkSuccessOnly resp =
+    case _getCommandResult $ _trOutput resp of
+        (Object o) -> HM.lookup "status" o @?= Just "success"
+        _ -> assertFailure "Status returned does not equal \"success\""
+
+checkScientific :: Scientific -> TestResponse -> Assertion
+checkScientific sci resp = do
+    let resultValue = _getCommandResult $ _trOutput resp
+    parseScientific resultValue @?= Just sci
+
+parseScientific :: Value -> Maybe Scientific
+parseScientific (Object o) =
+  case HM.lookup "data" o of
+    Nothing -> Nothing
+    Just (Number sci) -> Just sci
+    Just _ -> Nothing
+parseScientific _ = Nothing
+
+ignoreTextMatch :: T.Text -> TestResponse -> Assertion
+ignoreTextMatch _r _tr = True @?= True
+
+fullTextMatch :: T.Text -> TestResponse -> Assertion
+fullTextMatch matchText resp = do
+    let resultValue = _getCommandResult $ _trOutput resp
+    parseText resultValue @?= Just matchText
+
+parseText :: Value -> Maybe Text
+parseText (Object o) =
+  case HM.lookup "data" o of
+    Nothing -> Nothing
+    Just (String t) -> Just t
+    Just _ -> Nothing
+parseText _ = Nothing
+
+fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
+fileCompareTxLogs fp resp =
+    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+    where
+        ioBs = return $ toS $ show <$> _getTxLogs $ _trOutput resp
+
+mkPactTestTransactions :: [String] -> IO [Transaction]
+mkPactTestTransactions cmdStrs = do
+    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
+    let intSeq = [0, 1 ..] :: [Word64]
+    -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
+    return $ zipWith (mkPactTransaction testKeyPairs theData "1" )
+             intSeq cmdStrs
 
 mkPactTransaction
   :: [P.KeyPair]
@@ -117,65 +165,12 @@ testKeyPairs =
                    mPair
     in maybeToList mKeyPair
 
-checkResponses :: [TestResponse] -> IO ()
-checkResponses responses = forM_ responses $ \resp -> do
-    let evalFn = _trEval $ _trRequest resp
-    evalFn resp
-
-testPrivateBs :: ByteString
-testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
-
-testPublicBs :: ByteString
-testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
-
-checkSuccessOnly :: TestResponse -> Assertion
-checkSuccessOnly resp =
-    case P._crResult $ _getCommandResult $ _trOutput resp of
-        (Object o) -> HM.lookup "status" o @?= Just "success"
-        _ -> assertFailure "Status returned does not equal \"success\""
-
-checkScientific :: Scientific -> TestResponse -> Assertion
-checkScientific sci resp = do
-    let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
-    parseScientific resultValue @?= Just sci
-
-parseScientific :: Value -> Maybe Scientific
-parseScientific (Object o) =
-  case HM.lookup "data" o of
-    Nothing -> Nothing
-    Just (Number sci) -> Just sci
-    Just _ -> Nothing
-parseScientific _ = Nothing
-
-ignoreTextMatch :: T.Text -> TestResponse -> Assertion
-ignoreTextMatch _r _tr = True @?= True
-
-fullTextMatch :: T.Text -> TestResponse -> Assertion
-fullTextMatch matchText resp = do
-    let resultValue = P._crResult $ _getCommandResult $ _trOutput resp
-    parseText resultValue @?= Just matchText
-
-parseText :: Value -> Maybe Text
-parseText (Object o) =
-  case HM.lookup "data" o of
-    Nothing -> Nothing
-    Just (String t) -> Just t
-    Just _ -> Nothing
-parseText _ = Nothing
-
-fileCompareTxLogs :: FilePath -> TestResponse -> Assertion
-fileCompareTxLogs fp resp = do
-    contents <- readFile' $ testPactFilesDir ++ fp
-    let txLogsStr = unlines $ fmap show $ _getTxLogs $ _trOutput resp
-    txLogsStr @?= contents
-
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
 ----------------------------------------------------------------------------------------------------
-
 data TestRequest = TestRequest
     { _trCmd :: TestSource
-    , _trEval :: TestResponse -> Assertion
+    , _trEval :: TestResponse -> IO TestTree
     , _trDisplayStr :: String
     }
 
@@ -194,7 +189,7 @@ instance Show TestRequest where
 instance Show TestResponse where
     show tr =
         let tOutput = _trOutput tr
-            cmdResultStr = show $ P._crResult $ _getCommandResult tOutput
+            cmdResultStr = show $ _getCommandResult tOutput
             txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
         in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
            ++ "TxLogs: " ++ txLogsStr
@@ -202,9 +197,14 @@ instance Show TestResponse where
 ----------------------------------------------------------------------------------------------------
 -- Pact test sample data
 ----------------------------------------------------------------------------------------------------
-
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
+
+testPrivateBs :: ByteString
+testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+
+testPublicBs :: ByteString
+testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
 testPactRequests :: [TestRequest]
 testPactRequests =
@@ -218,13 +218,13 @@ testPactRequests =
 testReq1 :: TestRequest
 testReq1 = TestRequest
     { _trCmd = Code "(+ 1 1)"
-    , _trEval = checkScientific (scientific 2 0)
+    , _trEval = return . testCase "addition" . checkScientific (scientific 2 0)
     , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
 
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmd = File "test1.pact"
-    , _trEval = checkSuccessOnly
+    , _trEval = return . testCase "load module" . checkSuccessOnly
     , _trDisplayStr = "Loads a pact module" }
 
 testReq3 :: TestRequest

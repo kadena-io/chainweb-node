@@ -66,6 +66,7 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
 -- internal modules
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans ()
 
@@ -118,7 +119,7 @@ data SaveData p = SaveData
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
-    put (SaveData {..}) = do
+    put SaveData {..} = do
         put _sTxRecord
         put _sTxId
         put _sSQLiteConfig
@@ -177,14 +178,16 @@ usage =
   \\n"
 
 data Checkpointer = Checkpointer
-    { restore :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
-    , save :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
-    , discard :: BlockHeight -> BlockPayloadHash -> PactDbState -> IO (Either String ())
+    { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
+    , restoreInitial ::IO (Either String PactDbState)
+    , save :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
+    , saveInitial :: PactDbState -> IO (Either String ())
+    , discard :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
     }
 
 -- functions like the ones below need to be implemented internally
--- , prepareForValidBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
--- , prepareForNewBlock :: BlockHeight -> BlockPayloadHash -> IO (Either String PactDbState)
+-- , prepareForValidBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
+-- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer
     , _cpeCommandConfig :: P.CommandConfig
