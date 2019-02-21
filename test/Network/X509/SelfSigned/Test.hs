@@ -17,6 +17,7 @@ module Network.X509.SelfSigned.Test
 ( tests
 ) where
 
+import Control.Applicative
 import Control.Concurrent.Async (withAsync)
 import Control.Exception
 import Control.Monad hiding (fail)
@@ -27,10 +28,12 @@ import Network.HTTP.Client hiding (port)
 import Network.HTTP.Types (status200, statusIsSuccessful)
 import Network.Socket (Socket, close)
 import Network.Wai (responseLBS)
-import Network.Wai.Handler.Warp (openFreePort, defaultSettings)
+import Network.Wai.Handler.Warp (defaultSettings, openFreePort)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
 
 import Prelude hiding (fail)
+
+import System.Environment
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -98,9 +101,22 @@ testCertType l = testCaseSteps l $ \step -> do
             pass $ query "127.0.0.1" p $ TlsSecure True check
             pass $ query "127.0.0.1" p $ TlsSecure False check
 
-            pass $ query "google.com" 443 TlsInsecure
-            pass $ query "google.com" 443 $ TlsSecure True check
-            fail $ query "google.com" 443 $ TlsSecure False check
+            -- skip trying to contact google.com when networking is sandboxed
+            sbox <- isSandboxed
+            unless sbox $ do
+                pass $ query "google.com" 443 TlsInsecure
+                pass $ query "google.com" 443 $ TlsSecure True check
+                fail $ query "google.com" 443 $ TlsSecure False check
+
+  where
+    isSandboxed = do
+        let isSet m = case m of
+                          Nothing -> False
+                          Just "0" -> False
+                          _ -> True
+        m1 <- isSet <$> lookupEnv "SANDBOXED"
+        m2 <- isSet <$> lookupEnv "NIX_ENFORCE_PURITY"
+        return $! m1 || m2
 
 -- -------------------------------------------------------------------------- --
 -- Utils
