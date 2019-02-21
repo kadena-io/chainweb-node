@@ -509,3 +509,36 @@ executable p2p-example
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+-- -------------------------------------------------------------------------- --
+-- Transaction Generator
+-- -------------------------------------------------------------------------- --
+
+executable transaction-generator
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+        -threaded
+        -with-rtsopts=-N
+    hs-source-dirs: examples
+    main-is: TransactionGenerator.hs
+    other-modules:
+            Chainweb.Simulate.Contracts.CommercialPaper
+            Chainweb.Simulate.Contracts.CryptoCritters
+            Chainweb.Simulate.Contracts.HelloWorld
+            Chainweb.Simulate.Contracts.SimplePayments
+    build-depends:
+        --internal
+          chainweb
+
+        --external
+        , base >= 4.11
+        , bytestring >= 0.10
+        , configuration-tools >= 0.4
+        , lens >= 4.16
+        , mwc-random >= 0.13
+        , text >= 1.2
+        , neat-interpolation >= 0.3.2
