@@ -57,7 +57,7 @@ function run-node () {
         # Run with LOG_DIR
         $RUN \
             --node-id=$NID \
-            --mean-block-time=$((10 * N)) \
+            --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
@@ -68,7 +68,7 @@ function run-node () {
         # Run without LOG_DIR
         $RUN \
             --node-id=$NID \
-            --mean-block-time=$((10 * N)) \
+            --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \

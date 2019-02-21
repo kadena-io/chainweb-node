@@ -69,6 +69,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -171,7 +172,10 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
         -- test.
 
     & set configChainDbDirPath chainDbDir
-        -- place where the chaindbs are persisted.
+        -- Place where the chaindbs are persisted.
+
+    & set (configMiner . configTestMiners) (MinerCount n)
+        -- The number of test miners being used.
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
 --
@@ -274,7 +278,7 @@ runNodesForSeconds
         -- ^ Number of chainweb consensus nodes
     -> Seconds
         -- ^ test duration in seconds
-    -> (Maybe FilePath)
+    -> Maybe FilePath
         -- ^ directory where the chaindbs are persisted
     -> (T.Text -> IO ())
         -- ^ logging backend callback
@@ -290,7 +294,7 @@ runNodesForSeconds loglevel v n seconds chainDbDir write = do
 -- -------------------------------------------------------------------------- --
 -- Test
 
-test :: LogLevel -> ChainwebVersion -> Natural -> Seconds -> (Maybe FilePath) -> TestTree
+test :: LogLevel -> ChainwebVersion -> Natural -> Seconds -> Maybe FilePath -> TestTree
 test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if 1
@@ -403,7 +407,7 @@ expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
 expectedBlockCount v seconds = round ebc
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / (int br / 10)
+    ebc = int seconds * int (order graph) / int br
 
     br :: Natural
     br = case blockRate v of
@@ -420,7 +424,7 @@ lowerStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / (int br / 10)
+    ebc = int seconds * int (order graph) / int br
 
     br :: Natural
     br = case blockRate v of
@@ -437,7 +441,7 @@ upperStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / (int br / 10)
+    ebc = int seconds * int (order graph) / int br
 
     br :: Natural
     br = case blockRate v of

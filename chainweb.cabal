@@ -148,7 +148,6 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , Decimal >= 0.4.2
         , QuickCheck >= 2.10
         , QuickCheck-GenT >=0.2
         , aeson >= 1.4
@@ -305,7 +304,6 @@ test-suite chainweb-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
         , QuickCheck >= 2.10
         , aeson >= 1.4
         , async >= 2.2

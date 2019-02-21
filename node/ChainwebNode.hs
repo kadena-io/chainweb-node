@@ -177,7 +177,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Test)
+    (defaultChainwebNodeConfiguration TestWithTime)
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
