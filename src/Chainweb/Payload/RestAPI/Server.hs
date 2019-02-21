@@ -74,12 +74,7 @@ payloadHandler db k = run >>= \case
         return $ payloadData txs payload
 
 err404Msg :: ToJSON msg  => msg -> ServantErr
-err404Msg msg = ServantErr
-    { errHTTPCode = 404
-    , errReasonPhrase = "Not Found"
-    , errBody = encode msg
-    , errHeaders = []
-    }
+err404Msg msg = err404 { errBody = encode msg }
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
