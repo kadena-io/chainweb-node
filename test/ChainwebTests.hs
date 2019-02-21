@@ -13,6 +13,7 @@
 
 module Main ( main ) where
 
+
 import System.LogLevel
 import Test.Tasty
 import Test.Tasty.QuickCheck
@@ -26,7 +27,6 @@ import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
-import qualified Chainweb.Test.Mempool.Websocket
 import qualified Chainweb.Test.MultiNode
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactService
@@ -37,6 +37,7 @@ import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
+import Chainweb.Test.Utils (RunStyle(..), schedule, scheduled)
 import qualified Chainweb.Utils.Paging (properties)
 import Chainweb.Version
 
@@ -65,8 +66,8 @@ pactTestSuite = do
         , pactServiceTests ]
 
 suite :: TestTree
-suite = testGroup "ChainwebTests"
-    [ testGroup "Chainweb Unit Tests"
+suite = testGroup "ChainwebTests" $ schedule Sequential
+    [ scheduled "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests
             , Chainweb.Test.TreeDB.RemoteDB.tests
@@ -92,10 +93,10 @@ suite = testGroup "ChainwebTests"
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         ]
-    , after AllFinish "Chainweb Unit Tests" $ testGroup "Pact Tests"
+    , scheduled "Pact Tests"
         [ Chainweb.Test.Pact.tests
         ]
-    , after AllFinish "Pact Tests" $ testGroup "Slow Tests"
+    , scheduled "Slow Tests"
         [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
         ]
     ]

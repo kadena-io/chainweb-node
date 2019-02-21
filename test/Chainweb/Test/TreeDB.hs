@@ -40,7 +40,7 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
-import Chainweb.Test.Utils
+import Chainweb.Test.Utils hiding (RunStyle(..), schedule)
 import Chainweb.TreeDB
 import Chainweb.Utils (len)
 
