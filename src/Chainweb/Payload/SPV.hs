@@ -27,15 +27,11 @@ import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
-import qualified Data.ByteArray as BA
-import qualified Data.ByteArray.Encoding as BA
 import qualified Data.List.NonEmpty as N
 import Data.Maybe
 import Data.MerkleLog
 import Data.Reflection (Given, give, given)
 import qualified Data.Text as T
-
-import Debug.Trace
 
 import GHC.Stack
 
@@ -94,7 +90,7 @@ data TransactionProof a = TransactionProof ChainId (MerkleProof a)
 -- which inclusion is proven.
 --
 runTransactionProof :: TransactionProof SHA512t_256 -> BlockHash
-runTransactionProof (TransactionProof cid p)
+runTransactionProof (TransactionProof _ p)
     = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 verifyTransactionProof
@@ -183,35 +179,20 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
 
     Just payload <- casLookup pDb (_blockPayloadHash txHeader)
     let txsHash = _blockPayloadTransactionsHash payload
-    print $ hex $ _blockPayloadPayloadHash payload
-    print $ hex $ _blockPayloadTransactionsHash payload
 
     -- 1. TX proof
     --
     Just txs <- casLookup txsDb txsHash
-    Just txTree <- casLookup txTreeCache txsHash
-    let txLog = transactionLog txs txTree
-    print $ hex $ merkleRoot $ _transactionTree $ txTree
+    -- Just txTree <- casLookup txTreeCache txsHash
+    -- let txLog = transactionLog txs txTree
 
-    let (subj, txsPos, txst) = trace "txTree" $ bodyTree @ChainwebHashTag txs txIx -- FIXME use log
+    let (subj, txsPos, txst) = bodyTree @ChainwebHashTag txs txIx -- FIXME use log
     let txsTree = (txsPos, txst)
-    print txsPos
-    print $ hex $ merkleRoot txst
-    print $ hex $ txst
     -- we blindly trust the ix
 
     -- 2. Payload proof
     --
-    let payloadTree = trace "payload tree" $ headerTree_ @BlockTransactionsHash payload
-    print ("payload Tree" :: String)
-    let l = toLog payload
-    print $ hex $ _merkleLogRoot l
-    let (a :+: b :+: _) = _merkleLogEntries l
-    print $ hex a
-    print $ hex b
-    print $ fst payloadTree
-    print $ hex $ snd payloadTree
-    print $ hex $ merkleRoot $ snd payloadTree
+    let payloadTree = headerTree_ @BlockTransactionsHash payload
 
     -- 3. BlockHeader proof
     --
@@ -221,25 +202,25 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
             , _spvExceptionMsgPayloadHash = _blockPayloadHash txHeader
             }
             -- this indicates that the payload store is inconsistent
-    let blockHeaderTree = trace "block Header tree" $ headerTree_ @BlockPayloadHash txHeader
+    let blockHeaderTree = headerTree_ @BlockPayloadHash txHeader
 
     -- 4. BlockHeader Chain Proof
     --
     let go [] = []
         go (h : t) = headerTree_ @BlockHash h : go t
 
-        chainTrees = trace "block header chain tree" $ go chain
+        chainTrees = go chain
 
     -- 5. Cross Chain Proof
     --
     let cross [] = []
         cross ((i,h) : t) = bodyTree_ h i : cross t
 
-        crossTrees = trace "cross hain tree" $ cross crossChain
+        crossTrees = cross crossChain
 
     -- Put proofs together
     --
-    proof <- trace "proof" $ merkleProof_ subj $ (N.:|) txsTree $
+    proof <- merkleProof_ subj $ (N.:|) txsTree $
         [ payloadTree
         , blockHeaderTree
         ]
@@ -250,12 +231,9 @@ createTransactionProof cutDb payloadDb tcid scid txHeight txIx = give headerDb $
   where
     txsDb = _transactionDbBlockTransactions $ _transactionDb payloadDb
     pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
-    txTreeCache = _payloadCacheTransactionTrees $ _payloadCache payloadDb
+    -- txTreeCache = _payloadCacheTransactionTrees $ _payloadCache payloadDb
     trgChain = headerDb ^?! ixg tcid
     headerDb = view cutDbWebBlockHeaderDb cutDb
-
-hex :: BA.ByteArrayAccess b => b -> BA.Bytes
-hex = BA.convertToBase @_ @BA.Bytes BA.Base16
 
 -- -------------------------------------------------------------------------- --
 -- Utils
