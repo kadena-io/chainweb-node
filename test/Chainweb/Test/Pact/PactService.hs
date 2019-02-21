@@ -63,10 +63,7 @@ pactTestApp = do
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv mgr base
-
         -- testing:  /new
-        -- response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
-        -- tt0 <- checkRespTrans "block-results-expected-0.txt" response0
         idResp0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
         tt0 <- case idResp0 of
                   (Left servantError) -> assertFailure $
@@ -76,12 +73,7 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testGetNewBlock"
                           Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
-
-
-
         -- testing:  /validate
-        -- response0b <- runClientM (testValidate (headers ! 0)) clientEnv
-        -- tt0b <- checkRespTrans "block-results-expected-0.txt" response0b
         idResp0b <- runClientM (testValidate (headers ! 0)) clientEnv
         tt0b <- case idResp0b of
                   (Left servantError) -> assertFailure $
@@ -91,11 +83,7 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testValidate"
                           Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
-
-
         -- testing:  /validate
-        -- validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
-        -- tt1 <- checkRespTrans "block-results-expected-1.txt" validateResp1
         idResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
         tt1 <- case idResp1 of
                   (Left servantError) -> assertFailure $
@@ -105,7 +93,6 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testValidate"
                           Just rsp -> checkRespTrans "block-results-expected-1.txt" rsp
-
         return $ tt0 : tt0b : [tt1]
 
 pollForTestResp
