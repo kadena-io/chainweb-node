@@ -88,7 +88,7 @@ payloadServer :: PayloadCas cas => PayloadDb_ cas v c -> Server (PayloadApi v c)
 payloadServer (PayloadDb_ db) = payloadHandler db
 
 -- -------------------------------------------------------------------------- --
--- Application for a single BlockHeaderDB
+-- Application for a single PayloadDb
 
 payloadApp
     :: forall cas v c

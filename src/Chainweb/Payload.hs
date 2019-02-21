@@ -38,12 +38,12 @@ module Chainweb.Payload
 , encodeBlockOutputsHash
 , decodeBlockOutputsHash
 
--- * Authorative Data
+-- * Authoritative Data
 
 , BlockPayload(..)
 , BlockTransactions(..)
 
--- * Redundate Data / Caches
+-- * Redundant Data / Caches
 
 , BlockOutputs(..)
 , TransactionTree(..)
@@ -167,7 +167,7 @@ instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
 
 -- | An encoded transaction, including all of its inputs.
 --
--- We don't care about the encoding of an transaction. The semantics of a
+-- We don't care about the encoding of a transaction. The semantics of a
 -- transaction is only known to pact.
 --
 newtype Transaction = Transaction { _transactionBytes :: B.ByteString }
@@ -211,7 +211,7 @@ instance HasTextRepresentation Transaction where
 -- -------------------------------------------------------------------------- --
 -- Transaction Output
 
--- | Encoded output of a sinle transaction.
+-- | Encoded output of a single transaction.
 --
 -- We don't care about the encoding of the output. The semantics of a output is
 -- only known to pact.
@@ -260,7 +260,7 @@ instance HasTextRepresentation TransactionOutput where
 --
 -- NOTES:
 --
--- The block and it's output is uniquely determined by the transactions.
+-- The block and its output are uniquely determined by the transactions.
 -- However, we want to include the output hash in the payload hash as a checksum
 -- and for inclusion proofs. In order to validate the payload hash without
 -- recomputing the outputs we need this extra level of indirection between the
