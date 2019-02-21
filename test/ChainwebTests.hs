@@ -37,7 +37,7 @@ import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
-import Chainweb.Test.Utils (RunStyle(..), schedule, scheduled)
+import Chainweb.Test.Utils (RunStyle(..), schedule, testGroupSch)
 import qualified Chainweb.Utils.Paging (properties)
 import Chainweb.Version
 
@@ -67,7 +67,7 @@ pactTestSuite = do
 
 suite :: TestTree
 suite = testGroup "ChainwebTests" $ schedule Sequential
-    [ scheduled "Chainweb Unit Tests"
+    [ testGroupSch "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests
             , Chainweb.Test.TreeDB.RemoteDB.tests
@@ -93,10 +93,10 @@ suite = testGroup "ChainwebTests" $ schedule Sequential
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         ]
-    , scheduled "Pact Tests"
+    , testGroupSch "Pact Tests"
         [ Chainweb.Test.Pact.tests
         ]
-    , scheduled "Slow Tests"
+    , testGroupSch "Slow Tests"
         [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
         ]
     ]

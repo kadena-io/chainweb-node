@@ -66,9 +66,11 @@ module Chainweb.Test.Utils
 
 -- * Scheduling Tests
 , RunStyle(..)
-, ScheduledGroup
+, Scheduled
 , schedule
-, scheduled
+, testCaseSch
+, testGroupSch
+, testPropertySch
 ) where
 
 import Control.Concurrent
@@ -102,6 +104,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 import Text.Printf (printf)
 
@@ -549,23 +552,24 @@ data RunStyle = Sequential | Parallel
 -- | A structure similar to that procuded by `testGroup`, except that we can
 -- optionally schedule groups of this type.
 --
-data ScheduledGroup = ScheduledGroup { _groupLabel :: String, _groupTests :: [TestTree] }
+data Scheduled = Scheduled { _schLabel :: String , _schTest :: TestTree }
 
--- | Analogous to `testGroup`, but enables a `TestTree` to be scheduled.
---
-scheduled :: String -> [TestTree] -> ScheduledGroup
-scheduled = ScheduledGroup
+testCaseSch :: String -> Assertion -> Scheduled
+testCaseSch l a = Scheduled l $ testCase l a
 
-asGroup :: ScheduledGroup -> TestTree
-asGroup (ScheduledGroup l ts) = testGroup l ts
+testGroupSch :: String -> [TestTree] -> Scheduled
+testGroupSch l ts = Scheduled l $ testGroup l ts
+
+testPropertySch :: Testable a => String -> a -> Scheduled
+testPropertySch l p = Scheduled l $ testProperty l p
 
 -- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
 -- each group will be made to run one after another. This can be used to prevent
 -- various tests from starving each other of resources.
 --
-schedule :: RunStyle -> [ScheduledGroup] -> [TestTree]
+schedule :: RunStyle -> [Scheduled] -> [TestTree]
 schedule _ [] = []
-schedule Parallel tgs = map asGroup tgs
-schedule Sequential tgs@(h : _) = asGroup h : zipWith f tgs (tail tgs)
+schedule Parallel tgs = map _schTest tgs
+schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
   where
-    f a b = after AllFinish (_groupLabel a) $ testGroup (_groupLabel b) (_groupTests b)
+    f a b = after AllFinish (_schLabel a) $ _schTest b

@@ -40,28 +40,9 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
-import Chainweb.Test.Utils hiding (RunStyle(..), schedule)
+import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils (len)
-
-
--- | Used with `schedule` to define how these properties should be tested.
---
-data RunStyle = Sequential | Parallel
-
--- | PR #157 introduces property-based testing of `TreeDb` invariants. These
--- properties create a new DB from scratch upon each run. One `TreeDb` instance,
--- `RemoteDb` requires spawning a full Warp `Application` for this to occur.
---
--- Unfortunately, the rapid spawning, requesting, and closing of these servers
--- seems to occasionally create issues with dangling sockets in the underlying
--- system. This can hang the tests, so `schedule` here allows us to optionally
--- thread all these properties sequentially, so that they won't be ran in
--- parallel as is usual for Tasty-based tests.
---
-schedule :: RunStyle -> String -> TestTree -> TestTree
-schedule Parallel _ = id
-schedule Sequential patt = after AllFinish patt
 
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))
@@ -71,46 +52,38 @@ treeDbInvariants
     -> RunStyle
     -> TestTree
 treeDbInvariants f rs = testGroup "TreeDb Invariants"
-    [ testGroup "Properties"
-        [ testGroup "Shape"
-            [ testProperty "Conversion to and from Tree" $ treeIso_prop f
-            , schedule rs "Conversion to and from Tree" $
-                  testProperty "Root node has genesis parent hash" $ rootParent_prop f
+    [ testGroup "Properties" $ schedule rs
+        [ testGroupSch "TreeDb Shape" $ schedule rs
+            [ testPropertySch "Conversion to and from Tree" $ treeIso_prop f
+            , testPropertySch "Root node has genesis parent hash" $ rootParent_prop f
             ]
-        , testGroup "Basic Streaming"
-              [ testGroup "Self-reported Stream Length"
-                    [ schedule rs "Root node has genesis parent hash" $  testProperty "keys"
+        , testGroupSch "Basic Streaming" $ schedule rs
+              [ testGroupSch "Self-reported Stream Length" $ schedule rs
+                    [ testPropertySch "streaming keys"
                           $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
-                    , schedule rs "keys" $ testProperty "entries"
+                    , testPropertySch "streaming entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
-                    , schedule rs "entries" $ testProperty "leafEntries"
+                    , testPropertySch "streaming leafEntries"
                           $ streamCount_prop f (\db -> leafEntries db Nothing Nothing Nothing Nothing)
-                    , schedule rs "leafEntries" $ testProperty "leafKeys"
+                    , testPropertySch "streaming leafKeys"
                           $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
-                    , schedule rs "leafKeys" $ testProperty "branchKeys"
+                    , testPropertySch "streaming branchKeys"
                           $ streamCount_prop f (\db -> branches branchKeys db)
-                    , schedule rs "branchKeys" $ testProperty "branchEntries"
+                    , testPropertySch "streaming branchEntries"
                           $ streamCount_prop f (\db -> branches branchEntries db)
                     ]
-              , testGroup "Misc."
-                    [ schedule rs "branchEntries" $
-                          testProperty "All leaves are properly fetched" $ leafFetch_prop f
-                    , testProperty "Parent lookup of genesis fails" $ genParent_prop f
-                    , schedule rs "Parent lookup of genesis fails" $
-                          testProperty "All entries are properly fetched" $ entriesFetch_prop f
+              , testGroupSch "Miscellaneous" $ schedule rs
+                    [ testPropertySch "All leaves are properly fetched" $ leafFetch_prop f
+                    , testPropertySch "Parent lookup of genesis fails" $ genParent_prop f
+                    , testPropertySch "All entries are properly fetched" $ entriesFetch_prop f
                     ]
               ]
-        , testGroup "Behaviour"
-            [ schedule rs "All leaves are properly fetched" $
-                  testProperty "Reinsertion is a no-op" $ reinsertion_prop f
-            , schedule rs "Reinsertion is a no-op" $
-                  testProperty "Cannot manipulate old nodes" $ handOfGod_prop f
-            , schedule rs "Cannot manipulate old nodes" $
-                  testProperty "Leaves are streamed in ascending order" $ leafOrder_prop f
-            , schedule rs "Leaves are streamed in ascending order" $
-                  testProperty "Entries are streamed in ascending order" $ entryOrder_prop f
-            , schedule rs "Entries are streamed in ascending order" $
-                  testProperty "maxRank reports correct height" $ maxRank_prop f
+        , testGroupSch "TreeDb Behaviour" $ schedule rs
+            [ testPropertySch "Reinsertion is a no-op" $ reinsertion_prop f
+            , testPropertySch "Cannot manipulate old nodes" $ handOfGod_prop f
+            , testPropertySch "Leaves are streamed in ascending order" $ leafOrder_prop f
+            , testPropertySch "Entries are streamed in ascending order" $ entryOrder_prop f
+            , testPropertySch "maxRank reports correct height" $ maxRank_prop f
             ]
         ]
     ]
