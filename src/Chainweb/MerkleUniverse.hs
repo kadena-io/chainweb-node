@@ -46,6 +46,10 @@ data ChainwebHashTag
     | BlockHashTag
     | HashTargetTag
     | ChainNodeIdTag
+    | TransactionTag
+    | TransactionOutputTag
+    | BlockTransactionsHashTag
+    | BlockOutputsHashTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -63,6 +67,10 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockHashTag = 0x0010
     type MerkleTagVal ChainwebHashTag 'HashTargetTag = 0x0011
     type MerkleTagVal ChainwebHashTag 'ChainNodeIdTag = 0x0012
+    type MerkleTagVal ChainwebHashTag 'TransactionTag = 0x0013
+    type MerkleTagVal ChainwebHashTag 'TransactionOutputTag = 0x0014
+    type MerkleTagVal ChainwebHashTag 'BlockTransactionsHashTag = 0x0015
+    type MerkleTagVal ChainwebHashTag 'BlockOutputsHashTag = 0x0016
 
 instance IsMerkleLogEntry ChainwebHashTag Void where
     type Tag Void = 'VoidTag

@@ -23,6 +23,8 @@ module Chainweb.WebBlockHeaderDB
 , webEntries
 , webAllEntries
 , lookupWebBlockHeaderDb
+, lookupAdjacentParentHeader
+, lookupParentHeader
 , insertWebBlockHeaderDb
 , blockAdjacentParentHeaders
 , checkBlockHeaderGraph
@@ -152,6 +154,24 @@ blockAdjacentParentHeaders
 blockAdjacentParentHeaders = traverse lookupWebBlockHeaderDb
     . _getBlockHashRecord
     . _blockAdjacentHashes
+
+lookupAdjacentParentHeader
+    :: Given WebBlockHeaderDb
+    => BlockHeader
+    -> ChainId
+    -> IO BlockHeader
+lookupAdjacentParentHeader h cid = do
+    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
+    let ph = h ^?! (blockAdjacentHashes . ix cid)
+    lookupWebBlockHeaderDb ph
+
+lookupParentHeader
+    :: Given WebBlockHeaderDb
+    => BlockHeader
+    -> IO BlockHeader
+lookupParentHeader h = do
+    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
+    lookupWebBlockHeaderDb (_blockParent h)
 
 insertWebBlockHeaderDb
     :: Given WebBlockHeaderDb

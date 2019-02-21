@@ -166,7 +166,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.DiGraph
 import Data.LogMessage
 
 import Network.X509.SelfSigned
@@ -321,14 +320,13 @@ runCutsSyncClient mgr cuts = do
 type ChainwebTransaction = Mempool.MockTx
 
 chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
-chainwebTransactionConfig =
-    Mempool.TransactionConfig Mempool.mockCodec
-                              mockHash
-                              Mempool.chainwebTestHashMeta
-                              Mempool.mockFees
-                              Mempool.mockSize
-                              Mempool.mockMeta
-                              (const $ return True)
+chainwebTransactionConfig = Mempool.TransactionConfig Mempool.mockCodec
+    mockHash
+    Mempool.chainwebTestHashMeta
+    Mempool.mockFees
+    Mempool.mockSize
+    Mempool.mockMeta
+    (const $ return True)
   where
     mockHash = Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec
 
@@ -367,8 +365,18 @@ withChain v graph cid p2pConfig peer peerDb chainDbDir logfun mempoolCfg inner =
     withBlockHeaderDb v graph cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
-            inner $ Chain cid v graph p2pConfig peer cdb peerDb logfun (syncDepth graph)
-                          mempool
+            inner $ Chain
+                { _chainChainId = cid
+                , _chainChainwebVersion = v
+                , _chainChainwebGraph = graph
+                , _chainP2pConfig = p2pConfig
+                , _chainPeer = peer
+                , _chainBlockHeaderDb = cdb
+                , _chainPeerDb = peerDb
+                , _chainLogFun = logfun
+                , _chainSyncDepth = syncDepth graph
+                , _chainMempool = mempool
+                }
 
 withPersistedDb
     :: ChainId
@@ -418,9 +426,7 @@ chainSyncP2pSession depth db logg env = do
     chainSyncSession db peer depth logg
 
 syncDepth :: ChainGraph -> Depth
-syncDepth g = case diameter g of
-    Nothing -> error "Failed to compute diameter of ChainGraph. Most likely the graph is not suitable as chainweb graph"
-    Just x -> Depth (2 * x)
+syncDepth g = Depth (2 * diameter g)
 {-# NOINLINE syncDepth #-}
 
 -- -------------------------------------------------------------------------- --
@@ -451,13 +457,12 @@ withMiner logFun conf nid cutDb webDb inner = inner $ Miner
     }
 
 runMiner :: ChainwebVersion -> Miner -> IO ()
-runMiner v m =
-    (chooseMiner v)
-        (_getLogFunction $ _minerLogFun m)
-        (_minerConfig m)
-        (_minerNodeId m)
-        (_minerCutDb m)
-        (_minerWebBlockHeaderDb m)
+runMiner v m = (chooseMiner v)
+    (_getLogFunction $ _minerLogFun m)
+    (_minerConfig m)
+    (_minerNodeId m)
+    (_minerCutDb m)
+    (_minerWebBlockHeaderDb m)
   where
     chooseMiner
         :: ChainwebVersion
@@ -517,13 +522,13 @@ withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, soc
     confLens :: Lens' ChainwebConfiguration PeerConfig
     confLens = configP2p . p2pConfigPeer
 
-
 mempoolConfig :: Mempool.InMemConfig Mempool.MockTx
-mempoolConfig = Mempool.InMemConfig chainwebTransactionConfig Mempool.mockBlocksizeLimit
-                                    mempoolReapInterval
+mempoolConfig = Mempool.InMemConfig
+    chainwebTransactionConfig
+    Mempool.mockBlocksizeLimit
+    mempoolReapInterval
   where
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
-
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -544,9 +549,9 @@ withChainwebInternal graph conf logFuns socket peer inner = do
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun -> withChain v graph cid p2pConf peer peerDb chainDbDir
-                                     logfun mempoolConfig $ \c ->
-                go peerDb (HM.insert cid c cs) t
+            Just logfun ->
+                withChain v graph cid p2pConf peer peerDb chainDbDir logfun mempoolConfig $ \c ->
+                    go peerDb (HM.insert cid c cs) t
 
     -- Initialize global resources
     go peerDb cs [] = do
@@ -595,9 +600,10 @@ runChainweb cw = do
 
     -- collect server resources
     let chains = HM.toList (_chainwebChains cw)
-        chainDbsToServe = flip map chains $ \(k, ch) ->
-                          (k, _chainBlockHeaderDb ch, _chainMempool ch)
-        chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
+        chainDbsToServe
+            = flip map chains $ \(k, ch) -> (k, _chainBlockHeaderDb ch, _chainMempool ch)
+        chainP2pToServe
+            = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
