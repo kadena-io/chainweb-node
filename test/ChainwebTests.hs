@@ -26,6 +26,7 @@ import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
+import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.MultiNode
@@ -85,6 +86,7 @@ suite =
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
+        , Chainweb.Test.Mempool.RestAPI.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties

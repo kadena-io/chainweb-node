@@ -19,18 +19,23 @@ module Chainweb.Mempool.RestAPI.Client
   , memberClient
   , lookupClient
   , getBlockClient
+  , toMempool
   ) where
 
 ------------------------------------------------------------------------------
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
+import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Exception
+import Control.Monad
 import Control.Monad.Identity
 import Data.Aeson.Types (FromJSON, ToJSON)
 import Data.Int
 import Data.IORef
 import Data.Proxy
+import qualified Data.Vector as V
+import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
 import qualified System.IO.Streams as Streams
@@ -41,6 +46,55 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
 import Chainweb.Version
 ------------------------------------------------------------------------------
+
+
+toMempool
+    :: (FromJSON t, ToJSON t)
+    => ChainwebVersion
+    -> ChainId
+    -> TransactionConfig t
+    -> Int64
+    -> ClientEnv
+    -> MempoolBackend t
+toMempool version chain txcfg blocksizeLimit env =
+    MempoolBackend txcfg blocksizeLimit member lookup insert getBlock
+                   markValidated markConfirmed reintroduce getPending
+                   subscribe shutdown
+  where
+    go m = runClientM m env >>= either throwIO return
+
+    member v = V.fromList <$> go (memberClient version chain (V.toList v))
+    lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
+    insert v = void $ go (insertClient version chain (V.toList v))
+    getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+    getPending cb = go (getPendingClient version chain) >>=
+                    Streams.mapM_ (cb . V.fromList) >>=
+                    Streams.skipToEof
+
+    subscribe = mask_ $ do
+        chan <- atomically $ TBMChan.newTBMChan 8
+        t <- Async.asyncWithUnmask $ subThread chan
+        let finalize = Async.uninterruptibleCancel t
+        let sub = Subscription chan finalize
+        ref <- newIORef sub
+        void $ mkWeakIORef ref finalize
+        return ref
+
+    shutdown = return ()
+
+    unsupported = fail "unsupported"
+    markValidated _ = unsupported
+    markConfirmed _ = unsupported
+    reintroduce _ = unsupported
+
+    subThread chan restore =
+        flip finally (atomically $ TBMChan.closeTBMChan chan) $ restore $ do
+            is <- go (subscribeClient version chain)
+
+            Streams.filter (not . null) is
+                >>= Streams.mapM_ (atomically . TBMChan.writeTBMChan chan
+                                              . V.fromList)
+                >>= Streams.skipToEof
 
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)

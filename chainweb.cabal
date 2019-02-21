@@ -285,14 +285,15 @@ test-suite chainweb-tests
         Chainweb.Test.DiGraph
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
+        Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactService
-        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -303,7 +304,6 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.TreeDB.Sync
-        Chainweb.Test.Utils
         Chainweb.Test.Utils
         Network.X509.SelfSigned.Test
 
