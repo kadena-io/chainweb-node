@@ -79,6 +79,7 @@ import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -116,7 +117,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MempoolBackend(..), noopMempool)
+import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
@@ -271,45 +272,45 @@ singleton = singletonChainGraph
 
 testBlockHeaderDbs
     :: ChainwebVersion
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
 testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds_ (_chainGraph v)
   where
     toEntry c = do
         d <- db c
-        return $! (c, d, noopMempool)
+        return $! (c, d)
     db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v c
 
 petersonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    :: IO [(ChainId, BlockHeaderDb)]
 petersonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test petersonChainGraph)
 
 singletonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    :: IO [(ChainId, BlockHeaderDb)]
 singletonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, BlockHeaderDb)]
 linearBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (_, db, _) = do
+    populateDb (_, db) = do
         gbh0 <- root db
         traverse_ (insert db) . take (int n) $ testBlockHeaders gbh0
 
 starBlockHeaderDbs
     :: Natural
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, BlockHeaderDb)]
 starBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (_, db, _) = do
+    populateDb (_, db) = do
         gbh0 <- root db
         traverse_ (\i -> insert db $ newEntry i gbh0) [0 .. (int n-1)]
 
@@ -322,14 +323,15 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withSingleChainServer
-    :: Show t
-    => [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    :: (ToJSON t, FromJSON t, Show t)
+    => [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, MempoolBackend t)]
     -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
-withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
+withSingleChainServer chainDbs mempools peerDbs f = W.testWithApplication (pure app) work
   where
-    app = singleChainApplication (Test singletonChainGraph) chainDbs peerDbs
+    app = singleChainApplication (Test singletonChainGraph) chainDbs mempools peerDbs
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -342,23 +344,24 @@ testHost = "localhost"
 
 data TestClientEnv t = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb, MempoolBackend t)]
+    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
+    , _envMempools :: ![(ChainId, MempoolBackend t)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
 pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> [(ChainId, BlockHeaderDb)]
     -> TestClientEnv t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
-    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs []
+    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs [] []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
     -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
-    = TestClientEnv _pdbEnvClientEnv [] _pdbEnvPeerDbs
+    = TestClientEnv _pdbEnvClientEnv [] [] _pdbEnvPeerDbs
 
 withTestAppServer
     :: Bool
@@ -434,17 +437,18 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
         close sock
 
 clientEnvWithSingleChainTestServer
-    :: Show t
+    :: (Show t, ToJSON t, FromJSON t)
     => Bool
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, MempoolBackend t)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
+clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO peerDbsIO
     = withSingleChainTestServer tls mkApp mkEnv
   where
     v = Test singletonChainGraph
-    mkApp = singleChainApplication v <$> chainDbsIO <*> peerDbsIO
+    mkApp = singleChainApplication v <$> chainDbsIO <*> mempoolsIO <*> peerDbsIO
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
@@ -452,25 +456,27 @@ clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
         mgr <- HTTP.newManager mgrSettings
         TestClientEnv (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
             <$> chainDbsIO
+            <*> mempoolsIO
             <*> peerDbsIO
 
 
 withPeerDbsServer
-    :: Show t
+    :: (Show t, FromJSON t, ToJSON t)
     => Bool
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return [])
+withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return []) (return [])
 
 withBlockHeaderDbsServer
-    :: Show t
+    :: (Show t, FromJSON t, ToJSON t)
     => Bool
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls chainDbsIO
-    = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
+withBlockHeaderDbsServer tls chainDbsIO mempoolsIO
+    = clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

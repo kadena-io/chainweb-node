@@ -429,6 +429,7 @@ server mempool host port mvar = mask $ \(restore :: forall z . IO z -> IO z) ->
         forkIOWithUnmask $ serverSession mempool s
 
 
+-- TODO: remove
 toDebugStreams :: ByteString
                -> Socket
                -> IO (InputStream ByteString, OutputStream Builder, IO ())
@@ -446,9 +447,9 @@ toDebugStreams name sock = do
 
 
 -- | Converts a socket to a triple of (input, output, cleanup).
-toStreams :: Socket
-          -> IO (InputStream ByteString, OutputStream Builder, IO ())
-toStreams sock = do
+_toStreams :: Socket
+           -> IO (InputStream ByteString, OutputStream Builder, IO ())
+_toStreams sock = do
     (readEnd, writeEnd0) <- Streams.socketToStreams sock
     writeEnd <- Streams.atEndOfOutput (eatExceptions $ N.shutdown sock N.ShutdownSend) writeEnd0
     writeEndB <- Streams.builderStream writeEnd

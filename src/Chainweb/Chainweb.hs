@@ -615,10 +615,11 @@ runChainweb cw = do
 
     -- collect server resources
     let chains = HM.toList (_chainwebChains cw)
-        chainDbsToServe
-            = flip map chains $ \(k, ch) -> (k, _chainBlockHeaderDb ch, _chainMempool ch)
-        chainP2pToServe
-            = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
+        proj :: forall a . (Chain -> a) -> [(ChainId, a)]
+        proj f = flip map chains $ \(k, ch) -> (k, f ch)
+        chainDbsToServe = proj _chainBlockHeaderDb
+        mempoolsToServe = proj _chainMempool
+        chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
@@ -629,6 +630,7 @@ runChainweb cw = do
             (_chainwebChainwebVersion cw)
             cutDb
             chainDbsToServe
+            mempoolsToServe
             ((CutNetwork, cutPeerDb) : chainP2pToServe)
 
     -- 1. start server
