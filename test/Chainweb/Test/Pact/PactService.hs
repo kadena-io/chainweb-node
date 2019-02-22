@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module: Chainweb.Test.PactHttp
+-- Module: Chainweb.Test.PactService
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
@@ -10,7 +10,7 @@
 --
 -- Unit test for Pact Http execution in Chainweb
 
-module Chainweb.Test.Pact.PactHttp where
+module Chainweb.Test.Pact.PactService where
 
 import Control.Monad.Zip
 
@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Pact.Service.PactHttp
+import Chainweb.Pact.Service.PactApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils

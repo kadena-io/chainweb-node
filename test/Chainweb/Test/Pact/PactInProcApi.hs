@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module: Chainweb.Test.PactApi
+-- Module: Chainweb.Test.PactInProcApi
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
@@ -10,7 +10,7 @@
 --
 -- Unit test for Pact execution via (inprocess) API  in Chainweb
 
-module Chainweb.Test.Pact.PactApi where
+module Chainweb.Test.Pact.PactInProcApi where
 
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Zip
@@ -33,7 +33,7 @@ import Test.Tasty.Golden
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Pact.Service.PactApi
+import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Version

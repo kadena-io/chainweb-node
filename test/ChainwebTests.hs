@@ -28,9 +28,9 @@ import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mempool.Websocket
 import qualified Chainweb.Test.MultiNode
-import qualified Chainweb.Test.Pact.PactApi
+import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactHttp
+import qualified Chainweb.Test.Pact.PactService
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.Store.CAS.FS
@@ -60,11 +60,11 @@ main = do
 pactTestSuite :: IO TestTree
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
-    pactApiTests <- Chainweb.Test.Pact.PactApi.tests
-    pactHttpTests <- Chainweb.Test.Pact.PactHttp.tests
+    pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
+    pactHttpTests <- Chainweb.Test.Pact.PactService.tests
     return $ testGroup "Chainweb-Pact Tests"
         [ pactTests
-        , pactApiTests
+        , pactInProcApiTests
         , pactHttpTests ]
 
 suite :: TestTree
