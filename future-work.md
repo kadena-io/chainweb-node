@@ -90,3 +90,13 @@ manually clean out old tags in `bh/` or `leaf/`.
 See [this
 discussion](https://github.com/kadena-io/chainweb/pull/201#discussion_r252262465)
 for more information.
+
+## Pact Execution Service
+
+### Catching Exceptions
+
+This paragraph only concerns the proper execution schedule of the
+on-disk check-pointer. Figure out how to catch exceptions properly in
+monad transformer stacks that have IO at the bottom. Upon receipt (or
+catch) of an exception during the execution of pact code, make sure to
+close any back-end database, currently in use, properly.
