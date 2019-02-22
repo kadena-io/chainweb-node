@@ -43,15 +43,20 @@ withRemoteMempool
 withRemoteMempool inMemCfg userFunc =
     InMem.withInMemoryMempool inMemCfg $ \inmem ->
     withTestAppServer True (mkApp inmem) mkEnv $ \env ->
-    let remoteMp = MClient.toMempool Test chain txcfg blocksizeLimit env
+    let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit env
     in userFunc remoteMp
 
   where
+    version = Test singletonChainGraph
+
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     txcfg = InMem._inmemTxCfg inMemCfg
     host = "127.0.0.1"
-    chain = head $ toList $ chainIds_ singleton
-    mkApp mp = singleChainApplication Test <$> pure [] <*> pure [(chain, mp)] <*> pure []
+    chain = head $ toList $ chainIds_ singletonChainGraph
+    mkApp mp = singleChainApplication version
+                   <$> pure []
+                   <*> pure [(chain, mp)]
+                   <*> pure []
     mkEnv port = do
         mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
         mgr <- HTTP.newManager mgrSettings

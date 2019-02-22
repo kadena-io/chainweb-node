@@ -286,7 +286,7 @@ petersonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test petersonChainGraph)
 
 singletonGenesisBlockHeaderDbs
     :: IO [(ChainId, BlockHeaderDb)]
-singletonGenesisBlockHeaderDbs = testBlockHeaderDbs singleton (Test singletonChainGraph)
+singletonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural
