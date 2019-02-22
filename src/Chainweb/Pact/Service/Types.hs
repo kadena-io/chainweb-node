@@ -14,6 +14,7 @@
 
 module Chainweb.Pact.Service.Types where
 
+import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Lens
@@ -38,8 +39,8 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
 data RequestIdEnv
   = RequestIdEnv { _rieReqIdVar :: TVar RequestId
-                 , _rieReqQ :: TVar (TQueue RequestMsg)
-                 , _rieRespQ :: TVar (TQueue ResponseMsg)
+                 , _rieReqQ :: TVar (TQueue RequestHttpMsg)
+                 , _rieRespQ :: TVar (TQueue ResponseHttpMsg)
                  , _rieResponseMap :: H.IOHashTable H.HashTable RequestId Transactions }
 
 type PactAppM = ReaderT RequestIdEnv Handler
@@ -59,14 +60,20 @@ data RequestType = ValidateBlock | NewBlock deriving (Show)
 
 data RequestMsg = RequestMsg
     { _reqRequestType :: RequestType
-    , _reqRequestId   :: RequestId
     , _reqBlockHeader :: BlockHeader
+    , _reqResultVar :: MVar Transactions
+    }
+
+data RequestHttpMsg = RequestHttpMsg
+    { _reqhRequestType :: RequestType
+    , _reqhRequestId   :: RequestId
+    , _reqhBlockHeader :: BlockHeader
     } deriving (Show)
 
-data ResponseMsg = ResponseMsg
-    { _respRequestType :: RequestType
-    , _respRequestId   :: RequestId
-    , _respPayload :: Transactions
+data ResponseHttpMsg = ResponseHttpMsg
+    { _resphRequestType :: RequestType
+    , _resphRequestId   :: RequestId
+    , _resphPayload :: Transactions
     } deriving (Show)
 
 makeLenses ''RequestIdEnv

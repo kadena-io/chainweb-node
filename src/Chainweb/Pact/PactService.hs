@@ -13,6 +13,7 @@
 module Chainweb.Pact.PactService
     ( execTransactions
     , initPactService
+    , initPactServiceHttp
     , mkPureState
     , mkSQLiteState
     , newBlock
@@ -54,18 +55,15 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.Backend.SqliteDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 
 import Chainweb.Pact.Utils
 
--- | Initilization for the Pact execution service, including initialization for the execution queues, the MemPool, and the Checkpointer
-initPactService
-  :: TVar (TQueue RequestMsg)
-  -> TVar (TQueue ResponseMsg)
-  -> MemPoolAccess
-  -> IO ()
-initPactService reqQVar respQVar memPoolAccess = do
+
+initPactService :: TVar (TQueue RequestMsg) -> MemPoolAccess -> IO ()
+initPactService reqQVar memPoolAccess = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
@@ -94,32 +92,81 @@ initPactService reqQVar respQVar memPoolAccess = do
             fail s
         Right _ -> return ()
     void $ evalStateT
-           (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
+           (runReaderT (serviceRequests memPoolAccess reqQVar) checkpointEnv)
+           theState
+
+
+-- TODO: Merge into new 'initPactService'
+initPactServiceHttp
+  :: TVar (TQueue RequestHttpMsg)
+  -> TVar (TQueue ResponseHttpMsg)
+  -> MemPoolAccess
+  -> IO ()
+initPactServiceHttp reqQVar respQVar memPoolAccess = do
+    let loggers = P.neverLog
+    let logger = P.newLogger loggers $ P.LogName "PactService"
+    pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
+    let cmdConfig = toCommandConfig pactCfg
+    let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
+    let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
+    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
+    (checkpointEnv, theState) <-
+        case P._ccSqlite cmdConfig of
+            Nothing -> do
+                env <- P.mkPureEnv loggers
+                liftA2
+                    (,)
+                    (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
+                    (mkPureState env cmdConfig)
+            Just sqlc -> do
+                env <- P.mkSQLiteEnv logger False sqlc loggers
+                liftA2
+                    (,)
+                    (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
+                    (mkSQLiteState env cmdConfig)
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
+    case estate of
+        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
+            fail s
+        Right _ -> return ()
+    void $ evalStateT
+           (runReaderT (serviceRequestsHttp memPoolAccess reqQVar respQVar) checkpointEnv)
            theState
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
-serviceRequests
+serviceRequests :: MemPoolAccess -> TVar (TQueue RequestMsg) -> PactT ()
+serviceRequests memPoolAccess reqQ =
+    forever $ do
+        reqMsg <- liftIO $ getNextRequest reqQ
+        txs <- case _reqRequestType reqMsg of
+            NewBlock -> newBlock memPoolAccess (_reqBlockHeader reqMsg)
+            ValidateBlock -> validateBlock memPoolAccess (_reqBlockHeader reqMsg)
+        liftIO $ putMVar (_reqResultVar reqMsg) txs
+
+-- TODO: Merge into new 'serviceRequests'
+serviceRequestsHttp
     :: MemPoolAccess
-    -> TVar (TQueue RequestMsg)
-    -> TVar (TQueue ResponseMsg)
+    -> TVar (TQueue RequestHttpMsg)
+    -> TVar (TQueue ResponseHttpMsg)
     -> PactT ()
-serviceRequests memPoolAccess reqQ respQ =
+serviceRequestsHttp memPoolAccess reqQ respQ =
     forever run where
         run = do
-            reqMsg <- liftIO $ getNextRequest reqQ
-            respMsg <- case _reqRequestType reqMsg of
+            reqMsg <- liftIO $ getNextHttpRequest reqQ
+            respMsg <- case _reqhRequestType reqMsg of
                 NewBlock -> do
-                    h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
-                    return $ ResponseMsg
-                        { _respRequestType = NewBlock
-                        , _respRequestId = _reqRequestId reqMsg
-                        , _respPayload = h }
+                    h <- newBlock memPoolAccess (_reqhBlockHeader reqMsg)
+                    return $ ResponseHttpMsg
+                        { _resphRequestType = NewBlock
+                        , _resphRequestId = _reqhRequestId reqMsg
+                        , _resphPayload = h }
                 ValidateBlock -> do
-                    h <- validateBlock memPoolAccess (_reqBlockHeader reqMsg)
-                    return $ ResponseMsg
-                        { _respRequestType = ValidateBlock
-                        , _respRequestId = _reqRequestId reqMsg
-                        , _respPayload = h }
+                    h <- validateBlock memPoolAccess (_reqhBlockHeader reqMsg)
+                    return $ ResponseHttpMsg
+                        { _resphRequestType = ValidateBlock
+                        , _resphRequestId = _reqhRequestId reqMsg
+                        , _resphPayload = h }
             void . liftIO $ addResponse respQ respMsg
 
 -- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact

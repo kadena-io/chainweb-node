@@ -2,15 +2,15 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module: Chainweb.Test.PactService
+-- Module: Chainweb.Test.PactHttp
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Unit test for Pact execution in Chainweb
+-- Unit test for Pact Http execution in Chainweb
 
-module Chainweb.Test.Pact.PactService where
+module Chainweb.Test.Pact.PactHttp where
 
 import Control.Monad.Zip
 
@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Pact.Service.PactApi
+import Chainweb.Pact.Service.PactHttp
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
@@ -63,10 +63,7 @@ pactTestApp = do
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings
         let clientEnv = mkClientEnv mgr base
-
         -- testing:  /new
-        -- response0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
-        -- tt0 <- checkRespTrans "block-results-expected-0.txt" response0
         idResp0 <- runClientM (testGetNewBlock (headers ! 0)) clientEnv
         tt0 <- case idResp0 of
                   (Left servantError) -> assertFailure $
@@ -76,12 +73,7 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testGetNewBlock"
                           Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
-
-
-
         -- testing:  /validate
-        -- response0b <- runClientM (testValidate (headers ! 0)) clientEnv
-        -- tt0b <- checkRespTrans "block-results-expected-0.txt" response0b
         idResp0b <- runClientM (testValidate (headers ! 0)) clientEnv
         tt0b <- case idResp0b of
                   (Left servantError) -> assertFailure $
@@ -91,11 +83,7 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testValidate"
                           Just rsp -> checkRespTrans "block-results-expected-0.txt" rsp
-
-
         -- testing:  /validate
-        -- validateResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
-        -- tt1 <- checkRespTrans "block-results-expected-1.txt" validateResp1
         idResp1 <- runClientM (testValidate (headers ! 1)) clientEnv
         tt1 <- case idResp1 of
                   (Left servantError) -> assertFailure $
@@ -105,7 +93,6 @@ pactTestApp = do
                       case rspM of
                           Nothing -> assertFailure "Polling timeout for testValidate"
                           Just rsp -> checkRespTrans "block-results-expected-1.txt" rsp
-
         return $ tt0 : tt0b : [tt1]
 
 pollForTestResp
