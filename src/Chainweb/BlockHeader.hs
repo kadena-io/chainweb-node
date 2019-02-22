@@ -94,6 +94,7 @@ module Chainweb.BlockHeader
 -- * Genesis BlockHeader
 , genesisParentBlockHash
 , genesisBlockHeader
+, genesisBlockHeader'
 , genesisBlockHeaders
 , isGenesisBlockHeader
 , genesisBlockTarget
@@ -686,7 +687,18 @@ genesisBlockHeader
     => ChainwebVersion
     -> p
     -> BlockHeader
-genesisBlockHeader v p = fromLog mlog
+genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v cid) (Nonce 0)
+  where
+    cid = _chainId p
+
+genesisBlockHeader'
+    :: HasChainId p
+    => ChainwebVersion
+    -> p
+    -> BlockCreationTime
+    -> Nonce
+    -> BlockHeader
+genesisBlockHeader' v p ct n = fromLog mlog
   where
     g = _chainGraph v
     cid = _chainId p
@@ -695,8 +707,8 @@ genesisBlockHeader v p = fromLog mlog
         $ genesisParentBlockHash v cid
         :+: genesisBlockTarget v
         :+: genesisBlockPayloadHash v cid
-        :+: genesisTime v cid
-        :+: Nonce 0
+        :+: ct
+        :+: n
         :+: cid
         :+: BlockWeight 0
         :+: BlockHeight 0

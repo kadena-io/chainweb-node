@@ -27,6 +27,8 @@ module Chainweb.Version
 ( ChainwebVersion(..)
 , encodeChainwebVersion
 , decodeChainwebVersion
+, chainwebVersionFromText
+, chainwebVersionToText
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -189,10 +191,30 @@ chainwebVersionToText v@Simulation{} = "simulation-" <> sshow (chainwebVersionId
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 
--- production versions
+-- Production versions
+--
 chainwebVersionFromText "testnet00" = return Testnet00
 
--- test versions
+-- Well know test version names
+--
+-- These are only used for parsing textual represetions. There is very low
+-- chance that a roundrip test for the 'HasTextRepresentation' of
+-- 'ChainwebVersion' due to these names.
+--
+chainwebVersionFromText "test" = return $ Test petersonChainGraph
+chainwebVersionFromText "test-singleton" = return $ Test singletonChainGraph
+chainwebVersionFromText "test-peterson" = return $ Test petersonChainGraph
+
+chainwebVersionFromText "testWithTime" = return $ TestWithTime petersonChainGraph
+chainwebVersionFromText "testWithTime-singleton" = return $ TestWithTime singletonChainGraph
+chainwebVersionFromText "testWithTime-peterson" = return $ TestWithTime petersonChainGraph
+
+chainwebVersionFromText "testWithPow" = return $ TestWithPow petersonChainGraph
+chainwebVersionFromText "testWithPow-singleton" = return $ TestWithPow singletonChainGraph
+chainwebVersionFromText "testWithPow-peterson" = return $ TestWithPow petersonChainGraph
+
+-- Generic test versions
+--
 chainwebVersionFromText t = case T.breakOnEnd "-" t of
     (_, i) -> case treadM i of
         Left e -> throwM
