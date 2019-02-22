@@ -48,8 +48,6 @@ import Chainweb.Mempool.RestAPI
 import Chainweb.Version
 ------------------------------------------------------------------------------
 
-import qualified Data.ByteString.Char8 as B
-
 -- TODO: all of these operations need timeout support.
 toMempool
     :: (Show t, FromJSON t, ToJSON t)

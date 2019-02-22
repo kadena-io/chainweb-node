@@ -40,8 +40,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
-import qualified Data.ByteString.Char8 as B
-
 ------------------------------------------------------------------------------
 insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
 insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)

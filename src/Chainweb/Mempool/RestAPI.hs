@@ -51,8 +51,6 @@ import Chainweb.Mempool.Mempool
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
-import qualified Data.ByteString.Char8 as B
-
 ------------------------------------------------------------------------------
 -- type-indexed mempool
 data Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) = Mempool_ {

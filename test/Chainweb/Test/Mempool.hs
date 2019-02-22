@@ -49,7 +49,6 @@ import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 import qualified Numeric.AffineSpace as AF
 
-import qualified Data.ByteString.Char8 as B
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed
 -- by the local consensus layer and are not supported for remote mempools. The
