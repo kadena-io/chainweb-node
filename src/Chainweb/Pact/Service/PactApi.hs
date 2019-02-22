@@ -76,11 +76,11 @@ withPactServiceApp socketOrPort hostPreference memPoolAccess action = do
         let runWarp = case socketOrPort of
                 Left socket -> flip Warp.runSettingsSocket socket
                     $ Warp.setHost hostPreference
-                    $ Warp.defaultSettings
+                      Warp.defaultSettings
                 Right port -> Warp.runSettings
                     $ Warp.setPort port
                     $ Warp.setHost hostPreference
-                    $ Warp.defaultSettings
+                      Warp.defaultSettings
 
         let closeSocket = case socketOrPort of
                 Left socket -> close socket

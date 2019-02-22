@@ -37,8 +37,7 @@ import Chainweb.Pact.Types
 
 -- | Initialization for Pact (in process) Api
 initPactExec :: IO (TVar (TQueue RequestMsg))
-initPactExec = do
-    initPactExec' tempMemPoolAccess -- TODO: replace with real mempool
+initPactExec = initPactExec' tempMemPoolAccess -- TODO: replace with real mempool
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
@@ -50,7 +49,7 @@ initPactExec' memPoolAccess = do
     link a
     return reqQVar
 
-newBlock :: BlockHeader -> (TVar (TQueue RequestMsg)) -> MVar Transactions -> IO ()
+newBlock :: BlockHeader -> TVar (TQueue RequestMsg) -> MVar Transactions -> IO ()
 newBlock bHeader reqQ resultVar = do
     let msg = RequestMsg
           { _reqRequestType = NewBlock
@@ -59,7 +58,7 @@ newBlock bHeader reqQ resultVar = do
     addRequest reqQ msg
 
 
-validateBlock :: BlockHeader -> (TVar (TQueue RequestMsg)) -> MVar Transactions -> IO ()
+validateBlock :: BlockHeader -> TVar (TQueue RequestMsg) -> MVar Transactions -> IO ()
 validateBlock bHeader reqQ resultVar = do
     let msg = RequestMsg
           { _reqRequestType = ValidateBlock
@@ -67,8 +66,8 @@ validateBlock bHeader reqQ resultVar = do
           , _reqResultVar = resultVar}
     addRequest reqQ msg
 
-closeQueue :: (TVar (TQueue RequestMsg)) -> IO ()
-closeQueue reqQ = sendCloseMsg reqQ
+closeQueue :: TVar (TQueue RequestMsg) -> IO ()
+closeQueue = sendCloseMsg
 
 
 -- TODO: replace reference to this with actual mempool and delete this
