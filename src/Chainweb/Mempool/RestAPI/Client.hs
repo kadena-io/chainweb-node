@@ -254,7 +254,6 @@ instance Show a => BuildFromStream a (Streams.InputStream a) where
           (ref, _) <- createThread
           Streams.makeInputStream $ do
               chan <- fst <$> readIORef ref
-              m <- atomically $ Chan.readTBMChan chan
-              return m
+              atomically $ Chan.readTBMChan chan
 
 #endif
