@@ -41,7 +41,7 @@ module Chainweb.Test.Utils
 , starBlockHeaderDbs
 
 -- * Toy Server Interaction
-, withSingleChainServer
+, withChainServer
 
 -- * Tasty TestTree Server and ClientEnv
 , testHost
@@ -49,8 +49,8 @@ module Chainweb.Test.Utils
 , pattern BlockHeaderDbsTestClientEnv
 , pattern PeerDbsTestClientEnv
 , withTestAppServer
-, withSingleChainTestServer
-, clientEnvWithSingleChainTestServer
+, withChainwebTestServer
+, clientEnvWithChainwebTestServer
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 
@@ -118,7 +118,8 @@ import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
-import Chainweb.RestAPI (singleChainApplication)
+import Chainweb.Payload.PayloadStore
+import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -127,6 +128,8 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
+
+import Data.CAS.HashMap hiding (toList)
 
 import Network.X509.SelfSigned
 
@@ -322,16 +325,17 @@ starBlockHeaderDbs n genDbs = do
 --
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
-withSingleChainServer
-    :: (ToJSON t, FromJSON t, Show t)
-    => [(ChainId, BlockHeaderDb)]
-    -> [(ChainId, MempoolBackend t)]
-    -> [(NetworkId, P2P.PeerDb)]
+withChainServer
+    :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
+    => ChainwebServerDbs t cas
     -> (ClientEnv -> IO a)
     -> IO a
-withSingleChainServer chainDbs mempools peerDbs f = W.testWithApplication (pure app) work
+withChainServer dbs f = W.testWithApplication (pure app) work
   where
-    app = singleChainApplication (Test singletonChainGraph) chainDbs mempools peerDbs
+    app = chainwebApplication (Test singletonChainGraph) dbs
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -342,26 +346,27 @@ withSingleChainServer chainDbs mempools peerDbs f = W.testWithApplication (pure 
 testHost :: String
 testHost = "localhost"
 
-data TestClientEnv t = TestClientEnv
+data TestClientEnv t cas = TestClientEnv
     { _envClientEnv :: !ClientEnv
     , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _envMempools :: ![(ChainId, MempoolBackend t)]
+    , _envPayloadDbs :: ![(ChainId, PayloadDb cas)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
 pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
     -> [(ChainId, BlockHeaderDb)]
-    -> TestClientEnv t
+    -> TestClientEnv t HashMapCas
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
-    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs [] []
+    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs [] [] []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
-    -> TestClientEnv t
+    -> TestClientEnv t HashMapCas
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
-    = TestClientEnv _pdbEnvClientEnv [] [] _pdbEnvPeerDbs
+    = TestClientEnv _pdbEnvClientEnv [] [] [] _pdbEnvPeerDbs
 
 withTestAppServer
     :: Bool
@@ -402,13 +407,13 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
-withSingleChainTestServer
+withChainwebTestServer
     :: Bool
     -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
+withChainwebTestServer tls appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
     v = Test singletonChainGraph
@@ -436,47 +441,64 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
         uninterruptibleCancel server
         close sock
 
-clientEnvWithSingleChainTestServer
-    :: (Show t, ToJSON t, FromJSON t)
+clientEnvWithChainwebTestServer
+    :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Bool
-    -> IO [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, MempoolBackend t)]
-    -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO (TestClientEnv t) -> TestTree)
+    -> IO (ChainwebServerDbs t cas)
+    -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO peerDbsIO
-    = withSingleChainTestServer tls mkApp mkEnv
+clientEnvWithChainwebTestServer tls dbsIO
+    = withChainwebTestServer tls mkApp mkEnv
   where
     v = Test singletonChainGraph
-    mkApp = singleChainApplication v <$> chainDbsIO <*> mempoolsIO <*> peerDbsIO
+    mkApp = chainwebApplication v <$> dbsIO
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
             | otherwise -> return HTTP.defaultManagerSettings
         mgr <- HTTP.newManager mgrSettings
-        TestClientEnv (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
-            <$> chainDbsIO
-            <*> mempoolsIO
-            <*> peerDbsIO
-
+        dbs <- dbsIO
+        return $ TestClientEnv
+            (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
+            (_chainwebServerBlockHeaderDbs dbs)
+            (_chainwebServerMempools dbs)
+            (_chainwebServerPayloadDbs dbs)
+            (_chainwebServerPeerDbs dbs)
 
 withPeerDbsServer
-    :: (Show t, FromJSON t, ToJSON t)
+    :: Show t
+    => ToJSON t
+    => FromJSON t
     => Bool
     -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO (TestClientEnv t) -> TestTree)
+    -> (IO (TestClientEnv t HashMapCas) -> TestTree)
     -> TestTree
-withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return []) (return [])
+withPeerDbsServer tls peerDbsIO = clientEnvWithChainwebTestServer tls $ do
+    peerDbs <- peerDbsIO
+    return $ emptyChainwebServerDbs
+        { _chainwebServerPeerDbs = peerDbs
+        }
 
 withBlockHeaderDbsServer
-    :: (Show t, FromJSON t, ToJSON t)
+    :: Show t
+    => ToJSON t
+    => FromJSON t
     => Bool
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
-    -> (IO (TestClientEnv t) -> TestTree)
+    -> (IO (TestClientEnv t HashMapCas) -> TestTree)
     -> TestTree
 withBlockHeaderDbsServer tls chainDbsIO mempoolsIO
-    = clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO (return [])
+    = clientEnvWithChainwebTestServer tls $ do
+        chainDbs <- chainDbsIO
+        mempools <- mempoolsIO
+        return $ emptyChainwebServerDbs
+            { _chainwebServerBlockHeaderDbs = chainDbs
+            , _chainwebServerMempools = mempools
+            }
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips

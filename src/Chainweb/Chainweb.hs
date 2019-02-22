@@ -154,6 +154,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.POW
 import Chainweb.Miner.Test
 import Chainweb.NodeId
+import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
@@ -164,6 +165,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS.HashMap hiding (toList)
 import Data.LogMessage
 
 import Network.X509.SelfSigned
@@ -513,6 +515,7 @@ data Chainweb = Chainweb
     , _chainwebLogFun :: !ALogFunction
     , _chainwebSocket :: !Socket
     , _chainwebPeer :: !Peer
+    , _chainwebPayloadDb :: !(PayloadDb HashMapCas)
     }
 
 makeLenses ''Chainweb
@@ -557,19 +560,22 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logFuns socket peer inner = do
     let nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
-    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList cids)
+    withPeerDb nids p2pConf $ \peerDb -> do
+        payloadDb <- emptyPayloadDb
+        initializePayloadDb v payloadDb
+        go peerDb payloadDb mempty (toList cids)
   where
     -- Initialize chain resources
-    go peerDb cs (cid : t) =
+    go peerDb payloadDb cs (cid : t) =
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
             Just logfun ->
                 withChain v cid p2pConf peer peerDb chainDbDir logfun mempoolConfig $ \c ->
-                    go peerDb (HM.insert cid c cs) t
+                    go peerDb payloadDb (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go peerDb cs [] = do
+    go peerDb payloadDb cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainBlockHeaderDb cs)
         withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
@@ -583,6 +589,7 @@ withChainwebInternal conf logFuns socket peer inner = do
                     , _chainwebLogFun = _chainwebNodeLogFun logFuns
                     , _chainwebSocket = socket
                     , _chainwebPeer = peer
+                    , _chainwebPayloadDb = payloadDb
                     }
 
     v = _configChainwebVersion conf
@@ -621,6 +628,9 @@ runChainweb cw = do
         mempoolsToServe = proj _chainMempool
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
+        payloadDbsToServe
+            = itoList $ const (_chainwebPayloadDb cw) <$> _chainwebChains cw
+
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
             serverSettings
@@ -628,10 +638,13 @@ runChainweb cw = do
             (_peerKey $ _chainwebPeer cw)
             (_chainwebSocket cw)
             (_chainwebChainwebVersion cw)
-            cutDb
-            chainDbsToServe
-            mempoolsToServe
-            ((CutNetwork, cutPeerDb) : chainP2pToServe)
+            ChainwebServerDbs
+                { _chainwebServerCutDb = Just cutDb
+                , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                , _chainwebServerMempools = mempoolsToServe
+                , _chainwebServerPayloadDbs = payloadDbsToServe
+                , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe
+                }
 
     -- 1. start server
     --
@@ -706,3 +719,4 @@ runChainweb cw = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
+
