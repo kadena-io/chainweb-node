@@ -13,7 +13,6 @@
 module Chainweb.Test.Pact.PactApi where
 
 import Control.Concurrent.MVar.Strict
-import Control.Monad.IO.Class
 import Control.Monad.Zip
 
 import Data.Aeson
@@ -35,8 +34,6 @@ import Test.Tasty.Golden
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Service.PactApi
-import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Version
@@ -51,33 +48,48 @@ tests = testGroup "Pact Http tests" <$> pactApiTest
 
 pactApiTest :: IO [TestTree]
 pactApiTest = do
-    reqQVar <- initPactExec' testMemPoolAccess
+    ------------------------------------------------------------------------------------------------
+    -- Init for tests
+    ------------------------------------------------------------------------------------------------
+    reqQ <- initPactExec' testMemPoolAccess
     let headers = V.fromList $ getBlockHeaders 4
 
-    -- testing:  /new
-    respVar <- newEmptyMVar :: IO (MVar Transactions)
-    let msg = RequestMsg
-          { _reqRequestType = NewBlock
-          , _reqBlockHeader = headers ! 0
-          , _reqResultVar = respVar }
-    liftIO $ addRequest reqQVar msg
+    ------------------------------------------------------------------------------------------------
+    -- newBlock test
+    ------------------------------------------------------------------------------------------------
+    respVar0 <- newEmptyMVar :: IO (MVar Transactions)
+    newBlock (headers ! 0) reqQ respVar0
 
-    --wait for response
-    rsp <- takeMVar respVar
-    tt0 <- checkRespTrans "block-results-expected-0.txt" rsp
+    -- wait for response
+    rsp0 <- takeMVar respVar0
+    tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
 
-    return [tt0]
-{-
-    -- testing:  /validate
-    testValidate (headers ! 0)
-    checkRespTrans "block-results-expected-0.txt" rsp
+    ------------------------------------------------------------------------------------------------
+    -- validate the same transactions sent to newBlock above
+    ------------------------------------------------------------------------------------------------
+    respVar0b <- newEmptyMVar :: IO (MVar Transactions)
+    validateBlock (headers ! 0) reqQ respVar0b
 
-    -- testing:  /validate
-    testValidate (headers ! 1)
-    checkRespTrans "block-results-expected-1.txt" rsp
+    -- wait for response
+    rsp0b <- takeMVar respVar0b
+    tt0b <- checkRespTrans "block-results-expected-0.txt" rsp0b
 
+    ------------------------------------------------------------------------------------------------
+    -- validate a different set of transactions (not sent to newBlock)
+    ------------------------------------------------------------------------------------------------
+    respVar1 <- newEmptyMVar :: IO (MVar Transactions)
+    validateBlock (headers ! 1) reqQ respVar1
+
+    -- wait for response
+    rsp1 <- takeMVar respVar1
+    tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
+
+    ------------------------------------------------------------------------------------------------
+    -- clean-up for tests
+    ------------------------------------------------------------------------------------------------
+    closeQueue reqQ
     return $ tt0 : tt0b : [tt1]
--}
+
 
 checkRespTrans :: FilePath -> Transactions -> IO TestTree
 checkRespTrans fp txs =

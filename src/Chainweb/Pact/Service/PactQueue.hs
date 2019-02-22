@@ -18,6 +18,7 @@ module Chainweb.Pact.Service.PactQueue
     , RequestHttpMsg(..)
     , RequestType(..)
     , ResponseHttpMsg(..)
+    , sendCloseMsg
     ) where
 
 import Control.Concurrent.STM.TQueue
@@ -28,40 +29,44 @@ import Chainweb.Pact.Service.Types
 
 -- | Add a request to the Pact execution queue
 addRequest :: TVar (TQueue RequestMsg) -> RequestMsg -> IO ()
-addRequest var msg = do
-    q <- readTVarIO var
+addRequest qVar msg = do
+    q <- readTVarIO qVar
     atomically $ writeTQueue q msg
-    return ()
+
+-- | Send special 'close' message to stop the processing thread
+sendCloseMsg :: TVar (TQueue RequestMsg) -> IO ()
+sendCloseMsg qVar = do
+    q <- readTVarIO qVar
+    atomically $ writeTQueue q CloseMsg
 
 --TODO: remove or combine with 'getNextRequest
 -- | Add a request to the Pact execution queue
 addHttpRequest :: TVar (TQueue RequestHttpMsg) -> RequestHttpMsg -> IO ()
-addHttpRequest var msg = do
-    q <- readTVarIO var
+addHttpRequest qVar msg = do
+    q <- readTVarIO qVar
     atomically $ writeTQueue q msg
-    return ()
 
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: TVar (TQueue RequestMsg) -> IO RequestMsg
-getNextRequest var = do
-    q <- readTVarIO var
+getNextRequest qVar = do
+    q <- readTVarIO qVar
     atomically $ readTQueue q
 
 --TODO: remove or combine with 'getNextRequest
 getNextHttpRequest :: TVar (TQueue RequestHttpMsg) -> IO RequestHttpMsg
-getNextHttpRequest var = do
-    q <- readTVarIO var
+getNextHttpRequest qVar = do
+    q <- readTVarIO qVar
     atomically $ readTQueue q
 
 -- | Add a response to the Pact execution response queue
 addResponse :: TVar (TQueue ResponseHttpMsg) -> ResponseHttpMsg -> IO ()
-addResponse var msg = do
-    q <- readTVarIO var
+addResponse qVar msg = do
+    q <- readTVarIO qVar
     atomically $ writeTQueue q msg
     return ()
 
 -- | Get the next available response from the Pact execution response queue
 getNextResponse :: TVar (TQueue ResponseHttpMsg) -> IO ResponseHttpMsg
-getNextResponse var = do
-    q <- readTVarIO var
+getNextResponse qVar = do
+    q <- readTVarIO qVar
     atomically $ readTQueue q

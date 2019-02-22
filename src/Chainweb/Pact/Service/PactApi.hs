@@ -16,19 +16,22 @@
 -- Pact execution (in-process) API for Chainweb
 
 module Chainweb.Pact.Service.PactApi
-    ( initPactExec
+    ( closeQueue
+    , initPactExec
     , initPactExec'
     , newBlock
     , validateBlock
     ) where
 
 import Control.Concurrent.Async
+import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Chainweb.BlockHeader
 import qualified Chainweb.Pact.PactService as PS
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
@@ -43,15 +46,31 @@ initPactExec' :: MemPoolAccess -> IO (TVar (TQueue RequestMsg))
 initPactExec' memPoolAccess = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     reqQVar <- atomically $ newTVar reqQ
-    withAsync (PS.initPactService reqQVar memPoolAccess) link
+    a <- async (PS.initPactService reqQVar memPoolAccess)
+    link a
     return reqQVar
 
-newBlock :: BlockHeader -> IO Transactions
-newBlock = undefined
+newBlock :: BlockHeader -> (TVar (TQueue RequestMsg)) -> MVar Transactions -> IO ()
+newBlock bHeader reqQ resultVar = do
+    let msg = RequestMsg
+          { _reqRequestType = NewBlock
+          , _reqBlockHeader = bHeader
+          , _reqResultVar = resultVar}
+    addRequest reqQ msg
 
-validateBlock :: BlockHeader -> IO Transactions
-validateBlock = undefined
+
+validateBlock :: BlockHeader -> (TVar (TQueue RequestMsg)) -> MVar Transactions -> IO ()
+validateBlock bHeader reqQ resultVar = do
+    let msg = RequestMsg
+          { _reqRequestType = ValidateBlock
+          , _reqBlockHeader = bHeader
+          , _reqResultVar = resultVar}
+    addRequest reqQ msg
+
+closeQueue :: (TVar (TQueue RequestMsg)) -> IO ()
+closeQueue reqQ = sendCloseMsg reqQ
+
 
 -- TODO: replace reference to this with actual mempool and delete this
 tempMemPoolAccess :: BlockHeight -> IO [Transaction]
-tempMemPoolAccess _ = return []
+tempMemPoolAccess _ = error "PactApi - MemPool access not implemented yet"

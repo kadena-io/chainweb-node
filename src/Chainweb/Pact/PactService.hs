@@ -136,13 +136,19 @@ initPactServiceHttp reqQVar respQVar memPoolAccess = do
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TVar (TQueue RequestMsg) -> PactT ()
-serviceRequests memPoolAccess reqQ =
-    forever $ do
-        reqMsg <- liftIO $ getNextRequest reqQ
-        txs <- case _reqRequestType reqMsg of
-            NewBlock -> newBlock memPoolAccess (_reqBlockHeader reqMsg)
-            ValidateBlock -> validateBlock memPoolAccess (_reqBlockHeader reqMsg)
-        liftIO $ putMVar (_reqResultVar reqMsg) txs
+serviceRequests memPoolAccess reqQ = go
+    where
+    go = do
+        msg <- liftIO $ getNextRequest reqQ
+        case msg of
+            CloseMsg -> return ()
+            RequestMsg {..} -> do
+                txs <- case _reqRequestType of
+                    NewBlock -> newBlock memPoolAccess _reqBlockHeader
+                    ValidateBlock -> validateBlock memPoolAccess _reqBlockHeader
+                liftIO $ putMVar _reqResultVar  txs
+                go
+
 
 -- TODO: Merge into new 'serviceRequests'
 serviceRequestsHttp

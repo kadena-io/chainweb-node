@@ -55,7 +55,6 @@ main = do
                      [ suite
                      , pactSuite
                      , Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing ]
-  --defaultMain allTests
   defaultMain pactSuite
 
 pactTestSuite :: IO TestTree

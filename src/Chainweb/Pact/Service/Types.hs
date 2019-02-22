@@ -63,6 +63,7 @@ data RequestMsg = RequestMsg
     , _reqBlockHeader :: BlockHeader
     , _reqResultVar :: MVar Transactions
     }
+    | CloseMsg
 
 data RequestHttpMsg = RequestHttpMsg
     { _reqhRequestType :: RequestType
