@@ -36,7 +36,6 @@ import Chainweb.ChainId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
-import Chainweb.Version
 
 import qualified Pact.ApiReq as P
 import qualified Pact.Types.Command as P
@@ -97,15 +96,9 @@ checkRespTrans fp txs =
     where
         ioBs = return $ toS $ show $ toJSON txs
 
-getGenesisBlockHeader :: BlockHeader
-getGenesisBlockHeader = do
-    let testId = testChainId (1 :: Word32)
-    genesisBlockHeader Test peterson testId
-
 getBlockHeaders :: Int -> [BlockHeader]
 getBlockHeaders n = do
-    let testId = testChainId (1 :: Word32)
-    let gbh0 = genesisBlockHeader Test peterson testId
+    let gbh0 = genesis
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 
@@ -169,3 +162,12 @@ testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d
 
 testPublicBs :: ByteString
 testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+
+------------
+-- UTILITIES -- Borrowed from Chainweb.Bench.Bench
+------------
+genesis :: BlockHeader
+genesis = toyGenesis chainId0
+
+chainId0 :: ChainId
+chainId0 = testChainId 0
