@@ -98,7 +98,7 @@ toMempool version chain txcfg blocksizeLimit env =
 
     subThread mv chan restore =
         flip finally (tryPutMVar mv () `finally`
-                      (atomically $ TBMChan.closeTBMChan chan)) $
+                      atomically (TBMChan.closeTBMChan chan)) $
         restore $ flip runClientM env $ do
             is <- subscribeClient version chain
             liftIO (Streams.mapM_ (const $ tryPutMVar mv ()) is
