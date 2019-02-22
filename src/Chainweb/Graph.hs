@@ -270,14 +270,14 @@ chainIds_ = vertices . _chainGraphGraph
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
 -- in @g@.
 --
-checkWebChainId :: MonadThrow m => Given ChainGraph => HasChainId p => p -> m ()
-checkWebChainId p = unless (isWebChain p)
+checkWebChainId :: MonadThrow m => HasChainGraph g => HasChainId p => g -> p -> m ()
+checkWebChainId g p = unless (isWebChain g p)
     $ throwM $ ChainNotInChainGraphException
-        (Expected (vertices $ _chainGraphGraph given))
+        (Expected (vertices $ _chainGraphGraph $ _chainGraph g))
         (Actual (_chainId p))
 
-isWebChain :: Given ChainGraph => HasChainId p => p -> Bool
-isWebChain p = isVertex (_chainId p) (_chainGraphGraph given)
+isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
+isWebChain g p = isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
 {-# INLINE isWebChain #-}
 
 -- | Given a 'ChainGraph' @g@, @checkAdjacentChainIds cid as@ checks that the
@@ -286,17 +286,18 @@ isWebChain p = isVertex (_chainId p) (_chainGraphGraph given)
 --
 checkAdjacentChainIds
     :: MonadThrow m
-    => Given ChainGraph
+    => HasChainGraph g
     => HasChainId cid
     => HasChainId adj
-    => cid
+    => g
+    -> cid
     -> Expected (HS.HashSet adj)
     -> m (HS.HashSet adj)
-checkAdjacentChainIds cid expectedAdj = do
-    checkWebChainId cid
+checkAdjacentChainIds g cid expectedAdj = do
+    checkWebChainId g cid
     void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
-        (Actual $ adjacents (_chainId cid) (_chainGraphGraph given))
+        (Actual $ adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
     return (getExpected expectedAdj)
 
 -- -------------------------------------------------------------------------- --

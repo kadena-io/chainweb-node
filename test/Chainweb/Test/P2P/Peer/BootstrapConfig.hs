@@ -34,10 +34,10 @@ import P2P.Peer
 -- | Peer configuration for bootstrap hard-coded bootstrap peer infos.
 --
 bootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
-bootstrapPeerConfig Test = testBootstrapPeerConfig Test
-bootstrapPeerConfig TestWithTime = testBootstrapPeerConfig TestWithTime
-bootstrapPeerConfig TestWithPow = testBootstrapPeerConfig TestWithPow
-bootstrapPeerConfig Simulation = error
+bootstrapPeerConfig v@Test{} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@TestWithTime{} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@TestWithPow{} = testBootstrapPeerConfig v
+bootstrapPeerConfig Simulation{} = error
     $ "bootstrap peer config isn't defined for chainweb version Simulation"
 bootstrapPeerConfig Testnet00 = error
     $ "bootstrap peer config isn't defined for chainweb version Testnet00"
@@ -60,10 +60,10 @@ testBootstrapPeerConfig v =
 -- certificates for bootstrapping.
 --
 bootstrapCertificate :: ChainwebVersion -> X509CertPem
-bootstrapCertificate Test = testBootstrapCertificate
-bootstrapCertificate TestWithTime = testBootstrapCertificate
-bootstrapCertificate TestWithPow = testBootstrapCertificate
-bootstrapCertificate Simulation = error
+bootstrapCertificate Test{} = testBootstrapCertificate
+bootstrapCertificate TestWithTime{} = testBootstrapCertificate
+bootstrapCertificate TestWithPow{} = testBootstrapCertificate
+bootstrapCertificate Simulation{} = error
     $ "bootstrap certificate isn't defined for chainweb version Simulation"
 bootstrapCertificate Testnet00  = error
     $ "bootstrap certificate isn't defined for chainweb version Testnet00"
@@ -118,10 +118,10 @@ testBootstrapCertificate = X509CertPem $ B8.intercalate "\n"
 #endif
 
 bootstrapKey :: ChainwebVersion -> X509KeyPem
-bootstrapKey Test = testBootstrapKey
-bootstrapKey TestWithTime = testBootstrapKey
-bootstrapKey TestWithPow = testBootstrapKey
-bootstrapKey Simulation = error
+bootstrapKey Test{} = testBootstrapKey
+bootstrapKey TestWithTime{} = testBootstrapKey
+bootstrapKey TestWithPow{} = testBootstrapKey
+bootstrapKey Simulation{} = error
     $ "bootstrap key isn't defined for chainweb version Simulation"
 bootstrapKey Testnet00 = error
     $ "bootstrap key isn't defined for chainweb version Testnet00"

@@ -39,7 +39,6 @@ module Chainweb.BlockHash
   BlockHash(..)
 , encodeBlockHash
 , decodeBlockHash
-, decodeBlockHashChecked
 , randomBlockHash
 , nullBlockHash
 , blockHashToText
@@ -53,6 +52,7 @@ module Chainweb.BlockHash
 , decodeBlockHashRecordChecked
 , blockHashRecordToSequence
 , blockHashRecordFromSequence
+, blockHashRecordChainIdx
 
 -- * Exceptions
 ) where
@@ -66,12 +66,14 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
+import Data.Bifoldable
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
+import qualified Data.List as L
 import qualified Data.Sequence as S
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
@@ -82,9 +84,10 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.MerkleLogHash
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Graph
+import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
@@ -101,20 +104,15 @@ import Chainweb.Utils
 --     it can't be recovered from the hash. Including it gives extra
 --     type safety across serialization roundtrips.
 --
-data BlockHash = BlockHash {-# UNPACK #-} !ChainId
-                           {-# UNPACK #-} !MerkleLogHash
+newtype BlockHash = BlockHash MerkleLogHash
     deriving stock (Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 instance Show BlockHash where
     show = T.unpack . encodeToText
 
-instance HasChainId BlockHash where
-    _chainId (BlockHash cid _) = cid
-    {-# INLINE _chainId #-}
-
 instance Hashable BlockHash where
-    hashWithSalt s (BlockHash _ bytes) = hashWithSalt s bytes
+    hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
 
 instance Serialize BlockHash where
@@ -123,33 +121,18 @@ instance Serialize BlockHash where
 
 instance IsMerkleLogEntry ChainwebHashTag BlockHash where
     type Tag BlockHash = 'BlockHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockHash
+    toMerkleNode = encodeMerkleTreeNode
+    fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
 encodeBlockHash :: MonadPut m => BlockHash -> m ()
-encodeBlockHash (BlockHash cid bytes) = do
-    encodeChainId cid
-    encodeMerkleLogHash bytes
+encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
 decodeBlockHash :: MonadGet m => m BlockHash
-decodeBlockHash = BlockHash
-    <$> decodeChainId
-    <*> decodeMerkleLogHash
+decodeBlockHash = BlockHash <$> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
-
-decodeBlockHashChecked
-    :: MonadGet m
-    => MonadThrow m
-    => HasChainId p
-    => Expected p
-    -> m BlockHash
-decodeBlockHashChecked p = BlockHash
-    <$> decodeChainIdChecked p
-    <*> decodeMerkleLogHash
-{-# INLINE decodeBlockHashChecked #-}
 
 instance ToJSON BlockHash where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
@@ -170,12 +153,12 @@ instance FromJSONKey BlockHash where
         . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
-randomBlockHash :: MonadIO m => HasChainId p => p -> m BlockHash
-randomBlockHash p = BlockHash (_chainId p) <$> randomMerkleLogHash
+randomBlockHash :: MonadIO m => m BlockHash
+randomBlockHash = BlockHash <$> randomMerkleLogHash
 {-# INLINE randomBlockHash #-}
 
-nullBlockHash :: HasChainId p => p -> BlockHash
-nullBlockHash p = BlockHash (_chainId p) nullHashBytes
+nullBlockHash :: BlockHash
+nullBlockHash = BlockHash nullHashBytes
 {-# INLINE nullBlockHash #-}
 
 blockHashToText :: BlockHash -> T.Text
@@ -217,16 +200,30 @@ instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
     each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
 encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
-encodeBlockHashRecord (BlockHashRecord r) =
-    putWord16le (int $ length r) >> mapM_ encodeBlockHash l
-  where
-    l = map snd $ sort (HM.toList r)
+encodeBlockHashRecord (BlockHashRecord r) = do
+    putWord16le (int $ length r)
+    traverse_ (bimapM_ encodeChainId encodeBlockHash) $ sort $ HM.toList r
+
+decodeBlockHashWithChainId
+    :: MonadGet m
+    => m (ChainId, BlockHash)
+decodeBlockHashWithChainId = (,) <$> decodeChainId <*> decodeBlockHash
 
 decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
-    hashes <- mapM (const decodeBlockHash) [1 .. l]
-    return $ BlockHashRecord $ HM.fromList $ (\x -> (_chainId x, x)) <$> hashes
+    hashes <- mapM (const decodeBlockHashWithChainId) [1 .. l]
+    return $ BlockHashRecord $ HM.fromList $ hashes
+
+decodeBlockHashWithChainIdChecked
+    :: MonadGet m
+    => MonadThrow m
+    => HasChainId p
+    => Expected p
+    -> m (ChainId, BlockHash)
+decodeBlockHashWithChainIdChecked p = (,)
+    <$> decodeChainIdChecked p
+    <*> decodeBlockHash
 
 -- to use this wrap the runGet into some MonadThrow.
 --
@@ -239,22 +236,25 @@ decodeBlockHashRecordChecked
 decodeBlockHashRecordChecked ps = do
     (l :: Natural) <- int <$> getWord16le
     void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)
-    hashes <- mapM decodeBlockHashChecked (Expected <$> getExpected ps)
-    return
-        $ BlockHashRecord
-        $ HM.fromList
-        $ (_chainId <$> getExpected ps) `zip` hashes
+    hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$> getExpected ps)
+    return $ BlockHashRecord $ HM.fromList $ hashes
 
 blockHashRecordToSequence :: BlockHashRecord -> S.Seq BlockHash
-blockHashRecordToSequence = S.fromList
-    . fmap snd
-    . sort
-    . HM.toList
-    . _getBlockHashRecord
+blockHashRecordToSequence = S.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord
 
-blockHashRecordFromSequence :: S.Seq BlockHash -> BlockHashRecord
-blockHashRecordFromSequence = BlockHashRecord
+blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
+blockHashRecordChainIdx r cid
+    = L.findIndex (== cid) . sort . HM.keys $ _getBlockHashRecord r
+
+blockHashRecordFromSequence
+    :: HasChainGraph g
+    => HasChainId c
+    => g
+    -> c
+    -> S.Seq BlockHash
+    -> BlockHashRecord
+blockHashRecordFromSequence g cid = BlockHashRecord
     . HM.fromList
-    . fmap (\x -> (_chainId x, x))
+    . zip (sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
 

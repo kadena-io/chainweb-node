@@ -111,8 +111,8 @@ decodeBlockTransactionsHash = BlockTransactionsHash <$> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockTransactionsHash where
     type Tag BlockTransactionsHash = 'BlockTransactionsHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockTransactionsHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockTransactionsHash
+    toMerkleNode = encodeMerkleTreeNode
+    fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
@@ -133,8 +133,8 @@ decodeBlockOutputsHash = BlockOutputsHash <$> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockOutputsHash where
     type Tag BlockOutputsHash = 'BlockOutputsHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockOutputsHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockOutputsHash
+    toMerkleNode = encodeMerkleTreeNode
+    fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
@@ -155,8 +155,8 @@ decodeBlockPayloadHash = BlockPayloadHash <$> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
     type Tag BlockPayloadHash = 'BlockPayloadHashTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockPayloadHash
-    fromMerkleNode = decodeMerkleInputNode decodeBlockPayloadHash
+    toMerkleNode = encodeMerkleTreeNode
+    fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 

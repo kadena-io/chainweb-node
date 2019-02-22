@@ -71,7 +71,7 @@ main = withHandleBackend (_logConfigBackend config)
 example :: Logger T.Text -> IO ()
 example logger = do
     db <- DB.initBlockHeaderDb DB.Configuration
-        { DB._configRoot = genesisBlockHeader Test graph exampleChainId
+        { DB._configRoot = genesisBlockHeader (Test graph) exampleChainId
         }
     withAsync (observer logger db) $ \o -> do
         mapConcurrently_ (miner logger db) $ ChainNodeId exampleChainId <$> [0..5]

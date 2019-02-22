@@ -64,9 +64,9 @@ withWebsocketMempool
   :: InMemConfig MockTx -> (MempoolBackend MockTx -> IO a) -> IO a
 withWebsocketMempool inMemCfg userFunc = do
     mp <- InMem.makeSelfFinalizingInMemPool inMemCfg
-    let (_, app) = mempoolApplication Test [(chain, mp)]
+    let (_, app) = mempoolApplication v [(chain, mp)]
     let mempoolSubpath =
-          case someChainwebVersionVal Test of
+          case someChainwebVersionVal v of
               (SomeChainwebVersionT (Proxy :: Proxy vt)) ->
                   case someChainIdVal chain of
                     (SomeChainIdT (Proxy :: Proxy c)) ->
@@ -77,10 +77,11 @@ withWebsocketMempool inMemCfg userFunc = do
         let path = '/' : mempoolSubpath
         MWS.withClient host (fromIntegral port) path clientConfig userFunc
   where
+    v = Test singletonChainGraph
     clientConfig = ClientConfig txcfg keepaliveInterval
     keepaliveInterval = 60 * 60 * 4  -- 4 hours
     txcfg = _inmemTxCfg inMemCfg
-    chain = head $ toList $ chainIds_ singleton
+    chain = head $ toList $ chainIds_ $ _chainGraph v
 
 
 

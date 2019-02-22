@@ -8,6 +8,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -39,24 +40,38 @@ module Chainweb.Version
 , Sing(SChainwebVersion)
 , SChainwebVersion
 
+-- * HasChainwebVersion
+, HasChainwebVersion(..)
+
 ) where
 
+import Control.Concurrent.STM.TVar
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad.Catch
+import Control.Monad.STM
 
 import Data.Aeson
+import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.Hashable
 import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import qualified Data.Text as T
+import Data.Word
 
-import GHC.Generics
+import GHC.Generics (Generic)
+import GHC.Stack
 import GHC.TypeLits
+
+import System.IO.Unsafe
 
 -- internal modules
 
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
@@ -75,7 +90,7 @@ import Data.Singletons
 -- versions are not mixed at runtime. This is not enforced at the type level.
 --
 data ChainwebVersion
-    = Test
+    = Test ChainGraph
         -- ^ Test instance with
         --
         --   * configurable graph,
@@ -86,7 +101,7 @@ data ChainwebVersion
         --   * POW is simulated by poison process thread delay.
         --
 
-    | TestWithTime
+    | TestWithTime ChainGraph
         -- ^ Test instance with
         --
         --   * configurable graph,
@@ -97,7 +112,7 @@ data ChainwebVersion
         --   * POW is simulated by poison process thread delay.
         --
 
-    | TestWithPow
+    | TestWithPow ChainGraph
         -- ^ Test instance with
         --
         --   * configurable graph,
@@ -107,27 +122,41 @@ data ChainwebVersion
         --   * creationTime of BlockHeaders is actual time.
         --
 
-    | Simulation
+    | Simulation ChainGraph
     | Testnet00
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+    deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
+instance Show ChainwebVersion where
+    show = T.unpack . toText
+    {-# INLINE show #-}
+
+isTestChainwebVersionId :: Word32 -> Bool
+isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
+{-# INLINABLE isTestChainwebVersionId #-}
+
+chainwebVersionId :: ChainwebVersion -> Word32
+chainwebVersionId v@Test{} = toTestChainwebVersion v $ 0x80000000
+chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v $ 0x80000001
+chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v $ 0x80000002
+chainwebVersionId v@Simulation{} = toTestChainwebVersion v $ 0x80000003
+chainwebVersionId Testnet00 = 0x00000001
+{-# INLINABLE chainwebVersionId #-}
+
+fromChainwebVersionId :: MonadGet m => Word32 -> m ChainwebVersion
+fromChainwebVersionId i
+    | isTestChainwebVersionId i = return $ fromTestChainwebVersionId i
+    | otherwise = case i of
+        0x00000001 -> return Testnet00
+        _ -> fail $ "Unknown Chainweb version id: " ++ show i
+{-# INLINABLE fromChainwebVersionId #-}
+
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
-encodeChainwebVersion Test = putWord32le 0x00000000
-encodeChainwebVersion TestWithTime = putWord32le 0x00000001
-encodeChainwebVersion TestWithPow = putWord32le 0x00000002
-encodeChainwebVersion Simulation = putWord32le 0x00000003
-encodeChainwebVersion Testnet00 = putWord32le 0x00010000
+encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
 decodeChainwebVersion :: MonadGet m => m ChainwebVersion
-decodeChainwebVersion = getWord32le >>= \case
-    0x00000000 -> return Test
-    0x00000001 -> return TestWithTime
-    0x00000002 -> return TestWithPow
-    0x00000003 -> return Simulation
-    0x00010000 -> return Testnet00
-    x -> fail $ "Unknown Chainweb version: " ++ show x
+decodeChainwebVersion = getWord32le >>= fromChainwebVersionId
 {-# INLINABLE decodeChainwebVersion #-}
 
 instance ToJSON ChainwebVersion where
@@ -145,21 +174,30 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE fromMerkleNode #-}
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
-chainwebVersionToText Test = "test"
-chainwebVersionToText TestWithTime = "testWithTime"
-chainwebVersionToText TestWithPow = "testWithPow"
-chainwebVersionToText Simulation = "simulation"
+
+-- production versions
 chainwebVersionToText Testnet00 = "testnet00"
+
+-- test versions
+chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
+chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
+chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
+chainwebVersionToText v@Simulation{} = "simulation-" <> sshow (chainwebVersionId v)
 {-# INLINABLE chainwebVersionToText #-}
 
+-- | Read textual representation of Chainweb Version
+--
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
-chainwebVersionFromText "test" = return Test
-chainwebVersionFromText "testWithTime" = return TestWithTime
-chainwebVersionFromText "testWithPow" = return TestWithPow
-chainwebVersionFromText "simulation" =return Simulation
+
+-- production versions
 chainwebVersionFromText "testnet00" = return Testnet00
-chainwebVersionFromText t = throwM . TextFormatException
-    $ "Unknown Chainweb version: \"" <> t <> "\"."
+
+-- test versions
+chainwebVersionFromText t = case T.breakOnEnd "-" t of
+    (_, i) -> case treadM i of
+        Left e -> throwM
+            $ TextFormatException $ "Unknown Chainweb version: \"" <> t <> "\": " <> sshow e
+        Right x -> return $ fromTestChainwebVersionId x
 {-# INLINABLE chainwebVersionFromText #-}
 
 instance HasTextRepresentation ChainwebVersion where
@@ -167,6 +205,72 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE toText #-}
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Test instances
+--
+-- The code in this section must not be called in production.
+
+-- For all production instances of Chainweb, including test nets, the
+-- 'ChainwebVersion' is a constant constructor that statically determines all
+-- parameters of that version.
+--
+-- For testing instances, however, we require the oppportunity to uses different
+-- parameters. Defining a new static 'ChainwebVersion' value for each test
+-- setting would create too much overhead and polute the code base. Instead we
+-- parameterize the respective 'ChainwebVersion' constructors with for defining
+-- the dynamically configurable parameters.
+--
+-- When deserializing a parameterized test 'ChainwebVersion' we need a way to
+-- restore the dynamic parameters. For that hash those parameters (with 15bit
+-- precision) and store the respective parameters in a global hash table. This
+-- hashtable is used only for testing and must never be used by prodcution code.
+--
+type TestChainwebVersionMap = HM.HashMap Word32 ChainwebVersion
+
+-- | Global map for keeping track of Test Chainweb Versions with non-static
+-- parameters.
+--
+testChainwebVersionMap :: TVar TestChainwebVersionMap
+testChainwebVersionMap = unsafePerformIO $ newTVarIO mempty
+{-# NOINLINE testChainwebVersionMap #-}
+
+toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32 -> Word32
+toTestChainwebVersion Testnet00 _
+    = error "toTestChainwebVersion must not be called for a production isntances"
+toTestChainwebVersion v i = unsafePerformIO $ do
+    m <- readTVarIO testChainwebVersionMap
+    case HM.lookup h m of
+        Just _ -> return ()
+        Nothing -> atomically
+            $ modifyTVar' testChainwebVersionMap $ HM.insert h v
+    return h
+  where
+    h = i .|. (testChainwebVersionMask .&. int (hash v))
+
+testChainwebVersionMask :: Word32
+testChainwebVersionMask = 0x7fff0000
+
+fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
+fromTestChainwebVersionId i = case HM.lookup i m of
+        Nothing -> error  "failed to lookup test chainweb version in testChainwebVersionMap"
+        Just v -> v
+  where
+    m = unsafePerformIO $ readTVarIO testChainwebVersionMap
+
+-- -------------------------------------------------------------------------- --
+-- Basic Properties
+
+chainwebVersionGraph :: ChainwebVersion -> ChainGraph
+chainwebVersionGraph (Test g) = g
+chainwebVersionGraph (TestWithTime g) = g
+chainwebVersionGraph (TestWithPow g) = g
+chainwebVersionGraph (Simulation g) = g
+chainwebVersionGraph Testnet00 = petersonChainGraph
+
+instance HasChainGraph ChainwebVersion where
+    _chainGraph = chainwebVersionGraph
+    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
@@ -207,3 +311,22 @@ instance SingKind ChainwebVersionT where
 
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
+
+-- -------------------------------------------------------------------------- --
+-- HasChainwebVersion Class
+
+class HasChainwebVersion a where
+    _chainwebVersion :: a -> ChainwebVersion
+    _chainwebVersion = view chainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+    chainwebVersion :: Getter a ChainwebVersion
+    chainwebVersion = to _chainwebVersion
+    {-# INLINE chainwebVersion #-}
+
+    {-# MINIMAL _chainwebVersion | chainwebVersion #-}
+
+instance HasChainwebVersion ChainwebVersion where
+    _chainwebVersion = id
+    {-# INLINE _chainwebVersion #-}
+

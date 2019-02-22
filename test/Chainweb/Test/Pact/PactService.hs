@@ -131,12 +131,12 @@ testGetNewBlock
 getGenesisBlockHeader :: BlockHeader
 getGenesisBlockHeader = do
     let testId = testChainId (1 :: Word32)
-    genesisBlockHeader Test peterson testId
+    genesisBlockHeader (Test peterson) testId
 
 getBlockHeaders :: Int -> [BlockHeader]
 getBlockHeaders n = do
     let testId = testChainId (1 :: Word32)
-    let gbh0 = genesisBlockHeader Test peterson testId
+    let gbh0 = genesisBlockHeader (Test peterson) testId
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 

@@ -51,6 +51,7 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
@@ -231,7 +232,13 @@ instance ToParamSchema ChainId where
 instance ToParamSchema ChainwebVersion where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
-        & enum_ ?~ (toJSON <$> [Simulation, Test, TestWithTime, TestWithPow, Testnet00])
+        & enum_ ?~ (toJSON <$>
+            [ Simulation petersonChainGraph
+            , Test petersonChainGraph
+            , TestWithTime petersonChainGraph
+            , TestWithPow petersonChainGraph
+            , Testnet00
+            ])
 
 -- -------------------------------------------------------------------------- --
 -- Swagger Schema

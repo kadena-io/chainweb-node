@@ -21,6 +21,7 @@ import Test.Tasty.QuickCheck
 -- internal modules
 
 import qualified Chainweb.Difficulty (properties)
+import Chainweb.Graph
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.DiGraph
@@ -34,6 +35,7 @@ import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Store.Git
+import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
@@ -79,6 +81,7 @@ suite =
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests
         , Chainweb.Test.DiGraph.tests
+        , Chainweb.Test.SPV.tests
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
@@ -94,6 +97,7 @@ suite =
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         ]
     , testGroupSch "Slow Tests"
-        [ Chainweb.Test.MultiNode.test Warn TestWithTime 10 120 Nothing
+        [ Chainweb.Test.MultiNode.test Warn (TestWithTime petersonChainGraph) 10 120 Nothing
         ]
     ]
+

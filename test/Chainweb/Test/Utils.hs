@@ -136,8 +136,11 @@ import qualified P2P.Node.PeerDB as P2P
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
 
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
+
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader Test singletonChainGraph cid
+toyGenesis cid = genesisBlockHeader toyVersion cid
 
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
@@ -188,7 +191,7 @@ treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
 instance Arbitrary SparseTree where
-    arbitrary = SparseTree <$> tree Test Randomly
+    arbitrary = SparseTree <$> tree toyVersion Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -206,9 +209,7 @@ tree v g = do
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = do
-    let cid = testChainId 0
-    return $ genesisBlockHeader v singletonChainGraph cid
+genesis v = return $ genesisBlockHeader v (testChainId 0)
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -269,23 +270,22 @@ singleton :: ChainGraph
 singleton = singletonChainGraph
 
 testBlockHeaderDbs
-    :: ChainGraph
-    -> ChainwebVersion
+    :: ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-testBlockHeaderDbs g v = mapM toEntry $ toList $ chainIds_ g
+testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds_ (_chainGraph v)
   where
     toEntry c = do
         d <- db c
         return $! (c, d, noopMempool)
-    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v g c
+    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v c
 
 petersonGenesisBlockHeaderDbs
     :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-petersonGenesisBlockHeaderDbs = testBlockHeaderDbs peterson Test
+petersonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test petersonChainGraph)
 
 singletonGenesisBlockHeaderDbs
     :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-singletonGenesisBlockHeaderDbs = testBlockHeaderDbs singleton Test
+singletonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural
@@ -296,8 +296,8 @@ linearBlockHeaderDbs n genDbs = do
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (cid, db, _) = do
-        let gbh0 = genesisBlockHeader Test peterson cid
+    populateDb (_, db, _) = do
+        gbh0 <- root db
         traverse_ (insert db) . take (int n) $ testBlockHeaders gbh0
 
 starBlockHeaderDbs
@@ -329,7 +329,7 @@ withSingleChainServer
     -> IO a
 withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
   where
-    app = singleChainApplication Test chainDbs peerDbs
+    app = singleChainApplication (Test singletonChainGraph) chainDbs peerDbs
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -368,6 +368,7 @@ withTestAppServer
     -> IO b
 withTestAppServer tls appIO envIO userFunc = bracket start stop go
   where
+    v = Test singletonChainGraph
     eatExceptions = handle (\(_ :: SomeException) -> return ())
     warpOnException _ _ = return ()
     start = do
@@ -379,8 +380,8 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
                            W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate Test
-                    let keyBytes = bootstrapKey Test
+                    let certBytes = bootstrapCertificate v
+                    let keyBytes = bootstrapKey v
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -407,6 +408,7 @@ withSingleChainTestServer
 withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
+    v = Test singletonChainGraph
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
@@ -415,8 +417,8 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate Test
-                    let keyBytes = bootstrapKey Test
+                    let certBytes = bootstrapCertificate v
+                    let keyBytes = bootstrapKey v
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -441,7 +443,8 @@ clientEnvWithSingleChainTestServer
 clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
     = withSingleChainTestServer tls mkApp mkEnv
   where
-    mkApp = singleChainApplication Test <$> chainDbsIO <*> peerDbsIO
+    v = Test singletonChainGraph
+    mkApp = singleChainApplication v <$> chainDbsIO <*> peerDbsIO
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
@@ -468,7 +471,6 @@ withBlockHeaderDbsServer
     -> TestTree
 withBlockHeaderDbsServer tls chainDbsIO
     = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
-
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips
