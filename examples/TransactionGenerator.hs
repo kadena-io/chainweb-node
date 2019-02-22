@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -18,13 +18,21 @@ module Main (main) where
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 import Control.Lens hiding ((.=))
+import Control.Monad.Reader
+import Control.Monad.State
 
--- import qualified Data.Text as T
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Word
 
 import GHC.Generics
+
+import System.Random
 
 --chainweb
 
@@ -34,12 +42,12 @@ import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 
--- newtype Contract = Contract {getContract :: Text}
---   deriving (Eq)
---   deriving newtype Show
-
 data TransactionCommand = NoOp | Init | Run
-  deriving (Show, Eq, Read,Generic, FromJSON, ToJSON)
+  deriving (Show, Eq, Read,Generic)
+
+instance FromJSON TransactionCommand
+
+instance ToJSON TransactionCommand
 
 data TransactionConfig = TransactionConfig
   { _scriptCommand :: TransactionCommand
@@ -85,6 +93,43 @@ transactionConfigParser = id
       <> short 'p'
       <> help "The TCP port this transaction generator node uses."
 
+data Timings = Timings
+
+newtype ContractName = ContractName
+  { contractName :: Text
+  } deriving (Eq, Show, Generic)
+
+-- (the arg list is represented as a list for simplicity)
+newtype ContractFunction = ContractFunction
+  { contractFunction :: [Text] -> Text
+  }
+
+data GeneratorConfig = GeneratorConfig
+    -- Each key in the map points to a set of contract functions
+  { _codeMap :: Map ContractName (Set ContractFunction)
+  , _timings :: Timings
+  }
+
+makeLenses ''GeneratorConfig
+
+sampleTransaction :: TransactionGenerator Text
+sampleTransaction =
+  do s <- views codeMap M.size
+     return $ T.pack $ show s
+
+newtype TransactionGenerator a = TransactionGenerator
+  { runTransactionGenerator :: ReaderT GeneratorConfig (StateT StdGen IO) a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadState StdGen, MonadReader GeneratorConfig)
+
+dummyKeyset :: Text
+dummyKeyset = "dummy-keyset"
+
+loop :: TransactionGenerator ()
+loop = sampleTransaction >>= liftIO . TIO.putStrLn >> loop
+
+mkGeneratorConfig :: GeneratorConfig
+mkGeneratorConfig = GeneratorConfig M.empty Timings
+
 mainInfo :: ProgramInfo TransactionConfig
 mainInfo =
   programInfo
@@ -96,18 +141,22 @@ main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config -> do
     case _scriptCommand config of
-      NoOp -> putStrLn "NoOp: lol"
+      NoOp -> putStrLn "NoOp: You probably don't want to be here."
       Init ->
         mapM_
           (TIO.putStrLn . ($ dummyKeyset))
-          daContracts
-      Run -> putStrLn "Run: lol"
-  where
-    daContracts = [helloWorldContract, simplePaymentsContract, commercialPaperContract, cryptoCritterContract]
+          theContracts
+      Run -> do putStrLn "Transactions are being generated"
+                newStdGen >>= evalStateT (runReaderT (runTransactionGenerator loop) mkGeneratorConfig)
 
-dummyKeyset :: Text
-dummyKeyset = "dummy-keyset"
+theContracts :: [Text -> Text]
+theContracts = [helloWorldContract, simplePaymentsContract, commercialPaperContract, cryptoCritterContract]
 
 -- -- TODO: include this later maybe
 -- _loadContractFromFile :: FilePath -> IO Contract
 -- _loadContractFromFile = undefined
+
+-- -- TODO: include this later maybe
+-- newtype Contract = Contract {getContract :: Text}
+--   deriving (Eq)
+--   deriving newtype Show

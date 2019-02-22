@@ -538,7 +538,10 @@ executable transaction-generator
         , base >= 4.11
         , bytestring >= 0.10
         , configuration-tools >= 0.4
+        , containers >= 0.5
         , lens >= 4.16
         , mwc-random >= 0.13
+        , mtl >= 2.2
+        , random >= 1.1
         , text >= 1.2
         , neat-interpolation >= 0.3.2
