@@ -35,6 +35,7 @@ import Control.Monad.STM
 import qualified Data.HashTable.IO as H
 import Data.HashTable.ST.Basic (HashTable)
 
+import Network.Socket (Socket, close)
 import Network.Wai
 import qualified Network.Wai.Handler.Warp as Warp
 
@@ -56,8 +57,8 @@ toHandler :: RequestIdEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
 -- | Entry point for Pact Execution service
-withPactServiceApp :: Int -> MemPoolAccess -> IO a -> IO a
-withPactServiceApp port memPoolAccess action = do
+withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> MemPoolAccess -> IO a -> IO a
+withPactServiceApp socketOrPort hostPreference memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     reqQVar <- atomically $ newTVar reqQ
     respQ  <- atomically (newTQueue :: STM (TQueue ResponseMsg))
@@ -71,8 +72,22 @@ withPactServiceApp port memPoolAccess action = do
               , _rieReqQ = reqQVar
               , _rieRespQ = respQVar
               , _rieResponseMap = ht }
-        bracket (liftIO $ forkIO $ Warp.run port (pactServiceApp env))
-            killThread
+
+        let runWarp = case socketOrPort of
+                Left socket -> flip Warp.runSettingsSocket socket
+                    $ Warp.setHost hostPreference
+                    $ Warp.defaultSettings
+                Right port -> Warp.runSettings
+                    $ Warp.setPort port
+                    $ Warp.setHost hostPreference
+                    $ Warp.defaultSettings
+
+        let closeSocket = case socketOrPort of
+                Left socket -> close socket
+                Right _ -> return ()
+
+        bracket (liftIO $ forkIO $ runWarp (pactServiceApp env))
+            (\t -> closeSocket >> killThread t)
             (const action)
 
 pactServiceApp :: RequestIdEnv -> Application
