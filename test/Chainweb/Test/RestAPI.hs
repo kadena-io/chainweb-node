@@ -37,14 +37,16 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.Graph
+import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+
+import Data.CAS.HashMap hiding (toList)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -100,6 +102,10 @@ version = Test singletonChainGraph
 -- -------------------------------------------------------------------------- --
 -- Test all endpoints on each chain
 
+-- | The type of 'TestClientEnv' that is used everywhere in this file
+--
+type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
 
@@ -110,7 +116,7 @@ simpleSessionTests tls =
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (chainIds_ $ _chainGraph version)
 
-simpleClientSession :: IO (TestClientEnv MockTx) -> ChainId -> TestTree
+simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
         BlockHeaderDbsTestClientEnv env _ <- envIO
@@ -192,7 +198,7 @@ simpleTest
         -- ^ Success predicate
     -> (BlockHeader -> ClientM a)
         -- ^ Test HTTP client session
-    -> IO (TestClientEnv MockTx)
+    -> IO TestClientEnv_
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
@@ -204,30 +210,30 @@ simpleTest msg p session envIO = testCase msg $ do
 -- -------------------------------------------------------------------------- --
 -- Put Tests
 
-putNewBlockHeader :: IO (TestClientEnv MockTx) -> TestTree
+putNewBlockHeader :: IO TestClientEnv_ -> TestTree
 putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
     headerPutClient version (_chainId h0)
         . head
         $ testBlockHeadersWithNonce (Nonce 1) h0
 
-putExisting :: IO (TestClientEnv MockTx) -> TestTree
+putExisting :: IO TestClientEnv_ -> TestTree
 putExisting = simpleTest "put existing block header" isRight $ \h0 ->
     headerPutClient version (_chainId h0) h0
 
-putOnWrongChain :: IO (TestClientEnv MockTx) -> TestTree
+putOnWrongChain :: IO TestClientEnv_ -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
     $ \h0 -> headerPutClient version (_chainId h0)
         . head
         . testBlockHeadersWithNonce (Nonce 2)
         $ genesisBlockHeader (Test petersonChainGraph) (testChainId 1)
 
-putMissingParent :: IO (TestClientEnv MockTx) -> TestTree
+putMissingParent :: IO TestClientEnv_ -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
     headerPutClient version (_chainId h0)
         . (!! 2)
         $ testBlockHeadersWithNonce (Nonce 3) h0
 
-put5NewBlockHeaders :: IO (TestClientEnv MockTx) -> TestTree
+put5NewBlockHeaders :: IO TestClientEnv_ -> TestTree
 put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
     mapM_ (headerPutClient version (_chainId h0))
         . take 5
@@ -272,7 +278,7 @@ pagingTest
         -- set
     -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
-    -> IO (TestClientEnv MockTx)
+    -> IO TestClientEnv_
         -- ^ Test environment
     -> TestTree
 pagingTest name getDbItems getKey fin request envIO = testGroup name
@@ -339,17 +345,17 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
         | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
-testPageLimitHeadersClient :: IO (TestClientEnv MockTx) -> TestTree
+testPageLimitHeadersClient :: IO TestClientEnv_ -> TestTree
 testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient version cid l n Nothing Nothing
 
-testPageLimitHashesClient :: IO (TestClientEnv MockTx) -> TestTree
+testPageLimitHashesClient :: IO TestClientEnv_ -> TestTree
 testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing
 
-testPageLimitBranchesClient :: IO (TestClientEnv MockTx) -> TestTree
+testPageLimitBranchesClient :: IO TestClientEnv_ -> TestTree
 testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
   where
     request cid l n = leafHashesClient version cid l n Nothing Nothing
