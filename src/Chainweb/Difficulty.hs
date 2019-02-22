@@ -220,6 +220,7 @@ newtype HashTarget = HashTarget PowHashNat
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
 
 -- | A visualization of a `HashTarget` as binary.
+--
 showTargetBits :: HashTarget -> T.Text
 showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
 
@@ -251,6 +252,7 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `targetToDifficulty`.
+--
 difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
 difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
     HashTarget . PowHashNat $ maxTargetWord v `div` difficulty
@@ -259,6 +261,7 @@ difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
 -- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
 -- produced by `targetToDifficultyR` and then further manipulated during
 -- Difficulty Adjustment.
+--
 difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
 difficultyToTargetR v difficulty =
     HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
@@ -266,6 +269,7 @@ difficultyToTargetR v difficulty =
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
+--
 targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
 targetToDifficulty v (HashTarget (PowHashNat target)) =
     HashDifficulty . PowHashNat $ maxTargetWord v `div` target
@@ -273,6 +277,7 @@ targetToDifficulty v (HashTarget (PowHashNat target)) =
 
 -- | Like `targetToDifficulty`, but yields a `Rational` for lossless
 -- calculations in Difficulty Adjustment.
+--
 targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
 targetToDifficultyR v (HashTarget (PowHashNat target)) =
     int (maxTargetWord v) % int target
@@ -280,6 +285,7 @@ targetToDifficultyR v (HashTarget (PowHashNat target)) =
 
 -- | The critical check in Proof-of-Work mining: did the generated hash match
 -- the target?
+--
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
@@ -301,11 +307,12 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 newtype BlockRate = BlockRate Seconds
 
 -- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
+--
 blockRate :: ChainwebVersion -> Maybe BlockRate
-blockRate Test = Nothing
-blockRate TestWithTime = Just $! BlockRate 10
-blockRate TestWithPow = Just $! BlockRate 10
-blockRate Simulation = Nothing
+blockRate Test{} = Nothing
+blockRate TestWithTime{} = Just $! BlockRate 4
+blockRate TestWithPow{} = Just $! BlockRate 10
+blockRate Simulation{} = Nothing
 blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
@@ -316,11 +323,12 @@ newtype WindowWidth = WindowWidth Natural
 
 -- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
 -- that do not expect to perform POW, this should be `Nothing`.
+--
 window :: ChainwebVersion -> Maybe WindowWidth
-window Test = Nothing
-window TestWithTime = Nothing
-window TestWithPow = Just $! WindowWidth 5
-window Simulation = Nothing
+window Test{} = Nothing
+window TestWithTime{} = Nothing
+window TestWithPow{} = Just $! WindowWidth 5
+window Simulation{} = Nothing
 window Testnet00 = error "window: Epoch Window Width for Testnet00 not yet defined!"
 
 -- | The maximum number of bits that a single application of `adjust` can apply
@@ -331,11 +339,12 @@ newtype MaxAdjustment = MaxAdjustment Natural
 
 -- | The Proof-of-Work `MaxAdjustment` for each `ChainwebVersion`. For chainwebs
 -- that do not expect to perform POW, this should be `Nothing`.
+--
 maxAdjust :: ChainwebVersion -> Maybe MaxAdjustment
-maxAdjust Test = Nothing
-maxAdjust TestWithTime = Nothing
-maxAdjust TestWithPow = Just $! MaxAdjustment 3
-maxAdjust Simulation = Nothing
+maxAdjust Test{} = Nothing
+maxAdjust TestWithTime{} = Nothing
+maxAdjust TestWithPow{} = Just $! MaxAdjustment 3
+maxAdjust Simulation{} = Nothing
 maxAdjust Testnet00 = error "maxAdjust: Max Adjustment for Testnet00 not yet defined!"
 
 -- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
@@ -344,10 +353,10 @@ maxAdjust Testnet00 = error "maxAdjust: Max Adjustment for Testnet00 not yet def
 -- See `adjust`.
 --
 prereduction :: ChainwebVersion -> Int
-prereduction Test = 0
-prereduction TestWithTime = 0
-prereduction TestWithPow = 7
-prereduction Simulation = 0
+prereduction Test{} = 0
+prereduction TestWithTime{} = 0
+prereduction TestWithPow{} = 7
+prereduction Simulation{} = 0
 prereduction Testnet00 = error "prereduction: Bit reduction for Testnet00 not yet defined!"
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N

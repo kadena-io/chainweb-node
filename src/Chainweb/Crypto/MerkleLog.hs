@@ -142,6 +142,9 @@ module Chainweb.Crypto.MerkleLog
 , decodeMerkleInputNode
 , encodeMerkleInputNode
 
+, decodeMerkleTreeNode
+, encodeMerkleTreeNode
+
 -- ** IsMerkleLogEntry instance for use with @deriving via@
 , ByteArrayMerkleLogEntry(..)
 , MerkleRootLogEntry(..)
@@ -164,6 +167,7 @@ import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import Data.Coerce
 import Data.Foldable
 import Data.Kind
 import Data.Memory.Endian
@@ -711,6 +715,17 @@ decodeMerkleInputNode
     -> m b
 decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes
 decodeMerkleInputNode _ (TreeNode _) = throwM expectedInputNodeException
+
+encodeMerkleTreeNode :: Coercible a (MerkleRoot alg) => a -> MerkleNodeType alg x
+encodeMerkleTreeNode = TreeNode . coerce
+
+decodeMerkleTreeNode
+    :: MonadThrow m
+    => Coercible (MerkleRoot alg) a
+    => MerkleNodeType alg x
+    -> m a
+decodeMerkleTreeNode (TreeNode bytes) = return $ coerce bytes
+decodeMerkleTreeNode (InputNode _) = throwM expectedTreeNodeException
 
 -- -------------------------------------------------------------------------- --
 -- Support for Deriving Via

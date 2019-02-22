@@ -24,7 +24,6 @@ import qualified Pact.Types.Server as P
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 
 -- MIGHT INCLUDE THIS MODULE LATER
@@ -60,14 +59,12 @@ restore' lock height hash = do
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
 restoreInitial' lock = do
-    tempChainId <- chainIdFromText "0"
-    let bh = nullBlockHash tempChainId
+    let bh = nullBlockHash
     restore' lock (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
 saveInitial' lock p@PactDbState {..} = do
-    tempChainId <- chainIdFromText "0"
-    let bh = nullBlockHash tempChainId
+    let bh = nullBlockHash
     save' lock (BlockHeight 0) bh p
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())

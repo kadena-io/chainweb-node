@@ -63,6 +63,14 @@ module Chainweb.Test.Utils
 , assertExpectation
 , assertGe
 , assertLe
+
+-- * Scheduling Tests
+, RunStyle(..)
+, ScheduledTest
+, schedule
+, testCaseSch
+, testGroupSch
+, testPropertySch
 ) where
 
 import Control.Concurrent
@@ -71,6 +79,7 @@ import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.IO.Class
 
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -96,6 +105,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 import Text.Printf (printf)
 
@@ -107,7 +117,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MempoolBackend(..), noopMempool)
+import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.RestAPI (singleChainApplication)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
@@ -118,8 +128,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
-import qualified Data.DiGraph as G
-
 import Network.X509.SelfSigned
 
 import Numeric.AffineSpace
@@ -129,8 +137,11 @@ import qualified P2P.Node.PeerDB as P2P
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
 
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
+
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+toyGenesis cid = genesisBlockHeader toyVersion cid
 
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
@@ -181,7 +192,7 @@ treeLeaves = toListOf . deep $ filtered (null . subForest) . LT.root
 newtype SparseTree = SparseTree { _sparseTree :: Tree BlockHeader } deriving (Show)
 
 instance Arbitrary SparseTree where
-    arbitrary = SparseTree <$> tree Test Randomly
+    arbitrary = SparseTree <$> tree toyVersion Randomly
 
 -- | A specification for how the trunk of the `SparseTree` should grow.
 --
@@ -199,9 +210,7 @@ tree v g = do
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = do
-    cid <- arbitrary
-    return $ genesisBlockHeader v (toChainGraph (const cid) singleton) cid
+genesis v = return $ genesisBlockHeader v (testChainId 0)
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -232,14 +241,13 @@ trunk g h = do
 header :: BlockHeader -> Gen BlockHeader
 header h = do
     nonce <- Nonce <$> chooseAny
-    payload <- arbitrary
     miner <- arbitrary
     return
         . fromLog
         . newMerkleLog
         $ _blockHash h
             :+: target
-            :+: payload
+            :+: testBlockPayload h
             :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
             :+: nonce
             :+: _chainId h
@@ -257,53 +265,52 @@ header h = do
 -- Test Chain Database Configurations
 
 peterson :: ChainGraph
-peterson = toChainGraph (testChainId . int) G.petersonGraph
+peterson = petersonChainGraph
 
 singleton :: ChainGraph
-singleton = toChainGraph (testChainId . int) G.singleton
+singleton = singletonChainGraph
 
 testBlockHeaderDbs
-    :: ChainGraph
-    -> ChainwebVersion
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-testBlockHeaderDbs g v = mapM toEntry $ toList $ chainIds_ g
+    :: ChainwebVersion
+    -> IO [(ChainId, BlockHeaderDb)]
+testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds_ (_chainGraph v)
   where
     toEntry c = do
         d <- db c
-        return $! (c, d, noopMempool)
-    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v g c
+        return $! (c, d)
+    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v c
 
 petersonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-petersonGenesisBlockHeaderDbs = testBlockHeaderDbs peterson Test
+    :: IO [(ChainId, BlockHeaderDb)]
+petersonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test petersonChainGraph)
 
 singletonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-singletonGenesisBlockHeaderDbs = testBlockHeaderDbs singleton Test
+    :: IO [(ChainId, BlockHeaderDb)]
+singletonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, BlockHeaderDb)]
 linearBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (cid, db, _) = do
-        let gbh0 = genesisBlockHeader Test peterson cid
+    populateDb (_, db) = do
+        gbh0 <- root db
         traverse_ (insert db) . take (int n) $ testBlockHeaders gbh0
 
 starBlockHeaderDbs
     :: Natural
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, BlockHeaderDb)]
 starBlockHeaderDbs n genDbs = do
     dbs <- genDbs
     mapM_ populateDb dbs
     return dbs
   where
-    populateDb (_, db, _) = do
+    populateDb (_, db) = do
         gbh0 <- root db
         traverse_ (\i -> insert db $ newEntry i gbh0) [0 .. (int n-1)]
 
@@ -316,14 +323,15 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withSingleChainServer
-    :: Show t
-    => [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    :: (ToJSON t, FromJSON t, Show t)
+    => [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, MempoolBackend t)]
     -> [(NetworkId, P2P.PeerDb)]
     -> (ClientEnv -> IO a)
     -> IO a
-withSingleChainServer chainDbs peerDbs f = W.testWithApplication (pure app) work
+withSingleChainServer chainDbs mempools peerDbs f = W.testWithApplication (pure app) work
   where
-    app = singleChainApplication Test chainDbs peerDbs
+    app = singleChainApplication (Test singletonChainGraph) chainDbs mempools peerDbs
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -336,23 +344,24 @@ testHost = "localhost"
 
 data TestClientEnv t = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb, MempoolBackend t)]
+    , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
+    , _envMempools :: ![(ChainId, MempoolBackend t)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     }
 
 pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> [(ChainId, BlockHeaderDb)]
     -> TestClientEnv t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs }
-    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs []
+    = TestClientEnv _cdbEnvClientEnv _cdbEnvBlockHeaderDbs [] []
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
     -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs }
-    = TestClientEnv _pdbEnvClientEnv [] _pdbEnvPeerDbs
+    = TestClientEnv _pdbEnvClientEnv [] [] _pdbEnvPeerDbs
 
 withTestAppServer
     :: Bool
@@ -362,6 +371,7 @@ withTestAppServer
     -> IO b
 withTestAppServer tls appIO envIO userFunc = bracket start stop go
   where
+    v = Test singletonChainGraph
     eatExceptions = handle (\(_ :: SomeException) -> return ())
     warpOnException _ _ = return ()
     start = do
@@ -373,8 +383,8 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
                            W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate Test
-                    let keyBytes = bootstrapKey Test
+                    let certBytes = bootstrapCertificate v
+                    let keyBytes = bootstrapKey v
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -401,6 +411,7 @@ withSingleChainTestServer
 withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
     test $ x >>= \(_, _, env) -> return env
   where
+    v = Test singletonChainGraph
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
@@ -409,8 +420,8 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate Test
-                    let keyBytes = bootstrapKey Test
+                    let certBytes = bootstrapCertificate v
+                    let keyBytes = bootstrapKey v
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -426,16 +437,18 @@ withSingleChainTestServer tls appIO envIO test = withResource start stop $ \x ->
         close sock
 
 clientEnvWithSingleChainTestServer
-    :: Show t
+    :: (Show t, ToJSON t, FromJSON t)
     => Bool
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, MempoolBackend t)]
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
+clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO peerDbsIO
     = withSingleChainTestServer tls mkApp mkEnv
   where
-    mkApp = singleChainApplication Test <$> chainDbsIO <*> peerDbsIO
+    v = Test singletonChainGraph
+    mkApp = singleChainApplication v <$> chainDbsIO <*> mempoolsIO <*> peerDbsIO
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
@@ -443,26 +456,27 @@ clientEnvWithSingleChainTestServer tls chainDbsIO peerDbsIO
         mgr <- HTTP.newManager mgrSettings
         TestClientEnv (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
             <$> chainDbsIO
+            <*> mempoolsIO
             <*> peerDbsIO
 
 
 withPeerDbsServer
-    :: Show t
+    :: (Show t, FromJSON t, ToJSON t)
     => Bool
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return [])
+withPeerDbsServer tls = clientEnvWithSingleChainTestServer tls (return []) (return [])
 
 withBlockHeaderDbsServer
-    :: Show t
+    :: (Show t, FromJSON t, ToJSON t)
     => Bool
-    -> IO [(ChainId, BlockHeaderDb, MempoolBackend t)]
+    -> IO [(ChainId, BlockHeaderDb)]
+    -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls chainDbsIO
-    = clientEnvWithSingleChainTestServer tls chainDbsIO (return [])
-
+withBlockHeaderDbsServer tls chainDbsIO mempoolsIO
+    = clientEnvWithSingleChainTestServer tls chainDbsIO mempoolsIO (return [])
 
 -- -------------------------------------------------------------------------- --
 -- Isomorphisms and Roundtrips
@@ -537,3 +551,33 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
+
+-- -------------------------------------------------------------------------- --
+-- Scheduling Tests
+
+data RunStyle = Sequential | Parallel
+
+-- | A structure similar to that procuded by `testGroup`, except that we can
+-- optionally schedule groups of this type.
+--
+data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree }
+
+testCaseSch :: String -> Assertion -> ScheduledTest
+testCaseSch l a = ScheduledTest l $ testCase l a
+
+testGroupSch :: String -> [TestTree] -> ScheduledTest
+testGroupSch l ts = ScheduledTest l $ testGroup l ts
+
+testPropertySch :: Testable a => String -> a -> ScheduledTest
+testPropertySch l p = ScheduledTest l $ testProperty l p
+
+-- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
+-- each group will be made to run one after another. This can be used to prevent
+-- various tests from starving each other of resources.
+--
+schedule :: RunStyle -> [ScheduledTest] -> [TestTree]
+schedule _ [] = []
+schedule Parallel tgs = map _schTest tgs
+schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
+  where
+    f a b = after AllFinish (_schLabel a) $ _schTest b

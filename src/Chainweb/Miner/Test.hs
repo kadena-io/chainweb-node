@@ -43,11 +43,10 @@ import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion)
-import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
+import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 
-import Data.DiGraph (order)
-import Data.LogMessage (LogFunction)
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Test Miner
@@ -124,7 +123,7 @@ testMiner logFun conf nid cutDb wcdb = do
         --
         cid <- randomChainId c
 
-        -- The parent block the mine on. Any given chain will always
+        -- The parent block to mine on. Any given chain will always
         -- contain at least a genesis block, so this otherwise naughty
         -- `^?!` will always succeed.
         --
@@ -144,7 +143,8 @@ testMiner logFun conf nid cutDb wcdb = do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        testMine (Nonce nonce) target ct nid cid c >>= \case
+        let payloadHash = testBlockPayload p
+        testMine (Nonce nonce) target ct payloadHash nid cid c >>= \case
             Left BadNonce -> mine gen (succ nonce)
             Left BadAdjacents -> mine gen nonce
             Right (T2 _ newCut) -> pure newCut

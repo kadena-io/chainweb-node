@@ -153,7 +153,8 @@ powMiner logFun _ nid cutDb wcdb = do
 
         -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-        testMine (Nonce nonce) target ct nid cid c >>= \case
+        let payloadHash = testBlockPayload p
+        testMine (Nonce nonce) target ct payloadHash nid cid c >>= \case
             Left BadNonce -> do
                 -- atomicModifyIORef' counter (\n -> (succ n, ()))
                 mine (succ nonce) adjustments'

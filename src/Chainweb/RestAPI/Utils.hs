@@ -261,10 +261,7 @@ instance
     toLink toA _
         = toLink toA $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
 
-instance
-    (KnownChainIdSymbol sym, HasLink api)
-    => HasLink ('NetworkEndpoint 'CutNetworkT :> api)
-  where
+instance (HasLink api) => HasLink ('NetworkEndpoint 'CutNetworkT :> api) where
     type MkLink ('NetworkEndpoint 'CutNetworkT :> api) a
         = MkLink (NetworkEndpointApi 'CutNetworkT api) a
 

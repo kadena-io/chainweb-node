@@ -3,6 +3,7 @@ resolver: lts-12.26
 packages:
   - .
   - tools/chain2gexf/
+  - tools/mine-genesis/
 
 extra-deps:
   - aeson-1.4.2.0

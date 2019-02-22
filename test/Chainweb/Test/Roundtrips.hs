@@ -35,6 +35,7 @@ import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
 import Chainweb.NodeId
+import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
@@ -94,14 +95,19 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeBlockHashRecord encodeBlockHashRecord
     , testProperty "BlockHeader"
         $ prop_encodeDecodeRoundtrip decodeBlockHeader encodeBlockHeader
-    , testProperty "BlockPayloadHash"
-        $ prop_encodeDecodeRoundtrip decodeBlockPayloadHash encodeBlockPayloadHash
     , testProperty "Nonce"
        $ prop_encodeDecodeRoundtrip decodeNonce encodeNonce
    , testProperty "Time"
        $ prop_encodeDecodeRoundtrip decodeTime encodeTime
    , testProperty "TimeSpan"
        $ prop_encodeDecodeRoundtrip decodeTimeSpan encodeTimeSpan
+
+    , testProperty "BlockPayloadHash"
+        $ prop_encodeDecodeRoundtrip decodeBlockPayloadHash encodeBlockPayloadHash
+    , testProperty "BlockTransactionsHash"
+        $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
+    , testProperty "BlockTransactionsHash"
+        $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
 
     -- The following doesn't hold:
     -- , testProperty "target difficulty"
@@ -132,7 +138,6 @@ jsonTestCases f =
     , testProperty "BlockHashRecord" $ f @BlockHashRecord
     , testProperty "BlockHeader" $ f @BlockHeader
     , testProperty "BlockWeight" $ f @BlockWeight
-    , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
     , testProperty "P2pNodeStats" $ f @P2pNodeStats
     , testProperty "P2pSessionResult" $ f @P2pSessionResult
     , testProperty "P2pSessionInfo" $ f @P2pSessionInfo
@@ -143,7 +148,14 @@ jsonTestCases f =
     , testProperty "PeerConfig" $ f @PeerConfig
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
-    , testProperty "P2pNetworkId" $ f @NetworkId
+    , testProperty "NetworkId" $ f @NetworkId
+
+    , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
+    , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
+    , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
+    , testProperty "Transaction" $ f @Transaction
+    , testProperty "TransactionOutput" $ f @TransactionOutput
+    , testProperty "PayloadData" $ f @PayloadData
     ]
 
 jsonRoundtripTests :: TestTree
@@ -237,5 +249,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "PeerId" $ prop_iso' @_ @PeerId fromText toText
     , testProperty "Int" $ prop_iso' @_ @Int fromText toText
     , testProperty "P2pNetworkId" $ prop_iso' @_ @NetworkId fromText toText
+    , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
+    , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     ]
 

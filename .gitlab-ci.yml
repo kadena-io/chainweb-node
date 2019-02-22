@@ -37,8 +37,8 @@ nix-linux:
   tags:
     - linux
   script:
-    - nix-build
-    - nix-build -A ghc.chainweb.doc
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
     - scripts/collectArtifacts.sh
   artifacts:
     paths:
@@ -75,7 +75,7 @@ nightly-nix:
     - schedules
   script:
     - echo This is a nightly build!
-    - nix-build
-    - nix-build -A ghc.chainweb.doc
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
     - scripts/collectArtifacts.sh
 

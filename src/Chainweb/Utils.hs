@@ -67,6 +67,7 @@ module Chainweb.Utils
 
 -- ** Binary
 , runGet
+, runPut
 , runGetEither
 
 -- ** Codecs
@@ -152,6 +153,7 @@ import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
 import Data.Bytes.Get
+import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -165,6 +167,7 @@ import qualified Data.HashSet as HS
 import Data.Maybe
 import Data.Monoid (Endo)
 import Data.Serialize.Get (Get)
+import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -330,6 +333,10 @@ runGet g = fromEitherM . runGetEither g
 runGetEither :: Get a -> B.ByteString -> Either EncodingException a
 runGetEither g = first (DecodeException . T.pack) . runGetS g
 {-# INLINE runGetEither #-}
+
+runPut :: Put -> B.ByteString
+runPut = runPutS
+{-# INLINE runPut #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Text

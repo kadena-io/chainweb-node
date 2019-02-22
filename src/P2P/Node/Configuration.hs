@@ -90,9 +90,9 @@ instance Arbitrary P2pConfiguration where
         <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration Test = testP2pConfiguration Test
-defaultP2pConfiguration TestWithTime = testP2pConfiguration TestWithTime
-defaultP2pConfiguration TestWithPow = testP2pConfiguration TestWithPow
+defaultP2pConfiguration v@Test{} = testP2pConfiguration v
+defaultP2pConfiguration v@TestWithTime{} = testP2pConfiguration v
+defaultP2pConfiguration v@TestWithPow{} = testP2pConfiguration v
 defaultP2pConfiguration _ = error "TODO not implemented"
 
 testP2pConfiguration :: ChainwebVersion -> P2pConfiguration

@@ -43,6 +43,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Graph
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapPeerConfig)
 import Chainweb.Utils
@@ -58,6 +59,9 @@ import P2P.Session
 
 -- -------------------------------------------------------------------------- --
 -- Configuration of Example
+
+version :: ChainwebVersion
+version = Test singletonChainGraph
 
 data P2pExampleConfig = P2pExampleConfig
     { _numberOfNodes :: !Natural
@@ -160,7 +164,7 @@ example conf logger =
 
     -- P2P node configuration
     --
-    p2pConfig = (defaultP2pConfiguration Test)
+    p2pConfig = (defaultP2pConfiguration version)
         { _p2pConfigMaxSessionCount = _maxSessionCount conf
         , _p2pConfigMaxPeerCount = _maxPeerCount conf
         , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
@@ -168,7 +172,7 @@ example conf logger =
 
     -- Configuration for bootstrap node
     --
-    bootstrapConfig = set p2pConfigPeer (head $ bootstrapPeerConfig Test) p2pConfig
+    bootstrapConfig = set p2pConfigPeer (head $ bootstrapPeerConfig version) p2pConfig
 
 -- -------------------------------------------------------------------------- --
 -- Example P2P Client Sessions
@@ -202,7 +206,7 @@ node cid t logger conf = do
 
         let conf' = set p2pConfigPeer c conf
         let settings = peerServerSettings peer
-        let serve pdb = serveP2pSocket settings sock Test
+        let serve pdb = serveP2pSocket settings sock version
                 [(ChainNetwork cid, pdb)]
 
         -- initialize PeerDB
@@ -217,7 +221,7 @@ node cid t logger conf = do
                 mgr <- HTTP.newManager HTTP.defaultManagerSettings
                 n <- withLoggerLabel ("session", "noopSession") logger' $ \sessionLogger -> do
                     let sessionLogFun l = loggerFunIO sessionLogger (l2l l) . toLogMessage
-                    p2pCreateNode Test nid peer sessionLogFun pdb mgr (noopSession t)
+                    p2pCreateNode version nid peer sessionLogFun pdb mgr (noopSession t)
 
                 -- Run P2P client node
                 p2pStartNode conf' n `finally` p2pStopNode n
