@@ -98,8 +98,8 @@ initPactService reqQ memPoolAccess = do
 
 -- TODO: Merge into new 'initPactService'
 initPactServiceHttp
-  :: TVar (TQueue RequestHttpMsg)
-  -> TVar (TQueue ResponseHttpMsg)
+  :: (TQueue RequestHttpMsg)
+  -> (TQueue ResponseHttpMsg)
   -> MemPoolAccess
   -> IO ()
 initPactServiceHttp reqQVar respQVar memPoolAccess = do
@@ -153,8 +153,8 @@ serviceRequests memPoolAccess reqQ = go
 -- TODO: Merge into new 'serviceRequests'
 serviceRequestsHttp
     :: MemPoolAccess
-    -> TVar (TQueue RequestHttpMsg)
-    -> TVar (TQueue ResponseHttpMsg)
+    -> (TQueue RequestHttpMsg)
+    -> (TQueue ResponseHttpMsg)
     -> PactT ()
 serviceRequestsHttp memPoolAccess reqQ respQ =
     forever run where

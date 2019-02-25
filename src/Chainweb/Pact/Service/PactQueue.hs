@@ -22,7 +22,6 @@ module Chainweb.Pact.Service.PactQueue
     ) where
 
 import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Chainweb.Pact.Service.Types
@@ -39,9 +38,8 @@ sendCloseMsg q = do
 
 --TODO: remove or combine with 'getNextRequest
 -- | Add a request to the Pact execution queue
-addHttpRequest :: TVar (TQueue RequestHttpMsg) -> RequestHttpMsg -> IO ()
-addHttpRequest qVar msg = do
-    q <- readTVarIO qVar
+addHttpRequest :: (TQueue RequestHttpMsg) -> RequestHttpMsg -> IO ()
+addHttpRequest q msg = do
     atomically $ writeTQueue q msg
 
 -- | Get the next available request from the Pact execution queue
@@ -50,20 +48,17 @@ getNextRequest q = do
     atomically $ readTQueue q
 
 --TODO: remove or combine with 'getNextRequest
-getNextHttpRequest :: TVar (TQueue RequestHttpMsg) -> IO RequestHttpMsg
-getNextHttpRequest qVar = do
-    q <- readTVarIO qVar
+getNextHttpRequest :: (TQueue RequestHttpMsg) -> IO RequestHttpMsg
+getNextHttpRequest q = do
     atomically $ readTQueue q
 
 -- | Add a response to the Pact execution response queue
-addResponse :: TVar (TQueue ResponseHttpMsg) -> ResponseHttpMsg -> IO ()
-addResponse qVar msg = do
-    q <- readTVarIO qVar
+addResponse :: (TQueue ResponseHttpMsg) -> ResponseHttpMsg -> IO ()
+addResponse q msg = do
     atomically $ writeTQueue q msg
     return ()
 
 -- | Get the next available response from the Pact execution response queue
-getNextResponse :: TVar (TQueue ResponseHttpMsg) -> IO ResponseHttpMsg
-getNextResponse qVar = do
-    q <- readTVarIO qVar
+getNextResponse :: (TQueue ResponseHttpMsg) -> IO ResponseHttpMsg
+getNextResponse q = do
     atomically $ readTQueue q

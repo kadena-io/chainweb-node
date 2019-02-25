@@ -39,8 +39,8 @@ type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
           :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
 data RequestIdEnv
   = RequestIdEnv { _rieReqIdVar :: TVar RequestId
-                 , _rieReqQ :: TVar (TQueue RequestHttpMsg)
-                 , _rieRespQ :: TVar (TQueue ResponseHttpMsg)
+                 , _rieReqQ :: (TQueue RequestHttpMsg)
+                 , _rieRespQ :: (TQueue ResponseHttpMsg)
                  , _rieResponseMap :: H.IOHashTable H.HashTable RequestId Transactions }
 
 type PactAppM = ReaderT RequestIdEnv Handler

@@ -60,17 +60,15 @@ toHandler env x = runReaderT x env
 withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> MemPoolAccess -> IO a -> IO a
 withPactServiceApp socketOrPort hostPreference memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestHttpMsg))
-    reqQVar <- atomically $ newTVar reqQ
     respQ  <- atomically (newTQueue :: STM (TQueue ResponseHttpMsg))
-    respQVar <- atomically $ newTVar respQ
-    withAsync (initPactServiceHttp reqQVar respQVar memPoolAccess) $ \a -> do
+    withAsync (initPactServiceHttp reqQ respQ memPoolAccess) $ \a -> do
         link a
         reqIdVar <- atomically (newTVar (RequestId 0) :: STM (TVar RequestId))
         ht <-  H.new :: IO (H.IOHashTable HashTable RequestId Transactions)
         let env = RequestIdEnv
               { _rieReqIdVar = reqIdVar
-              , _rieReqQ = reqQVar
-              , _rieRespQ = respQVar
+              , _rieReqQ = reqQ
+              , _rieRespQ = respQ
               , _rieResponseMap = ht }
 
         let runWarp = case socketOrPort of
