@@ -43,7 +43,7 @@ import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.RPC as P
 
 tests :: IO TestTree
-tests = testGroup "Pact Http tests" <$> pactApiTest
+tests = testGroup "Pact in-proc API tests" <$> pactApiTest
 
 pactApiTest :: IO [TestTree]
 pactApiTest = do

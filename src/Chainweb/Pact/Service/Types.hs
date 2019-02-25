@@ -1,8 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeOperators #-}
-
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,7 +5,7 @@
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Types module for Pact execution HTTP API
+-- Types module for Pact execution API
 
 module Chainweb.Pact.Service.Types where
 
@@ -28,33 +23,9 @@ import Data.Int
 import Data.String.Conv (toS)
 
 import Safe
-import Servant
 
---TODO: How to get rid of the redundant import warning on this?
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
-
-type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
-data RequestIdEnv
-  = RequestIdEnv { _rieReqIdVar :: TVar RequestId
-                 , _rieReqQ :: (TQueue RequestHttpMsg)
-                 , _rieRespQ :: (TQueue ResponseHttpMsg)
-                 , _rieResponseMap :: H.IOHashTable H.HashTable RequestId Transactions }
-
-type PactAppM = ReaderT RequestIdEnv Handler
-
-pactAPI :: Proxy PactAPI
-pactAPI = Proxy
-
-newtype RequestId = RequestId { _getInt64 :: Int64 }
-    deriving (Enum, Eq, Hashable, Read, Show, FromJSON, ToJSON)
-
-instance FromHttpApiData RequestId where
-    parseUrlPiece t =
-        let e = readEitherSafe (toS t)
-        in bimap toS RequestId e
 
 data RequestType = ValidateBlock | NewBlock deriving (Show)
 
@@ -64,17 +35,3 @@ data RequestMsg = RequestMsg
     , _reqResultVar :: MVar Transactions
     }
     | CloseMsg
-
-data RequestHttpMsg = RequestHttpMsg
-    { _reqhRequestType :: RequestType
-    , _reqhRequestId   :: RequestId
-    , _reqhBlockHeader :: BlockHeader
-    } deriving (Show)
-
-data ResponseHttpMsg = ResponseHttpMsg
-    { _resphRequestType :: RequestType
-    , _resphRequestId   :: RequestId
-    , _resphPayload :: Transactions
-    } deriving (Show)
-
-makeLenses ''RequestIdEnv

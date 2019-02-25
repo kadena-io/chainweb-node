@@ -15,7 +15,7 @@
 --
 -- Pact execution HTTP API for Chainweb
 
-module Chainweb.Pact.Service.PactApi
+module Chainweb.Pact.Service.Http.PactApi
     ( newBlockReq
     , pactServer
     , pactServiceApp
@@ -42,9 +42,9 @@ import qualified Network.Wai.Handler.Warp as Warp
 import Servant
 
 import Chainweb.BlockHeader
-import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Http.PactService
+import Chainweb.Pact.Service.Http.PactQueue
+import Chainweb.Pact.Service.Http.Types
 import Chainweb.Pact.Types
 
 -- | Servant definition for Pact Execution as a service

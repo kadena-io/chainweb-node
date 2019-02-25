@@ -42,8 +42,8 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Pact.Service.PactApi
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Http.PactApi
+import Chainweb.Pact.Service.Http.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Version
