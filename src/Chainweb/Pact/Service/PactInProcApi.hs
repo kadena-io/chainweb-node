@@ -26,7 +26,6 @@ module Chainweb.Pact.Service.PactInProcApi
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Chainweb.BlockHeader
@@ -36,20 +35,19 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
 -- | Initialization for Pact (in process) Api
-initPactExec :: IO (TVar (TQueue RequestMsg))
+initPactExec :: IO (TQueue RequestMsg)
 initPactExec = initPactExec' tempMemPoolAccess -- TODO: replace with real mempool
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-initPactExec' :: MemPoolAccess -> IO (TVar (TQueue RequestMsg))
+initPactExec' :: MemPoolAccess -> IO (TQueue RequestMsg)
 initPactExec' memPoolAccess = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    reqQVar <- atomically $ newTVar reqQ
-    a <- async (PS.initPactService reqQVar memPoolAccess)
+    a <- async (PS.initPactService reqQ memPoolAccess)
     link a
-    return reqQVar
+    return reqQ
 
-newBlock :: BlockHeader -> TVar (TQueue RequestMsg) -> MVar Transactions -> IO ()
+newBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
 newBlock bHeader reqQ resultVar = do
     let msg = RequestMsg
           { _reqRequestType = NewBlock
@@ -58,7 +56,7 @@ newBlock bHeader reqQ resultVar = do
     addRequest reqQ msg
 
 
-validateBlock :: BlockHeader -> TVar (TQueue RequestMsg) -> MVar Transactions -> IO ()
+validateBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
 validateBlock bHeader reqQ resultVar = do
     let msg = RequestMsg
           { _reqRequestType = ValidateBlock
@@ -66,7 +64,7 @@ validateBlock bHeader reqQ resultVar = do
           , _reqResultVar = resultVar}
     addRequest reqQ msg
 
-closeQueue :: TVar (TQueue RequestMsg) -> IO ()
+closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
 
 

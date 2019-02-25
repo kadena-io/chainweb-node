@@ -28,15 +28,13 @@ import Control.Monad.STM
 import Chainweb.Pact.Service.Types
 
 -- | Add a request to the Pact execution queue
-addRequest :: TVar (TQueue RequestMsg) -> RequestMsg -> IO ()
-addRequest qVar msg = do
-    q <- readTVarIO qVar
+addRequest :: TQueue RequestMsg -> RequestMsg -> IO ()
+addRequest q msg = do
     atomically $ writeTQueue q msg
 
 -- | Send special 'close' message to stop the processing thread
-sendCloseMsg :: TVar (TQueue RequestMsg) -> IO ()
-sendCloseMsg qVar = do
-    q <- readTVarIO qVar
+sendCloseMsg :: TQueue RequestMsg -> IO ()
+sendCloseMsg q = do
     atomically $ writeTQueue q CloseMsg
 
 --TODO: remove or combine with 'getNextRequest
@@ -47,9 +45,8 @@ addHttpRequest qVar msg = do
     atomically $ writeTQueue q msg
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: TVar (TQueue RequestMsg) -> IO RequestMsg
-getNextRequest qVar = do
-    q <- readTVarIO qVar
+getNextRequest :: TQueue RequestMsg -> IO RequestMsg
+getNextRequest q = do
     atomically $ readTQueue q
 
 --TODO: remove or combine with 'getNextRequest

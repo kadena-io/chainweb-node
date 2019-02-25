@@ -62,8 +62,8 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 
 
-initPactService :: TVar (TQueue RequestMsg) -> MemPoolAccess -> IO ()
-initPactService reqQVar memPoolAccess = do
+initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
+initPactService reqQ memPoolAccess = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
@@ -92,7 +92,7 @@ initPactService reqQVar memPoolAccess = do
             fail s
         Right _ -> return ()
     void $ evalStateT
-           (runReaderT (serviceRequests memPoolAccess reqQVar) checkpointEnv)
+           (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
            theState
 
 
@@ -135,7 +135,7 @@ initPactServiceHttp reqQVar respQVar memPoolAccess = do
            theState
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
-serviceRequests :: MemPoolAccess -> TVar (TQueue RequestMsg) -> PactT ()
+serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
 serviceRequests memPoolAccess reqQ = go
     where
     go = do
