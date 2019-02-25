@@ -49,87 +49,43 @@ import Chainweb.Pact.Types
 
 -- | Servant definition for Pact Execution as a service
 pactServer :: ServerT PactAPI PactAppM
-pactServer = newBlockReq
-        :<|> validateBlockReq
+pactServer = localReq
         :<|> pollForResponse
 
 toHandler :: RequestIdEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
 -- | Entry point for Pact Execution service
-withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> MemPoolAccess -> IO a -> IO a
-withPactServiceApp socketOrPort hostPreference memPoolAccess action = do
-    reqQ <- atomically (newTQueue :: STM (TQueue RequestHttpMsg))
-    respQ  <- atomically (newTQueue :: STM (TQueue ResponseHttpMsg))
-    withAsync (initPactServiceHttp reqQ respQ memPoolAccess) $ \a -> do
-        link a
-        reqIdVar <- atomically (newTVar (RequestId 0) :: STM (TVar RequestId))
-        ht <-  H.new :: IO (H.IOHashTable HashTable RequestId Transactions)
-        let env = RequestIdEnv
-              { _rieReqIdVar = reqIdVar
-              , _rieReqQ = reqQ
-              , _rieRespQ = respQ
-              , _rieResponseMap = ht }
+withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> (TQueue RequestMsg) -> IO a -> IO a
+withPactServiceApp socketOrPort hostPreference reqQ action = do
+    let env = LocalEnv { _rieReqQ = reqQ }
+    let runWarp = case socketOrPort of
+          Left socket -> flip Warp.runSettingsSocket socket
+              $ Warp.setHost hostPreference
+                Warp.defaultSettings
+          Right port -> Warp.runSettings
+              $ Warp.setPort port
+              $ Warp.setHost hostPreference
+                Warp.defaultSettings
+    let closeSocket = case socketOrPort of
+          Left socket -> close socket
+          Right _ -> return ()
+    bracket (liftIO $ forkIO $ runWarp (pactServiceApp env))
+        (\t -> closeSocket >> killThread t)
+        (const action)
 
-        let runWarp = case socketOrPort of
-                Left socket -> flip Warp.runSettingsSocket socket
-                    $ Warp.setHost hostPreference
-                      Warp.defaultSettings
-                Right port -> Warp.runSettings
-                    $ Warp.setPort port
-                    $ Warp.setHost hostPreference
-                      Warp.defaultSettings
-
-        let closeSocket = case socketOrPort of
-                Left socket -> close socket
-                Right _ -> return ()
-
-        bracket (liftIO $ forkIO $ runWarp (pactServiceApp env))
-            (\t -> closeSocket >> killThread t)
-            (const action)
-
-pactServiceApp :: RequestIdEnv -> Application
+pactServiceApp :: LocalEnv -> Application
 pactServiceApp env = serve pactAPI $ hoistServer pactAPI (toHandler env) pactServer
 
--- TODO: request Id to be replaced with request hash
-incRequestId :: PactAppM RequestId
-incRequestId = do
-    reqIdVar <- view rieReqIdVar
-    liftIO $ atomically $ modifyTVar' reqIdVar succ
-    liftIO $ readTVarIO reqIdVar
-
--- | Handler for new block requests (async, returning RequestId immediately for future polling)
-newBlockReq :: BlockHeader -> PactAppM RequestId
-newBlockReq bHeader = do
-    newReqId <- incRequestId
+-- | Handler for "local" requests
+--   TODO: Request type will probably be Command (Payload PublicMeta ParsedCode)
+--   Response type will likely change as well
+localReq :: BlockHeader -> PactAppM (Either String Transactions)
+localReq bHeader = do
     reqQ <- view rieReqQ
-    let msg = RequestHttpMsg
-          { _reqhRequestType = NewBlock
-          , _reqhRequestId = newReqId
-          , _reqhBlockHeader = bHeader }
+    respVar <- newEmptyMVar :: IO (MVar Transactions)
+    let msg = LocalRequestMsg
+          { _localRequest = blockHeader
+          , _localResultVar = respVar}
     liftIO $ addHttpRequest reqQ msg
-    return newReqId
-
--- | Handler for validate block requests (async, returning RequestId immediately for future polling)
-validateBlockReq :: BlockHeader -> PactAppM RequestId
-validateBlockReq bHeader = do
-    newReqId <- incRequestId
-    reqQ <- view rieReqQ
-    let msg = RequestHttpMsg
-          { _reqhRequestType = ValidateBlock
-          , _reqhRequestId = newReqId
-          , _reqhBlockHeader = bHeader }
-    liftIO $ addHttpRequest reqQ msg
-    return newReqId
-
--- | Handler for polling on a RequestId
-pollForResponse :: RequestId -> PactAppM (Either String Transactions)
-pollForResponse requestId = do
-    respQ <- view rieRespQ
-    resp <- liftIO $ getNextResponse respQ
-    respTable <- view rieResponseMap
-    liftIO $ H.insert respTable (_resphRequestId resp) (_resphPayload resp)
-    x <- liftIO $ H.lookup respTable requestId
-    case x of
-        Just payload -> return $ Right payload
-        Nothing -> return $ Left $ "Result not yet available for: " ++ show requestId
+    return TBD

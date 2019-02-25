@@ -50,43 +50,43 @@ pactApiTest = do
     ------------------------------------------------------------------------------------------------
     -- Init for tests
     ------------------------------------------------------------------------------------------------
-    reqQ <- initPactExec' testMemPoolAccess
-    let headers = V.fromList $ getBlockHeaders 4
+    withPactService testMemPoolAccess \reqQ -> do
+        reqQ <- initPactExec' testMemPoolAccess
+        let headers = V.fromList $ getBlockHeaders 4
+
+        ------------------------------------------------------------------------------------------------
+        -- newBlock test
+        ------------------------------------------------------------------------------------------------
+        respVar0 <- newEmptyMVar :: IO (MVar Transactions)
+        newBlock (headers ! 0) reqQ respVar0
+
+        -- wait for response
+        rsp0 <- takeMVar respVar0
+        tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
+
+        ------------------------------------------------------------------------------------------------
+        -- validate the same transactions sent to newBlock above
+        ------------------------------------------------------------------------------------------------
+        respVar0b <- newEmptyMVar :: IO (MVar Transactions)
+        validateBlock (headers ! 0) reqQ respVar0b
+
+        -- wait for response
+        rsp0b <- takeMVar respVar0b
+        tt0b <- checkRespTrans "block-results-expected-0.txt" rsp0b
+
+        ------------------------------------------------------------------------------------------------
+        -- validate a different set of transactions (not sent to newBlock)
+        ------------------------------------------------------------------------------------------------
+        respVar1 <- newEmptyMVar :: IO (MVar Transactions)
+        validateBlock (headers ! 1) reqQ respVar1
+
+        -- wait for response
+        rsp1 <- takeMVar respVar1
+        tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
 
     ------------------------------------------------------------------------------------------------
-    -- newBlock test
+    -- end of tests
     ------------------------------------------------------------------------------------------------
-    respVar0 <- newEmptyMVar :: IO (MVar Transactions)
-    newBlock (headers ! 0) reqQ respVar0
-
-    -- wait for response
-    rsp0 <- takeMVar respVar0
-    tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
-
-    ------------------------------------------------------------------------------------------------
-    -- validate the same transactions sent to newBlock above
-    ------------------------------------------------------------------------------------------------
-    respVar0b <- newEmptyMVar :: IO (MVar Transactions)
-    validateBlock (headers ! 0) reqQ respVar0b
-
-    -- wait for response
-    rsp0b <- takeMVar respVar0b
-    tt0b <- checkRespTrans "block-results-expected-0.txt" rsp0b
-
-    ------------------------------------------------------------------------------------------------
-    -- validate a different set of transactions (not sent to newBlock)
-    ------------------------------------------------------------------------------------------------
-    respVar1 <- newEmptyMVar :: IO (MVar Transactions)
-    validateBlock (headers ! 1) reqQ respVar1
-
-    -- wait for response
-    rsp1 <- takeMVar respVar1
-    tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
-
-    ------------------------------------------------------------------------------------------------
-    -- clean-up for tests
-    ------------------------------------------------------------------------------------------------
-    closeQueue reqQ
     return $ tt0 : tt0b : [tt1]
 
 

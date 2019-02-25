@@ -29,9 +29,15 @@ import Chainweb.Pact.Types
 
 data RequestType = ValidateBlock | NewBlock deriving (Show)
 
-data RequestMsg = RequestMsg
-    { _reqRequestType :: RequestType
-    , _reqBlockHeader :: BlockHeader
-    , _reqResultVar :: MVar Transactions
-    }
+data RequestMsg =
+    RequestMsg
+        { _reqRequestType :: RequestType
+        , _reqBlockHeader :: BlockHeader
+        , _reqResultVar :: MVar Transactions
+        }
+    | LocalRequestMsg
+        -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
+        { _localRequest :: BlockHeader
+        , _localResultVar :: MVar Transactions
+        }
     | CloseMsg

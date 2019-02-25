@@ -53,10 +53,8 @@ import Chainweb.Pact.Utils
 
 initPactServiceHttp
   :: (TQueue RequestHttpMsg)
-  -> (TQueue ResponseHttpMsg)
-  -> MemPoolAccess
   -> IO ()
-initPactServiceHttp reqQVar respQVar memPoolAccess = do
+initPactServiceHttp reqQVar = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"

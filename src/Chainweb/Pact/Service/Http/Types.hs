@@ -33,38 +33,12 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
-type PactAPI = "new" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "validate" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] RequestId
-          :<|> "poll" :> ReqBody '[JSON] RequestId :> Post '[JSON] (Either String Transactions)
-data RequestIdEnv
-  = RequestIdEnv { _rieReqIdVar :: TVar RequestId
-                 , _rieReqQ :: (TQueue RequestHttpMsg)
-                 , _rieRespQ :: (TQueue ResponseHttpMsg)
-                 , _rieResponseMap :: H.IOHashTable H.HashTable RequestId Transactions }
+type PactAPI = "local" :> ReqBody '[JSON] CommandTBD :> Post '[JSON] (Either String Transactions)
+
+data LocalEnv
+    = LocalEnv {_rieReqQ :: (TQueue LocalRequestMsg)}
 
 type PactAppM = ReaderT RequestIdEnv Handler
 
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
-
-newtype RequestId = RequestId { _getInt64 :: Int64 }
-    deriving (Enum, Eq, Hashable, Read, Show, FromJSON, ToJSON)
-
-instance FromHttpApiData RequestId where
-    parseUrlPiece t =
-        let e = readEitherSafe (toS t)
-        in bimap toS RequestId e
-
-data RequestHttpMsg = RequestHttpMsg
-    { _reqhRequestType :: RequestType
-    , _reqhRequestId   :: RequestId
-    , _reqhBlockHeader :: BlockHeader
-    } deriving (Show)
-
-data ResponseHttpMsg = ResponseHttpMsg
-    { _resphRequestType :: RequestType
-    , _resphRequestId   :: RequestId
-    , _resphPayload :: Transactions
-    } deriving (Show)
-
-makeLenses ''RequestIdEnv

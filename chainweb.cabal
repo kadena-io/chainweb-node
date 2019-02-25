@@ -150,7 +150,6 @@ library
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.PactService
         , Chainweb.Pact.Service.Http.PactQueue
-        , Chainweb.Pact.Service.Http.PactService
         , Chainweb.Pact.Service.Http.PactApi
         , Chainweb.Pact.Service.Http.Types
         , Chainweb.Pact.Service.PactInProcApi
