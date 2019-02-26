@@ -158,6 +158,9 @@ A base docker image containing all of Chainweb's dependencies and executables ca
 docker load --input $(nix-build --no-out-link docker.nix)
 ```
 
+NB: 02/21/2019
+MacOS users will need a Linux builder to create docker images using nix. The following instructions explain how to set up a docker builder for nix: https://medium.com/@zw3rk/provisioning-a-nixos-server-from-macos-d36055afc4ad.
+
 ## Component Structure
 
 The production components are:
