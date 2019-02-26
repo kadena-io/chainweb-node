@@ -19,11 +19,11 @@ module Main where
 import Control.Lens (over)
 
 import Data.Aeson.Encode.Pretty
-import Data.ByteString.Char8 as B8
-import Data.ByteString.Lazy.Char8 as BL8
 import Data.Bytes.Put
+import Data.ByteString.Lazy.Char8 as BL8
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Word (Word32)
 import qualified Data.Yaml as Yaml
 
@@ -55,17 +55,16 @@ instance ParseRecord (Env Wrapped)
 
 main :: IO ()
 main = do
-    Env v0 c t f <- unwrapRecord "mine-genesis"
+    Env v0 c t f0 <- unwrapRecord "mine-genesis"
     ct <- BlockCreationTime <$> maybe getCurrentTimeIntegral (pure . Time . TimeSpan) t
     v <- chainwebVersionFromText v0
+    let f = fromMaybe Json f0
+    BL8.putStrLn . encodeBlock f $ mineGenesis v (testChainId c) ct (Nonce 0)
 
-    case f of
-        Just Binary -> BL8.putStr $ runPutL
-            $ encodeBlockHeader $ mineGenesis v (testChainId c) ct (Nonce 0)
-        Just Yaml -> B8.putStrLn $ Yaml.encode
-            $ ObjectEncoded $ mineGenesis v (testChainId c) ct (Nonce 0)
-        _ -> BL8.putStrLn $ encodePretty
-            $ ObjectEncoded $ mineGenesis v (testChainId c) ct (Nonce 0)
+encodeBlock :: Format -> BlockHeader -> BL8.ByteString
+encodeBlock Binary bh = runPutL $ encodeBlockHeader bh
+encodeBlock Yaml bh = BL8.fromStrict . Yaml.encode $ ObjectEncoded bh
+encodeBlock Json bh = encodePretty $ ObjectEncoded bh
 
 mineGenesis
     :: ChainwebVersion

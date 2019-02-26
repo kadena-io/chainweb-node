@@ -195,11 +195,11 @@ chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 --
 chainwebVersionFromText "testnet00" = return Testnet00
 
--- Well know test version names
+-- Well-known test version names.
 --
--- These are only used for parsing textual represetions. There is very low
--- chance that a roundrip test for the 'HasTextRepresentation' of
--- 'ChainwebVersion' due to these names.
+-- These are only used for parsing textual representations. There is a very low
+-- chance that a roundtrip test for the 'HasTextRepresentation' of
+-- 'ChainwebVersion' will succeed due to these names.
 --
 chainwebVersionFromText "test" = return $ Test petersonChainGraph
 chainwebVersionFromText "test-singleton" = return $ Test singletonChainGraph
@@ -351,4 +351,3 @@ class HasChainwebVersion a where
 instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
-
