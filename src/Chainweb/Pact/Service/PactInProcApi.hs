@@ -19,7 +19,6 @@ module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
     , newBlock
-    , newBlock2
     , validateBlock
     ) where
 
@@ -53,22 +52,13 @@ withPactService' memPoolAccess action = do
     closeQueue reqQ
     return r
 
--- withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> (TQueue RequestMsg) -> IO a -> IO a
 initWebService :: (TQueue RequestMsg) -> IO a -> IO a
 initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
-newBlock bHeader reqQ resultVar = do
-    let msg = RequestMsg
-          { _reqRequestType = NewBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
-    addRequest reqQ msg
-
-newBlock2 :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
-newBlock2 bHeader reqQ = do
+newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
+newBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar Transactions)
     let msg = RequestMsg
           { _reqRequestType = NewBlock
@@ -77,15 +67,7 @@ newBlock2 bHeader reqQ = do
     addRequest reqQ msg
     return resultVar
 
-validateBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
-validateBlock bHeader reqQ resultVar = do
-    let msg = RequestMsg
-          { _reqRequestType = ValidateBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
-    addRequest reqQ msg
-{-
-validateBlock :: BlockHeader -> TQueue RequestMsg -> IO ()
+validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions)
 validateBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar Transactions)
     let msg = RequestMsg
@@ -93,7 +75,7 @@ validateBlock bHeader reqQ = do
           , _reqBlockHeader = bHeader
           , _reqResultVar = resultVar}
     addRequest reqQ msg
--}
+    return resultVar
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

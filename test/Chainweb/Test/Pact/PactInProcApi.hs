@@ -56,38 +56,22 @@ pactApiTest = do
         ------------------------------------------------------------------------------------------------
         -- newBlock test
         ------------------------------------------------------------------------------------------------
-        respVar0 <- newEmptyMVar :: IO (MVar Transactions)
-        newBlock (headers ! 0) reqQ respVar0
-
-        -- wait for response
-        rsp0 <- takeMVar respVar0
+        respVar0 <- newBlock (headers ! 0) reqQ
+        rsp0 <- takeMVar respVar0 -- wait for response
         tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
 
-        {-
-        respVar0 <- newBlock2 (headers ! 0) reqQ
-
-        -- wait for response
-        rsp0 <- takeMVar respVar0
-        tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
-        -}
         ------------------------------------------------------------------------------------------------
         -- validate the same transactions sent to newBlock above
         ------------------------------------------------------------------------------------------------
-        respVar0b <- newEmptyMVar :: IO (MVar Transactions)
-        validateBlock (headers ! 0) reqQ respVar0b
-
-        -- wait for response
-        rsp0b <- takeMVar respVar0b
+        respVar0b <- validateBlock (headers ! 0) reqQ
+        rsp0b <- takeMVar respVar0b -- wait for response
         tt0b <- checkRespTrans "block-results-expected-0.txt" rsp0b
 
         ------------------------------------------------------------------------------------------------
         -- validate a different set of transactions (not sent to newBlock)
         ------------------------------------------------------------------------------------------------
-        respVar1 <- newEmptyMVar :: IO (MVar Transactions)
-        validateBlock (headers ! 1) reqQ respVar1
-
-        -- wait for response
-        rsp1 <- takeMVar respVar1
+        respVar1 <- validateBlock (headers ! 1) reqQ
+        rsp1 <- takeMVar respVar1 -- wait for response
         tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
 
         ------------------------------------------------------------------------------------------------
