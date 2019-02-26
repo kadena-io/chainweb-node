@@ -16,10 +16,10 @@
 -- Pact execution (in-process) API for Chainweb
 
 module Chainweb.Pact.Service.PactInProcApi
-    (
-    , withPactService
+    ( withPactService
     , withPactService'
     , newBlock
+    , newBlock2
     , validateBlock
     ) where
 
@@ -32,6 +32,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
 import qualified Chainweb.Pact.PactService as PS
+import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -47,10 +48,16 @@ withPactService' memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     a <- async (PS.initPactService reqQ memPoolAccess)
     link a
-    (port, socket) <- Warp.openFreePort
-    withPactServiceApp (Left socket) "127.0.0.1" reqQ $ do
-        action reqQ
-        closeQueue reqQ
+    initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
+    r <- action reqQ
+    closeQueue reqQ
+    return r
+
+-- withPactServiceApp :: Either Socket Int -> Warp.HostPreference -> (TQueue RequestMsg) -> IO a -> IO a
+initWebService :: (TQueue RequestMsg) -> IO a -> IO a
+initWebService reqQ action = do
+    (_port, socket) <- Warp.openFreePort
+    withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
 
 newBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
 newBlock bHeader reqQ resultVar = do
@@ -60,6 +67,16 @@ newBlock bHeader reqQ resultVar = do
           , _reqResultVar = resultVar}
     addRequest reqQ msg
 
+newBlock2 :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
+newBlock2 bHeader reqQ = do
+    resultVar <- newEmptyMVar :: IO (MVar Transactions)
+    let msg = RequestMsg
+          { _reqRequestType = NewBlock
+          , _reqBlockHeader = bHeader
+          , _reqResultVar = resultVar}
+    addRequest reqQ msg
+    return resultVar
+
 validateBlock :: BlockHeader -> TQueue RequestMsg -> MVar Transactions -> IO ()
 validateBlock bHeader reqQ resultVar = do
     let msg = RequestMsg
@@ -67,6 +84,16 @@ validateBlock bHeader reqQ resultVar = do
           , _reqBlockHeader = bHeader
           , _reqResultVar = resultVar}
     addRequest reqQ msg
+{-
+validateBlock :: BlockHeader -> TQueue RequestMsg -> IO ()
+validateBlock bHeader reqQ = do
+    resultVar <- newEmptyMVar :: IO (MVar Transactions)
+    let msg = RequestMsg
+          { _reqRequestType = ValidateBlock
+          , _reqBlockHeader = bHeader
+          , _reqResultVar = resultVar}
+    addRequest reqQ msg
+-}
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

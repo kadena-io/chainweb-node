@@ -11,16 +11,16 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( execTransactions
+    ( execNewBlock
+    , execTransactions
+    , execValidateBlock
     , initPactService
     , mkPureState
     , mkSQLiteState
-    , newBlock
     , pactFilesDir
     , serviceRequests
     , setupConfig
     , toCommandConfig
-    , validateBlock
     ) where
 
 import Control.Applicative
@@ -104,18 +104,19 @@ serviceRequests memPoolAccess reqQ = go
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
+            LocalRequestMsg{..} -> error "Local requests not implemented yet"
             RequestMsg {..} -> do
                 txs <- case _reqRequestType of
-                    NewBlock -> newBlock memPoolAccess _reqBlockHeader
-                    ValidateBlock -> validateBlock memPoolAccess _reqBlockHeader
+                    NewBlock -> execNewBlock memPoolAccess _reqBlockHeader
+                    ValidateBlock -> execValidateBlock memPoolAccess _reqBlockHeader
                 liftIO $ putMVar _reqResultVar  txs
                 go
 
 
 -- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
 -- | Note: The BlockHeader param here is the header of the parent of the new block
-newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
+execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+execNewBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     -- TODO: miner data needs to be addeded to BlockHeader...
     let miner = defaultMiner
     newTrans <- liftIO $ memPoolAccess _blockHeight
@@ -134,8 +135,8 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-validateBlock memPoolAccess currHeader = do
+execValidateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+execValidateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     let miner = defaultMiner
     CheckpointEnv {..} <- ask

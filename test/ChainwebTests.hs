@@ -32,7 +32,6 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.MultiNode
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactService
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.Store.CAS.FS
@@ -58,18 +57,18 @@ main = do
   let allTests =
         testGroup "Chainweb Tests"
         . schedule Sequential
-        $ pactSuite : suite
+  --    -- $ pactSuite : suite
+        $ [pactSuite]
   defaultMain allTests
 
 pactTestSuite :: IO ScheduledTest
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
     pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
-    pactHttpTests <- Chainweb.Test.Pact.PactService.tests
     pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
         , pactInProcApiTests
-        , pactHttpTests ]
+        ]
 
 suite :: [ScheduledTest]
 suite =

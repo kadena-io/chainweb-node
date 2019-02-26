@@ -38,6 +38,6 @@ data RequestMsg =
     | LocalRequestMsg
         -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
         { _localRequest :: BlockHeader
-        , _localResultVar :: MVar Transactions
+        , _localResultVar :: MVar (Either String Transactions)
         }
     | CloseMsg

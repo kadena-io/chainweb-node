@@ -12,7 +12,12 @@
 --
 -- Types module for Pact execution HTTP API
 
-module Chainweb.Pact.Service.Http.Types where
+module Chainweb.Pact.Service.Http.Types
+    ( LocalEnv(..), rieReqQ
+    , pactAPI
+    , PactAPI(..)
+    , PactAppM
+    ) where
 
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar
@@ -33,12 +38,14 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
-type PactAPI = "local" :> ReqBody '[JSON] CommandTBD :> Post '[JSON] (Either String Transactions)
+-- TODO: Input, possibly output type will change for use with 'local' command
+type PactAPI = "local" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
 
-data LocalEnv
-    = LocalEnv {_rieReqQ :: (TQueue LocalRequestMsg)}
+data LocalEnv = LocalEnv {_rieReqQ :: (TQueue RequestMsg)}
 
-type PactAppM = ReaderT RequestIdEnv Handler
+type PactAppM = ReaderT LocalEnv Handler
 
 pactAPI :: Proxy PactAPI
 pactAPI = Proxy
+
+makeLenses ''LocalEnv

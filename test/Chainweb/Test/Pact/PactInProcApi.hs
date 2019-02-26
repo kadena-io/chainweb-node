@@ -50,8 +50,7 @@ pactApiTest = do
     ------------------------------------------------------------------------------------------------
     -- Init for tests
     ------------------------------------------------------------------------------------------------
-    withPactService testMemPoolAccess \reqQ -> do
-        reqQ <- initPactExec' testMemPoolAccess
+    withPactService' testMemPoolAccess (\reqQ -> do
         let headers = V.fromList $ getBlockHeaders 4
 
         ------------------------------------------------------------------------------------------------
@@ -64,6 +63,13 @@ pactApiTest = do
         rsp0 <- takeMVar respVar0
         tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
 
+        {-
+        respVar0 <- newBlock2 (headers ! 0) reqQ
+
+        -- wait for response
+        rsp0 <- takeMVar respVar0
+        tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
+        -}
         ------------------------------------------------------------------------------------------------
         -- validate the same transactions sent to newBlock above
         ------------------------------------------------------------------------------------------------
@@ -84,11 +90,10 @@ pactApiTest = do
         rsp1 <- takeMVar respVar1
         tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
 
-    ------------------------------------------------------------------------------------------------
-    -- end of tests
-    ------------------------------------------------------------------------------------------------
-    return $ tt0 : tt0b : [tt1]
-
+        ------------------------------------------------------------------------------------------------
+        -- end of tests
+        ------------------------------------------------------------------------------------------------
+        return $ tt0 : tt0b : [tt1] )
 
 checkRespTrans :: FilePath -> Transactions -> IO TestTree
 checkRespTrans fp txs =

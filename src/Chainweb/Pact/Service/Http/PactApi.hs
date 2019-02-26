@@ -16,8 +16,7 @@
 -- Pact execution HTTP API for Chainweb
 
 module Chainweb.Pact.Service.Http.PactApi
-    ( newBlockReq
-    , pactServer
+    ( pactServer
     , pactServiceApp
     , withPactServiceApp
     ) where
@@ -42,17 +41,16 @@ import qualified Network.Wai.Handler.Warp as Warp
 import Servant
 
 import Chainweb.BlockHeader
-import Chainweb.Pact.Service.Http.PactService
-import Chainweb.Pact.Service.Http.PactQueue
+import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Service.Http.Types
 import Chainweb.Pact.Types
 
 -- | Servant definition for Pact Execution as a service
 pactServer :: ServerT PactAPI PactAppM
 pactServer = localReq
-        :<|> pollForResponse
 
-toHandler :: RequestIdEnv -> PactAppM a -> Handler a
+toHandler :: LocalEnv -> PactAppM a -> Handler a
 toHandler env x = runReaderT x env
 
 -- | Entry point for Pact Execution service
@@ -83,9 +81,10 @@ pactServiceApp env = serve pactAPI $ hoistServer pactAPI (toHandler env) pactSer
 localReq :: BlockHeader -> PactAppM (Either String Transactions)
 localReq bHeader = do
     reqQ <- view rieReqQ
-    respVar <- newEmptyMVar :: IO (MVar Transactions)
+    respVar <- liftIO $ (newEmptyMVar :: IO (MVar (Either String Transactions)))
     let msg = LocalRequestMsg
-          { _localRequest = blockHeader
+          { _localRequest = bHeader
           , _localResultVar = respVar}
-    liftIO $ addHttpRequest reqQ msg
-    return TBD
+    liftIO $ addRequest reqQ msg
+    rsp  <- liftIO $ takeMVar respVar -- TODO: Maybe add some timeout value here
+    return rsp
