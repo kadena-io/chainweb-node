@@ -100,6 +100,7 @@ module Chainweb.BlockHeader
 , genesisBlockTarget
 , genesisBlockPayload
 , genesisBlockPayloadHash
+, genesisTime
 
 -- * Testing
 , testBlockHeader
@@ -635,14 +636,17 @@ genesisTime Test{} _ = BlockCreationTime epoche
 genesisTime TestWithTime{} _ = BlockCreationTime epoche
 genesisTime TestWithPow{} _ = BlockCreationTime epoche
 genesisTime Simulation{} _ = BlockCreationTime epoche
-genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
+-- Tuesday, 2019 February 26, 10:55 AM
+genesisTime Testnet00 _ = BlockCreationTime . Time $ TimeSpan 1551207336601038
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
 genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
-genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
+-- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
+-- In other words, 0 is a meaningless hard-coding.
+genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
 
 -- TODO: characterize genesis block payload. Should this be the value of
 -- chainId instead of empty string?

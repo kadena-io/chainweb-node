@@ -37,7 +37,7 @@ import Text.Pretty.Simple (pShowNoColor)
 import Chainweb.BlockHeader
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Difficulty (checkTarget)
-import Chainweb.Time (Time(..), TimeSpan(..), getCurrentTimeIntegral)
+import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Version (ChainwebVersion(..), chainwebVersionFromText)
 
 ---
@@ -50,7 +50,7 @@ instance ParseField Format
 data Env w = Env
     { version :: w ::: Text     <?> "The ChainwebVersion to use."
     , chain :: w ::: Word32     <?> "The ChainId to produce a genesis for."
-    , time :: w ::: Maybe Int64 <?> "Genesis Block Time, in microseconds since the Epoch. Otherwise, uses the current time."
+    , time :: w ::: Maybe Int64 <?> "Genesis Block Time, in microseconds since the Epoch. Default is the Genesis Time of the given ChainwebVersion."
     , format :: w ::: Maybe Format <?> "Output format Json|Yaml|Binary|Show, default is Show"
     } deriving (Generic)
 
@@ -59,10 +59,11 @@ instance ParseRecord (Env Wrapped)
 main :: IO ()
 main = do
     Env v0 c t f0 <- unwrapRecord "mine-genesis"
-    ct <- BlockCreationTime <$> maybe getCurrentTimeIntegral (pure . Time . TimeSpan) t
     v <- chainwebVersionFromText v0
-    let f = fromMaybe Show f0
-    BL8.putStrLn . encodeBlock f $ mineGenesis v (testChainId c) ct (Nonce 0)
+    let cid = testChainId c
+        ct = maybe (genesisTime v cid) (BlockCreationTime . Time . TimeSpan) t
+        f = fromMaybe Show f0
+    BL8.putStrLn . encodeBlock f $ mineGenesis v cid ct (Nonce 0)
 
 encodeBlock :: Format -> BlockHeader -> BL8.ByteString
 encodeBlock Binary bh = runPutL $ encodeBlockHeader bh
