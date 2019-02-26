@@ -100,6 +100,7 @@ module Chainweb.Chainweb
 , chainwebLogFun
 , chainwebSocket
 , chainwebPeer
+, chainwebPayloadDb
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -719,4 +720,3 @@ runChainweb cw = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
-
