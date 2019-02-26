@@ -57,8 +57,7 @@ main = do
   let allTests =
         testGroup "Chainweb Tests"
         . schedule Sequential
-  --    -- $ pactSuite : suite
-        $ [pactSuite]
+        $ pactSuite : suite
   defaultMain allTests
 
 pactTestSuite :: IO ScheduledTest
