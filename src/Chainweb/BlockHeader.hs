@@ -555,12 +555,12 @@ blockPow = to _blockPow
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
---
--- By default a binary encoding of block headers is used as JSON encoding.
--- In some circumstance, like logging and configuration files, a textual
--- encoding is desired.
 
-newtype ObjectEncoded a = ObjectEncoded a
+-- | By default a binary encoding of block headers is used as JSON encoding. In
+-- some circumstance, like logging and configuration files, a textual encoding
+-- is desired.
+--
+newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, NFData)
 
