@@ -209,30 +209,3 @@ theContracts =
   , commercialPaperContract
   , cryptoCritterContract
   ]
--- -- TODO: include this later maybe
--- _loadContractFromFile :: FilePath -> IO Contract
--- _loadContractFromFile = undefined
--- -- TODO: include this later maybe
--- newtype Contract = Contract {getContract :: Text}
---   deriving (Eq)
---   deriving newtype Show
--- TEMPLATE
--- run :: Int -> IO () -> IO ()
--- run period someAction = go
---   where
---     maxPerturbation = div period 10
---     go = do
---         someAction
---         randVal <- randomRIO (0, maxPerturbation)
---         let perturbation = randVal - div maxPerturbation 2
---         threadDelay (period + perturbation)
---         go
--- -- (the arg list is represented as a list for simplicity)
--- newtype ContractFunction = ContractFunction
---   { contractFunction :: [Text] -> Text
---   }
--- data GeneratorConfig = GeneratorConfig
---     -- Each key in the map points to a set of contract functions
---   { _codeMap :: Map ContractName ContractFunction
---   , _timingdist :: TimingDistribution
---   }
