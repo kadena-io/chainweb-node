@@ -28,7 +28,10 @@ in
                 tag = "latest";
                 fromImage = baseImage;
                 config = {
-                    Cmd = ["chainweb-node --node-id=0 --config-file=/tmp/test-bootstrap-node.config"];
+                    Cmd = ["/bin/chainweb-node" 
+                           "--node-id=0" 
+                           "--config-file=/tmp/test-bootstrap-node.config"];
+                    WorkingDir = "/home";
                 };
             };
         }
