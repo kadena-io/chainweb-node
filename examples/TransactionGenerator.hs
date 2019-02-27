@@ -63,10 +63,7 @@ import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 
-data TransactionCommand
-  = NoOp
-  | Init
-  | Run
+data TransactionCommand = NoOp | Init | Run
   deriving (Show, Eq, Read, Generic)
 
 instance FromJSON TransactionCommand
@@ -90,31 +87,32 @@ instance ToJSON TransactionConfig where
       ]
 
 instance FromJSON (TransactionConfig -> TransactionConfig) where
-  parseJSON =
-    withObject "TransactionConfig" $ \o ->
-      id <$< scriptCommand ..: "scriptCommand" %
-      o <*< nodeChainId ..: "nodeChainId" %
-      o <*< nodePort ..: "nodePort" %
-      o
+  parseJSON = withObject "TransactionConfig" $ \o -> id
+    <$< scriptCommand ..: "scriptCommand" % o
+    <*< nodeChainId ..: "nodeChainId" % o
+    <*< nodePort ..: "nodePort" % o
 
 defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
-    {_scriptCommand = Init, _nodeChainId = testChainId 1, _nodePort = 4500}
+    { _scriptCommand = Init
+    , _nodeChainId = testChainId 1
+    , _nodePort = 4500
+    }
 
 transactionConfigParser :: MParser TransactionConfig
-transactionConfigParser =
-  id <$< scriptCommand .:: option auto %
-  long "script-command" <> short 'c' <>
-  help "The specific command to run (Init|Run)." <*<
-  nodeChainId .::
-  option auto %
-  long "node-chain-id" <> short 'i' <>
-  help "The specific chain that will receive generated \"fake\" transactions." <*<
-  nodePort .::
-  option auto %
-  long "port" <> short 'p' <>
-  help "The TCP port this transaction generator node uses."
+transactionConfigParser = id
+  <$< scriptCommand .:: option auto
+      % long "script-command" <> short 'c'
+      <> help "The specific command to run (Init|Run)."
+  <*< nodeChainId .::option auto
+      % long "node-chain-id"
+      <> short 'i'
+      <> help "The specific chain that will receive generated \"fake\" transactions."
+  <*< nodePort .:: option auto
+      % long "port"
+      <> short 'p'
+      <> help "The TCP port this transaction generator node uses."
 
 data TimingDistribution
   = Gaussian { mean :: Int
@@ -158,16 +156,10 @@ sampleTransaction = do
 
 newtype TransactionGenerator s a = TransactionGenerator
   { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (Gen s) IO) a
-  } deriving ( Functor
-             , Applicative
-             , Monad
-             , MonadIO
-             , MonadState (Gen s)
-             , MonadReader GeneratorConfig
-             )
+  } deriving ( Functor , Applicative , Monad , MonadIO , MonadState (Gen s) , MonadReader GeneratorConfig)
 
-dummyKeyset :: Text
-dummyKeyset = "dummy-keyset"
+dummyAdminKeyset :: Text
+dummyAdminKeyset = "dummy-admin-keyset"
 
 loop :: TransactionGenerator (PrimState IO) ()
 loop = do
@@ -193,7 +185,7 @@ main =
   runWithConfiguration mainInfo $ \config -> do
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
-      Init -> mapM_ (TIO.putStrLn . ($ dummyKeyset)) theContracts
+      Init -> mapM_ (TIO.putStrLn . ($ dummyAdminKeyset)) theContracts
       Run -> do
         putStrLn "Transactions are being generated"
         gencfg <- mkGeneratorConfig
@@ -203,9 +195,4 @@ main =
             gen
 
 theContracts :: [Text -> Text]
-theContracts =
-  [ helloWorldContract
-  , simplePaymentsContract
-  , commercialPaperContract
-  , cryptoCritterContract
-  ]
+theContracts = [ helloWorldContract, simplePaymentsContract, commercialPaperContract, cryptoCritterContract]

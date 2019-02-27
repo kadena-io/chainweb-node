@@ -535,6 +535,7 @@ executable transaction-generator
           chainweb
 
         --external
+        , aeson >= 1.4
         , base >= 4.11
         , bytestring >= 0.10
         , configuration-tools >= 0.4

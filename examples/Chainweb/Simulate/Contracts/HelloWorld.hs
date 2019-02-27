@@ -20,6 +20,7 @@ import NeatInterpolation
 
 -}
 
+helloWorldContract :: Text -> Text
 helloWorldContract keyset =
                    [text| ;;
 ;; "Hello, world!" smart contract/module
@@ -33,6 +34,7 @@ helloWorldContract keyset =
 )
 |]
 
+hello :: Text
 hello = [text|
   (defun hello (name)
     "Do the hello-world dance"
