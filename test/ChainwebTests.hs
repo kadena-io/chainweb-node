@@ -27,8 +27,8 @@ import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
+import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactService
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.Store.CAS.FS
@@ -57,10 +57,11 @@ main = do
 pactTestSuite :: IO ScheduledTest
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
-    pactServiceTests <- Chainweb.Test.Pact.PactService.tests
+    pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
     pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
-        , pactServiceTests ]
+        , pactInProcApiTests
+        ]
 
 suite :: [ScheduledTest]
 suite =

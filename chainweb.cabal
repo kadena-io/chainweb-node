@@ -149,7 +149,9 @@ library
         , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.PactService
-        , Chainweb.Pact.Service.PactApi
+        , Chainweb.Pact.Service.Http.PactApi
+        , Chainweb.Pact.Service.Http.Types
+        , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
         , Chainweb.Pact.TransactionExec
@@ -232,6 +234,7 @@ library
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
+        , strict-concurrency >= 0.2
         , strict-tuple >= 0.1
         , string-conv >= 0.1
         , swagger2 >= 2.2
@@ -291,9 +294,9 @@ test-suite chainweb-tests
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.PactExec
-        Chainweb.Test.Pact.PactService
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -355,6 +358,7 @@ test-suite chainweb-tests
         , stm
         , stm-chans
         , streaming >= 0.2.2
+        , strict-concurrency >= 0.2
         , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
