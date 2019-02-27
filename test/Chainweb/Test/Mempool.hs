@@ -101,7 +101,7 @@ mempoolTestCase :: TestName
 mempoolTestCase name test (MempoolWithFunc withMempool) =
     testCase name $ tout $ withMempool test
   where
-    tout m = timeout 30000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
 
 mempoolProperty :: TestName
@@ -114,7 +114,7 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
     go = monadicIO (gen >>= run . tout . withMempool . test
                         >>= either fail return)
 
-    tout m = timeout 30000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
@@ -268,9 +268,11 @@ lookupIsValidated (Validated _) = return ()
 lookupIsValidated _ = fail "lookup failure: expected validated"
 
 chunk :: Int -> [a] -> [[a]]
-chunk k l = let a = take k l
-                b = drop k l
-            in a : (if null b then [] else chunk k b)
+chunk k l = if null l
+              then []
+              else let a = take k l
+                       b = drop k l
+                   in a : (if null b then [] else chunk k b)
 
 
 propSubscription :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())

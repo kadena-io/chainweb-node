@@ -71,7 +71,6 @@ module Chainweb.Chainweb
 , Chain(..)
 , chainChainId
 , chainChainwebVersion
-, chainChainwebGraph
 , chainP2pConfig
 , chainPeer
 , chainBlockHeaderDb
@@ -92,8 +91,7 @@ module Chainweb.Chainweb
 
 -- * Chainweb Resources
 , Chainweb(..)
-, chainwebVersion
-, chainwebGraph
+, chainwebChainwebVersion
 , chainwebChains
 , chainwebCuts
 , chainwebNodeId
@@ -156,6 +154,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.POW
 import Chainweb.Miner.Test
 import Chainweb.NodeId
+import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
@@ -166,6 +165,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS.HashMap hiding (toList)
 import Data.LogMessage
 
 import Network.X509.SelfSigned
@@ -189,6 +189,14 @@ data ChainwebConfiguration = ChainwebConfiguration
     deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
+
+instance HasChainwebVersion ChainwebConfiguration where
+    _chainwebVersion = _configChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph ChainwebConfiguration where
+    _chainGraph = _chainGraph . _chainwebVersion
+    {-# INLINE _chainGraph #-}
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
@@ -333,8 +341,6 @@ chainwebTransactionConfig = Mempool.TransactionConfig Mempool.mockCodec
 data Chain = Chain
     { _chainChainId :: !ChainId
     , _chainChainwebVersion :: !ChainwebVersion
-    , _chainChainwebGraph :: !ChainGraph
-        -- ^ should both be part of a broader Chain configuration?
     , _chainP2pConfig :: !P2pConfiguration
     , _chainPeer :: !Peer
     , _chainBlockHeaderDb :: !BlockHeaderDb
@@ -346,11 +352,18 @@ data Chain = Chain
 
 makeLenses ''Chain
 
+instance HasChainwebVersion Chain where
+    _chainwebVersion = _chainChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph Chain where
+    _chainGraph = _chainGraph . _chainwebVersion
+    {-# INLINE _chainGraph #-}
+
 -- Intializes all local Chain resources, but doesn't start any networking.
 --
 withChain
     :: ChainwebVersion
-    -> ChainGraph
     -> ChainId
     -> P2pConfiguration
     -> Peer
@@ -360,21 +373,20 @@ withChain
     -> Mempool.InMemConfig ChainwebTransaction
     -> (Chain -> IO a)
     -> IO a
-withChain v graph cid p2pConfig peer peerDb chainDbDir logfun mempoolCfg inner =
+withChain v cid p2pConfig peer peerDb chainDbDir logfun mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withBlockHeaderDb v graph cid $ \cdb -> do
+    withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
             inner $ Chain
                 { _chainChainId = cid
                 , _chainChainwebVersion = v
-                , _chainChainwebGraph = graph
                 , _chainP2pConfig = p2pConfig
                 , _chainPeer = peer
                 , _chainBlockHeaderDb = cdb
                 , _chainPeerDb = peerDb
                 , _chainLogFun = logfun
-                , _chainSyncDepth = syncDepth graph
+                , _chainSyncDepth = syncDepth (_chainGraph v)
                 , _chainMempool = mempool
                 }
 
@@ -472,10 +484,10 @@ runMiner v m = (chooseMiner v)
         -> CutDb
         -> WebBlockHeaderDb
         -> IO ()
-    chooseMiner Test = testMiner
-    chooseMiner TestWithTime = testMiner
-    chooseMiner TestWithPow = powMiner
-    chooseMiner Simulation = testMiner
+    chooseMiner Test{} = testMiner
+    chooseMiner TestWithTime{} = testMiner
+    chooseMiner TestWithPow{} = powMiner
+    chooseMiner Simulation{} = testMiner
     chooseMiner Testnet00 = powMiner
 
 -- -------------------------------------------------------------------------- --
@@ -494,8 +506,7 @@ makeLenses ''ChainwebLogFunctions
 -- Chainweb Resources
 
 data Chainweb = Chainweb
-    { _chainwebVersion :: !ChainwebVersion
-    , _chainwebGraph :: !ChainGraph
+    { _chainwebChainwebVersion :: !ChainwebVersion
     , _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId Chain)
     , _chainwebCuts :: !Cuts
@@ -504,20 +515,28 @@ data Chainweb = Chainweb
     , _chainwebLogFun :: !ALogFunction
     , _chainwebSocket :: !Socket
     , _chainwebPeer :: !Peer
+    , _chainwebPayloadDb :: !(PayloadDb HashMapCas)
     }
 
 makeLenses ''Chainweb
 
+instance HasChainwebVersion Chainweb where
+    _chainwebVersion = _chainwebChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph Chainweb where
+    _chainGraph = _chainGraph . _chainwebVersion
+    {-# INLINE _chainGraph #-}
+
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainweb
-    :: ChainGraph
-    -> ChainwebConfiguration
+    :: ChainwebConfiguration
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb graph conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
-    withChainwebInternal graph (set confLens c conf) logFuns sock peer inner
+withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
+    withChainwebInternal (set confLens c conf) logFuns sock peer inner
   where
     confLens :: Lens' ChainwebConfiguration PeerConfig
     confLens = configP2p . p2pConfigPeer
@@ -533,34 +552,35 @@ mempoolConfig = Mempool.InMemConfig
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainwebInternal
-    :: ChainGraph
-    -> ChainwebConfiguration
+    :: ChainwebConfiguration
     -> ChainwebLogFunctions
     -> Socket
     -> Peer
     -> (Chainweb -> IO a)
     -> IO a
-withChainwebInternal graph conf logFuns socket peer inner = do
+withChainwebInternal conf logFuns socket peer inner = do
     let nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
-    withPeerDb nids p2pConf $ \pdb -> go pdb mempty (toList cids)
+    withPeerDb nids p2pConf $ \peerDb -> do
+        payloadDb <- emptyPayloadDb
+        initializePayloadDb v payloadDb
+        go peerDb payloadDb mempty (toList cids)
   where
     -- Initialize chain resources
-    go peerDb cs (cid : t) =
+    go peerDb payloadDb cs (cid : t) =
         case HM.lookup cid (_chainwebChainLogFuns logFuns) of
             Nothing -> error $ T.unpack
                 $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
             Just logfun ->
-                withChain v graph cid p2pConf peer peerDb chainDbDir logfun mempoolConfig $ \c ->
-                    go peerDb (HM.insert cid c cs) t
+                withChain v cid p2pConf peer peerDb chainDbDir logfun mempoolConfig $ \c ->
+                    go peerDb payloadDb (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go peerDb cs [] = do
-        let webchain = mkWebBlockHeaderDb graph (HM.map _chainBlockHeaderDb cs)
+    go peerDb payloadDb cs [] = do
+        let webchain = mkWebBlockHeaderDb v (HM.map _chainBlockHeaderDb cs)
         withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
             withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
                 inner Chainweb
-                    { _chainwebVersion = v
-                    , _chainwebGraph = graph
+                    { _chainwebChainwebVersion = v
                     , _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs
                     , _chainwebCuts = cuts
@@ -569,16 +589,18 @@ withChainwebInternal graph conf logFuns socket peer inner = do
                     , _chainwebLogFun = _chainwebNodeLogFun logFuns
                     , _chainwebSocket = socket
                     , _chainwebPeer = peer
+                    , _chainwebPayloadDb = payloadDb
                     }
 
     v = _configChainwebVersion conf
+    graph = _chainGraph v
     cids = chainIds_ graph
     cwnid = _configNodeId conf
     p2pConf = _configP2p conf
     chainDbDir = _configChainDbDirPath conf
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v graph)
+    cutConfig = (defaultCutDbConfig v)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         }
@@ -600,10 +622,14 @@ runChainweb cw = do
 
     -- collect server resources
     let chains = HM.toList (_chainwebChains cw)
-        chainDbsToServe
-            = flip map chains $ \(k, ch) -> (k, _chainBlockHeaderDb ch, _chainMempool ch)
-        chainP2pToServe
-            = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
+        proj :: forall a . (Chain -> a) -> [(ChainId, a)]
+        proj f = flip map chains $ \(k, ch) -> (k, f ch)
+        chainDbsToServe = proj _chainBlockHeaderDb
+        mempoolsToServe = proj _chainMempool
+        chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
+
+        payloadDbsToServe
+            = itoList $ const (_chainwebPayloadDb cw) <$> _chainwebChains cw
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
@@ -611,10 +637,14 @@ runChainweb cw = do
             (_peerCertificate $ _chainwebPeer cw)
             (_peerKey $ _chainwebPeer cw)
             (_chainwebSocket cw)
-            (_chainwebVersion cw)
-            cutDb
-            chainDbsToServe
-            ((CutNetwork, cutPeerDb) : chainP2pToServe)
+            (_chainwebChainwebVersion cw)
+            ChainwebServerDbs
+                { _chainwebServerCutDb = Just cutDb
+                , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                , _chainwebServerMempools = mempoolsToServe
+                , _chainwebServerPayloadDbs = payloadDbsToServe
+                , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe
+                }
 
     -- 1. start server
     --
@@ -689,3 +719,4 @@ runChainweb cw = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
+

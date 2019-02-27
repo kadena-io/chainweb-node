@@ -1,4 +1,6 @@
-packages: chainweb.cabal
+packages: 
+    chainweb.cabal
+    tools/mine-genesis/mine-genesis.cabal
 
 -- with-compiler: ghc-8.4.4
 

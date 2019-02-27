@@ -25,6 +25,7 @@ import qualified Data.Vector as V
 import Data.Word
 
 import Network.HTTP.Client (newManager, defaultManagerSettings)
+import qualified Network.Wai.Handler.Warp as Warp
 
 import Servant
 import Servant.Client
@@ -57,8 +58,8 @@ tests = testGroup "Pact service tests" <$> pactTestApp
 
 pactTestApp :: IO [TestTree]
 pactTestApp = do
-    port <- generatePort
-    withPactServiceApp port testMemPoolAccess $ do
+    (port, socket) <- Warp.openFreePort
+    withPactServiceApp (Left socket) "127.0.0.1" testMemPoolAccess $ do
         let headers = V.fromList $ getBlockHeaders 4
         base <- parseBaseUrl ("http://localhost:" ++ show port)
         mgr <- newManager defaultManagerSettings
@@ -131,12 +132,12 @@ testGetNewBlock
 getGenesisBlockHeader :: BlockHeader
 getGenesisBlockHeader = do
     let testId = testChainId (1 :: Word32)
-    genesisBlockHeader Test peterson testId
+    genesisBlockHeader (Test peterson) testId
 
 getBlockHeaders :: Int -> [BlockHeader]
 getBlockHeaders n = do
     let testId = testChainId (1 :: Word32)
-    let gbh0 = genesisBlockHeader Test peterson testId
+    let gbh0 = genesisBlockHeader (Test peterson) testId
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 

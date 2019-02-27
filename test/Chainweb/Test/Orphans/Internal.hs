@@ -30,6 +30,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.NodeId
 import Chainweb.Payload
@@ -50,7 +51,17 @@ arbitraryBytesSized = sized $ \s -> choose (0, s) >>= arbitraryBytes
 -- Basics
 
 instance Arbitrary ChainwebVersion where
-    arbitrary = elements [minBound .. maxBound]
+    arbitrary = elements
+        [ Test singletonChainGraph
+        , Test petersonChainGraph
+        , TestWithTime singletonChainGraph
+        , TestWithTime petersonChainGraph
+        , TestWithPow singletonChainGraph
+        , TestWithPow petersonChainGraph
+        , Simulation singletonChainGraph
+        , Simulation petersonChainGraph
+        , Testnet00
+        ]
 
 instance Arbitrary ChainNodeId where
     arbitrary = ChainNodeId
@@ -80,7 +91,7 @@ instance Arbitrary HashDifficulty where
 -- Block Header
 
 instance Arbitrary BlockHash where
-    arbitrary = BlockHash <$> pure (testChainId 0) <*> arbitrary
+    arbitrary = BlockHash <$> arbitrary
 
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
@@ -111,7 +122,7 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (pure (testChainId 0))
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (pure Test)
+            $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary
 

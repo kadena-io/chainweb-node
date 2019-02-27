@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -18,8 +20,11 @@
 --
 module Chainweb.RestAPI
 (
+  ChainwebServerDbs(..)
+, emptyChainwebServerDbs
+
 -- * Chainweb API
-  someChainwebApi
+, someChainwebApi
 , prettyShowChainwebApi
 , apiVersion
 , prettyApiVersion
@@ -27,13 +32,6 @@ module Chainweb.RestAPI
 -- * Swagger
 , prettyChainwebSwagger
 , chainwebSwagger
-
--- * Single Chain API Server
-, someSingleChainServer
-, singleChainApplication
-, serveSingleChainOnPort
-, serveSingleChain
-, serveSingleChainSocket
 
 -- * Chainweb API Server
 , someChainwebServer
@@ -57,12 +55,15 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
+import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
 import Data.Proxy
 import Data.Swagger
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+
+import GHC.Generics (Generic)
 
 import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
@@ -86,7 +87,10 @@ import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool (MempoolBackend)
-import qualified Chainweb.Mempool.Websocket as Mempool
+import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.RestAPI
+import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
@@ -100,11 +104,36 @@ import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
+-- Chainweb Server Storage Backends
+
+-- | Datatype for collectively passing all storage backends to
+-- functions that run a chainweb server.
+--
+data ChainwebServerDbs t cas = ChainwebServerDbs
+    { _chainwebServerCutDb :: !(Maybe CutDb)
+    , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
+    , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
+    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
+    , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
+    }
+    deriving (Generic)
+
+emptyChainwebServerDbs :: ChainwebServerDbs t cas
+emptyChainwebServerDbs = ChainwebServerDbs
+    { _chainwebServerCutDb = Nothing
+    , _chainwebServerBlockHeaderDbs = []
+    , _chainwebServerMempools = []
+    , _chainwebServerPayloadDbs = []
+    , _chainwebServerPeerDbs = []
+    }
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb API
 
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someBlockHeaderDbApis v (selectChainIds cs)
+    <> somePayloadApis v (selectChainIds cs)
     <> someP2pApis v cs
 
 selectChainIds :: [NetworkId] -> [ChainId]
@@ -146,138 +175,91 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
     $ chainwebSwagger v cs
 
 -- -------------------------------------------------------------------------- --
--- Single Chain Server
-
-someSingleChainServer
-    :: Show t
-    => ChainwebVersion
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
-    -> SomeServer
-someSingleChainServer v chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
-    <> someBlockHeaderDbServers v (map (\(x, y, _) -> (x, y)) chainDbs)
-    <> Mempool.someMempoolServers v (map (\(x, _, y) -> (x, y)) chainDbs)
-    <> someP2pServers v peerDbs
-
-singleChainApplication
-    :: Show t
-    => ChainwebVersion
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
-    -> Application
-singleChainApplication v chainDbs peerDbs = someServerApplication
-    $ someSingleChainServer v chainDbs peerDbs
-
-serveSingleChainOnPort
-    :: Show t
-    => Port
-    -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
-    -> IO ()
-serveSingleChainOnPort p v chainDbs peerDbs = run (int p)
-    $ singleChainApplication v chainDbs peerDbs
-
-serveSingleChain
-    :: Show t
-    => Settings
-    -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
-    -> IO ()
-serveSingleChain s v chainDbs peerDbs = runSettings s
-    $ singleChainApplication v chainDbs peerDbs
-
-serveSingleChainSocket
-    :: Show t
-    => Settings
-    -> Socket
-    -> ChainwebVersion
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
-    -> IO ()
-serveSingleChainSocket s sock v chainDbs peerDbs = runSettingsSocket s sock
-    $ singleChainApplication v chainDbs peerDbs
-
--- -------------------------------------------------------------------------- --
 -- Chainweb Server
 
 someChainwebServer
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> SomeServer
-someChainwebServer v cutDb chainDbs peerDbs = someSwaggerServer v (fst <$> peerDbs)
-    <> someCutServer v cutDb
-    <> someBlockHeaderDbServers v (map (\(x, y, _) -> (x, y)) chainDbs)
-    <> Mempool.someMempoolServers v (map (\(x, _, y) -> (x, y)) chainDbs)
-    <> someP2pServers v peerDbs
+someChainwebServer v dbs =
+    someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
+        <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
+        <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
+        <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
+        <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
+        <> someP2pServers v (_chainwebServerPeerDbs dbs)
 
 chainwebApplication
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> Application
-chainwebApplication v cutDb chainDbs peerDbs = someServerApplication
-    $ someChainwebServer v cutDb chainDbs peerDbs
+chainwebApplication v = someServerApplication . someChainwebServer v
 
 serveChainwebOnPort
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Port
     -> ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebOnPort p v cutDb chainDbs peerDbs = run (int p)
-    $ chainwebApplication v cutDb chainDbs peerDbs
+serveChainwebOnPort p v = run (int p) . chainwebApplication v
 
 serveChainweb
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Settings
     -> ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainweb s v cutDb chainDbs peerDbs = runSettings s
-    $ chainwebApplication v cutDb chainDbs peerDbs
+serveChainweb s v = runSettings s . chainwebApplication v
 
 serveChainwebSocket
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocket s sock v cutDb chainDbs peerDbs = runSettingsSocket s sock
-    $ chainwebApplication v cutDb chainDbs peerDbs
+serveChainwebSocket s sock v = runSettingsSocket s sock . chainwebApplication v
 
 serveChainwebSocketTls
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Settings
     -> X509CertPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocketTls settings certBytes keyBytes sock v cutDb chainDbs peerDbs
+serveChainwebSocketTls settings certBytes keyBytes sock v dbs
     = runTLSSocket tlsSettings settings sock app
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
-    app = chainwebApplication v cutDb chainDbs peerDbs
+    app = chainwebApplication v dbs
 
 serveChainwebSocketTlsEkg
     :: Show t
+    => ToJSON t
+    => FromJSON t
+    => PayloadCas cas
     => Port
         -- ^ EKG port
     -> Settings
@@ -285,14 +267,13 @@ serveChainwebSocketTlsEkg
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> CutDb
-    -> [(ChainId, BlockHeaderDb, MempoolBackend t)]
-    -> [(NetworkId, PeerDb)]
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v cutDb chainDbs peerDbs = do
+serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs = do
     store <- serverMetricStore <$> forkServer "127.0.0.1" (int ekgPort)
     waiMetrics <- registerWaiMetrics store
     runTLSSocket tlsSettings settings sock $ (metrics waiMetrics) app
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
-    app = chainwebApplication v cutDb chainDbs peerDbs
+    app = chainwebApplication v dbs
+

@@ -43,8 +43,8 @@ import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion)
-import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb)
+import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 
 import Data.LogMessage
 
@@ -123,7 +123,7 @@ testMiner logFun conf nid cutDb wcdb = do
         --
         cid <- randomChainId c
 
-        -- The parent block the mine on. Any given chain will always
+        -- The parent block to mine on. Any given chain will always
         -- contain at least a genesis block, so this otherwise naughty
         -- `^?!` will always succeed.
         --

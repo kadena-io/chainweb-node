@@ -4,6 +4,8 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
@@ -36,6 +38,7 @@ import Control.Exception
 import Control.Monad (replicateM, unless, when)
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
+import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
 import Data.Bytes.Get
@@ -50,18 +53,20 @@ import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Foreign.StablePtr
-import GHC.Generics (Generic)
+import GHC.Generics
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (Codec(..))
+import Chainweb.Utils
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText)
 
 
 ------------------------------------------------------------------------------
@@ -69,7 +74,8 @@ data LookupResult t = Missing
                     | Validated (ValidatedTransaction t)
                     | Confirmed
                     | Pending t
-  deriving (Show)
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
 data TransactionConfig t = TransactionConfig {
@@ -96,7 +102,7 @@ data TransactionConfig t = TransactionConfig {
 data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
-    -- TODO: move this inside TransactionConfig ?
+    -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockSizeLimit :: Int64
 
     -- | Returns true if the given transaction hash is known to this mempool.
@@ -267,6 +273,13 @@ instance Hashable TransactionHash where
       hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 h)
   {-# INLINE hashWithSalt #-}
 
+instance ToJSON TransactionHash where
+  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText x
+instance FromJSON TransactionHash where
+  parseJSON = withText "TransactionHash" (either (fail . show) return . p)
+    where
+      p :: Text -> Either SomeException TransactionHash
+      p = (TransactionHash <$>) . decodeB64UrlNoPaddingText
 
 ------------------------------------------------------------------------------
 -- | Fees to be awarded to the miner for processing a transaction. Higher is better
@@ -277,7 +290,8 @@ type TransactionFees = Decimal
 data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Int64)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Int64)
-} deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Generic)
+    deriving anyclass (FromJSON, ToJSON)
 
 
 ------------------------------------------------------------------------------
@@ -308,12 +322,16 @@ data Subscription t = Subscription {
 data ValidationInfo = ValidationInfo {
     validatedHeight :: {-# UNPACK #-} !BlockHeight
   , validatedHash :: {-# UNPACK #-} !BlockHash
-} deriving (Show)
+  }
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 data ValidatedTransaction t = ValidatedTransaction {
     validatedForks :: Vector ValidationInfo
   , validatedTransaction :: t
-} deriving (Show)
+  }
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 
 ------------------------------------------------------------------------------
@@ -329,7 +347,18 @@ data MockTx = MockTx {
   , mockFees :: {-# UNPACK #-} !Decimal
   , mockSize :: {-# UNPACK #-} !Int64
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
-} deriving (Eq, Ord, Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+
+instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
+    toJSON d = let s = T.pack $ show d
+               in toJSON s
+
+instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
+    parseJSON v = do
+        s <- T.unpack <$> parseJSON v
+        return $! read s
 
 
 mockBlocksizeLimit :: Int64

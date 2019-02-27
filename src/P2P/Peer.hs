@@ -366,10 +366,10 @@ instance FromJSON Peer where
 -- certificate, the peer id is the SHA256 hash of the X509 certificate.
 --
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
-bootstrapPeerInfos Test = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithTime = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithPow = testBootstrapPeerInfos
-bootstrapPeerInfos Simulation = error
+bootstrapPeerInfos Test{} = testBootstrapPeerInfos
+bootstrapPeerInfos TestWithTime{} = testBootstrapPeerInfos
+bootstrapPeerInfos TestWithPow{} = testBootstrapPeerInfos
+bootstrapPeerInfos Simulation{} = error
     $ "bootstrap peer info isn't defined for chainweb version Simulation"
 bootstrapPeerInfos Testnet00 = error
     $ "bootstrap peer info isn't defined for chainweb version Testnet00"

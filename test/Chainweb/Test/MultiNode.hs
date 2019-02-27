@@ -134,11 +134,6 @@ chainwebLogFunctions level write nid cids = ChainwebLogFunctions
 -- similulate a full-scale chain in a miniaturized settings.
 --
 
--- | The graph for this test is hardcoded to be peterson graph
---
-graph :: ChainGraph
-graph = petersonChainGraph
-
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
@@ -211,12 +206,11 @@ node
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
-    -> ChainGraph
     -> MVar Port
     -> ChainwebConfiguration
     -> IO ()
-node loglevel write stateVar g bootstrapPortVar conf =
-    withChainweb g conf logfuns $ \cw -> do
+node loglevel write stateVar bootstrapPortVar conf =
+    withChainweb conf logfuns $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
@@ -226,7 +220,7 @@ node loglevel write stateVar g bootstrapPortVar conf =
   where
     nid = _configNodeId conf
 
-    logfuns = chainwebLogFunctions loglevel write nid (chainIds_ graph)
+    logfuns = chainwebLogFunctions loglevel write nid (chainIds_ $ _chainGraph conf)
 
     sample cw = modifyMVar_ stateVar $ \state -> force <$>
         sampleConsensusState
@@ -267,7 +261,7 @@ runNodes loglevel write stateVar v n chainDbDir = do
             | otherwise ->
                 setBootstrapPort <$> readMVar bootstrapPortVar <*> pure baseConf
 
-        node loglevel write stateVar graph bootstrapPortVar conf
+        node loglevel write stateVar bootstrapPortVar conf
 
 runNodesForSeconds
     :: LogLevel
@@ -283,7 +277,7 @@ runNodesForSeconds
         -- ^ logging backend callback
     -> IO (Maybe Stats)
 runNodesForSeconds loglevel v n seconds chainDbDir write = do
-    stateVar <- newMVar emptyConsensusState
+    stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1000000)
         $ runNodes loglevel write stateVar v n chainDbDir
 
@@ -293,7 +287,13 @@ runNodesForSeconds loglevel v n seconds chainDbDir write = do
 -- -------------------------------------------------------------------------- --
 -- Test
 
-test :: LogLevel -> ChainwebVersion -> Natural -> Seconds -> Maybe FilePath -> TestTree
+test
+    :: LogLevel
+    -> ChainwebVersion
+    -> Natural
+    -> Seconds
+    -> Maybe FilePath
+    -> TestTree
 test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if 1
@@ -350,12 +350,20 @@ data ConsensusState = ConsensusState
         -- use HyperLogLog+
 
     , _stateCutMap :: !(HM.HashMap NodeId Cut)
+    , _stateChainwebVersion :: !ChainwebVersion
     }
     deriving (Show, Generic, NFData)
 
-emptyConsensusState
-    :: ConsensusState
-emptyConsensusState = ConsensusState mempty mempty
+instance HasChainwebVersion ConsensusState where
+    _chainwebVersion = _stateChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph ConsensusState where
+    _chainGraph = _chainGraph . _chainwebVersion
+    {-# INLINE _chainGraph #-}
+
+emptyConsensusState :: ChainwebVersion -> ConsensusState
+emptyConsensusState v = ConsensusState mempty mempty v
 
 sampleConsensusState :: NodeId -> WebBlockHeaderDb -> CutDb -> ConsensusState -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do
@@ -389,7 +397,7 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    hashCount = HS.size (_stateBlockHashes s) - int (order graph)
+    hashCount = HS.size (_stateBlockHashes s) - int (order $ _chainGraph s)
 
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
@@ -406,7 +414,7 @@ expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
 expectedBlockCount v seconds = round ebc
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order $ _chainGraph v) / int br
 
     br :: Natural
     br = case blockRate v of
@@ -423,7 +431,7 @@ lowerStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order $ _chainGraph v) / int br
 
     br :: Natural
     br = case blockRate v of
@@ -440,9 +448,10 @@ upperStats v seconds = Stats
     }
   where
     ebc :: Double
-    ebc = int seconds * int (order graph) / int br
+    ebc = int seconds * int (order $ _chainGraph v) / int br
 
     br :: Natural
     br = case blockRate v of
         Just (BlockRate n) -> int n
         Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v
+

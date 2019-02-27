@@ -73,7 +73,7 @@ import Chainweb.Version
 --
 data WebBlockHeaderDb = WebBlockHeaderDb
     { _webBlockHeaderDb :: !(HM.HashMap ChainId BlockHeaderDb)
-    , _webChainGraph :: !ChainGraph
+    , _webChainwebVersion :: !ChainwebVersion
     }
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
@@ -109,24 +109,30 @@ instance IxedGet WebBlockHeaderDb where
     {-# INLINE ixg #-}
 
 instance HasChainGraph WebBlockHeaderDb where
-    _chainGraph = _webChainGraph
+    _chainGraph = _chainGraph . _webChainwebVersion
     {-# INLINE _chainGraph #-}
 
+instance HasChainwebVersion WebBlockHeaderDb where
+    _chainwebVersion = _webChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
 initWebBlockHeaderDb
-    :: Given ChainGraph
-    => ChainwebVersion
+    :: ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb v = WebBlockHeaderDb
-    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap chainIds)
-    <*> pure given
+    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds_ g)
+    <*> pure v
   where
-    conf cid = Configuration (genesisBlockHeader v given cid)
+    g = _chainGraph v
+    conf cid = Configuration (genesisBlockHeader v cid)
 
+-- | FIXME: this needs some consistency checks
+--
 mkWebBlockHeaderDb
-    :: ChainGraph
+    :: ChainwebVersion
     -> HM.HashMap ChainId BlockHeaderDb
     -> WebBlockHeaderDb
-mkWebBlockHeaderDb graph m = WebBlockHeaderDb m graph
+mkWebBlockHeaderDb v m = WebBlockHeaderDb m v
 
 getWebBlockHeaderDb
     :: MonadThrow m
@@ -135,25 +141,27 @@ getWebBlockHeaderDb
     => p
     -> m BlockHeaderDb
 getWebBlockHeaderDb p = do
-    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId p
+    checkWebChainId (given @WebBlockHeaderDb) p
     return $ _webBlockHeaderDb given HM.! _chainId p
 
 lookupWebBlockHeaderDb
     :: Given WebBlockHeaderDb
-    => BlockHash
+    => ChainId
+    -> BlockHash
     -> IO BlockHeader
-lookupWebBlockHeaderDb h = do
-    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
-    db <- getWebBlockHeaderDb h
+lookupWebBlockHeaderDb c h = do
+    checkWebChainId (given @WebBlockHeaderDb) c
+    db <- getWebBlockHeaderDb c
     lookupM db h
 
 blockAdjacentParentHeaders
     :: Given WebBlockHeaderDb
     => BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
-blockAdjacentParentHeaders = traverse lookupWebBlockHeaderDb
-    . _getBlockHashRecord
-    . _blockAdjacentHashes
+blockAdjacentParentHeaders h
+    = itraverse lookupWebBlockHeaderDb
+    $ _getBlockHashRecord
+    $ _blockAdjacentHashes h
 
 lookupAdjacentParentHeader
     :: Given WebBlockHeaderDb
@@ -161,17 +169,17 @@ lookupAdjacentParentHeader
     -> ChainId
     -> IO BlockHeader
 lookupAdjacentParentHeader h cid = do
-    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
+    checkWebChainId (given @WebBlockHeaderDb) h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
-    lookupWebBlockHeaderDb ph
+    lookupWebBlockHeaderDb cid ph
 
 lookupParentHeader
     :: Given WebBlockHeaderDb
     => BlockHeader
     -> IO BlockHeader
 lookupParentHeader h = do
-    give (_chainGraph (given @WebBlockHeaderDb)) $ checkWebChainId h
-    lookupWebBlockHeaderDb (_blockParent h)
+    checkWebChainId (given @WebBlockHeaderDb) h
+    lookupWebBlockHeaderDb (_chainId h) (_blockParent h)
 
 insertWebBlockHeaderDb
     :: Given WebBlockHeaderDb
@@ -193,11 +201,10 @@ insertWebBlockHeaderDb h = do
 --
 checkBlockHeaderGraph
     :: MonadThrow m
-    => Given ChainGraph
     => BlockHeader
     -> m ()
 checkBlockHeaderGraph b = void
-    $ checkAdjacentChainIds b $ Expected $ _blockAdjacentChainIds b
+    $ checkAdjacentChainIds b b $ Expected $ _blockAdjacentChainIds b
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
 -- all referenced adjacent parents block headers exist in @db@.

@@ -58,7 +58,6 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Validation
 import Chainweb.Utils
@@ -198,6 +197,7 @@ data BlockHeaderDb = BlockHeaderDb
 
 instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
+    {-# INLINE _chainId #-}
 
 -- | Initialize a database handle
 --
@@ -232,14 +232,13 @@ copy db = withMVar (_chainDbVar db) $ \var ->
 
 withBlockHeaderDb
     :: ChainwebVersion
-    -> ChainGraph
     -> ChainId
     -> (BlockHeaderDb -> IO b)
     -> IO b
-withBlockHeaderDb v graph cid = bracket start closeBlockHeaderDb
+withBlockHeaderDb v cid = bracket start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
-        { _configRoot = genesisBlockHeader v graph cid
+        { _configRoot = genesisBlockHeader v cid
         }
 
 -- -------------------------------------------------------------------------- --
