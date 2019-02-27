@@ -57,6 +57,7 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
 
+-- TODO: Change type of MVar to (BlockTransactions, PayloadHash)
 newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
 newBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar Transactions)
@@ -67,6 +68,7 @@ newBlock bHeader reqQ = do
     addRequest reqQ msg
     return resultVar
 
+-- TODO: Change type of MVar to (Blocktransations, BlockOutputs)
 validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions)
 validateBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar Transactions)

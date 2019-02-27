@@ -26,16 +26,18 @@ import Safe
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
-
-data RequestType = ValidateBlock | NewBlock deriving (Show)
+import Chainweb.Payload
 
 data RequestMsg =
-    RequestMsg
-        { _reqRequestType :: RequestType
-        , _reqBlockHeader :: BlockHeader
-        , _reqResultVar :: MVar Transactions
+    NewBlockReq
+        { _newBlockHeader :: BlockHeader
+        , _newResultVar :: MVar (BlockTransactions, BlockPayloadHash)
         }
-    | LocalRequestMsg
+    | ValidateBlockReq
+        { _valBlockHeader :: BlockHeader
+        , _valResultVar :: MVar (BlockTransactions, BlockOutputs)
+        }
+    | LocalReq
         -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
         { _localRequest :: BlockHeader
         , _localResultVar :: MVar (Either String Transactions)

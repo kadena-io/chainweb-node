@@ -104,13 +104,54 @@ serviceRequests memPoolAccess reqQ = go
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
-            LocalRequestMsg{..} -> error "Local requests not implemented yet"
-            RequestMsg {..} -> do
-                txs <- case _reqRequestType of
-                    NewBlock -> execNewBlock memPoolAccess _reqBlockHeader
-                    ValidateBlock -> execValidateBlock memPoolAccess _reqBlockHeader
-                liftIO $ putMVar _reqResultVar  txs
+            LocalReq{..} -> error "Local requests not implemented yet"
+            NewBlockReq {..} -> do
+                txs <- execNewBlock memPoolAccess _newBlockHeader
+                liftIO $ putMVar _newResultVar $ toNewBlockResults txs
                 go
+            ValidateBlockReq {..} -> do
+                txs <- execValidateBlock memPoolAccess _valBlockHeader
+                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
+                go
+
+
+
+toTransactionOutput :: FullLogTxOutput -> HashedLogTxOutput
+toTransactionOutput FullLogTxOutput{..} =
+    let hashed = someHashFunction _flTxLogs
+    in HashedLogTxOutput
+        { _hlCommandResult = _flCommandResult
+        , _hlTxLogHash = hashed
+        }
+
+
+toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
+toNewBlockResults ts =
+    let ps = _transactionPairs ts
+    -- let trans = serialize . _tCmd . fst <$> (_transactionPairs ts)
+
+    --operations on fst, snd of ps:
+    opFst = serialize . _tCmd
+    opSnd =
+            _getCommandResult
+
+
+    let cmds = toSeq $ serialize . _tCmd <$> ts
+        trans =
+
+
+        blockPayload =
+        hash =
+    BlockTransactions
+        { _blockTransactionHash =
+        , _blockTransactions = cmds }
+
+
+
+
+toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
+toValidateBlockResults txs =
+
 
 
 -- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact

@@ -10,7 +10,6 @@
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
     , getNextRequest
-    , RequestType(..)
     , sendCloseMsg
     ) where
 
