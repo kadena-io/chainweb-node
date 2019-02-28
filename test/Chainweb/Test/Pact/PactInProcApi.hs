@@ -19,7 +19,6 @@ import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Default
 import Data.Maybe
-import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V

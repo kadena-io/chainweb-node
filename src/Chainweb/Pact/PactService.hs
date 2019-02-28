@@ -49,7 +49,6 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
-import qualified Pact.Types.Util as P
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -142,18 +141,24 @@ toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
 toNewBlockResults ts =
     let oldSeq = Seq.fromList $ _transactionPairs ts
         newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
-        bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
 
         seqTrans = fst <$> newSeq
-        blockTrans = snd $ newBlockTransactions (seqTrans)
+        blockTrans = snd $ newBlockTransactions seqTrans
 
+        bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
     in (blockTrans, bPayHash)
 
 toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
-toValidateBlockResults txs = undefined
+toValidateBlockResults ts =
+    let oldSeq = Seq.fromList $ _transactionPairs ts
+        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
 
+        seqTrans = fst <$> newSeq
+        blockTrans = snd $ newBlockTransactions seqTrans
 
--- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
+        (_, blockOuts) = newBlockOutputs $ snd <$> newSeq
+    in (blockTrans, blockOuts)
+
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 execNewBlock memPoolAccess _parentHeader@BlockHeader{..} = do
