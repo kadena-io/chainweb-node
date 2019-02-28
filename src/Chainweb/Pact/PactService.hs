@@ -35,6 +35,8 @@ import Control.Monad.State
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
+import qualified Data.Sequence as Seq
+import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -42,10 +44,12 @@ import qualified Pact.Interpreter as P
 import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
+import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
+import qualified Pact.Types.Util as P
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -58,9 +62,8 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-
 import Chainweb.Pact.Utils
-
+import Chainweb.Payload
 
 initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
 initPactService reqQ memPoolAccess = do
@@ -114,44 +117,40 @@ serviceRequests memPoolAccess reqQ = go
                 liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
                 go
 
-
-
-toTransactionOutput :: FullLogTxOutput -> HashedLogTxOutput
-toTransactionOutput FullLogTxOutput{..} =
-    let hashed = someHashFunction _flTxLogs
+toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
+toHashedLogTxOutput FullLogTxOutput{..} =
+    let e = A.encode _flTxLogs
+        hashed = P.hash $ toS e
     in HashedLogTxOutput
         { _hlCommandResult = _flCommandResult
         , _hlTxLogHash = hashed
         }
 
+toCWTransaction :: PactTransaction -> Transaction
+toCWTransaction pTrans =
+    let pCmd = _ptCmd pTrans
+        ptBytes = A.encode pCmd
+    in Transaction { _transactionBytes = toS ptBytes }
+
+toCWOutput :: FullLogTxOutput -> TransactionOutput
+toCWOutput flOut =
+    let hashedLogOut = toHashedLogTxOutput flOut
+        outBytes = A.encode hashedLogOut
+    in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
 toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
 toNewBlockResults ts =
-    let ps = _transactionPairs ts
-    -- let trans = serialize . _tCmd . fst <$> (_transactionPairs ts)
+    let oldSeq = Seq.fromList $ _transactionPairs ts
+        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
+        bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
 
-    --operations on fst, snd of ps:
-    opFst = serialize . _tCmd
-    opSnd =
-            _getCommandResult
+        seqTrans = fst <$> newSeq
+        blockTrans = snd $ newBlockTransactions (seqTrans)
 
-
-    let cmds = toSeq $ serialize . _tCmd <$> ts
-        trans =
-
-
-        blockPayload =
-        hash =
-    BlockTransactions
-        { _blockTransactionHash =
-        , _blockTransactions = cmds }
-
-
-
+    in (blockTrans, bPayHash)
 
 toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
-toValidateBlockResults txs =
-
+toValidateBlockResults txs = undefined
 
 
 -- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
@@ -221,7 +220,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig { _dbFile = f, _pragmas = xs }
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: MinerInfo -> [Transaction] -> PactT (Transactions, PactDbState)
+execTransactions :: MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
 execTransactions miner xs = do
     cpEnv <- ask
     currentState <- get
@@ -229,10 +228,10 @@ execTransactions miner xs = do
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-    txOuts <- forM xs (\Transaction {..} -> do
-        let txId = P.Transactional (P.TxId _tTxId)
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd miner
-        return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
+    txOuts <- forM xs (\PactTransaction {..} -> do
+        let txId = P.Transactional (P.TxId _ptTxId)
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _ptCmd miner
+        return FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -268,7 +267,7 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
-transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [PactTransaction]
 transactionsFromHeader memPoolAccess bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
     memPoolAccess (_blockHeight bHeader)

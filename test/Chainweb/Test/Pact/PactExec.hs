@@ -94,13 +94,13 @@ checkResponses responses = traverse (\resp -> _trEval (_trRequest resp ) resp) r
 
 checkSuccessOnly :: TestResponse -> Assertion
 checkSuccessOnly resp =
-    case _getCommandResult $ _trOutput resp of
+    case _flCommandResult $ _trOutput resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _ -> assertFailure "Status returned does not equal \"success\""
 
 checkScientific :: Scientific -> TestResponse -> Assertion
 checkScientific sci resp = do
-    let resultValue = _getCommandResult $ _trOutput resp
+    let resultValue = _flCommandResult $ _trOutput resp
     parseScientific resultValue @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
@@ -116,7 +116,7 @@ ignoreTextMatch _r _tr = True @?= True
 
 fullTextMatch :: T.Text -> TestResponse -> Assertion
 fullTextMatch matchText resp = do
-    let resultValue = _getCommandResult $ _trOutput resp
+    let resultValue = _flCommandResult $ _trOutput resp
     parseText resultValue @?= Just matchText
 
 parseText :: Value -> Maybe Text
@@ -131,9 +131,9 @@ fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
 fileCompareTxLogs fp resp =
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
     where
-        ioBs = return $ toS $ show <$> _getTxLogs $ _trOutput resp
+        ioBs = return $ toS $ show <$> _flTxLogs $ _trOutput resp
 
-mkPactTestTransactions :: [String] -> IO [Transaction]
+mkPactTestTransactions :: [String] -> IO [PactTransaction]
 mkPactTestTransactions cmdStrs = do
     let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
     let intSeq = [0, 1 ..] :: [Word64]
@@ -147,7 +147,7 @@ mkPactTransaction
   -> T.Text
   -> Word64
   -> String
-  -> Transaction
+  -> PactTransaction
 mkPactTransaction keyPair theData nonce txId theCode =
     let pubMeta = def :: P.PublicMeta
         cmd = P.mkCommand
@@ -155,7 +155,7 @@ mkPactTransaction keyPair theData nonce txId theCode =
               pubMeta
               nonce
               (P.Exec (P.ExecMsg (T.pack theCode) theData))
-    in Transaction {_tTxId = txId, _tCmd = cmd}
+    in PactTransaction {_ptTxId = txId, _ptCmd = cmd}
 
 testKeyPairs :: [P.KeyPair]
 testKeyPairs =
@@ -179,7 +179,7 @@ data TestSource = File FilePath | Code String
 
 data TestResponse = TestResponse
     { _trRequest :: TestRequest
-    , _trOutput :: TransactionOutput
+    , _trOutput :: FullLogTxOutput
     }
 
 instance Show TestRequest where
@@ -189,8 +189,8 @@ instance Show TestRequest where
 instance Show TestResponse where
     show tr =
         let tOutput = _trOutput tr
-            cmdResultStr = show $ _getCommandResult tOutput
-            txLogsStr = unlines $ fmap show (_getTxLogs tOutput)
+            cmdResultStr = show $ _flCommandResult tOutput
+            txLogsStr = unlines $ fmap show (_flTxLogs tOutput)
         in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
            ++ "TxLogs: " ++ txLogsStr
 

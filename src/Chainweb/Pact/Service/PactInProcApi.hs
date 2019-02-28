@@ -35,6 +35,7 @@ import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload
 
 -- | Initialization for Pact (in process) Api
 withPactService :: ((TQueue RequestMsg) -> IO a) -> IO a
@@ -58,24 +59,22 @@ initWebService reqQ action = do
     withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
 
 -- TODO: Change type of MVar to (BlockTransactions, PayloadHash)
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
+newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockPayloadHash))
 newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar Transactions)
-    let msg = RequestMsg
-          { _reqRequestType = NewBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
+    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockPayloadHash))
+    let msg = NewBlockReq
+          { _newBlockHeader = bHeader
+          , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
 
 -- TODO: Change type of MVar to (Blocktransations, BlockOutputs)
-validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions)
+validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockOutputs))
 validateBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar Transactions)
-    let msg = RequestMsg
-          { _reqRequestType = ValidateBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
+    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockOutputs))
+    let msg = ValidateBlockReq
+          { _valBlockHeader = bHeader
+          , _valResultVar = resultVar}
     addRequest reqQ msg
     return resultVar
 
@@ -83,5 +82,5 @@ closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
 
 -- TODO: replace reference to this with actual mempool and delete this
-tempMemPoolAccess :: BlockHeight -> IO [Transaction]
+tempMemPoolAccess :: BlockHeight -> IO [PactTransaction]
 tempMemPoolAccess _ = error "PactApi - MemPool access not implemented yet"
