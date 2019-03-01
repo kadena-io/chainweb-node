@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module: Main
 -- Copyright: Copyright © 2018 Kadena LLC.

@@ -38,12 +38,12 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 
 -- | Initialization for Pact (in process) Api
-withPactService :: ((TQueue RequestMsg) -> IO a) -> IO a
+withPactService :: (TQueue RequestMsg -> IO a) -> IO a
 withPactService action = withPactService' tempMemPoolAccess action -- TODO: replace with real mempool
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-withPactService' :: MemPoolAccess -> ((TQueue RequestMsg) -> IO a) -> IO a
+withPactService' :: MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
 withPactService' memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     a <- async (PS.initPactService reqQ memPoolAccess)
@@ -53,12 +53,11 @@ withPactService' memPoolAccess action = do
     closeQueue reqQ
     return r
 
-initWebService :: (TQueue RequestMsg) -> IO a -> IO a
+initWebService :: TQueue RequestMsg -> IO a -> IO a
 initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
-    withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
+    withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
--- TODO: Change type of MVar to (BlockTransactions, PayloadHash)
 newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockPayloadHash))
 newBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockPayloadHash))
@@ -68,7 +67,6 @@ newBlock bHeader reqQ = do
     addRequest reqQ msg
     return resultVar
 
--- TODO: Change type of MVar to (Blocktransations, BlockOutputs)
 validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockOutputs))
 validateBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockOutputs))
