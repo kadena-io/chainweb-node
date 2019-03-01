@@ -113,7 +113,6 @@ module Chainweb.BlockHeader
 import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
-import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -488,28 +487,19 @@ decodeBlockHeaderCheckedChainId p = do
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
-decodeBlockHeader = do
-    bh <- BlockHeader
-        <$> decodeBlockHash
-        <*> decodeBlockHashRecord
-        <*> decodeHashTarget
-        <*> decodeBlockPayloadHash
-        <*> decodeBlockCreationTime
-        <*> decodeNonce
-        <*> decodeChainId
-        <*> decodeBlockWeight
-        <*> decodeBlockHeight
-        <*> decodeChainwebVersion
-        <*> decodeChainNodeId
-        <*> decodeBlockHash
-    checkGenesis bh
-    return bh
-  where
-    checkGenesis bh = when (isGenesisBlockHeader bh && bh /= gen bh)
-        $ fail $ "Decoding of genesis BlockHeader failed"
-        <> ". Expected: " <> sshow (gen bh)
-        <> ". Actual: " <> sshow bh
-    gen bh = genesisBlockHeader (_chainwebVersion bh) (_chainId bh)
+decodeBlockHeader = BlockHeader
+    <$> decodeBlockHash
+    <*> decodeBlockHashRecord
+    <*> decodeHashTarget
+    <*> decodeBlockPayloadHash
+    <*> decodeBlockCreationTime
+    <*> decodeNonce
+    <*> decodeChainId
+    <*> decodeBlockWeight
+    <*> decodeBlockHeight
+    <*> decodeChainwebVersion
+    <*> decodeChainNodeId
+    <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
