@@ -97,7 +97,6 @@ initPactService reqQ memPoolAccess = do
            (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
            theState
 
-
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
 serviceRequests memPoolAccess reqQ = go
