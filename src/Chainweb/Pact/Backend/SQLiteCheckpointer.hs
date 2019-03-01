@@ -61,7 +61,10 @@ type Store = HashMap (BlockHeight, BlockHash) FilePath
 reinitDbEnv :: P.Loggers -> P.Persister P.SQLite -> SaveData P.SQLite -> IO (Either String PactDbState)
 reinitDbEnv loggers funrec savedata = runExceptT $ do
     db <- maybeToExceptT err (`P.initSQLite` loggers) (_sSQLiteConfig savedata)
-    return (PactDbState (EnvPersist' (PactDbEnvPersist P.pactdb (mkDbEnv db))) (_sCommandState savedata))
+    return (PactDbState
+               (EnvPersist' (PactDbEnvPersist P.pactdb (mkDbEnv db)))
+               (_sCommandState savedata))
+               txId
     where
     mkDbEnv db = P.DbEnv db persist logger txRecord txId
     err = "SQLiteCheckpointer.reinitDbEnv: Configuration exception"

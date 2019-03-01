@@ -151,7 +151,7 @@ data EnvPersist' =
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
-    }
+    , _pdbsTxId :: P.TxId    }
 
 makeLenses ''PactDbState
 
