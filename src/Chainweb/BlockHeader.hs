@@ -112,6 +112,7 @@ module Chainweb.BlockHeader
 import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -132,8 +133,6 @@ import Data.Serialize (Serialize(..))
 import Data.Word
 
 import GHC.Generics (Generic)
-
-import System.IO.Unsafe
 
 -- Internal imports
 
@@ -488,19 +487,28 @@ decodeBlockHeaderCheckedChainId p = do
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
-decodeBlockHeader = BlockHeader
-    <$> decodeBlockHash
-    <*> decodeBlockHashRecord
-    <*> decodeHashTarget
-    <*> decodeBlockPayloadHash
-    <*> decodeBlockCreationTime
-    <*> decodeNonce
-    <*> decodeChainId
-    <*> decodeBlockWeight
-    <*> decodeBlockHeight
-    <*> decodeChainwebVersion
-    <*> decodeChainNodeId
-    <*> decodeBlockHash
+decodeBlockHeader = do
+    bh <- BlockHeader
+        <$> decodeBlockHash
+        <*> decodeBlockHashRecord
+        <*> decodeHashTarget
+        <*> decodeBlockPayloadHash
+        <*> decodeBlockCreationTime
+        <*> decodeNonce
+        <*> decodeChainId
+        <*> decodeBlockWeight
+        <*> decodeBlockHeight
+        <*> decodeChainwebVersion
+        <*> decodeChainNodeId
+        <*> decodeBlockHash
+    checkGenesis bh
+    return bh
+  where
+    checkGenesis bh = when (isGenesisBlockHeader bh && bh /= gen bh)
+        $ fail $ "Decoding of genesis BlockHeader failed"
+        <> ". Expected: " <> sshow (gen bh)
+        <> ". Actual: " <> sshow bh
+    gen bh = genesisBlockHeader (_chainwebVersion bh) (_chainId bh)
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
@@ -624,14 +632,10 @@ genesisBlockTarget = maxTarget
 
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
 genesisTime Test{} _ = BlockCreationTime epoche
-genesisTime TestWithTime{} _ = BlockCreationTime now
-genesisTime TestWithPow{} _ = BlockCreationTime now
+genesisTime TestWithTime{} _ = BlockCreationTime epoche
+genesisTime TestWithPow{} _ = BlockCreationTime epoche
 genesisTime Simulation{} _ = BlockCreationTime epoche
 genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
-
-now :: Time Int64
-now = unsafePerformIO getCurrentTimeIntegral
-{-# NOINLINE now #-}
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
