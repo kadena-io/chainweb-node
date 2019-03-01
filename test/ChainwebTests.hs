@@ -46,6 +46,7 @@ import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
 import qualified Data.DiGraph (properties)
+import qualified Data.HashMap.Weak.Test (properties)
 import qualified Data.PQueue.Test (properties)
 import qualified Data.Word.Encoding (properties)
 
@@ -95,6 +96,7 @@ suite =
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
         , testProperties "Data.DiGraph" Data.DiGraph.properties
+        , testProperties "Data.HashMap.Weak.Test" Data.HashMap.Weak.Test.properties
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
