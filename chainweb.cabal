@@ -130,6 +130,7 @@ library
         , Data.CAS.HashMap
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
+        , Data.IVar
         , Data.LogMessage
         , Data.PQueue
         , Data.PQueue.Test
