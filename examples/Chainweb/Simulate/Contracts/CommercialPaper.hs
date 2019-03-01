@@ -1,30 +1,21 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# language DeriveGeneric #-}
 -- |
 
-module Chainweb.Simulate.Contracts.CommercialPaper
-       ( commercialPaperContract
-       , calculateDiscount
-       , inventory
-       , issueInventory
-       , transferInventory
-       , fillOrderTransfer
-       , settleOrder
-       , settleOrderBuyer
-       , refundOrder
-       , settleOrderSeller
-       , readCpMaster
-       , readInventory
-       ) where
+module Chainweb.Simulate.Contracts.CommercialPaper where
 
+import Data.Decimal
 import Data.Text (Text)
+
+import GHC.Generics
+
 import NeatInterpolation
-import Numeric.Natural
 
 -- this assumes tha mpid, cash, and orders contracts have already been
 -- loaded. i'll add those contracts in a later commit.
 
 commercialPaperContract :: Text -> Text
-commercialPaperContract adminKeyset = [text|
+commercialPaperContract _adminKeyset = [text|
 ;;
 ;; Commercial Paper Contract Module
 (module cp 'module-admin
@@ -250,80 +241,73 @@ commercialPaperContract adminKeyset = [text|
 
 -}
 
+newtype Issuer = Issuer {getIssuer :: Text} deriving (Eq, Show,Generic)
 
--- these functions will assume that the contract has already been
--- loaded. Therefore cp-inventory, cp-master, cp-asset, and the
--- modules mpid, cash and orders will have already been defined.
+newtype Cuisp = Cuisp {getCuisp :: Text} deriving (Eq, Show, Generic)
 
-issue actualIssuer actualCusip actualTicker actualFutureValue actualDiscountRate actualDaysToMaturity actualPar actualDate = [text|
-(defun issue ($issuer $cusip $ticker $futureValue $discountRate
-                $daysToMaturity $par $date)
+newtype Ticker = Ticker {getTicker :: Text} deriving (Eq, Show, Generic)
 
-    "ISSUER issues CUSIP, computing discount, cost, settlement date."
+newtype FutureValue = FutureValue {getFutureValue :: Decimal} deriving (Eq, Show, Generic)
 
-    (enforce-mpid-auth $issuer)
+newtype DiscountRate = DiscountRate {getDiscountRate :: Decimal} deriving (Eq, Show, Generic)
 
-    (enforce (> $futureValue 0.0) "Valid future-value")
+newtype Maturity = Maturity {getMaturity :: Integer} deriving (Eq, Show, Generic)
 
-    (enforce (and (>= $discountRate 0.0)
-                (< $discountRate 100.0))
-              "Valid discount-rate")
+newtype Par = Par {getPar :: Decimal} deriving (Eq, Show, Generic)
 
-    (enforce (> $daysToMaturity 0) "Valid days-to-maturity")
+ -- I'll have to look at actual Pact code to resolve this dataype.
+data Date = Date
 
-    (let* ((discount (calculate-discount $futureValue
-                        $discountRate $daysToMaturity))
-           (cost (- $futureValue discount))
-           (settlement-date (add-time $date (days $daysToMaturity))))
+data CPRequest = Issue
+  { issuer :: Issuer
+  , cuisp :: Cuisp
+  , ticker :: Ticker
+  , futureValue :: FutureValue
+  , discountRate :: DiscountRate
+  , maturity :: Maturity
+  , par :: Par
+  , date :: Date
+  }
 
-        (insert cp-master $cusip
-          {
-            "ticker": $ticker,
-            "issuer": $issuer,
-            "future-value": $futureValue,
-            "discount-rate": $discountRate,
-            "maturity": $daysToMaturity,
-            "par": $par,
-            "discount": discount,
-            "cost": cost,
-            "trade-date": $date,
-            "settlement-date": settlement-date
-          })
-
-        (issue-inventory $issuer $cusip 1 cost $date)
-
-        (format "Issued {}/{} with discount {}, cost {}, settlement date {}"
-            [$ticker $cusip discount cost settlement-date])
-        )
-  )
-|]
+issue :: CPRequest -> Text
+issue (Issue actualIssuer actualCusip actualTicker actualFutureValue actualDiscountRate actualDaysToMaturity actualPar actualDate) =
+  [text|(issue $issuer_interp $cusip_interp $ticker_interp $futureValue_interp $discountRate_interp $daysToMaturity_interp $par_interp $date_interp)|]
   where
-    issuer = undefined actualIssuer
-    cusip = undefined actualCusip
-    ticker = undefined actualTicker
-    futureValue = undefined actualFutureValue
-    discountRate = undefined actualDiscountRate
-    daysToMaturity = undefined actualDaysToMaturity
-    par = undefined actualPar
-    date = undefined actualDate
+    issuer_interp = undefined actualIssuer
+    cusip_interp = undefined actualCusip
+    ticker_interp = undefined actualTicker
+    futureValue_interp = undefined actualFutureValue
+    discountRate_interp = undefined actualDiscountRate
+    daysToMaturity_interp = undefined actualDaysToMaturity
+    par_interp = undefined actualPar
+    date_interp = undefined actualDate
+-- issue _ = error "to fill"
 
-
---------------------------------------------
--- I'll fill these out on the next commit --
---------------------------------------------
-
+calculateDiscount :: CPRequest -> Text
 calculateDiscount = undefined
+inventory :: CPRequest -> Text
 inventory = undefined
+issueInventory :: CPRequest -> Text
 issueInventory = undefined
+transferInventory :: CPRequest -> Text
 transferInventory = undefined
+fillOrderTransfer :: CPRequest -> Text
 fillOrderTransfer = undefined
+settleOrder :: CPRequest -> Text
 settleOrder = undefined
+settleOrderBuyer :: CPRequest -> Text
 settleOrderBuyer = undefined
+refundOrder :: CPRequest -> Text
 refundOrder = undefined
+settleOrderSeller :: CPRequest -> Text
 settleOrderSeller = undefined
+readCpMaster :: CPRequest -> Text
 readCpMaster = undefined
+
+readInventory :: CPRequest -> Text
 readInventory = undefined
 
---------------------------------------------
--- I'll fill these out on the next commit --
---------------------------------------------
+-- this is a defpact
+
+issueOrderFillSettle :: CPRequest -> Text
+issueOrderFillSettle = undefined

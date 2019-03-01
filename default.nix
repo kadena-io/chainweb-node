@@ -124,7 +124,12 @@ in
           ver = "0.2.1.0";
           sha256 = "1ys02jz4xg94g8z78cgafi24vjp7fyhf0slcyrhs1ffbhr8gqwm3";
         });
-        # --- end of `tasty` dependants --- #
+        fake = doJailbreak (callHackageDirect {
+          pkg = "fake";
+          ver = "0.1.1.1";
+          sha256 = "17b2iwqg62cl7r7lafjm8fj1chb104g2gdq8p2bbsgvvr39v0ras";
+        });
+        # --- end of `tasty` dependents --- #
 
         extra = dontCheck (callHackageDirect {
           pkg = "extra";

@@ -1,13 +1,40 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# language OverloadedStrings #-}
+{-# language DeriveGeneric #-}
+{-# language DeriveAnyClass #-}
+{-# language GeneralizedNewtypeDeriving #-}
+{-# language QuasiQuotes #-}
+{-# language LambdaCase #-}
+
 -- |
 
 module Chainweb.Simulate.Contracts.CryptoCritters where
 
+-- import Control.Monad
+import Control.Monad.Zip
+
+import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.Maybe
+-- import qualified Data.Text as T
 import Data.Text (Text)
+
+-- import Fake
+
+import GHC.Generics hiding (from, to)
+
 import NeatInterpolation
 
--- (define-keyset '$adminKeyset (read-keyset "$adminKeyset"))
+-- import System.Random
 
+-- import Text.Printf
+
+-- pact
+import Pact.ApiReq
+import Pact.Types.Crypto
+-- import Pact.Types.Command
+-- import Pact.Types.RPC
+
+cryptoCritterContract :: Text -> Text
 cryptoCritterContract adminKeyset = [text|
 (module critters '$adminKeyset
   "Collectible Crypto Critters"
@@ -219,3 +246,97 @@ cryptoCritterContract adminKeyset = [text|
 (insert countTable "critters" {"count":0})
 
 -}
+
+newtype Row = Row { getRow :: Text}
+  deriving (Eq, Show, Generic)
+
+newtype Genes = Genes { getGenes :: Text}
+  deriving (Eq, Show, Generic)
+
+newtype Critter = Critter { getCritter :: Value }
+  deriving (Eq, Show, Generic)
+
+newtype Generation = Generation { getGeneration :: Integer }
+  deriving (Eq, Show, Generic)
+
+newtype CritterId = CritterId { getCritterId :: Integer }
+  deriving (Eq, Show, Generic)
+
+newtype Suffix = Suffix
+  { getSuffix :: Text
+  } deriving (Eq, Show, Generic)
+
+data CritterRequest
+  = GetIncCount Row
+  | CreateCritter Genes
+  | ShowCritter Suffix
+                Value
+  | ShowGeneration Generation
+  | Owner CritterId
+  | TransferCritter [KeyPair] CritterId
+  | SetTransfer CritterId Bool [KeyPair]
+  | InitiateTransfer [KeyPair] CritterId
+  | CompleteTransfer CritterId
+  | CancelTransfer CritterId
+  | SetBreeding CritterId Bool
+  | SolicitMate CritterId
+  | CombineGenes Genes Genes
+  | Breed CritterId CritterId
+  | CancelBreed CritterId
+
+createCritterRequest :: CritterRequest -> Text
+createCritterRequest =
+  \case
+     GetIncCount _row -> undefined
+     CreateCritter _genes -> undefined
+     ShowCritter _suffix _critter -> undefined
+     ShowGeneration _generation -> undefined
+     Owner _critterid -> undefined
+     TransferCritter _keyset _critterid -> undefined
+     SetTransfer _critterid _transferflag _keyset -> undefined
+     InitiateTransfer _keyset _critterid -> undefined
+     CompleteTransfer _critterid -> undefined
+     CancelTransfer _critterid -> undefined
+     SetBreeding _critterid _flag -> undefined
+     SolicitMate _critterid -> undefined
+     CombineGenes _genesA _genesB -> undefined
+     Breed _idA _idB -> undefined
+     CancelBreed _critterid -> undefined
+
+testAdminPrivates :: ByteString
+testAdminPrivates =
+  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+
+testAdminPublics :: ByteString
+testAdminPublics =
+  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+
+testPrivates :: [ByteString]
+testPrivates =
+  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
+  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
+  ]
+
+testPublics :: [ByteString]
+testPublics =
+  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
+  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
+  ]
+
+testAdminKeyPairs :: [KeyPair]
+testAdminKeyPairs =
+  let mPair =
+        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
+      mKeyPair =
+        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
+   in maybeToList mKeyPair
+
+testKeyPairs :: [KeyPair]
+testKeyPairs =
+  concat $
+  zipWith
+    (\private public ->
+       maybeToList $
+       KeyPair <$> importPrivate private <*> importPublic public)
+    testPrivates
+    testPublics

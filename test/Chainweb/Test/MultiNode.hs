@@ -423,11 +423,11 @@ expectedBlockCount v seconds = round ebc
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v seconds = Stats
-    { _statBlockCount = round $ ebc * 0.8
-    , _statMaxHeight = round $ ebc * 0.7
-    , _statMinHeight = round $ ebc * 0.3
-    , _statMedHeight = round $ ebc * 0.5
-    , _statAvgHeight = ebc * 0.5
+    { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
+    , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
+    , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
+    , _statMedHeight = round $ ebc * 0.3 -- temporarily, was 0.5
+    , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
     ebc :: Double
@@ -454,4 +454,3 @@ upperStats v seconds = Stats
     br = case blockRate v of
         Just (BlockRate n) -> int n
         Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v
-
