@@ -32,6 +32,7 @@ import Text.Pretty.Simple (pShowNoColor)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisTime)
 import Chainweb.ChainId (testChainId)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Time (Time(..), TimeSpan(..))
