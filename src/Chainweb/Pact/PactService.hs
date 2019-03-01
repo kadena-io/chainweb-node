@@ -105,12 +105,12 @@ serviceRequests memPoolAccess reqQ = go
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
-            LocalReq{..} -> error "Local requests not implemented yet"
-            NewBlockReq {..} -> do
+            LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
+            NewBlockMsg NewBlockReq {..} -> do
                 txs <- execNewBlock memPoolAccess _newBlockHeader
                 liftIO $ putMVar _newResultVar $ toNewBlockResults txs
                 go
-            ValidateBlockReq {..} -> do
+            ValidateBlockMsg ValidateBlockReq {..} -> do
                 txs <- execValidateBlock memPoolAccess _valBlockHeader
                 liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
                 go

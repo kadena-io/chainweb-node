@@ -81,13 +81,9 @@ instance FromJSON PactTransaction where
         <*> o .: "ptCmd"
     {-# INLINE parseJSON #-}
 
-newtype Transactions = Transactions { _transactionPairs :: [(PactTransaction, FullLogTxOutput)] }
-
-instance Eq Transactions where
-    (==) a b =
-      let tpa = _transactionPairs a
-          tpb = _transactionPairs b
-      in (fst <$> tpa) == (fst <$> tpb) && (snd <$> tpa) == (snd <$> tpb)
+newtype Transactions = Transactions
+    { _transactionPairs :: [(PactTransaction, FullLogTxOutput)]
+    } deriving (Eq)
 
 instance ToJSON Transactions where
     toJSON o = object

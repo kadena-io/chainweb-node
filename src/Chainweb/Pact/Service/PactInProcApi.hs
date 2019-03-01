@@ -61,7 +61,7 @@ initWebService reqQ action = do
 newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockPayloadHash))
 newBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockPayloadHash))
-    let msg = NewBlockReq
+    let msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newResultVar = resultVar }
     addRequest reqQ msg
@@ -70,7 +70,7 @@ newBlock bHeader reqQ = do
 validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockOutputs))
 validateBlock bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockOutputs))
-    let msg = ValidateBlockReq
+    let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar}
     addRequest reqQ msg

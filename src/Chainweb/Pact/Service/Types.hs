@@ -18,6 +18,7 @@ import Chainweb.Payload
 data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
+                | CloseMsg
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
@@ -28,7 +29,7 @@ data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valResultVar :: MVar (BlockTransactions, BlockOutputs)
     }
-  
+
 data LocalReq = LocalReq
     -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
     { _localRequest :: BlockHeader
