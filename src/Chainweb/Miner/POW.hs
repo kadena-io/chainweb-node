@@ -35,6 +35,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Miner.Config (MinerConfig(..))

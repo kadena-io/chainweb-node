@@ -50,7 +50,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.CutDB
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash

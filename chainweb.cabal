@@ -73,6 +73,7 @@ library
         , Chainweb.Chainweb
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client

@@ -36,6 +36,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeader
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph

@@ -21,7 +21,7 @@ import Servant.Client
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.CutDB
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI
 import Chainweb.Version
 

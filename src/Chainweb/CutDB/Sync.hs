@@ -33,6 +33,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Utils

@@ -40,6 +40,7 @@ import Test.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.NodeId
 import Chainweb.Payload

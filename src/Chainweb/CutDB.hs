@@ -34,10 +34,6 @@ module Chainweb.CutDB
 , cutDbConfigTelemetryLevel
 , defaultCutDbConfig
 
--- * CutHashes
-, CutHashes(..)
-, cutToCutHashes
-
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
@@ -63,7 +59,6 @@ import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
-import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -71,11 +66,9 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
-import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Maybe
@@ -101,6 +94,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
@@ -108,8 +102,6 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.Singletons
-
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -134,24 +126,6 @@ defaultCutDbConfig v = CutDbConfig
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     }
-
--- -------------------------------------------------------------------------- --
--- Cut Hashes
-
-data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHash)
-    , _cutOrigin :: !(Maybe PeerInfo)
-        -- ^ 'Nothing' is used for locally minded Cuts
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
-
-instance ToJSON CutHashes
-instance FromJSON CutHashes
-instance NFData CutHashes
-
-cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
-cutToCutHashes p c = CutHashes (_blockHash <$> _cutMap c) p
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
