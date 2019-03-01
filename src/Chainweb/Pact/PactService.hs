@@ -11,15 +11,16 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( execTransactions
+    ( execNewBlock
+    , execTransactions
+    , execValidateBlock
     , initPactService
     , mkPureState
     , mkSQLiteState
-    , newBlock
+    , pactFilesDir
     , serviceRequests
     , setupConfig
     , toCommandConfig
-    , validateBlock
     ) where
 
 import Control.Applicative
@@ -54,18 +55,15 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.Backend.SqliteDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 
 import Chainweb.Pact.Utils
 
--- | Initilization for the Pact execution service, including initialization for the execution queues, the MemPool, and the Checkpointer
-initPactService
-  :: TVar (TQueue RequestMsg)
-  -> TVar (TQueue ResponseMsg)
-  -> MemPoolAccess
-  -> IO ()
-initPactService reqQVar respQVar memPoolAccess = do
+
+initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
+initPactService reqQ memPoolAccess = do
     let loggers = P.neverLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
@@ -94,38 +92,31 @@ initPactService reqQVar respQVar memPoolAccess = do
             fail s
         Right _ -> return ()
     void $ evalStateT
-           (runReaderT (serviceRequests memPoolAccess reqQVar respQVar) checkpointEnv)
+           (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
            theState
 
+
 -- | Forever loop serving Pact ececution requests and reponses from the queues
-serviceRequests
-    :: MemPoolAccess
-    -> TVar (TQueue RequestMsg)
-    -> TVar (TQueue ResponseMsg)
-    -> PactT ()
-serviceRequests memPoolAccess reqQ respQ =
-    forever run where
-        run = do
-            reqMsg <- liftIO $ getNextRequest reqQ
-            respMsg <- case _reqRequestType reqMsg of
-                NewBlock -> do
-                    h <- newBlock memPoolAccess (_reqBlockHeader reqMsg)
-                    return $ ResponseMsg
-                        { _respRequestType = NewBlock
-                        , _respRequestId = _reqRequestId reqMsg
-                        , _respPayload = h }
-                ValidateBlock -> do
-                    h <- validateBlock memPoolAccess (_reqBlockHeader reqMsg)
-                    return $ ResponseMsg
-                        { _respRequestType = ValidateBlock
-                        , _respRequestId = _reqRequestId reqMsg
-                        , _respPayload = h }
-            void . liftIO $ addResponse respQ respMsg
+serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
+serviceRequests memPoolAccess reqQ = go
+    where
+    go = do
+        msg <- liftIO $ getNextRequest reqQ
+        case msg of
+            CloseMsg -> return ()
+            LocalRequestMsg{..} -> error "Local requests not implemented yet"
+            RequestMsg {..} -> do
+                txs <- case _reqRequestType of
+                    NewBlock -> execNewBlock memPoolAccess _reqBlockHeader
+                    ValidateBlock -> execValidateBlock memPoolAccess _reqBlockHeader
+                liftIO $ putMVar _reqResultVar  txs
+                go
+
 
 -- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
 -- | Note: The BlockHeader param here is the header of the parent of the new block
-newBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
+execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+execNewBlock memPoolAccess _parentHeader@BlockHeader{..} = do
     -- TODO: miner data needs to be addeded to BlockHeader...
     let miner = defaultMiner
     newTrans <- liftIO $ memPoolAccess _blockHeight
@@ -144,8 +135,8 @@ newBlock memPoolAccess _parentHeader@BlockHeader{..} = do
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-validateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-validateBlock memPoolAccess currHeader = do
+execValidateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
+execValidateBlock memPoolAccess currHeader = do
     trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     let miner = defaultMiner
     CheckpointEnv {..} <- ask

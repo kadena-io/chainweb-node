@@ -9,43 +9,27 @@
 
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
-    , addResponse
     , getNextRequest
-    , getNextResponse
-    , RequestId(..)
-    , RequestMsg(..)
     , RequestType(..)
-    , ResponseMsg(..)
+    , sendCloseMsg
     ) where
 
 import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Chainweb.Pact.Service.Types
 
 -- | Add a request to the Pact execution queue
-addRequest :: TVar (TQueue RequestMsg) -> RequestMsg -> IO ()
-addRequest var msg = do
-    q <- readTVarIO var
+addRequest :: TQueue RequestMsg -> RequestMsg -> IO ()
+addRequest q msg = do
     atomically $ writeTQueue q msg
-    return ()
+
+-- | Send special 'close' message to stop the processing thread
+sendCloseMsg :: TQueue RequestMsg -> IO ()
+sendCloseMsg q = do
+    atomically $ writeTQueue q CloseMsg
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: TVar (TQueue RequestMsg) -> IO RequestMsg
-getNextRequest var = do
-    q <- readTVarIO var
-    atomically $ readTQueue q
-
--- | Add a response to the Pact execution response queue
-addResponse :: TVar (TQueue ResponseMsg) -> ResponseMsg -> IO ()
-addResponse var msg = do
-    q <- readTVarIO var
-    atomically $ writeTQueue q msg
-    return ()
-
--- | Get the next available response from the Pact execution response queue
-getNextResponse :: TVar (TQueue ResponseMsg) -> IO ResponseMsg
-getNextResponse var = do
-    q <- readTVarIO var
+getNextRequest :: TQueue RequestMsg -> IO RequestMsg
+getNextRequest q = do
     atomically $ readTQueue q
