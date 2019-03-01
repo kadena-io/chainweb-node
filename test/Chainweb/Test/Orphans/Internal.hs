@@ -121,7 +121,7 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (Nonce <$> chooseAny)
             $ liftA2 (:+:) (pure (testChainId 0))
             $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary

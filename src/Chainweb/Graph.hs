@@ -176,7 +176,7 @@ validChainGraph g
     = isDiGraph g
     && isSymmetric g
     && isRegular g
-    && (G.order g <= 1 || G.size g > 1)
+    && (G.order g <= 1 || G.size g >= 1)
 {-# INLINE validChainGraph #-}
 
 adjacentChainIds

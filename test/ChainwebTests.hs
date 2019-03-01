@@ -19,6 +19,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
+import qualified Chainweb.Cut (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
@@ -38,6 +39,7 @@ import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
 import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
+import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
 import qualified Data.DiGraph (properties)
@@ -71,6 +73,7 @@ suite =
             , Chainweb.Test.TreeDB.RemoteDB.tests
             , Chainweb.Test.TreeDB.Persistence.tests
             , Chainweb.Test.TreeDB.Sync.tests
+            , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Store.Git.tests
@@ -88,5 +91,6 @@ suite =
         , testProperties "Data.DiGraph" Data.DiGraph.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+        , testProperties "Chainweb.Cut" Chainweb.Cut.properties
         ]
     ]
