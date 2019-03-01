@@ -58,7 +58,7 @@ function run-node () {
         $RUN \
             --node-id=$NID \
             --test-miners=$N \
-            --interface=127.0.0.1 \
+            --interface=0.0.0.0 \
             --log-level=$LOGLEVEL \
             --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
             --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
@@ -69,7 +69,7 @@ function run-node () {
         $RUN \
             --node-id=$NID \
             --test-miners=$N \
-            --interface=127.0.0.1 \
+            --interface=0.0.0.0 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \
             $CONFIG_FILE_ARG &

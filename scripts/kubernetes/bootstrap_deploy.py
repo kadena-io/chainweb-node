@@ -5,7 +5,7 @@ import base64
 
 from kubernetes import client, config
 
-NAMESPACE="myproject"
+NAMESPACE="default"
 DEPLOYMENT_NAME = "chainweb"
 DEPLOYMENT_IMAGE = "chainweb-bootstrap-test"
 PORT_NUMBER = 1789
@@ -25,24 +25,45 @@ def create_secret_from_file(api_instance, filename):
 
     api_instance.create_namespaced_secret( namespace=NAMESPACE, body=secret, pretty='true' )
 
+
+
 def create_headless_service(api_instance):
     spec = client.V1ServiceSpec(
         cluster_ip = "None",
         selector = {"app": "chainweb"},
         ports = [client.V1ServicePort(
-            port = PORT_NUMBER
+            port = PORT_NUMBER,
+            target_port = PORT_NUMBER
         )]
     )
     service = client.V1Service(
         api_version = "v1",
         kind = "Service",
-        metadata = client.V1ObjectMeta( name = "chainweb-service" ),
+        metadata = client.V1ObjectMeta( name = "chainweb-headless" ),
         spec = spec
     )
     api_instance.create_namespaced_service( namespace=NAMESPACE, body=service, pretty='true' )
 
 
-def create_stateful_set_template():
+def create_pod_service(api_instance, pod_name):
+    spec = client.V1ServiceSpec(
+        type = "NodePort",
+        selector = {"statefulset.kubernetes.io/pod-name": pod_name},
+        ports = [client.V1ServicePort(
+            port = 443,
+            target_port = PORT_NUMBER,
+        )]
+    )
+    service = client.V1Service(
+        api_version = "v1",
+        kind = "Service",
+        metadata = client.V1ObjectMeta( name = pod_name ),
+        spec = spec
+    )
+    api_instance.create_namespaced_service( namespace=NAMESPACE, body=service, pretty='true' )
+
+
+def create_pod_template():
     # Configure volumes
     config_volume = client.V1Volume(
         name = "bootstrap-config-vol",
@@ -59,13 +80,52 @@ def create_stateful_set_template():
         name = "data"
     )
     # Configureate Pod template container
+    isTTY = False
+    if (DEPLOYMENT_IMAGE == "chainweb-base"):
+        isTTY = True
     container = client.V1Container(
         name  = "chainweb",
         image = DEPLOYMENT_IMAGE,
         image_pull_policy = "Never",    # When using local docker image
-        tty = True,
-        ports = [ client.V1ContainerPort(container_port = PORT_NUMBER) ],
+        tty = isTTY,
+        ports = [ client.V1ContainerPort( 
+            container_port = PORT_NUMBER ) ],
         volume_mounts = [config_mount, pv_mount]
+    )
+    # Create and configurate a spec section
+    template = client.V1PodTemplateSpec(
+        metadata = client.V1ObjectMeta( labels = {"app": "chainweb"} ),
+        spec = client.V1PodSpec( 
+            containers = [container],
+            volumes  = [config_volume] 
+        )
+    )
+    return template
+
+
+def create_pod_template_without_pvc():
+    # Configure volumes
+    config_volume = client.V1Volume(
+        name = "bootstrap-config-vol",
+        secret = client.V1SecretVolumeSource( secret_name = "bootstrap-config" )
+    )
+    # Configure volume mounts
+    config_mount = client.V1VolumeMount(
+        mount_path = "/tmp",
+        name = "bootstrap-config-vol"
+    )
+    # Configureate Pod template container
+    isTTY = False
+    if (DEPLOYMENT_IMAGE == "chainweb-base"):
+        isTTY = True
+    container = client.V1Container(
+        name  = "chainweb",
+        image = DEPLOYMENT_IMAGE,
+        image_pull_policy = "Never",    # When using local docker image
+        tty = isTTY,
+        ports = [ client.V1ContainerPort( 
+            container_port = PORT_NUMBER ) ],
+        volume_mounts = [config_mount]
     )
     # Create and configurate a spec section
     template = client.V1PodTemplateSpec(
@@ -98,7 +158,7 @@ def create_stateful_set_obj():
             match_labels = {"app": "chainweb"}
         ),
         service_name = "chainweb-service",
-        template = create_stateful_set_template(),
+        template = create_pod_template(),
         volume_claim_templates = [create_volume_claim_template()]
     )
     stateful_set = client.V1beta2StatefulSet(
@@ -111,38 +171,11 @@ def create_stateful_set_obj():
 
 
 
-def create_deployment_obj(region_str):
-    # Configure volumes
-    config_volume = client.V1Volume(
-        name = "bootstrap-config-vol",
-        secret = client.V1SecretVolumeSource( secret_name = "bootstrap-config" )
-    )
-    # Configure volume mounts
-    config_mount = client.V1VolumeMount(
-        mount_path = "/tmp",
-        name = "bootstrap-config-vol"
-    )
-    # Configureate Pod template container
-    container = client.V1Container(
-        name  = "chainweb",
-        image = DEPLOYMENT_IMAGE,
-        image_pull_policy = "Never",    # When using local docker image
-        tty = True,
-        ports = [ client.V1ContainerPort(container_port = PORT_NUMBER) ],
-        volume_mounts = [config_mount]
-    )
-    # Create and configurate a spec section
-    template = client.V1PodTemplateSpec(
-        metadata = client.V1ObjectMeta( labels = {"app": "chainweb"} ),
-        spec = client.V1PodSpec( 
-            containers = [container],
-            volumes  = [config_volume] 
-        )
-    )
+def create_deployment_obj():
     # Create the specification of deployment
     spec = client.ExtensionsV1beta1DeploymentSpec(
         replicas = PER_REGION_NODES,
-        template = template
+        template = create_pod_template_without_pvc()
     )
     # Instantiate the deployment object
     deployment = client.ExtensionsV1beta1Deployment(
@@ -206,14 +239,23 @@ def delete_secret(api_instance):
 
 def delete_headless_service(api_instance):
     api_instance.delete_namespaced_service(
-        name="chainweb-service",
+        name="chainweb-headless",
         namespace=NAMESPACE,
-        body=client.V1DeleteOptions()
+        body=client.V1DeleteOptions(),
+        pretty = "true"
     )
 
-def delete_persistent_volume(api_instance):
+def delete_pod_service(api_instance, pod_name):
+    api_instance.delete_namespaced_service(
+        name=pod_name,
+        namespace=NAMESPACE,
+        body=client.V1DeleteOptions(),
+        pretty = "true"
+    )
+
+def delete_persistent_volume(api_instance, name):
     api_instance.delete_namespaced_persistent_volume_claim(
-        name="data-chainweb-0", # how to scale?
+        name=name,
         namespace=NAMESPACE,
         pretty = "true",
         body = client.V1DeleteOptions()
@@ -240,21 +282,22 @@ def main():
     # Create a deployment object with client-python API. The deployment we
     # created is same as the `nginx-deployment.yaml` in the /examples folder.
 
-    #deployment = create_deployment_obj("us-east")
-    #create_deployment(extensions_v1beta1,deployment)
-    #delete_deployment(extensions_v1beta1)
-
-
-    
     create_secret_from_file(core_v1, "scripts/test-bootstrap-node.config")
     create_headless_service(core_v1)
+    create_pod_service(core_v1,"chainweb-0")
     stateful_set = create_stateful_set_obj()
     create_stateful_set(client.AppsV1beta2Api(),stateful_set)
 
     #delete_stateful_set(client.AppsV1beta2Api())
     #delete_secret(core_v1)
     #delete_headless_service(core_v1)
-    #delete_persistent_volume(core_v1)
+    #delete_pod_service(core_v1,"chainweb-0")
+    #delete_persistent_volume(core_v1, "data-chainweb-0")
+
+
+    #deployment = create_deployment_obj()
+    #create_deployment(extensions_v1beta1,deployment)
+    #delete_deployment(extensions_v1beta1)
 
 if __name__ == '__main__':
     main()
