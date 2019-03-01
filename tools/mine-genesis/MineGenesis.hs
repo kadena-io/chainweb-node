@@ -16,12 +16,9 @@
 --
 module Main where
 
-import Control.Lens (over)
-
 import Data.Aeson.Encode.Pretty
 import Data.Bytes.Put
 import Data.ByteString.Lazy.Char8 as BL8
-import Data.Generics.Wrapped (_Unwrapped)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text.Lazy as TL
@@ -35,10 +32,10 @@ import Text.Pretty.Simple (pShowNoColor)
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Difficulty (checkTarget)
+import Chainweb.ChainId (testChainId)
+import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Time (Time(..), TimeSpan(..))
-import Chainweb.Version (ChainwebVersion(..), chainwebVersionFromText)
+import Chainweb.Version (chainwebVersionFromText)
 
 ---
 
@@ -70,15 +67,3 @@ encodeBlock Binary bh = runPutL $ encodeBlockHeader bh
 encodeBlock Yaml bh = BL8.fromStrict . Yaml.encode $ ObjectEncoded bh
 encodeBlock Json bh = encodePretty $ ObjectEncoded bh
 encodeBlock Show bh = BL8.pack . TL.unpack $ pShowNoColor bh
-
-mineGenesis
-    :: ChainwebVersion
-    -> ChainId
-    -> BlockCreationTime
-    -> Nonce
-    -> BlockHeader
-mineGenesis v p ct n
-    | checkTarget (_blockTarget gh) (_blockPow gh) = gh
-    | otherwise = mineGenesis v p ct (over _Unwrapped succ n)
-  where
-    gh = genesisBlockHeader' v p ct n
