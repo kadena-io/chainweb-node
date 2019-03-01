@@ -294,7 +294,7 @@ withCuts
     -> (Cuts -> IO a)
     -> IO a
 withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
-    withCutDb cutDbConfig webchain $ \cutDb ->
+    withCutDb cutDbConfig (_getLogFunction logfun) webchain $ \cutDb ->
         f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
 
 runCutsSyncClient
