@@ -22,17 +22,11 @@ module Chainweb.Pact.Service.Http.PactApi
     ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async
 import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM.TVar
 import Control.Exception hiding (Handler)
 import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.STM
-
-import qualified Data.HashTable.IO as H
-import Data.HashTable.ST.Basic (HashTable)
 
 import Network.Socket (Socket, close)
 import Network.Wai
