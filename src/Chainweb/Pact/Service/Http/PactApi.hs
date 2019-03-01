@@ -76,7 +76,7 @@ localReq :: BlockHeader -> PactAppM (Either String Transactions)
 localReq bHeader = do
     reqQ <- view rieReqQ
     respVar <- liftIO $ (newEmptyMVar :: IO (MVar (Either String Transactions)))
-    let msg = LocalRequestMsg
+    let msg = LocalMsg LocalReq
           { _localRequest = bHeader
           , _localResultVar = respVar}
     liftIO $ addRequest reqQ msg

@@ -15,6 +15,7 @@ module Chainweb.Test.Pact.PactInProcApi where
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Zip
 
+import qualified Data.Aeson as A (encode)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Default
@@ -35,6 +36,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Test.Utils
 
 import qualified Pact.ApiReq as P
@@ -58,32 +60,69 @@ pactApiTest = do
         ------------------------------------------------------------------------------------------------
         respVar0 <- newBlock (headers ! 0) reqQ
         rsp0 <- takeMVar respVar0 -- wait for response
-        tt0 <- checkRespTrans "block-results-expected-0.txt" rsp0
+        tt0 <- checkNewResponse "new-block-expected-0" rsp0
 
         ------------------------------------------------------------------------------------------------
         -- validate the same transactions sent to newBlock above
         ------------------------------------------------------------------------------------------------
         respVar0b <- validateBlock (headers ! 0) reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
-        tt0b <- checkRespTrans "block-results-expected-0.txt" rsp0b
+        tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
 
         ------------------------------------------------------------------------------------------------
         -- validate a different set of transactions (not sent to newBlock)
         ------------------------------------------------------------------------------------------------
         respVar1 <- validateBlock (headers ! 1) reqQ
         rsp1 <- takeMVar respVar1 -- wait for response
-        tt1 <- checkRespTrans "block-results-expected-1.txt" rsp1
+        tt1 <- checkValidateResponse "validateBlock-expected-1" rsp1
 
         ------------------------------------------------------------------------------------------------
         -- end of tests
         ------------------------------------------------------------------------------------------------
         return $ tt0 : tt0b : [tt1] )
 
-checkRespTrans :: FilePath -> Transactions -> IO TestTree
-checkRespTrans fp txs =
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
-    where
-        ioBs = return $ toS $ show $ toJSON txs
+checkNewResponse :: FilePath -> (BlockTransactions, BlockPayloadHash) -> IO TestTree
+checkNewResponse filePrefix (bTrans, bplHash) = do
+    ttBlockTxs <- checkBlockTransactions filePrefix bTrans
+    ttBlockPayHash <- checkBlockPayloadHash filePrefix bplHash
+    return $ testGroup "newResponse" (ttBlockTxs : [ttBlockPayHash])
+
+checkValidateResponse :: FilePath -> (BlockTransactions, BlockOutputs) -> IO TestTree
+checkValidateResponse filePrefix (bTrans, bOuts) = do
+    ttBlockTxs <- checkBlockTransactions filePrefix bTrans
+    ttBlockPayHash <- checkBlockOutputs filePrefix bOuts
+    return $ testGroup "validate" (ttBlockTxs : [ttBlockPayHash])
+
+checkBlockTransactions :: FilePath -> BlockTransactions -> IO TestTree
+checkBlockTransactions filePrefix bTrans = do
+    let fp = filePrefix ++ "-blockTrans.txt"
+    let ioBsTrans = return $ foldMap (toS . _transactionBytes) (_blockTransactions bTrans)
+    let ttTrans = goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsTrans
+
+    let fp2 = filePrefix ++ "-blockTrans-hash.txt"
+    let ioBsHash = return $ toS $ A.encode $ _blockTransactionsHash bTrans
+    let ttTransHash = goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsHash
+
+    return $ testGroup "BlockTransactions" $ ttTrans : [ttTransHash]
+
+checkBlockPayloadHash :: FilePath -> BlockPayloadHash -> IO TestTree
+checkBlockPayloadHash filePrefix bPayHash = do
+   let fp = filePrefix ++ "-blockPayHash.txt"
+   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+   where
+       ioBs = return $ A.encode bPayHash
+
+checkBlockOutputs :: FilePath -> BlockOutputs -> IO TestTree
+checkBlockOutputs filePrefix bOuts = do
+   let fp = filePrefix ++ "-blockOuts.txt"
+   let ioBsOuts = return $ foldMap (toS . _transactionOutputBytes) (_blockOutputs bOuts)
+   let ttOuts = goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsOuts
+
+   let fp2 = filePrefix ++ "-blockOut-hash.txt"
+   let ioBsOutsHash = return $ A.encode $ _blockOutputsHash bOuts
+   let ttOutsHash = goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsOutsHash
+
+   return $ testGroup "BlockOutputs" $ ttOuts : [ttOutsHash]
 
 getBlockHeaders :: Int -> [BlockHeader]
 getBlockHeaders n = do
@@ -91,7 +130,7 @@ getBlockHeaders n = do
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 
-testMemPoolAccess :: BlockHeight -> IO [Transaction]
+testMemPoolAccess :: BlockHeight -> IO [PactTransaction]
 testMemPoolAccess (BlockHeight 0) = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     let cmdStrs =
@@ -111,7 +150,7 @@ cmdBlocks =  V.fromList [ [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
                           , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
                         ]
 
-mkPactTestTransactions :: [String] -> IO [Transaction]
+mkPactTestTransactions :: [String] -> IO [PactTransaction]
 mkPactTestTransactions cmdStrs = do
     let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
     let intSeq = [0, 1 ..] :: [Word64]
@@ -125,7 +164,7 @@ mkPactTransaction
   -> T.Text
   -> Word64
   -> String
-  -> Transaction
+  -> PactTransaction
 mkPactTransaction keyPair theData nonce txId theCode =
     let pubMeta = def :: P.PublicMeta
         cmd = P.mkCommand
@@ -133,7 +172,7 @@ mkPactTransaction keyPair theData nonce txId theCode =
               pubMeta
               nonce
               (P.Exec (P.ExecMsg (T.pack theCode) theData))
-    in Transaction {_tTxId = txId, _tCmd = cmd}
+    in PactTransaction {_ptTxId = txId, _ptCmd = cmd}
 
 testKeyPairs :: [P.KeyPair]
 testKeyPairs =

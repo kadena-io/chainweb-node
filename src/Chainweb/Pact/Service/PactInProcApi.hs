@@ -35,14 +35,15 @@ import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload
 
 -- | Initialization for Pact (in process) Api
-withPactService :: ((TQueue RequestMsg) -> IO a) -> IO a
+withPactService :: (TQueue RequestMsg -> IO a) -> IO a
 withPactService action = withPactService' tempMemPoolAccess action -- TODO: replace with real mempool
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-withPactService' :: MemPoolAccess -> ((TQueue RequestMsg) -> IO a) -> IO a
+withPactService' :: MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
 withPactService' memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     a <- async (PS.initPactService reqQ memPoolAccess)
@@ -52,28 +53,26 @@ withPactService' memPoolAccess action = do
     closeQueue reqQ
     return r
 
-initWebService :: (TQueue RequestMsg) -> IO a -> IO a
+initWebService :: TQueue RequestMsg -> IO a -> IO a
 initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
-    withPactServiceApp (Left socket) "127.0.0.1" reqQ $ action
+    withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions )
+newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockPayloadHash))
 newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar Transactions)
-    let msg = RequestMsg
-          { _reqRequestType = NewBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
+    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockPayloadHash))
+    let msg = NewBlockMsg NewBlockReq
+          { _newBlockHeader = bHeader
+          , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
 
-validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar Transactions)
+validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockOutputs))
 validateBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar Transactions)
-    let msg = RequestMsg
-          { _reqRequestType = ValidateBlock
-          , _reqBlockHeader = bHeader
-          , _reqResultVar = resultVar}
+    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockOutputs))
+    let msg = ValidateBlockMsg ValidateBlockReq
+          { _valBlockHeader = bHeader
+          , _valResultVar = resultVar}
     addRequest reqQ msg
     return resultVar
 
@@ -81,5 +80,5 @@ closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
 
 -- TODO: replace reference to this with actual mempool and delete this
-tempMemPoolAccess :: BlockHeight -> IO [Transaction]
+tempMemPoolAccess :: BlockHeight -> IO [PactTransaction]
 tempMemPoolAccess _ = error "PactApi - MemPool access not implemented yet"

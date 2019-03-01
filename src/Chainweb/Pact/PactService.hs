@@ -35,6 +35,8 @@ import Control.Monad.State
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
 import Data.Maybe
+import qualified Data.Sequence as Seq
+import Data.String.Conv (toS)
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -42,6 +44,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
+import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -58,9 +61,8 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-
 import Chainweb.Pact.Utils
-
+import Chainweb.Payload
 
 initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
 initPactService reqQ memPoolAccess = do
@@ -95,7 +97,6 @@ initPactService reqQ memPoolAccess = do
            (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
            theState
 
-
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
 serviceRequests memPoolAccess reqQ = go
@@ -104,16 +105,59 @@ serviceRequests memPoolAccess reqQ = go
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
-            LocalRequestMsg{..} -> error "Local requests not implemented yet"
-            RequestMsg {..} -> do
-                txs <- case _reqRequestType of
-                    NewBlock -> execNewBlock memPoolAccess _reqBlockHeader
-                    ValidateBlock -> execValidateBlock memPoolAccess _reqBlockHeader
-                liftIO $ putMVar _reqResultVar  txs
+            LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
+            NewBlockMsg NewBlockReq {..} -> do
+                txs <- execNewBlock memPoolAccess _newBlockHeader
+                liftIO $ putMVar _newResultVar $ toNewBlockResults txs
+                go
+            ValidateBlockMsg ValidateBlockReq {..} -> do
+                txs <- execValidateBlock memPoolAccess _valBlockHeader
+                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
                 go
 
+toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
+toHashedLogTxOutput FullLogTxOutput{..} =
+    let e = A.encode _flTxLogs
+        hashed = P.hash $ toS e
+    in HashedLogTxOutput
+        { _hlCommandResult = _flCommandResult
+        , _hlTxLogHash = hashed
+        }
 
--- | Create a new block for mining. Get transactions from the MemPool and execute them in Pact
+toCWTransaction :: PactTransaction -> Transaction
+toCWTransaction pTrans =
+    let pCmd = _ptCmd pTrans
+        ptBytes = A.encode pCmd
+    in Transaction { _transactionBytes = toS ptBytes }
+
+toCWOutput :: FullLogTxOutput -> TransactionOutput
+toCWOutput flOut =
+    let hashedLogOut = toHashedLogTxOutput flOut
+        outBytes = A.encode hashedLogOut
+    in TransactionOutput { _transactionOutputBytes = toS outBytes }
+
+toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
+toNewBlockResults ts =
+    let oldSeq = Seq.fromList $ _transactionPairs ts
+        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
+
+        seqTrans = fst <$> newSeq
+        blockTrans = snd $ newBlockTransactions seqTrans
+
+        bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
+    in (blockTrans, bPayHash)
+
+toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
+toValidateBlockResults ts =
+    let oldSeq = Seq.fromList $ _transactionPairs ts
+        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
+
+        seqTrans = fst <$> newSeq
+        blockTrans = snd $ newBlockTransactions seqTrans
+
+        (_, blockOuts) = newBlockOutputs $ snd <$> newSeq
+    in (blockTrans, blockOuts)
+
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 execNewBlock memPoolAccess _parentHeader@BlockHeader{..} = do
@@ -180,7 +224,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just P.SQLiteConfig { _dbFile = f, _pragmas = xs }
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: MinerInfo -> [Transaction] -> PactT (Transactions, PactDbState)
+execTransactions :: MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
 execTransactions miner xs = do
     cpEnv <- ask
     currentState <- get
@@ -188,10 +232,10 @@ execTransactions miner xs = do
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-    txOuts <- forM xs (\Transaction {..} -> do
-        let txId = P.Transactional (P.TxId _tTxId)
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _tCmd miner
-        return TransactionOutput {_getCommandResult = P._crResult result, _getTxLogs = txLogs})
+    txOuts <- forM xs (\PactTransaction {..} -> do
+        let txId = P.Transactional (P.TxId _ptTxId)
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _ptCmd miner
+        return FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -227,7 +271,7 @@ pactFilesDir = "test/config/"
 ----------------------------------------------------------------------------------------------------
 -- TODO: Replace these placeholders with the real API functions:
 ----------------------------------------------------------------------------------------------------
-transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [Transaction]
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [PactTransaction]
 transactionsFromHeader memPoolAccess bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
     memPoolAccess (_blockHeight bHeader)
