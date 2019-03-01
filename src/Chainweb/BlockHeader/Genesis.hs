@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeader.Genesis
@@ -11,8 +12,20 @@
 -- Hard-coded Genesis blocks for various versions of Chainweb.
 --
 module Chainweb.BlockHeader.Genesis
-  ( -- * Testnet00
-    testnet00C0
+  ( -- * Genesis Blocks
+    -- ** Creation
+    genesisBlockHeader
+  , genesisBlockHeader'
+  , genesisBlockHeaders
+    -- ** Querying
+  , genesisBlockPayload
+  , genesisParentBlockHash
+  , genesisBlockTarget
+  , genesisTime
+
+    -- * Hard-coded Blocks
+    -- ** Testnet00
+  , testnet00C0
   , testnet00C1
   , testnet00C2
   , testnet00C3
@@ -24,7 +37,14 @@ module Chainweb.BlockHeader.Genesis
   , testnet00C9
   ) where
 
+import Control.Arrow ((&&&))
+
+import Data.Bytes.Put (putByteString, runPutS)
+import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Maybe (fromJust)
+import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Yaml as Yaml
@@ -33,9 +53,134 @@ import NeatInterpolation (text)
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader, ObjectEncoded(..))
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
+import Chainweb.Crypto.MerkleLog
+import Chainweb.Difficulty (HashTarget, maxTarget)
+import Chainweb.Graph
+import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
+import Chainweb.NodeId (ChainNodeId(..))
+import Chainweb.Payload
+import Chainweb.Time (Time(..), TimeSpan(..), epoche)
+import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
+
+-- -------------------------------------------------------------------------- --
+-- Genesis BlockHeader
+
+-- | The genesis block hash includes the Chainweb version and the 'ChainId'
+-- within the Chainweb version.
+--
+-- It is the '_blockParent' of the genesis block
+--
+genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
+genesisParentBlockHash v p = BlockHash $ MerkleLogHash
+    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
+        [ InputNode "CHAINWEB_GENESIS"
+        , encodeMerkleInputNode encodeChainwebVersion v
+        , encodeMerkleInputNode encodeChainId (_chainId p)
+        ]
+
+-- `maxTarget` likewise varies via `ChainwebVersion`.
+genesisBlockTarget :: ChainwebVersion -> HashTarget
+genesisBlockTarget = maxTarget
+
+genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
+genesisTime Test{} _ = BlockCreationTime epoche
+genesisTime TestWithTime{} _ = BlockCreationTime epoche
+genesisTime TestWithPow{} _ = BlockCreationTime epoche
+genesisTime Simulation{} _ = BlockCreationTime epoche
+-- Tuesday, 2019 February 26, 10:55 AM
+genesisTime Testnet00 _ = BlockCreationTime . Time $ TimeSpan 1551207336601038
+
+genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
+genesisMiner Test{} p = ChainNodeId (_chainId p) 0
+genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
+genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
+genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
+-- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
+-- In other words, 0 is a meaningless hard-coding.
+genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
+
+-- TODO: characterize genesis block payload. Should this be the value of
+-- chainId instead of empty string?
+genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
+genesisBlockPayloadHash v@Test{} c
+    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash v@TestWithTime{} c
+    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
+    putByteString "GENESIS:"
+    encodeChainwebVersion v
+    encodeChainId c
+
+genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
+genesisBlockPayload Test{} _ = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload TestWithTime{} _ = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this chainweb version"
+
+-- | A block chain is globally uniquely identified by its genesis hash.
+-- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
+-- as identifiers. We thus include the 'ChainwebVersion' value and the
+-- 'ChainId' into the genesis block hash.
+--
+-- We assume that there is always only a single 'ChainwebVersion' in
+-- scope and identify chains only by there internal 'ChainId'.
+--
+genesisBlockHeader
+    :: HasChainId p
+    => ChainwebVersion
+    -> p
+    -> BlockHeader
+genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v cid) (Nonce 0)
+  where
+    cid = _chainId p
+
+genesisBlockHeader'
+    :: HasChainId p
+    => ChainwebVersion
+    -> p
+    -> BlockCreationTime
+    -> Nonce
+    -> BlockHeader
+genesisBlockHeader' v p ct n = fromLog mlog
+  where
+    g = _chainGraph v
+    cid = _chainId p
+
+    mlog = newMerkleLog
+        $ genesisParentBlockHash v cid
+        :+: genesisBlockTarget v
+        :+: genesisBlockPayloadHash v cid
+        :+: ct
+        :+: n
+        :+: cid
+        :+: BlockWeight 0
+        :+: BlockHeight 0
+        :+: v
+        :+: genesisMiner v cid
+        :+: MerkleLogBody (blockHashRecordToSequence adjParents)
+    adjParents = BlockHashRecord $ HM.fromList $
+        (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
+
+genesisBlockHeaders
+    :: ChainwebVersion
+    -> HM.HashMap ChainId BlockHeader
+genesisBlockHeaders v = HM.fromList
+    . fmap (id &&& genesisBlockHeader v)
+    . toList
+    . chainIds_
+    . _chainGraph
+    $ v
 
 -- -------------------------------------------------------------------------- --
 -- Testnet00

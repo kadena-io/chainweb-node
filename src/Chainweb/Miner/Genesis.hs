@@ -17,6 +17,7 @@ import Data.Generics.Wrapped (_Unwrapped)
 -- internal imports
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader')
 import Chainweb.ChainId (ChainId)
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Version (ChainwebVersion)

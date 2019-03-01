@@ -18,7 +18,7 @@ import Test.Tasty.HUnit
 
 -- internal imports
 
-import Chainweb.BlockHeader (BlockHeader(..), Nonce(..), genesisTime)
+import Chainweb.BlockHeader (BlockHeader(..), Nonce(..))
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId (testChainId)
 import Chainweb.Miner.Genesis (mineGenesis)
