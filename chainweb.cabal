@@ -130,6 +130,8 @@ library
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
         , Data.LogMessage
+        , Data.PQueue
+        , Data.PQueue.Test
         , Data.Singletons
         , Data.Word.Encoding
 
