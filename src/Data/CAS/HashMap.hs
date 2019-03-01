@@ -16,6 +16,7 @@ module Data.CAS.HashMap
 ( HashMapCas
 , newCas
 , toList
+, size
 ) where
 
 import Control.Concurrent.STM.TVar
@@ -52,4 +53,9 @@ newCas = HashMapCas <$> newTVarIO mempty
 --
 toList :: HashMapCas v -> IO [v]
 toList (HashMapCas var) = HM.elems <$> readTVarIO var
+
+-- | The number of items in the CAS
+--
+size :: HashMapCas v -> IO Int
+size (HashMapCas var) = HM.size <$> readTVarIO var
 
