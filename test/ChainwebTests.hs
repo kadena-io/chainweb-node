@@ -32,9 +32,9 @@ import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
+import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Store.Git
-import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import qualified Chainweb.Test.TreeDB.Sync
