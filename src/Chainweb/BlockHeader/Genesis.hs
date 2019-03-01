@@ -24,17 +24,16 @@ module Chainweb.BlockHeader.Genesis
   , testnet00C9
   ) where
 
-
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Yaml as Yaml
 
-import NeatInterpolation
+import NeatInterpolation (text)
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader (BlockHeader, ObjectEncoded(..))
 
 ---
 
