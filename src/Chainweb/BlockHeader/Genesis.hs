@@ -25,6 +25,7 @@ module Chainweb.BlockHeader.Genesis
 
     -- * Hard-coded Blocks
     -- ** Testnet00
+  , testnet00Geneses
   , testnet00C0
   , testnet00C1
   , testnet00C2
@@ -136,14 +137,13 @@ genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this 
 -- We assume that there is always only a single 'ChainwebVersion' in
 -- scope and identify chains only by there internal 'ChainId'.
 --
-genesisBlockHeader
-    :: HasChainId p
-    => ChainwebVersion
-    -> p
-    -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v cid) (Nonce 0)
-  where
-    cid = _chainId p
+genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
+genesisBlockHeader Testnet00 p =
+    case HM.lookup (_chainId p) testnet00Geneses of
+        Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
+        Just gb -> gb
+genesisBlockHeader v p =
+    genesisBlockHeader' v p (genesisTime v $ _chainId p) (Nonce 0)
 
 genesisBlockHeader'
     :: HasChainId p
@@ -231,6 +231,21 @@ visually (as mentioned above).
 
 unsafeFromYamlText :: Text -> BlockHeader
 unsafeFromYamlText = _objectEncoded . fromJust . Yaml.decodeThrow . T.encodeUtf8
+
+testnet00Geneses :: HM.HashMap ChainId BlockHeader
+testnet00Geneses = HM.fromList $ map (\bh -> (_chainId bh, bh)) bs
+  where
+    bs = [ testnet00C0
+         , testnet00C1
+         , testnet00C2
+         , testnet00C3
+         , testnet00C4
+         , testnet00C5
+         , testnet00C6
+         , testnet00C7
+         , testnet00C8
+         , testnet00C9 ]
+{-# NOINLINE testnet00Geneses #-}
 
 testnet00C0 :: BlockHeader
 testnet00C0 = unsafeFromYamlText

@@ -13,6 +13,10 @@ module Chainweb.Test.BlockHeader.Genesis
 
 import Control.Monad (void, zipWithM)
 
+import Data.Function (on)
+import qualified Data.HashMap.Strict as HM
+import Data.List (sortBy)
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -35,18 +39,7 @@ tests = testGroup "Genesis Blocks"
     ]
 
 testnet00Chains :: [BlockHeader]
-testnet00Chains =
-    [ testnet00C0
-    , testnet00C1
-    , testnet00C2
-    , testnet00C3
-    , testnet00C4
-    , testnet00C5
-    , testnet00C6
-    , testnet00C7
-    , testnet00C8
-    , testnet00C9 ]
-
+testnet00Chains = map snd . sortBy (compare `on` fst) $ HM.toList testnet00Geneses
 
 allBlocksParse :: Assertion
 allBlocksParse = map _blockHeight testnet00Chains @?= replicate 10 0
