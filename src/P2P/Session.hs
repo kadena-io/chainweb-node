@@ -20,6 +20,9 @@ module P2P.Session
 
 -- * P2P Client Session
 , P2pSession
+
+-- * Reexports
+, ClientEnv
 ) where
 
 import Control.Monad
