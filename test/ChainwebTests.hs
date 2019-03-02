@@ -51,6 +51,7 @@ import qualified Data.PQueue.Test (properties)
 import qualified Data.Word.Encoding (properties)
 
 import qualified P2P.Node.PeerDB (properties)
+import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
 main = do
@@ -95,6 +96,7 @@ suite =
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
+        , testProperties "P2P.TaskQueue.Test" P2P.TaskQueue.Test.properties
         , testProperties "Data.DiGraph" Data.DiGraph.properties
         , testProperties "Data.HashMap.Weak.Test" Data.HashMap.Weak.Test.properties
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties

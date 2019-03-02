@@ -153,6 +153,8 @@ library
         , P2P.Node.RestAPI.Client
         , P2P.Peer
         , P2P.Session
+        , P2P.TaskQueue
+        , P2P.TaskQueue.Test
 
         -- pact
         , Chainweb.Pact.Backend.InMemoryCheckpointer
