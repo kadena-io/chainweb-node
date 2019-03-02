@@ -19,14 +19,18 @@
 --
 module Chainweb.Sync.WebBlockHeaderStore.Test
 ( properties
+
+-- * Utils
+, withNoopQueueServer
+, testQueueServer
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
+import Control.Monad
 import Control.Monad.IO.Class
 
-import Data.Foldable
 import Data.Hashable
 import Data.IORef
 
@@ -46,6 +50,7 @@ import Chainweb.Sync.WebBlockHeaderStore
 import Data.CAS
 import qualified Data.CAS.HashMap as CAS
 import Data.HashMap.Weak
+import Data.IVar
 import Data.PQueue
 
 import P2P.TaskQueue
@@ -112,6 +117,14 @@ testQueueServer limit q = forM_ [0..] $ session limit q (\_ _ -> return ())
     -- session limit q (\_ m -> T.putStrLn $ logText m)
 
 -- TODO provide test with actual block header db
+
+withNoopQueueServer :: (PQueue (Task env a) -> IO b) -> IO b
+withNoopQueueServer a = do
+    q <- newEmptyPQueue
+    let failTask = do
+            task <- pQueueRemove q
+            putIVar (_taskResult task) $ Left $ []
+    withAsync (forever failTask) $ const $ a q
 
 -- -------------------------------------------------------------------------- --
 -- Utils

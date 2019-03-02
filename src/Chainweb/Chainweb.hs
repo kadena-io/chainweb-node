@@ -65,7 +65,9 @@ module Chainweb.Chainweb
 , cutsLogFun
 
 , withCuts
-, runCutsSyncClient
+, runCutNetworkCutSync
+, runCutNetworkHeaderSync
+, runCutNetworkPayloadSync
 
 -- * Single Chain Resources
 , Chain(..)
@@ -160,10 +162,12 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.POW
 import Chainweb.Miner.Test
 import Chainweb.NodeId
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
 import Chainweb.TreeDB.RemoteDB
@@ -173,7 +177,9 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.HashMap hiding (toList)
+import Data.HashMap.Weak
 import Data.LogMessage
+import Data.PQueue
 
 import Network.X509.SelfSigned
 
@@ -182,8 +188,20 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Peer
 import P2P.Session
+import P2P.TaskQueue
 
 import qualified Servant.Client as Sv
+
+-- -------------------------------------------------------------------------- --
+-- PRELIMINARY TESTING
+
+-- | FAKE pact execution service
+--
+pact :: PactExectutionService
+pact = PactExectutionService $ \_ d -> return
+    $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
+  where
+    getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -288,6 +306,8 @@ data Cuts = Cuts
     , _cutsCutDb :: !CutDb
     , _cutsPeerDb :: !PeerDb
     , _cutsLogFun :: !ALogFunction
+    , _cutsHeaderStore :: !WebBlockHeaderStore
+    , _cutsPayloadStore :: !(WebBlockPayloadStore HashMapCas)
     }
 
 makeLenses ''Cuts
@@ -300,34 +320,84 @@ withCuts
     -> PeerDb
     -> ALogFunction
     -> WebBlockHeaderDb
+    -> HTTP.Manager
     -> (Cuts -> IO a)
     -> IO a
-withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
-    withCutDb cutDbConfig (_getLogFunction logfun) webchain $ \cutDb ->
-        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
+withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain mgr f = do
 
-runCutsSyncClient
+    -- initialize blockheader store
+    taskQueue <- newEmptyPQueue
+    headerStore <- newWebBlockHeaderStore mgr webchain taskQueue (_getLogFunction logfun)
+
+    -- initialize payload store
+    payloadTaskQueue <- newEmptyPQueue
+    payloadCas <- emptyPayloadDb
+    initializePayloadDb v payloadCas
+    payloadMemo <- new
+    let payloadStore = WebBlockPayloadStore
+            payloadCas payloadMemo payloadTaskQueue (_getLogFunction logfun) mgr pact
+
+    withCutDb cutDbConfig (_getLogFunction logfun) headerStore payloadStore $ \cutDb ->
+        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun headerStore payloadStore
+
+cutNetworks :: HTTP.Manager -> Cuts -> [IO ()]
+cutNetworks mgr cuts =
+    [ runCutNetworkCutSync mgr cuts
+    , runCutNetworkHeaderSync mgr cuts
+    , runCutNetworkPayloadSync mgr cuts
+    ]
+
+-- | P2P Network for pushing Cuts
+--
+runCutNetworkCutSync :: HTTP.Manager -> Cuts -> IO ()
+runCutNetworkCutSync mgr cuts = mkCutNetworkSync mgr cuts "cut sync"
+    $ C.syncSession (_cutsChainwebVersion cuts) (_peerInfo $ _cutsPeer cuts) (_cutsCutDb cuts)
+
+-- | P2P Network for Block Headers
+--
+runCutNetworkHeaderSync :: HTTP.Manager -> Cuts -> IO ()
+runCutNetworkHeaderSync mgr cuts = mkCutNetworkSync mgr cuts "block header sync"
+    $ session attemptsLimit $ _webBlockHeaderStoreQueue $ view cutsHeaderStore cuts
+  where
+    attemptsLimit = 10
+
+-- | P2P Network for Block Payloads
+--
+runCutNetworkPayloadSync :: HTTP.Manager -> Cuts -> IO ()
+runCutNetworkPayloadSync mgr cuts = mkCutNetworkSync mgr cuts "block payload sync"
+    $ session attemptsLimit $ _webBlockPayloadStoreQueue $ view cutsPayloadStore cuts
+  where
+    attemptsLimit = 10
+
+-- | P2P Network for Block Payloads
+--
+-- This uses the 'CutNetwork' for syncing peers. The network doesn't restrict
+-- the API network endpoints that are used in the client sessions.
+--
+mkCutNetworkSync
     :: HTTP.Manager
     -> Cuts
+    -> T.Text
+    -> P2pSession
     -> IO ()
-runCutsSyncClient mgr cuts = bracket create destroy go
+mkCutNetworkSync mgr cuts label s = bracket create destroy $ \n ->
+    p2pStartNode (_cutsP2pConfig cuts) n
   where
     v = _cutsChainwebVersion cuts
-    syncLogg = alogFunction @T.Text (_cutsLogFun cuts)
-    create = p2pCreateNode
-        v
-        CutNetwork
-        (_cutsPeer cuts)
-        (_getLogFunction $ _cutsLogFun cuts)
-        (_cutsPeerDb cuts)
-        mgr
-        (C.syncSession v (_peerInfo $ _cutsPeer cuts) (_cutsCutDb cuts))
-    go n = do
-        syncLogg Info "initialized"
-        p2pStartNode (_cutsP2pConfig cuts) n
+    peer = _cutsPeer cuts
+    logfun = _cutsLogFun cuts
+    peerDb = _cutsPeerDb cuts
+
+    create = do
+        n <- p2pCreateNode v CutNetwork peer (_getLogFunction logfun) peerDb mgr s
+        logg Info $ label <> ": initialized"
+        return n
+
     destroy n = do
         p2pStopNode n
-        syncLogg Info "stopped"
+        logg Info $ label <> ": stopped"
+
+    logg = alogFunction @T.Text (_cutsLogFun cuts)
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -426,7 +496,6 @@ runChainSyncClient mgr chain = bracket create destroy go
 
     destroy n = p2pStopNode n `finally` syncLogg Info "stopped"
 
-
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
 chainSyncP2pSession depth db logg env = do
     peer <- PeerTree <$> remoteDb db logg env
@@ -504,6 +573,7 @@ data Miner = Miner
     , _minerNodeId :: !NodeId
     , _minerCutDb :: !CutDb
     , _minerWebBlockHeaderDb :: !WebBlockHeaderDb
+    , _minerWebPayloadDb :: !(PayloadDb HashMapCas)
     , _minerConfig :: !MinerConfig
     }
 
@@ -513,13 +583,15 @@ withMiner
     -> NodeId
     -> CutDb
     -> WebBlockHeaderDb
+    -> PayloadDb HashMapCas
     -> (Miner -> IO a)
     -> IO a
-withMiner logFun conf nid cutDb webDb inner = inner $ Miner
+withMiner logFun conf nid cutDb webDb payloadDb inner = inner $ Miner
     { _minerLogFun = logFun
     , _minerNodeId = nid
     , _minerCutDb = cutDb
     , _minerWebBlockHeaderDb = webDb
+    , _minerWebPayloadDb = payloadDb
     , _minerConfig = conf
     }
 
@@ -530,6 +602,7 @@ runMiner v m = (chooseMiner v)
     (_minerNodeId m)
     (_minerCutDb m)
     (_minerWebBlockHeaderDb m)
+    (_minerWebPayloadDb m)
   where
     chooseMiner
         :: ChainwebVersion
@@ -538,6 +611,7 @@ runMiner v m = (chooseMiner v)
         -> NodeId
         -> CutDb
         -> WebBlockHeaderDb
+        -> PayloadDb HashMapCas
         -> IO ()
     chooseMiner Test{} = testMiner
     chooseMiner TestWithTime{} = testMiner
@@ -571,6 +645,7 @@ data Chainweb = Chainweb
     , _chainwebSocket :: !Socket
     , _chainwebPeer :: !Peer
     , _chainwebPayloadDb :: !(PayloadDb HashMapCas)
+    , _chainwebManager :: !HTTP.Manager
     }
 
 makeLenses ''Chainweb
@@ -633,20 +708,28 @@ withChainwebInternal conf logFuns socket peer inner = do
     -- Initialize global resources
     go peerDb payloadDb cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainBlockHeaderDb cs)
-        withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain $ \cuts ->
-            withMiner (_chainwebMinerLogFun logFuns) (_configMiner conf) cwnid (_cutsCutDb cuts) webchain $ \m ->
-                inner Chainweb
-                    { _chainwebChainwebVersion = v
-                    , _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                    , _chainwebChains = cs
-                    , _chainwebCuts = cuts
-                    , _chainwebNodeId = cwnid
-                    , _chainwebMiner = m
-                    , _chainwebLogFun = _chainwebNodeLogFun logFuns
-                    , _chainwebSocket = socket
-                    , _chainwebPeer = peer
-                    , _chainwebPayloadDb = payloadDb
-                    }
+        withConnectionManger (_chainwebNodeLogFun logFuns) peer peerDb $ \mgr ->
+            withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain mgr $ \cuts ->
+                withMiner
+                    (_chainwebMinerLogFun logFuns)
+                    (_configMiner conf)
+                    cwnid
+                    (_cutsCutDb cuts)
+                    webchain
+                    (_webBlockPayloadStoreCas $ _cutsPayloadStore cuts)
+                    $ \m -> inner Chainweb
+                        { _chainwebChainwebVersion = v
+                        , _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                        , _chainwebChains = cs
+                        , _chainwebCuts = cuts
+                        , _chainwebNodeId = cwnid
+                        , _chainwebMiner = m
+                        , _chainwebLogFun = _chainwebNodeLogFun logFuns
+                        , _chainwebSocket = socket
+                        , _chainwebPeer = peer
+                        , _chainwebPayloadDb = payloadDb
+                        , _chainwebManager = mgr
+                        }
 
     v = _configChainwebVersion conf
     graph = _chainGraph v
@@ -685,7 +768,7 @@ runChainweb cw = do
         mempoolsToServe = proj _chainMempool
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
-        payloadDbsToServe = itoList $ const (_chainwebPayloadDb cw) <$> _chainwebChains cw
+        payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
@@ -709,70 +792,73 @@ runChainweb cw = do
 
         -- Configure Clients
         --
-        -- FIXME: make sure the manager is configure properly for our
-        -- usage scenario
-        --
-        let cred = unsafeMakeCredential
-                (_peerCertificate $ _chainwebPeer cw)
-                (_peerKey $ _chainwebPeer cw)
-        settings <- certificateCacheManagerSettings
-            (TlsSecure True (certCacheLookup cutPeerDb))
-            (Just cred)
-
-        connCountRef <- newIORef (0 :: Int)
-        reqCountRef <- newIORef (0 :: Int)
-        mgr <- HTTP.newManager settings
-            { HTTP.managerConnCount = 5
-                -- keep only 5 connections alive
-            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
-                -- timeout connection attempts after 1 sec instead of 30 sec default
-            , HTTP.managerIdleConnectionCount = 512
-                -- total number of connections to keep alive. 512 is the default
-
-            -- Debugging
-
-            , HTTP.managerTlsConnection = do
-                mk <- HTTP.managerTlsConnection settings
-                return $ \a b c -> do
-                    atomicModifyIORef' connCountRef $ (,()) . succ
-                    mk a b c
-
-            , HTTP.managerModifyRequest = \req -> do
-                atomicModifyIORef' reqCountRef $ (,()) . succ
-                HTTP.managerModifyRequest settings req
-            }
-
-        let logClientConnections = forever $ do
-                threadDelay 5000000
-                connCount <- readIORef connCountRef
-                reqCount <- readIORef reqCountRef
-                alogFunction @(JsonLog Value) (_chainwebLogFun cw) Debug $ JsonLog $ object
-                    [ "clientConnectionCount" .= connCount
-                    , "clientRequestCount" .= reqCount
-                    ]
+        let mgr = view chainwebManager cw;
 
         -- 2. Run Clients
         --
         let clients :: [Concurrently ()]
             clients = concatMap (map Concurrently)
-                        [ [logClientConnections]
-                        , [runMiner (_chainwebVersion cw) (_chainwebMiner cw)]
-                        -- FIXME: should we start mining with some delay, so
-                        -- that the block header base is up to date?
-                        , [runCutsSyncClient mgr (_chainwebCuts cw)]
-                        , map (runChainSyncClient mgr) chainVals
-                        , map (runMempoolSyncClient mgr) chainVals
-                        ]
+                [ [runMiner (_chainwebVersion cw) (_chainwebMiner cw)]
+                -- FIXME: should we start mining with some delay, so
+                -- that the block header base is up to date?
+                , cutNetworks mgr (_chainwebCuts cw)
+                -- , map (runChainSyncClient mgr) chainVals
+                , map (runMempoolSyncClient mgr) chainVals
+                ]
 
         void $ runConcurrently $ mconcat clients
         wait server
   where
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
 
-    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+withConnectionManger :: ALogFunction -> Peer -> PeerDb -> (HTTP.Manager -> IO a) -> IO a
+withConnectionManger logfun peer peerDb runInner = do
+    let cred = unsafeMakeCredential (_peerCertificate peer) (_peerKey peer)
+    settings <- certificateCacheManagerSettings
+        (TlsSecure True certCacheLookup)
+        (Just cred)
 
-    certCacheLookup :: PeerDb -> ServiceID -> IO (Maybe Fingerprint)
-    certCacheLookup peerDb si = do
+    connCountRef <- newIORef (0 :: Int)
+    reqCountRef <- newIORef (0 :: Int)
+    mgr <- HTTP.newManager settings
+        { HTTP.managerConnCount = 5
+            -- keep only 5 connections alive
+        , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
+            -- timeout connection attempts after 1 sec instead of 30 sec default
+        , HTTP.managerIdleConnectionCount = 512
+            -- total number of connections to keep alive. 512 is the default
+
+        -- Debugging
+
+        , HTTP.managerTlsConnection = do
+            mk <- HTTP.managerTlsConnection settings
+            return $ \a b c -> do
+                atomicModifyIORef' connCountRef $ (,()) . succ
+                mk a b c
+
+        , HTTP.managerModifyRequest = \req -> do
+            atomicModifyIORef' reqCountRef $ (,()) . succ
+            HTTP.managerModifyRequest settings req
+        }
+
+    let logClientConnections = forever $ do
+            threadDelay 5000000
+            connCount <- readIORef connCountRef
+            reqCount <- readIORef reqCountRef
+            alogFunction @(JsonLog Value) logfun Debug $ JsonLog $ object
+                [ "clientConnectionCount" .= connCount
+                , "clientRequestCount" .= reqCount
+                ]
+
+    withAsync logClientConnections $ const $ runInner mgr
+
+  where
+
+    certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
+    certCacheLookup si = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
+
+    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+
