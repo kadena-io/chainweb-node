@@ -4,20 +4,25 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 module Chainweb.Simulate.Contracts.SimplePayments where
 
 import Control.Monad
-import Control.Monad.Zip
 
+import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Decimal
-import Data.Maybe
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Default
 
 import Fake
+import Fake.Provider.Person.EN_US (firstName)
+import Fake.Provider.Lang (SingleWord(..))
+
+
 
 import GHC.Generics hiding (from, to)
 
@@ -25,18 +30,21 @@ import NeatInterpolation
 
 import System.Random
 
-import Text.Printf
-
 -- pact
-import Pact.ApiReq
+import Pact.ApiReq (KeyPair(..))
+import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
+import Pact.Types.Crypto (PPKScheme(..))
+import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
 
--- import Pact.Types.Command
-import Pact.Types.Crypto
+import Chainweb.Simulate.Utils
 
--- import Pact.Types.RPC
-simplePaymentsContract :: Text -> Text
-simplePaymentsContract adminKeyset =
-  [text| ;; Simple accounts model.
+simplePaymentsContractLoader :: Nonce -> [KeyPair] -> Command ByteString
+simplePaymentsContractLoader (getNonce -> nonce) adminKeyset = cmd
+  where
+    cmd = mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) adminKeyset
+    theData = object ["admin-keyset" .= adminKeyset]
+    theCode = [text| ;; Simple accounts model.
 ;;
 ;;---------------------------------
 ;;
@@ -49,10 +57,10 @@ simplePaymentsContract adminKeyset =
 
 
 ;define keyset to guard module
-(define-keyset '$adminKeyset (read-keyset "$adminKeyset"))
+(define-keyset (read-keyset 'admin-keyset) (read-keyset 'admin-keyset))
 
 ;define smart-contract code
-(module payments '$adminKeyset
+(module payments (read-keyset 'admin-keyset)
 
   (defschema payments
     balance:decimal
@@ -62,7 +70,7 @@ simplePaymentsContract adminKeyset =
 
   (defun create-account (id initial-balance keyset)
     "Create a new account for ID with INITIAL-BALANCE funds, must be administrator."
-    (enforce-keyset '$adminKeyset)
+    (enforce-keyset (read-keyset 'admin-keyset))
     (enforce (>= initial-balance 0.0) "Initial balances must be >= 0.")
     (insert payments-table id
             { "balance": initial-balance,
@@ -74,7 +82,7 @@ simplePaymentsContract adminKeyset =
       { "balance":= balance, "keyset":= keyset }
       (enforce-one "Access denied"
         [(enforce-keyset keyset)
-         (enforce-keyset '$adminKeyset)])
+         (enforce-keyset (read-keyset 'admin-keyset))])
       balance))
 
   (defun pay (from to amount)
@@ -90,24 +98,6 @@ simplePaymentsContract adminKeyset =
         (format "{} paid {} {}" [from to amount])))))
 |]
 
-{- some example usage of the above contract
-
-;define table
-(create-table payments-table)
-
-;create accounts
-(create-account "Sarah" 100.25 (read-keyset "sarah-keyset"))
-(create-account "James" 250.0 (read-keyset "james-keyset"))
-
-
-;; do payment, simluating SARAH keyset.
-(pay "Sarah" "James" 25.0)
-(format "Sarah's balance is {}" [(get-balance "Sarah")])
-
-;; read James' balance as JAMES
-(format "James's balance is {}" [(get-balance "James")])
-
--}
 newtype Identifier = Identifier
   { getIdentifier :: Text
   } deriving (Eq, Show, Generic)
@@ -124,9 +114,8 @@ newtype Account = Account
 
 instance Fake Account where
   fake = do
-    cap <- fakeCapitalLetter
-    rest <- replicateM 19 fakeLetter
-    return $ Account $ T.pack $ cap : rest
+    name <- unSingleWord <$> firstName
+    return $ Account $ T.append name "Account"
 
 newtype Amount = Amount
   { getAmount :: Decimal
@@ -173,65 +162,45 @@ data SimplePaymentRequest
                   Balance
                   [KeyPair]
 
-createSimplePaymentRequest :: SimplePaymentRequest -> Text
-createSimplePaymentRequest (CreateAccount actualIdentifier actualInitialBalance actualKeyset) =
-  [text|(create-account $identifier $initialBalance $keyset) |]
+getInitialBalance :: Balance -> Text
+getInitialBalance = T.pack . show . getBalance
+
+showAmount :: Amount -> Text
+showAmount = T.pack . show . getAmount
+
+createSimplePaymentRequest :: Nonce -> SimplePaymentRequest -> Command ByteString
+createSimplePaymentRequest (Nonce nonce) (CreateAccount (Identifier identifier) (getInitialBalance -> initialBalance) keyset) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
   where
-    identifier = getIdentifier actualIdentifier
-    initialBalance = T.pack $ show $ getBalance actualInitialBalance
-    -- TODO: -- integrating Command datatype from Pact should save
-    -- this horror show.
-    keyset =
-      T.pack $
-      unlines $
-      map
-        (\(KeyPair secret pub) -> printf "s:%S p:%s" (show secret) (show pub))
-        actualKeyset
-createSimplePaymentRequest (RequestGetBalance actualIdentifier) =
-  [text|(get-balance $identifier)|]
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+    theCode = [text|(create-account $identifier $initialBalance (read-keyset 'create-account-keyset))|]
+    theData = object ["create-account-keyset" .= keyset]
+createSimplePaymentRequest (Nonce nonce) (RequestGetBalance (Identifier identifier)) = cmd
   where
-    identifier = getIdentifier actualIdentifier
-createSimplePaymentRequest (RequestPay actualFrom actualTo actualAmount) =
-  [text|(pay $from $to $amount)|]
+    cmd = mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+    theCode = [text|(get-balance $identifier)|]
+    theData = Null
+createSimplePaymentRequest (Nonce nonce) (RequestPay (Account from) (Account to) (showAmount -> amount)) =
+  mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
   where
-    from = getAccount actualFrom
-    to = getAccount actualTo
-    amount = T.pack $ show $ getAmount actualAmount
+    theCode = [text|(pay $from $to $amount)|]
+    theData = Null
 
-testAdminPrivates :: ByteString
-testAdminPrivates =
-  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+{- some example usage of the above contract
 
-testAdminPublics :: ByteString
-testAdminPublics =
-  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+;define table
+(create-table payments-table)
 
-testPrivates :: [ByteString]
-testPrivates =
-  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
-  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
-  ]
+;create accounts
+(create-account "Sarah" 100.25 (read-keyset "sarah-keyset"))
+(create-account "James" 250.0 (read-keyset "james-keyset"))
 
-testPublics :: [ByteString]
-testPublics =
-  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
-  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
-  ]
 
-testAdminKeyPairs :: [KeyPair]
-testAdminKeyPairs =
-  let mPair =
-        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
-      mKeyPair =
-        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
-   in maybeToList mKeyPair
+;; do payment, simluating SARAH keyset.
+(pay "Sarah" "James" 25.0)
+(format "Sarah's balance is {}" [(get-balance "Sarah")])
 
-testKeyPairs :: [KeyPair]
-testKeyPairs =
-  concat $
-  zipWith
-    (\private public ->
-       maybeToList $
-       liftM2 KeyPair (importPrivate private) (importPublic public))
-    testPrivates
-    testPublics
+;; read James' balance as JAMES
+(format "James's balance is {}" [(get-balance "James")])
+
+-}

@@ -26,42 +26,32 @@ import Control.Monad.Primitive
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Data.Default
--- import Data.HashMap (HashMap)
--- import qualified Data.HashMap as HM
--- import Data.HashSet (HashSet)
--- import qualified Data.HashSet as HS
--- import Data.Hashable
--- import Data.Map.Strict (Map)
--- import qualified Data.Map.Strict as M
--- import Data.Set (Set)
--- import qualified Data.Set as S
--- import qualified Data.Text as T
-import Data.IORef
+import Data.ByteString (ByteString)
+import Data.Default (def, Default (..))
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
-import qualified Data.Text.IO as TIO
-import Data.Word
+import Data.Word (Word16)
 
-import Fake
+import Fake (generate, fake)
 
 import GHC.Generics
 
 import System.Random
-import System.Random.MWC
-import System.Random.MWC.Distributions
+import System.Random.MWC (Gen, asGenIO, uniformR, withSystemRandom)
+import System.Random.MWC.Distributions (normal)
 
 -- -- PACT
--- import qualified Pact.ApiReq as P
--- import qualified Pact.Types.Command as P
--- import qualified Pact.Types.Crypto as P
--- import qualified Pact.Types.RPC as P
+import Pact.Types.Command
+import Pact.ApiReq
 
 -- CHAINWEB
 import Chainweb.ChainId
-import Chainweb.Simulate.Contracts.CommercialPaper
+-- import Chainweb.Simulate.Contracts.CommercialPaper
 import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
+import Chainweb.Simulate.Utils
+
 
 data TransactionCommand = NoOp | Init | Run
   deriving (Show, Eq, Read, Generic)
@@ -124,6 +114,7 @@ data TimingDistribution
 instance Default TimingDistribution where
   def = Gaussian 1000000 (div 1000000 16)
 
+-- I don't think that I need this newtype.
 newtype ContractName = ContractName
   { contractName :: Text
   } deriving (Eq, Show)
@@ -135,36 +126,37 @@ data GeneratorConfig = GeneratorConfig
 
 makeLenses ''GeneratorConfig
 
-sampleTransaction :: TransactionGenerator (PrimState IO) Text
+sampleTransaction :: TransactionGenerator (PrimState IO) (Command ByteString)
 sampleTransaction = do
+  (contractIndex, _) <- liftIO $ randomR (1, numContracts) <$> newStdGen
   sample <-
-    liftIO $
-    fmap
-      createSimplePaymentRequest
-      ((mkRandomSimplePaymentRequest <$> newStdGen) >>= generate)
+    case contractIndex of
+      1 -> liftIO $ generate $ helloRequest nonce <$> fake
+      2 -> liftIO $ fmap (createSimplePaymentRequest nonce) ((mkRandomSimplePaymentRequest <$> newStdGen) >>= generate)
+      3 -> liftIO $ undefined
+      _ -> undefined
   distribution <- view timingdist
-  gen <- get
+  gen2 <- get
   delay <-
     case distribution of
       Gaussian gmean gvar ->
         truncate <$>
-        liftIO (normal (fromIntegral gmean) (fromIntegral gvar) gen)
-      Uniform ulow uhigh -> liftIO (uniformR (ulow, uhigh) gen)
+        liftIO (normal (fromIntegral gmean) (fromIntegral gvar) gen2)
+      Uniform ulow uhigh -> liftIO (uniformR (ulow, uhigh) gen2)
   liftIO $ threadDelay delay
   liftIO $ putStrLn ("The delay is " ++ (show delay) ++ " seconds.")
   return sample
+  where
+    nonce = Nonce "1"
 
 newtype TransactionGenerator s a = TransactionGenerator
   { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (Gen s) IO) a
   } deriving ( Functor , Applicative , Monad , MonadIO , MonadState (Gen s) , MonadReader GeneratorConfig)
 
-dummyAdminKeyset :: Text
-dummyAdminKeyset = "dummy-admin-keyset"
-
 loop :: TransactionGenerator (PrimState IO) ()
 loop = do
   sample <- sampleTransaction
-  liftIO $ TIO.putStrLn sample
+  liftIO $ putStrLn (show $ sample)
   counter <- view transactionCount
   liftIO $ readIORef counter >>= (\count -> putStrLn $ "Transaction count: " ++ show count)
   liftIO $ modifyIORef' counter (+ 1)
@@ -185,7 +177,9 @@ main =
   runWithConfiguration mainInfo $ \config -> do
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
-      Init -> mapM_ (TIO.putStrLn . ($ dummyAdminKeyset)) theContracts
+      Init -> mapM_ (\loader -> print $ loader defnonce testAdminKeyPairs) contractLoaders
+        where
+          defnonce = Nonce "1"
       Run -> do
         putStrLn "Transactions are being generated"
         gencfg <- mkGeneratorConfig
@@ -194,5 +188,11 @@ main =
             (runReaderT (runTransactionGenerator loop) gencfg)
             gen
 
-theContracts :: [Text -> Text]
-theContracts = [ helloWorldContract, simplePaymentsContract, commercialPaperContract, cryptoCritterContract]
+contractLoaders :: [Nonce -> [KeyPair] -> Command ByteString]
+contractLoaders = [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
+
+numContracts :: Int
+numContracts = 2
+
+-- add this back in later
+-- , commercialPaperContractLoader

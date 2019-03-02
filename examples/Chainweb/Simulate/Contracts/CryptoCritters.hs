@@ -1,21 +1,19 @@
-{-# language OverloadedStrings #-}
-{-# language DeriveGeneric #-}
-{-# language DeriveAnyClass #-}
-{-# language GeneralizedNewtypeDeriving #-}
-{-# language QuasiQuotes #-}
-{-# language LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 -- |
 
 module Chainweb.Simulate.Contracts.CryptoCritters where
 
 -- import Control.Monad
-import Control.Monad.Zip
+-- import Control.Monad.Zip
 
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.Maybe
--- import qualified Data.Text as T
+import Data.Default
 import Data.Text (Text)
 
 -- import Fake
@@ -24,19 +22,24 @@ import GHC.Generics hiding (from, to)
 
 import NeatInterpolation
 
--- import System.Random
-
--- import Text.Printf
-
 -- pact
-import Pact.ApiReq
-import Pact.Types.Crypto
--- import Pact.Types.Command
--- import Pact.Types.RPC
+import Pact.ApiReq (KeyPair(..))
+import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
+import Pact.Types.Crypto (PPKScheme(..)) -- ED25519
+import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
 
-cryptoCritterContract :: Text -> Text
-cryptoCritterContract adminKeyset = [text|
-(module critters '$adminKeyset
+-- chainweb
+
+import Chainweb.Simulate.Utils
+
+cryptoCritterContractLoader :: Nonce -> [KeyPair] -> Command ByteString
+cryptoCritterContractLoader (Nonce nonce) adminKeyset =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) adminKeyset
+    theData = object ["admin-keyset" .= adminKeyset]
+    theCode = [text|
+(module critters (read-keyset 'admin-keyset)
   "Collectible Crypto Critters"
   (defschema critter
     "Data defining a critter"
@@ -67,16 +70,16 @@ cryptoCritterContract adminKeyset = [text|
 
   (defun create-critter:integer (genes:string)
     "Create a gen0 critter using GENES"
-    (enforce-keyset '$adminKeyset)
+    (enforce-keyset (read-keyset 'admin-keyset))
     (let ((id (get-inc-count "critters")))
       (insert critters id
         { "matron-id": 0,
           "sire-id": 0,
           "generation": 0,
           "genes": genes,
-          "owner": (read-keyset "$adminKeyset"),
+          "owner": (read-keyset 'admin-keyset),
           "transferring": false,
-          "transfer-to": (read-keyset "$adminKeyset"),
+          "transfer-to": (read-keyset 'admin-keyset),
           "available-to-breed": false
         }
       )
@@ -153,7 +156,7 @@ cryptoCritterContract adminKeyset = [text|
       (update critters critter-id
         (+ {"owner": (at "transfer-to" c)} c)
       )
-      (set-transfer critter-id false (read-keyset "$adminKeyset"))
+      (set-transfer critter-id false (read-keyset 'admin-keyset))
     )
   )
 
@@ -161,7 +164,7 @@ cryptoCritterContract adminKeyset = [text|
     (let ((c (read critters critter-id)))
       (enforce-keyset (at "owner" c))
       ;; We don't call transferCritter because we're not the owner
-      (set-transfer critter-id false (read-keyset "$adminKeyset"))
+      (set-transfer critter-id false (read-keyset 'admin-keyset))
     )
   )
 
@@ -219,7 +222,7 @@ cryptoCritterContract adminKeyset = [text|
             "genes": (combine-genes (at "genes" a) (at "genes" b)),
             "owner": (at "owner" a),
             "transferring": false,
-            "transferTo": (read-keyset "$adminKeyset"),
+            "transferTo": (read-keyset 'admin-keyset),
             "available-to-breed": false
           }
         )
@@ -247,30 +250,30 @@ cryptoCritterContract adminKeyset = [text|
 
 -}
 
-newtype Row = Row { getRow :: Text}
+newtype Row = Row {getRow :: Text}
   deriving (Eq, Show, Generic)
 
-newtype Genes = Genes { getGenes :: Text}
+newtype Genes = Genes {getGenes :: Text}
   deriving (Eq, Show, Generic)
 
-newtype Critter = Critter { getCritter :: Value }
+newtype Critter = Critter {getCritter :: Value }
   deriving (Eq, Show, Generic)
 
-newtype Generation = Generation { getGeneration :: Integer }
+newtype Generation = Generation {getGeneration :: Text }
   deriving (Eq, Show, Generic)
 
-newtype CritterId = CritterId { getCritterId :: Integer }
+newtype CritterId = CritterId {getCritterId :: Text }
   deriving (Eq, Show, Generic)
 
 newtype Suffix = Suffix
-  { getSuffix :: Text
+  {getSuffix :: Text
   } deriving (Eq, Show, Generic)
 
 data CritterRequest
   = GetIncCount Row
   | CreateCritter Genes
   | ShowCritter Suffix
-                Value
+                Critter
   | ShowGeneration Generation
   | Owner CritterId
   | TransferCritter [KeyPair] CritterId
@@ -284,59 +287,134 @@ data CritterRequest
   | Breed CritterId CritterId
   | CancelBreed CritterId
 
-createCritterRequest :: CritterRequest -> Text
-createCritterRequest =
-  \case
-     GetIncCount _row -> undefined
-     CreateCritter _genes -> undefined
-     ShowCritter _suffix _critter -> undefined
-     ShowGeneration _generation -> undefined
-     Owner _critterid -> undefined
-     TransferCritter _keyset _critterid -> undefined
-     SetTransfer _critterid _transferflag _keyset -> undefined
-     InitiateTransfer _keyset _critterid -> undefined
-     CompleteTransfer _critterid -> undefined
-     CancelTransfer _critterid -> undefined
-     SetBreeding _critterid _flag -> undefined
-     SolicitMate _critterid -> undefined
-     CombineGenes _genesA _genesB -> undefined
-     Breed _idA _idB -> undefined
-     CancelBreed _critterid -> undefined
+createCritterRequest :: Nonce -> CritterRequest -> Command ByteString
+createCritterRequest (Nonce nonce) (GetIncCount (Row row)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(get-inc-count $row)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (CreateCritter (Genes genes)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(create-critter $genes)|]
+    theData = Null
+-- TODO: How do we interpolate a JSON value?
+createCritterRequest (Nonce nonce) (ShowCritter (Suffix suffix) (Critter critter)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(show-critter $suffix $something)|]
+    theData = object undefined
+    something = undefined critter
+createCritterRequest (Nonce nonce) (ShowGeneration (Generation generation)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(show-generation $generation)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (Owner (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(owner $critterid)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (TransferCritter keyset (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+    theCode = [text|(transfer-critter (read-keyset 'transfer-critter-keyset) $critterid)|]
+    theData = object ["transfer-critter-keyset" .= keyset]
+createCritterRequest (Nonce nonce) (SetTransfer (CritterId critterid) transferflag keyset) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+    theCode = [text|(set-transfer $critterid $flag (read-keyset 'set-transfer-keyset))|]
+    theData = object ["set-transfer-keyset" .= keyset]
+    flag = if transferflag
+              then "true"
+              else "false"
+createCritterRequest (Nonce nonce) (InitiateTransfer keyset (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+    theCode = [text|(initiate-transfer (read-keyset 'initiate-transfer-keyset) $critterid)|]
+    theData = object ["initiate-transfer-keyset" .= keyset]
+createCritterRequest (Nonce nonce) (CompleteTransfer (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(complete-transfer $critterid)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (CancelTransfer (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(cancel-transfer $critterid)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (SetBreeding (CritterId critterid) flag) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(set-breeding $critterid $flagg)|]
+    theData = Null
+    flagg = if flag
+               then "true"
+               else "false"
+createCritterRequest (Nonce nonce) (SolicitMate (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(solicit-mate $critterid)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (CombineGenes (Genes genesA) (Genes genesB)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(combine-genes $genesA $genesB)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (Breed (CritterId ida) (CritterId idb)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(breed $ida $idb)|]
+    theData = Null
+createCritterRequest (Nonce nonce) (CancelBreed (CritterId critterid)) =
+  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+  where
+    madeKeyset = []
+    theCode = [text|(cancel-breed $critterid)|]
+    theData = Null
 
-testAdminPrivates :: ByteString
-testAdminPrivates =
-  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+data CryptoCritter = CryptoCritter
+  { cgenes :: Text
+  , cmatronid :: Integer
+  , csireid :: Integer
+  , cgeneration :: Integer
+  , cowner :: [KeyPair]
+  , ctransferring :: Bool
+  , ctransferto :: [KeyPair]
+  , cavailabletobreed :: Bool
+  } deriving (Eq, Show, Generic)
 
-testAdminPublics :: ByteString
-testAdminPublics =
-  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
-
-testPrivates :: [ByteString]
-testPrivates =
-  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
-  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
-  ]
-
-testPublics :: [ByteString]
-testPublics =
-  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
-  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
-  ]
-
-testAdminKeyPairs :: [KeyPair]
-testAdminKeyPairs =
-  let mPair =
-        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
-      mKeyPair =
-        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
-   in maybeToList mKeyPair
-
-testKeyPairs :: [KeyPair]
-testKeyPairs =
-  concat $
-  zipWith
-    (\private public ->
-       maybeToList $
-       KeyPair <$> importPrivate private <*> importPublic public)
-    testPrivates
-    testPublics
+-- -- interpolateCritterJSONObject :: Parser CryptoCritter
+-- interpolateCritterJSONObject critter = do
+--   genes        <- critter .: "genes"
+--   matronid     <- critter .: "matron-id"
+--   sireid       <- critter .: "sire-id"
+--   generation   <- critter .: "generation"
+--   owner        <- critter .: "owner"
+--   transferring <- critter .: "transferring"
+--   transferto   <- critter .: "transfer-to"
+--   availableto  <- critter .: "availble-to"
+--   return $
+--     CryptoCritter
+--     <$> genes
+--     <*> matronid
+--     <*> sireid
+--     <*> generation
+--     <*> owner
+--     <*> transferring
+--     <*> transferto
+--     <*> availableto

@@ -625,6 +625,7 @@ executable transaction-generator
             Chainweb.Simulate.Contracts.CryptoCritters
             Chainweb.Simulate.Contracts.HelloWorld
             Chainweb.Simulate.Contracts.SimplePayments
+            Chainweb.Simulate.Utils
     build-depends:
         --internal
           chainweb
