@@ -111,6 +111,8 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Store.Git
         , Chainweb.Store.Git.Internal
+        , Chainweb.Sync.WebBlockHeaderStore
+        , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB

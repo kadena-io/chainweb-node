@@ -22,6 +22,7 @@ import Test.Tasty.QuickCheck
 import qualified Chainweb.Cut (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
+import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.CoinContract
@@ -95,6 +96,7 @@ suite =
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+        , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
         , testProperties "P2P.TaskQueue.Test" P2P.TaskQueue.Test.properties
         , testProperties "Data.DiGraph" Data.DiGraph.properties
