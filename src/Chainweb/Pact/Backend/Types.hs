@@ -60,6 +60,7 @@ import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
+import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
@@ -116,6 +117,7 @@ data SaveData p = SaveData
     , _sTxId :: Maybe P.TxId
     , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
+    , _sExecutionMode :: P.ExecutionMode
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
@@ -151,7 +153,7 @@ data EnvPersist' =
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
-    , _pdbsTxId :: P.TxId    }
+    , _pdbsExecutionMode :: P.ExecutionMode    }
 
 makeLenses ''PactDbState
 

@@ -63,8 +63,8 @@ reinitDbEnv loggers funrec savedata = runExceptT $ do
     db <- maybeToExceptT err (`P.initSQLite` loggers) (_sSQLiteConfig savedata)
     return (PactDbState
                (EnvPersist' (PactDbEnvPersist P.pactdb (mkDbEnv db)))
-               (_sCommandState savedata))
-               txId
+               (_sCommandState savedata)
+               (_sExecutionMode savedata))
     where
     mkDbEnv db = P.DbEnv db persist logger txRecord txId
     err = "SQLiteCheckpointer.reinitDbEnv: Configuration exception"
@@ -78,36 +78,32 @@ maybeToExceptT f g = ExceptT . maybe (return $ Left f) (fmap Right . g)
 
 restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 restore' lock height hash =
-  withMVar lock $ \store ->
-    case HMS.lookup (height, hash) store of
-      Just chk_file -> do
-
-        --check that filename has the right version.
-        flip (maybe (return $ Left (err_version "nothing" saveDataVersion))) (versionCheck chk_file) $
-             \version ->
-               if version /= saveDataVersion
-                  then return $ Left (err_version version saveDataVersion)
-                  else runExceptT $ do
-
-                       -- read back SaveData from copied file
-                       cdata <- do
-                         bytes <- liftIO $ B.readFile chk_file
-                         ExceptT $ return (first err_decode $ decode bytes)
-
-                       ExceptT $ withTempFile $ \copy_sqlite_file -> do
-
-                         -- create copy of the sqlite file
-                         let copy_data = over (sSQLiteConfig . _Just) (changeSQLFilePath copy_sqlite_file const) cdata
-
-                         -- Open a database connection.
-                         reinitDbEnv P.neverLog P.persister copy_data
-
-      Nothing -> err_restore
-  where
-    err_version = printf "Version exception %s %s"
-    err_decode = printf "SQLiteCheckpointer.restore': Checkpoint decode exception= %s"
-    err_restore = return $ Left "SQLiteCheckpointException.restore': Restore not found exception"
-    versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") $ splitOn "_" filename
+    withMVar lock $ \store ->
+        case HMS.lookup (height, hash) store of
+            Nothing -> err_restore
+            Just chk_file -> do
+                --check that filename has the right version.
+                flip (maybe (return $ Left (err_version "nothing" saveDataVersion)))
+                    (versionCheck chk_file) $ \version ->
+                        if version /= saveDataVersion
+                            then return $ Left (err_version version saveDataVersion)
+                            else runExceptT $ do
+                                -- read back SaveData from copied file
+                                cdata <- do
+                                    bytes <- liftIO $ B.readFile chk_file
+                                    ExceptT $ return (first err_decode $ decode bytes)
+                                ExceptT $ withTempFile $ \copy_sqlite_file -> do
+                                    -- create copy of the sqlite file
+                                    let copy_data = over (sSQLiteConfig . _Just)
+                                          (changeSQLFilePath copy_sqlite_file const) cdata
+                                    -- Open a database connection.
+                                    reinitDbEnv P.neverLog P.persister copy_data
+    where
+        err_version = printf "Version exception %s %s"
+        err_decode = printf "SQLiteCheckpointer.restore': Checkpoint decode exception= %s"
+        err_restore = return $ Left "SQLiteCheckpointException.restore': Restore not found exception"
+        versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") $
+            splitOn "_" filename
 
 -- You'll be able to get rid of this function when the appropriate lenses are include in Pact.
 changeSQLFilePath :: FilePath -> (FilePath -> FilePath -> FilePath) -> P.SQLiteConfig -> P.SQLiteConfig

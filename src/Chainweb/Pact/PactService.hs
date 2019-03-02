@@ -193,10 +193,11 @@ execValidateBlock memPoolAccess currHeader = do
     (results, updatedState) <- execTransactions miner trans
     put updatedState
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
-                  (liftA2 PactDbState _pdbsDbEnv _pdbsState updatedState)
+                       (liftA3 PactDbState _pdbsDbEnv _pdbsState _pdbsExecutionMode updatedState)
     _ <- case estate of
-        Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception") (get >>= liftIO . closePactDb)
+        Left s -> do -- TODO: fix - If this error message does not appear, the db has been closed.
+            when (s == "SQLiteCheckpointer.save': Save key not found exception")
+                (get >>= liftIO . closePactDb)
             fail s
         Right _ -> return results
     return results
@@ -228,19 +229,19 @@ execTransactions :: MinerInfo -> [PactTransaction] -> PactT (Transactions, PactD
 execTransactions miner xs = do
     cpEnv <- ask
     currentState <- get
-    -- let dbEnv' = _pdbsDbEnv currentState
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
     txOuts <- forM xs (\PactTransaction {..} -> do
-        let txId = P.Transactional (P.TxId _ptTxId)
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState txId _ptCmd miner
+        let exMode = _pdbsExecutionMode currentState
+        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState exMode _ptCmd miner
         return FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
+          , _pdbsExecutionMode =
           }
     return (Transactions (zip xs txOuts), updatedState)
 
