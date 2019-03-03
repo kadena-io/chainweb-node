@@ -39,6 +39,7 @@ import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Peer
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
@@ -67,10 +68,10 @@ getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: ChainwebVersion -> CutDb -> P2pSession
-syncSession v db logg env = do
+syncSession :: ChainwebVersion -> PeerInfo -> CutDb -> P2pSession
+syncSession v pi db logg env = do
     race_
-        (void $ S.mapM_ send $ S.map (cutToCutHashes Nothing) $ cutStream db)
+        (void $ S.mapM_ send $ S.map (cutToCutHashes (Just pi)) $ cutStream db)
         (forever $ receive >> threadDelay 1000000)
             -- FIXME make this configurable or dynamic
 

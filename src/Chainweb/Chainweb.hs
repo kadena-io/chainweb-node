@@ -321,7 +321,7 @@ runCutsSyncClient mgr cuts = bracket create destroy go
         (_getLogFunction $ _cutsLogFun cuts)
         (_cutsPeerDb cuts)
         mgr
-        (C.syncSession v (_cutsCutDb cuts))
+        (C.syncSession v (_peerInfo $ _cutsPeer cuts) (_cutsCutDb cuts))
     go n = do
         syncLogg Info "initialized"
         p2pStartNode (_cutsP2pConfig cuts) n
