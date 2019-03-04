@@ -24,18 +24,19 @@ module Chainweb.BlockHeader.Genesis
   , genesisTime
 
     -- * Hard-coded Blocks
+    -- | === Laws
+    --
+    --   * The contents of hard-coded genesis blocks must be visually
+    --     verifiable by people.
+    --   * The output of @mine-genesis@ must be deterministic, and never produce
+    --     blocks that differ from what is hard-coded in a live MainNet.
+    --   * Changes in the structure of the BlockHeader type must not prevent
+    --     earlier, MainNet-live BlockHeaders from being read / verified.
+    --   * Changes in the structure of the BlockHeader type must not prevent
+    --     the contents of MainNet-live genesis block files from compiling.
+
     -- ** Testnet00
   , testnet00Geneses
-  , testnet00C0
-  , testnet00C1
-  , testnet00C2
-  , testnet00C3
-  , testnet00C4
-  , testnet00C5
-  , testnet00C6
-  , testnet00C7
-  , testnet00C8
-  , testnet00C9
   ) where
 
 import Control.Arrow ((&&&))
@@ -85,10 +86,17 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
 
--- `maxTarget` likewise varies via `ChainwebVersion`.
+
+-- | By definition, Genesis Blocks are "mined" on the easiest difficulty. No
+-- subsequent block mining can have a `HashTarget` easier (re: higher) than
+-- this. Equivalent to `maxTarget`.
+--
 genesisBlockTarget :: ChainwebVersion -> HashTarget
 genesisBlockTarget = maxTarget
 
+-- | The moment of creation of a Genesis Block. For test chains, this is the
+-- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
+--
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
 genesisTime Test{} _ = BlockCreationTime epoche
 genesisTime TestWithTime{} _ = BlockCreationTime epoche
@@ -144,6 +152,9 @@ genesisBlockPayload Testnet00 _ =
 -- We assume that there is always only a single 'ChainwebVersion' in
 -- scope and identify chains only by there internal 'ChainId'.
 --
+-- For production Chainwebs, this function dispatches to hard-coded blocks.
+-- Otherwise, the blocks are deterministically generated.
+--
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader Testnet00 p =
     case HM.lookup (_chainId p) testnet00Geneses of
@@ -152,6 +163,9 @@ genesisBlockHeader Testnet00 p =
 genesisBlockHeader v p =
     genesisBlockHeader' v p (genesisTime v $ _chainId p) (Nonce 0)
 
+-- | Like `genesisBlockHeader`, but with slightly more control.
+-- __Will not dispatch to hard-coded `BlockHeader`s!__
+--
 genesisBlockHeader'
     :: HasChainId p
     => ChainwebVersion
@@ -192,55 +206,11 @@ genesisBlockHeaders v = HM.fromList
 -- -------------------------------------------------------------------------- --
 -- Testnet00
 
-{-
-
-=== LAWS ===
-
-- The contents of hard-coded genesis blocks must be visually verifiable by
-  people.
-
-- The output of `mine-genesis` must be deterministic, and never produce blocks
-  that differ from what is hard-coded in a live MainNet.
-
-- Changes in the structure of the BlockHeader type must not prevent earlier,
-  MainNet-live BlockHeaders from being read / verified.
-
-- Changes in the structure of the BlockHeader type must not prevent the contents
-  of MainNet-live genesis block files from compiling.
-
-=== CONSIDERATIONS ===
-
-If we hard-code using constructors (as below) and the definition of
-`BlockHeader` changes in future, these all break.
-
-If we instead reconstruct the blocks via Merkle Logs (as they are originally
-through `genesisBlockHeader`), then they're weak to changes in the `merkle-log`
-sublibrary.
-
-If we "stringly-type" the genesis and save here it as inlined JSON, then it's
-weak to changes in the JSON codec.
-
-If we save the genesis blocks as encoded bytes in external files, then their
-contents are hard to verify visually.
-
-If we save the genesis blocks as encoded JSON or YAML in external files, then
-we're again at the mercy of the codecs and/or runtime decoding failures.
-
-Headers saved instead as json/yaml/bytes *might* be resistent to changes in the
-structure of `BlockHeader`. This would require some idea of backwards
-compatibility, and potentially some official extension semantics like GIF or
-Protobuf.
-
-Using Protobuf directly seems attractive, however contents can't be verified
-visually (as mentioned above).
-
--}
-
 unsafeFromYamlText :: Text -> BlockHeader
 unsafeFromYamlText = _objectEncoded . fromJust . Yaml.decodeThrow . T.encodeUtf8
 
 testnet00Geneses :: HM.HashMap ChainId BlockHeader
-testnet00Geneses = HM.fromList $ map (\bh -> (_chainId bh, bh)) bs
+testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
   where
     bs = [ testnet00C0
          , testnet00C1
