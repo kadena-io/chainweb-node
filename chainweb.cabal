@@ -181,13 +181,11 @@ library
         , connection >= 0.2.8
         , connection >=0.2
         , containers >= 0.5
-        , cryptohash-sha512 >= 0.11
         , cryptonite >=0.25
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
         , directory >= 1.3
-        , direct-sqlite >= 2.3
         , ekg >= 0.4
         , errors >= 2.3
         , exceptions >= 0.8
@@ -195,7 +193,6 @@ library
         , fast-builder >= 0.1
         , generic-lens >= 1.1
         , hashable >= 1.2
-        , hashtables >= 1.2
         , heaps >= 0.3
         , hlibgit2 >= 0.18
         , hourglass >=0.2
@@ -223,7 +220,6 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safe >= 0.3
         , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.14
@@ -249,7 +245,6 @@ library
         , transformers >= 0.5
         , trifecta >= 2
         , thyme == 0.3.6.0
-        , unliftio >= 0.2
         , unordered-containers >= 0.2
         , uuid >= 1.3
         , wai >= 3.2
@@ -296,8 +291,6 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.Mempool.Sync
-        Chainweb.Test.MultiNode
-        Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -342,25 +335,20 @@ test-suite chainweb-tests
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
-        , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.2
         , mwc-random >= 0.13
-        , neat-interpolation >= 0.3.2
         , network >= 2.6
         , pact >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , scientific >= 0.3
-        , servant >= 0.14.1
         , servant-client >= 0.14
-        , servant-server >= 0.14.1
         , string-conv >= 0.1
         , stm
         , stm-chans
@@ -374,7 +362,6 @@ test-suite chainweb-tests
         , text >=1.2
         , these >= 0.7
         , time >= 1.8
-        , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
@@ -409,9 +396,7 @@ benchmark chainweb-bench
         -- external
         , base >= 4.11
         , criterion >= 1.1
-        , deepseq
         , streaming >= 0.2
-        , text
         , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
@@ -609,7 +594,6 @@ executable p2p-example
         , loglevel >= 0.1
         , mwc-random >= 0.13
         , text >= 1.2
-        , tls >=1.4
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
@@ -632,10 +616,10 @@ executable transaction-generator
     hs-source-dirs: examples
     main-is: TransactionGenerator.hs
     other-modules:
-            Chainweb.Simulate.Contracts.CommercialPaper
-            Chainweb.Simulate.Contracts.CryptoCritters
-            Chainweb.Simulate.Contracts.HelloWorld
-            Chainweb.Simulate.Contracts.SimplePayments
+        Chainweb.Simulate.Contracts.CommercialPaper
+        Chainweb.Simulate.Contracts.CryptoCritters
+        Chainweb.Simulate.Contracts.HelloWorld
+        Chainweb.Simulate.Contracts.SimplePayments
     build-depends:
         --internal
           chainweb
@@ -645,14 +629,10 @@ executable transaction-generator
         , base >= 4.11
         , bytestring >= 0.10
         , configuration-tools >= 0.4
-        , containers >= 0.5
-        , cryptonite
-        , crypto-api
         , data-default >= 0.7
         , Decimal >= 0.4.2
         , ed25519-donna
         , fake >= 0.1.1.1
-        , hashable >= 1.2
         , lens >= 4.16
         , mtl >= 2.2
         , mwc-random >= 0.13
@@ -661,4 +641,3 @@ executable transaction-generator
         , primitive >= 0.6
         , random >= 1.1
         , text >= 1.2
-        , unordered-containers >= 0.2
