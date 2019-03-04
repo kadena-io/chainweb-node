@@ -23,6 +23,7 @@ import qualified Chainweb.Cut (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Test.BlockHeaderDB
+import qualified Chainweb.Test.CoinContract
 import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
@@ -50,8 +51,7 @@ import qualified P2P.Node.PeerDB (properties)
 main :: IO ()
 main = do
   pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
-  let allTests =
-        testGroup "Chainweb Tests"
+  let allTests = testGroup "Chainweb Tests"
         . schedule Sequential
         $ pactSuite : suite
   defaultMain allTests
@@ -75,6 +75,7 @@ suite =
             , Chainweb.Test.TreeDB.Sync.tests
             , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
+        , Chainweb.Test.CoinContract.tests
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Store.Git.tests
         , Chainweb.Test.Roundtrips.tests

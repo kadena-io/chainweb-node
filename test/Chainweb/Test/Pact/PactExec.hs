@@ -16,18 +16,13 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
-import Control.Monad.Zip
 
 import Data.Aeson
-import Data.ByteString (ByteString)
-import Data.Default
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.String.Conv (toS)
 import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Word
 
 import System.FilePath
 import System.IO.Extra
@@ -36,42 +31,39 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Golden
 
-import qualified Pact.ApiReq as P
-import qualified Pact.Gas as P
-import qualified Pact.Interpreter as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Crypto as P
-import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.RPC as P
-import qualified Pact.Types.Server as P
+import Pact.Gas
+import Pact.Interpreter
+import Pact.Types.Gas
+import Pact.Types.Logger
+import Pact.Types.Server
 
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Test.Pact.Utils
 
 tests :: IO TestTree
 tests = testGroup "Simple pact execution tests" <$> pactExecTests
 
 pactExecTests :: IO [TestTree]
 pactExecTests = do
-    let loggers = P.neverLog
-    let logger = P.newLogger loggers $ P.LogName "PactService"
+    let loggers = neverLog
+    let logger = newLogger loggers $ LogName "PactService"
     pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
-    let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
-    let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
-    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0
-                          (P.constGasModel (fromIntegral gasRate))
+    let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
+    let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
+    let gasEnv = GasEnv (fromIntegral gasLimit) 0.0
+                          (constGasModel (fromIntegral gasRate))
     (checkpointEnv, theState) <-
-        case P._ccSqlite cmdConfig of
+        case _ccSqlite cmdConfig of
             Nothing -> do
-                env <- P.mkPureEnv loggers
+                env <- mkPureEnv loggers
                 liftA2 (,) (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
                     (mkPureState env cmdConfig)
             Just sqlc -> do
-                env <- P.mkSQLiteEnv logger False sqlc loggers
+                env <- mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
     fst <$> runStateT (runReaderT execTests checkpointEnv) theState
@@ -111,10 +103,10 @@ parseScientific (Object o) =
     Just _ -> Nothing
 parseScientific _ = Nothing
 
-ignoreTextMatch :: T.Text -> TestResponse -> Assertion
-ignoreTextMatch _r _tr = True @?= True
+ignoreTextMatch :: Text -> TestResponse -> Assertion
+ignoreTextMatch _ _ = True @?= True
 
-fullTextMatch :: T.Text -> TestResponse -> Assertion
+fullTextMatch :: Text -> TestResponse -> Assertion
 fullTextMatch matchText resp = do
     let resultValue = _flCommandResult $ _trOutput resp
     parseText resultValue @?= Just matchText
@@ -133,41 +125,10 @@ fileCompareTxLogs fp resp =
     where
         ioBs = return $ toS $ show <$> _flTxLogs $ _trOutput resp
 
-mkPactTestTransactions :: [String] -> IO [PactTransaction]
-mkPactTestTransactions cmdStrs = do
-    let theData = object ["test-admin-keyset" .= fmap P._kpPublic testKeyPairs]
-    let intSeq = [0, 1 ..] :: [Word64]
-    -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
-    return $ zipWith (mkPactTransaction testKeyPairs theData "1" )
-             intSeq cmdStrs
-
-mkPactTransaction
-  :: [P.KeyPair]
-  -> Value
-  -> T.Text
-  -> Word64
-  -> String
-  -> PactTransaction
-mkPactTransaction keyPair theData nonce txId theCode =
-    let pubMeta = def :: P.PublicMeta
-        cmd = P.mkCommand
-              (map (\P.KeyPair {..} -> (P.ED25519, _kpSecret, _kpPublic)) keyPair)
-              pubMeta
-              nonce
-              (P.Exec (P.ExecMsg (T.pack theCode) theData))
-    in PactTransaction {_ptTxId = txId, _ptCmd = cmd}
-
-testKeyPairs :: [P.KeyPair]
-testKeyPairs =
-    let mPair = mzip (P.importPrivate testPrivateBs) (P.importPublic testPublicBs)
-        mKeyPair = fmap
-                   (\(sec, pub) -> P.KeyPair {_kpSecret = sec, _kpPublic = pub})
-                   mPair
-    in maybeToList mKeyPair
-
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
 ----------------------------------------------------------------------------------------------------
+
 data TestRequest = TestRequest
     { _trCmd :: TestSource
     , _trEval :: TestResponse -> IO TestTree
@@ -195,16 +156,8 @@ instance Show TestResponse where
            ++ "TxLogs: " ++ txLogsStr
 
 ----------------------------------------------------------------------------------------------------
--- Pact test sample data
+-- sample data
 ----------------------------------------------------------------------------------------------------
-testPactFilesDir :: String
-testPactFilesDir = "test/config/"
-
-testPrivateBs :: ByteString
-testPrivateBs = "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
-
-testPublicBs :: ByteString
-testPublicBs = "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
 testPactRequests :: [TestRequest]
 testPactRequests =

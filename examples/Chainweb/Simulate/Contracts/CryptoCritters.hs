@@ -273,9 +273,9 @@ data CritterRequest
                 Value
   | ShowGeneration Generation
   | Owner CritterId
-  | TransferCritter [KeyPair] CritterId
-  | SetTransfer CritterId Bool [KeyPair]
-  | InitiateTransfer [KeyPair] CritterId
+  | TransferCritter [ApiKeyPair] CritterId
+  | SetTransfer CritterId Bool [ApiKeyPair]
+  | InitiateTransfer [ApiKeyPair] CritterId
   | CompleteTransfer CritterId
   | CancelTransfer CritterId
   | SetBreeding CritterId Bool
@@ -303,40 +303,40 @@ createCritterRequest =
      Breed _idA _idB -> undefined
      CancelBreed _critterid -> undefined
 
-testAdminPrivates :: ByteString
-testAdminPrivates =
-  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+-- testAdminPrivates :: ByteString
+-- testAdminPrivates =
+--   "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
 
-testAdminPublics :: ByteString
-testAdminPublics =
-  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+-- testAdminPublics :: ByteString
+-- testAdminPublics =
+--   "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
-testPrivates :: [ByteString]
-testPrivates =
-  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
-  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
-  ]
+-- testPrivates :: [ByteString]
+-- testPrivates =
+--   [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
+--   , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
+--   ]
 
-testPublics :: [ByteString]
-testPublics =
-  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
-  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
-  ]
+-- testPublics :: [ByteString]
+-- testPublics =
+--   [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
+--   , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
+--   ]
 
-testAdminKeyPairs :: [KeyPair]
-testAdminKeyPairs =
-  let mPair =
-        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
-      mKeyPair =
-        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
-   in maybeToList mKeyPair
+-- testAdminKeyPairs :: [KeyPair]
+-- testAdminKeyPairs =
+--   let mPair =
+--         mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
+--       mKeyPair =
+--         fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
+--    in maybeToList mKeyPair
 
-testKeyPairs :: [KeyPair]
-testKeyPairs =
-  concat $
-  zipWith
-    (\private public ->
-       maybeToList $
-       KeyPair <$> importPrivate private <*> importPublic public)
-    testPrivates
-    testPublics
+-- testKeyPairs :: [KeyPair]
+-- testKeyPairs =
+--   concat $
+--   zipWith
+--     (\private public ->
+--        maybeToList $
+--        KeyPair <$> importPrivate private <*> importPublic public)
+--     testPrivates
+--     testPublics

@@ -1,4 +1,4 @@
-packages: 
+packages:
     chainweb.cabal
     tools/mine-genesis/mine-genesis.cabal
 
@@ -18,7 +18,7 @@ package aeson
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 842cde333baeca588fb87dd67d20d8e74c4411ab
+    tag: 761adfe5dcb93d054e7883a3776c9bf70889f8ae
 
 source-repository-package
     type: git
@@ -37,4 +37,3 @@ source-repository-package
 
 constraints:
     megaparsec <7.0
-

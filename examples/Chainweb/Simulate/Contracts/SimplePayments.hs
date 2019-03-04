@@ -160,8 +160,8 @@ mkRandomSimplePaymentRequest gen = go
               CreateAccount <$> fake <*> fake <*>
               (let k =
                      fst $
-                     randomR (0, max 0 (subtract 2 $ length testKeyPairs)) gen'
-                in return $ take 1 $ drop k testKeyPairs)
+                     randomR (0, max 0 (subtract 2 $ length {- testKeyPairs -} (undefined :: [ApiKeyPair]))) gen'
+                in return $ take 1 $ drop k {- testKeyPairs -} (undefined :: [ApiKeyPair]))
             _ -> error "mkRandomSimplePaymentRequest: error in case statement."
 
 data SimplePaymentRequest
@@ -171,7 +171,7 @@ data SimplePaymentRequest
                Amount
   | CreateAccount Identifier
                   Balance
-                  [KeyPair]
+                  [ApiKeyPair]
 
 createSimplePaymentRequest :: SimplePaymentRequest -> Text
 createSimplePaymentRequest (CreateAccount actualIdentifier actualInitialBalance actualKeyset) =
@@ -185,7 +185,7 @@ createSimplePaymentRequest (CreateAccount actualIdentifier actualInitialBalance 
       T.pack $
       unlines $
       map
-        (\(KeyPair secret pub) -> printf "s:%S p:%s" (show secret) (show pub))
+        (\kp -> printf "") --s:%S p:%s" (show undefined) (show undefined))
         actualKeyset
 createSimplePaymentRequest (RequestGetBalance actualIdentifier) =
   [text|(get-balance $identifier)|]
@@ -198,40 +198,40 @@ createSimplePaymentRequest (RequestPay actualFrom actualTo actualAmount) =
     to = getAccount actualTo
     amount = T.pack $ show $ getAmount actualAmount
 
-testAdminPrivates :: ByteString
-testAdminPrivates =
-  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+-- testAdminPrivates :: ByteString
+-- testAdminPrivates =
+--   "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
 
-testAdminPublics :: ByteString
-testAdminPublics =
-  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+-- testAdminPublics :: ByteString
+-- testAdminPublics =
+--   "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
 
-testPrivates :: [ByteString]
-testPrivates =
-  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
-  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
-  ]
+-- testPrivates :: [ByteString]
+-- testPrivates =
+--   [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
+--   , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
+--   ]
 
-testPublics :: [ByteString]
-testPublics =
-  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
-  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
-  ]
+-- testPublics :: [ByteString]
+-- testPublics =
+--   [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
+--   , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
+--   ]
 
-testAdminKeyPairs :: [KeyPair]
-testAdminKeyPairs =
-  let mPair =
-        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
-      mKeyPair =
-        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
-   in maybeToList mKeyPair
+-- testAdminKeyPairs :: [ApiKeyPair]
+-- testAdminKeyPairs =
+--   let mPair =
+--         mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
+--       mKeyPair =
+--         fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
+--    in maybeToList mKeyPair
 
-testKeyPairs :: [KeyPair]
-testKeyPairs =
-  concat $
-  zipWith
-    (\private public ->
-       maybeToList $
-       liftM2 KeyPair (importPrivate private) (importPublic public))
-    testPrivates
-    testPublics
+-- testKeyPairs :: [ApiKeyPair]
+-- testKeyPairs =
+--   concat $
+--   zipWith
+--     (\private public ->
+--        maybeToList $
+--        liftM2 KeyPair (importPrivate private) (importPublic public))
+--     testPrivates
+--     testPublics
