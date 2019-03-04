@@ -232,9 +232,7 @@ creationTime: 1551207336601038
 parent: hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
 height: 0
 hash: Rtt5MNX1AWQos8DOHn3MRv-d4TbyJx4FGQgOZu6jEd4
-miner:
-  _chainNodeIdChain: 0
-  _chainNodeIdId: 0
+miner: 0/0
 chainId: 0
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -254,9 +252,7 @@ creationTime: 1551207336601038
 parent: gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
 height: 0
 hash: ZcoJy_e7Rcf7VNTF5bRUR6mLqilgnccSdFjd95FJ8cw
-miner:
-  _chainNodeIdChain: 1
-  _chainNodeIdId: 0
+miner: 0/1
 chainId: 1
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -276,9 +272,7 @@ creationTime: 1551207336601038
 parent: zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
 height: 0
 hash: 3W3KoX9q_GDHwAbLCA9AN5ASu-s5an3KSm8Q49XbUzM
-miner:
-  _chainNodeIdChain: 2
-  _chainNodeIdId: 0
+miner: 0/2
 chainId: 2
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -298,9 +292,7 @@ creationTime: 1551207336601038
 parent: iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
 height: 0
 hash: VBEdYJpLTNmHWpxfVNM0WhqHvlnTdDiGYvM6tJJ6uio
-miner:
-  _chainNodeIdChain: 3
-  _chainNodeIdId: 0
+miner: 0/3
 chainId: 3
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -320,9 +312,7 @@ creationTime: 1551207336601038
 parent: E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
 height: 0
 hash: 8-2Zaxx9f4nNBnbQ0p-2p6mZ-OECdW6nwboPxoVVubk
-miner:
-  _chainNodeIdChain: 4
-  _chainNodeIdId: 0
+miner: 0/4
 chainId: 4
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -342,9 +332,7 @@ creationTime: 1551207336601038
 parent: jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
 height: 0
 hash: GWc0Y6KBMideblr-hNtxS-4mwvDkrtrsyFTp6_bPEso
-miner:
-  _chainNodeIdChain: 5
-  _chainNodeIdId: 0
+miner: 0/5
 chainId: 5
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -364,9 +352,7 @@ creationTime: 1551207336601038
 parent: xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
 height: 0
 hash: vTTkWTR_ZeMPI7cbAJD9TG-PVn1RbP_H2avLpGIsUD0
-miner:
-  _chainNodeIdChain: 6
-  _chainNodeIdId: 0
+miner: 0/6
 chainId: 6
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -386,9 +372,7 @@ creationTime: 1551207336601038
 parent: wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
 height: 0
 hash: P54DBJutxTUE3cOE5ribGmQQwR7FGeTooMqw_ij_EHo
-miner:
-  _chainNodeIdChain: 7
-  _chainNodeIdId: 0
+miner: 0/7
 chainId: 7
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -408,9 +392,7 @@ creationTime: 1551207336601038
 parent: -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
 height: 0
 hash: AmJeCOJ4EWT6f2TtFCrrKZfzwAtjaOMv2P-PqRJd0iM
-miner:
-  _chainNodeIdChain: 8
-  _chainNodeIdId: 0
+miner: 0/8
 chainId: 8
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
@@ -430,9 +412,7 @@ creationTime: 1551207336601038
 parent: CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
 height: 0
 hash: 4H7twgEl0BdNajK8wYBr6s49ooRpNJ785wQE4QM38g8
-miner:
-  _chainNodeIdChain: 9
-  _chainNodeIdId: 0
+miner: 0/9
 chainId: 9
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 adjacents:
