@@ -52,6 +52,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
 import Data.CAS.HashMap hiding (toList)
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respetive Payload Store
@@ -63,10 +64,11 @@ withTestCutDb
     :: HasCallStack
     => ChainwebVersion
     -> Int
+    -> LogFunction
     -> (Given WebBlockHeaderDb => Given CutDb => Given (PayloadDb HashMapCas) => IO a)
     -> IO a
-withTestCutDb v n f = giveNewWebChain v
-    $ withCutDb (defaultCutDbConfig v) given $ \cutDb -> give cutDb $ do
+withTestCutDb v n logfun f = giveNewWebChain v
+    $ withCutDb (defaultCutDbConfig v) logfun given $ \cutDb -> give cutDb $ do
         payloadDb <- emptyPayloadDb @HashMapCas
         initializePayloadDb v payloadDb
         give payloadDb $ do
