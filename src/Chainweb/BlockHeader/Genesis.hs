@@ -209,6 +209,7 @@ genesisBlockHeaders v = HM.fromList
 unsafeFromYamlText :: Text -> BlockHeader
 unsafeFromYamlText = _objectEncoded . fromJust . Yaml.decodeThrow . T.encodeUtf8
 
+-- | Ten Genesis Blocks for `Testnet00`.
 testnet00Geneses :: HM.HashMap ChainId BlockHeader
 testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
   where
