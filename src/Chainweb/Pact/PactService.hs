@@ -232,8 +232,14 @@ execTransactions miner xs = do
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
+    -- let exMode = _pdbsExecutionMode currentState
     txOuts <- forM xs (\PactTransaction {..} -> do
-        let exMode = _pdbsExecutionMode currentState
+        -- TODO: txId needs to be incremented for each transaction
+        pdbsExecutionMode %= nextTextId
+        exMode <- use pdbsExecutionMode
+        -- %=
+        -- .=
+
         (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState exMode _ptCmd miner
         return FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs})
     newCmdState <- liftIO $! readMVar mvCmdState
@@ -243,7 +249,12 @@ execTransactions miner xs = do
           , _pdbsState = newCmdState
           , _pdbsExecMode =
           }
+    TODO: updated state needs to have the txId updated n times
     return (Transactions (zip xs txOuts), updatedState)
+
+nextTxId :: ExecutionMode -> IO ExecutionMode
+nextTxId Transactional tId = return $ Transactional (succ tId)
+nextTxId otherMode = throwIO "Only Transactional ExecutionMode is supported"
 
 applyPactCmd
     :: CheckpointEnv
