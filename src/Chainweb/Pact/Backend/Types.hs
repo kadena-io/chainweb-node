@@ -73,12 +73,12 @@ import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
     closeDb :: e -> IO (Either String ())
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> P.ExecutionMode -> IO (Maybe String, SaveData e)
     -- TODO: saveDb needs a better name
 
 instance PactDbBackend P.PureDb where
     closeDb = const $ return $ Right ()
-    saveDb PactDbEnvPersist {..} commandState =
+    saveDb PactDbEnvPersist {..} commandState execMode =
       case _pdepEnv of
         P.DbEnv {..} -> do
           let _sTxRecord = _txRecord
@@ -86,14 +86,19 @@ instance PactDbBackend P.PureDb where
               _sSQLiteConfig = Nothing
               _sCommandState = commandState
               _sVersion = saveDataVersion
+              _sExecutionMode = execMode
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
     closeDb = P.closeSQLite
     saveDb = saveSQLite
 
-saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
-saveSQLite PactDbEnvPersist {..} commandState = do
+saveSQLite
+    :: PactDbEnvPersist P.SQLite
+    -> P.CommandState
+    -> P.ExecutionMode
+    -> IO (Maybe String, SaveData P.SQLite)
+saveSQLite PactDbEnvPersist {..} commandState execMode = do
     case _pdepEnv of
       P.DbEnv {..} -> do
         let _sTxRecord = _txRecord
@@ -114,10 +119,10 @@ saveDataVersion = "0.0.0"
 
 data SaveData p = SaveData
     { _sTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
-    , _sTxId :: Maybe P.TxId
+    , _sTxId :: Maybe P.TxId -- TODO: is this needed:
     , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
-    , _sExecutionMode :: P.ExecutionMode
+    , _sExecMode :: P.ExecutionMode
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
@@ -153,7 +158,7 @@ data EnvPersist' =
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
-    , _pdbsExecutionMode :: P.ExecutionMode    }
+    , _pdbsExecMode :: P.ExecutionMode   }
 
 makeLenses ''PactDbState
 

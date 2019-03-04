@@ -241,7 +241,7 @@ execTransactions miner xs = do
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
-          , _pdbsExecutionMode =
+          , _pdbsExecMode =
           }
     return (Transactions (zip xs txOuts), updatedState)
 
