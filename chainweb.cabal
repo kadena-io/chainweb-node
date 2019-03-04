@@ -32,6 +32,13 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
+common warning-flags
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+
 flag tls13
     description:
         Enable TLSv1.3; depends on the master branch of the tls package.
@@ -50,12 +57,8 @@ flag ed25519
 -- -------------------------------------------------------------------------- --
 
 library
+    import: warning-flags
     default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
     hs-source-dirs: src
     exposed-modules:
           Chainweb.BlockHash
@@ -269,12 +272,9 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     type: exitcode-stdio-1.0
@@ -376,22 +376,19 @@ test-suite chainweb-tests
 -- Chainweb Benchmarking
 -- -------------------------------------------------------------------------- --
 benchmark chainweb-bench
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: Bench.hs
-  hs-source-dirs:
-      bench
-  ghc-options:
-      -Wall
-      -Wincomplete-record-updates
-      -Wincomplete-uni-patterns
-      -Wredundant-constraints
-      -threaded
-      -O2
-      -with-rtsopts=-N
-  build-depends:
+    import: warning-flags
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    main-is: Bench.hs
+    hs-source-dirs:
+        bench
+    ghc-options:
+        -threaded
+        -O2
+        -with-rtsopts=-N
+    build-depends:
         -- internal
-        chainweb
+          chainweb
 
         -- external
         , base >= 4.11
@@ -406,12 +403,9 @@ benchmark chainweb-bench
 -- The application that runs an chainweb node
 --
 executable chainweb-node
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: node
@@ -445,12 +439,9 @@ executable chainweb-node
 -- variety of testing such as using the network, etc--things that aren't allowed
 -- in a nix build sandbox.
 executable slow-tests
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: test
@@ -539,12 +530,9 @@ executable slow-tests
 -- -------------------------------------------------------------------------- --
 
 executable blockheaderdb-example
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples
@@ -567,12 +555,9 @@ executable blockheaderdb-example
 -- -------------------------------------------------------------------------- --
 
 executable p2p-example
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples test
@@ -605,12 +590,9 @@ executable p2p-example
 -- -------------------------------------------------------------------------- --
 
 executable transaction-generator
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples
