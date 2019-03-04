@@ -10,12 +10,19 @@
 module Chainweb.Mempool.Socket
   ( withClient
   , withClientSession
-  , withTimeout
-  , defaultMempoolSocketTimeout
   , server
   , serverSession
   , ClientConfig(..)
   , MempoolSocketException(..)
+
+  , mkClient
+  , connectClient
+  , cleanupClientState
+  , toStreams
+  , toDebugStreams
+  , withTimeout
+  , defaultMempoolSocketTimeout
+  , ClientState
   ) where
 
 import Control.Applicative
@@ -28,7 +35,7 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
-import Control.Monad (forever, guard, unless, void, when, (>=>))
+import Control.Monad (forever, guard, join, unless, void, when, (>=>))
 import Data.Attoparsec.ByteString (Parser, (<?>))
 import qualified Data.Attoparsec.ByteString as Atto
 import qualified Data.Attoparsec.ByteString.Char8 as Atto (char8)
@@ -407,6 +414,21 @@ withTimeout d0 (inp, out, cleanup) userfunc = do
         out' <- Streams.contramapM_ (const bump) out
         userfunc (inp', out', cleanup)
 
+wrapTimeout :: Int              -- ^ timeout in seconds
+            -> IO ()            -- ^ call on timeout
+            -> (InputStream ByteString, OutputStream Builder, IO ())
+            -> IO (InputStream ByteString, OutputStream Builder, IO ())
+wrapTimeout d0 onTimeout (inp, out, cleanup) = mask_ $ do
+    tmgr <- Ev.getSystemTimerManager
+    tmentry <- Ev.registerTimeout tmgr d onTimeout
+    let cleanup' = Ev.unregisterTimeout tmgr tmentry `finally` cleanup
+    let bump = Ev.updateTimeout tmgr tmentry d
+    inp' <- Streams.mapM_ (const bump) inp
+    out' <- Streams.contramapM_ (const bump) out
+    return (inp', out', cleanup')
+
+  where
+    d = d0 * 1000000
 
 -- | Starts a mempool socket server on the given host and port. In case
 -- 'N.aNY_PORT' was provided as the port number, 'server' writes the real bound
@@ -447,9 +469,9 @@ toDebugStreams name sock = do
 
 
 -- | Converts a socket to a triple of (input, output, cleanup).
-_toStreams :: Socket
-           -> IO (InputStream ByteString, OutputStream Builder, IO ())
-_toStreams sock = do
+toStreams :: Socket
+          -> IO (InputStream ByteString, OutputStream Builder, IO ())
+toStreams sock = do
     (readEnd, writeEnd0) <- Streams.socketToStreams sock
     writeEnd <- Streams.atEndOfOutput (eatExceptions $ N.shutdown sock N.ShutdownSend) writeEnd0
     writeEndB <- Streams.builderStream writeEnd
@@ -633,10 +655,14 @@ data ClientState t = ClientState {
     -- n.b.: difference list
   , _queuedCommands :: MVar ([ClientCommand t] -> [ClientCommand t])
   , _subscriptionCallback :: MVar (Vector t -> IO ())
+  , _csCleanup :: MVar (IO ())
 }
 
+cleanupClientState :: ClientState t -> IO ()
+cleanupClientState cs = join $ readMVar (_csCleanup cs)
 
--- | Given a remote mempool, runs the given user action treating the remote
+
+-- | given a remote mempool, runs the given user action treating the remote
 -- mempool as a 'MempoolBackend'.
 withClient :: Show t
            => ByteString   -- ^ host
@@ -651,8 +677,23 @@ withClient host port config handler = do
     withTimeout defaultMempoolSocketTimeout streams0
         $ \streams -> withClientSession streams config handler
 
+
+connectClient :: Show t
+              => ByteString
+              -> N.PortNumber
+              -> ClientConfig t
+              -> IO (ClientState t, MempoolBackend t)
+connectClient host port config = do
+    (addr, sock) <- resolve host port
+    N.connect sock addr
+    me <- myThreadId
+    streams <- toDebugStreams "client" sock >>=
+               wrapTimeout defaultMempoolSocketTimeout (killThread me)
+    mkClient streams config
+
+
 sayGoodbye :: Show t => ClientState t -> IO ()
-sayGoodbye (ClientState cChan _ _ _ _ _) = do
+sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
     issueMvCmd CGoodbye
     atomically $ TBMChan.closeTBMChan cChan
   where
@@ -668,10 +709,10 @@ sayGoodbye (ClientState cChan _ _ _ _ _) = do
         return v
 
 toBackend :: Show t => ClientConfig t -> ClientState t -> MempoolBackend t
-toBackend config (ClientState cChan _ _ _ _ _) =
+toBackend config (ClientState cChan _ _ _ _ _ _) =
     MempoolBackend txcfg blockSizeLimit pMember pLookup pInsert
                    pGetBlock unsupported unsupported unsupported
-                   pGetPending pSubscribe pShutdown
+                   pGetPending pSubscribe pShutdown pClear
   where
     txcfg = _ccTxCfg config
     blockSizeLimit = 100000              -- FIXME: move into transaction config!
@@ -720,8 +761,10 @@ toBackend config (ClientState cChan _ _ _ _ _) =
         return subref
 
     pShutdown = writeCmd CShutdown
+    pClear = unsupported'
 
-    unsupported = const $ throwS "operation unsupported on remote mempool"
+    unsupported = const unsupported'
+    unsupported' = throwS "operation unsupported on remote mempool"
 
 
 writeChan :: TBMChan a -> a -> IO ()
@@ -733,42 +776,38 @@ writeChan chan x = do
     when closed $ throwS "attempted write on closed channel"
 
 
-withClientSession :: Show t
-                  => (InputStream ByteString, OutputStream Builder, IO ())
-                  -> ClientConfig t
-                  -> (MempoolBackend t -> IO a)
-                  -> IO a
-withClientSession (inp, outp, cleanup) config userHandler =
-    bracket initialize destroy go
+mkClient :: Show t
+         => (InputStream ByteString, OutputStream Builder, IO ())
+         -> ClientConfig t
+         -> IO (ClientState t, MempoolBackend t)
+mkClient (inp, outp, cleanup) config = mask_ $ do
+     cchan <- atomically $ TBMChan.newTBMChan 8
+     schan <- atomically $ TBMChan.newTBMChan 8
+     cmv <- newEmptyMVar
+     smv <- newEmptyMVar
+     q <- newMVar id
+     cb <- newMVar (const $ return ())
+
+     cleanupMv <- newEmptyMVar
+     let !cs = ClientState cchan cmv schan smv q cb cleanupMv
+
+     done1 <- newEmptyMVar
+     done2 <- newEmptyMVar
+     ctid <- forkIOWithUnmask (\r -> commandThreadProc cs r `finally` putMVar done1 ())
+     stid <- forkIOWithUnmask (\r -> socketThreadProc schan r `finally` putMVar done2 ())
+     putMVar cmv ctid
+     putMVar smv stid
+     putMVar cleanupMv $ destroy cs done1 done2
+     return (cs, toBackend config cs)
 
   where
     txcfg = _ccTxCfg config
-
     keepaliveInterval = 1000000 * _ccKeepaliveIntervalSeconds config
-
-    go (cs, _, _) = userHandler $ toBackend config cs
-
-    initialize = do
-        cchan <- atomically $ TBMChan.newTBMChan 8
-        schan <- atomically $ TBMChan.newTBMChan 8
-        cmv <- newEmptyMVar
-        smv <- newEmptyMVar
-        q <- newMVar id
-        cb <- newMVar (const $ return ())
-        let !cs = ClientState cchan cmv schan smv q cb
-
-        done1 <- newEmptyMVar
-        done2 <- newEmptyMVar
-        ctid <- forkIOWithUnmask (\r -> commandThreadProc cs r `finally` putMVar done1 ())
-        stid <- forkIOWithUnmask (\r -> socketThreadProc schan r `finally` putMVar done2 ())
-        putMVar cmv ctid
-        putMVar smv stid
-        return (cs, done1, done2)
 
     smsgParser = (Atto.endOfInput *> pure Nothing) <|>
                  (Just <$> decodeServerMessage txcfg)
 
-    destroy (cs@(ClientState _ cmv _ _ _ _), done1, done2) = eatExceptions $ do
+    destroy cs@(ClientState _ cmv _ _ _ _ _) done1 done2 = eatExceptions $ do
         debug "client: begin destroy"
         sayGoodbye cs `finally`
             closeChans cs `finally`
@@ -786,7 +825,7 @@ withClientSession (inp, outp, cleanup) config userHandler =
           then return (Left CShutdown)
           else STM.retry
 
-    readChans' (ClientState cchan _ schan _ _ _) =
+    readChans' (ClientState cchan _ schan _ _ _ _) =
         atomically ((Left <$> tryReadChan cchan) <|>
                     (Right <$> tryReadChan schan) <|>
                     checkClosures cchan schan)
@@ -856,6 +895,19 @@ withClientSession (inp, outp, cleanup) config userHandler =
                           throwS $ T.pack ("protocol error on handshake: " ++ s)
 
 
+
+withClientSession :: Show t
+                  => (InputStream ByteString, OutputStream Builder, IO ())
+                  -> ClientConfig t
+                  -> (MempoolBackend t -> IO a)
+                  -> IO a
+withClientSession streams config userHandler = bracket initialize destroy go
+  where
+    initialize = mkClient streams config
+    destroy (cs, _) = cleanupClientState cs
+    go (_, mp) = userHandler mp
+
+
 parseHandshake :: Parser ()
 parseHandshake = (<?> "handshake") $ do
     magic <- parseU64LE
@@ -878,7 +930,7 @@ ccmdToCmd CShutdown = error "impossible"
 
 
 closeChans :: ClientState t -> IO ()
-closeChans (ClientState cchan _ schan _ _ _) =
+closeChans (ClientState cchan _ schan _ _ _ _) =
     (atomically $ TBMChan.closeTBMChan cchan) `finally`
     (atomically $ TBMChan.closeTBMChan schan)
 
