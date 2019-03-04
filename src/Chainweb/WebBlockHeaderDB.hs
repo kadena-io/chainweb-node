@@ -96,7 +96,7 @@ webAllEntries db = do
 -- | Returns all  blocks in all block header databases.
 --
 webEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
-webEntries db = do
+webEntries db =
     foldl' (\a b -> () <$ S.mergeOn _blockCreationTime a b) mempty streams
   where
     streams = (\x -> entries x Nothing Nothing Nothing Nothing) <$> dbs

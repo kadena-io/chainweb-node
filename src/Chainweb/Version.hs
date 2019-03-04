@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -58,7 +57,6 @@ import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
-import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import qualified Data.Text as T
@@ -138,10 +136,10 @@ isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
 {-# INLINABLE isTestChainwebVersionId #-}
 
 chainwebVersionId :: ChainwebVersion -> Word32
-chainwebVersionId v@Test{} = toTestChainwebVersion v $ 0x80000000
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v $ 0x80000001
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v $ 0x80000002
-chainwebVersionId v@Simulation{} = toTestChainwebVersion v $ 0x80000003
+chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
+chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
+chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
+chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000003
 chainwebVersionId Testnet00 = 0x00000001
 {-# INLINABLE chainwebVersionId #-}
 

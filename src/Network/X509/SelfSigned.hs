@@ -102,11 +102,11 @@ import qualified Crypto.PubKey.RSA.Types as RSA (KeyPair(..), toPublicKey)
 import Crypto.Random.Types (MonadRandom)
 
 import Data.ASN1.BinaryEncoding (DER(..))
-import Data.ASN1.Encoding (encodeASN1', decodeASN1')
+import Data.ASN1.Encoding (decodeASN1', encodeASN1')
 import Data.ASN1.Types
 import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
-import qualified Data.ByteString as B (ByteString, pack, length)
+import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8 (unpack)
 import Data.Default (def)
 import Data.Foldable (toList)
@@ -114,13 +114,14 @@ import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe
-import Data.PEM (PEM(..), pemWriteBS, pemParseBS)
+import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
 import Data.Proxy
 import Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.X509
-import Data.X509.Validation (ServiceID, Fingerprint(..), getFingerprint, ValidationCacheQueryCallback)
+import Data.X509.Validation
+    (Fingerprint(..), ServiceID, ValidationCacheQueryCallback, getFingerprint)
 
 import GHC.Generics
 import GHC.Stack
@@ -471,11 +472,10 @@ pX509CertPem service = textOption
 {-# INLINE pX509CertPem #-}
 
 validateX509CertPem :: MonadError T.Text m => X509CertPem -> m ()
-validateX509CertPem pemCert = do
+validateX509CertPem pemCert =
     void $ case decodePemX509Cert pemCert of
         Left e -> throwError $ sshow e
         Right _ -> return ()
-    return ()
 
 decodePemX509Cert :: MonadThrow m => X509CertPem -> m (SignedExact Certificate)
 decodePemX509Cert (X509CertPem bytes) =
@@ -559,11 +559,10 @@ encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
     }
 
 validateX509KeyPem :: MonadError T.Text m => X509KeyPem -> m ()
-validateX509KeyPem pemKey = do
+validateX509KeyPem pemKey =
     void $ case decodePemX509Key pemKey of
         Left e -> throwError $ sshow e
         Right _ -> return ()
-    return ()
 
 decodePemX509Key :: MonadThrow m => X509KeyPem -> m PrivKey
 decodePemX509Key (X509KeyPem bytes) =
@@ -715,4 +714,3 @@ tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
 #endif
         }
-
