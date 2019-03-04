@@ -127,7 +127,14 @@ genesisBlockPayload TestWithTime{} _ = (txs, outs)
   where
     (_, outs) = newBlockOutputs mempty
     (_, txs) = newBlockTransactions mempty
-genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this chainweb version"
+genesisBlockPayload TestWithPow{} _ = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload Simulation{} _ =
+    error "genesisBlockPayload isn't yet defined for Simulation"
+genesisBlockPayload Testnet00 _ =
+    error "genesisBlockPayload isn't yet defined for Testnet00"
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
