@@ -323,7 +323,6 @@ test-suite chainweb-tests
         , bytestring >= 0.10
         , containers >= 0.5
         , data-default >=0.7
-        , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
@@ -336,7 +335,6 @@ test-suite chainweb-tests
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
-        , loglevel >= 0.1
         , massiv >= 0.2
         , mwc-random >= 0.13
         , network >= 2.6
@@ -361,7 +359,6 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >=1.2
         , these >= 0.7
-        , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
@@ -613,7 +610,6 @@ executable transaction-generator
         , configuration-tools >= 0.4
         , data-default >= 0.7
         , Decimal >= 0.4.2
-        , ed25519-donna
         , fake >= 0.1.1.1
         , lens >= 4.16
         , mtl >= 2.2
