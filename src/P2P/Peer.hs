@@ -366,17 +366,16 @@ instance FromJSON Peer where
 -- certificate, the peer id is the SHA256 hash of the X509 certificate.
 --
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
-bootstrapPeerInfos Test{} = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithTime{} = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithPow{} = testBootstrapPeerInfos
+bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Simulation{} = error
     $ "bootstrap peer info isn't defined for chainweb version Simulation"
-bootstrapPeerInfos Testnet00 = error
-    $ "bootstrap peer info isn't defined for chainweb version Testnet00"
+bootstrapPeerInfos Testnet00 = [testnet00BootstrapPeerInfo]
 
-testBootstrapPeerInfos :: [PeerInfo]
+testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
-    [ PeerInfo
+    PeerInfo
 #if WITH_ED25519
         { _peerId = Just $ unsafeFromText "BMe2hSdSEGCzLwvoYXPuB1BqYEH5wiV5AvacutSGWmg"
 #else
@@ -393,7 +392,18 @@ testBootstrapPeerInfos =
             , _hostAddressPort = 1789
             }
         }
-    ]
+
+testnet00BootstrapPeerInfo :: PeerInfo
+testnet00BootstrapPeerInfo = PeerInfo
+    { _peerId = Nothing  -- TODO Bad?
+    , _peerAddr = HostAddress
+        { _hostAddressHost = testnetHostname
+        , _hostAddressPort = 1789
+        }
+    }
+
+testnetHostname :: Hostname
+testnetHostname = unsafeHostnameFromText "https://testnet.kadena.io/bootstrap"
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
@@ -511,4 +521,3 @@ instance Arbitrary PeerConfig where
             , "MC4CAQAwBQYDK2VwBCIEIPQZCpPI8qgkU/HlsIwQBC48QuXOl036aReJF6DFLLjR"
             , "-----END PRIVATE KEY-----"
             ]
-

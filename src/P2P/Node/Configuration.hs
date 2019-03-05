@@ -93,7 +93,8 @@ defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 defaultP2pConfiguration v@Test{} = testP2pConfiguration v
 defaultP2pConfiguration v@TestWithTime{} = testP2pConfiguration v
 defaultP2pConfiguration v@TestWithPow{} = testP2pConfiguration v
-defaultP2pConfiguration _ = error "TODO not implemented"
+defaultP2pConfiguration Simulation{} = error "P2pConfiguration for Simulation yet undefined"
+defaultP2pConfiguration Testnet00 = testnet00Configuration
 
 testP2pConfiguration :: ChainwebVersion -> P2pConfiguration
 testP2pConfiguration v = P2pConfiguration
@@ -102,6 +103,16 @@ testP2pConfiguration v = P2pConfiguration
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
     , _p2pConfigKnownPeers = bootstrapPeerInfos v
+    , _p2pConfigPeerDbFilePath = Nothing
+    }
+
+testnet00Configuration :: P2pConfiguration
+testnet00Configuration = P2pConfiguration
+    { _p2pConfigPeer = defaultPeerConfig  -- Need to alter this
+    , _p2pConfigMaxSessionCount = 10
+    , _p2pConfigMaxPeerCount = 50
+    , _p2pConfigSessionTimeout = 60
+    , _p2pConfigKnownPeers = bootstrapPeerInfos Testnet00  -- This too
     , _p2pConfigPeerDbFilePath = Nothing
     }
 
