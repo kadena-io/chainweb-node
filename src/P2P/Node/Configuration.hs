@@ -75,7 +75,7 @@ data P2pConfiguration = P2pConfiguration
         -- ^ interval at which peers are rotated out of the active set
 
     , _p2pConfigKnownPeers :: ![PeerInfo]
-        -- ^ List of know peers. Must not be empty.
+        -- ^ List of known peers. Must not be empty.
 
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
         -- ^ the path where the peer database is persisted
@@ -108,11 +108,19 @@ testP2pConfiguration v = P2pConfiguration
 
 testnet00Configuration :: P2pConfiguration
 testnet00Configuration = P2pConfiguration
-    { _p2pConfigPeer = defaultPeerConfig  -- Need to alter this
+    {
+      -- It is expected that `_p2pConfigPeer` is altered later down the line,
+      -- via configuration options.
+      _p2pConfigPeer = defaultPeerConfig
+
+    -- TODO Is there any reason these that three fields should be different from
+    -- what's found in `testP2pConfiguration`?
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
-    , _p2pConfigKnownPeers = bootstrapPeerInfos Testnet00  -- This too
+
+    , _p2pConfigKnownPeers = bootstrapPeerInfos Testnet00
+    -- This is expected to be altered later, via configuration options.
     , _p2pConfigPeerDbFilePath = Nothing
     }
 
@@ -162,4 +170,3 @@ pP2pConfiguration networkId = id
         <> suffixHelp net "file where the peer database is stored"
   where
     net = T.unpack . networkIdToText <$> networkId
-

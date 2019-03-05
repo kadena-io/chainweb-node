@@ -267,7 +267,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
     { _peerConfigAddr = HostAddress localhost 0
-    , _peerConfigInterface = fromString "0.0.0.0"
+    , _peerConfigInterface = fromString "127.0.0.1"
     , _peerConfigCertificate = Nothing
     , _peerConfigKey = Nothing
     }
@@ -395,15 +395,16 @@ testBootstrapPeerInfos =
 
 testnet00BootstrapPeerInfo :: PeerInfo
 testnet00BootstrapPeerInfo = PeerInfo
-    { _peerId = Nothing  -- TODO Bad?
+    { _peerId = Nothing
     , _peerAddr = HostAddress
-        { _hostAddressHost = testnetHostname
-        , _hostAddressPort = 1789
+        { _hostAddressHost = testnetBootstrapHost
+        , _hostAddressPort = 1789  -- TODO Good port?
         }
     }
 
-testnetHostname :: Hostname
-testnetHostname = unsafeHostnameFromText "https://testnet.kadena.io/bootstrap"
+-- This can be changed as needed.
+testnetBootstrapHost :: Hostname
+testnetBootstrapHost = unsafeHostnameFromText "https://testnet.kadena.io/bootstrap"
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
