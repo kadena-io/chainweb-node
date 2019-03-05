@@ -127,22 +127,18 @@ genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
     encodeChainId c
 
 genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
-genesisBlockPayload Test{} _ = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
-genesisBlockPayload TestWithTime{} _ = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
-genesisBlockPayload TestWithPow{} _ = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
+genesisBlockPayload Test{} _ = emptyPayload
+genesisBlockPayload TestWithTime{} _ = emptyPayload
+genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ =
-    error "genesisBlockPayload isn't yet defined for Testnet00"
+genesisBlockPayload Testnet00 _ = emptyPayload
+
+emptyPayload :: (BlockTransactions, BlockOutputs)
+emptyPayload = (txs, outs)
+  where
+    (_, outs) = newBlockOutputs mempty
+    (_, txs) = newBlockTransactions mempty
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
