@@ -12,7 +12,7 @@
 --
 -- Test the invariants of the `TreeDb` typeclass.
 --
-module Chainweb.Test.TreeDB ( withTreeDb, treeDbInvariants, RunStyle(..) ) where
+module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
 
 import Control.Exception (SomeException(..), try)
 import Control.Lens (each, from, over, to, view, (^.), (^..))

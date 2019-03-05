@@ -57,7 +57,7 @@ import GHC.Word
 
 import Pact.Types.Command (Command(..))
 import Pact.Types.Persistence (TxLog(..))
-import Pact.Types.Term (KeySet(..), Name(..), PublicKey(..))
+import Pact.Types.Term (KeySet(..), Name(..))
 import Pact.Types.Util (Hash(..))
 
 -- internal chainweb modules

@@ -10,7 +10,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -742,7 +741,7 @@ foldableEntries k l mir mar f = S.each f
 toTree :: (TreeDb db, Ord (DbKey db)) => db -> IO (Tree (DbEntry db))
 toTree db = do
     let es = entries db Nothing Nothing Nothing Nothing
-    hs <- S.toList_ $ S.map (\h -> (h, key h, [maybe (key h) id $ parent h] )) es
+    hs <- S.toList_ $ S.map (\h -> (h, key h, [fromMaybe (key h) $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
         g' = transposeG g
     pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'

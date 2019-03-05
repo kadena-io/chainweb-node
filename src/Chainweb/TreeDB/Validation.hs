@@ -1,6 +1,4 @@
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -80,4 +78,3 @@ validateAdditionsDbM
     -> HM.HashMap BlockHash BlockHeader
     -> IO ()
 validateAdditionsDbM = validateAdditionsM . lookup
-
