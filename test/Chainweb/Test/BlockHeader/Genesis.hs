@@ -11,7 +11,7 @@ module Chainweb.Test.BlockHeader.Genesis
   ( tests
   ) where
 
-import Control.Monad (void, zipWithM)
+import Control.Monad (zipWithM_)
 
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -48,6 +48,6 @@ allBlocksParse = map _blockHeight testnet00Chains @?= replicate 10 0
 -- what was hardcoded?
 --
 regeneration :: ChainwebVersion -> [BlockHeader] -> Assertion
-regeneration v bs = void $ zipWithM (\cid chain -> mine cid @?= chain) [0..] bs
+regeneration v bs = zipWithM_ (\cid chain -> mine cid @?= chain) [0..] bs
   where
     mine c = mineGenesis v (testChainId c) (genesisTime v $ testChainId c) (Nonce 0)
