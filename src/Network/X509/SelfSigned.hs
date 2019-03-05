@@ -473,7 +473,7 @@ pX509CertPem service = textOption
 
 validateX509CertPem :: MonadError T.Text m => X509CertPem -> m ()
 validateX509CertPem pemCert =
-    void $ case decodePemX509Cert pemCert of
+    case decodePemX509Cert pemCert of
         Left e -> throwError $ sshow e
         Right _ -> return ()
 
@@ -560,7 +560,7 @@ encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
 
 validateX509KeyPem :: MonadError T.Text m => X509KeyPem -> m ()
 validateX509KeyPem pemKey =
-    void $ case decodePemX509Key pemKey of
+    case decodePemX509Key pemKey of
         Left e -> throwError $ sshow e
         Right _ -> return ()
 
