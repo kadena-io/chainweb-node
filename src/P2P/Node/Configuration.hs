@@ -62,7 +62,7 @@ import P2P.Peer
 -- TODO: add ChainwebVersion?
 --
 data P2pConfiguration = P2pConfiguration
-    { _p2pConfigPeer:: !PeerConfig
+    { _p2pConfigPeer :: !PeerConfig
         -- ^ the local peer.
 
     , _p2pConfigMaxSessionCount :: !Natural
