@@ -15,6 +15,7 @@
 module Chainweb.Pact.TransactionExec
 ( -- * pact service api
   applyCmd
+, applyGenesisCmd
 , applyExec
 , applyExec'
 , applyContinuation
@@ -80,7 +81,7 @@ applyCmd
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
     -> IO (CommandResult, [TxLog Value])
-applyCmd _ _ _ _ _ _ ex cmd (ProcFail s) = return (jsonResult ex (cmdToRequestKey cmd) (Gas 0) s, [])
+applyCmd _ _ _ _ _ _ ex cmd (ProcFail s) = pure (jsonResult ex (cmdToRequestKey cmd) (Gas 0) s, [])
 applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc cmd) = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
@@ -93,35 +94,71 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc
     case buyGasResultE of
       Left e1 -> do
         logErrorRequestKey logger requestKey e1 "tx failure for requestKey when buying gas"
-        jsonErrorResult requestKey e1 [] (Gas 0)
+        jsonErrorResult exMode requestKey e1 [] (Gas 0)
       Right _buyGasResult -> do
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
         -- pactId <- either fail pure buyGasResult
 
-        logDebugRequestKey logger requestKey "successful gas buy for requestKey"
+        logDebugRequestKey logger requestKey "successful gas buy for request key"
         -- Note the use of 'def' here: we run the payload normally without inserting
         -- initial state.
         cmdResultE <- tryAny $ runPayload cmdEnv def cmd []
         case cmdResultE of
           Left e2 -> do
-            logErrorRequestKey logger requestKey e2 "tx failure for requestKey when running cmd"
-            jsonErrorResult requestKey e2 [] (Gas 0)
+            logErrorRequestKey logger requestKey e2 "tx failure for request key when running cmd"
+            jsonErrorResult exMode requestKey e2 [] (Gas 0)
           Right (cmdResult, cmdLogs) -> do
             logDebugRequestKey logger requestKey "success for requestKey"
             redeemResultE <- tryAny $ redeemGas modifiedEnv cmd cmdResult {- pactId -} cmdLogs
             case redeemResultE of
               Left e3 -> do
-                logErrorRequestKey logger requestKey e3 "tx failure for requestKey while redeeming gas"
-                jsonErrorResult requestKey e3 cmdLogs $ _crGas cmdResult
+                logErrorRequestKey logger requestKey e3 "tx failure for request key while redeeming gas"
+                jsonErrorResult exMode requestKey e3 cmdLogs $ _crGas cmdResult
               Right (_, redeemLogs) -> do
-                logDebugRequestKey logger requestKey "successful gas redemption for requestkey"
+                logDebugRequestKey logger requestKey "successful gas redemption for request key"
                 pure (cmdResult, redeemLogs)
-  where
-    jsonErrorResult k e txLogs gas = pure
-      (jsonResult exMode k gas $ CommandError "Command execution failed" (Just . show $ e)
-      , txLogs
-      )
+
+applyGenesisCmd
+    :: Logger
+    -> Maybe EntityName
+    -> PactDbEnv p
+    -> MVar CommandState
+    -> ExecutionMode
+    -> Command a
+    -> ProcessedCommand PublicMeta ParsedCode
+    -> IO (CommandResult, [TxLog Value])
+applyGenesisCmd _ _ _ _ ex cmd (ProcFail pCmd) = pure (jsonResult ex (cmdToRequestKey cmd) (Gas 0) pCmd, [])
+applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
+    -- construct trivial gas model (this is never run)
+    let gasEnv = mkGasEnvOf cmd permissiveGasModel
+    -- cmd env with permissive gas model
+    let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger gasEnv
+        requestKey = cmdToRequestKey cmd
+
+    resultE <- tryAny $ runPayload cmdEnv def cmd []
+    case resultE of
+      Left e -> do
+        logErrorRequestKey logger requestKey e
+          "genesis tx failure for request key while running genesis"
+        jsonErrorResult execMode requestKey e [] (Gas 0)
+      Right result -> do
+        logDebugRequestKey logger requestKey "successful genesis tx for request key"
+        pure $! result
+
+-- | Present a failure as a pair of json result of Command Error and associated logs
+jsonErrorResult
+    :: ExecutionMode
+    -> RequestKey
+    -> SomeException
+    -> [TxLog Value]
+    -> Gas
+    -> IO (CommandResult, [TxLog Value])
+jsonErrorResult exMode reqKey err txLogs gas = pure $!
+    ( jsonResult exMode reqKey gas $
+        CommandError "Command execution failed" (Just . show $ err)
+    , txLogs
+    )
 
 jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> Gas -> a -> CommandResult
 jsonResult ex cmd gas a = CommandResult cmd (exToTx ex) (toJSON a) gas

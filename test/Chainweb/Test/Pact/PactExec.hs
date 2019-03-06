@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-
+{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -44,10 +44,13 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 
 tests :: IO TestTree
-tests = testGroup "Simple pact execution tests" <$> pactExecTests
+tests = do
+    stdTests <- pactExecTests StdBlock
+    genesisTests <- pactExecTests GenesisBlock
+    pure $ testGroup "Simple pact execution tests" (stdTests <> genesisTests)
 
-pactExecTests :: IO [TestTree]
-pactExecTests = do
+pactTestSetup :: IO PactTestSetup
+pactTestSetup = do
     let loggers = neverLog
     let logger = newLogger loggers $ LogName "PactService"
     pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
@@ -66,13 +69,18 @@ pactExecTests = do
                 env <- mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    fst <$> runStateT (runReaderT execTests checkpointEnv) theState
+    pure $ PactTestSetup checkpointEnv theState
 
-execTests :: PactT [TestTree]
-execTests = do
+pactExecTests :: BlockType -> IO [TestTree]
+pactExecTests t = do
+    (PactTestSetup env st) <- pactTestSetup
+    fst <$> runStateT (runReaderT (execTests t) env) st
+
+execTests :: BlockType -> PactT [TestTree]
+execTests t = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
-    (results, _dbState) <- execTransactions defaultMiner trans
+    (results, _dbState) <- execTransactions (isGenesis t) defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
@@ -154,6 +162,18 @@ instance Show TestResponse where
             txLogsStr = unlines $ fmap show (_flTxLogs tOutput)
         in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
            ++ "TxLogs: " ++ txLogsStr
+
+data PactTestSetup = PactTestSetup
+  { _checkpointEnv :: CheckpointEnv
+  , _pactDbState :: PactDbState
+  }
+
+data BlockType = GenesisBlock | StdBlock
+
+isGenesis :: BlockType -> Bool
+isGenesis = \case
+  GenesisBlock -> True
+  _ -> False
 
 ----------------------------------------------------------------------------------------------------
 -- sample data
