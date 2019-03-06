@@ -51,6 +51,7 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Graph
@@ -95,7 +96,7 @@ webAllEntries db = do
 -- | Returns all  blocks in all block header databases.
 --
 webEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
-webEntries db = do
+webEntries db =
     foldl' (\a b -> () <$ S.mergeOn _blockCreationTime a b) mempty streams
   where
     streams = (\x -> entries x Nothing Nothing Nothing Nothing) <$> dbs
@@ -214,4 +215,3 @@ checkBlockAdjacentParents
     => BlockHeader
     -> IO ()
 checkBlockAdjacentParents = void . blockAdjacentParentHeaders
-

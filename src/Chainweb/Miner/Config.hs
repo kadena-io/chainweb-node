@@ -30,7 +30,7 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
 
 makeLenses ''MinerCount
 
-data MinerConfig = MinerConfig { _configTestMiners :: MinerCount }
+newtype MinerConfig = MinerConfig { _configTestMiners :: MinerCount }
     deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''MinerConfig

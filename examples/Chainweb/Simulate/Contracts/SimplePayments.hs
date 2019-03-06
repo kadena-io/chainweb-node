@@ -171,8 +171,8 @@ mkRandomSimplePaymentRequest gen = go
               CreateAccount <$> fake <*> fake <*>
               (let k =
                      fst $
-                     randomR (0, max 0 (subtract 2 $ length testKeyPairs)) gen'
-                in return $ take 1 $ drop k testKeyPairs)
+                     randomR (0, max 0 (subtract 2 $ length {- testKeyPairs -} (undefined :: [ApiKeyPair]))) gen'
+                in return $ take 1 $ drop k {- testKeyPairs -} (undefined :: [ApiKeyPair]))
             _ -> error "mkRandomSimplePaymentRequest: error in case statement."
 
 data SimplePaymentRequest
@@ -182,7 +182,7 @@ data SimplePaymentRequest
                Amount
   | CreateAccount Account
                   Balance
-                  [KeyPair]
+                  [ApiKeyPair]
 
 getInitialBalance :: Balance -> Text
 getInitialBalance = T.pack . show . getBalance

@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -28,7 +30,7 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
-import Control.Monad.IO.Class
+import Control.Monad.Except
 import Control.Monad.STM
 
 import Data.Proxy
@@ -61,7 +63,9 @@ cutPutHandler
     :: CutDb
     -> CutHashes
     -> Handler NoContent
-cutPutHandler db c = NoContent <$ liftIO (atomically (addCutHashes db c))
+cutPutHandler db c = NoContent <$ do
+    unlessM (liftIO (atomically $ tryAddCutHashes db c))
+        $ throwError $ err503 { errBody = "cut queue is full" }
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server

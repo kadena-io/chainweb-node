@@ -4,7 +4,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: DiGraph
@@ -188,7 +187,7 @@ mapVertices :: Eq b => Hashable b => (a -> b) -> DiGraph a -> DiGraph b
 mapVertices f = DiGraph . HM.fromList . fmap (f *** HS.map f) . HM.toList . unGraph
 
 transpose :: Eq a => Hashable a => DiGraph a -> DiGraph a
-transpose g = (DiGraph $ const mempty <$> unGraph g)
+transpose g = (DiGraph $ mempty <$ unGraph g)
     `union` (fromEdges . HS.map swap $ edges g)
 
 -- | Symmetric closure of a directe graph.
@@ -495,4 +494,3 @@ properties = (concat :: [[(String, Property)]] -> [(String, Property)])
     , properties_twentyChainGraph
     , properties_hoffmanSingletonGraph
     ]
-

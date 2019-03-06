@@ -37,6 +37,7 @@ import System.Random
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import qualified Chainweb.BlockHeaderDB as DB
 import Chainweb.ChainId
 import Chainweb.Graph

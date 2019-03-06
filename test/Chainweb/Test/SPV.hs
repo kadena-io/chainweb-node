@@ -60,7 +60,7 @@ spvRoundtripTestN v step i = do
 spvRoundtripTest :: ChainwebVersion -> (String -> IO ()) -> IO ()
 spvRoundtripTest v step = do
     step "setup cut db"
-    withTestCutDb v 100 $ do
+    withTestCutDb v 100 (\_ _ -> return ()) $ do
 
         step "pick random transaction"
         (h, txIx, tx) <- randomTransaction
@@ -112,5 +112,4 @@ spvRoundtripTest v step = do
             = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
 
         distance x = len $ shortestPath (_chainId srcBlock) x graph
-
 

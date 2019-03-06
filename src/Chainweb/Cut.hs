@@ -134,6 +134,7 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeaders, genesisBlockTarget)
 import Chainweb.ChainId
 import Chainweb.Difficulty (HashTarget, checkTarget)
 import Chainweb.Graph
@@ -1032,4 +1033,3 @@ ioTest
     -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
 ioTest v f = T.monadicIO $ giveNewWebChain v $ f >>= T.assert
-

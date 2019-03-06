@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Chainweb.Store.CAS.FS
@@ -15,13 +14,13 @@ import Control.Concurrent.FixedThreadPool (ThreadPool)
 import qualified Control.Concurrent.FixedThreadPool as TP
 import Control.Concurrent.MVar
 import Control.Exception
-import Control.Monad (when)
+import Control.Monad (unless)
 import Control.Monad.Trans.Except
+import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Random.MWC as MWCB
-import Data.Bytes.Put (runPutS)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified System.Directory as Dir
@@ -120,13 +119,13 @@ fsInsert fsdb v = TP.mapAction_ tp insertOne (V.toList v)
         opCreateDirectory ops $ Path.toFilePath parent
         let destPath = Path.toFilePath (parent </> Path.fromUnrootedFilePath fn)
         ex <- opDoesFileExist ops destPath
-        when (not ex) $ opWriteAtomic ops destPath (encode t)
+        unless ex $ opWriteAtomic ops destPath (encode t)
 
 
 fsLookup :: FsDB t -> Vector BlockPayloadHash -> IO (Vector (Maybe t))
 fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
   where
-    toV es = V.fromList <$> (runExceptT (sequence $ map (ExceptT . return) es)
+    toV es = V.fromList <$> (runExceptT (traverse (ExceptT . return) es)
                              >>= either throwIO return)
 
     tp = _fsTP fsdb
@@ -137,7 +136,7 @@ fsLookup fsdb v = TP.mapAction tp lookupOne (V.toList v) >>= toV
         let fp = getBlockFilePath root h
         ex <- opDoesFileExist ops fp
         if ex
-          then (either (const Nothing) Just . decode) <$> opReadFile ops fp
+          then either (const Nothing) Just . decode <$> opReadFile ops fp
           else return Nothing
 
 

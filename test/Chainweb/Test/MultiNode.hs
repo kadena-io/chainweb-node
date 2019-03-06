@@ -31,6 +31,8 @@
 --
 module Chainweb.Test.MultiNode ( test ) where
 
+#define DEBUG_MULTINODE_TEST 0
+
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
@@ -44,6 +46,9 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.List
 import qualified Data.Text as T
+#if DEBUG_MULTINODE_TEST
+import qualified Data.Text.IO as T
+#endif
 import Data.Time.Clock
 
 import GHC.Generics
@@ -296,13 +301,13 @@ test
     -> TestTree
 test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
-#if 1
-    let logFun = tastylog
-        maxLogMsgs = 60
-#else
+#if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
     let logFun = T.putStrLn
-        maxLogMsgs = 1000
+        maxLogMsgs = 100000
+#else
+    let logFun = tastylog
+        maxLogMsgs = 60
 #endif
 
     -- Count log messages and only print the first 60 messages
@@ -423,11 +428,11 @@ expectedBlockCount v seconds = round ebc
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v seconds = Stats
-    { _statBlockCount = round $ ebc * 0.8
-    , _statMaxHeight = round $ ebc * 0.7
-    , _statMinHeight = round $ ebc * 0.3
-    , _statMedHeight = round $ ebc * 0.5
-    , _statAvgHeight = ebc * 0.5
+    { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
+    , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
+    , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
+    , _statMedHeight = round $ ebc * 0.3 -- temporarily, was 0.5
+    , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
     ebc :: Double
@@ -454,4 +459,3 @@ upperStats v seconds = Stats
     br = case blockRate v of
         Just (BlockRate n) -> int n
         Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v
-

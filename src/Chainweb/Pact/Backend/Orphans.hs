@@ -53,6 +53,8 @@ deriving instance Generic CommandPact -- transferred
 
 deriving instance Generic ModuleData -- transferred
 
+deriving instance Generic (ModuleDef a)
+
 deriving instance Generic Ref -- transferred
 
 deriving instance Generic RefStore -- transferred
@@ -67,6 +69,8 @@ deriving instance Generic Guard
 
 deriving instance Generic PactId
 
+deriving instance Generic Example
+
 deriving instance Generic TableName
 
 deriving instance Generic NativeDefName
@@ -79,7 +83,11 @@ deriving instance Generic (Term n)
 
 deriving instance Generic (Def n)
 
-deriving instance Generic Module
+deriving instance Generic (Governance g)
+
+deriving instance Generic (Module g)
+
+deriving instance Generic Interface
 
 deriving instance Generic KeySetName
 
@@ -92,11 +100,16 @@ deriving instance Generic Pragma
 ----------------------
 -- SERIAL INSTANCES --
 ----------------------
+
 deriving instance Serial CommandPact
 
 deriving instance Serial TxId
 
 deriving instance Serial ModuleData
+
+deriving instance Serial Interface
+
+deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
 
 deriving instance Serial Ref
 
@@ -118,6 +131,8 @@ deriving instance Serial Delta
 deriving instance Serial Info
 
 deriving instance Serial DefName
+
+deriving instance Serial Example
 
 deriving instance Serial ModuleName
 
@@ -150,6 +165,51 @@ deriving instance Serial NominalDiffTime
 deriving instance Serial Micro
 
 deriving instance Serial Decimal
+
+instance Serial1 Governance where
+  serializeWith f (Governance t) = case t of
+    Left r  -> putWord8 0 >> serialize r
+    Right a -> putWord8 1 >> f a
+
+  deserializeWith m = Governance <$> go
+    where
+      go = getWord8 >>= \a ->
+        case a of
+          0 -> Left <$> deserialize
+          1 -> Right <$> m
+          _ -> fail "Governance: Deserialization error."
+
+instance Serial1 Module where
+  serializeWith f Module{..} = do
+    serialize _mName
+    serializeWith f _mGovernance
+    serialize _mMeta
+    serialize _mCode
+    serialize _mHash
+    serialize _mBlessed
+    serialize _mInterfaces
+    serialize _mImports
+
+  deserializeWith m = Module
+    <$> deserialize       -- name
+    <*> deserializeWith m -- gov
+    <*> deserialize       -- meta
+    <*> deserialize       -- code
+    <*> deserialize       -- hash
+    <*> deserialize       -- blessed
+    <*> deserialize       -- interfaces
+    <*> deserialize       -- imports
+
+instance Serial1 ModuleDef where
+    serializeWith f t = case t of
+      MDModule m -> putWord8 0 >> serializeWith f m
+      MDInterface i -> putWord8 1 >> serialize i
+
+    deserializeWith m = getWord8 >>= \a ->
+      case a of
+        0 -> MDModule <$> deserializeWith m
+        1 -> MDInterface <$> deserialize
+        _ -> fail "ModuleDef: Deserialization error."
 
 instance Serial1 Exp where
     serializeWith f t =
@@ -241,10 +301,10 @@ instance Serial NativeDFun where
     maybe
       (fail "Serial NativeDFun: deserialization error.")
       return
-      (native_dfun_deserialize _nativeName)
+      (nativeDfunDeserialize _nativeName)
 
-native_dfun_deserialize :: NativeDefName -> Maybe NativeDFun
-native_dfun_deserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
+nativeDfunDeserialize :: NativeDefName -> Maybe NativeDFun
+nativeDfunDeserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
   where
     getText (NativeDefName text) = text
     name = Name (getText nativename) def
@@ -313,7 +373,7 @@ instance Serial1 Term where
         case t of
             TModule {..} -> do
                 putWord8 0
-                serialize _tModuleDef
+                serializeWith (serializeWith f) _tModuleDef
                 serializeWith f _tModuleBody
                 serialize _tInfo
             TList {..} -> do
@@ -403,7 +463,7 @@ instance Serial1 Term where
         getWord8 >>= \a ->
             case a of
                 0 -> do
-                    _tModuleDef <- deserialize
+                    _tModuleDef <- deserializeWith (deserializeWith m)
                     _tModuleBody <- deserializeWith m
                     _tInfo <- deserialize
                     return $ TModule {..}
@@ -420,6 +480,7 @@ instance Serial1 Term where
                     _tNativeName <- deserialize
                     _tNativeFun <- deserialize
                     _tFunTypes <- deserializeWith (deserializeWith (deserializeWith m))
+                    _tNativeExamples <- deserialize
                     _tNativeDocs <- deserialize
                     _tNativeTopLevelOnly <- deserialize
                     _tInfo <- deserialize
@@ -571,7 +632,9 @@ deriving instance
 
 deriving instance (Generic n, Serial n) => Serial (Def n)
 
-deriving instance Serial Module
+deriving instance (Generic g, Serial g) => Serial (Governance g)
+
+deriving instance (Generic g, Serial g) => Serial (Module g)
 
 deriving instance Serial PrimType
 
@@ -644,6 +707,7 @@ instance Serial1 TypeVar where
 -------------------------
 -- SERIALIZE INSTANCES --
 -------------------------
+
 deriving instance Serialize TableId
 
 instance Serialize (Table DataKey) where
@@ -680,11 +744,17 @@ deriving instance Serialize Parsed
 
 deriving instance Serialize Delta
 
+deriving instance (Serialize a, Generic a) => Serialize (ModuleDef a)
+
 deriving instance Serialize ModuleData
 
 deriving instance Serialize Ref
 
-deriving instance Serialize Module
+deriving instance (Generic g, Serialize g) => Serialize (Governance g)
+
+deriving instance (Generic g, Serialize g) => Serialize (Module g)
+
+deriving instance Serialize Interface
 
 deriving instance Serialize Use
 
@@ -778,6 +848,8 @@ deriving instance Serialize PactGuard
 deriving instance Serialize PactId
 
 deriving instance Serialize TableName
+
+deriving instance Serialize Example
 
 instance (Generic n, Serialize n) => Serialize (Term n) where
     put t =
@@ -886,6 +958,7 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
                     _tNativeName <- get
                     _tNativeFun <- get
                     _tFunTypes <- get
+                    _tNativeExamples <- get
                     _tNativeDocs <- get
                     _tNativeTopLevelOnly <- get
                     _tInfo <- get
@@ -962,7 +1035,7 @@ instance Serialize NativeDFun where
         maybe
           (fail "Serial NativeDFun: deserialization error.")
           return
-          (native_dfun_deserialize _nativeName)
+          (nativeDfunDeserialize _nativeName)
 
 instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
     put = put . Data.HashSet.toList

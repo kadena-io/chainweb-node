@@ -77,4 +77,4 @@ nightly-nix:
     - echo This is a nightly build!
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
-    - result/bin/slow-tests
+    - result/ghc/chainweb/bin/slow-tests
