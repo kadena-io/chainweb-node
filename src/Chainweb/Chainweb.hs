@@ -499,7 +499,7 @@ runChainSyncClient mgr chain = bracket create destroy go
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
 chainSyncP2pSession depth db logg env = do
     peer <- PeerTree <$> remoteDb db logg env
-    chainSyncSession db peer depth logg
+    chainwebSyncSession db peer depth logg
 
 syncDepth :: ChainGraph -> Depth
 syncDepth g = Depth (2 * diameter g)
@@ -802,7 +802,7 @@ runChainweb cw = do
                 -- FIXME: should we start mining with some delay, so
                 -- that the block header base is up to date?
                 , cutNetworks mgr (_chainwebCuts cw)
-                -- , map (runChainSyncClient mgr) chainVals
+                , map (runChainSyncClient mgr) chainVals
                 , map (runMempoolSyncClient mgr) chainVals
                 ]
 
