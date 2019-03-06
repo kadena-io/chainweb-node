@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -58,6 +59,7 @@ module Chainweb.Payload.PayloadStore
 ) where
 
 import Control.Lens
+import Control.Monad.Trans.Maybe
 
 import Data.Foldable
 import qualified Data.Sequence as S
@@ -232,3 +234,57 @@ addNewPayload db s = addPayload db txs txTree outs outTree
   where
     (txTree, txs) = newBlockTransactions (fst <$> s)
     (outTree, outs) = newBlockOutputs (snd <$> s)
+
+-- -------------------------------------------------------------------------- --
+-- IsCas instance for PayloadDb
+
+-- | Combine all Payload related stores into a single content addressed
+-- store. We want the invariant that if a key is present in the store also all
+-- of its dependencies are present. For that we must be careful about the order
+-- of insertion and deletions.
+--
+instance PayloadCas cas => IsCas (PayloadDb cas) where
+    type CasValueType (PayloadDb cas) = PayloadWithOutputs
+    casInsert db = addNewPayload db . _payloadWithOutputsTransactions
+    {-# INLINE casInsert #-}
+
+    casLookup db k = runMaybeT $ do
+        pd <- MaybeT $ casLookup
+            (_transactionDbBlockPayloads $ _transactionDb db)
+            k
+        let txsHash = _blockPayloadTransactionsHash pd
+        let outsHash = _blockPayloadOutputsHash pd
+        txs <- MaybeT $ casLookup
+            (_transactionDbBlockTransactions $ _transactionDb db)
+            txsHash
+        outs <- MaybeT $ casLookup
+            (_payloadCacheBlockOutputs $ _payloadCache db)
+            outsHash
+        return $ PayloadWithOutputs
+            { _payloadWithOutputsTransactions = S.zip
+                (_blockTransactions txs)
+                (_blockOutputs outs)
+            , _payloadWithOutputsPayloadHash = k
+            , _payloadWithOutputsTransactionsHash = txsHash
+            , _payloadWithOutputsOutputsHash = outsHash
+            }
+    {-# INLINE casLookup #-}
+
+    casDelete db k =
+        casLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
+            Just pd -> do
+                casDelete
+                    (_transactionDbBlockPayloads $ _transactionDb db)
+                    k
+                casDelete
+                    (_transactionDbBlockTransactions $ _transactionDb db)
+                    (_blockPayloadTransactionsHash pd)
+                casDelete
+                    (_payloadCacheBlockOutputs $ _payloadCache db)
+                    (_blockPayloadOutputsHash pd)
+            Nothing -> return ()
+    {-# INLINE casDelete #-}
+
+    emptyCas = emptyPayloadDb
+    {-# INLINE emptyCas #-}
+
