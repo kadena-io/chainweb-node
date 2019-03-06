@@ -167,7 +167,7 @@ ipV4Parser = (,,,)
 
 portParser :: Parser Port
 portParser = Port
-    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^16 :: Int))
+    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^(16 :: Int)))
     <?> "port"
 
 -- -------------------------------------------------------------------------- --
