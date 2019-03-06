@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -27,7 +28,6 @@ module Chainweb.Sync.WebBlockHeaderStore.Test
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.DeepSeq
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -81,7 +81,7 @@ testAsyncFib :: Natural -> PropertyM IO ()
 testAsyncFib n = do
     m <- run new
     cas <- run $ emptyCas @(CAS.HashMapCas Fib)
-    t <- run $ newIORef 0
+    t <- run $ newIORef @Int 0
 
     let fib 0 = tick t $ return $ Fib 0 1
         fib 1 = tick t $ return $ Fib 1 1
@@ -99,13 +99,25 @@ testAsyncFib n = do
     !(Fib _ !r) <- run $ fib n
 
     gc
-    assertSize m 0
+
+#if MIN_VERSION_QuickCheck(2,12,0)
+    -- Here we miss-use quick checks coverage mechanism for testing a
+    -- a distribution of the test restults.
+
+    ms <- run $ size m
+    monitor $ cover 0.75 (ms == 0) "memo map is empty after gc"
+
     ticks <- run $ readIORef t
-    assert (ticks == 4 * (max 1 n) - 1)
-    assert (r == fibs !! fromIntegral n)
+    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+    monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
 
     casSize <- run $ fromIntegral <$> CAS.size cas
-    assert (casSize == max 1 n - 1)
+    monitor $ cover 1 (casSize == max 1 n - 1) "expected cas size"
+#endif
+
+    -- assert that result is correct
+    assert (r == fibs !! fromIntegral n)
+    return ()
 
 -- -------------------------------------------------------------------------- --
 -- Test Task Queue Server
@@ -137,9 +149,4 @@ fibs = 1 : 1 : zipWith (+) fibs (tail fibs)
 
 gc :: MonadIO m => m ()
 gc = liftIO $ performMajorGC >> threadDelay 1000
-
-assertSize :: WeakHashMap k v -> Int -> PropertyM IO ()
-assertSize m i = do
-    s <- run (size m)
-    assert (s == i)
 

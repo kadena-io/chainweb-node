@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Data.HashMap.Weak.Test
@@ -56,7 +58,7 @@ assertSize m n = do
     assert (s == n)
 
 delay :: MonadIO m => m ()
-delay = liftIO $ threadDelay =<< randomRIO (1000, 4000)
+delay = liftIO $ threadDelay =<< randomRIO (100, 400)
 
 produce :: MonadIO m => a -> m (Async a)
 produce x = liftIO $ async $ delay >> return x
@@ -86,7 +88,7 @@ test l = do
 testFib :: Natural -> PropertyM IO ()
 testFib n = do
     m <- run new
-    t <- run $ newIORef 0
+    t <- run $ newIORef @Int 0
 
     let fib 0 = tick t $ return 1
         fib 1 = tick t $ return 1
@@ -96,11 +98,16 @@ testFib n = do
     gc
     !r <- run $ fib n
 
-    -- ticks <- run $ readIORef t
-    -- assert (ticks < 8 * (max 1 n) - 1)
-        -- This this is 4 times the expected value, to accomodate for
-        -- the worst case. We should probably run an ols regression instead.
+#if MIN_VERSION_QuickCheck(2,12,0)
+    -- Here we miss-use quick checks coverage mechanism for testing a
+    -- a distribution of the test restults.
 
+    ticks <- run $ readIORef t
+    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+    monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
+#endif
+
+    -- assert correctness of result
     assert (r == fibs !! fromIntegral n)
 
 testAsyncFib :: Natural -> PropertyM IO ()
@@ -111,18 +118,26 @@ testAsyncFib n = do
     let fib 0 = tick t $ return 1
         fib 1 = tick t $ return 1
         fib x = tick t $ memoAsync m x $ \k -> do
-            threadDelay 100000
+            threadDelay 100
             (+) <$> fib (k - 1) <*> fib (k - 2)
 
     !r <- run $ fib n
 
     gc
-    assertSize m 0
-    ticks <- run $ readIORef t
-    assert (ticks < 8 * (max 1 n) - 1)
-        -- This this is 4 times the expected value, to accomodate for
-        -- the worst case. We should probably run an ols regression instead.
 
+#if MIN_VERSION_QuickCheck(2,12,0)
+    -- Here we miss-use quick checks coverage mechanism for testing a
+    -- a distribution of the test restults.
+
+    ms <- run $ size m
+    monitor $ cover 0.75 (ms == 0) "memo map is empty after gc"
+
+    ticks <- run $ readIORef t
+    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+    monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
+#endif
+
+    -- assert correctness of result
     assert (r == fibs !! fromIntegral n)
 
 properties :: [(String, Property)]
