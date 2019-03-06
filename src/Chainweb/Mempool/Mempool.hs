@@ -135,13 +135,17 @@ data MempoolBackend t = MempoolBackend {
 
   , mempoolSubscribe :: IO (IORef (Subscription t))
   , mempoolShutdown :: IO ()
+
+  -- | A hook to clear the mempool. Intended only for the in-mem backend and
+  -- only for testing.
+  , mempoolClear :: IO ()
 }
 
 
 noopMempool :: MempoolBackend t
 noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
                              noopMarkValidated noopMarkConfirmed noopReintroduce
-                             noopGetPending noopSubscribe noopShutdown
+                             noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
@@ -163,6 +167,7 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented
     noopShutdown = return ()
+    noopClear = return ()
 
 
 ------------------------------------------------------------------------------

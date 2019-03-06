@@ -1,9 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: Numeric.Additive
@@ -37,8 +34,8 @@ module Numeric.Additive
 , (^-^)
 ) where
 
-import Data.Int
 import Data.DoubleWord
+import Data.Int
 import Data.Word
 
 import Numeric.Natural
@@ -318,4 +315,3 @@ infix 6 ^-^
 (^-^) :: AdditiveAbelianGroup g => g -> g -> g
 (^-^) = minus
 {-# INLINE (^-^) #-}
-

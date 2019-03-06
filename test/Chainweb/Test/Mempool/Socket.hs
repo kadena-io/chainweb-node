@@ -4,8 +4,9 @@ module Chainweb.Test.Mempool.Socket (tests) where
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Control.Concurrent (forkIO, killThread, newEmptyMVar, readMVar)
+import Control.Concurrent
 import Control.Exception
+import qualified Data.Pool as Pool
 import qualified Network.Socket as N
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.InMem (InMemConfig(..))
@@ -17,11 +18,43 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
+data TestServer = TestServer {
+    _tsClientState :: !(M.ClientState MockTx)
+  , _tsRemoteMempool :: !(MempoolBackend MockTx)
+  , _tsLocalMempool :: !(MempoolBackend MockTx)
+  , _tsServerThread :: !ThreadId
+}
+
+newTestServer :: InMemConfig MockTx -> IO TestServer
+newTestServer inmemCfg = mask_ $ do
+    inmemMv <- newEmptyMVar
+    portMv <- newEmptyMVar
+    tid <- forkIOWithUnmask $ server inmemMv portMv
+    inmem <- takeMVar inmemMv
+    port <- takeMVar portMv
+    let clientConfig = M.ClientConfig (InMem._inmemTxCfg inmemCfg) 20
+    (cs, remoteMp) <- M.connectClient host port clientConfig
+    return $! TestServer cs remoteMp inmem tid
+  where
+    host = "127.0.0.1"
+    server inmemMv portMv restore = InMem.withInMemoryMempool inmemCfg $ \inmem -> do
+        putMVar inmemMv inmem
+        restore $ M.server inmem host N.aNY_PORT portMv
+
+destroyTestServer :: TestServer -> IO ()
+destroyTestServer (TestServer cs _ _ tid) =
+    killThread tid `finally` M.cleanupClientState cs
+
+newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
+newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
+
+
 tests :: TestTree
-tests = testGroup "Chainweb.Mempool.Socket"
+tests = withResource (newPool cfg) Pool.destroyAllResources $
+        \pool -> testGroup "Chainweb.Mempool.Socket"
             $ Chainweb.Test.Mempool.remoteTests
             $ MempoolWithFunc
-            $ withRemoteMempool cfg
+            $ withRemoteMempool pool
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
                               (const $ return True)
@@ -33,14 +66,11 @@ tests = testGroup "Chainweb.Mempool.Socket"
 
 
 withRemoteMempool
-  :: Show t => InMemConfig t -> (MempoolBackend t -> IO a) -> IO a
-withRemoteMempool inMemCfg userFunc =
-    InMem.withInMemoryMempool inMemCfg $ \inmem -> do
-        mv <- newEmptyMVar
-        bracket (forkIO $ M.server inmem host N.aNY_PORT mv)
-                killThread
-                (const (readMVar mv >>= runClient))
-  where
-    host = "127.0.0.1"
-    clientConfig = M.ClientConfig (_inmemTxCfg inMemCfg) 30
-    runClient port = M.withClient host port clientConfig userFunc
+    :: IO (Pool.Pool TestServer)
+    -> (MempoolBackend MockTx -> IO a)
+    -> IO a
+withRemoteMempool poolIO userFunc = do
+    pool <- poolIO
+    Pool.withResource pool $ \ts -> do
+        mempoolClear $ _tsLocalMempool ts
+        userFunc $ _tsRemoteMempool ts

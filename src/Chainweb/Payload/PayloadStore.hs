@@ -62,7 +62,7 @@ import qualified Data.Sequence as S
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
 import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Version
@@ -230,4 +230,3 @@ addNewPayload db s = addPayload db txs txTree outs outTree
   where
     (txTree, txs) = newBlockTransactions (fst <$> s)
     (outTree, outs) = newBlockOutputs (snd <$> s)
-

@@ -150,12 +150,12 @@ intDistMatrix = M.imap go
 --
 floydWarshallInternal
     :: Array U Ix2 (Double, Int)
-    -> (Array U Ix2 (Double,Int))
+    -> Array U Ix2 (Double,Int)
 floydWarshallInternal a = foldl' go a [0..n-1]
   where
     (n :. _) = size a
 
-    go :: Array U Ix2 (Double, Int) -> Int -> (Array U Ix2 (Double,Int))
+    go :: Array U Ix2 (Double, Int) -> Int -> Array U Ix2 (Double,Int)
     go c k = makeArray Seq (n :. n) $ \(x :. y) ->
         let
             !xy = fst $! c M.! (x :. y)
@@ -209,4 +209,3 @@ diameter_ g
     | M.isEmpty g = Just 0
     | otherwise = let x = round $ M.maximum $ shortestPaths_ g
         in if x == round (1/0 :: Double) then Nothing else Just x
-

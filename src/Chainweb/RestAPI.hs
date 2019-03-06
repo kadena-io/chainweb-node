@@ -91,6 +91,7 @@ import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
@@ -132,6 +133,7 @@ emptyChainwebServerDbs = ChainwebServerDbs
 
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
+    <> someHealthCheckApi
     <> someBlockHeaderDbApis v (selectChainIds cs)
     <> somePayloadApis v (selectChainIds cs)
     <> someP2pApis v cs
@@ -187,6 +189,7 @@ someChainwebServer
     -> SomeServer
 someChainwebServer v dbs =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
+        <> someHealthCheckServer
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)

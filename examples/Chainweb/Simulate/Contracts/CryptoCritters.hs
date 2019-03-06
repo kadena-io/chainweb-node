@@ -280,9 +280,9 @@ data CritterRequest
   -- | ShowCritter Suffix Critter
   | ShowGeneration Generation
   | Owner CritterId
-  | TransferCritter [KeyPair] CritterId
-  | SetTransfer CritterId Bool [KeyPair]
-  | InitiateTransfer [KeyPair] CritterId
+  | TransferCritter [ApiKeyPair] CritterId
+  | SetTransfer CritterId Bool [ApiKeyPair]
+  | InitiateTransfer [ApiKeyPair] CritterId
   | CompleteTransfer CritterId
   | CancelTransfer CritterId
   | SetBreeding CritterId Bool

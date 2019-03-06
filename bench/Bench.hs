@@ -20,26 +20,19 @@ import System.IO (hFlush, stdout)
 
 -- internal modules
 
-import Chainweb.BlockHeader
-    (BlockHeader(..), genesisBlockHeader, testBlockHeaders)
+import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Graph (ChainGraph, toChainGraph)
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal (leaves', lockGitStore)
 import Chainweb.TreeDB
-import Chainweb.Utils (int, withTempDir)
+import Chainweb.Utils (withTempDir)
 import Chainweb.Version (ChainwebVersion(..))
-
-import qualified Data.DiGraph as G
 
 ---
 
 type Env = (BlockHeader, BlockHeader, BlockHeader)
-
--- A prepopulated repository fo ~53k block headers.
--- packed53k :: Path Absolute
--- packed53k =
---     fromAbsoluteFilePath "/home/colin/code/haskell/chainweb/chainweb-git-store-test-7226612870463109362"
 
 main :: IO ()
 main = withTempDir "benchmarks" $ \tmp -> do
@@ -126,10 +119,7 @@ genesis :: BlockHeader
 genesis = toyGenesis chainId0
 
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader Test (toChainGraph (const cid) singleton) cid
+toyGenesis cid = genesisBlockHeader (Test singletonChainGraph) cid
 
 chainId0 :: ChainId
 chainId0 = testChainId 0
-
-singleton :: ChainGraph
-singleton = toChainGraph (testChainId . int) G.singleton

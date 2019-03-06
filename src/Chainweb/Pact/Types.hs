@@ -14,20 +14,28 @@
 --
 -- Pact Types module for Chainweb
 module Chainweb.Pact.Types
-  ( PactDbStatePersist(..)
+  ( FullLogTxOutput(..)
+  , HashedLogTxOutput(..)
+  , PactDbStatePersist(..)
   , PactT
-  , Transaction(..)
+  , PactTransaction(..)
   , Transactions(..)
-  , TransactionOutput(..)
   , MemPoolAccess
   , MinerInfo(..)
+    -- * types
+  , MinerKeys
+  , MinerId
     -- * optics
-  , pdbspRestoreFile
-  , pdbspPactDbState
-  , tCmd
-  , tTxId
+  , flCommandResult
+  , flTxLogs
+  , hlCommandResult
+  , hlTxLogHash
   , minerAccount
   , minerKeys
+  , pdbspRestoreFile
+  , pdbspPactDbState
+  , ptCmd
+  , ptTxId
     -- * defaults
   , defaultMiner
     -- * module exports
@@ -47,41 +55,38 @@ import GHC.Word
 
 -- internal pact modules
 
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Persistence as P
+import Pact.Types.Command (Command(..))
+import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Util (Hash(..))
 
 -- internal chainweb modules
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
-
-data Transaction = Transaction
-    { _tTxId :: Word64
-    , _tCmd :: P.Command ByteString
+-- TODO: _ptTxId needs to be removed from the below, and the real TxId needs to be
+-- checkpointed & restored
+data PactTransaction = PactTransaction
+    { _ptTxId :: Word64
+    , _ptCmd :: Command ByteString
     } deriving (Show, Eq)
-makeLenses ''Transaction
 
-instance ToJSON Transaction where
+instance ToJSON PactTransaction where
     toJSON o = object
-        [ "tTxId" .= _tTxId o
-        , "tCmd" .= _tCmd o ]
+        [ "ptTxId" .= _ptTxId o
+        , "ptCmd" .= _ptCmd o ]
     {-# INLINE toJSON #-}
 
-instance FromJSON Transaction where
-    parseJSON = withObject "Transaction" $ \o -> Transaction
-        <$> o .: "tTxId"
-        <*> o .: "tCmd"
+instance FromJSON PactTransaction where
+    parseJSON = withObject "PactTransaction" $ \o -> PactTransaction
+        <$> o .: "ptTxId"
+        <*> o .: "ptCmd"
     {-# INLINE parseJSON #-}
 
-newtype Transactions = Transactions { _transactionPairs :: [(Transaction, TransactionOutput)] }
-
-instance Eq Transactions where
-    (==) a b =
-      let tpa = _transactionPairs a
-          tpb = _transactionPairs b
-      in (fst <$> tpa) == (fst <$> tpb) && (snd <$> tpa) == (snd <$> tpb)
+newtype Transactions = Transactions
+    { _transactionPairs :: [(PactTransaction, FullLogTxOutput)]
+    } deriving (Eq)
 
 instance ToJSON Transactions where
     toJSON o = object
@@ -98,41 +103,63 @@ instance Show Transactions where
         let f x acc = "trans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
         in foldr f "" (_transactionPairs ts)
 
-data TransactionOutput = TransactionOutput
-    { _getCommandResult :: A.Value
-    , _getTxLogs :: [P.TxLog A.Value]
+data FullLogTxOutput = FullLogTxOutput
+    { _flCommandResult :: A.Value
+    , _flTxLogs :: [TxLog A.Value]
     } deriving (Show, Eq)
 
-instance ToJSON TransactionOutput where
+instance FromJSON FullLogTxOutput where
+    parseJSON = withObject "TransactionOutput" $ \o -> FullLogTxOutput
+        <$> o .: "flCommandResult"
+        <*> o .: "flTxLogs"
+    {-# INLINE parseJSON #-}
+
+instance ToJSON FullLogTxOutput where
     toJSON o = object
-        [ "getCommandResult" .= _getCommandResult o
-        , "getTxLogs" .= _getTxLogs o]
+        [ "flCommandResult" .= _flCommandResult o
+        , "flTxLogs" .= _flTxLogs o]
     {-# INLINE toJSON #-}
 
+data HashedLogTxOutput = HashedLogTxOutput
+    { _hlCommandResult :: Value
+    , _hlTxLogHash :: Hash
+    } deriving (Eq, Show)
+
+instance FromJSON HashedLogTxOutput where
+    parseJSON = withObject "TransactionOutput" $ \o -> HashedLogTxOutput
+        <$> o .: "hlCommandResult"
+        <*> o .: "hlTxLogs"
+    {-# INLINE parseJSON #-}
+
+instance ToJSON HashedLogTxOutput where
+    toJSON o = object
+        [ "hlCommandResult" .= _hlCommandResult o
+        , "hlTxLogs" .= _hlTxLogHash o]
+    {-# INLINE toJSON #-}
+
+
+type MinerKeys = KeySet
+type MinerId = Text
+
 data MinerInfo = MinerInfo
-  { _minerAccount :: Text
-  , _minerKeys :: KeySet
+  { _minerAccount :: MinerId
+  , _minerKeys :: MinerKeys
   }
-makeLenses ''MinerInfo
 
 defaultMiner :: MinerInfo
-defaultMiner = MinerInfo "" $ KeySet [] (Name "" def)
-
-
-
-instance FromJSON TransactionOutput where
-    parseJSON = withObject "TransactionOutput" $ \o -> TransactionOutput
-        <$> o .: "getCommandResult"
-        <*> o .: "getTxLogs"
-    {-# INLINE parseJSON #-}
+defaultMiner = MinerInfo "miner" $ KeySet [] (Name "" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath
     , _pdbspPactDbState :: PactDbState
     }
 
-makeLenses ''PactDbStatePersist
-
 type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 
-type MemPoolAccess = BlockHeight -> IO [Transaction]
+type MemPoolAccess = BlockHeight -> IO [PactTransaction]
+
+makeLenses ''MinerInfo
+makeLenses ''PactDbStatePersist
+makeLenses ''PactTransaction
+makeLenses ''FullLogTxOutput
+makeLenses ''HashedLogTxOutput

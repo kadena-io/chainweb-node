@@ -68,7 +68,7 @@ import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Int
-import Data.IxSet.Typed (getEQ, getLT, getGTE, getGT)
+import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple
@@ -375,9 +375,9 @@ findNextPeer conf node = do
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
-    let p0 = getGT (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) $ base
+    let p0 = getGT (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
         p1 = getEQ (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
-        p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) $ base
+        p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
         p3 = getEQ (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
         searchSpace = shift p0 ++ shift p1 ++ shift p2 ++ shift p3
 #endif
@@ -470,7 +470,7 @@ awaitSessions node = do
     loggFun node Info $ JsonLog finalInfo
 
     case result of
-        P2pSessionException e -> do
+        P2pSessionException e ->
             logg node Warn
                 $ "session " <> showSessionId pId ses <> " failed with " <> sshow e
         _ -> return ()
@@ -583,4 +583,3 @@ p2pStopNode node = do
         readTVar (_p2pNodeSessions node)
     mapM_ (uninterruptibleCancel . snd) sessions
     logg node Info "stopped node"
-

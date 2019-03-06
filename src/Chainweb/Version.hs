@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -58,7 +57,6 @@ import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Hashable
-import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import qualified Data.Text as T
@@ -138,10 +136,10 @@ isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
 {-# INLINABLE isTestChainwebVersionId #-}
 
 chainwebVersionId :: ChainwebVersion -> Word32
-chainwebVersionId v@Test{} = toTestChainwebVersion v $ 0x80000000
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v $ 0x80000001
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v $ 0x80000002
-chainwebVersionId v@Simulation{} = toTestChainwebVersion v $ 0x80000003
+chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
+chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
+chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
+chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000003
 chainwebVersionId Testnet00 = 0x00000001
 {-# INLINABLE chainwebVersionId #-}
 
@@ -195,11 +193,11 @@ chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 --
 chainwebVersionFromText "testnet00" = return Testnet00
 
--- Well know test version names
+-- Well-known test version names.
 --
--- These are only used for parsing textual represetions. There is very low
--- chance that a roundrip test for the 'HasTextRepresentation' of
--- 'ChainwebVersion' due to these names.
+-- These are only used for parsing textual representations. There is a very low
+-- chance that a roundtrip test for the 'HasTextRepresentation' of
+-- 'ChainwebVersion' will succeed due to these names.
 --
 chainwebVersionFromText "test" = return $ Test petersonChainGraph
 chainwebVersionFromText "test-singleton" = return $ Test singletonChainGraph
@@ -351,4 +349,3 @@ class HasChainwebVersion a where
 instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
-
