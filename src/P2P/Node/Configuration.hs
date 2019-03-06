@@ -90,37 +90,21 @@ instance Arbitrary P2pConfiguration where
         <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration v@Test{} = testP2pConfiguration v
-defaultP2pConfiguration v@TestWithTime{} = testP2pConfiguration v
-defaultP2pConfiguration v@TestWithPow{} = testP2pConfiguration v
+defaultP2pConfiguration v@Test{} = p2pConfiguration v
+defaultP2pConfiguration v@TestWithTime{} = p2pConfiguration v
+defaultP2pConfiguration v@TestWithPow{} = p2pConfiguration v
 defaultP2pConfiguration Simulation{} = error "P2pConfiguration for Simulation yet undefined"
-defaultP2pConfiguration Testnet00 = testnet00Configuration
+defaultP2pConfiguration Testnet00 = p2pConfiguration Testnet00
 
-testP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-testP2pConfiguration v = P2pConfiguration
+-- | These are acceptable values for both test and production chainwebs.
+--
+p2pConfiguration :: ChainwebVersion -> P2pConfiguration
+p2pConfiguration v = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
     , _p2pConfigKnownPeers = bootstrapPeerInfos v
-    , _p2pConfigPeerDbFilePath = Nothing
-    }
-
-testnet00Configuration :: P2pConfiguration
-testnet00Configuration = P2pConfiguration
-    {
-      -- It is expected that `_p2pConfigPeer` is altered later down the line,
-      -- via configuration options.
-      _p2pConfigPeer = defaultPeerConfig
-
-    -- TODO Is there any reason these that three fields should be different from
-    -- what's found in `testP2pConfiguration`?
-    , _p2pConfigMaxSessionCount = 10
-    , _p2pConfigMaxPeerCount = 50
-    , _p2pConfigSessionTimeout = 60
-
-    , _p2pConfigKnownPeers = bootstrapPeerInfos Testnet00
-    -- This is expected to be altered later, via configuration options.
     , _p2pConfigPeerDbFilePath = Nothing
     }
 
