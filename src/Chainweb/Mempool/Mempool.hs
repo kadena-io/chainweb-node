@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
@@ -10,7 +11,6 @@ module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
   , TransactionHash(..)
-  , TransactionFees
   , TransactionMetadata(..)
   , HashMeta(..)
   , Subscription(..)
@@ -19,8 +19,7 @@ module Chainweb.Mempool.Mempool
   , LookupResult(..)
   , MockTx(..)
   , mockCodec
-  , mockBlocksizeLimit
-  , mockFeesLimit
+  , mockBlockGasLimit
   , finalizeSubscriptionImmediately
   , chainwebTestHasher
   , chainwebTestHashMeta
@@ -59,6 +58,7 @@ import qualified Data.Vector as V
 import Data.Word (Word64)
 import Foreign.StablePtr
 import GHC.Generics
+import Pact.Types.Gas (GasPrice(..))
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
@@ -88,11 +88,11 @@ data TransactionConfig t = TransactionConfig {
     -- | hash function metadata.
   , txHashMeta :: {-# UNPACK #-} !HashMeta
 
-    -- | getter for the transaction fees.
-  , txFees :: t -> TransactionFees
+    -- | getter for the transaction gas price.
+  , txGasPrice :: t -> GasPrice
 
-    -- | getter for transaction size.
-  , txSize :: t -> Int64
+    -- | getter for transaction gas limit.
+  , txGasLimit :: t -> Int64
   , txMetadata :: t -> TransactionMetadata
   , txValidate :: t -> IO Bool
   }
@@ -103,7 +103,7 @@ data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
-  , mempoolBlockSizeLimit :: Int64
+  , mempoolBlockGasLimit :: Int64
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -135,22 +135,26 @@ data MempoolBackend t = MempoolBackend {
 
   , mempoolSubscribe :: IO (IORef (Subscription t))
   , mempoolShutdown :: IO ()
+
+  -- | A hook to clear the mempool. Intended only for the in-mem backend and
+  -- only for testing.
+  , mempoolClear :: IO ()
 }
 
 
 noopMempool :: MempoolBackend t
 noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
                              noopMarkValidated noopMarkConfirmed noopReintroduce
-                             noopGetPending noopSubscribe noopShutdown
+                             noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
     noopHasher = const $ chainwebTestHasher "noopMempool"
     noopHashMeta = chainwebTestHashMeta
-    noopFees = const 0
+    noopGasPrice = const 0
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
-    txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopFees noopSize
+    txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta (const $ return True)
 
     noopMember v = return $ V.replicate (V.length v) False
@@ -163,6 +167,7 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented
     noopShutdown = return ()
+    noopClear = return ()
 
 
 ------------------------------------------------------------------------------
@@ -281,10 +286,6 @@ instance FromJSON TransactionHash where
       p :: Text -> Either SomeException TransactionHash
       p = (TransactionHash <$>) . decodeB64UrlNoPaddingText
 
-------------------------------------------------------------------------------
--- | Fees to be awarded to the miner for processing a transaction. Higher is better
-type TransactionFees = Decimal
-
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
@@ -340,12 +341,12 @@ finalizeSubscriptionImmediately = mempoolSubFinal
 
 
 -- | Mempool only cares about a few projected values from the transaction type
--- (fees, hash, tx size, metadata), so our mock transaction type will only
+-- (gas price, gas limit, hash, metadata), so our mock transaction type will only
 -- contain these (plus a nonce)
 data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
-  , mockFees :: {-# UNPACK #-} !Decimal
-  , mockSize :: {-# UNPACK #-} !Int64
+  , mockGasPrice :: {-# UNPACK #-} !GasPrice
+  , mockGasLimit :: {-# UNPACK #-} !Int64
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON)
@@ -360,25 +361,26 @@ instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
         s <- T.unpack <$> parseJSON v
         return $! read s
 
+-- orphan, needed for mock -- remove once this instance makes it upstream into pact
+instance ToJSON GasPrice where
+    toJSON (GasPrice d) = toJSON d
 
-mockBlocksizeLimit :: Int64
-mockBlocksizeLimit = 65535
+instance FromJSON GasPrice where
+    parseJSON v = GasPrice <$> parseJSON v
 
-
-mockFeesLimit :: Decimal
-mockFeesLimit = fromIntegral mockBlocksizeLimit * 4
+mockBlockGasLimit :: Int64
+mockBlockGasLimit = 65535
 
 
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
 
-
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx sz fees nonce meta) = runPutS $ do
-    putWord64le $ fromIntegral sz
-    putDecimal fees
+mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do
     putWord64le $ fromIntegral nonce
+    putDecimal price
+    putWord64le $ fromIntegral limit
     Time.encodeTime $ txMetaCreationTime meta
     Time.encodeTime $ txMetaExpiryTime meta
 
@@ -416,8 +418,10 @@ getDecimal = do
 
 
 mockDecode :: ByteString -> Either String MockTx
-mockDecode = runGetS (MockTx <$> getI64 <*> getDecimal <*> getI64 <*> getMeta)
+mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
   where
+    getPrice = GasPrice <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+
 

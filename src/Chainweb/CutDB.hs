@@ -7,6 +7,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -47,6 +48,7 @@ module Chainweb.CutDB
 , cutStm
 , cutStream
 , addCutHashes
+, tryAddCutHashes
 , withCutDb
 , startCutDb
 , stopCutDb
@@ -57,6 +59,7 @@ module Chainweb.CutDB
 , someCutDbVal
 ) where
 
+import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
@@ -68,16 +71,18 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
+import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
+import qualified Data.Text as T
 
 import GHC.Generics hiding (to)
 
@@ -171,6 +176,7 @@ data CutDb = CutDb
 
     , _cutDbWebBlockHeaderDb :: !WebBlockHeaderDb
     , _cutDbAsync :: !(Async ())
+    , _cutDbLogFunction :: !LogFunction
     }
 
 instance HasChainGraph CutDb where
@@ -203,6 +209,10 @@ cut = to _cut
 addCutHashes :: CutDb -> CutHashes -> STM ()
 addCutHashes db = writeTBQueue (_cutDbQueue db)
 
+tryAddCutHashes :: CutDb -> CutHashes -> STM Bool
+tryAddCutHashes db hs = True <$ writeTBQueue (_cutDbQueue db) hs
+    <|> pure False
+
 -- | An 'STM' version of '_cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
@@ -228,15 +238,25 @@ member db cid h = do
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
-withCutDb :: CutDbConfig -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
-withCutDb config wdb = bracket (startCutDb config wdb) stopCutDb
+withCutDb :: CutDbConfig -> LogFunction -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
+withCutDb config logFun wdb = bracket (startCutDb config logFun wdb) stopCutDb
 
-startCutDb :: CutDbConfig -> WebBlockHeaderDb -> IO CutDb
-startCutDb config wdb = mask_ $ do
+startCutDb :: CutDbConfig -> LogFunction -> WebBlockHeaderDb -> IO CutDb
+startCutDb config logfun wdb = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     queue <- newTBQueueIO (int $ _cutDbConfigBufferSize config)
-    CutDb cutVar queue wdb
-        <$> give wdb (asyncWithUnmask $ \u -> u (processCuts queue cutVar))
+    cutAsync <- give wdb $ asyncWithUnmask $ \u -> u $ processor queue cutVar
+    logfun @T.Text Info "CutDB started"
+    return $ CutDb cutVar queue wdb cutAsync logfun
+  where
+    processor :: Given WebBlockHeaderDb => TBQueue CutHashes -> TVar Cut -> IO ()
+    processor queue cutVar = do
+        processCuts logfun queue cutVar `catches`
+            [ Handler $ \(e :: SomeAsyncException) -> throwM e
+            , Handler $ \(e :: SomeException) ->
+                logfun @T.Text Error $ "CutDB failed: " <> sshow e
+            ]
+        processor queue cutVar
 
 stopCutDb :: CutDb -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
@@ -250,21 +270,29 @@ stopCutDb db = cancel (_cutDbAsync db)
 --
 processCuts
     :: Given WebBlockHeaderDb
-    => TBQueue CutHashes
+    => LogFunction
+    -> TBQueue CutHashes
     -> TVar Cut
     -> IO ()
-processCuts queue cutVar = queueToStream
+processCuts logFun queue cutVar = queueToStream
+    & S.filterM (fmap not . isCurrent)
     & S.mapM cutHashesToBlockHeaderMap
     & S.concat
         -- ignore left values for now
     & S.scanM
         (\a b -> joinIntoHeavier_ (_cutMap a) b)
         (readTVarIO cutVar)
-        (atomically . writeTVar cutVar)
+        (\c -> atomically (writeTVar cutVar c) >> logFun @T.Text Debug "write new cut")
     & S.effects
   where
     queueToStream =
         liftIO (atomically $ readTBQueue queue) >>= S.yield >> queueToStream
+
+    isCurrent x = do
+        curHashes <- fmap _blockHash . _cutMap <$> readTVarIO cutVar
+        let r = curHashes == _cutHashes x
+        when r $ logFun @T.Text Debug "skip current cut"
+        return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
 -- history of cuts. When no cuts are demanded from the stream or new cuts are

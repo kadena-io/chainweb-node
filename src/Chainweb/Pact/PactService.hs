@@ -43,27 +43,25 @@ import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
-import qualified Pact.PersistPactDb as P ()
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
-import qualified Pact.Types.SQLite as P (Pragma(..), SQLiteConfig(..))
+import qualified Pact.Types.SQLite as P
 
 -- internal modules
-import Chainweb.BlockHeader
-import Chainweb.Pact.Backend.InMemoryCheckpointer
-import Chainweb.Pact.Backend.MemoryDb
-import Chainweb.Pact.Backend.SQLiteCheckpointer
-import Chainweb.Pact.Backend.SqliteDb
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.TransactionExec
+import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
+import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
+import Chainweb.Pact.Service.PactQueue (getNextRequest)
+import Chainweb.Pact.Service.Types (RequestMsg(..), NewBlockReq(..),
+                                    LocalReq(..), ValidateBlockReq(..))
+import Chainweb.Pact.TransactionExec (applyCmd, applyGenesisCmd)
+import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
 import Chainweb.Payload
 
 initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
@@ -72,9 +70,9 @@ initPactService reqQ memPoolAccess = do
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
-    let gasLimit = fromMaybe 0 (P._ccGasLimit cmdConfig)
-    let gasRate = fromMaybe 0 (P._ccGasRate cmdConfig)
-    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 (P.constGasModel (fromIntegral gasRate))
+    let gasLimit = fromMaybe 0 $ P._ccGasLimit cmdConfig
+    let gasRate = fromMaybe 0 $ P._ccGasRate cmdConfig
+    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 $ P.constGasModel (fromIntegral gasRate)
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
             Nothing -> do
@@ -107,12 +105,12 @@ serviceRequests memPoolAccess reqQ = go
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
-            LocalReq{..} -> error "Local requests not implemented yet"
-            NewBlockReq {..} -> do
+            LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
+            NewBlockMsg NewBlockReq {..} -> do
                 txs <- execNewBlock memPoolAccess _newBlockHeader
                 liftIO $ putMVar _newResultVar $ toNewBlockResults txs
                 go
-            ValidateBlockReq {..} -> do
+            ValidateBlockMsg ValidateBlockReq {..} -> do
                 txs <- execValidateBlock memPoolAccess _valBlockHeader
                 liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
                 go
@@ -162,47 +160,68 @@ toValidateBlockResults ts =
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-execNewBlock memPoolAccess _parentHeader@BlockHeader{..} = do
-    -- TODO: miner data needs to be addeded to BlockHeader...
+execNewBlock memPoolAccess header = do
+
+    cpEnv <- ask
+    -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
-    newTrans <- liftIO $ memPoolAccess _blockHeight
-    CheckpointEnv {..} <- ask
-    cpdata <- if isGenesisBlockHeader _parentHeader
-        then liftIO $ restoreInitial _cpeCheckpointer
-        else liftIO $ restore _cpeCheckpointer _blockHeight _blockHash
-    case cpdata of
-        Left msg -> gets closePactDb >> fail msg
-        Right st -> updateState st
-    (results, updatedState) <- execTransactions miner newTrans
-    put $! updatedState
-    close_status <- liftIO $ discard _cpeCheckpointer _blockHeight _blockHash updatedState
-    either fail return close_status
-    return results
+        bHeight = _blockHeight header
+        bHash = _blockHash header
+        checkPointer = _cpeCheckpointer cpEnv
+        isGenesisBlock = isGenesisBlockHeader header
+
+    newTrans <- liftIO $! memPoolAccess bHeight
+    cpData <- liftIO $! if isGenesisBlock
+      then restoreInitial checkPointer
+      else restore checkPointer bHeight bHash
+
+    updateOrCloseDb cpData
+
+    (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
+
+    put updatedState
+
+    closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
+    either fail (\_ -> pure results) closeStatus
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
 execValidateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 execValidateBlock memPoolAccess currHeader = do
-    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
+
+    cpEnv <- ask
+    -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
-    CheckpointEnv {..} <- ask
-    cpdata <- if isGenesisBlockHeader currHeader
-        then liftIO $ restoreInitial _cpeCheckpointer
-        else liftIO $ restore _cpeCheckpointer (pred (_blockHeight currHeader)) (_blockParent currHeader)
-    case cpdata of
-        Left s -> ( get >>= liftIO . closePactDb ) >> fail s -- band-aid
-        Right r -> updateState $! r
-    (results, updatedState) <- execTransactions miner trans
+        bHeight = _blockHeight currHeader
+        bParent = _blockParent currHeader
+        bHash = _blockHash currHeader
+        checkPointer = _cpeCheckpointer cpEnv
+        isGenesisBlock = isGenesisBlockHeader currHeader
+
+    trans <- liftIO $! transactionsFromHeader memPoolAccess currHeader
+    cpData <- liftIO $! if isGenesisBlock
+      then restoreInitial checkPointer
+      else restore checkPointer (pred bHeight) bParent
+
+    updateOrCloseDb cpData
+
+    (results, updatedState) <- execTransactions isGenesisBlock miner trans
     put updatedState
-    estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
-                       (liftA3 PactDbState _pdbsDbEnv _pdbsState _pdbsExecMode updatedState)
-    _ <- case estate of
-        Left s -> do -- TODO: fix - If this error message does not appear, the db has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception")
-                (get >>= liftIO . closePactDb)
-            fail s
-        Right _ -> return results
-    return results
+    dbState <- liftIO $! save checkPointer bHeight bHash updatedState
+    either dbClosedErr (const (pure results)) dbState
+  where
+    dbClosedErr :: String -> PactT Transactions
+    dbClosedErr s = do
+      -- TODO: fix - If this error message does not appear, the database has been closed.
+      when (s == "SQLiteCheckpointer.save': Save key not found exception") $
+        get >>= liftIO . closePactDb
+      fail s
+-- | In the case of failure when restoring from the checkpointer,
+-- close db on failure, or update db state
+updateOrCloseDb :: Either String PactDbState -> PactT ()
+updateOrCloseDb = \case
+  Left s  -> gets closePactDb >> fail s
+  Right t -> updateState $! t
 
 setupConfig :: FilePath -> IO PactDbConfig
 setupConfig configFile =
@@ -213,41 +232,38 @@ setupConfig configFile =
         Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
-toCommandConfig PactDbConfig {..} =
-    P.CommandConfig
-        { _ccSqlite = mkSqliteConfig _pdbcPersistDir _pdbcPragmas
-        , _ccEntity = Nothing
-        , _ccGasLimit = _pdbcGasLimit
-        , _ccGasRate = _pdbcGasRate
-        }
+toCommandConfig PactDbConfig {..} = P.CommandConfig
+    { _ccSqlite = mkSqliteConfig _pdbcPersistDir _pdbcPragmas
+    , _ccEntity = Nothing
+    , _ccGasLimit = _pdbcGasLimit
+    , _ccGasRate = _pdbcGasRate
+    }
 
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
 -- sqlite databases -- hence this is here and not in the Sqlite specific module
 mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
-mkSqliteConfig (Just f) xs = Just P.SQLiteConfig { _dbFile = f, _pragmas = xs }
+mkSqliteConfig (Just f) xs = Just $ P.SQLiteConfig f xs
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
-execTransactions miner xs = do
-    cpEnv <- ask
+execTransactions :: Bool -> MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
+execTransactions isGenesis miner txs = do
+    -- cpEnv <- ask
     currentState <- get
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
-    mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-
+    mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
     prevTxId <- liftIO $
         case _pdbsExecMode currentState of
             P.Transactional tId -> return tId
             _anotherMode -> fail "Only Transactional ExecutionMode is supported"
-    (txOuts, newTxId) <- liftIO $ do
-        let f :: ([FullLogTxOutput], Word64) -> PactTransaction -> IO ([FullLogTxOutput], Word64)
+    (txOuts, newTxId) <- do
+        let f :: ([FullLogTxOutput], Word64) -> PactTransaction -> PactT ([FullLogTxOutput], Word64)
             f (outs, prevId) PactTransaction {..} = do
-                let newId = succ prevId
-                (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState
-                                             (P.Transactional (P.TxId newId)) _ptCmd miner
-                let txOut = FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs}
-                return (txOut : outs, newId)
-        foldM f ([], fromIntegral prevTxId) xs
+              let newId = succ prevId
+              txOut <- applyPactCmd isGenesis dbEnv' mvCmdState _ptCmd
+                                   (P.Transactional (P.TxId newId)) miner
+              return (txOut : outs, newId)
+        foldM f ([], fromIntegral prevTxId) txs
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -255,22 +271,30 @@ execTransactions miner xs = do
           , _pdbsState = newCmdState
           , _pdbsExecMode = P.Transactional $ P.TxId newTxId
           }
-    return (Transactions (zip xs (reverse txOuts)), updatedState)
+    return (Transactions (txs `zip` (reverse txOuts)), updatedState)
 
 applyPactCmd
-    :: CheckpointEnv
+    :: Bool
     -> Env'
     -> MVar P.CommandState
-    -> P.ExecutionMode
     -> P.Command ByteString
+    -> P.ExecutionMode
     -> MinerInfo
-    -> IO (P.CommandResult, [P.TxLog A.Value])
-applyPactCmd CheckpointEnv {..} dbEnv' mvCmdState eMode cmd miner =
-    case dbEnv' of
-        Env' pactDbEnv -> do
-            let procCmd = P.verifyCommand cmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-            applyCmd _cpeLogger Nothing miner pactDbEnv mvCmdState (P._geGasModel _cpeGasEnv)
-                     eMode cmd procCmd
+    -> PactT FullLogTxOutput
+applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
+    cpEnv <- ask
+    let logger = _cpeLogger cpEnv
+        gasModel = cpEnv ^. cpeGasEnv . P.geGasModel
+        -- type signature ensures correct inference
+        procCmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
+        procCmd = P.verifyCommand cmd
+
+    (result, txLogs) <- liftIO $! if isGenesis
+        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd procCmd
+        else applyCmd logger Nothing miner dbEnv
+             cmdState gasModel execMode cmd procCmd
+
+    pure $! FullLogTxOutput (P._crResult result) txLogs
 
 updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do

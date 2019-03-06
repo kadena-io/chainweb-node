@@ -40,10 +40,10 @@ tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
       return (xss, yss, zss)
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
   where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
-                              (const $ return True)
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                              mockGasLimit mockMeta (const $ return True)
     -- run the reaper @100Hz for testing
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta

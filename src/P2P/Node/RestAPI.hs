@@ -2,7 +2,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -107,4 +106,3 @@ someP2pApi (FromSing (SChainwebVersion :: Sing v)) = f
 
 someP2pApis :: ChainwebVersion -> [NetworkId] -> SomeApi
 someP2pApis v = mconcat . fmap (someP2pApi v)
-

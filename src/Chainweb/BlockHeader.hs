@@ -92,14 +92,7 @@ module Chainweb.BlockHeader
 , IsBlockHeader(..)
 
 -- * Genesis BlockHeader
-, genesisParentBlockHash
-, genesisBlockHeader
-, genesisBlockHeader'
-, genesisBlockHeaders
 , isGenesisBlockHeader
-, genesisBlockTarget
-, genesisBlockPayload
-, genesisBlockPayloadHash
 
 -- * Testing
 , testBlockHeader
@@ -112,7 +105,6 @@ module Chainweb.BlockHeader
 import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
-import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -120,7 +112,6 @@ import Data.Aeson.Types (Parser)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
-import Data.Foldable
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -173,6 +164,8 @@ instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+instance Wrapped BlockHeight
+
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
@@ -224,6 +217,8 @@ instance IsMerkleLogEntry ChainwebHashTag Nonce where
     fromMerkleNode = decodeMerkleInputNode decodeNonce
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance Wrapped Nonce
 
 encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n
@@ -487,28 +482,19 @@ decodeBlockHeaderCheckedChainId p = do
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
-decodeBlockHeader = do
-    bh <- BlockHeader
-        <$> decodeBlockHash
-        <*> decodeBlockHashRecord
-        <*> decodeHashTarget
-        <*> decodeBlockPayloadHash
-        <*> decodeBlockCreationTime
-        <*> decodeNonce
-        <*> decodeChainId
-        <*> decodeBlockWeight
-        <*> decodeBlockHeight
-        <*> decodeChainwebVersion
-        <*> decodeChainNodeId
-        <*> decodeBlockHash
-    checkGenesis bh
-    return bh
-  where
-    checkGenesis bh = when (isGenesisBlockHeader bh && bh /= gen bh)
-        $ fail $ "Decoding of genesis BlockHeader failed"
-        <> ". Expected: " <> sshow (gen bh)
-        <> ". Actual: " <> sshow bh
-    gen bh = genesisBlockHeader (_chainwebVersion bh) (_chainId bh)
+decodeBlockHeader = BlockHeader
+    <$> decodeBlockHash
+    <*> decodeBlockHashRecord
+    <*> decodeHashTarget
+    <*> decodeBlockPayloadHash
+    <*> decodeBlockCreationTime
+    <*> decodeNonce
+    <*> decodeChainId
+    <*> decodeBlockWeight
+    <*> decodeBlockHeight
+    <*> decodeChainwebVersion
+    <*> decodeChainNodeId
+    <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
@@ -554,12 +540,12 @@ blockPow = to _blockPow
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
---
--- By default a binary encoding of block headers is used as JSON encoding.
--- In some circumstance, like logging and configuration files, a textual
--- encoding is desired.
 
-newtype ObjectEncoded a = ObjectEncoded a
+-- | By default a binary encoding of block headers is used as JSON encoding. In
+-- some circumstance, like logging and configuration files, a textual encoding
+-- is desired.
+--
+newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, NFData)
 
@@ -610,63 +596,6 @@ class IsBlockHeader t where
 instance IsBlockHeader BlockHeader where
     isoBH = id
 
--- -------------------------------------------------------------------------- --
--- Genesis BlockHeader
-
--- | The genesis block hash includes the Chainweb version and the 'ChainId'
--- within the Chainweb version.
---
--- It is the '_blockParent' of the genesis block
---
-genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
-genesisParentBlockHash v p = BlockHash $ MerkleLogHash
-    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
-        [ InputNode "CHAINWEB_GENESIS"
-        , encodeMerkleInputNode encodeChainwebVersion v
-        , encodeMerkleInputNode encodeChainId (_chainId p)
-        ]
-
--- `maxTarget` likewise varies via `ChainwebVersion`.
-genesisBlockTarget :: ChainwebVersion -> HashTarget
-genesisBlockTarget = maxTarget
-
-genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
-genesisTime Test{} _ = BlockCreationTime epoche
-genesisTime TestWithTime{} _ = BlockCreationTime epoche
-genesisTime TestWithPow{} _ = BlockCreationTime epoche
-genesisTime Simulation{} _ = BlockCreationTime epoche
-genesisTime Testnet00 _ = error "Testnet00 doesn't yet exist"
-
-genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
-genesisMiner Test{} p = ChainNodeId (_chainId p) 0
-genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
-genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
-genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
-genesisMiner Testnet00 _ = error "Testnet00 doesn't yet exist"
-
--- TODO: characterize genesis block payload. Should this be the value of
--- chainId instead of empty string?
-genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v@Test{} c
-    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v@TestWithTime{} c
-    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
-    putByteString "GENESIS:"
-    encodeChainwebVersion v
-    encodeChainId c
-
-genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
-genesisBlockPayload Test{} _ = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
-genesisBlockPayload TestWithTime{} _ = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
-genesisBlockPayload _ _ = error "genesisBlockPayload isn't yet defined for this chainweb version"
-
 -- FIXME: only for testing:
 --
 hashPayload :: HasChainId p => ChainwebVersion -> p -> ByteString -> BlockPayloadHash
@@ -677,60 +606,6 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
         , encodeMerkleInputNode encodeChainId (_chainId cid)
         , InputNode b
         ]
-
--- | A block chain is globally uniquely identified by its genesis hash.
--- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
--- as identifiers. We thus include the 'ChainwebVersion' value and the
--- 'ChainId' into the genesis block hash.
---
--- We assume that there is always only a single 'ChainwebVersion' in
--- scope and identify chains only by there internal 'ChainId'.
---
-genesisBlockHeader
-    :: HasChainId p
-    => ChainwebVersion
-    -> p
-    -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v cid) (Nonce 0)
-  where
-    cid = _chainId p
-
-genesisBlockHeader'
-    :: HasChainId p
-    => ChainwebVersion
-    -> p
-    -> BlockCreationTime
-    -> Nonce
-    -> BlockHeader
-genesisBlockHeader' v p ct n = fromLog mlog
-  where
-    g = _chainGraph v
-    cid = _chainId p
-
-    mlog = newMerkleLog
-        $ genesisParentBlockHash v cid
-        :+: genesisBlockTarget v
-        :+: genesisBlockPayloadHash v cid
-        :+: ct
-        :+: n
-        :+: cid
-        :+: BlockWeight 0
-        :+: BlockHeight 0
-        :+: v
-        :+: genesisMiner v cid
-        :+: MerkleLogBody (blockHashRecordToSequence adjParents)
-    adjParents = BlockHashRecord $ HM.fromList $
-        (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
-
-genesisBlockHeaders
-    :: ChainwebVersion
-    -> HM.HashMap ChainId BlockHeader
-genesisBlockHeaders v = HM.fromList
-    . fmap (id &&& genesisBlockHeader v)
-    . toList
-    . chainIds_
-    . _chainGraph
-    $ v
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

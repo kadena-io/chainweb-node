@@ -357,7 +357,7 @@ prereduction Test{} = 0
 prereduction TestWithTime{} = 0
 prereduction TestWithPow{} = 7
 prereduction Simulation{} = 0
-prereduction Testnet00 = error "prereduction: Bit reduction for Testnet00 not yet defined!"
+prereduction Testnet00 = 9
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.

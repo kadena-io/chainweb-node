@@ -51,6 +51,7 @@ import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (init, lookup)
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
@@ -62,9 +63,9 @@ import qualified Chainweb.Time as Time
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
-type Priority = (Down TransactionFees, Int64)
+type Priority = (Down GasPrice, Int64)
 
-toPriority :: TransactionFees -> Int64 -> Priority
+toPriority :: GasPrice -> Int64 -> Priority
 toPriority r s = (Down r, s)
 
 
@@ -281,7 +282,7 @@ makeSelfFinalizingInMemPool cfg =
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
         let back = toMempoolBackend mp
         let txcfg = mempoolTxConfig back
-        let bsl = mempoolBlockSizeLimit back
+        let bsl = mempoolBlockGasLimit back
         return $! wrapBackend txcfg bsl (ref, wk)
 
   where
@@ -292,7 +293,7 @@ makeSelfFinalizingInMemPool cfg =
         return x
 
     wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10
+        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
       where
         f1 = withRef mp . flip mempoolMember
         f2 = withRef mp . flip mempoolLookup
@@ -304,6 +305,7 @@ makeSelfFinalizingInMemPool cfg =
         f8 = withRef mp . flip mempoolGetPendingTransactions
         f9 = withRef mp mempoolSubscribe
         f10 = withRef mp mempoolShutdown
+        f11 = withRef mp mempoolClear
 
 
 ------------------------------------------------------------------------------
@@ -335,7 +337,7 @@ toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lock broadcaster _) =
     MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe shutdown
+                   markConfirmed reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lock
     lookup = lookupInMem lock
@@ -347,6 +349,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     getPending = getPendingInMem cfg lock
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
+    clear = clearInMem lock
 
 
 ------------------------------------------------------------------------------
@@ -433,13 +436,13 @@ insertInMem broadcaster cfg lock txs = do
   where
     txcfg = _inmemTxCfg cfg
     validateTx = txValidate txcfg
-    getSize = txSize txcfg
+    getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     hasher = txHasher txcfg
 
     sizeOK tx = getSize tx <= maxSize
-    getPriority x = let r = txFees txcfg x
-                        s = txSize txcfg x
+    getPriority x = let r = txGasPrice txcfg x
+                        s = txGasLimit txcfg x
                     in toPriority r s
     exists mdata txhash = do
         valMap <- readIORef $ _inmemValidated mdata
@@ -473,7 +476,7 @@ getBlockInMem cfg lock size0 = do
     -- try to find a smaller tx to fit in the block. DECIDE: exhaustive search
     -- of pending instead?
     maxSkip = 30 :: Int
-    getSize = txSize $ _inmemTxCfg cfg
+    getSize = txGasLimit $ _inmemTxCfg cfg
 
     go (psq, sz) = lookahead sz maxSkip psq
 
@@ -559,10 +562,10 @@ reintroduceInMem broadcaster cfg lock txhashes = do
 
   where
     txcfg = _inmemTxCfg cfg
-    fees = txFees txcfg
-    size = txSize txcfg
-    getPriority x = let r = fees x
-                        s = size x
+    price = txGasPrice txcfg
+    limit = txGasLimit txcfg
+    getPriority x = let r = price x
+                        s = limit x
                     in toPriority r s
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
@@ -571,6 +574,17 @@ reintroduceInMem broadcaster cfg lock txhashes = do
         modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
         modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
         return $! Just tx
+
+
+------------------------------------------------------------------------------
+clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
+clearInMem lock = do
+    withMVarMasked lock $ \mdata -> do
+        writeIORef (_inmemPending mdata) $ PSQ.empty
+        writeIORef (_inmemValidated mdata) $ HashMap.empty
+        writeIORef (_inmemConfirmed mdata) $ HashSet.empty
+        -- we won't reset the broadcaster but that's ok, the same one can be
+        -- re-used
 
 
 ------------------------------------------------------------------------------

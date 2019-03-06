@@ -53,6 +53,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Utils

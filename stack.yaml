@@ -28,12 +28,12 @@ extra-deps:
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
   - git: https://github.com/kadena-io/pact.git
-    commit: 83d3f2b4c32d93d970f6adda825a02d73ea34663
+    commit: fb1bb1ddc0133833378572dde12cd1edc0b4f943
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   # temporarily using a patched fork of sbv to disable "unsupported query call"
   # until it's fixed upstream
-  - git: https://github.com/joelburget/sbv.git
-    commit: 8d13e26255178c5ee5b5b3fad97873ff214d7470
+  - git: https://github.com/LeventErkok/sbv.git
+    commit: 68375576f87d17a2da759c56f7147f4e559471a2
   - git: git@github.com:kadena-io/merkle-log.git
     commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376

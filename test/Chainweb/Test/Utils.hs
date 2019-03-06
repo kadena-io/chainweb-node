@@ -112,6 +112,7 @@ import Text.Printf (printf)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)

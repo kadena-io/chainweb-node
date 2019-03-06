@@ -22,6 +22,9 @@ module Chainweb.Pact.Types
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
+    -- * types
+  , MinerKeys
+  , MinerId
     -- * optics
   , flCommandResult
   , flTxLogs
@@ -52,10 +55,10 @@ import GHC.Word
 
 -- internal pact modules
 
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.Persistence as P
+import Pact.Types.Command (Command(..))
+import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Term (KeySet(..), Name(..))
-import qualified Pact.Types.Util as P
+import Pact.Types.Util (Hash(..))
 
 -- internal chainweb modules
 
@@ -66,7 +69,7 @@ import Chainweb.Pact.Backend.Types
 -- checkpointed & restored
 data PactTransaction = PactTransaction
     { _ptTxId :: Word64
-    , _ptCmd :: P.Command ByteString
+    , _ptCmd :: Command ByteString
     } deriving (Show, Eq)
 
 instance ToJSON PactTransaction where
@@ -81,13 +84,9 @@ instance FromJSON PactTransaction where
         <*> o .: "ptCmd"
     {-# INLINE parseJSON #-}
 
-newtype Transactions = Transactions { _transactionPairs :: [(PactTransaction, FullLogTxOutput)] }
-
-instance Eq Transactions where
-    (==) a b =
-      let tpa = _transactionPairs a
-          tpb = _transactionPairs b
-      in (fst <$> tpa) == (fst <$> tpb) && (snd <$> tpa) == (snd <$> tpb)
+newtype Transactions = Transactions
+    { _transactionPairs :: [(PactTransaction, FullLogTxOutput)]
+    } deriving (Eq)
 
 instance ToJSON Transactions where
     toJSON o = object
@@ -106,7 +105,7 @@ instance Show Transactions where
 
 data FullLogTxOutput = FullLogTxOutput
     { _flCommandResult :: A.Value
-    , _flTxLogs :: [P.TxLog A.Value]
+    , _flTxLogs :: [TxLog A.Value]
     } deriving (Show, Eq)
 
 instance FromJSON FullLogTxOutput where
@@ -123,7 +122,7 @@ instance ToJSON FullLogTxOutput where
 
 data HashedLogTxOutput = HashedLogTxOutput
     { _hlCommandResult :: Value
-    , _hlTxLogHash :: P.Hash
+    , _hlTxLogHash :: Hash
     } deriving (Eq, Show)
 
 instance FromJSON HashedLogTxOutput where
@@ -138,13 +137,17 @@ instance ToJSON HashedLogTxOutput where
         , "hlTxLogs" .= _hlTxLogHash o]
     {-# INLINE toJSON #-}
 
+
+type MinerKeys = KeySet
+type MinerId = Text
+
 data MinerInfo = MinerInfo
-  { _minerAccount :: Text
-  , _minerKeys :: KeySet
+  { _minerAccount :: MinerId
+  , _minerKeys :: MinerKeys
   }
 
 defaultMiner :: MinerInfo
-defaultMiner = MinerInfo "" $ KeySet [] (Name "" def)
+defaultMiner = MinerInfo "miner" $ KeySet [] (Name "" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath

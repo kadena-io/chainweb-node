@@ -73,13 +73,21 @@ data ChainNodeId = ChainNodeId
     , _chainNodeIdId :: !Word64
     }
     deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData, FromJSON, ToJSON)
+    deriving anyclass (Hashable, NFData)
 
 makeLenses ''ChainNodeId
 
 instance HasChainId ChainNodeId where
     _chainId = _chainNodeIdChain
     {-# INLINE _chainId #-}
+
+instance ToJSON ChainNodeId where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON ChainNodeId where
+    parseJSON = parseJsonFromText "ChainNodeId"
+    {-# INLINE parseJSON #-}
 
 encodeChainNodeId :: MonadPut m => ChainNodeId -> m ()
 encodeChainNodeId (ChainNodeId cid i) = encodeChainId cid >> putWord64le i
@@ -158,4 +166,3 @@ instance HasTextRepresentation NodeId where
 nodeIdFromNodeId :: NodeId -> ChainId -> ChainNodeId
 nodeIdFromNodeId (NodeId i) cid = ChainNodeId cid i
 {-# INLINE nodeIdFromNodeId #-}
-

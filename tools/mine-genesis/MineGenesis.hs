@@ -16,30 +16,31 @@
 --
 module Main where
 
-import Control.Lens (over)
-
 import Data.Aeson.Encode.Pretty
-import Data.ByteString.Char8 as B8
-import Data.ByteString.Lazy.Char8 as BL8
 import Data.Bytes.Put
-import Data.Generics.Wrapped (_Unwrapped)
+import Data.ByteString.Lazy.Char8 as BL8
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
+import qualified Data.Text.Lazy as TL
 import Data.Word (Word32)
 import qualified Data.Yaml as Yaml
 
 import Options.Generic
 
+import Text.Pretty.Simple (pShowNoColor)
+
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Difficulty (checkTarget)
-import Chainweb.Time (Time(..), TimeSpan(..), getCurrentTimeIntegral)
-import Chainweb.Version (ChainwebVersion(..), chainwebVersionFromText)
+import Chainweb.BlockHeader.Genesis (genesisTime)
+import Chainweb.ChainId (testChainId)
+import Chainweb.Miner.Genesis (mineGenesis)
+import Chainweb.Time (Time(..), TimeSpan(..))
+import Chainweb.Version (chainwebVersionFromText)
 
 ---
 
-data Format = Json | Yaml | Binary
+data Format = Json | Yaml | Binary | Show
     deriving (Generic, Read)
 
 instance ParseField Format
@@ -47,34 +48,23 @@ instance ParseField Format
 data Env w = Env
     { version :: w ::: Text     <?> "The ChainwebVersion to use."
     , chain :: w ::: Word32     <?> "The ChainId to produce a genesis for."
-    , time :: w ::: Maybe Int64 <?> "Genesis Block Time, in microseconds since the Epoch. Otherwise, uses the current time."
-    , format :: w ::: Maybe Format <?> "Output format Json|Yaml|Binary, default is Json"
+    , time :: w ::: Maybe Int64 <?> "Genesis Block Time, in microseconds since the Epoch. Default is the Genesis Time of the given ChainwebVersion."
+    , format :: w ::: Maybe Format <?> "Output format Json|Yaml|Binary|Show, default is Show"
     } deriving (Generic)
 
 instance ParseRecord (Env Wrapped)
 
 main :: IO ()
 main = do
-    Env v0 c t f <- unwrapRecord "mine-genesis"
-    ct <- BlockCreationTime <$> maybe getCurrentTimeIntegral (pure . Time . TimeSpan) t
+    Env v0 c t f0 <- unwrapRecord "mine-genesis"
     v <- chainwebVersionFromText v0
+    let cid = testChainId c
+        ct = maybe (genesisTime v cid) (BlockCreationTime . Time . TimeSpan) t
+        f = fromMaybe Show f0
+    BL8.putStrLn . encodeBlock f $ mineGenesis v cid ct (Nonce 0)
 
-    case f of
-        Just Binary -> BL8.putStr $ runPutL
-            $ encodeBlockHeader $ mineGenesis v (testChainId c) ct (Nonce 0)
-        Just Yaml -> B8.putStrLn $ Yaml.encode
-            $ ObjectEncoded $ mineGenesis v (testChainId c) ct (Nonce 0)
-        _ -> BL8.putStrLn $ encodePretty
-            $ ObjectEncoded $ mineGenesis v (testChainId c) ct (Nonce 0)
-
-mineGenesis
-    :: ChainwebVersion
-    -> ChainId
-    -> BlockCreationTime
-    -> Nonce
-    -> BlockHeader
-mineGenesis v p ct n
-    | checkTarget (_blockTarget gh) (_blockPow gh) = gh
-    | otherwise = mineGenesis v p ct (over _Unwrapped succ n)
-  where
-    gh = genesisBlockHeader' v p ct n
+encodeBlock :: Format -> BlockHeader -> BL8.ByteString
+encodeBlock Binary bh = runPutL $ encodeBlockHeader bh
+encodeBlock Yaml bh = BL8.fromStrict . Yaml.encode $ ObjectEncoded bh
+encodeBlock Json bh = encodePretty $ ObjectEncoded bh
+encodeBlock Show bh = BL8.pack . TL.unpack $ pShowNoColor bh

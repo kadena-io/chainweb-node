@@ -81,6 +81,7 @@ module Chainweb.Chainweb
 
 , withChain
 , runChainSyncClient
+, runMempoolSyncClient
 
 -- * Chainweb Logging Functions
 , ChainwebLogFunctions(..)
@@ -100,6 +101,7 @@ module Chainweb.Chainweb
 , chainwebLogFun
 , chainwebSocket
 , chainwebPeer
+, chainwebPayloadDb
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -117,6 +119,7 @@ import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
@@ -130,6 +133,8 @@ import Data.IxSet.Typed (getEQ, getOne)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
+
+import Prelude hiding (log)
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
@@ -150,6 +155,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
+import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.Miner.Config
 import Chainweb.Miner.POW
 import Chainweb.Miner.Test
@@ -158,6 +164,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
@@ -175,6 +182,8 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Peer
 import P2P.Session
+
+import qualified Servant.Client as Sv
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -294,16 +303,18 @@ withCuts
     -> (Cuts -> IO a)
     -> IO a
 withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain f =
-    withCutDb cutDbConfig webchain $ \cutDb ->
+    withCutDb cutDbConfig (_getLogFunction logfun) webchain $ \cutDb ->
         f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun
 
 runCutsSyncClient
     :: HTTP.Manager
     -> Cuts
     -> IO ()
-runCutsSyncClient mgr cuts = do
-    -- Create P2P client node
-    n <- p2pCreateNode
+runCutsSyncClient mgr cuts = bracket create destroy go
+  where
+    v = _cutsChainwebVersion cuts
+    syncLogg = alogFunction @T.Text (_cutsLogFun cuts)
+    create = p2pCreateNode
         v
         CutNetwork
         (_cutsPeer cuts)
@@ -311,32 +322,15 @@ runCutsSyncClient mgr cuts = do
         (_cutsPeerDb cuts)
         mgr
         (C.syncSession v (_cutsCutDb cuts))
-
-    -- Run P2P client node
-    syncLogg Info "initialized"
-    p2pStartNode (_cutsP2pConfig cuts) n `finally` do
+    go n = do
+        syncLogg Info "initialized"
+        p2pStartNode (_cutsP2pConfig cuts) n
+    destroy n = do
         p2pStopNode n
         syncLogg Info "stopped"
-  where
-    v = _cutsChainwebVersion cuts
-    syncLogg = alogFunction @T.Text (_cutsLogFun cuts)
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
-
--- TODO: unify this with pact transaction type
-type ChainwebTransaction = Mempool.MockTx
-
-chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = Mempool.TransactionConfig Mempool.mockCodec
-    mockHash
-    Mempool.chainwebTestHashMeta
-    Mempool.mockFees
-    Mempool.mockSize
-    Mempool.mockMeta
-    (const $ return True)
-  where
-    mockHash = Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec
 
 data Chain = Chain
     { _chainChainId :: !ChainId
@@ -412,9 +406,11 @@ runChainSyncClient
     -> Chain
         -- ^ chain resources
     -> IO ()
-runChainSyncClient mgr chain = do
-    -- Create P2P client node
-    n <- p2pCreateNode
+runChainSyncClient mgr chain = bracket create destroy go
+  where
+    netId = ChainNetwork (_chainChainId chain)
+    syncLogg = alogFunction @T.Text (_chainLogFun chain)
+    create = p2pCreateNode
         (_chainChainwebVersion chain)
         netId
         (_chainPeer chain)
@@ -423,14 +419,13 @@ runChainSyncClient mgr chain = do
         mgr
         (chainSyncP2pSession (_chainSyncDepth chain) (_chainBlockHeaderDb chain))
 
-    -- Run P2P client node
-    syncLogg Info "initialized"
-    p2pStartNode (_chainP2pConfig chain) n `finally` do
-        p2pStopNode n
-        syncLogg Info "stopped"
-  where
-    netId = ChainNetwork (_chainChainId chain)
-    syncLogg = alogFunction @T.Text (_chainLogFun chain)
+    go n = do
+        -- Run P2P client node
+        syncLogg Info "initialized"
+        p2pStartNode (_chainP2pConfig chain) n
+
+    destroy n = p2pStopNode n `finally` syncLogg Info "stopped"
+
 
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
 chainSyncP2pSession depth db logg env = do
@@ -440,6 +435,66 @@ chainSyncP2pSession depth db logg env = do
 syncDepth :: ChainGraph -> Depth
 syncDepth g = Depth (2 * diameter g)
 {-# NOINLINE syncDepth #-}
+
+
+-- -------------------------------------------------------------------------- --
+-- Mempool sync.
+-- | Synchronize the local mempool over the P2P network.
+--
+runMempoolSyncClient
+    :: HTTP.Manager
+        -- ^ HTTP connection pool
+    -> Chain
+        -- ^ chain resources
+    -> IO ()
+runMempoolSyncClient mgr chain = bracket create destroy go
+  where
+    create = do
+        log Debug "starting mempool p2p sync"
+        p2pCreateNode v netId peer (_getLogFunction $ _chainLogFun chain) peerDb mgr $
+            mempoolSyncP2pSession chain
+    go n = do
+        -- Run P2P client node
+        log Info "mempool sync p2p node initialized, starting session"
+        p2pStartNode p2pConfig n
+
+    destroy n = p2pStopNode n `finally` log Info "mempool sync p2p node stopped"
+
+    v = _chainChainwebVersion chain
+    peer = _chainPeer chain
+    p2pConfig = _chainP2pConfig chain
+    peerDb = _chainPeerDb chain
+    netId = ChainNetwork $ _chainChainId chain
+    log = alogFunction @T.Text (_chainLogFun chain)
+
+
+mempoolSyncP2pSession :: Chain -> P2pSession
+mempoolSyncP2pSession chain logg0 env = go
+  where
+    go = flip catches [ Handler asyncHandler , Handler errorHandler ] $ do
+             logg Debug "mempool sync session starting"
+             Mempool.syncMempools pool peerMempool
+             logg Debug "mempool sync session succeeded"
+             return False
+
+    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+    logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
+
+    asyncHandler (_ :: SomeAsyncException) = do
+        logg Debug "mempool sync session cancelled"
+        return False
+
+    errorHandler (e :: SomeException) = do
+        logg Debug ("mempool sync session failed: " <> sshow e)
+        throwM e
+
+    peerMempool = MPC.toMempool v cid txcfg gaslimit env
+    pool = _chainMempool chain
+    txcfg = Mempool.mempoolTxConfig pool
+    gaslimit = Mempool.mempoolBlockGasLimit pool
+    cid = _chainChainId chain
+    v = _chainChainwebVersion chain
+
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -541,12 +596,13 @@ withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, pee
     confLens :: Lens' ChainwebConfiguration PeerConfig
     confLens = configP2p . p2pConfigPeer
 
-mempoolConfig :: Mempool.InMemConfig Mempool.MockTx
+mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
     chainwebTransactionConfig
-    Mempool.mockBlocksizeLimit
+    blockGasLimit
     mempoolReapInterval
   where
+    blockGasLimit = 1000000                 -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
 
 -- Intializes all local chainweb components but doesn't start any networking.
@@ -622,14 +678,14 @@ runChainweb cw = do
 
     -- collect server resources
     let chains = HM.toList (_chainwebChains cw)
+        chainVals = map snd chains
         proj :: forall a . (Chain -> a) -> [(ChainId, a)]
         proj f = flip map chains $ \(k, ch) -> (k, f ch)
         chainDbsToServe = proj _chainBlockHeaderDb
         mempoolsToServe = proj _chainMempool
         chainP2pToServe = bimap ChainNetwork _chainPeerDb <$> itoList (_chainwebChains cw)
 
-        payloadDbsToServe
-            = itoList $ const (_chainwebPayloadDb cw) <$> _chainwebChains cw
+        payloadDbsToServe = itoList $ const (_chainwebPayloadDb cw) <$> _chainwebChains cw
 
         serverSettings = peerServerSettings (_chainwebPeer cw)
         serve = serveChainwebSocketTls
@@ -697,17 +753,18 @@ runChainweb cw = do
 
         -- 2. Run Clients
         --
-        void $ mapConcurrently_ id
-            $ logClientConnections
-                -- TODO: should we place this behind a CPP _DEBUG_ flag?
+        let clients :: [Concurrently ()]
+            clients = concatMap (map Concurrently)
+                        [ [logClientConnections]
+                        , [runMiner (_chainwebVersion cw) (_chainwebMiner cw)]
+                        -- FIXME: should we start mining with some delay, so
+                        -- that the block header base is up to date?
+                        , [runCutsSyncClient mgr (_chainwebCuts cw)]
+                        , map (runChainSyncClient mgr) chainVals
+                        , map (runMempoolSyncClient mgr) chainVals
+                        ]
 
-            : runMiner (_chainwebVersion cw) (_chainwebMiner cw)
-                -- FIXME: should we start mining with some delay, so that
-                -- the block header base is up to date?
-            : runCutsSyncClient mgr (_chainwebCuts cw)
-
-            : (runChainSyncClient mgr <$> HM.elems (_chainwebChains cw))
-
+        void $ runConcurrently $ mconcat clients
         wait server
   where
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
@@ -719,4 +776,3 @@ runChainweb cw = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
-
