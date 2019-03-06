@@ -220,8 +220,9 @@ main =
                  url <- parseBaseUrl _serverPath
                  let clientEnv = mkClientEnv mgr url
                  contracts <- traverse ($ testAdminKeyPairs) contractLoaders
+                 accounts <- createAccounts
                  pollresponse <- runExceptT $ do
-                    rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch contracts)) clientEnv
+                    rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch (contracts ++ accounts))) clientEnv
                     ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
                  print pollresponse
       Run -> do
