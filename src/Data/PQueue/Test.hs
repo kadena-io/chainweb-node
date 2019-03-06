@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- |
 -- Module: Data.PQueue.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -32,6 +33,10 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 -- internal modules
+
+#if !MIN_VERSION_QuickCheck(2,12,2)
+import BackCompat.Test.QuickCheck
+#endif
 
 import Data.PQueue
 
