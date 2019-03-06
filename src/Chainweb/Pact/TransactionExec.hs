@@ -16,6 +16,7 @@ module Chainweb.Pact.TransactionExec
 ( -- * pact service api
   applyCmd
 , applyExec
+, applyExec'
 , applyContinuation
   -- * coin contract api
 , buyGas
@@ -48,6 +49,7 @@ import NeatInterpolation (text)
 
 -- internal Pact modules
 
+import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (ParsedInteger(..), ParsedDecimal(..), parseExprs)
 import Pact.Types.Command
@@ -84,7 +86,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc
     let gasEnv = mkGasEnvOf cmd gasModel
         cmdEnv = CommandEnv entityM exMode pactDbEnv cmdState logger gasEnv
         requestKey = cmdToRequestKey cmd
-        modifiedEnv = set (ceGasEnv . geGasModel) permissiveGasModel cmdEnv
+        modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
 
     buyGasResultE <- tryAny $ buyGas modifiedEnv cmd minerInfo
 
@@ -365,12 +367,6 @@ coinbase env cmd (MinerInfo minerId minerKeys) reward = do
 
     coinbaseCmd <- mkCoinbaseCmd minerId minerKeys reward
     applyExec env initState requestKey coinbaseCmd (_cmdSigs cmd) (_cmdHash cmd) []
-
--- | This permissive gas model will be used for coin contracts when we execute the
--- buy portion of the execution model.
-permissiveGasModel :: GasModel
-permissiveGasModel = GasModel $ \_ _ -> Gas 0
-{-# INLINE permissiveGasModel #-}
 
 ------------------------------------------------------------------------------
 -- Command Builders
