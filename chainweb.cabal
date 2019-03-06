@@ -295,6 +295,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
@@ -331,13 +332,13 @@ test-suite chainweb-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
         , massiv >= 0.2
         , mwc-random >= 0.13
+        , neat-interpolation >= 0.3
         , network >= 2.6
         , pact >= 2.6
         , paths >= 0.2
@@ -478,7 +479,6 @@ executable slow-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12

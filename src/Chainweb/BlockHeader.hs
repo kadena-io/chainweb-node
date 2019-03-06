@@ -164,6 +164,8 @@ instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+instance Wrapped BlockHeight
+
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
@@ -215,6 +217,8 @@ instance IsMerkleLogEntry ChainwebHashTag Nonce where
     fromMerkleNode = decodeMerkleInputNode decodeNonce
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance Wrapped Nonce
 
 encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n

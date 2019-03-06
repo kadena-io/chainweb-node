@@ -30,8 +30,9 @@ import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
-import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
+import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -63,6 +64,7 @@ pactTestSuite = do
     pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
     pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
+        , Chainweb.Test.Pact.Checkpointer.tests
         , pactInProcApiTests
         ]
 

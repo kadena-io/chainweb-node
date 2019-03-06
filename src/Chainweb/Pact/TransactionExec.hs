@@ -19,6 +19,7 @@ module Chainweb.Pact.TransactionExec
 , applyExec
 , applyExec'
 , applyContinuation
+, applyContinuation'
   -- * coin contract api
 , buyGas
 , coinbase
@@ -186,27 +187,13 @@ applyExec
     -> Hash
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyExec env@CommandEnv{..} initState rk (ExecMsg parsedCode edata) senderSigs hash prevLogs = do
-    when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
-    (CommandState refStore pacts) <- readMVar _ceState
-    let sigs = userSigsToPactKeySet senderSigs
-        evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                  (MsgData sigs edata Nothing hash) refStore _ceGasEnv permissiveNamespacePolicy
-    EvalResult{..} <- evalExecState initState evalEnv parsedCode
-    let txLogs = _erLogs
-    newCmdPact <- join <$> mapM (handlePactExec env _erInput) _erExec
-    let !newPacts = case newCmdPact of
-          Nothing -> pacts
-          Just cmdPact -> Map.insert (_cpTxId cmdPact) cmdPact pacts
-    void $! swapMVar _ceState $ CommandState _erRefStore newPacts
-    for_ newCmdPact $ \p ->
-      logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show p
-    return (jsonResult _ceMode rk _erGas $
-            CommandSuccess (last _erOutput), prevLogs <> txLogs)
+applyExec env@CommandEnv{..} initState rk em senderSigs hash prevLogs = do
+  EvalResult{..} <- applyExec' env initState em senderSigs hash
+  return (jsonResult _ceMode rk _erGas $
+          CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
--- | 'applyExec'' exists as a variation on 'applyExec' that returns 'EvalResult' as opposed to
--- wrapping it up in a JSON result. This is used by 'buyGas' to get the ID of the
--- continuation. As a result, we do not log, and we do not care about request keys.
+-- | variation on 'applyExec' that returns 'EvalResult' as opposed to
+-- wrapping it up in a JSON result.
 applyExec'
     :: CommandEnv p
     -> EvalState
@@ -246,7 +233,19 @@ applyContinuation
     -> Hash
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash prevLogs =
+applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash prevLogs = do
+  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash
+  pure $! (jsonResult _ceMode rk _erGas $
+           CommandSuccess (last _erOutput), prevLogs <> _erLogs)
+
+applyContinuation'
+    :: CommandEnv p
+    -> EvalState
+    -> ContMsg
+    -> [UserSig]
+    -> Hash
+    -> IO EvalResult
+applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash =
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
@@ -285,7 +284,7 @@ applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs has
           -- Update pact's state
                     case res of
                         Left (SomeException ex) -> throwM ex
-                        Right EvalResult{..} -> do
+                        Right er@EvalResult{..} -> do
                             exec@PactExec{..} <-
                                 maybe
                                     (throwCmdEx "No pact execution in continuation exec!")
@@ -294,8 +293,7 @@ applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs has
                             if _cmRollback
                                 then rollbackUpdate env msg state
                                 else continuationUpdate env msg state pact exec
-                            pure $! (jsonResult _ceMode rk _erGas $
-                                    CommandSuccess (last _erOutput), prevLogs <> _erLogs)
+                            pure er
 
 rollbackUpdate :: CommandEnv p -> ContMsg -> CommandState -> IO ()
 rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
