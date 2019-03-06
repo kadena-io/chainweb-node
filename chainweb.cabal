@@ -102,6 +102,7 @@ library
         , Chainweb.Payload.SPV
         , Chainweb.PowHash
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
