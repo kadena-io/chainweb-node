@@ -14,6 +14,7 @@ import qualified Data.Map.Strict as M
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.PersistPactDb as P
+import qualified Pact.Types.Command as P
 import Pact.Types.Server as P
 
 -- internal modules
@@ -28,4 +29,5 @@ mkPureState env _cmdCfg = do
         PactDbState
             { _pdbsDbEnv = envPersist'
             , _pdbsState = P.CommandState P.initRefStore M.empty
+            , _pdbsExecMode = P.Transactional 1
             }

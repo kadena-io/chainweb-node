@@ -32,6 +32,7 @@ module Chainweb.Pact.Types
   , pdbspRestoreFile
   , pdbspPactDbState
   , ptCmd
+  , ptTxId
     -- * defaults
   , defaultMiner
     -- * module exports
@@ -52,7 +53,6 @@ import GHC.Word
 -- internal pact modules
 
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Persistence as P
 import Pact.Types.Term (KeySet(..), Name(..))
 import qualified Pact.Types.Util as P

@@ -36,6 +36,7 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+    , pdbsExecMode
     , pdbsState
     , SaveData(..)
     , saveDataVersion
@@ -43,6 +44,7 @@ module Chainweb.Pact.Backend.Types
     , sTxId
     , sSQLiteConfig
     , sCommandState
+    , sExecMode
     , usage
     ) where
 
@@ -86,7 +88,7 @@ instance PactDbBackend P.PureDb where
               _sSQLiteConfig = Nothing
               _sCommandState = commandState
               _sVersion = saveDataVersion
-              _sExecutionMode = execMode
+              _sExecMode = execMode
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
@@ -105,6 +107,7 @@ saveSQLite PactDbEnvPersist {..} commandState execMode = do
             _sTxId = _txId
             _sSQLiteConfig = Just $ P.config _db
             _sCommandState = commandState
+            _sExecMode = execMode
             prefix = makeFileNamePrefix
         return (Just prefix, SaveData {..})
   where
@@ -125,18 +128,42 @@ data SaveData p = SaveData
     , _sExecMode :: P.ExecutionMode
     } deriving (Generic)
 
+{-
 instance Serialize (SaveData p) where
     put SaveData {..} = do
         put _sTxRecord
         put _sTxId
         put _sSQLiteConfig
         put _sCommandState
+        put _sExecMode
     get = do
         _sTxRecord <- get
         _sTxId <- get
         _sSQLiteConfig <- get
         _sCommandState <- get
+        _sExecMode <- get
         return $ SaveData {..}
+-}
+instance Serialize (SaveData p) where
+    put sd = do
+        put (_sTxRecord sd)
+        put (_sTxId sd)
+        put (_sSQLiteConfig sd)
+        put (_sCommandState sd)
+        put (_sExecMode sd)
+    get = do
+        record <- get
+        txId <- get
+        config <- get
+        cmdState <- get
+        execMode <- get
+        return SaveData
+            { _sTxRecord = record
+            , _sTxId = txId
+            , _sSQLiteConfig = config
+            , _sCommandState = cmdState
+            , _sExecMode = execMode
+            }
 
 data Env' =
     forall a. PactDbBackend a =>

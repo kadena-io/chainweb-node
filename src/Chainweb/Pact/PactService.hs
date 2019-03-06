@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -37,6 +38,7 @@ import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
+import Data.Word
 import qualified Data.Yaml as Y
 
 import qualified Pact.Gas as P
@@ -193,7 +195,7 @@ execValidateBlock memPoolAccess currHeader = do
     (results, updatedState) <- execTransactions miner trans
     put updatedState
     estate <- liftIO $ save _cpeCheckpointer (_blockHeight currHeader) (_blockHash currHeader)
-                       (liftA3 PactDbState _pdbsDbEnv _pdbsState _pdbsExecutionMode updatedState)
+                       (liftA3 PactDbState _pdbsDbEnv _pdbsState _pdbsExecMode updatedState)
     _ <- case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the db has been closed.
             when (s == "SQLiteCheckpointer.save': Save key not found exception")
@@ -232,29 +234,29 @@ execTransactions miner xs = do
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $ newMVar (_pdbsState currentState)
-    -- let exMode = _pdbsExecutionMode currentState
-    txOuts <- forM xs (\PactTransaction {..} -> do
-        -- TODO: txId needs to be incremented for each transaction
-        pdbsExecutionMode %= nextTextId
-        exMode <- use pdbsExecutionMode
-        -- %=
-        -- .=
 
-        (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState exMode _ptCmd miner
-        return FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs})
+    prevTxId <- liftIO $
+        case _pdbsExecMode currentState of
+            P.Transactional tId -> return tId
+            _anotherMode -> fail "Only Transactional ExecutionMode is supported"
+    (txOuts, newTxId) <- liftIO $ do
+        let f :: ([FullLogTxOutput], Word64) -> PactTransaction -> IO ([FullLogTxOutput], Word64)
+            f (outs, prevId) PactTransaction {..} = do
+                let newId = succ prevId
+                (result, txLogs) <- liftIO $ applyPactCmd cpEnv dbEnv' mvCmdState
+                                             (P.Transactional (P.TxId newId)) _ptCmd miner
+                let txOut = FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs}
+                return (txOut : outs, newId)
+        foldM f ([], fromIntegral prevTxId) xs
+
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
-          , _pdbsExecMode =
+          , _pdbsExecMode = P.Transactional $ P.TxId newTxId
           }
-    TODO: updated state needs to have the txId updated n times
     return (Transactions (zip xs txOuts), updatedState)
-
-nextTxId :: ExecutionMode -> IO ExecutionMode
-nextTxId Transactional tId = return $ Transactional (succ tId)
-nextTxId otherMode = throwIO "Only Transactional ExecutionMode is supported"
 
 applyPactCmd
     :: CheckpointEnv
