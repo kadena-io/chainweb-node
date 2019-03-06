@@ -130,10 +130,8 @@ applyGenesisCmd
     -> IO (CommandResult, [TxLog Value])
 applyGenesisCmd _ _ _ _ ex cmd (ProcFail pCmd) = pure (jsonResult ex (cmdToRequestKey cmd) (Gas 0) pCmd, [])
 applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
-    -- construct trivial gas model (this is never run)
-    let gasEnv = mkGasEnvOf cmd permissiveGasModel
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger gasEnv
+    let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
         requestKey = cmdToRequestKey cmd
 
     resultE <- tryAny $ runPayload cmdEnv def cmd []
