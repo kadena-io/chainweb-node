@@ -132,6 +132,8 @@ genesisBlockPayload TestWithTime{} _ = emptyPayload
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
+-- TODO This should soon be made to hold the Coin Contract and associated
+-- transactions.
 genesisBlockPayload Testnet00 _ = emptyPayload
 
 emptyPayload :: (BlockTransactions, BlockOutputs)
