@@ -3,7 +3,7 @@
 # Start minikube
 eval `opam config env`
 minikube delete &&
-minikube start --vm-driver=hyperkit
+minikube start
 
 
 # Save local docker images into minishift cluster
