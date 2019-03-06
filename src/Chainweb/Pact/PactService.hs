@@ -248,7 +248,6 @@ execTransactions miner xs = do
                 let txOut = FullLogTxOutput {_flCommandResult = P._crResult result, _flTxLogs = txLogs}
                 return (txOut : outs, newId)
         foldM f ([], fromIntegral prevTxId) xs
-
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -256,7 +255,7 @@ execTransactions miner xs = do
           , _pdbsState = newCmdState
           , _pdbsExecMode = P.Transactional $ P.TxId newTxId
           }
-    return (Transactions (zip xs txOuts), updatedState)
+    return (Transactions (zip xs (reverse txOuts)), updatedState)
 
 applyPactCmd
     :: CheckpointEnv

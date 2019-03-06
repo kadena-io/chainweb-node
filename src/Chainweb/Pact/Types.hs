@@ -101,7 +101,7 @@ instance FromJSON Transactions where
 
 instance Show Transactions where
     show ts =
-        let f x acc = "trans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
+        let f x acc = "\n<<<<<<\ntrans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ "\n>>>>>>\n" ++ acc
         in foldr f "" (_transactionPairs ts)
 
 data FullLogTxOutput = FullLogTxOutput
