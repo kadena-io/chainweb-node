@@ -1,8 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE QuasiQuotes #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -33,9 +33,9 @@ module Chainweb.Pact.TransactionExec
 ) where
 
 import Control.Concurrent
-import Control.Exception.Safe (SomeException(..), tryAny, throwM)
+import Control.Exception.Safe (SomeException(..), throwM, tryAny)
 import Control.Lens hiding ((.=))
-import Control.Monad (join, when, void)
+import Control.Monad (join, void, when)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
@@ -53,19 +53,20 @@ import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
-import Pact.Parse (ParsedInteger(..), ParsedDecimal(..), parseExprs)
+import Pact.Parse (parseExprs)
 import Pact.Types.Command
-import Pact.Types.Gas (GasModel(..), Gas(..), GasLimit(..), GasPrice(..) )
+import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
-import Pact.Types.Term (Term(..), Name(..), ModuleName(..), DefName(..))
+import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
 import Pact.Types.Util (Hash(..))
 
 -- internal Chainweb modules
 
-import Chainweb.Pact.Types (MinerInfo(..), MinerKeys, MinerId)
+import Chainweb.Pact.Types (MinerId, MinerInfo(..), MinerKeys)
+import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
 ------------------------------------------------------------------------------
 -- Transaction logic
@@ -437,7 +438,7 @@ buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
     go v = case ParsedCode code <$> parseExprs code of
-      Right t  -> pure $ ExecMsg t v
+      Right t -> pure $ ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> fail $ "Coin contract call failed: " <> show err
@@ -456,18 +457,6 @@ initCapabilities cs = set (evalCapabilities . capGranted) (toCap <$> cs) def
 ------------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------------
-
--- | Get the gas limit/supply of a public chain command payload
-gasLimitOf :: Command (Payload PublicMeta c) -> GasLimit
-gasLimitOf cmd = case _pmGasLimit . _pMeta . _cmdPayload $ cmd of
-    ParsedInteger limit -> GasLimit . fromIntegral $ limit
-{-# INLINE gasLimitOf #-}
-
--- | Get the gas price of a public chain command payload
-gasPriceOf :: Command (Payload PublicMeta c) -> GasPrice
-gasPriceOf cmd = case _pmGasPrice . _pMeta . _cmdPayload $ cmd of
-    ParsedDecimal price -> GasPrice price
-{-# INLINE gasPriceOf #-}
 
 mkGasEnvOf :: Command (Payload PublicMeta c) -> GasModel -> GasEnv
 mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel

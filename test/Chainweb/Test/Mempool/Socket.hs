@@ -56,10 +56,11 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
             $ MempoolWithFunc
             $ withRemoteMempool pool
   where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockFees mockSize mockMeta
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                              mockGasLimit mockMeta
                               (const $ return True)
     -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlocksizeLimit (hz 100)
+    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec

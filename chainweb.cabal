@@ -111,6 +111,7 @@ library
         , Chainweb.Store.Git
         , Chainweb.Store.Git.Internal
         , Chainweb.Time
+        , Chainweb.Transaction
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
@@ -160,6 +161,9 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
+        , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.Orphans
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils

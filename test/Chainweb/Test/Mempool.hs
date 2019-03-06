@@ -36,6 +36,7 @@ import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
+import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
@@ -86,8 +87,8 @@ arbitraryDecimal = do
 instance Arbitrary MockTx where
   arbitrary = let g x = choose (1, x)
               in MockTx <$> chooseAny
-                        <*> arbitraryDecimal
-                        <*> g mockBlocksizeLimit
+                        <*> (GasPrice <$> arbitraryDecimal)
+                        <*> g mockBlockGasLimit
                         <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata Time.minTime Time.maxTime
@@ -149,7 +150,7 @@ testTooOld mempool = do
     overrideAge now = sortTxs . map (setTooOld now)
     extendTime now = Time.TimeSpan 75000 `AF.add` now
     setTooOld now x = x { mockMeta = (mockMeta x) { txMetaExpiryTime = extendTime now } }
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
@@ -164,8 +165,8 @@ propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
     txs = uniq $ sortBy (compare `on` onFees) txs0
     overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) overlarge0
 
-    setOverlarge = map (\x -> x { mockSize = mockBlocksizeLimit + 100 })
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 
 propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
@@ -185,8 +186,8 @@ propTrivial txs mempool = runExceptT $ do
     insert = mempoolInsert mempool . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool (mempoolBlockSizeLimit mempool)
-    onFees x = (Down (mockFees x), mockSize x)
+    getBlock = mempoolGetBlock mempool (mempoolBlockGasLimit mempool)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 
 propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
@@ -207,7 +208,7 @@ propGetPending txs0 mempool = runExceptT $ do
                          , show allPending ]
         in fail msg
   where
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
     insert = mempoolInsert mempool . V.fromList
@@ -240,7 +241,7 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
 
   where
     ord = compare `on` onFees
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     insert = liftIO . mempoolInsert mempool . V.fromList
     lookup = liftIO . mempoolLookup mempool . V.fromList . map hash
@@ -288,7 +289,7 @@ propSubscription txs0 mempool = runExceptT $ do
     txChunks = chunk 64 txs
     checkResult = checkSubscriptionResult txs
     ord = compare `on` onFees
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     insert = liftIO . mempoolInsert mempool . V.fromList
     subscribe = liftIO $ mempoolSubscribe mempool
     insertThread mv = Concurrently $ do
@@ -342,7 +343,7 @@ propSubscriptions txs0 mempool = runExceptT $ do
     checkResult = checkSubscriptionResult txs
     numSubscribers = 7
     ord = compare `on` onFees
-    onFees x = (Down (mockFees x), mockSize x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     insert = liftIO . mempoolInsert mempool . V.fromList
     subscribe = liftIO $ mempoolSubscribe mempool
     insertThread mvs = Concurrently $ do

@@ -610,7 +610,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
         mempoolGetPendingTransactions mempool $ respond . HashChunk
         respond ChunksFinished
     processCommand _ (GetBlock x) = do
-        block <- mempoolGetBlock mempool (min x $ mempoolBlockSizeLimit mempool)
+        block <- mempoolGetBlock mempool (min x $ mempoolBlockGasLimit mempool)
         respond $ Block block
     processCommand mv Subscribe = subscribe mv >> respond OK
     processCommand _ Goodbye = do

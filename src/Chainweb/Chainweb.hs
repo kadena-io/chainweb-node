@@ -164,6 +164,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
@@ -331,20 +332,6 @@ runCutsSyncClient mgr cuts = bracket create destroy go
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
 
--- TODO: unify this with pact transaction type
-type ChainwebTransaction = Mempool.MockTx
-
-chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = Mempool.TransactionConfig Mempool.mockCodec
-    mockHash
-    Mempool.chainwebTestHashMeta
-    Mempool.mockFees
-    Mempool.mockSize
-    Mempool.mockMeta
-    (const $ return True)
-  where
-    mockHash = Mempool.chainwebTestHasher . codecEncode Mempool.mockCodec
-
 data Chain = Chain
     { _chainChainId :: !ChainId
     , _chainChainwebVersion :: !ChainwebVersion
@@ -501,10 +488,10 @@ mempoolSyncP2pSession chain logg0 env = go
         logg Debug ("mempool sync session failed: " <> sshow e)
         throwM e
 
-    peerMempool = MPC.toMempool v cid txcfg bslimit env
+    peerMempool = MPC.toMempool v cid txcfg gaslimit env
     pool = _chainMempool chain
     txcfg = Mempool.mempoolTxConfig pool
-    bslimit = Mempool.mempoolBlockSizeLimit pool
+    gaslimit = Mempool.mempoolBlockGasLimit pool
     cid = _chainChainId chain
     v = _chainChainwebVersion chain
 
@@ -609,12 +596,13 @@ withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, pee
     confLens :: Lens' ChainwebConfiguration PeerConfig
     confLens = configP2p . p2pConfigPeer
 
-mempoolConfig :: Mempool.InMemConfig Mempool.MockTx
+mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
     chainwebTransactionConfig
-    Mempool.mockBlocksizeLimit
+    blockGasLimit
     mempoolReapInterval
   where
+    blockGasLimit = 1000000                 -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
 
 -- Intializes all local chainweb components but doesn't start any networking.

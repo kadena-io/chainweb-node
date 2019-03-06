@@ -138,7 +138,7 @@ in
         });
 
         # pact-2.6.1
-        pact = addBuildDepend ( dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        pact = addBuildDepend (dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
           rev = "fb1bb1ddc0133833378572dde12cd1edc0b4f943";
