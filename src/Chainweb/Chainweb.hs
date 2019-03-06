@@ -792,12 +792,12 @@ runChainweb cw = do
 
         -- Configure Clients
         --
-        let mgr = view chainwebManager cw;
+        let mgr = view chainwebManager cw
 
         -- 2. Run Clients
         --
-        let clients :: [Concurrently ()]
-            clients = concatMap (map Concurrently)
+        let clients :: [IO ()]
+            clients = concat
                 [ [runMiner (_chainwebVersion cw) (_chainwebMiner cw)]
                 -- FIXME: should we start mining with some delay, so
                 -- that the block header base is up to date?
@@ -806,7 +806,7 @@ runChainweb cw = do
                 , map (runMempoolSyncClient mgr) chainVals
                 ]
 
-        void $ runConcurrently $ mconcat clients
+        mapConcurrently_ id clients
         wait server
   where
     logfun = alogFunction @T.Text (_chainwebLogFun cw)
@@ -861,4 +861,3 @@ withConnectionManger logfun peer peerDb runInner = do
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
     serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
-

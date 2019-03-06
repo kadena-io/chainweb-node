@@ -17,12 +17,12 @@ module BackCompat.Test.QuickCheck
 ( SortedList(..)
 ) where
 
-import Data.List
-import Data.Typeable
-
 import Test.QuickCheck
 
 #if !MIN_VERSION_QuickCheck(2,12,2)
+
+import Data.List
+import Data.Typeable
 
 -- -------------------------------------------------------------------------- --
 -- https://github.com/nick8325/quickcheck/blob/master/Test/QuickCheck/Modifiers.hs
@@ -43,4 +43,3 @@ instance (Arbitrary a, Ord a) => Arbitrary (SortedList a) where
     ]
 
 #endif
-

@@ -33,7 +33,7 @@ import Data.IORef
 
 import Numeric.Natural
 
-import Prelude hiding (null, lookup)
+import Prelude hiding (lookup, null)
 
 import System.Mem
 import System.Random
@@ -103,7 +103,10 @@ testFib n = do
     -- a distribution of the test restults.
 
     ticks <- run $ readIORef t
-    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+
+    let expectedTicks :: Double
+        expectedTicks = 2 * max 1 (fromIntegral n) - 1
+
     monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
 #endif
 
@@ -113,9 +116,10 @@ testFib n = do
 testAsyncFib :: Natural -> PropertyM IO ()
 testAsyncFib n = do
     m <- run new
-    t <- run $ newIORef 0
+    t <- run $ newIORef (0 :: Int)
 
-    let fib 0 = tick t $ return 1
+    let fib :: Natural -> IO Natural
+        fib 0 = tick t $ return 1
         fib 1 = tick t $ return 1
         fib x = tick t $ memoAsync m x $ \k -> do
             threadDelay 100
@@ -133,7 +137,10 @@ testAsyncFib n = do
     monitor $ cover 0.75 (ms == 0) "memo map is empty after gc"
 
     ticks <- run $ readIORef t
-    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+
+    let expectedTicks :: Double
+        expectedTicks = 2 * max 1 (fromIntegral n) - 1
+
     monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
 #endif
 
@@ -146,4 +153,3 @@ properties =
     , ("WeakHashMap.testFib", property $ monadicIO . testFib)
     , ("WeakHashMap.testAsyncFib", property $ monadicIO . testAsyncFib)
     ]
-

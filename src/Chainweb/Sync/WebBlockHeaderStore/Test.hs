@@ -108,7 +108,10 @@ testAsyncFib n = do
     monitor $ cover 0.75 (ms == 0) "memo map is empty after gc"
 
     ticks <- run $ readIORef t
-    let expectedTicks = 2 * (max 1 (fromIntegral n)) - 1
+
+    let expectedTicks :: Double
+        expectedTicks = 2 * max 1 (fromIntegral n) - 1
+
     monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
 
     casSize <- run $ fromIntegral <$> CAS.size cas
@@ -149,4 +152,3 @@ fibs = 1 : 1 : zipWith (+) fibs (tail fibs)
 
 gc :: MonadIO m => m ()
 gc = liftIO $ performMajorGC >> threadDelay 1000
-

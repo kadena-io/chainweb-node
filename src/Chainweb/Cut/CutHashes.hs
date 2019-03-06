@@ -44,7 +44,7 @@ import P2P.Peer
 data CutHashes = CutHashes
     { _cutHashes :: !(HM.HashMap ChainId BlockHash)
     , _cutOrigin :: !(Maybe PeerInfo)
-        -- ^ 'Nothing' is used for locally minded Cuts
+        -- ^ 'Nothing' is used for locally mined Cuts
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable)
@@ -55,4 +55,3 @@ instance NFData CutHashes
 
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes (_blockHash <$> _cutMap c) p
-
