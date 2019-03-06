@@ -332,7 +332,6 @@ test-suite chainweb-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
@@ -480,7 +479,6 @@ executable slow-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
