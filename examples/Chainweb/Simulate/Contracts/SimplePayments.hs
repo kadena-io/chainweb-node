@@ -12,10 +12,11 @@ module Chainweb.Simulate.Contracts.SimplePayments where
 import Control.Monad
 
 import Data.Aeson
-import Data.ByteString (ByteString)
+-- import Data.ByteString (ByteString)
 import Data.Decimal
 import qualified Data.Text as T
 import Data.Text (Text)
+-- import Data.Text.Encoding (decodeUtf8)
 import Data.Default
 
 import Fake
@@ -30,19 +31,15 @@ import NeatInterpolation
 
 import System.Random
 
--- pact
-import Pact.ApiReq (KeyPair(..))
-import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
-import Pact.Types.Crypto (PPKScheme(..))
-import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
+-- PACT
+import Pact.ApiReq (KeyPair(..), mkExec)
+import Pact.Types.Command (Command (..))
 
 import Chainweb.Simulate.Utils
 
-simplePaymentsContractLoader :: Nonce -> [KeyPair] -> Command ByteString
-simplePaymentsContractLoader (getNonce -> nonce) adminKeyset = cmd
+simplePaymentsContractLoader :: [KeyPair] -> IO (Command Text)
+simplePaymentsContractLoader adminKeyset = mkExec (T.unpack theCode) theData def adminKeyset Nothing
   where
-    cmd = mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) adminKeyset
     theData = object ["admin-keyset" .= adminKeyset]
     theCode = [text| ;; Simple accounts model.
 ;;
@@ -57,10 +54,10 @@ simplePaymentsContractLoader (getNonce -> nonce) adminKeyset = cmd
 
 
 ;define keyset to guard module
-(define-keyset (read-keyset 'admin-keyset) (read-keyset 'admin-keyset))
+(define-keyset 'admin-keyset (read-keyset 'admin-keyset))
 
 ;define smart-contract code
-(module payments (read-keyset 'admin-keyset)
+(module payments 'admin-keyset
 
   (defschema payments
     balance:decimal
@@ -70,7 +67,7 @@ simplePaymentsContractLoader (getNonce -> nonce) adminKeyset = cmd
 
   (defun create-account (id initial-balance keyset)
     "Create a new account for ID with INITIAL-BALANCE funds, must be administrator."
-    (enforce-keyset (read-keyset 'admin-keyset))
+    (enforce-keyset 'admin-keyset)
     (enforce (>= initial-balance 0.0) "Initial balances must be >= 0.")
     (insert payments-table id
             { "balance": initial-balance,
@@ -82,7 +79,7 @@ simplePaymentsContractLoader (getNonce -> nonce) adminKeyset = cmd
       { "balance":= balance, "keyset":= keyset }
       (enforce-one "Access denied"
         [(enforce-keyset keyset)
-         (enforce-keyset (read-keyset 'admin-keyset))])
+         (enforce-keyset 'admin-keyset)])
       balance))
 
   (defun pay (from to amount)
@@ -112,6 +109,18 @@ newtype Account = Account
   { getAccount :: Text
   } deriving (Eq, Show, Generic)
 
+accountNames :: [Account]
+accountNames =
+  map
+    (Account . T.pack)
+    (words
+       "Mary Elizabeth Patricia Jennifer Linda Barbara Margaret Susan Dorothy Jessica") ++
+  map
+    (Account . T.pack)
+    (words
+       "James John Robert Michael William David Richard Joseph Charles Thomas")
+
+
 instance Fake Account where
   fake = do
     name <- unSingleWord <$> firstName
@@ -124,7 +133,7 @@ newtype Amount = Amount
 instance Fake Amount where
   fake =
     Amount <$>
-    (realFracToDecimal <$> fromRange (0, 50) <*>
+    (realFracToDecimal <$> fromRange (0, 20) <*>
      (fromRange (lowerLimit, upperLimit) :: FGen Double))
     where
       lowerLimit = 0
@@ -168,22 +177,22 @@ getInitialBalance = T.pack . show . getBalance
 showAmount :: Amount -> Text
 showAmount = T.pack . show . getAmount
 
-createSimplePaymentRequest :: Nonce -> SimplePaymentRequest -> Command ByteString
-createSimplePaymentRequest (Nonce nonce) (CreateAccount (Identifier identifier) (getInitialBalance -> initialBalance) keyset) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+-- createSimplePaymentRequest :: Nonce -> SimplePaymentRequest -> Command ByteString
+createSimplePaymentRequest :: SimplePaymentRequest -> IO (Command Text)
+createSimplePaymentRequest (CreateAccount (Identifier identifier) (getInitialBalance -> initialBalance) keyset) =
+  mkExec (T.unpack theCode) theData def keyset Nothing
   where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
-    theCode = [text|(create-account $identifier $initialBalance (read-keyset 'create-account-keyset))|]
+    theCode = [text|(payments.create-account $identifier $initialBalance (read-keyset 'create-account-keyset))|]
     theData = object ["create-account-keyset" .= keyset]
-createSimplePaymentRequest (Nonce nonce) (RequestGetBalance (Identifier identifier)) = cmd
+createSimplePaymentRequest (RequestGetBalance (Identifier identifier)) =
+  mkExec (T.unpack theCode) theData def [] Nothing
   where
-    cmd = mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-    theCode = [text|(get-balance $identifier)|]
+    theCode = [text|(payments.get-balance $identifier)|]
     theData = Null
-createSimplePaymentRequest (Nonce nonce) (RequestPay (Account from) (Account to) (showAmount -> amount)) =
-  mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+createSimplePaymentRequest (RequestPay (Account from) (Account to) (showAmount -> amount)) =
+  mkExec (T.unpack theCode) theData def [] Nothing
   where
-    theCode = [text|(pay $from $to $amount)|]
+    theCode = [text|(payments.pay $from $to $amount)|]
     theData = Null
 
 {- some example usage of the above contract

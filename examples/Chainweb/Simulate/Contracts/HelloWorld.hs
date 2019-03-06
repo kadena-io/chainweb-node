@@ -16,7 +16,8 @@ module Chainweb.Simulate.Contracts.HelloWorld where
 import Data.Aeson
 import Data.Default
 import Data.Text (Text)
-import Data.ByteString (ByteString)
+import qualified Data.Text as T
+-- import Data.ByteString (ByteString)
 
 import Fake
 import Fake.Provider.Person.EN_US
@@ -25,16 +26,18 @@ import GHC.Generics
 
 import NeatInterpolation
 
+import Text.Printf (printf)
+
 -- pact
 
-import Pact.ApiReq (KeyPair(..))
-import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
-import Pact.Types.Crypto (PPKScheme(..))
-import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
+import Pact.ApiReq (KeyPair(..), mkExec)
+import Pact.Types.Command (Command (..))
+-- import Pact.Types.Crypto (PPKScheme)
+-- import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
 
 -- chainweb
 
-import Chainweb.Simulate.Utils
+-- import Chainweb.Simulate.Utils
 
 {-
    ;; Keysets cannot be created in code, thus we read them in
@@ -43,14 +46,15 @@ import Chainweb.Simulate.Utils
 
 -}
 
-helloWorldContractLoader :: Nonce -> [KeyPair] -> Command ByteString
-helloWorldContractLoader (Nonce nonce) adminKeyset =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+helloWorldContractLoader :: [KeyPair] -> IO (Command Text)
+helloWorldContractLoader  adminKeyset =
+  mkExec (T.unpack theCode) theData def adminKeyset Nothing
   where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) adminKeyset
     theData = object ["admin-keyset" .= adminKeyset]
     theCode = [text| ;;
 ;; "Hello, world!" smart contract/module
+
+(define-keyset 'admin-keyset (read-keyset 'admin-keyset))
 
 ;; Define the module.
 (module helloWorld 'admin-keyset
@@ -66,9 +70,8 @@ newtype Name = Name {getName :: Text} deriving (Eq, Show, Generic)
 instance Fake Name where
   fake = Name <$> personName
 
-helloRequest :: Nonce -> Name -> Command ByteString
-helloRequest (Nonce nonce) (Name name) =
-  mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+helloRequest :: Name -> IO (Command Text)
+helloRequest (Name name) = mkExec theCode theData def [] Nothing
   where
     theData = Null
-    theCode = [text|(hello "$name")|]
+    theCode = printf "(helloWorld.hello \"%s\")" name

@@ -643,6 +643,7 @@ executable transaction-generator
         , ed25519-donna
         , fake >= 0.1.1.1
         , hashable >= 1.2
+        , http-client >= 0.5
         , lens >= 4.16
         , mtl >= 2.2
         , mwc-random >= 0.13
@@ -650,5 +651,8 @@ executable transaction-generator
         , pact >= 2.6
         , primitive >= 0.6
         , random >= 1.1
+        , servant >= 0.14.1
+        , servant-client >= 0.14
+        , servant-server >= 0.14.1
         , text >= 1.2
         , unordered-containers >= 0.2

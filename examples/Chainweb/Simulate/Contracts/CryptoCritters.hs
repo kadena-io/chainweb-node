@@ -14,16 +14,19 @@ module Chainweb.Simulate.Contracts.CryptoCritters where
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Default
+import qualified Data.Text as T
 import Data.Text (Text)
 
--- import Fake
+import Fake (FGen)
 
 import GHC.Generics hiding (from, to)
 
-import NeatInterpolation
+import NeatInterpolation (text)
+
+import System.Random (StdGen, randomR)
 
 -- pact
-import Pact.ApiReq (KeyPair(..))
+import Pact.ApiReq (KeyPair(..), mkExec)
 import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
 import Pact.Types.Crypto (PPKScheme(..)) -- ED25519
 import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
@@ -32,14 +35,16 @@ import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
 
 import Chainweb.Simulate.Utils
 
-cryptoCritterContractLoader :: Nonce -> [KeyPair] -> Command ByteString
-cryptoCritterContractLoader (Nonce nonce) adminKeyset =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+cryptoCritterContractLoader :: [KeyPair] -> IO (Command Text)
+cryptoCritterContractLoader adminKeyset =
+  mkExec (T.unpack theCode) theData (def :: PublicMeta) adminKeyset Nothing
   where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) adminKeyset
     theData = object ["admin-keyset" .= adminKeyset]
     theCode = [text|
-(module critters (read-keyset 'admin-keyset)
+
+(define-keyset 'admin-keyset (read-keyset 'admin-keyset))
+
+(module critters 'admin-keyset
   "Collectible Crypto Critters"
   (defschema critter
     "Data defining a critter"
@@ -70,16 +75,16 @@ cryptoCritterContractLoader (Nonce nonce) adminKeyset =
 
   (defun create-critter:integer (genes:string)
     "Create a gen0 critter using GENES"
-    (enforce-keyset (read-keyset 'admin-keyset))
+    (enforce-keyset 'admin-keyset)
     (let ((id (get-inc-count "critters")))
       (insert critters id
         { "matron-id": 0,
           "sire-id": 0,
           "generation": 0,
           "genes": genes,
-          "owner": (read-keyset 'admin-keyset),
+          "owner": 'admin-keyset,
           "transferring": false,
-          "transfer-to": (read-keyset 'admin-keyset),
+          "transfer-to": 'admin-keyset,
           "available-to-breed": false
         }
       )
@@ -156,7 +161,7 @@ cryptoCritterContractLoader (Nonce nonce) adminKeyset =
       (update critters critter-id
         (+ {"owner": (at "transfer-to" c)} c)
       )
-      (set-transfer critter-id false (read-keyset 'admin-keyset))
+      (set-transfer critter-id false 'admin-keyset)
     )
   )
 
@@ -164,7 +169,7 @@ cryptoCritterContractLoader (Nonce nonce) adminKeyset =
     (let ((c (read critters critter-id)))
       (enforce-keyset (at "owner" c))
       ;; We don't call transferCritter because we're not the owner
-      (set-transfer critter-id false (read-keyset 'admin-keyset))
+      (set-transfer critter-id false 'admin-keyset)
     )
   )
 
@@ -222,7 +227,7 @@ cryptoCritterContractLoader (Nonce nonce) adminKeyset =
             "genes": (combine-genes (at "genes" a) (at "genes" b)),
             "owner": (at "owner" a),
             "transferring": false,
-            "transferTo": (read-keyset 'admin-keyset),
+            "transferTo": 'admin-keyset,
             "available-to-breed": false
           }
         )
@@ -272,8 +277,7 @@ newtype Suffix = Suffix
 data CritterRequest
   = GetIncCount Row
   | CreateCritter Genes
-  | ShowCritter Suffix
-                Critter
+  -- | ShowCritter Suffix Critter
   | ShowGeneration Generation
   | Owner CritterId
   | TransferCritter [KeyPair] CritterId
@@ -300,14 +304,18 @@ createCritterRequest (Nonce nonce) (CreateCritter (Genes genes)) =
     madeKeyset = []
     theCode = [text|(create-critter $genes)|]
     theData = Null
--- TODO: How do we interpolate a JSON value?
-createCritterRequest (Nonce nonce) (ShowCritter (Suffix suffix) (Critter critter)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(show-critter $suffix $something)|]
-    theData = object undefined
-    something = undefined critter
+
+-----------------------------------------------
+-- TODO: How do we interpolate a JSON value? --
+-----------------------------------------------
+-- createCritterRequest (Nonce nonce) (ShowCritter (Suffix suffix) (Critter critter)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(show-critter $suffix $something)|]
+--     theData = object undefined
+--     something = undefined critter
+
 createCritterRequest (Nonce nonce) (ShowGeneration (Generation generation)) =
   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
   where
@@ -386,6 +394,29 @@ createCritterRequest (Nonce nonce) (CancelBreed (CritterId critterid)) =
     madeKeyset = []
     theCode = [text|(cancel-breed $critterid)|]
     theData = Null
+
+mkRandomCritterRequest :: StdGen -> FGen CritterRequest
+mkRandomCritterRequest gen = go
+  where
+    go =
+      let (i, gen') = randomR (0, 13 :: Int) gen
+       in case i of
+            0 -> GetIncCount <$> undefined
+            1 -> CreateCritter <$> undefined
+            -- 2 -> ShowCritter <$> undefined <*> undefined
+            2 -> ShowGeneration <$> undefined
+            3 -> Owner <$> undefined
+            4 -> TransferCritter <$> undefined <*> undefined
+            5 -> SetTransfer <$> undefined <*> undefined <*> undefined
+            6 -> InitiateTransfer <$> undefined <*> undefined
+            7 -> CompleteTransfer <$> undefined
+            8 -> CancelTransfer <$> undefined
+            9 -> SetBreeding <$> undefined <*> undefined
+            10 -> SolicitMate <$> undefined
+            11 -> CombineGenes <$> undefined <*> undefined
+            12 -> Breed <$> undefined <*> undefined
+            13 -> CancelBreed <$> undefined
+            _ -> fail "mkRandomCritterRequest: You should not hit the case."
 
 data CryptoCritter = CryptoCritter
   { cgenes :: Text
