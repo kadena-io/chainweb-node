@@ -2,12 +2,13 @@ from os import path
 
 import yaml
 import base64
+from pick import pick
 
 from kubernetes import client, config
 
 NAMESPACE="default"
 DEPLOYMENT_NAME = "chainweb"
-DEPLOYMENT_IMAGE = "chainweb-bootstrap-test"
+DEPLOYMENT_IMAGE = "kadena/chainweb-bootstrap-node:v0"
 PORT_NUMBER = 1789
 PER_REGION_NODES = 1
 
@@ -45,9 +46,10 @@ def create_headless_service(api_instance):
     api_instance.create_namespaced_service( namespace=NAMESPACE, body=service, pretty='true' )
 
 
-def create_pod_service(api_instance, pod_name):
+def create_pod_service(api_instance, region_str, pod_name):
     spec = client.V1ServiceSpec(
-        type = "NodePort",
+        type = "LoadBalancer",
+        external_traffic_policy = "Local",
         selector = {"statefulset.kubernetes.io/pod-name": pod_name},
         ports = [client.V1ServicePort(
             port = 443,
@@ -57,7 +59,11 @@ def create_pod_service(api_instance, pod_name):
     service = client.V1Service(
         api_version = "v1",
         kind = "Service",
-        metadata = client.V1ObjectMeta( name = pod_name ),
+        metadata = client.V1ObjectMeta(
+            name = pod_name,
+            annotations = {
+                "external-dns.alpha.kubernetes.io/hostname" : (region_str + ".chainweb.com.")
+            }),
         spec = spec
     )
     api_instance.create_namespaced_service( namespace=NAMESPACE, body=service, pretty='true' )
@@ -86,7 +92,7 @@ def create_pod_template():
     container = client.V1Container(
         name  = "chainweb",
         image = DEPLOYMENT_IMAGE,
-        image_pull_policy = "Never",    # When using local docker image
+        #image_pull_policy = "Never",    # When using local docker image
         tty = isTTY,
         ports = [ client.V1ContainerPort( 
             container_port = PORT_NUMBER ) ],
@@ -121,7 +127,7 @@ def create_pod_template_without_pvc():
     container = client.V1Container(
         name  = "chainweb",
         image = DEPLOYMENT_IMAGE,
-        image_pull_policy = "Never",    # When using local docker image
+        #image_pull_policy = "Never",    # When using local docker image
         tty = isTTY,
         ports = [ client.V1ContainerPort( 
             container_port = PORT_NUMBER ) ],
@@ -276,23 +282,34 @@ def main():
     # Configs can be set in Configuration class directly or using helper
     # utility. If no argument provided, the config will be loaded from
     # NAMESPACE location.
-    config.load_kube_config()
+    contexts, active_context = config.list_kube_config_contexts()
+    if not contexts:
+        print("Cannot find any context in kube-config file.")
+        return
+    print(contexts)
+    print(active_context)
+    contexts = [context['name'] for context in contexts]
+    active_index = contexts.index(active_context['name'])
+    option, _ = pick(contexts, title="Pick the context to load",
+                     default_index=active_index)
+    print(option)
+    config.load_kube_config(context=option)
     extensions_v1beta1 = client.ExtensionsV1beta1Api()
     core_v1 = client.CoreV1Api()
     # Create a deployment object with client-python API. The deployment we
     # created is same as the `nginx-deployment.yaml` in the /examples folder.
 
-    create_secret_from_file(core_v1, "scripts/test-bootstrap-node.config")
-    create_headless_service(core_v1)
-    create_pod_service(core_v1,"chainweb-0")
-    stateful_set = create_stateful_set_obj()
-    create_stateful_set(client.AppsV1beta2Api(),stateful_set)
+    #create_secret_from_file(core_v1, "scripts/test-bootstrap-node.config")
+    #create_headless_service(core_v1)
+    #create_pod_service(core_v1,"us1","chainweb-0")
+    #stateful_set = create_stateful_set_obj()
+    #create_stateful_set(client.AppsV1beta2Api(),stateful_set)
 
-    #delete_stateful_set(client.AppsV1beta2Api())
-    #delete_secret(core_v1)
-    #delete_headless_service(core_v1)
-    #delete_pod_service(core_v1,"chainweb-0")
-    #delete_persistent_volume(core_v1, "data-chainweb-0")
+    delete_stateful_set(client.AppsV1beta2Api())
+    delete_secret(core_v1)
+    delete_headless_service(core_v1)
+    delete_pod_service(core_v1,"chainweb-0")
+    delete_persistent_volume(core_v1, "data-chainweb-0")
 
 
     #deployment = create_deployment_obj()

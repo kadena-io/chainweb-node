@@ -23,8 +23,9 @@ in
         };
     in
         {
-            bootstrapTestImage = pkgs.dockerTools.buildImage {
-                name = "chainweb-bootstrap-test";
+            chainwebBaseImage = baseImage;
+            bootstrapNodeImage = pkgs.dockerTools.buildImage {
+                name = "chainweb-bootstrap-node";
                 tag = "latest";
                 fromImage = baseImage;
                 config = {
