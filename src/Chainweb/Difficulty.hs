@@ -306,14 +306,17 @@ decodeHashTarget = HashTarget <$> decodePowHashNat
 --
 newtype BlockRate = BlockRate Seconds
 
--- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`.
+-- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
+-- number of seconds we expect to pass while a miner mines on various chains,
+-- eventually succeeding on one.
 --
 blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test{} = Nothing
-blockRate TestWithTime{} = Just $! BlockRate 4
-blockRate TestWithPow{} = Just $! BlockRate 10
+blockRate TestWithTime{} = Just $ BlockRate 4
+blockRate TestWithPow{} = Just $ BlockRate 10
 blockRate Simulation{} = Nothing
-blockRate Testnet00 = error "blockRate: Block Rate for Testnet00 not yet defined!"
+-- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate Testnet00 = Just $ BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -327,9 +330,11 @@ newtype WindowWidth = WindowWidth Natural
 window :: ChainwebVersion -> Maybe WindowWidth
 window Test{} = Nothing
 window TestWithTime{} = Nothing
-window TestWithPow{} = Just $! WindowWidth 5
+-- 5 blocks, should take 50 seconds.
+window TestWithPow{} = Just $ WindowWidth 5
 window Simulation{} = Nothing
-window Testnet00 = error "window: Epoch Window Width for Testnet00 not yet defined!"
+-- 2,880 blocks, should take 24 hours given a 30 second BlockRate.
+window Testnet00 = Just $ WindowWidth 2880
 
 -- | The maximum number of bits that a single application of `adjust` can apply
 -- to some `HashTarget`. As mentioned in `adjust`, this value should be above
@@ -343,9 +348,10 @@ newtype MaxAdjustment = MaxAdjustment Natural
 maxAdjust :: ChainwebVersion -> Maybe MaxAdjustment
 maxAdjust Test{} = Nothing
 maxAdjust TestWithTime{} = Nothing
-maxAdjust TestWithPow{} = Just $! MaxAdjustment 3
+maxAdjust TestWithPow{} = Just $ MaxAdjustment 3
 maxAdjust Simulation{} = Nothing
-maxAdjust Testnet00 = error "maxAdjust: Max Adjustment for Testnet00 not yet defined!"
+-- See `adjust` for motivation.
+maxAdjust Testnet00 = Just $ MaxAdjustment 3
 
 -- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
 -- enforce a "minimum difficulty", beyond which mining cannot become easier.
@@ -357,7 +363,12 @@ prereduction Test{} = 0
 prereduction TestWithTime{} = 0
 prereduction TestWithPow{} = 7
 prereduction Simulation{} = 0
-prereduction Testnet00 = 9
+-- As mentioned in `maxTarget`, 11 bits has been shown experimentally to be high
+-- enough to keep mining slow during the initial conditions of a
+-- 10-chain-10-miner scenario, thereby avoiding (too many) aggressive forks. For
+-- other, more realistic network scenarios, Difficulty Adjustment quickly
+-- compensates for any imbalances.
+prereduction Testnet00 = 11
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.
