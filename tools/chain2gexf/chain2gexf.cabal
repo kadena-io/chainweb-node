@@ -30,6 +30,7 @@ executable chain2gexf
         , base
         , bytestring
         , lens >= 4.16
+        , optparse-applicative >= 0.14
         , paths >= 0.2
         , resourcet >= 1.2
         , streaming >= 0.2
