@@ -39,7 +39,7 @@ payloadClient_
     => KnownChainIdSymbol c
     => BlockPayloadHash
     -> ClientM PayloadData
-payloadClient_ = client (payloadApi @v @c)
+payloadClient_ = client (payloadGetApi @v @c)
 
 payloadClient
     :: ChainwebVersion
