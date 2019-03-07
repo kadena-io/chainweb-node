@@ -28,6 +28,7 @@ module Chainweb.Version
 , decodeChainwebVersion
 , chainwebVersionFromText
 , chainwebVersionToText
+, chainwebVersionId
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)

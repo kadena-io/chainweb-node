@@ -9,35 +9,55 @@
 --
 -- TODO
 --
-module Main
-( main
-) where
+module Main ( main ) where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
+import Control.Error.Util (note)
 
 import qualified Data.ByteString as B
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Text as T
+
+import Options.Applicative
+import Options.Applicative.Types (Parser(..))
 
 import qualified Streaming.Prelude as S
 
-import System.Environment
 import System.Path
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.TreeDB.Persist
+import Chainweb.Graph (petersonChainGraph)
+import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.TreeDB.Persist (fileEntries)
+import Chainweb.Version (ChainwebVersion(..), chainwebVersionId, chainwebVersionFromText)
 
 import Utils.Gexf
 
-db2gexf
-    :: MonadUnliftIO m
-    => MonadThrow m
-    => Foldable f
-    => f (Path Absolute)
-    -> Path Absolute
-    -> m ()
+---
+
+data Env = Env ChainwebVersion FilePath [FilePath]
+
+pEnv :: Parser Env
+pEnv = Env <$> version <*> inFile <*> outFiles
+  where
+    cver :: ReadM ChainwebVersion
+    cver = eitherReader $ \s ->
+        note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
+
+    version :: Parser ChainwebVersion
+    version = option cver (long "version" <> metavar "VERSION"
+                           <> value (TestWithTime petersonChainGraph)
+                           <> help "Chainweb Version used to produce the INPUT FILES")
+
+    inFile :: Parser FilePath
+    inFile = strOption (long "output" <> metavar "FILE" <> value "out.gexf" <> help "Output .gexf file")
+
+    outFiles :: Parser [FilePath]
+    outFiles = some (argument str (metavar "INPUT-FILES"))
+
+db2gexf :: [Path Absolute] -> Path Absolute -> IO ()
 db2gexf inPaths outPath = runResourceT $ do
     headers <- S.fold_ (\m a -> HM.insert (_blockHash a) a m) mempty id
         $ flip S.for fileEntries
@@ -46,5 +66,13 @@ db2gexf inPaths outPath = runResourceT $ do
 
 main :: IO ()
 main = do
-    outFile : inFiles <- getArgs >>= mapM (makeAbsolute . fromFilePath)
-    db2gexf inFiles outFile
+    Env v o0 i0 <- execParser opts
+    let !w = chainwebVersionId v
+    i <- traverse (makeAbsolute . fromFilePath) i0
+    o <- makeAbsolute $ fromFilePath o0
+    putStrLn $ "Generating GEXF file for: " <> show w
+    db2gexf i o
+  where
+    opts = info (pEnv <**> helper)
+        (fullDesc
+         <> header "chain2gexf - Convert a persisted Chainweb into .gexf format for viewing.")
