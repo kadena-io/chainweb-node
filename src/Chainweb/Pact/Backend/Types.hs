@@ -128,7 +128,6 @@ data SaveData p = SaveData
     , _sExecMode :: P.ExecutionMode
     } deriving (Generic)
 
-{-
 instance Serialize (SaveData p) where
     put SaveData {..} = do
         put _sTxRecord
@@ -143,27 +142,6 @@ instance Serialize (SaveData p) where
         _sCommandState <- get
         _sExecMode <- get
         return $ SaveData {..}
--}
-instance Serialize (SaveData p) where
-    put sd = do
-        put (_sTxRecord sd)
-        put (_sTxId sd)
-        put (_sSQLiteConfig sd)
-        put (_sCommandState sd)
-        put (_sExecMode sd)
-    get = do
-        record <- get
-        txId <- get
-        config <- get
-        cmdState <- get
-        execMode <- get
-        return SaveData
-            { _sTxRecord = record
-            , _sTxId = txId
-            , _sSQLiteConfig = config
-            , _sCommandState = cmdState
-            , _sExecMode = execMode
-            }
 
 data Env' =
     forall a. PactDbBackend a =>
