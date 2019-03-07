@@ -404,7 +404,7 @@ testnet00BootstrapPeerInfo = PeerInfo
 
 -- This can be changed as needed.
 testnetBootstrapHost :: Hostname
-testnetBootstrapHost = unsafeHostnameFromText "https://testnet.kadena.io/bootstrap"
+testnetBootstrapHost = unsafeHostnameFromText "https://us1.chainweb.com"
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
