@@ -29,6 +29,7 @@ executable chain2gexf
         , aeson >= 1.4
         , base
         , bytestring
+        , errors >= 2.3
         , lens >= 4.16
         , optparse-applicative >= 0.14
         , paths >= 0.2
