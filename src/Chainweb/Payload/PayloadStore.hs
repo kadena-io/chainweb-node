@@ -22,6 +22,7 @@ module Chainweb.Payload.PayloadStore
   BlockTransactionsStore
 , BlockPayloadStore
 , TransactionDb(..)
+, TransactionDbCas
 , transactionDbBlockTransactions
 , transactionDbBlockPayloads
 , emptyTransactionDb
@@ -32,6 +33,7 @@ module Chainweb.Payload.PayloadStore
 , TransactionTreeStore
 , BlockOutputsStore
 , PayloadCache(..)
+, PayloadCacheCas
 , payloadCacheBlockOutputs
 , payloadCacheOutputTrees
 , payloadCacheTransactionTrees

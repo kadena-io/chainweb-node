@@ -138,7 +138,7 @@ randomTransaction
     :: HasCallStack
     => Given CutDb
     => Given (PayloadDb HashMapCas)
-    => IO (BlockHeader, Int, Transaction)
+    => IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction = do
     bh <- randomBlockHeader
     Just pay <- casLookup
@@ -150,5 +150,14 @@ randomTransaction = do
             (_transactionDbBlockTransactions $ _transactionDb given)
             (_blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
-    return (bh, txIx, Seq.index (_blockTransactions btxs) txIx)
+    Just outs <-
+        casLookup @(BlockOutputsStore HashMapCas)
+            (_payloadCacheBlockOutputs $ _payloadCache given)
+            (_blockPayloadOutputsHash pay)
+    return
+        ( bh
+        , txIx
+        , Seq.index (_blockTransactions btxs) txIx
+        , Seq.index (_blockOutputs outs) txIx
+        )
 
