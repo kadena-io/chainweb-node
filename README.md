@@ -174,7 +174,7 @@ MacOS users will need a Linux builder to create docker images using nix. Instruc
 
 1. Install the Kubernetes command-line tool, [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
 2. Install a local or cloud-based Kubernetes cluster. [Minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/) is a popular local cluster solution. To install an AWS cluster, follow the instructions [here](https://medium.com/containermind/how-to-create-a-kubernetes-cluster-on-aws-in-few-minutes-89dda10354f4).
-3. Install Python 2.7 and the python libraries outlined in `scripts/kubernetes/requirements.txt`.
+3. Install Python 2.7 and the python packages outlined in `scripts/kubernetes/requirements.txt`. If you have `pip` installed you can run `pip install -r scripts/kubernetes/requirements.txt` to install all dependencies.
 4. To create the Kubernetes resources to start up a chainweb bootstrap node, run `python scripts/kubernetes/bootstrap_deploy.py create`.
 5. For instructions on how to interact with Kubernetes, follow these [examples](http://kubernetesbyexample.com/). Note that they are using a Minishift local cluster instead of a Minikube one.
 6. To clean up these resources, run `python scripts/kubernetes/boostrap_deploy.py delete`.
