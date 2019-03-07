@@ -34,6 +34,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -161,7 +162,6 @@ toValidateBlockResults ts =
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
 execNewBlock memPoolAccess header = do
-
     cpEnv <- ask
     -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
@@ -169,7 +169,6 @@ execNewBlock memPoolAccess header = do
         bHash = _blockHash header
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader header
-
     newTrans <- liftIO $! memPoolAccess bHeight
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
@@ -178,9 +177,7 @@ execNewBlock memPoolAccess header = do
     updateOrCloseDb cpData
 
     (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
-
     put updatedState
-
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
     either fail (\_ -> pure results) closeStatus
 
@@ -247,7 +244,6 @@ mkSqliteConfig _ _ = Nothing
 
 execTransactions :: Bool -> MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
 execTransactions isGenesis miner txs = do
-    -- cpEnv <- ask
     currentState <- get
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
@@ -256,14 +252,7 @@ execTransactions isGenesis miner txs = do
         case _pdbsExecMode currentState of
             P.Transactional tId -> return tId
             _anotherMode -> fail "Only Transactional ExecutionMode is supported"
-    (txOuts, newTxId) <- do
-        let f :: ([FullLogTxOutput], Word64) -> PactTransaction -> PactT ([FullLogTxOutput], Word64)
-            f (outs, prevId) PactTransaction {..} = do
-              let newId = succ prevId
-              txOut <- applyPactCmd isGenesis dbEnv' mvCmdState _ptCmd
-                                   (P.Transactional (P.TxId newId)) miner
-              return (txOut : outs, newId)
-        foldM f ([], fromIntegral prevTxId) txs
+    (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState (_ptCmd <$> txs) (fromIntegral prevTxId) miner
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -271,8 +260,29 @@ execTransactions isGenesis miner txs = do
           , _pdbsState = newCmdState
           , _pdbsExecMode = P.Transactional $ P.TxId newTxId
           }
-    return (Transactions (txs `zip` (reverse txOuts)), updatedState)
+    return (Transactions (txs `zip` txOuts), updatedState)
 
+-- | Apply multiple Pact commands, incrementing the transaction Id for each
+applyPactCmds
+    :: Bool
+    -> Env'
+    -> MVar P.CommandState
+    -> [P.Command ByteString]
+    -> Word64
+    -> MinerInfo
+    -> PactT ([FullLogTxOutput], Word64)
+applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
+    resultPair <- foldM f ([], fromIntegral prevTxId) cmds
+    return $ first reverse resultPair
+    where
+        f :: ([FullLogTxOutput], Word64) -> P.Command ByteString -> PactT ([FullLogTxOutput], Word64)
+        f (outs, prevId) cmd = do
+          let newId = succ prevId
+          txOut <- applyPactCmd isGenesis env' cmdState cmd
+                                (P.Transactional (P.TxId newId)) miner
+          return (txOut : outs, newId)
+
+-- | Apply a single Pact command
 applyPactCmd
     :: Bool
     -> Env'
