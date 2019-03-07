@@ -23,6 +23,7 @@ module Chainweb.Test.SPV
 
 import Control.Lens ((^?!))
 
+import Data.Aeson
 import Data.Foldable
 import Data.Reflection
 
@@ -92,6 +93,11 @@ spvTransactionRoundtripTest v step = do
             txIx
                 -- transaction index
 
+        step "json encoding roundtrip of proof"
+        assertEqual "decode proof equals original proof"
+            (Right proof)
+            (eitherDecode (encode proof))
+
         step "verify proof"
         subj <- verifyTransactionProof given proof
 
@@ -147,6 +153,11 @@ spvTransactionOutputRoundtripTest v step = do
                 -- source block height
             outIx
                 -- transaction index
+
+        step "json encoding roundtrip of proof"
+        assertEqual "decode proof equals original proof"
+            (Right proof)
+            (eitherDecode (encode proof))
 
         step "verify proof"
         subj <- verifyTransactionOutputProof given proof
