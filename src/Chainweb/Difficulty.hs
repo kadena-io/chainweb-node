@@ -315,8 +315,8 @@ blockRate Test{} = Nothing
 blockRate TestWithTime{} = Just $ BlockRate 4
 blockRate TestWithPow{} = Just $ BlockRate 10
 blockRate Simulation{} = Nothing
--- 360 blocks per hour, 8,640 per day, 60,480 per week, 3,144,960 per year.
-blockRate Testnet00 = Just $ BlockRate 10
+-- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate Testnet00 = Just $ BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -333,18 +333,8 @@ window TestWithTime{} = Nothing
 -- 5 blocks, should take 50 seconds.
 window TestWithPow{} = Just $ WindowWidth 5
 window Simulation{} = Nothing
--- 36 blocks, should take 6 minutes. Derivation:
---
--- Bitcoin block rate: 600 seconds
--- Chainweb block rate: 10 seconds
--- Ratio: 60:1
---
--- Bitcoin adjustment window: 2 weeks == 14 days == 336 hours == 21,160 minutes
--- 21,160 / 60 = 336
---
--- As 336 is not a multiple of 10, we boost to 360. Given a 10 second block
--- rate, we then arrive on a 36-block adjustment window for Chainweb.
-window Testnet00 = Just $ WindowWidth 36
+-- 2,880 blocks, should take 24 hours given a 30 second BlockRate.
+window Testnet00 = Just $ WindowWidth 2880
 
 -- | The maximum number of bits that a single application of `adjust` can apply
 -- to some `HashTarget`. As mentioned in `adjust`, this value should be above
@@ -373,12 +363,12 @@ prereduction Test{} = 0
 prereduction TestWithTime{} = 0
 prereduction TestWithPow{} = 7
 prereduction Simulation{} = 0
--- As mentioned in `maxTarget`, 9 bits has been shown experimentally to be high
+-- As mentioned in `maxTarget`, 11 bits has been shown experimentally to be high
 -- enough to keep mining slow during the initial conditions of a
 -- 10-chain-10-miner scenario, thereby avoiding (too many) aggressive forks. For
 -- other, more realistic network scenarios, Difficulty Adjustment quickly
 -- compensates for any imbalances.
-prereduction Testnet00 = 9
+prereduction Testnet00 = 11
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.

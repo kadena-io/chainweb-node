@@ -267,7 +267,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
     { _peerConfigAddr = HostAddress localhost 0
-    , _peerConfigInterface = fromString "127.0.0.1"
+    , _peerConfigInterface = fromString "0.0.0.0"
     , _peerConfigCertificate = Nothing
     , _peerConfigKey = Nothing
     }
@@ -398,7 +398,7 @@ testnet00BootstrapPeerInfo = PeerInfo
     { _peerId = Nothing
     , _peerAddr = HostAddress
         { _hostAddressHost = testnetBootstrapHost
-        , _hostAddressPort = 1789  -- TODO Good port?
+        , _hostAddressPort = 443
         }
     }
 
