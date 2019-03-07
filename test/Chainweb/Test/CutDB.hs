@@ -23,7 +23,6 @@ module Chainweb.Test.CutDB
 
 import Control.Lens hiding (elements)
 import Control.Monad
-import Control.Monad.STM
 
 import Data.Reflection
 import qualified Data.Sequence as Seq
@@ -141,7 +140,7 @@ mine c = do
             addNewPayload @HashMapCas given payload
 
             -- add cut to db
-            atomically $ addCutHashes given (cutToCutHashes Nothing c')
+            addCutHashes given (cutToCutHashes Nothing c')
             return c'
 
 -- | picks a random block header from a web chain. The result header is

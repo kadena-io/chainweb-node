@@ -23,7 +23,6 @@ module Chainweb.Miner.Test ( testMiner ) where
 
 import Control.Concurrent (threadDelay)
 import Control.Lens ((^?!))
-import Control.Monad.STM (atomically)
 
 import Data.Reflection (Given, give)
 import qualified Data.Sequence as S
@@ -121,7 +120,7 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+        addCutHashes cutDb (cutToCutHashes Nothing c')
 
         go gen ver (i + 1)
       where

@@ -45,7 +45,6 @@ module Chainweb.CutDB
 , cutStm
 , cutStream
 , addCutHashes
-, tryAddCutHashes
 , withCutDb
 , startCutDb
 , stopCutDb
@@ -58,7 +57,6 @@ module Chainweb.CutDB
 
 import Control.Applicative
 import Control.Concurrent.Async
-import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
 import Control.Exception
 import Control.Lens hiding ((:>))
@@ -105,7 +103,10 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.HashMap
+import Data.PQueue
 import Data.Singletons
+
+import P2P.TaskQueue
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -140,7 +141,7 @@ defaultCutDbConfig v = CutDbConfig
 --
 data CutDb = CutDb
     { _cutDbCut :: !(TVar Cut)
-    , _cutDbQueue :: !(TBQueue CutHashes)
+    , _cutDbQueue :: !(PQueue (Down CutHashes))
         -- FIXME: TBQueue is a poor choice in applications that require low
         -- latencies (internally, it uses the classic function queue
         -- implementation with two stacks that has a performance distribution
@@ -186,12 +187,8 @@ _cut = readTVarIO . _cutDbCut
 cut :: Getter CutDb (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb -> CutHashes -> STM ()
-addCutHashes db = writeTBQueue (_cutDbQueue db)
-
-tryAddCutHashes :: CutDb -> CutHashes -> STM Bool
-tryAddCutHashes db hs = True <$ writeTBQueue (_cutDbQueue db) hs
-    <|> pure False
+addCutHashes :: CutDb -> CutHashes -> IO ()
+addCutHashes db = pQueueInsert (_cutDbQueue db) . Down
 
 -- | An 'STM' version of '_cut'.
 --
@@ -236,12 +233,13 @@ startCutDb
     -> IO CutDb
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
-    queue <- newTBQueueIO (int $ _cutDbConfigBufferSize config)
+    -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
+    queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logfun @T.Text Info "CutDB started"
     return $ CutDb cutVar queue cutAsync logfun headerStore payloadStore
   where
-    processor :: TBQueue CutHashes -> TVar Cut -> IO ()
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = do
         processCuts logfun headerStore payloadStore queue cutVar `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
@@ -265,7 +263,7 @@ processCuts
     => LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
-    -> TBQueue CutHashes
+    -> PQueue (Down CutHashes)
     -> TVar Cut
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
@@ -280,7 +278,7 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     & S.effects
   where
     queueToStream =
-        liftIO (atomically $ readTBQueue queue) >>= S.yield >> queueToStream
+        liftIO (pQueueRemove queue) >>= \(Down a) -> S.yield a >> queueToStream
 
     isCurrent x = do
         curHashes <- fmap _blockHash . _cutMap <$> readTVarIO cutVar
@@ -314,7 +312,6 @@ cutHashesToBlockHeaderMap
         -- a 'Cut'.
 cutHashesToBlockHeaderMap headerStore payloadStore hs = do
     (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-        -- & S.mapM tryLookup
         & S.mapM tryGetBlockHeader
         & S.partitionEithers
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -324,9 +321,10 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
         else return $ Left missing
   where
     origin = _cutOrigin hs
+    priority = Priority (- int (_cutHashesHeight hs))
 
     tryGetBlockHeader cv@(cid, h) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore cid origin) (cid, h))
+        (Right <$> mapM (getBlockHeader headerStore payloadStore cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $ Left cv

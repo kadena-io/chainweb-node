@@ -20,7 +20,6 @@
 module Chainweb.Miner.POW ( powMiner ) where
 
 import Control.Lens (ix, (^?), (^?!))
-import Control.Monad.STM (atomically)
 
 import qualified Data.HashMap.Strict as HM
 import Data.Reflection (Given, give)
@@ -107,7 +106,7 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+        addCutHashes cutDb (cutToCutHashes Nothing c')
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
