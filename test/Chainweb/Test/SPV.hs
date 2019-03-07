@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -19,13 +20,18 @@ module Chainweb.Test.SPV
 ( tests
 , spvTransactionRoundtripTest
 , spvTransactionOutputRoundtripTest
+, apiTests
 ) where
 
 import Control.Lens ((^?!))
 
 import Data.Aeson
 import Data.Foldable
-import Data.Reflection
+import Data.Reflection hiding (int)
+
+import Numeric.Natural
+
+import Servant.Client
 
 import Test.QuickCheck
 import Test.Tasty
@@ -38,35 +44,66 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Mempool.Mempool (MockTx)
+import Chainweb.Payload.RestAPI.Client
 import Chainweb.Payload.SPV
 import Chainweb.Test.CutDB
+import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS.HashMap hiding (toList)
+
+-- -------------------------------------------------------------------------- --
+-- Test Tree
 
 -- FIXME: These tests is randomized, and should either be rewritten using
 -- quickCheck instead of HUnit or should be derandomized.
 --
 tests :: TestTree
 tests = testGroup "SPV tests"
-    [ testCaseSteps "SPV transaction proof" $ \step ->
-        traverse_ (spvTransactionRoundtripTestN (Test petersonChainGraph) step) [0..10]
-    , testCaseSteps "SPV transaction output proof" $ \step ->
-        traverse_ (spvTransactionOutputRoundtripTestN (Test petersonChainGraph) step) [0..10]
+    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest version)
+    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest version)
+    , apiTests True version
     ]
+  where
+    version = Test petersonChainGraph
 
-spvTransactionRoundtripTestN :: ChainwebVersion -> (String -> IO ()) -> Int -> IO ()
-spvTransactionRoundtripTestN v step i = do
-    step $ "Test run number " <> sshow i
-    spvTransactionRoundtripTest v step
+-- -------------------------------------------------------------------------- --
+-- Utils
 
-spvTransactionOutputRoundtripTestN :: ChainwebVersion -> (String -> IO ()) -> Int -> IO ()
-spvTransactionOutputRoundtripTestN v step i = do
-    step $ "Test run number " <> sshow i
-    spvTransactionOutputRoundtripTest v step
+type Step = String -> IO ()
 
-spvTransactionRoundtripTest :: ChainwebVersion -> (String -> IO ()) -> IO ()
+testCaseStepsN :: String -> Natural -> (Step -> Assertion) -> TestTree
+testCaseStepsN name n test = testGroup name $ flip map [1..n] $ \i ->
+    testCaseSteps ("Run test number " <> sshow i) test
+
+-- Find a reachable target chain
+--
+targetChain :: Cut -> BlockHeader -> IO ChainId
+targetChain c srcBlock = do
+    cids <- generate (shuffle $ toList $ chainIds_ graph)
+    go cids
+  where
+    graph = _chainGraph c
+
+    go [] = error
+        $ "SPV proof test failed to find a reachable target chain. This is a bug in the test code"
+        <> ". source block: " <> sshow srcBlock
+        <> ". current cut: " <> sshow c
+    go (h:t) = if isReachable h then return h else go t
+
+    chainHeight trgChain = _blockHeight (c ^?! ixg trgChain)
+
+    isReachable trgChain
+        = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
+
+    distance x = len $ shortestPath (_chainId srcBlock) x graph
+
+-- -------------------------------------------------------------------------- --
+-- SPV Tests
+
+spvTransactionRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionRoundtripTest v step = do
     step "setup cut db"
     withTestCutDb v 100 (\_ _ -> return ()) $ do
@@ -104,30 +141,7 @@ spvTransactionRoundtripTest v step = do
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
 
-  where
-    graph = _chainGraph v
-
-    -- Find a reachable target chain
-    --
-    targetChain :: Cut -> BlockHeader -> IO ChainId
-    targetChain curCut srcBlock = do
-        cids <- generate (shuffle $ toList $ chainIds_ graph)
-        go cids
-      where
-        go [] = error
-            $ "SPV proof test failed to find a reachable target chain. This is a bug in the test code"
-            <> ". source block: " <> sshow srcBlock
-            <> ". current cut: " <> sshow curCut
-        go (h:t) = if isReachable h then return h else go t
-
-        chainHeight trgChain = _blockHeight (curCut ^?! ixg trgChain)
-
-        isReachable trgChain
-            = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
-
-        distance x = len $ shortestPath (_chainId srcBlock) x graph
-
-spvTransactionOutputRoundtripTest :: ChainwebVersion -> (String -> IO ()) -> IO ()
+spvTransactionOutputRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionOutputRoundtripTest v step = do
     step "setup cut db"
     withTestCutDb v 100 (\_ _ -> return ()) $ do
@@ -165,26 +179,70 @@ spvTransactionOutputRoundtripTest v step = do
         step "confirm that proof subject matches transaction output"
         assertEqual "proof subject matches transaction output" out subj
 
+-- -------------------------------------------------------------------------- --
+-- REST API
+
+type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+
+apiTests :: Bool -> ChainwebVersion -> TestTree
+apiTests tls v = withTestPayloadResource v 100 (\_ _ -> return ()) $ \dbsIO ->
+    testGroup "SPV API tests"
+        [ withPayloadServer tls v (fst <$> dbsIO) (payloadDbs . snd <$> dbsIO) $ \env ->
+            testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
+        , withPayloadServer tls v (fst <$> dbsIO) (payloadDbs . snd <$> dbsIO) $ \env ->
+            testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
+        ]
   where
+    cids = toList (chainIds_ graph)
+    payloadDbs db = (, db) <$> cids
     graph = _chainGraph v
 
-    -- Find a reachable target chain
-    --
-    targetChain :: Cut -> BlockHeader -> IO ChainId
-    targetChain curCut srcBlock = do
-        cids <- generate (shuffle $ toList $ chainIds_ graph)
-        go cids
-      where
-        go [] = error
-            $ "SPV proof test failed to find a reachable target chain. This is a bug in the test code"
-            <> ". source block: " <> sshow srcBlock
-            <> ". current cut: " <> sshow curCut
-        go (h:t) = if isReachable h then return h else go t
+txApiTests :: IO TestClientEnv_ -> Step -> IO ()
+txApiTests envIO step = do
+    PayloadTestClientEnv env cutDb payloadDbs v <- envIO
+    give cutDb $ give (snd . head $ payloadDbs) $ do
 
-        chainHeight trgChain = _blockHeight (curCut ^?! ixg trgChain)
+        step "pick random transaction"
+        (h, txIx, tx, out) <- randomTransaction
+        step $ "picked random transaction, height: " <> sshow (_blockHeight h) <> ", ix: " <> sshow txIx
 
-        isReachable trgChain
-            = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
+        curCut <- _cut cutDb
+        trgChain <- targetChain curCut h
+        step $ "picked a reachable target chain, chain id: " <> sshow trgChain
 
-        distance x = len $ shortestPath (_chainId srcBlock) x graph
+        -- Transaction Proof:
+
+        step "request transaction proof"
+        txProof <- flip runClientM env $
+            spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+
+        case txProof of
+
+            Left err -> do
+                assertFailure $ "request for transaction proof failed: " <> sshow err
+
+            Right proof -> do
+                step "verify transaction proof"
+                subj <- verifyTransactionProof given proof
+
+                step "confirm that transaction proof subject matches transaction"
+                assertEqual "proof subject matches transaction" tx subj
+
+        -- Transaction Output Proof:
+
+        step "request transaction output proof"
+        outProof <- flip runClientM env $
+            spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+
+        case outProof of
+
+            Left err ->
+                assertFailure $ "request for transaction output proof failed: " <> sshow err
+
+            Right proof -> do
+                step "verify transaction output proof"
+                subj <- verifyTransactionOutputProof given proof
+
+                step "confirm that transaction output proof subject matches transaction output"
+                assertEqual "proof subject matches transaction output" out subj
 

@@ -191,9 +191,11 @@ someChainwebServer v dbs =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
+        <> maybe mempty
+            (\cutDb -> somePayloadServers v cutDb $ _chainwebServerPayloadDbs dbs)
+            (_chainwebServerCutDb dbs)
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
-        <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
 
 chainwebApplication

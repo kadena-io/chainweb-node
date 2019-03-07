@@ -24,6 +24,16 @@ module Chainweb.Payload.RestAPI
 -- * Payload GET API
 , PayloadGetApi
 , payloadGetApi
+
+-- * Transaction Proof API
+, SpvGetTransactionProofApi
+, spvGetTransactionProofApi
+
+-- * Transaction Output Proof API
+, SpvGetTransactionOutputProofApi
+, spvGetTransactionOutputProofApi
+
+-- * Payload API
 , PayloadApi
 , payloadApi
 
@@ -34,14 +44,21 @@ module Chainweb.Payload.RestAPI
 
 import Control.Monad.Identity
 
+import Crypto.Hash.Algorithms
+
 import Data.Proxy
+
+import Numeric.Natural
 
 import Servant.API
 
 -- internal modules
+
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.SPV
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
@@ -80,9 +97,49 @@ payloadGetApi
 payloadGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- GET Transaction Proof
+
+type SpvGetTransactionProofApi_
+    = "spv"
+    :> "transaction"
+    :> Capture "sourceChain" ChainId
+    :> Capture "sourceHeight" BlockHeight
+    :> Capture "sourceIndex" Natural
+    :> Get '[JSON] (TransactionProof SHA512t_256)
+
+type SpvGetTransactionProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionProofApi_
+
+spvGetTransactionProofApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (SpvGetTransactionProofApi v c)
+spvGetTransactionProofApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- GET Transaction Output Proof
+
+type SpvGetTransactionOutputProofApi_
+    = "spv"
+    :> "output"
+    :> Capture "sourceChain" ChainId
+    :> Capture "sourceHeight" BlockHeight
+    :> Capture "sourceIndex" Natural
+    :> Get '[JSON] (TransactionOutputProof SHA512t_256)
+
+type SpvGetTransactionOutputProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionOutputProofApi_
+
+spvGetTransactionOutputProofApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (SpvGetTransactionOutputProofApi v c)
+spvGetTransactionOutputProofApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- Payload API
 
 type PayloadApi v c = PayloadGetApi v c
+    :<|> SpvGetTransactionProofApi v c
+    :<|> SpvGetTransactionOutputProofApi v c
 
 payloadApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
