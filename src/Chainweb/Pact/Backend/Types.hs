@@ -36,6 +36,7 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+    , pdbsExecMode
     , pdbsState
     , SaveData(..)
     , saveDataVersion
@@ -43,6 +44,7 @@ module Chainweb.Pact.Backend.Types
     , sTxId
     , sSQLiteConfig
     , sCommandState
+    , sExecMode
     , usage
     ) where
 
@@ -60,6 +62,7 @@ import qualified Pact.Persist as P
 import qualified Pact.Persist.Pure as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
+import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
@@ -72,12 +75,12 @@ import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
     closeDb :: e -> IO (Either String ())
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> P.ExecutionMode -> IO (Maybe String, SaveData e)
     -- TODO: saveDb needs a better name
 
 instance PactDbBackend P.PureDb where
     closeDb = const $ return $ Right ()
-    saveDb PactDbEnvPersist {..} commandState =
+    saveDb PactDbEnvPersist {..} commandState execMode =
       case _pdepEnv of
         P.DbEnv {..} -> do
           let _sTxRecord = _txRecord
@@ -85,20 +88,26 @@ instance PactDbBackend P.PureDb where
               _sSQLiteConfig = Nothing
               _sCommandState = commandState
               _sVersion = saveDataVersion
+              _sExecMode = execMode
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
     closeDb = P.closeSQLite
     saveDb = saveSQLite
 
-saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
-saveSQLite PactDbEnvPersist {..} commandState = do
+saveSQLite
+    :: PactDbEnvPersist P.SQLite
+    -> P.CommandState
+    -> P.ExecutionMode
+    -> IO (Maybe String, SaveData P.SQLite)
+saveSQLite PactDbEnvPersist {..} commandState execMode = do
     case _pdepEnv of
       P.DbEnv {..} -> do
         let _sTxRecord = _txRecord
             _sTxId = _txId
             _sSQLiteConfig = Just $ P.config _db
             _sCommandState = commandState
+            _sExecMode = execMode
             prefix = makeFileNamePrefix
         return (Just prefix, SaveData {..})
   where
@@ -113,9 +122,10 @@ saveDataVersion = "0.0.0"
 
 data SaveData p = SaveData
     { _sTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
-    , _sTxId :: Maybe P.TxId
+    , _sTxId :: Maybe P.TxId -- TODO: is this needed:
     , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
+    , _sExecMode :: P.ExecutionMode
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
@@ -124,11 +134,13 @@ instance Serialize (SaveData p) where
         put _sTxId
         put _sSQLiteConfig
         put _sCommandState
+        put _sExecMode
     get = do
         _sTxRecord <- get
         _sTxId <- get
         _sSQLiteConfig <- get
         _sCommandState <- get
+        _sExecMode <- get
         return $ SaveData {..}
 
 data Env' =
@@ -151,7 +163,7 @@ data EnvPersist' =
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
-    }
+    , _pdbsExecMode :: P.ExecutionMode   }
 
 makeLenses ''PactDbState
 

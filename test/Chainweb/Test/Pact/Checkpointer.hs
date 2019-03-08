@@ -17,7 +17,6 @@ import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv)
-import Pact.Types.Command (ExecutionMode(..))
 import Pact.Types.Hash (hash)
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.RPC (ContMsg(..))
@@ -95,17 +94,18 @@ testCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
 testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   let logger = newLogger loggers "testCheckpointer"
+      execMode = _pdbsExecMode dbState00
 
-      runExec :: TxId -> (MVar CommandState, Env') -> Maybe Value -> Text -> IO EvalResult
-      runExec txid (mcs, Env' pactDbEnv) eData eCode = do
-          let cmdenv = CommandEnv Nothing (Transactional txid) pactDbEnv mcs logger freeGasEnv
+      runExec :: (MVar CommandState, Env') -> Maybe Value -> Text -> IO EvalResult
+      runExec (mcs, Env' pactDbEnv) eData eCode = do
+          let cmdenv = CommandEnv Nothing execMode pactDbEnv mcs logger freeGasEnv
           execMsg <- buildExecParsedCode eData eCode
           applyExec' cmdenv def execMsg [] (hash "")
 
-      runCont :: TxId -> (MVar CommandState, Env') -> TxId -> Int -> IO EvalResult
-      runCont txid (mcs, Env' pactDbEnv) pactId step = do
+      runCont :: (MVar CommandState, Env') -> TxId -> Int -> IO EvalResult
+      runCont (mcs, Env' pactDbEnv) pactId step = do
           let contMsg = ContMsg pactId step False Null
-              cmdenv = CommandEnv Nothing (Transactional txid) pactDbEnv mcs logger freeGasEnv
+              cmdenv = CommandEnv Nothing execMode pactDbEnv mcs logger freeGasEnv
           applyContinuation' cmdenv def contMsg [] (hash "")
 
       ksData :: Text -> Value
@@ -116,7 +116,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
       unwrapState dbs = (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
 
       wrapState :: (MVar CommandState, Env') -> IO PactDbState
-      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs
+      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure execMode)
 
 
   void $ saveInitial _cpeCheckpointer dbState00
@@ -135,9 +135,9 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= assertEitherSuccess "restoreInitial (new block)"
     >>= unwrapState
 
-  void $ runExec 0 s01 (Just $ ksData "1") $ defModule "1"
+  void $ runExec s01 (Just $ ksData "1") $ defModule "1"
 
-  runExec 1 s01 Nothing "(m1.readTbl)"
+  runExec s01 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
   void $ wrapState s01
@@ -156,9 +156,9 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   -- by defining m1/inserting anew, we ensure it didn't exist before
   -- otherwise would fail at least on table create
 
-  void $ runExec 0 s02 (Just $ ksData "1") $ defModule "1"
+  void $ runExec s02 (Just $ ksData "1") $ defModule "1"
 
-  runExec 1 s02 Nothing "(m1.readTbl)"
+  runExec s02 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
   void $ wrapState s02
@@ -174,16 +174,17 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= assertEitherSuccess "restore for new block 01"
     >>= unwrapState
 
-  void $ runExec 2 s03 Nothing "(m1.insertTbl 'b 2)"
+  void $ runExec s03 Nothing "(m1.insertTbl 'b 2)"
 
-  runExec 3 s03 Nothing "(m1.readTbl)"
+  runExec s03 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
-  -- start a pact at txid 4
-  let pactId = 4
+  -- start a pact at txid 1
+  let pactId = 1
+
       pactResult step = Just (PactExec 2 Nothing True step (PactId $ pack $ show pactId))
 
-  runExec pactId s03 Nothing "(m1.dopact 'pactA)"
+  runExec s03 Nothing "(m1.dopact 'pactA)"
     >>= \EvalResult{..} ->
            _erExec @?= pactResult 0
 
@@ -206,13 +207,13 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= unwrapState
 
   -- insert here would fail if new block 01 had not been discarded
-  void $ runExec 2 s04 Nothing "(m1.insertTbl 'b 2)"
+  void $ runExec s04 Nothing "(m1.insertTbl 'b 2)"
 
-  runExec 3 s04 Nothing "(m1.readTbl)"
+  runExec s04 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
   -- start a pact at txid 4, would fail if new block 01 had not been discarded
-  runExec 4 s04 Nothing "(m1.dopact 'pactA)"
+  runExec s04 Nothing "(m1.dopact 'pactA)"
     >>= \EvalResult{..} -> _erExec @?= pactResult 0
 
   void $ wrapState s04
@@ -233,12 +234,12 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= assertEitherSuccess "restore for validate block 02"
     >>= unwrapState
 
-  void $ runExec 5 s05 (Just $ ksData "2") $ defModule "2"
+  void $ runExec s05 (Just $ ksData "2") $ defModule "2"
 
-  runExec 6 s05 Nothing "(m2.readTbl)"
+  runExec s05 Nothing "(m2.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
-  runCont 7 s05 pactId 1
+  runCont s05 pactId 1
     >>= \EvalResult{..} -> _erExec @?= pactResult 1
 
   void $ wrapState s05
@@ -253,9 +254,9 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= assertEitherSuccess "restore for new block 03"
     >>= unwrapState
 
-  void $ runExec 8 s06 Nothing "(m2.insertTbl 'b 2)"
+  void $ runExec s06 Nothing "(m2.insertTbl 'b 2)"
 
-  runExec 9 s06 Nothing "(m2.readTbl)"
+  runExec s06 Nothing "(m2.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
   void $ wrapState s06
@@ -274,9 +275,9 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= unwrapState
 
   -- insert here would fail if new block 03 had not been discarded
-  void $ runExec 8 s07 Nothing "(m2.insertTbl 'b 2)"
+  void $ runExec s07 Nothing "(m2.insertTbl 'b 2)"
 
-  runExec 9 s07 Nothing "(m2.readTbl)"
+  runExec s07 Nothing "(m2.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
   void $ wrapState s07
@@ -296,13 +297,13 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= assertEitherSuccess "restore for validate block 02"
     >>= unwrapState
 
-  void $ runExec 5 s08 (Just $ ksData "2") $ defModule "2"
+  void $ runExec s08 (Just $ ksData "2") $ defModule "2"
 
-  runExec 6 s08 Nothing "(m2.readTbl)"
+  runExec s08 Nothing "(m2.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
   -- this would fail if not a fork
-  runCont 7 s08 pactId 1
+  runCont s08 pactId 1
     >>= \EvalResult{..} -> _erExec @?= pactResult 1
 
   void $ wrapState s08
