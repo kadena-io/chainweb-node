@@ -86,7 +86,7 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
-import Data.Maybe
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Typeable
 
@@ -454,7 +454,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     --
     maxRank :: HasCallStack => db -> IO Natural
-    maxRank db = fmap (rank . fromJust)
+    maxRank db = fmap (rank . fromJuste)
         $ S.last_
         $ leafEntries db Nothing Nothing Nothing Nothing
     {-# INLINEABLE maxRank #-}
@@ -481,7 +481,7 @@ maxHeader db = do
         $ leafEntries db Nothing Nothing Nothing Nothing
 
 root :: TreeDb db => db -> IO (DbEntry db)
-root db = fmap fromJust $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
+root db = fmap fromJuste $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --

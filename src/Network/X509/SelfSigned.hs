@@ -113,7 +113,7 @@ import Data.Foldable (toList)
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe
+import Data.Maybe (maybeToList)
 import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
 import Data.Proxy
 import Data.String (fromString)
@@ -428,8 +428,8 @@ fingerprintFromText t = do
     return $ Fingerprint bytes
 {-# INLINE fingerprintFromText #-}
 
-unsafeFingerprintFromText :: String -> Fingerprint
-unsafeFingerprintFromText = fromJust . fingerprintFromText . T.pack
+unsafeFingerprintFromText :: HasCallStack => String -> Fingerprint
+unsafeFingerprintFromText = fromJuste . fingerprintFromText . T.pack
 {-# INLINE unsafeFingerprintFromText #-}
 
 -- -------------------------------------------------------------------------- --
@@ -447,8 +447,8 @@ x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
 x509CertPemFromText t = return . X509CertPem $ T.encodeUtf8 t
 {-# INLINE x509CertPemFromText #-}
 
-unsafeX509CertPemFromText :: String -> X509CertPem
-unsafeX509CertPemFromText = fromJust . x509CertPemFromText . T.pack
+unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
+unsafeX509CertPemFromText = fromJuste . x509CertPemFromText . T.pack
 {-# INLINE unsafeX509CertPemFromText #-}
 
 instance HasTextRepresentation X509CertPem where
@@ -524,8 +524,8 @@ x509KeyPemFromText :: MonadThrow m => T.Text -> m X509KeyPem
 x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
 {-# INLINE x509KeyPemFromText #-}
 
-unsafeX509KeyPemFromText :: String -> X509KeyPem
-unsafeX509KeyPemFromText = fromJust . x509KeyPemFromText . T.pack
+unsafeX509KeyPemFromText :: HasCallStack => String -> X509KeyPem
+unsafeX509KeyPemFromText = fromJuste . x509KeyPemFromText . T.pack
 {-# INLINE unsafeX509KeyPemFromText #-}
 
 instance HasTextRepresentation X509KeyPem where

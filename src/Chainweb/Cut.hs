@@ -108,7 +108,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
 import Data.Int (Int64)
-import Data.Maybe
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
@@ -651,7 +651,7 @@ arbitraryCut v = T.sized $ \s -> do
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ x) -> x)
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine :: Cut -> ChainId -> T.Gen (Maybe (T2 BlockHeader Cut))
     mine c cid = do
@@ -690,7 +690,7 @@ arbitraryWebChainCut initialCut = do
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ c') -> c')
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
@@ -722,7 +722,7 @@ arbitraryWebChainCut_ initialCut = do
             & S.mapMaybeM (fmap hush . mine c)
             & S.map (\(T2 _ c') -> c')
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine c cid = do
         n <- Nonce <$> TT.liftGen T.arbitrary

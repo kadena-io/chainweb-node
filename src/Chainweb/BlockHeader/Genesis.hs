@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -45,11 +46,12 @@ import Data.Bytes.Put (putByteString, runPutS)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Maybe (fromJust)
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Yaml as Yaml
+
+import GHC.Stack (HasCallStack)
 
 import NeatInterpolation (text)
 
@@ -66,6 +68,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
+import Chainweb.Utils (fromJuste)
 import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
@@ -85,7 +88,6 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
         , encodeMerkleInputNode encodeChainwebVersion v
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
-
 
 -- | By definition, Genesis Blocks are "mined" on the easiest difficulty. No
 -- subsequent block mining can have a `HashTarget` easier (re: higher) than
@@ -204,8 +206,8 @@ genesisBlockHeaders v = HM.fromList
 -- -------------------------------------------------------------------------- --
 -- Testnet00
 
-unsafeFromYamlText :: Text -> BlockHeader
-unsafeFromYamlText = _objectEncoded . fromJust . Yaml.decodeThrow . T.encodeUtf8
+unsafeFromYamlText :: HasCallStack => Text -> BlockHeader
+unsafeFromYamlText = _objectEncoded . fromJuste . Yaml.decodeThrow . T.encodeUtf8
 
 -- | Ten Genesis Blocks for `Testnet00`.
 testnet00Geneses :: HM.HashMap ChainId BlockHeader

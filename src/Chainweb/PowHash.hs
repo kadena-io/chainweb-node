@@ -47,13 +47,13 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Random as BR
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
-import Data.Maybe
 import Data.Proxy
 
 import Foreign.Storable
 
 import GHC.Generics
 import GHC.TypeNats
+import GHC.Stack (HasCallStack)
 
 import Numeric.Natural
 
@@ -85,8 +85,8 @@ mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
 mkPowHash = runGet decodePowHash
 {-# INLINE mkPowHash #-}
 
-unsafeMkPowHash :: B.ByteString -> PowHash
-unsafeMkPowHash = fromJust . runGet decodePowHash
+unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
+unsafeMkPowHash = fromJuste . runGet decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
 instance IsMerkleLogEntry ChainwebHashTag PowHash where

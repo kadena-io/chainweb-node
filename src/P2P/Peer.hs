@@ -74,7 +74,6 @@ import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.Hashable
-import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
@@ -118,8 +117,8 @@ peerIdFromText t = do
     return $ PeerId bytes
 {-# INLINE peerIdFromText #-}
 
-unsafePeerIdFromText :: String -> PeerId
-unsafePeerIdFromText = fromJust . peerIdFromText . T.pack
+unsafePeerIdFromText :: HasCallStack => String -> PeerId
+unsafePeerIdFromText = fromJuste . peerIdFromText . T.pack
 {-# INLINE unsafePeerIdFromText #-}
 
 instance HasTextRepresentation PeerId where

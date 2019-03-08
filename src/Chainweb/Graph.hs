@@ -86,7 +86,6 @@ import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
-import Data.Maybe
 import Data.Reflection hiding (int)
 
 import GHC.Generics hiding (to)
@@ -95,10 +94,10 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.Utils
 import Chainweb.ChainId
+import Chainweb.Utils
 
-import Data.DiGraph hiding (shortestPath, diameter, size, order)
+import Data.DiGraph hiding (diameter, order, shortestPath, size)
 import qualified Data.DiGraph as G
 
 -- -------------------------------------------------------------------------- --
@@ -228,11 +227,11 @@ degree :: ChainGraph -> Natural
 degree = G.minOutDegree . _chainGraphGraph
 
 diameter :: ChainGraph -> Natural
-diameter = fromJust . diameter_ . _chainGraphShortestPathCache
+diameter = fromJuste . diameter_ . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected
 
 shortestPath :: ChainId -> ChainId -> ChainGraph -> [ChainId]
-shortestPath src trg = fromJust
+shortestPath src trg = fromJuste
     . shortestPath_ src trg
     . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected
