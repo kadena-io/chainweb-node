@@ -227,11 +227,11 @@ degree :: ChainGraph -> Natural
 degree = G.minOutDegree . _chainGraphGraph
 
 diameter :: ChainGraph -> Natural
-diameter = fromJust . diameter_ . _chainGraphShortestPathCache
+diameter = fromJuste . diameter_ . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected
 
 shortestPath :: ChainId -> ChainId -> ChainGraph -> [ChainId]
-shortestPath src trg = fromJust
+shortestPath src trg = fromJuste
     . shortestPath_ src trg
     . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected

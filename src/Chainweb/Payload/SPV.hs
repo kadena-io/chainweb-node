@@ -404,5 +404,5 @@ crumbsToChain srcCid trgHeader
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
 
-        let adjIdx = fromJust $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
+        let adjIdx = fromJuste $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)

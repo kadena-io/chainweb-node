@@ -87,7 +87,7 @@ networkIdFromText t = case T.break (== '/') t of
         | otherwise -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
 
 unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId
-unsafeNetworkIdFromText = fromJust . networkIdFromText
+unsafeNetworkIdFromText = fromJuste . networkIdFromText
 {-# INLINE unsafeNetworkIdFromText #-}
 
 instance ToJSON NetworkId where

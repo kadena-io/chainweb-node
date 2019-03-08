@@ -429,7 +429,7 @@ fingerprintFromText t = do
 {-# INLINE fingerprintFromText #-}
 
 unsafeFingerprintFromText :: HasCallStack => String -> Fingerprint
-unsafeFingerprintFromText = fromJust . fingerprintFromText . T.pack
+unsafeFingerprintFromText = fromJuste . fingerprintFromText . T.pack
 {-# INLINE unsafeFingerprintFromText #-}
 
 -- -------------------------------------------------------------------------- --
@@ -448,7 +448,7 @@ x509CertPemFromText t = return . X509CertPem $ T.encodeUtf8 t
 {-# INLINE x509CertPemFromText #-}
 
 unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
-unsafeX509CertPemFromText = fromJust . x509CertPemFromText . T.pack
+unsafeX509CertPemFromText = fromJuste . x509CertPemFromText . T.pack
 {-# INLINE unsafeX509CertPemFromText #-}
 
 instance HasTextRepresentation X509CertPem where
@@ -525,7 +525,7 @@ x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
 {-# INLINE x509KeyPemFromText #-}
 
 unsafeX509KeyPemFromText :: HasCallStack => String -> X509KeyPem
-unsafeX509KeyPemFromText = fromJust . x509KeyPemFromText . T.pack
+unsafeX509KeyPemFromText = fromJuste . x509KeyPemFromText . T.pack
 {-# INLINE unsafeX509KeyPemFromText #-}
 
 instance HasTextRepresentation X509KeyPem where

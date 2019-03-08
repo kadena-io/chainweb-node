@@ -65,7 +65,7 @@ import System.Timeout (timeout)
 
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJust)
+import Chainweb.Utils (fromJuste)
 
 
 ------------------------------------------------------------------------------
@@ -405,7 +405,7 @@ lookupInMem lock txs = do
         validated <- readIORef $ _inmemValidated mdata
         confirmed <- readIORef $ _inmemConfirmed mdata
         return $! (q, validated, confirmed)
-    return $! V.map (fromJust . lookupOne q validated confirmed) txs
+    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
   where
     lookupOne q validated confirmed txHash =
         lookupQ q txHash <|>
@@ -562,7 +562,7 @@ reintroduceInMem :: TxBroadcaster t
                  -> IO ()
 reintroduceInMem broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
-                   (V.map fromJust . V.filter isJust) <$>
+                   (V.map fromJuste . V.filter isJust) <$>
                    V.mapM (reintroduceOne mdata) txhashes
     -- we'll rebroadcast reintroduced transactions, clients can filter.
     broadcastTxs newOnes broadcaster

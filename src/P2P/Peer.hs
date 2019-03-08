@@ -118,7 +118,7 @@ peerIdFromText t = do
 {-# INLINE peerIdFromText #-}
 
 unsafePeerIdFromText :: HasCallStack => String -> PeerId
-unsafePeerIdFromText = fromJust . peerIdFromText . T.pack
+unsafePeerIdFromText = fromJuste . peerIdFromText . T.pack
 {-# INLINE unsafePeerIdFromText #-}
 
 instance HasTextRepresentation PeerId where

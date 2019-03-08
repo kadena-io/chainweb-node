@@ -86,7 +86,7 @@ mkPowHash = runGet decodePowHash
 {-# INLINE mkPowHash #-}
 
 unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
-unsafeMkPowHash = fromJust . runGet decodePowHash
+unsafeMkPowHash = fromJuste . runGet decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
 instance IsMerkleLogEntry ChainwebHashTag PowHash where

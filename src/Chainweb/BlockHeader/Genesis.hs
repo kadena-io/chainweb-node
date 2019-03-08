@@ -68,7 +68,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
-import Chainweb.Utils (fromJust)
+import Chainweb.Utils (fromJuste)
 import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
@@ -207,7 +207,7 @@ genesisBlockHeaders v = HM.fromList
 -- Testnet00
 
 unsafeFromYamlText :: HasCallStack => Text -> BlockHeader
-unsafeFromYamlText = _objectEncoded . fromJust . Yaml.decodeThrow . T.encodeUtf8
+unsafeFromYamlText = _objectEncoded . fromJuste . Yaml.decodeThrow . T.encodeUtf8
 
 -- | Ten Genesis Blocks for `Testnet00`.
 testnet00Geneses :: HM.HashMap ChainId BlockHeader

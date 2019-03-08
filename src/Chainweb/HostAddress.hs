@@ -288,7 +288,7 @@ hostnameFromText = readHostnameBytes . T.encodeUtf8
 {-# INLINE hostnameFromText #-}
 
 unsafeHostnameFromText :: HasCallStack => T.Text -> Hostname
-unsafeHostnameFromText = fromJust . hostnameFromText
+unsafeHostnameFromText = fromJuste . hostnameFromText
 {-# INLINE unsafeHostnameFromText #-}
 
 instance ToJSON Hostname where
@@ -348,7 +348,7 @@ hostAddressFromText = readHostAddressBytes . T.encodeUtf8
 {-# INLINE hostAddressFromText #-}
 
 unsafeHostAddressFromText :: HasCallStack => T.Text -> HostAddress
-unsafeHostAddressFromText = fromJust . hostAddressFromText
+unsafeHostAddressFromText = fromJuste . hostAddressFromText
 {-# INLINE unsafeHostAddressFromText #-}
 
 instance HasTextRepresentation HostAddress where

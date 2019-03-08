@@ -108,7 +108,7 @@ module Chainweb.Utils
 , (==?)
 , check
 , fromMaybeM
-, fromJust
+, fromJuste
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
@@ -390,7 +390,7 @@ eitherFromText = either f return . fromText
 {-# INLINE eitherFromText #-}
 
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
-unsafeFromText = fromJust . fromText
+unsafeFromText = fromJuste . fromText
 {-# INLINE unsafeFromText #-}
 
 parseM :: MonadThrow m => A.Parser a -> T.Text -> m a
@@ -547,9 +547,12 @@ fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
 {-# INLINE fromMaybeM #-}
 
-fromJust :: HasCallStack => Maybe a -> a
-fromJust Nothing = error "Chainweb.Utils.fromJust: Nothing"
-fromJust (Just a) = a
+-- | Like `Data.Maybe.fromJust`, but carries forward the `HasCallStack`
+-- constraint. "Juste" is French for "Just".
+--
+fromJuste :: HasCallStack => Maybe a -> a
+fromJuste Nothing = error "Chainweb.Utils.fromJuste: Nothing"
+fromJuste (Just a) = a
 
 (???) :: MonadThrow m => Exception e => Maybe a -> e -> m a
 (???) = flip fromMaybeM
