@@ -51,10 +51,11 @@ import Data.Semigroup hiding (option)
 import qualified Data.Text as T
 
 import GHC.Generics (Generic)
+import GHC.Stack (HasCallStack)
 
 import Test.QuickCheck
 
-import Test.QuickCheck.Instances ()
+import Test.QuickCheck.Instances ()  -- Arbitrary V4.UUID
 
 -- Internal imports
 
@@ -85,7 +86,7 @@ networkIdFromText t = case T.break (== '/') t of
         | T.null b -> throwM . TextFormatException $ "missing '/' in network id: \"" <> t <> "\"."
         | otherwise -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
 
-unsafeNetworkIdFromText :: T.Text -> NetworkId
+unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId
 unsafeNetworkIdFromText = fromJust . networkIdFromText
 {-# INLINE unsafeNetworkIdFromText #-}
 

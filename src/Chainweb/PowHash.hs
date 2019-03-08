@@ -53,6 +53,7 @@ import Foreign.Storable
 
 import GHC.Generics
 import GHC.TypeNats
+import GHC.Stack (HasCallStack)
 
 import Numeric.Natural
 
@@ -84,7 +85,7 @@ mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
 mkPowHash = runGet decodePowHash
 {-# INLINE mkPowHash #-}
 
-unsafeMkPowHash :: B.ByteString -> PowHash
+unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
 unsafeMkPowHash = fromJust . runGet decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 

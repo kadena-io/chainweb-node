@@ -115,6 +115,7 @@ import qualified Data.Text.Encoding as T
 import Data.Word (Word16, Word8)
 
 import GHC.Generics
+import GHC.Stack (HasCallStack)
 
 import Test.QuickCheck
 
@@ -286,7 +287,7 @@ hostnameFromText :: MonadThrow m => T.Text -> m Hostname
 hostnameFromText = readHostnameBytes . T.encodeUtf8
 {-# INLINE hostnameFromText #-}
 
-unsafeHostnameFromText :: T.Text -> Hostname
+unsafeHostnameFromText :: HasCallStack => T.Text -> Hostname
 unsafeHostnameFromText = fromJust . hostnameFromText
 {-# INLINE unsafeHostnameFromText #-}
 
@@ -346,7 +347,7 @@ hostAddressFromText :: MonadThrow m => T.Text -> m HostAddress
 hostAddressFromText = readHostAddressBytes . T.encodeUtf8
 {-# INLINE hostAddressFromText #-}
 
-unsafeHostAddressFromText :: T.Text -> HostAddress
+unsafeHostAddressFromText :: HasCallStack => T.Text -> HostAddress
 unsafeHostAddressFromText = fromJust . hostAddressFromText
 {-# INLINE unsafeHostAddressFromText #-}
 

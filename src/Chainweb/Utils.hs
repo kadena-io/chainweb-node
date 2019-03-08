@@ -389,7 +389,7 @@ eitherFromText = either f return . fromText
         _ -> displayException e
 {-# INLINE eitherFromText #-}
 
-unsafeFromText :: HasTextRepresentation a => T.Text -> a
+unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
 unsafeFromText = fromJust . fromText
 {-# INLINE unsafeFromText #-}
 

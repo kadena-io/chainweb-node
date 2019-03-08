@@ -117,7 +117,7 @@ peerIdFromText t = do
     return $ PeerId bytes
 {-# INLINE peerIdFromText #-}
 
-unsafePeerIdFromText :: String -> PeerId
+unsafePeerIdFromText :: HasCallStack => String -> PeerId
 unsafePeerIdFromText = fromJust . peerIdFromText . T.pack
 {-# INLINE unsafePeerIdFromText #-}
 
