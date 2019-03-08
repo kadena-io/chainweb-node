@@ -36,6 +36,7 @@ module P2P.Peer
 , pPeerInfo
 , pPeerInfoCompact
 , arbitraryPeerInfo
+, peerInfoClientEnv
 
 -- * Peer Configuration
 , PeerConfig(..)
@@ -74,13 +75,16 @@ import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.Hashable
-import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
 
 import GHC.Generics (Generic)
 import GHC.Stack
+
+import qualified Network.HTTP.Client as HTTP
+
+import Servant.Client
 
 import Test.QuickCheck
 
@@ -118,8 +122,8 @@ peerIdFromText t = do
     return $ PeerId bytes
 {-# INLINE peerIdFromText #-}
 
-unsafePeerIdFromText :: String -> PeerId
-unsafePeerIdFromText = fromJust . peerIdFromText . T.pack
+unsafePeerIdFromText :: HasCallStack => String -> PeerId
+unsafePeerIdFromText = fromJuste . peerIdFromText . T.pack
 {-# INLINE unsafePeerIdFromText #-}
 
 instance HasTextRepresentation PeerId where
@@ -225,6 +229,15 @@ pPeerInfoCompact service = textOption
     <> suffixHelp service "peer info"
     <> metavar "<PEERID>:<HOSTADDRESS>"
 
+-- | Create a ClientEnv for querying HTTP API of a PeerInfo
+--
+peerInfoClientEnv :: HTTP.Manager -> PeerInfo -> ClientEnv
+peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
+  where
+    peerBaseUrl a = BaseUrl Https
+        (B8.unpack . hostnameBytes $ view hostAddressHost a)
+        (int $ view hostAddressPort a)
+        ""
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration
 
@@ -366,17 +379,16 @@ instance FromJSON Peer where
 -- certificate, the peer id is the SHA256 hash of the X509 certificate.
 --
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
-bootstrapPeerInfos Test{} = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithTime{} = testBootstrapPeerInfos
-bootstrapPeerInfos TestWithPow{} = testBootstrapPeerInfos
+bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Simulation{} = error
     $ "bootstrap peer info isn't defined for chainweb version Simulation"
-bootstrapPeerInfos Testnet00 = error
-    $ "bootstrap peer info isn't defined for chainweb version Testnet00"
+bootstrapPeerInfos Testnet00 = [testnet00BootstrapPeerInfo]
 
-testBootstrapPeerInfos :: [PeerInfo]
+testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
-    [ PeerInfo
+    PeerInfo
 #if WITH_ED25519
         { _peerId = Just $ unsafeFromText "BMe2hSdSEGCzLwvoYXPuB1BqYEH5wiV5AvacutSGWmg"
 #else
@@ -393,7 +405,19 @@ testBootstrapPeerInfos =
             , _hostAddressPort = 1789
             }
         }
-    ]
+
+testnet00BootstrapPeerInfo :: PeerInfo
+testnet00BootstrapPeerInfo = PeerInfo
+    { _peerId = Nothing
+    , _peerAddr = HostAddress
+        { _hostAddressHost = testnetBootstrapHost
+        , _hostAddressPort = 443
+        }
+    }
+
+-- This can be changed as needed.
+testnetBootstrapHost :: Hostname
+testnetBootstrapHost = unsafeHostnameFromText "https://us1.chainweb.com"
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
@@ -511,4 +535,3 @@ instance Arbitrary PeerConfig where
             , "MC4CAQAwBQYDK2VwBCIEIPQZCpPI8qgkU/HlsIwQBC48QuXOl036aReJF6DFLLjR"
             , "-----END PRIVATE KEY-----"
             ]
-

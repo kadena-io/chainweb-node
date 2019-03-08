@@ -31,6 +31,8 @@ import Data.Tuple.Strict
 
 import GHC.Stack
 
+import qualified Network.HTTP.Client as HTTP
+
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
@@ -40,11 +42,15 @@ import Test.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -52,6 +58,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
 import Data.CAS.HashMap hiding (toList)
+import Data.HashMap.Weak
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
@@ -67,13 +74,37 @@ withTestCutDb
     -> LogFunction
     -> (Given WebBlockHeaderDb => Given CutDb => Given (PayloadDb HashMapCas) => IO a)
     -> IO a
-withTestCutDb v n logfun f = giveNewWebChain v
-    $ withCutDb (defaultCutDbConfig v) logfun given $ \cutDb -> give cutDb $ do
-        payloadDb <- emptyPayloadDb @HashMapCas
-        initializePayloadDb v payloadDb
-        give payloadDb $ do
-            foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
-            f
+withTestCutDb v n logfun f = do
+    pdb <- emptyPayloadDb @HashMapCas
+    giveNewWebChain v $ give pdb $ do
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        withLocalWebBlockHeaderStore mgr $ \headerStore ->
+            withLocalPayloadStore mgr $ \payloadStore ->
+                withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb ->
+                    give cutDb $ do
+                        payloadDb <- emptyPayloadDb @HashMapCas
+                        initializePayloadDb v payloadDb
+                        give payloadDb $ do
+                            foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
+                            f
+
+withLocalWebBlockHeaderStore
+    :: Given WebBlockHeaderDb
+    => HTTP.Manager
+    -> (WebBlockHeaderStore -> IO a)
+    -> IO a
+withLocalWebBlockHeaderStore mgr inner = withNoopQueueServer $ \queue -> do
+    mem <- new
+    inner $ WebBlockHeaderStore given mem queue (\_ _ -> return ()) mgr
+
+withLocalPayloadStore
+    :: Given (PayloadDb HashMapCas)
+    => HTTP.Manager
+    -> (WebBlockPayloadStore HashMapCas -> IO a)
+    -> IO a
+withLocalPayloadStore mgr inner = withNoopQueueServer $ \queue -> do
+    mem <- new
+    inner $ WebBlockPayloadStore given mem queue (\_ _ -> return ()) mgr pact
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.

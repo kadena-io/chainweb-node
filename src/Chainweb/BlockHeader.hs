@@ -142,6 +142,8 @@ import Chainweb.TreeDB (TreeDbEntry(..))
 import Chainweb.Utils
 import Chainweb.Version
 
+import Data.CAS
+
 import Numeric.Additive
 import Numeric.AffineSpace
 
@@ -363,6 +365,11 @@ instance HasChainGraph BlockHeader where
 instance HasChainwebVersion BlockHeader where
     _chainwebVersion = _blockChainwebVersion
     {-# INLINE _chainwebVersion #-}
+
+instance IsCasValue BlockHeader where
+    type CasKeyType BlockHeader = BlockHash
+    casKey = _blockHash
+    {-# INLINE casKey #-}
 
 makeLenses ''BlockHeader
 

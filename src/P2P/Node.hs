@@ -63,7 +63,6 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 
 import Data.Aeson
-import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -89,7 +88,6 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 -- Internal imports
 
-import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -281,14 +279,8 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 -- -------------------------------------------------------------------------- --
 -- Sync Peers
 
-peerBaseUrl :: HostAddress -> BaseUrl
-peerBaseUrl a = BaseUrl Https
-    (B8.unpack . hostnameBytes $ view hostAddressHost a)
-    (int $ view hostAddressPort a)
-    ""
-
 peerClientEnv :: P2pNode -> PeerInfo -> ClientEnv
-peerClientEnv node = mkClientEnv (_p2pNodeManager node) . peerBaseUrl . _peerAddr
+peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 
 -- | Synchronize the peer database with the peer database of the remote peer.
 --

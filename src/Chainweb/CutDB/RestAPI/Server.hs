@@ -42,6 +42,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress

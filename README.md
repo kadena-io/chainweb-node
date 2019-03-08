@@ -152,11 +152,37 @@ stack exec single-chain-example
 
 ## Chainweb Orchestration
 
-A base docker image containing all of Chainweb's dependencies and executables can be created as
+### Docker Images
 
+The following docker images can be found on DockerHub:
+* [chainweb-base](https://hub.docker.com/r/kadena/chainweb-base): Base image containing
+    all of Chainweb's dependencies and executables.
+* [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node): Image that spins up a chainweb bootstrap node. Expects the node's configuration file to be present in `/tmp/test-bootstrap-node.config`.
+
+These docker images can also be created locally using Nix:
 ```sh
-docker load --input $(nix-build --no-out-link docker.nix)
+# Outputs two result tar files, one for the base image and one for the bootstrap image.
+$ nix-build docker.nix
+$ docker load --input result
+$ docker load --input result-2
 ```
+
+NB: 02/21/2019
+MacOS users will need a Linux builder to create docker images using nix. Instructions for seting up a docker builder for nix can be found [here](https://medium.com/@zw3rk/provisioning-a-nixos-server-from-macos-d36055afc4ad).
+
+### Running Kubernetes - TBD
+
+1. Install the Kubernetes command-line tool, [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
+2. Install a local or cloud-based Kubernetes cluster. [Minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/) is a popular local cluster solution. To install an AWS cluster, follow the instructions [here](https://medium.com/containermind/how-to-create-a-kubernetes-cluster-on-aws-in-few-minutes-89dda10354f4).
+3. Install Python 2.7 and the python packages outlined in `scripts/kubernetes/requirements.txt`. If you have `pip` installed you can run `pip install -r scripts/kubernetes/requirements.txt` to install all dependencies.
+4. To create the Kubernetes resources to start up a chainweb bootstrap node, run `python scripts/kubernetes/bootstrap_deploy.py create`.
+5. For instructions on how to interact with Kubernetes, follow these [examples](http://kubernetesbyexample.com/). Note that they are using a Minishift local cluster instead of a Minikube one.
+6. To clean up these resources, run `python scripts/kubernetes/boostrap_deploy.py delete`.
+
+
+NB: 03/06/2019
+To run the cluster with your local docker images, follow the instructions [here](https://blogmilind.wordpress.com/2018/01/30/running-local-docker-images-in-kubernetes/). The script `scripts/dev_startup.sh` automates some of these steps already for minikube clusters. This method will not work for cloud-based clusters.
+
 
 ## Component Structure
 

@@ -1,8 +1,12 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Miner.Test
@@ -22,6 +26,7 @@ import Control.Lens ((^?!))
 import Control.Monad.STM (atomically)
 
 import Data.Reflection (Given, give)
+import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
@@ -36,11 +41,14 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeader
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.NodeId (NodeId)
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
@@ -52,19 +60,22 @@ import Data.LogMessage
 -- Test Miner
 
 testMiner
-    :: LogFunction
+    :: forall cas
+    . PayloadCas cas
+    => LogFunction
     -> MinerConfig
     -> NodeId
     -> CutDb
     -> WebBlockHeaderDb
+    -> PayloadDb cas
     -> IO ()
-testMiner logFun conf nid cutDb wcdb = do
+testMiner logFun conf nid cutDb wcdb payloadDb = do
     logg Info "Started Test Miner"
     gen <- MWC.createSystemRandom
 
     ver <- getVer
 
-    give wcdb $ go gen ver 1
+    give wcdb $ give payloadDb $ go gen ver 1
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
@@ -84,7 +95,13 @@ testMiner logFun conf nid cutDb wcdb = do
     miners :: Natural
     miners = _minerCount $ _configTestMiners conf
 
-    go :: Given WebBlockHeaderDb => MWC.GenIO -> ChainwebVersion -> Int -> IO ()
+    go
+        :: Given WebBlockHeaderDb
+        => Given (PayloadDb cas)
+        => MWC.GenIO
+        -> ChainwebVersion
+        -> Int
+        -> IO ()
     go gen ver !i = do
         nonce0 <- MWC.uniform gen
 
@@ -113,7 +130,12 @@ testMiner logFun conf nid cutDb wcdb = do
             Just (BlockRate n) -> int n
             Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
-    mine :: Given WebBlockHeaderDb => MWC.GenIO -> Word64 -> IO Cut
+    mine
+        :: Given WebBlockHeaderDb
+        => Given (PayloadDb cas)
+        => MWC.GenIO
+        -> Word64
+        -> IO Cut
     mine gen !nonce = do
         -- Get the current longest cut.
         --
@@ -143,8 +165,11 @@ testMiner logFun conf nid cutDb wcdb = do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        let payloadHash = testBlockPayload p
-        testMine (Nonce nonce) target ct payloadHash nid cid c >>= \case
+        let payload = S.fromList
+                [ (Transaction "testTransaction", TransactionOutput "testOutput")
+                ]
+        let payloadHash = _blockPayloadPayloadHash $ newBlockPayload payload
+        testMineWithPayload @cas (Nonce nonce) target ct payloadHash payload nid cid c >>= \case
             Left BadNonce -> mine gen (succ nonce)
             Left BadAdjacents -> mine gen nonce
             Right (T2 _ newCut) -> pure newCut

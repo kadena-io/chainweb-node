@@ -35,6 +35,7 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
     evaluate, finally, handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
+
 import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -46,19 +47,25 @@ import Data.Int (Int64)
 import Data.IORef
     (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef,
     writeIORef)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
 import Pact.Types.Gas (GasPrice(..))
+
 import Prelude hiding (init, lookup)
+
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
-------------------------------------------------------------------------------
+
+-- internal imports
+
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (fromJuste)
 
 
 ------------------------------------------------------------------------------
@@ -398,7 +405,7 @@ lookupInMem lock txs = do
         validated <- readIORef $ _inmemValidated mdata
         confirmed <- readIORef $ _inmemConfirmed mdata
         return $! (q, validated, confirmed)
-    return $! V.map (fromJust . lookupOne q validated confirmed) txs
+    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
   where
     lookupOne q validated confirmed txHash =
         lookupQ q txHash <|>
@@ -555,7 +562,7 @@ reintroduceInMem :: TxBroadcaster t
                  -> IO ()
 reintroduceInMem broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
-                   (V.map fromJust . V.filter isJust) <$>
+                   (V.map fromJuste . V.filter isJust) <$>
                    V.mapM (reintroduceOne mdata) txhashes
     -- we'll rebroadcast reintroduced transactions, clients can filter.
     broadcastTxs newOnes broadcaster
@@ -592,4 +599,3 @@ nextTxId :: IORef SubscriptionId -> IO SubscriptionId
 nextTxId = flip atomicModifyIORef' (dup . (+1))
   where
     dup a = (a, a)
-

@@ -11,6 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
@@ -33,10 +34,6 @@ module Chainweb.CutDB
 , cutDbConfigLogLevel
 , cutDbConfigTelemetryLevel
 , defaultCutDbConfig
-
--- * CutHashes
-, CutHashes(..)
-, cutToCutHashes
 
 -- * CutDb
 , CutDb
@@ -63,7 +60,6 @@ import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
-import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -71,11 +67,9 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
-import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Maybe
@@ -101,15 +95,17 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
+import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS.HashMap
 import Data.Singletons
-
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -129,29 +125,12 @@ defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
 defaultCutDbConfig v = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
-    , _cutDbConfigBufferSize = 10
+    , _cutDbConfigBufferSize = 20
         -- FIXME this should probably depend on the diameter of the graph
+        -- It shouldn't be too big.
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     }
-
--- -------------------------------------------------------------------------- --
--- Cut Hashes
-
-data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHash)
-    , _cutOrigin :: !(Maybe PeerInfo)
-        -- ^ 'Nothing' is used for locally minded Cuts
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable)
-
-instance ToJSON CutHashes
-instance FromJSON CutHashes
-instance NFData CutHashes
-
-cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
-cutToCutHashes p c = CutHashes (_blockHash <$> _cutMap c) p
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -174,23 +153,24 @@ data CutDb = CutDb
         -- For now we treat all peers equal. A local miner is just another peer
         -- that provides new cuts.
 
-    , _cutDbWebBlockHeaderDb :: !WebBlockHeaderDb
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
+    , _cutDbHeaderStore :: !WebBlockHeaderStore
+    , _cutDbPayloadStore :: !(WebBlockPayloadStore HashMapCas)
     }
 
 instance HasChainGraph CutDb where
-    _chainGraph = _chainGraph . _cutDbWebBlockHeaderDb
+    _chainGraph = _chainGraph . _cutDbHeaderStore
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion CutDb where
-    _chainwebVersion = _chainwebVersion . _cutDbWebBlockHeaderDb
+    _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
 cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
-cutDbWebBlockHeaderDb = to _cutDbWebBlockHeaderDb
+cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
@@ -238,20 +218,32 @@ member db cid h = do
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
-withCutDb :: CutDbConfig -> LogFunction -> WebBlockHeaderDb -> (CutDb -> IO a) -> IO a
-withCutDb config logFun wdb = bracket (startCutDb config logFun wdb) stopCutDb
+withCutDb
+    :: CutDbConfig
+    -> LogFunction
+    -> WebBlockHeaderStore
+    -> WebBlockPayloadStore HashMapCas
+    -> (CutDb -> IO a)
+    -> IO a
+withCutDb config logfun headerStore payloadStore
+    = bracket (startCutDb config logfun headerStore payloadStore) stopCutDb
 
-startCutDb :: CutDbConfig -> LogFunction -> WebBlockHeaderDb -> IO CutDb
-startCutDb config logfun wdb = mask_ $ do
+startCutDb
+    :: CutDbConfig
+    -> LogFunction
+    -> WebBlockHeaderStore
+    -> WebBlockPayloadStore HashMapCas
+    -> IO CutDb
+startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     queue <- newTBQueueIO (int $ _cutDbConfigBufferSize config)
-    cutAsync <- give wdb $ asyncWithUnmask $ \u -> u $ processor queue cutVar
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logfun @T.Text Info "CutDB started"
-    return $ CutDb cutVar queue wdb cutAsync logfun
+    return $ CutDb cutVar queue cutAsync logfun headerStore payloadStore
   where
-    processor :: Given WebBlockHeaderDb => TBQueue CutHashes -> TVar Cut -> IO ()
+    processor :: TBQueue CutHashes -> TVar Cut -> IO ()
     processor queue cutVar = do
-        processCuts logfun queue cutVar `catches`
+        processCuts logfun headerStore payloadStore queue cutVar `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
             , Handler $ \(e :: SomeException) ->
                 logfun @T.Text Error $ "CutDB failed: " <> sshow e
@@ -269,18 +261,20 @@ stopCutDb db = cancel (_cutDbAsync db)
 -- headers on indiviual chains.
 --
 processCuts
-    :: Given WebBlockHeaderDb
+    :: PayloadCas cas
     => LogFunction
+    -> WebBlockHeaderStore
+    -> WebBlockPayloadStore cas
     -> TBQueue CutHashes
     -> TVar Cut
     -> IO ()
-processCuts logFun queue cutVar = queueToStream
+processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     & S.filterM (fmap not . isCurrent)
-    & S.mapM cutHashesToBlockHeaderMap
+    & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
     & S.concat
         -- ignore left values for now
     & S.scanM
-        (\a b -> joinIntoHeavier_ (_cutMap a) b)
+        (\a b -> give (_webBlockHeaderStoreCas headerStore) $ joinIntoHeavier_ (_cutMap a) b)
         (readTVarIO cutVar)
         (\c -> atomically (writeTVar cutVar c) >> logFun @T.Text Debug "write new cut")
     & S.effects
@@ -311,14 +305,17 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
         go new
 
 cutHashesToBlockHeaderMap
-    :: Given WebBlockHeaderDb
-    => CutHashes
+    :: PayloadCas cas
+    => WebBlockHeaderStore
+    -> WebBlockPayloadStore cas
+    -> CutHashes
     -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap hs = do
+cutHashesToBlockHeaderMap headerStore payloadStore hs = do
     (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-        & S.mapM tryLookup
+        -- & S.mapM tryLookup
+        & S.mapM tryGetBlockHeader
         & S.partitionEithers
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
         & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -326,12 +323,14 @@ cutHashesToBlockHeaderMap hs = do
         then return $ Right headers
         else return $ Left missing
   where
-    tryLookup (cid, h) =
-        (Right <$> mapM (lookupWebBlockHeaderDb cid) (cid, h)) `catch` \case
-            (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                return $ Left (cid, h)
-            e ->
-                throwM e
+    origin = _cutOrigin hs
+
+    tryGetBlockHeader cv@(cid, h) =
+        (Right <$> mapM (getBlockHeader headerStore payloadStore cid origin) (cid, h))
+            `catch` \case
+                (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
+                    return $ Left cv
+                e -> throwM e
 
 -- -------------------------------------------------------------------------- --
 -- Some CutDB
