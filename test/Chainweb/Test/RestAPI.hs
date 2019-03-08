@@ -92,13 +92,12 @@ tests = testGroup "REST API tests"
 
 tests_ :: Bool -> [TestTree]
 tests_ tls =
-    [ simpleSessionTests tls
-    , putTests tls
-    , pagingTests tls
+    [ simpleSessionTests tls version
+    , putTests tls version
+    , pagingTests tls version
     ]
-
-version :: ChainwebVersion
-version = Test singletonChainGraph
+  where
+    version = Test singletonChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- Test all endpoints on each chain
@@ -110,23 +109,24 @@ type TestClientEnv_ = TestClientEnv MockTx HashMapCas
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
 
-simpleSessionTests :: Bool -> TestTree
-simpleSessionTests tls =
-    withBlockHeaderDbsServer tls (testBlockHeaderDbs version)
-                             (return noMempool)
+simpleSessionTests :: Bool -> ChainwebVersion -> TestTree
+simpleSessionTests tls version =
+    withBlockHeaderDbsServer tls version (testBlockHeaderDbs version) (return noMempool)
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (chainIds_ $ _chainGraph version)
 
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        BlockHeaderDbsTestClientEnv env _ <- envIO
-        res <- runClientM (session step) env
+        BlockHeaderDbsTestClientEnv env _ version <- envIO
+        res <- runClientM (session version step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
-    gbh0 = genesisBlockHeader version cid
 
-    session step = do
+    session version step = do
+
+        let gbh0 = genesisBlockHeader version cid
+
         void $ liftIO $ step "headerClient: get genesis block header"
         gen0 <- headerClient version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
@@ -203,7 +203,7 @@ simpleTest
         -- ^ Test environment
     -> TestTree
 simpleTest msg p session envIO = testCase msg $ do
-    BlockHeaderDbsTestClientEnv env [(_, db)] <- envIO
+    BlockHeaderDbsTestClientEnv env [(_, db)] _ <- envIO
     gbh <- head <$> headers db
     res <- runClientM (session gbh) env
     assertBool ("test failed with unexpected result: " <> sshow res) (p res)
@@ -213,56 +213,56 @@ simpleTest msg p session envIO = testCase msg $ do
 
 putNewBlockHeader :: IO TestClientEnv_ -> TestTree
 putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
-    headerPutClient version (_chainId h0)
+    headerPutClient (_chainwebVersion h0) (_chainId h0)
         . head
         $ testBlockHeadersWithNonce (Nonce 1) h0
 
 putExisting :: IO TestClientEnv_ -> TestTree
 putExisting = simpleTest "put existing block header" isRight $ \h0 ->
-    headerPutClient version (_chainId h0) h0
+    headerPutClient (_chainwebVersion h0) (_chainId h0) h0
 
 putOnWrongChain :: IO TestClientEnv_ -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
-    $ \h0 -> headerPutClient version (_chainId h0)
+    $ \h0 -> headerPutClient (_chainwebVersion h0) (_chainId h0)
         . head
         . testBlockHeadersWithNonce (Nonce 2)
         $ genesisBlockHeader (Test petersonChainGraph) (testChainId 1)
 
 putMissingParent :: IO TestClientEnv_ -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
-    headerPutClient version (_chainId h0)
+    headerPutClient (_chainwebVersion h0) (_chainId h0)
         . (!! 2)
         $ testBlockHeadersWithNonce (Nonce 3) h0
 
 put5NewBlockHeaders :: IO TestClientEnv_ -> TestTree
 put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
-    mapM_ (headerPutClient version (_chainId h0))
+    mapM_ (headerPutClient (_chainwebVersion h0) (_chainId h0))
         . take 5
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
-putTests :: Bool -> TestTree
-putTests tls = withBlockHeaderDbsServer tls (testBlockHeaderDbs version)
-                                            (return noMempool)
-    $ \env -> testGroup "put tests"
-        [ putNewBlockHeader env
-        , putExisting env
-        , putOnWrongChain env
-        , putMissingParent env
-        , put5NewBlockHeaders env
-        ]
+putTests :: Bool -> ChainwebVersion -> TestTree
+putTests tls version =
+    withBlockHeaderDbsServer tls version (testBlockHeaderDbs version) (return noMempool)
+        $ \env -> testGroup "put tests"
+            [ putNewBlockHeader env
+            , putExisting env
+            , putOnWrongChain env
+            , putMissingParent env
+            , put5NewBlockHeaders env
+            ]
 
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
-pagingTests :: Bool -> TestTree
-pagingTests tls =
-    withBlockHeaderDbsServer tls
+pagingTests :: Bool -> ChainwebVersion -> TestTree
+pagingTests tls version =
+    withBlockHeaderDbsServer tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
-        [ testPageLimitHeadersClient env
-        , testPageLimitHashesClient env
-        , testPageLimitBranchesClient env
+        [ testPageLimitHeadersClient version env
+        , testPageLimitHashesClient version env
+        , testPageLimitBranchesClient version env
         ]
 
 pagingTest
@@ -284,7 +284,7 @@ pagingTest
     -> TestTree
 pagingTest name getDbItems getKey fin request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
@@ -296,7 +296,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
     -- hitting `Limit 0`.
 
     , testCaseSteps "test next parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
@@ -305,7 +305,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next paramter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env
@@ -315,7 +315,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] <- envIO
+        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         missing <- missingKey db
         res <- flip runClientM env $ request cid Nothing (Just $ Exclusive missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
@@ -346,17 +346,17 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
         | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
-testPageLimitHeadersClient :: IO TestClientEnv_ -> TestTree
-testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
+testPageLimitHeadersClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
+testPageLimitHeadersClient version = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient version cid l n Nothing Nothing
 
-testPageLimitHashesClient :: IO TestClientEnv_ -> TestTree
-testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
+testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
+testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing
 
-testPageLimitBranchesClient :: IO TestClientEnv_ -> TestTree
-testPageLimitBranchesClient = pagingTest "branchesClient" dbBranches id True request
+testPageLimitBranchesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
+testPageLimitBranchesClient version = pagingTest "branchesClient" dbBranches id True request
   where
     request cid l n = leafHashesClient version cid l n Nothing Nothing

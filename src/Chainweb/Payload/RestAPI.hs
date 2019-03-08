@@ -24,6 +24,16 @@ module Chainweb.Payload.RestAPI
 -- * Payload GET API
 , PayloadGetApi
 , payloadGetApi
+
+-- * Transaction Proof API
+, SpvGetTransactionProofApi
+, spvGetTransactionProofApi
+
+-- * Transaction Output Proof API
+, SpvGetTransactionOutputProofApi
+, spvGetTransactionOutputProofApi
+
+-- * Payload API
 , PayloadApi
 , payloadApi
 
@@ -34,14 +44,21 @@ module Chainweb.Payload.RestAPI
 
 import Control.Monad.Identity
 
+import Crypto.Hash.Algorithms
+
 import Data.Proxy
+
+import Numeric.Natural
 
 import Servant.API
 
 -- internal modules
+
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.SPV
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
@@ -56,9 +73,10 @@ data SomePayloadDb cas = forall v c
     => SomePayloadDb (PayloadDb_ cas v c)
 
 somePayloadDbVal :: forall cas . ChainwebVersion -> ChainId -> PayloadDb cas -> SomePayloadDb cas
-somePayloadDbVal v cid db = case someChainwebVersionVal v of
-     (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
-         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
+somePayloadDbVal v cid db = runIdentity $ do
+    SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
+    SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
+    return $ SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API
@@ -79,9 +97,47 @@ payloadGetApi
 payloadGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- GET Transaction Proof
+
+type SpvGetTransactionProofApi_
+    = "spv"
+    :> "chain" :> Capture "spvChain" ChainId
+    :> "height" :> Capture "spvHeight" BlockHeight
+    :> "transaction" :> Capture "spvTransactionIndex" Natural
+    :> Get '[JSON] (TransactionProof SHA512t_256)
+
+type SpvGetTransactionProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionProofApi_
+
+spvGetTransactionProofApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (SpvGetTransactionProofApi v c)
+spvGetTransactionProofApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- GET Transaction Output Proof
+
+type SpvGetTransactionOutputProofApi_
+    = "spv"
+    :> "chain" :> Capture "spvChain" ChainId
+    :> "height" :> Capture "spvHeight" BlockHeight
+    :> "output" :> Capture "spvTransactionOutputIndex" Natural
+    :> Get '[JSON] (TransactionOutputProof SHA512t_256)
+
+type SpvGetTransactionOutputProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> SpvGetTransactionOutputProofApi_
+
+spvGetTransactionOutputProofApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (SpvGetTransactionOutputProofApi v c)
+spvGetTransactionOutputProofApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- Payload API
 
 type PayloadApi v c = PayloadGetApi v c
+    :<|> SpvGetTransactionProofApi v c
+    :<|> SpvGetTransactionOutputProofApi v c
 
 payloadApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

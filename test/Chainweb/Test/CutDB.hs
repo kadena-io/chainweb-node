@@ -17,6 +17,7 @@
 --
 module Chainweb.Test.CutDB
 ( withTestCutDb
+, withTestPayloadResource
 , randomTransaction
 , randomBlockHeader
 ) where
@@ -35,6 +36,7 @@ import qualified Network.HTTP.Client as HTTP
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
+import Test.Tasty
 
 -- internal modules
 
@@ -104,6 +106,32 @@ withLocalPayloadStore
 withLocalPayloadStore mgr inner = withNoopQueueServer $ \queue -> do
     mem <- new
     inner $ WebBlockPayloadStore given mem queue (\_ _ -> return ()) mgr pact
+
+startTestPayload
+    :: ChainwebVersion
+    -> LogFunction
+    -> WebBlockHeaderDb
+    -> Int
+    -> IO (CutDb, PayloadDb HashMapCas)
+startTestPayload v logfun wdb n = do
+    cutDb <- startCutDb (defaultCutDbConfig v) logfun wdb
+    payloadDb <- emptyPayloadDb @HashMapCas
+    initializePayloadDb v payloadDb
+    give wdb $ give payloadDb $ give cutDb $ foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
+    return (cutDb, payloadDb)
+
+stopTestPayload :: (CutDb, PayloadDb HashMapCas) -> IO ()
+stopTestPayload = stopCutDb . fst
+
+withTestPayloadResource
+    :: ChainwebVersion
+    -> Int
+    -> LogFunction
+    -> (IO (CutDb, PayloadDb HashMapCas) -> TestTree)
+    -> TestTree
+withTestPayloadResource v n logfun = withResource
+    (giveNewWebChain v $ startTestPayload v logfun given n)
+    stopTestPayload
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.

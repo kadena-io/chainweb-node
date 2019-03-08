@@ -30,26 +30,35 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
+import Crypto.Hash.Algorithms
+
 import Data.Aeson
 import Data.Proxy
 import qualified Data.Text.IO as T
 
+import Numeric.Natural
+
 import Prelude hiding (lookup)
 
+import Servant.API
 import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.CutDB
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
+import Chainweb.Payload.SPV
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Handler
@@ -76,11 +85,64 @@ payloadHandler db k = run >>= \case
 err404Msg :: ToJSON msg  => msg -> ServantErr
 err404Msg msg = err404 { errBody = encode msg }
 
+spvGetTransactionProofHandler
+    :: PayloadCas cas
+    => CutDb
+    -> PayloadDb cas
+    -> ChainId
+        -- ^ the target chain of the proof. This is the chain for which
+        -- inclusion is proved.
+    -> ChainId
+        -- ^ the source chain of the proof. This is the chain where the proof
+        -- subject, the transaction for which inclusion is proven, is located.
+    -> BlockHeight
+        -- ^ the block height of the proof subject, the transaction for which
+        -- inclusion is proven.
+    -> Natural
+        -- ^ the index of the proof subject, the transaction for which inclusion
+        -- is proven.
+    -> Handler (TransactionProof SHA512t_256)
+spvGetTransactionProofHandler db cas tcid scid bh i =
+    liftIO $ createTransactionProof db cas tcid scid bh (int i)
+    -- FIXME: add proper error handling
+
+spvGetTransactionOutputProofHandler
+    :: PayloadCas cas
+    => CutDb
+    -> PayloadDb cas
+    -> ChainId
+        -- ^ the target chain of the proof. This is the chain for which inclusion
+        -- is proved.
+    -> ChainId
+        -- ^ the source chain of the proof. This is the chain where the proof
+        -- subject, the transaction  output for which inclusion is proven, is
+        -- located.
+    -> BlockHeight
+        -- ^ the block height of the proof subject, the transaction output for
+        -- which inclusion is proven.
+    -> Natural
+        -- ^ the index of the proof subject, the transaction output for which
+        -- inclusion is proven.
+    -> Handler (TransactionOutputProof SHA512t_256)
+spvGetTransactionOutputProofHandler db cas tcid scid bh i =
+    liftIO $ createTransactionOutputProof db cas tcid scid bh (int i)
+    -- FIXME: add proper error handling
+
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
 
-payloadServer :: PayloadCas cas => PayloadDb_ cas v c -> Server (PayloadApi v c)
-payloadServer (PayloadDb_ db) = payloadHandler db
+payloadServer
+    :: forall cas v (c :: ChainIdT)
+    . PayloadCas cas
+    => KnownChainIdSymbol c
+    => CutDb
+    -> PayloadDb_ cas v c
+    -> Server (PayloadApi v c)
+payloadServer cutDb (PayloadDb_ db) = payloadHandler db
+    :<|> (spvGetTransactionProofHandler cutDb db tcid)
+    :<|> (spvGetTransactionOutputProofHandler cutDb db tcid)
+  where
+    tcid = fromSing (sing :: Sing c)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -90,9 +152,10 @@ payloadApp
     . PayloadCas cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb_ cas v c
+    => CutDb
+    -> PayloadDb_ cas v c
     -> Application
-payloadApp db = serve (Proxy @(PayloadApi v c)) (payloadServer db)
+payloadApp cutDb db = serve (Proxy @(PayloadApi v c)) (payloadServer cutDb db)
 
 payloadApiLayout
     :: forall cas v c
@@ -105,14 +168,16 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-somePayloadServer :: PayloadCas cas => SomePayloadDb cas -> SomeServer
-somePayloadServer (SomePayloadDb (db :: PayloadDb_ cas v c))
-    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
+somePayloadServer :: PayloadCas cas => CutDb -> SomePayloadDb cas -> SomeServer
+somePayloadServer cutDb (SomePayloadDb (db :: PayloadDb_ cas v c))
+    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer cutDb db)
 
 somePayloadServers
     :: PayloadCas cas
     => ChainwebVersion
+    -> CutDb
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer
-somePayloadServers v = mconcat
-    . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
+somePayloadServers v cutDb = mconcat
+    . fmap (somePayloadServer cutDb . uncurry (somePayloadDbVal v))
+

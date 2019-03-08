@@ -50,7 +50,7 @@ newTestServer inMemCfg = mask_ $ do
     server inmemMv envMv restore =
         InMem.withInMemoryMempool inMemCfg $ \inmem -> do
             putMVar inmemMv inmem
-            restore $ withTestAppServer True (return $! mkApp inmem) mkEnv $ \env -> do
+            restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
                 putMVar envMv env
                 atomically retry
 
