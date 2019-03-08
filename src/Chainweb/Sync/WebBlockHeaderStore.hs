@@ -36,6 +36,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 
 -- *
 , WebBlockPayloadStore(..)
+, newWebPayloadStore
 
 -- * Utils
 , lookupCache
@@ -375,12 +376,27 @@ data WebBlockHeaderStore = WebBlockHeaderStore
 newWebBlockHeaderStore
     :: HTTP.Manager
     -> WebBlockHeaderDb
-    -> PQueue (Task ClientEnv (ChainValue BlockHeader))
     -> LogFunction
     -> IO WebBlockHeaderStore
-newWebBlockHeaderStore mgr wdb queue logfun = do
+newWebBlockHeaderStore mgr wdb logfun = do
     m <- new
+    queue <- newEmptyPQueue
     return $ WebBlockHeaderStore wdb m queue logfun mgr
+
+newWebPayloadStore
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> HTTP.Manager
+    -> PactExectutionService
+    -> LogFunction
+    -> IO (WebBlockPayloadStore cas)
+newWebPayloadStore v mgr pact logfun = do
+    payloadTaskQueue <- newEmptyPQueue
+    payloadCas <- emptyPayloadDb
+    initializePayloadDb v payloadCas
+    payloadMemo <- new
+    return $ WebBlockPayloadStore
+        payloadCas payloadMemo payloadTaskQueue logfun mgr pact
 
 instance HasChainwebVersion WebBlockHeaderStore where
     _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas

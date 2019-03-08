@@ -177,9 +177,7 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.HashMap hiding (toList)
-import Data.HashMap.Weak
 import Data.LogMessage
-import Data.PQueue
 
 import Network.X509.SelfSigned
 
@@ -326,16 +324,10 @@ withCuts
 withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain mgr f = do
 
     -- initialize blockheader store
-    taskQueue <- newEmptyPQueue
-    headerStore <- newWebBlockHeaderStore mgr webchain taskQueue (_getLogFunction logfun)
+    headerStore <- newWebBlockHeaderStore mgr webchain (_getLogFunction logfun)
 
     -- initialize payload store
-    payloadTaskQueue <- newEmptyPQueue
-    payloadCas <- emptyPayloadDb
-    initializePayloadDb v payloadCas
-    payloadMemo <- new
-    let payloadStore = WebBlockPayloadStore
-            payloadCas payloadMemo payloadTaskQueue (_getLogFunction logfun) mgr pact
+    payloadStore <- newWebPayloadStore v mgr pact (_getLogFunction logfun)
 
     withCutDb cutDbConfig (_getLogFunction logfun) headerStore payloadStore $ \cutDb ->
         f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun headerStore payloadStore
