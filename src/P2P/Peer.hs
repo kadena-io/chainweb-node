@@ -426,7 +426,7 @@ testnet00BootstrapPeerInfo = PeerInfo
 
 -- This can be changed as needed.
 testnetBootstrapHost :: Hostname
-testnetBootstrapHost = unsafeHostnameFromText "https://us1.chainweb.com"
+testnetBootstrapHost = unsafeHostnameFromText "us1.chainweb.com"
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
