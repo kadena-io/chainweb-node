@@ -101,10 +101,9 @@ payloadGetApi = Proxy
 
 type SpvGetTransactionProofApi_
     = "spv"
-    :> "transaction"
-    :> Capture "sourceChain" ChainId
-    :> Capture "sourceHeight" BlockHeight
-    :> Capture "sourceIndex" Natural
+    :> "chain" :> Capture "spvChain" ChainId
+    :> "height" :> Capture "spvHeight" BlockHeight
+    :> "transaction" :> Capture "spvTransactionIndex" Natural
     :> Get '[JSON] (TransactionProof SHA512t_256)
 
 type SpvGetTransactionProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -120,10 +119,9 @@ spvGetTransactionProofApi = Proxy
 
 type SpvGetTransactionOutputProofApi_
     = "spv"
-    :> "output"
-    :> Capture "sourceChain" ChainId
-    :> Capture "sourceHeight" BlockHeight
-    :> Capture "sourceIndex" Natural
+    :> "chain" :> Capture "spvChain" ChainId
+    :> "height" :> Capture "spvHeight" BlockHeight
+    :> "output" :> Capture "spvTransactionOutputIndex" Natural
     :> Get '[JSON] (TransactionOutputProof SHA512t_256)
 
 type SpvGetTransactionOutputProofApi (v :: ChainwebVersionT) (c :: ChainIdT)
