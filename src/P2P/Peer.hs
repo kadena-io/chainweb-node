@@ -36,6 +36,7 @@ module P2P.Peer
 , pPeerInfo
 , pPeerInfoCompact
 , arbitraryPeerInfo
+, peerInfoClientEnv
 
 -- * Peer Configuration
 , PeerConfig(..)
@@ -80,6 +81,10 @@ import qualified Data.Text as T
 
 import GHC.Generics (Generic)
 import GHC.Stack
+
+import qualified Network.HTTP.Client as HTTP
+
+import Servant.Client
 
 import Test.QuickCheck
 
@@ -224,6 +229,15 @@ pPeerInfoCompact service = textOption
     <> suffixHelp service "peer info"
     <> metavar "<PEERID>:<HOSTADDRESS>"
 
+-- | Create a ClientEnv for querying HTTP API of a PeerInfo
+--
+peerInfoClientEnv :: HTTP.Manager -> PeerInfo -> ClientEnv
+peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
+  where
+    peerBaseUrl a = BaseUrl Https
+        (B8.unpack . hostnameBytes $ view hostAddressHost a)
+        (int $ view hostAddressPort a)
+        ""
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration
 

@@ -33,11 +33,13 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Peer
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
@@ -66,15 +68,15 @@ getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: ChainwebVersion -> CutDb -> P2pSession
-syncSession v db logg env = do
+syncSession :: ChainwebVersion -> PeerInfo -> CutDb -> P2pSession
+syncSession v p db logg env = do
     race_
-        (void $ S.mapM_ send $ S.map (cutToCutHashes Nothing) $ cutStream db)
+        (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
         (forever $ receive >> threadDelay 1000000)
             -- FIXME make this configurable or dynamic
 
     -- this code must not be reached
-    void $ logg @T.Text Error "unexpectedly exited cut sync session"
+    logg @T.Text Error "unexpectedly exited cut sync session"
     return False
   where
     cenv = CutClientEnv v env

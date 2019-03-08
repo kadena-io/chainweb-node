@@ -61,7 +61,8 @@ library
     default-language: Haskell2010
     hs-source-dirs: src
     exposed-modules:
-          Chainweb.BlockHash
+          BackCompat.Test.QuickCheck
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Validation
@@ -73,6 +74,7 @@ library
         , Chainweb.Chainweb
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client
@@ -110,6 +112,8 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Store.Git
         , Chainweb.Store.Git.Internal
+        , Chainweb.Sync.WebBlockHeaderStore
+        , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -129,7 +133,12 @@ library
         , Data.CAS.HashMap
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
+        , Data.HashMap.Weak
+        , Data.HashMap.Weak.Test
+        , Data.IVar
         , Data.LogMessage
+        , Data.PQueue
+        , Data.PQueue.Test
         , Data.Singletons
         , Data.Word.Encoding
 
@@ -147,6 +156,8 @@ library
         , P2P.Node.RestAPI.Client
         , P2P.Peer
         , P2P.Session
+        , P2P.TaskQueue
+        , P2P.TaskQueue.Test
 
         -- pact
         , Chainweb.Pact.Backend.InMemoryCheckpointer

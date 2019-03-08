@@ -114,6 +114,12 @@ module Chainweb.Utils
 , InternalInvariantViolation(..)
 , eatIOExceptions
 
+-- ** Synchronous Exceptions
+, catchSynchronous
+, catchAllSynchronous
+, trySynchronous
+, tryAllSynchronous
+
 -- * Command Line Options
 , OptionParser
 , prefixLong
@@ -141,7 +147,8 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
-import Control.Exception (IOException, bracket, evaluate)
+import Control.DeepSeq
+import Control.Exception (IOException, SomeAsyncException(..), bracket, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -189,8 +196,8 @@ import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
 import System.Path.IO (getTemporaryDirectory)
 import System.Random (randomIO)
 import System.Timeout
-import Text.Printf (printf)
 
+import Text.Printf (printf)
 import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
@@ -568,6 +575,51 @@ newtype InternalInvariantViolation = InternalInvariantViolation T.Text
 
 instance Exception InternalInvariantViolation
 
+eatIOExceptions :: IO () -> IO ()
+eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
+
+catchSynchronous
+    :: MonadCatch m
+    => Exception e
+    => NFData a
+    => m a
+    -> (e -> m a)
+    -> m a
+catchSynchronous a f = force <$> a `catches`
+    [ Handler $ throwM @_ @SomeAsyncException
+    , Handler f
+    ]
+{-# INLINE catchSynchronous #-}
+
+trySynchronous
+    :: MonadCatch m
+    => Exception e
+    => NFData a
+    => m a
+    -> m (Either e a)
+trySynchronous a = (Right <$> a) `catches`
+    [ Handler $ throwM @_ @SomeAsyncException
+    , Handler $ pure . Left
+    ]
+{-# INLINE trySynchronous #-}
+
+catchAllSynchronous
+    :: MonadCatch m
+    => NFData a
+    => m a
+    -> (SomeException -> m a)
+    -> m a
+catchAllSynchronous = catchSynchronous
+{-# INLINE catchAllSynchronous #-}
+
+tryAllSynchronous
+    :: MonadCatch m
+    => NFData a
+    => m a
+    -> m (Either SomeException a)
+tryAllSynchronous = trySynchronous
+{-# INLINE tryAllSynchronous #-}
+
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
 
@@ -674,9 +726,6 @@ data Codec t = Codec {
     codecEncode :: t -> ByteString
   , codecDecode :: ByteString -> Either String t
 }
-
-eatIOExceptions :: IO () -> IO ()
-eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 
 -- | Perform an action over a random path under @/tmp@. Example path:
 --
