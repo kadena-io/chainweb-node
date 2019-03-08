@@ -68,13 +68,10 @@ pQueueRemove (PQueue s q) = mask_ $ do
         -- waitQSem this is interruptible, which is fine. We need to be in
         -- masked state only after waitQSem succeeds.
 
-    h <- takeMVar q `onException` signalQSem s
+    modifyMVar q (return . (\(a,!b) -> (b, a)) . fromJust . H.uncons)
+        `onException` signalQSem s
         -- modifyMVar is interruptible and we must ensure that we return
         -- the semaphor if we receive an exception while waiting.
-
-    (!a, !h') <- evaluate (fromJust $ H.uncons h) `onException` putMVar q h
+        --
         -- the @fromJust@ here is guaranteed to succeed
-
-    putMVar q h'
-    return a
 

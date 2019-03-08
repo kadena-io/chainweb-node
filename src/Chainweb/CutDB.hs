@@ -325,11 +325,11 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
   where
     origin = _cutOrigin hs
 
-    tryGetBlockHeader (cid, h) =
+    tryGetBlockHeader cv@(cid, h) =
         (Right <$> mapM (getBlockHeader headerStore payloadStore cid origin) (cid, h))
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                    return $ Left (cid, h)
+                    return $ Left cv
                 e -> throwM e
 
 -- -------------------------------------------------------------------------- --

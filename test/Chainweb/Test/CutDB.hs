@@ -25,8 +25,6 @@ import Control.Lens hiding (elements)
 import Control.Monad
 import Control.Monad.STM
 
--- import qualified Data.HashMap.Weak as WHM
--- import qualified Data.PQueue as Q
 import Data.Reflection
 import qualified Data.Sequence as Seq
 import Data.Tuple.Strict
