@@ -19,7 +19,6 @@ module Chainweb.CutDB.Sync
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad
-import Control.Monad.STM
 
 import qualified Data.Text as T
 
@@ -88,4 +87,5 @@ syncSession v p db logg env = do
     receive = do
         c <- getCut cenv
         logg @T.Text Debug $ "got cut " <> sshow c
-        atomically $ addCutHashes db c
+        addCutHashes db c
+

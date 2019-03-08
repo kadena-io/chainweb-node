@@ -31,7 +31,6 @@ module Chainweb.CutDB.RestAPI.Server
 ) where
 
 import Control.Monad.Except
-import Control.Monad.STM
 
 import Data.Proxy
 
@@ -64,9 +63,7 @@ cutPutHandler
     :: CutDb
     -> CutHashes
     -> Handler NoContent
-cutPutHandler db c = NoContent <$ do
-    unlessM (liftIO (atomically $ tryAddCutHashes db c))
-        $ throwError $ err503 { errBody = "cut queue is full" }
+cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server

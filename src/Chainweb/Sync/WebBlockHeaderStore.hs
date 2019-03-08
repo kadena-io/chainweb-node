@@ -208,12 +208,13 @@ data WebBlockPayloadStore cas = WebBlockPayloadStore
 getBlockPayload
     :: PayloadCas cas
     => WebBlockPayloadStore cas
+    -> Priority
     -> Maybe PeerInfo
         -- ^ Peer from with the BlockPayloadHash originated, if available.
     -> BlockHeader
         -- ^ The BlockHeader for which the payload is requested
     -> IO PayloadWithOutputs
-getBlockPayload s maybeOrigin h
+getBlockPayload s priority maybeOrigin h
     = memoCache cas memoMap payloadHash $ \k -> do
         payload <- pullOrigin k maybeOrigin >>= \case
             Nothing -> do
@@ -257,7 +258,7 @@ getBlockPayload s maybeOrigin h
     -- | Query a block payload via the tasj queue
     --
     queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadWithOutputs)
-    queryPayloadTask k = newTask (sshow k) (Priority 0) $ \logg env -> do
+    queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ "task " <> sshow k <> ": query remote block payload"
         runClientM (payloadClient v cid k) env >>= \case
             Right x -> do
@@ -279,14 +280,15 @@ getBlockHeaderInternal
     :: PayloadCas payloadCas
     => WebBlockHeaderStore
     -> WebBlockPayloadStore payloadCas
+    -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal headerStore payloadStore maybeOrigin h
+getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
     = memoCache cas memoMap h $ \k -> do
 
-        -- query BlockHeader via origin or query BlockHeader via task queue of P2P
-        -- network
+        -- query BlockHeader via origin or query BlockHeader via task queue of
+        -- P2P network
         --
         header <- pullOrigin k maybeOrigin >>= \case
             Nothing -> do
@@ -298,14 +300,15 @@ getBlockHeaderInternal headerStore payloadStore maybeOrigin h
 
         let queryHeader = Concurrently
                 . void
-                . getBlockHeaderInternal headerStore payloadStore maybeOrigin
+                . getBlockHeaderInternal headerStore payloadStore priority maybeOrigin
 
         runConcurrently $ mconcat
             -- query parent (recursively)
             $ queryHeader (_blockParent <$> chainValue header)
 
             -- query payload
-            : Concurrently (void (getBlockPayload payloadStore maybeOrigin header))
+            : Concurrently
+                (void (getBlockPayload payloadStore priority maybeOrigin header))
 
             -- query adjacent parents (recursively)
             : (queryHeader <$> adjParents header)
@@ -326,7 +329,7 @@ getBlockHeaderInternal headerStore payloadStore maybeOrigin h
     logfun = _webBlockHeaderStoreLogFunction headerStore
 
     queryBlockHeaderTask ck@(ChainValue cid k)
-        = newTask (sshow ck) (Priority 0) $ \logg env -> chainValue <$> do
+        = newTask (sshow ck) priority $ \logg env -> chainValue <$> do
             logg @T.Text Debug $ "task " <> sshow ck <> ": query remote block header"
             r <- TDB.lookupM (rDb v cid logfun env) k `catchAllSynchronous` \e -> do
                 logg @T.Text Debug $ "task " <> sshow ck <> " failed: " <> sshow e
@@ -411,16 +414,18 @@ getBlockHeader
     => WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> ChainId
+    -> Priority
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore payloadStore cid maybeOrigin h
+getBlockHeader headerStore payloadStore cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
     go = getBlockHeaderInternal
         headerStore
         payloadStore
+        priority
         maybeOrigin
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}

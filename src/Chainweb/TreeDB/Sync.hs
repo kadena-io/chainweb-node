@@ -172,17 +172,19 @@ syncSession_
         -- ^ Whether to gossip around newly discovered block headers. For a
         -- multi-chain scenario this is not needed, since new Cuts are gossiped
         -- around in the network.
+    -> Int
+        -- ^ Delay between full synchronizations in microseconds
     -> local
     -> PeerTree peer
     -> Depth
     -> LogFunction
     -> IO Bool
-syncSession_ sendBlocks local peer d logg = do
+syncSession_ sendBlocks fullSyncDelay local peer d logg = do
     receiveBlockHeaders
     m <- maxHeader local
 
     let gossip = S.mapM_ send $ allEntries local (Just $ Exclusive $ key m)
-        fullSync = forever $ receiveBlockHeaders >> threadDelay 5000000
+        fullSync = forever $ receiveBlockHeaders >> threadDelay fullSyncDelay
             -- FIXME make this configurable or dynamic
     if
         | sendBlocks -> race_ gossip fullSync
@@ -214,13 +216,15 @@ syncSession
         -- ^ Whether to gossip around newly discovered block headers. For a
         -- multi-chain scenario this is not needed, since new Cuts are gossiped
         -- around in the network.
+    -> Int
+        -- ^ Delay between full synchronizations in microseconds
     -> local
     -> PeerTree peer
     -> Depth
     -> LogFunction
     -> IO Bool
-syncSession sendBlocks local peer depth logFun =
-    try (syncSession_ sendBlocks local peer depth logFun) >>= \case
+syncSession sendBlocks fullSyncDelay local peer depth logFun =
+    try (syncSession_ sendBlocks fullSyncDelay local peer depth logFun) >>= \case
         Left e -> do
             case sshow @SomeException e of
                 "<<Timeout>>" -> logg Debug "Session timeout"
@@ -248,11 +252,11 @@ singleChainSyncSession
     -> Depth
     -> LogFunction
     -> IO Bool
-singleChainSyncSession = syncSession True
+singleChainSyncSession = syncSession True 5000000 {- 5 seconds -}
 
 -- | A sync session that does
 --
--- * a full sync at the beginning and then every 5 seconds.
+-- * a full sync at the beginning and then every minute.
 --
 chainwebSyncSession
     :: BlockHeaderTreeDb local
@@ -262,7 +266,7 @@ chainwebSyncSession
     -> Depth
     -> LogFunction
     -> IO Bool
-chainwebSyncSession = syncSession False
+chainwebSyncSession = syncSession False 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Utils
