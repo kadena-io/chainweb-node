@@ -90,9 +90,17 @@ spvGetTransactionProofHandler
     => CutDb
     -> PayloadDb cas
     -> ChainId
+        -- ^ the target chain of the proof. This is the chain for which
+        -- inclusion is proved.
     -> ChainId
+        -- ^ the source chain of the proof. This is the chain where the proof
+        -- subject, the transaction for which inclusion is proven, is located.
     -> BlockHeight
+        -- ^ the block height of the proof subject, the transaction for which
+        -- inclusion is proven.
     -> Natural
+        -- ^ the index of the proof subject, the transaction for which inclusion
+        -- is proven.
     -> Handler (TransactionProof SHA512t_256)
 spvGetTransactionProofHandler db cas tcid scid bh i =
     liftIO $ createTransactionProof db cas tcid scid bh (int i)
@@ -103,9 +111,18 @@ spvGetTransactionOutputProofHandler
     => CutDb
     -> PayloadDb cas
     -> ChainId
+        -- ^ the target chain of the proof. This is the chain for which inclusion
+        -- is proved.
     -> ChainId
+        -- ^ the source chain of the proof. This is the chain where the proof
+        -- subject, the transaction  output for which inclusion is proven, is
+        -- located.
     -> BlockHeight
+        -- ^ the block height of the proof subject, the transaction output for
+        -- which inclusion is proven.
     -> Natural
+        -- ^ the index of the proof subject, the transaction output for which
+        -- inclusion is proven.
     -> Handler (TransactionOutputProof SHA512t_256)
 spvGetTransactionOutputProofHandler db cas tcid scid bh i =
     liftIO $ createTransactionOutputProof db cas tcid scid bh (int i)
