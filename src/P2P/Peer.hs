@@ -74,7 +74,6 @@ import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.Hashable
-import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T

@@ -44,7 +44,6 @@ import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Hashable
-import Data.Maybe
 import Data.Proxy
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup hiding (option)
@@ -55,7 +54,7 @@ import GHC.Generics (Generic)
 
 import Test.QuickCheck
 
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck.Instances ()
 
 -- Internal imports
 
@@ -172,4 +171,3 @@ instance SingKind NetworkIdT where
 
     toSing (ChainNetwork (FromSing c)) = withSingI c $ SomeSing (SChainNetwork c)
     toSing CutNetwork = SomeSing SCutNetwork
-

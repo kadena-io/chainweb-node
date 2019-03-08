@@ -18,7 +18,6 @@ import Control.Lens ((^.))
 import Data.Function ((&))
 import qualified Data.HashSet as HS
 import Data.Int (Int64)
-import Data.Maybe (fromJust)
 import Data.Semigroup (Max(..), Min(..))
 
 import Numeric.Natural (Natural)
@@ -31,7 +30,7 @@ import Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.TreeDB
-import Chainweb.Utils (int)
+import Chainweb.Utils (fromJust, int)
 import Chainweb.Version (ChainwebVersion)
 
 ---

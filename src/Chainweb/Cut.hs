@@ -108,7 +108,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
 import Data.Int (Int64)
-import Data.Maybe
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)

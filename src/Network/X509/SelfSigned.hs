@@ -113,7 +113,7 @@ import Data.Foldable (toList)
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe
+import Data.Maybe (maybeToList)
 import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
 import Data.Proxy
 import Data.String (fromString)

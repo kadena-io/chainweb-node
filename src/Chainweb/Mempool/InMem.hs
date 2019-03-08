@@ -35,6 +35,7 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
     evaluate, finally, handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
+
 import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -46,19 +47,25 @@ import Data.Int (Int64)
 import Data.IORef
     (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef,
     writeIORef)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
 import Pact.Types.Gas (GasPrice(..))
+
 import Prelude hiding (init, lookup)
+
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
-------------------------------------------------------------------------------
+
+-- internal imports
+
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (fromJust)
 
 
 ------------------------------------------------------------------------------
@@ -592,4 +599,3 @@ nextTxId :: IORef SubscriptionId -> IO SubscriptionId
 nextTxId = flip atomicModifyIORef' (dup . (+1))
   where
     dup a = (a, a)
-

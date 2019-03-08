@@ -47,7 +47,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Random as BR
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
-import Data.Maybe
 import Data.Proxy
 
 import Foreign.Storable

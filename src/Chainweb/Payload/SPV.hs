@@ -37,7 +37,6 @@ import Crypto.Hash.Algorithms
 
 import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as N
-import Data.Maybe
 import Data.MerkleLog
 import Data.Reflection (Given, give, given)
 import qualified Data.Text as T
@@ -407,4 +406,3 @@ crumbsToChain srcCid trgHeader
 
         let adjIdx = fromJust $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)
-

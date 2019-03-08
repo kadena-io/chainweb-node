@@ -86,7 +86,7 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
-import Data.Maybe
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Typeable
 

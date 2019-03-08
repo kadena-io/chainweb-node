@@ -109,11 +109,10 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable
 import qualified Data.List as L
-import Data.Maybe
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Word (Word8, Word16)
+import Data.Word (Word16, Word8)
 
 import GHC.Generics
 
@@ -425,4 +424,3 @@ properties =
     [ ("readHostnameBytes", property prop_readHostnameBytes)
     , ("readHostAddressBytes", property prop_readHostAddressBytes)
     ]
-

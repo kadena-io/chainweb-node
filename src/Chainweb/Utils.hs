@@ -108,6 +108,7 @@ module Chainweb.Utils
 , (==?)
 , check
 , fromMaybeM
+, fromJust
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
@@ -140,7 +141,7 @@ module Chainweb.Utils
 
 import Configuration.Utils
 
-import Control.Exception (IOException, evaluate, bracket)
+import Control.Exception (IOException, bracket, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -164,7 +165,6 @@ import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Maybe
 import Data.Monoid (Endo)
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
@@ -175,6 +175,7 @@ import qualified Data.Text.Lazy as TL
 import Data.Word (Word64)
 
 import GHC.Generics
+import GHC.Stack (HasCallStack)
 
 import Numeric.Natural
 
@@ -545,6 +546,10 @@ check e a b = do
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
 {-# INLINE fromMaybeM #-}
+
+fromJust :: HasCallStack => Maybe a -> a
+fromJust Nothing = error "Chainweb.Utils.fromJust: Nothing"
+fromJust (Just a) = a
 
 (???) :: MonadThrow m => Exception e => Maybe a -> e -> m a
 (???) = flip fromMaybeM
