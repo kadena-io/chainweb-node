@@ -86,6 +86,7 @@ function run-node () {
             --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
+            --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
@@ -100,6 +101,7 @@ function run-node () {
             --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
+            --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \
