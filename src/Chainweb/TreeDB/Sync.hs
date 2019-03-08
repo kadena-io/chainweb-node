@@ -173,7 +173,7 @@ syncSession_
         -- multi-chain scenario this is not needed, since new Cuts are gossiped
         -- around in the network.
     -> Int
-        -- ^ Delay between full synchronizations in milliseconds
+        -- ^ Delay between full synchronizations in microseconds
     -> local
     -> PeerTree peer
     -> Depth
@@ -217,7 +217,7 @@ syncSession
         -- multi-chain scenario this is not needed, since new Cuts are gossiped
         -- around in the network.
     -> Int
-        -- ^ Delay between full synchronizations in milliseconds
+        -- ^ Delay between full synchronizations in microseconds
     -> local
     -> PeerTree peer
     -> Depth
@@ -252,7 +252,7 @@ singleChainSyncSession
     -> Depth
     -> LogFunction
     -> IO Bool
-singleChainSyncSession = syncSession True 5000000
+singleChainSyncSession = syncSession True 5000000 {- 5 seconds -}
 
 -- | A sync session that does
 --
@@ -266,7 +266,7 @@ chainwebSyncSession
     -> Depth
     -> LogFunction
     -> IO Bool
-chainwebSyncSession = syncSession False 60000000
+chainwebSyncSession = syncSession False 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Utils
