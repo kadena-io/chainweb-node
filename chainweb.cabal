@@ -102,6 +102,8 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.Payload.SPV
+        , Chainweb.Payload.SPV.CreateProof
+        , Chainweb.Payload.SPV.VerifyProof
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Health

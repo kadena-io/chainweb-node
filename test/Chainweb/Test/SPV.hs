@@ -46,7 +46,8 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.Payload.RestAPI.Client
-import Chainweb.Payload.SPV
+import Chainweb.Payload.SPV.CreateProof
+import Chainweb.Payload.SPV.VerifyProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Utils
 import Chainweb.Utils

@@ -52,6 +52,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.Payload.SPV
+import Chainweb.Payload.SPV.CreateProof
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
