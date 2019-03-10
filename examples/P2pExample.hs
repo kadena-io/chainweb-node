@@ -198,7 +198,7 @@ timer seconds = do
 
 node :: ChainId -> Natural -> Logger SomeLogMessage -> P2pConfiguration -> IO ()
 node cid t logger conf = do
-    (c, sock, peer) <- allocatePeer $ _p2pConfigPeer conf
+    ChainwebPeer c peer sock <- allocatePeer $ _p2pConfigPeer conf
     withLoggerLabel ("node", sshow (_peerConfigPort c)) logger $ \logger' -> do
 
         let logfun l = loggerFunIO logger' (l2l l)

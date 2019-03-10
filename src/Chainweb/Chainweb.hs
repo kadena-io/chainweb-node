@@ -268,6 +268,17 @@ pChainwebConfiguration = id
 -- -------------------------------------------------------------------------- --
 -- Allocate Peer Resources
 
+data ChainwebPeer = ChainwebPeer
+    { _chainwebPeerConfig :: !PeerConfig
+        -- ^ configuration of this peer
+    , _chainwebPeerPeer :: !Peer
+        -- ^ local peer of this chainweb node
+    , _chainwebPeerSocket :: !Socket
+        -- ^ a socket that is used by the server of this peer
+    }
+
+-- makeLenses ''ChainwebPeer
+
 -- | Allocate Peer resources. All P2P networks of a chainweb node share the a
 -- single Peer and the associated underlying network resources.
 --
@@ -277,12 +288,13 @@ pChainwebConfiguration = id
 -- * Generate a new certifcate, if none is provided in the configuration, and
 -- * adjust the P2PConfig with the new values.
 --
-allocatePeer :: PeerConfig -> IO (PeerConfig, Socket, Peer)
+allocatePeer :: PeerConfig -> IO ChainwebPeer
 allocatePeer conf = do
     (p, sock) <- bindPortTcp (_peerConfigPort conf) (_peerConfigInterface conf)
     let conf' = set peerConfigPort p conf
     peer <- unsafeCreatePeer conf'
-    return (conf', sock, peer)
+
+    return $ ChainwebPeer conf' peer sock
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer
@@ -290,8 +302,8 @@ peerServerSettings peer
     . setHost (_peerInterface peer)
     $ defaultSettings
 
-withPeer :: PeerConfig -> ((PeerConfig, Socket, Peer) -> IO a) -> IO a
-withPeer conf = bracket (allocatePeer conf) (\(_, sock, _) -> close sock)
+withPeer :: PeerConfig -> (ChainwebPeer -> IO a) -> IO a
+withPeer conf = bracket (allocatePeer conf) $ close . _chainwebPeerSocket
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -657,7 +669,7 @@ withChainweb
     -> ChainwebLogFunctions
     -> (Chainweb -> IO a)
     -> IO a
-withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(c, sock, peer) ->
+withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(ChainwebPeer c peer sock) ->
     withChainwebInternal (set confLens c conf) logFuns sock peer inner
   where
     confLens :: Lens' ChainwebConfiguration PeerConfig
