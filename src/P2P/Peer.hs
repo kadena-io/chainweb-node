@@ -393,7 +393,7 @@ bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Simulation{} = error
     $ "bootstrap peer info isn't defined for chainweb version Simulation"
-bootstrapPeerInfos Testnet00 = [testnet00BootstrapPeerInfo]
+bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -415,18 +415,26 @@ testBootstrapPeerInfos =
             }
         }
 
-testnet00BootstrapPeerInfo :: PeerInfo
-testnet00BootstrapPeerInfo = PeerInfo
-    { _peerId = Nothing
-    , _peerAddr = HostAddress
-        { _hostAddressHost = testnetBootstrapHost
-        , _hostAddressPort = 443
+testnet00BootstrapPeerInfo :: [PeerInfo]
+testnet00BootstrapPeerInfo = map f testnetBootstrapHosts
+  where
+    f hn = PeerInfo
+        { _peerId = Nothing
+        , _peerAddr = HostAddress
+            { _hostAddressHost = hn
+            , _hostAddressPort = 443
+            }
         }
-    }
 
--- This can be changed as needed.
-testnetBootstrapHost :: Hostname
-testnetBootstrapHost = unsafeHostnameFromText "us1.chainweb.com"
+-- | Official TestNet bootstrap nodes.
+--
+testnetBootstrapHosts :: [Hostname]
+testnetBootstrapHosts = map unsafeHostnameFromText
+    [ "us1.chainweb.com"
+    , "us2.chainweb.com"
+    , "eu1.chainweb.com"
+    , "eu2.chainweb.com"
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
