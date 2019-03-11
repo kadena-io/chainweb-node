@@ -58,7 +58,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
-import Chainweb.Payload.SPV
+import Chainweb.SPV
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)

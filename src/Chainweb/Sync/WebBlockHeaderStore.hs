@@ -36,6 +36,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 
 -- *
 , WebBlockPayloadStore(..)
+, newEmptyWebPayloadStore
 , newWebPayloadStore
 
 -- * Utils
@@ -386,17 +387,26 @@ newWebBlockHeaderStore mgr wdb logfun = do
     queue <- newEmptyPQueue
     return $ WebBlockHeaderStore wdb m queue logfun mgr
 
-newWebPayloadStore
+newEmptyWebPayloadStore
     :: PayloadCas cas
     => ChainwebVersion
     -> HTTP.Manager
     -> PactExectutionService
     -> LogFunction
     -> IO (WebBlockPayloadStore cas)
-newWebPayloadStore v mgr pact logfun = do
-    payloadTaskQueue <- newEmptyPQueue
+newEmptyWebPayloadStore v mgr pact logfun = do
     payloadCas <- emptyPayloadDb
     initializePayloadDb v payloadCas
+    newWebPayloadStore mgr pact payloadCas logfun
+
+newWebPayloadStore
+    :: HTTP.Manager
+    -> PactExectutionService
+    -> PayloadDb cas
+    -> LogFunction
+    -> IO (WebBlockPayloadStore cas)
+newWebPayloadStore mgr pact payloadCas logfun = do
+    payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
     return $ WebBlockPayloadStore
         payloadCas payloadMemo payloadTaskQueue logfun mgr pact

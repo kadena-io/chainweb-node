@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.Payload.SPV.CreateProof
+-- Module: Chainweb.SPV.CreateProof
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -14,7 +14,7 @@
 --
 -- TODO
 --
-module Chainweb.Payload.SPV.CreateProof
+module Chainweb.SPV.CreateProof
 ( createTransactionProof
 , createTransactionOutputProof
 ) where
@@ -46,13 +46,12 @@ import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.SPV
+import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
-
 
 -- -------------------------------------------------------------------------- --
 -- Create Transaction Proof
@@ -63,10 +62,8 @@ import Data.CAS
 createTransactionProof
     :: HasCallStack
     => PayloadCas cas
-    => CutDb
+    => CutDb cas
         -- ^ Block Header Database
-    -> PayloadDb cas
-        -- ^ Payload Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject
         -- is included in the head of this chain.
@@ -77,8 +74,8 @@ createTransactionProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionProof SHA512t_256)
-createTransactionProof cutDb payloadCas tcid scid bh i = TransactionProof tcid
-    <$> createPayloadProof transactionProofPrefix cutDb payloadCas tcid scid bh i
+createTransactionProof cutDb tcid scid bh i = TransactionProof tcid
+    <$> createPayloadProof transactionProofPrefix cutDb tcid scid bh i
 
 transactionProofPrefix
     :: PayloadCas cas
@@ -109,10 +106,8 @@ transactionProofPrefix i db payload = do
 createTransactionOutputProof
     :: HasCallStack
     => PayloadCas cas
-    => CutDb
+    => CutDb cas
         -- ^ Block Header Database
-    -> PayloadDb cas
-        -- ^ Payload Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject
         -- is included in the head of this chain.
@@ -123,9 +118,9 @@ createTransactionOutputProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof cutDb payloadCas tcid scid bh i
+createTransactionOutputProof cutDb tcid scid bh i
     = TransactionOutputProof tcid
-        <$> createPayloadProof outputProofPrefix cutDb payloadCas tcid scid bh i
+        <$> createPayloadProof outputProofPrefix cutDb tcid scid bh i
 
 outputProofPrefix
     :: PayloadCas cas
@@ -163,10 +158,8 @@ createPayloadProof
     :: HasCallStack
     => PayloadCas cas
     => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
-    -> CutDb
+    -> CutDb cas
         -- ^ Block Header Database
-    -> PayloadDb cas
-        -- ^ Payload Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject
         -- is included in the head of this chain.
@@ -177,7 +170,7 @@ createPayloadProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (MerkleProof SHA512t_256)
-createPayloadProof getPrefix cutDb payloadDb tcid scid txHeight txIx = give headerDb $ do
+createPayloadProof getPrefix cutDb tcid scid txHeight txIx = give headerDb $ do
     --
     -- 1. TransactionTree
     -- 2. BlockPayload
@@ -267,6 +260,7 @@ createPayloadProof getPrefix cutDb payloadDb tcid scid txHeight txIx = give head
   where
     pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
     trgChain = headerDb ^?! ixg tcid
+    payloadDb = view cutDbPayloadCas cutDb
     headerDb = view cutDbWebBlockHeaderDb cutDb
 
     append :: N.NonEmpty a -> [a] -> N.NonEmpty a

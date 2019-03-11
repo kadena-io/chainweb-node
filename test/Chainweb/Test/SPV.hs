@@ -45,9 +45,9 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MockTx)
-import Chainweb.Payload.RestAPI.Client
-import Chainweb.Payload.SPV.CreateProof
-import Chainweb.Payload.SPV.VerifyProof
+import Chainweb.SPV.CreateProof
+import Chainweb.SPV.RestAPI.Client
+import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Utils
 import Chainweb.Utils
@@ -107,21 +107,19 @@ targetChain c srcBlock = do
 spvTransactionRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionRoundtripTest v step = do
     step "setup cut db"
-    withTestCutDb v 100 (\_ _ -> return ()) $ do
+    withTestCutDb @HashMapCas v 100 (\_ _ -> return ()) $ \cutDb -> do
 
         step "pick random transaction"
-        (h, txIx, tx, _) <- randomTransaction
+        (h, txIx, tx, _) <- randomTransaction cutDb
 
         step "pick a reachable target chain"
-        curCut <- _cut given
+        curCut <- _cut cutDb
         trgChain <- targetChain curCut h
 
         step "create inclusion proof for transaction"
-        proof <- createTransactionProof @HashMapCas
-            given
+        proof <- createTransactionProof
+            cutDb
                 -- CutDb
-            given
-                -- PayloadDb
             trgChain
                 -- target chain
             (_chainId h)
@@ -137,7 +135,7 @@ spvTransactionRoundtripTest v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionProof given proof
+        subj <- verifyTransactionProof cutDb proof
 
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
@@ -145,21 +143,19 @@ spvTransactionRoundtripTest v step = do
 spvTransactionOutputRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionOutputRoundtripTest v step = do
     step "setup cut db"
-    withTestCutDb v 100 (\_ _ -> return ()) $ do
+    withTestCutDb @HashMapCas v 100 (\_ _ -> return ()) $ \cutDb -> do
 
         step "pick random transaction output"
-        (h, outIx, _, out) <- randomTransaction
+        (h, outIx, _, out) <- randomTransaction cutDb
 
         step "pick a reachable target chain"
-        curCut <- _cut given
+        curCut <- _cut cutDb
         trgChain <- targetChain curCut h
 
         step "create inclusion proof for transaction output"
-        proof <- createTransactionOutputProof @HashMapCas
-            given
+        proof <- createTransactionOutputProof
+            cutDb
                 -- CutDb
-            given
-                -- PayloadDb
             trgChain
                 -- target chain
             (_chainId h)
@@ -175,7 +171,7 @@ spvTransactionOutputRoundtripTest v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionOutputProof given proof
+        subj <- verifyTransactionOutputProof cutDb proof
 
         step "confirm that proof subject matches transaction output"
         assertEqual "proof subject matches transaction output" out subj
@@ -201,10 +197,10 @@ apiTests tls v = withTestPayloadResource v 100 (\_ _ -> return ()) $ \dbsIO ->
 txApiTests :: IO TestClientEnv_ -> Step -> IO ()
 txApiTests envIO step = do
     PayloadTestClientEnv env cutDb payloadDbs v <- envIO
-    give cutDb $ give (snd . head $ payloadDbs) $ do
+    give (snd . head $ payloadDbs) $ do
 
         step "pick random transaction"
-        (h, txIx, tx, out) <- randomTransaction
+        (h, txIx, tx, out) <- randomTransaction cutDb
         step $ "picked random transaction, height: " <> sshow (_blockHeight h) <> ", ix: " <> sshow txIx
 
         curCut <- _cut cutDb
@@ -224,7 +220,7 @@ txApiTests envIO step = do
 
             Right proof -> do
                 step "verify transaction proof"
-                subj <- verifyTransactionProof given proof
+                subj <- verifyTransactionProof cutDb proof
 
                 step "confirm that transaction proof subject matches transaction"
                 assertEqual "proof subject matches transaction" tx subj
@@ -242,7 +238,7 @@ txApiTests envIO step = do
 
             Right proof -> do
                 step "verify transaction output proof"
-                subj <- verifyTransactionOutputProof given proof
+                subj <- verifyTransactionOutputProof cutDb proof
 
                 step "confirm that transaction output proof subject matches transaction output"
                 assertEqual "proof subject matches transaction output" out subj

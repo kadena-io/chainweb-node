@@ -94,6 +94,7 @@ import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
+import Chainweb.SPV.RestAPI.Server
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -111,7 +112,7 @@ import P2P.Node.RestAPI.Server
 -- functions that run a chainweb server.
 --
 data ChainwebServerDbs t cas = ChainwebServerDbs
-    { _chainwebServerCutDb :: !(Maybe CutDb)
+    { _chainwebServerCutDb :: !(Maybe (CutDb cas))
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
     , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
@@ -191,9 +192,8 @@ someChainwebServer v dbs =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
-        <> maybe mempty
-            (\cutDb -> somePayloadServers v cutDb $ _chainwebServerPayloadDbs dbs)
-            (_chainwebServerCutDb dbs)
+        <> maybe mempty (someSpvServers v) (_chainwebServerCutDb dbs)
+        <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
         <> someP2pServers v (_chainwebServerPeerDbs dbs)

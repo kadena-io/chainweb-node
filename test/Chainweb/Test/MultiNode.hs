@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.MultiNode
@@ -83,6 +84,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS.HashMap hiding (toList)
 import Data.LogMessage
 
 import P2P.Node.Configuration
@@ -215,7 +217,7 @@ node
     -> ChainwebConfiguration
     -> IO ()
 node loglevel write stateVar bootstrapPortVar conf =
-    withChainweb conf logfuns $ \cw -> do
+    withChainweb @HashMapCas conf logfuns $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
@@ -370,7 +372,12 @@ instance HasChainGraph ConsensusState where
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
 
-sampleConsensusState :: NodeId -> WebBlockHeaderDb -> CutDb -> ConsensusState -> IO ConsensusState
+sampleConsensusState
+    :: NodeId
+    -> WebBlockHeaderDb
+    -> CutDb cas
+    -> ConsensusState
+    -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do
     !hashes' <- S.fold_ (flip HS.insert) (_stateBlockHashes s) id
         $ S.map _blockHash

@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.Payload.SPV
+-- Module: Chainweb.SPV
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -15,7 +15,7 @@
 --
 -- TODO
 --
-module Chainweb.Payload.SPV
+module Chainweb.SPV
 ( SpvException(..)
 , TransactionProof(..)
 , TransactionOutputProof(..)

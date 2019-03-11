@@ -80,9 +80,7 @@ type CutApi v
     = CutGetApi v
     :<|> CutPutApi v
 
-cutApi
-    :: forall (v :: ChainwebVersionT)
-    . Proxy (CutApi v)
+cutApi :: forall (v :: ChainwebVersionT) . Proxy (CutApi v)
 cutApi = Proxy
 
 -- -------------------------------------------------------------------------- --
