@@ -22,6 +22,7 @@ module Chainweb.Test.CutDB
 , randomBlockHeader
 ) where
 
+import Control.Concurrent.Async
 import Control.Lens hiding (elements)
 import Control.Monad
 
@@ -68,6 +69,10 @@ import Data.LogMessage
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
 --
+-- The CutDb doesn't have access to a remote network, so any lookup of missing
+-- dependencies fails. This isn't an issue if only locally mined cuts are
+-- inserted.
+--
 withTestCutDb
     :: HasCallStack
     => ChainwebVersion
@@ -89,6 +94,45 @@ withTestCutDb v n logfun f = do
                             foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
                             f
 
+-- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
+--
+withTestPayloadResource
+    :: ChainwebVersion
+    -> Int
+    -> LogFunction
+    -> (IO (CutDb, PayloadDb HashMapCas) -> TestTree)
+    -> TestTree
+withTestPayloadResource v n logfun inner
+    = withResource start stopTestPayload $ \envIO -> do
+        inner (envIO >>= \(_,_,a,b) -> return (a,b))
+  where
+    start = startTestPayload v logfun n
+
+-- -------------------------------------------------------------------------- --
+-- Internal Utils for mocking up the backends
+
+startTestPayload
+    :: ChainwebVersion
+    -> LogFunction
+    -> Int
+    -> IO (Async (), Async(), CutDb, PayloadDb HashMapCas)
+startTestPayload v logfun n = do
+    payloadDb <- emptyPayloadDb @HashMapCas
+    initializePayloadDb v payloadDb
+    giveNewWebChain v $ give payloadDb $ do
+        mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        (pserver, pstore) <- startLocalPayloadStore mgr
+        (hserver, hstore) <- startLocalWebBlockHeaderStore mgr
+        cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore
+        give cutDb $ foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
+        return (pserver, hserver, cutDb, payloadDb)
+
+stopTestPayload :: (Async (), Async (), CutDb, PayloadDb HashMapCas) -> IO ()
+stopTestPayload (pserver, hserver, cutDb, _) = do
+    stopCutDb cutDb
+    cancel hserver
+    cancel pserver
+
 withLocalWebBlockHeaderStore
     :: Given WebBlockHeaderDb
     => HTTP.Manager
@@ -97,6 +141,15 @@ withLocalWebBlockHeaderStore
 withLocalWebBlockHeaderStore mgr inner = withNoopQueueServer $ \queue -> do
     mem <- new
     inner $ WebBlockHeaderStore given mem queue (\_ _ -> return ()) mgr
+
+startLocalWebBlockHeaderStore
+    :: Given WebBlockHeaderDb
+    => HTTP.Manager
+    -> IO (Async (), WebBlockHeaderStore)
+startLocalWebBlockHeaderStore mgr = do
+    (server, queue) <- startNoopQueueServer
+    mem <- new
+    return (server, WebBlockHeaderStore given mem queue (\_ _ -> return ()) mgr)
 
 withLocalPayloadStore
     :: Given (PayloadDb HashMapCas)
@@ -107,31 +160,14 @@ withLocalPayloadStore mgr inner = withNoopQueueServer $ \queue -> do
     mem <- new
     inner $ WebBlockPayloadStore given mem queue (\_ _ -> return ()) mgr pact
 
-startTestPayload
-    :: ChainwebVersion
-    -> LogFunction
-    -> WebBlockHeaderDb
-    -> Int
-    -> IO (CutDb, PayloadDb HashMapCas)
-startTestPayload v logfun wdb n = do
-    cutDb <- startCutDb (defaultCutDbConfig v) logfun wdb
-    payloadDb <- emptyPayloadDb @HashMapCas
-    initializePayloadDb v payloadDb
-    give wdb $ give payloadDb $ give cutDb $ foldM_ (\c _ -> mine c) (genesisCut v) [0..n]
-    return (cutDb, payloadDb)
-
-stopTestPayload :: (CutDb, PayloadDb HashMapCas) -> IO ()
-stopTestPayload = stopCutDb . fst
-
-withTestPayloadResource
-    :: ChainwebVersion
-    -> Int
-    -> LogFunction
-    -> (IO (CutDb, PayloadDb HashMapCas) -> TestTree)
-    -> TestTree
-withTestPayloadResource v n logfun = withResource
-    (giveNewWebChain v $ startTestPayload v logfun given n)
-    stopTestPayload
+startLocalPayloadStore
+    :: Given (PayloadDb HashMapCas)
+    => HTTP.Manager
+    -> IO (Async (), WebBlockPayloadStore HashMapCas)
+startLocalPayloadStore mgr = do
+    (server, queue) <- startNoopQueueServer
+    mem <- new
+    return $ (server, WebBlockPayloadStore given mem queue (\_ _ -> return ()) mgr pact)
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
@@ -164,7 +200,7 @@ mine c = do
     testMine (Nonce 0) target t payloadHash (NodeId 0) cid c >>= \case
         Left _ -> mine c
         Right (T2 _ c') -> do
-            -- add paylaod to db
+            -- add payload to db
             addNewPayload @HashMapCas given payload
 
             -- add cut to db

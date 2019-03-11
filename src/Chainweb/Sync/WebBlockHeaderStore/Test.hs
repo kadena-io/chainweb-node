@@ -23,6 +23,7 @@ module Chainweb.Sync.WebBlockHeaderStore.Test
 
 -- * Utils
 , withNoopQueueServer
+, startNoopQueueServer
 , testQueueServer
 ) where
 
@@ -140,6 +141,15 @@ withNoopQueueServer a = do
             task <- pQueueRemove q
             putIVar (_taskResult task) $ Left $ []
     withAsync (forever failTask) $ const $ a q
+
+startNoopQueueServer :: IO (Async (), PQueue (Task env a))
+startNoopQueueServer = do
+    q <- newEmptyPQueue
+    let failTask = do
+            task <- pQueueRemove q
+            putIVar (_taskResult task) $ Left $ []
+    a <- async $ forever failTask
+    return (a, q)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
