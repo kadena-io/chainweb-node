@@ -42,7 +42,6 @@ import Text.Trifecta.Delta
 import Pact.Native
 import Pact.Persist
 import Pact.Persist.SQLite
-import Pact.Types.Command
 import Pact.Types.Persistence
 import Pact.Types.Runtime
 import Pact.Types.Server
@@ -61,8 +60,6 @@ deriving instance Generic Ref -- transferred
 deriving instance Generic RefStore -- transferred
 
 deriving instance Generic CommandState -- transferred
-
-deriving instance Generic ExecutionMode
 
 deriving instance Generic DefName -- transferred
 
@@ -124,8 +121,6 @@ instance Serial RefStore where
         return $ RefStore {..}
 
 deriving instance Serial CommandState
-
-deriving instance Serial ExecutionMode
 
 deriving instance Serial Code
 
@@ -732,8 +727,6 @@ deriving instance Serialize SQLiteConfig
 deriving instance Serialize Pragma
 
 deriving instance Serialize CommandState
-
-deriving instance Serialize ExecutionMode
 
 deriving instance Serialize CommandPact
 

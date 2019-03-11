@@ -248,17 +248,14 @@ execTransactions isGenesis miner txs = do
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
-    prevTxId <- liftIO $
-        case _pdbsExecMode currentState of
-            P.Transactional tId -> return tId
-            _anotherMode -> fail "Only Transactional ExecutionMode is supported"
+    let prevTxId  = _pdbsTxId currentState
     (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState (_ptCmd <$> txs) (fromIntegral prevTxId) miner
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
-          , _pdbsExecMode = P.Transactional $ P.TxId newTxId
+          , _pdbsTxId = P.TxId newTxId
           }
     return (Transactions (txs `zip` txOuts), updatedState)
 
@@ -278,8 +275,7 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
         f :: ([FullLogTxOutput], Word64) -> P.Command ByteString -> PactT ([FullLogTxOutput], Word64)
         f (outs, prevId) cmd = do
           let newId = succ prevId
-          txOut <- applyPactCmd isGenesis env' cmdState cmd
-                                (P.Transactional (P.TxId newId)) miner
+          txOut <- applyPactCmd isGenesis env' cmdState cmd (P.TxId newId) miner
           return (txOut : outs, newId)
 
 -- | Apply a single Pact command
@@ -288,10 +284,10 @@ applyPactCmd
     -> Env'
     -> MVar P.CommandState
     -> P.Command ByteString
-    -> P.ExecutionMode
+    -> P.TxId
     -> MinerInfo
     -> PactT FullLogTxOutput
-applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
+applyPactCmd isGenesis (Env' dbEnv) cmdState cmd txId miner = do
     cpEnv <- ask
     let logger = _cpeLogger cpEnv
         gasModel = cpEnv ^. cpeGasEnv . P.geGasModel
@@ -300,9 +296,9 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
         procCmd = P.verifyCommand cmd
 
     (result, txLogs) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd procCmd
+        then applyGenesisCmd logger Nothing dbEnv cmdState txId cmd procCmd
         else applyCmd logger Nothing miner dbEnv
-             cmdState gasModel execMode cmd procCmd
+             cmdState gasModel txId cmd procCmd
 
     pure $! FullLogTxOutput (P._crResult result) txLogs
 

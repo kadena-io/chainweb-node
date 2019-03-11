@@ -17,6 +17,7 @@ import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv)
+import Pact.Types.Command (ExecutionMode(Transactional))
 import Pact.Types.Hash (hash)
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.RPC (ContMsg(..))
@@ -94,18 +95,18 @@ testCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
 testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   let logger = newLogger loggers "testCheckpointer"
-      execMode = _pdbsExecMode dbState00
+      txId = _pdbsTxId dbState00
 
       runExec :: (MVar CommandState, Env') -> Maybe Value -> Text -> IO EvalResult
       runExec (mcs, Env' pactDbEnv) eData eCode = do
-          let cmdenv = CommandEnv Nothing execMode pactDbEnv mcs logger freeGasEnv
+          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
           execMsg <- buildExecParsedCode eData eCode
           applyExec' cmdenv def execMsg [] (hash "")
 
       runCont :: (MVar CommandState, Env') -> TxId -> Int -> IO EvalResult
       runCont (mcs, Env' pactDbEnv) pactId step = do
           let contMsg = ContMsg pactId step False Null
-              cmdenv = CommandEnv Nothing execMode pactDbEnv mcs logger freeGasEnv
+              cmdenv = CommandEnv Nothing (Transactional pactId) pactDbEnv mcs logger freeGasEnv
           applyContinuation' cmdenv def contMsg [] (hash "")
 
       ksData :: Text -> Value
@@ -116,7 +117,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
       unwrapState dbs = (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
 
       wrapState :: (MVar CommandState, Env') -> IO PactDbState
-      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure execMode)
+      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure txId)
 
 
   void $ saveInitial _cpeCheckpointer dbState00
