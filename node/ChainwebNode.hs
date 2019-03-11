@@ -54,6 +54,7 @@ import System.LogLevel
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
@@ -132,7 +133,7 @@ node conf logger =
     withChainweb @HashMapCas conf logfuns $ \cw ->
         race_
             (runChainweb cw)
-            (runMonitor logger (_cutsCutDb $ _chainwebCuts cw))
+            (runMonitor logger (_cutResCutDb $ _chainwebCutResources cw))
   where
     graph = _chainGraph conf
     logfuns = chainwebLogFunctions (chainIds_ graph) logger
