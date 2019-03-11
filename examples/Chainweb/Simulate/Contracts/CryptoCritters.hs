@@ -8,11 +8,7 @@
 
 module Chainweb.Simulate.Contracts.CryptoCritters where
 
--- import Control.Monad
--- import Control.Monad.Zip
-
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.Default
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -26,23 +22,20 @@ import NeatInterpolation (text)
 import System.Random (StdGen, randomR)
 
 -- pact
-import Pact.ApiReq (KeyPair(..), mkExec)
-import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
-import Pact.Types.Crypto (PPKScheme(..)) -- ED25519
-import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
+import Pact.ApiReq (mkExec)
+import Pact.Types.Command (Command (..))
+import Pact.Types.Crypto (SomeKeyPair)
 
 -- chainweb
 
 import Chainweb.Simulate.Utils
 
-cryptoCritterContractLoader :: [KeyPair] -> IO (Command Text)
-cryptoCritterContractLoader adminKeyset =
-  mkExec (T.unpack theCode) theData (def :: PublicMeta) adminKeyset Nothing
+cryptoCritterContractLoader :: [SomeKeyPair] -> IO (Command Text)
+cryptoCritterContractLoader adminKeyset = do
+  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+  mkExec (T.unpack theCode) theData def adminKeyset Nothing
   where
-    theData = object ["admin-keyset" .= adminKeyset]
     theCode = [text|
-
-(define-keyset 'admin-keyset (read-keyset 'admin-keyset))
 
 (module critters 'admin-keyset
   "Collectible Crypto Critters"
@@ -245,6 +238,9 @@ cryptoCritterContractLoader adminKeyset =
     )
   )
 )
+
+(create-table critters)
+
 |]
 
 {- example usage
@@ -280,9 +276,9 @@ data CritterRequest
   -- | ShowCritter Suffix Critter
   | ShowGeneration Generation
   | Owner CritterId
-  | TransferCritter [ApiKeyPair] CritterId
-  | SetTransfer CritterId Bool [ApiKeyPair]
-  | InitiateTransfer [ApiKeyPair] CritterId
+  | TransferCritter [SomeKeyPair] CritterId
+  | SetTransfer CritterId Bool [SomeKeyPair]
+  | InitiateTransfer [SomeKeyPair] CritterId
   | CompleteTransfer CritterId
   | CancelTransfer CritterId
   | SetBreeding CritterId Bool
@@ -291,19 +287,27 @@ data CritterRequest
   | Breed CritterId CritterId
   | CancelBreed CritterId
 
-createCritterRequest :: Nonce -> CritterRequest -> Command ByteString
-createCritterRequest (Nonce nonce) (GetIncCount (Row row)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(get-inc-count $row)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (CreateCritter (Genes genes)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(create-critter $genes)|]
-    theData = Null
+_createCritterRequest :: CritterRequest -> IO (Command Text)
+_createCritterRequest = undefined
+
+
+--------------------------------
+-- THIS NEEDS TO BE REWRITTEN --
+--------------------------------
+
+-- createCritterRequest :: Nonce -> CritterRequest -> Command ByteString
+-- createCritterRequest (Nonce nonce) (GetIncCount (Row row)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(get-inc-count $row)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (CreateCritter (Genes genes)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(create-critter $genes)|]
+--     theData = Null
 
 -----------------------------------------------
 -- TODO: How do we interpolate a JSON value? --
@@ -316,90 +320,90 @@ createCritterRequest (Nonce nonce) (CreateCritter (Genes genes)) =
 --     theData = object undefined
 --     something = undefined critter
 
-createCritterRequest (Nonce nonce) (ShowGeneration (Generation generation)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(show-generation $generation)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (Owner (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(owner $critterid)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (TransferCritter keyset (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
-    theCode = [text|(transfer-critter (read-keyset 'transfer-critter-keyset) $critterid)|]
-    theData = object ["transfer-critter-keyset" .= keyset]
-createCritterRequest (Nonce nonce) (SetTransfer (CritterId critterid) transferflag keyset) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
-    theCode = [text|(set-transfer $critterid $flag (read-keyset 'set-transfer-keyset))|]
-    theData = object ["set-transfer-keyset" .= keyset]
-    flag = if transferflag
-              then "true"
-              else "false"
-createCritterRequest (Nonce nonce) (InitiateTransfer keyset (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
-    theCode = [text|(initiate-transfer (read-keyset 'initiate-transfer-keyset) $critterid)|]
-    theData = object ["initiate-transfer-keyset" .= keyset]
-createCritterRequest (Nonce nonce) (CompleteTransfer (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(complete-transfer $critterid)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (CancelTransfer (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(cancel-transfer $critterid)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (SetBreeding (CritterId critterid) flag) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(set-breeding $critterid $flagg)|]
-    theData = Null
-    flagg = if flag
-               then "true"
-               else "false"
-createCritterRequest (Nonce nonce) (SolicitMate (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(solicit-mate $critterid)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (CombineGenes (Genes genesA) (Genes genesB)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(combine-genes $genesA $genesB)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (Breed (CritterId ida) (CritterId idb)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(breed $ida $idb)|]
-    theData = Null
-createCritterRequest (Nonce nonce) (CancelBreed (CritterId critterid)) =
-  mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-  where
-    madeKeyset = []
-    theCode = [text|(cancel-breed $critterid)|]
-    theData = Null
+-- createCritterRequest (Nonce nonce) (ShowGeneration (Generation generation)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(show-generation $generation)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (Owner (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(owner $critterid)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (TransferCritter keyset (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+--     theCode = [text|(transfer-critter (read-keyset 'transfer-critter-keyset) $critterid)|]
+--     theData = object ["transfer-critter-keyset" .= keyset]
+-- createCritterRequest (Nonce nonce) (SetTransfer (CritterId critterid) transferflag keyset) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+--     theCode = [text|(set-transfer $critterid $flag (read-keyset 'set-transfer-keyset))|]
+--     theData = object ["set-transfer-keyset" .= keyset]
+--     flag = if transferflag
+--               then "true"
+--               else "false"
+-- createCritterRequest (Nonce nonce) (InitiateTransfer keyset (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = map (\(KeyPair sec pub) -> (ED25519, sec, pub)) keyset
+--     theCode = [text|(initiate-transfer (read-keyset 'initiate-transfer-keyset) $critterid)|]
+--     theData = object ["initiate-transfer-keyset" .= keyset]
+-- createCritterRequest (Nonce nonce) (CompleteTransfer (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(complete-transfer $critterid)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (CancelTransfer (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(cancel-transfer $critterid)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (SetBreeding (CritterId critterid) flag) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(set-breeding $critterid $flagg)|]
+--     theData = Null
+--     flagg = if flag
+--                then "true"
+--                else "false"
+-- createCritterRequest (Nonce nonce) (SolicitMate (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(solicit-mate $critterid)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (CombineGenes (Genes genesA) (Genes genesB)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(combine-genes $genesA $genesB)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (Breed (CritterId ida) (CritterId idb)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(breed $ida $idb)|]
+--     theData = Null
+-- createCritterRequest (Nonce nonce) (CancelBreed (CritterId critterid)) =
+--   mkCommand madeKeyset (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
+--   where
+--     madeKeyset = []
+--     theCode = [text|(cancel-breed $critterid)|]
+--     theData = Null
 
 mkRandomCritterRequest :: StdGen -> FGen CritterRequest
 mkRandomCritterRequest gen = go
   where
     go =
-      let (i, gen') = randomR (0, 13 :: Int) gen
+      let (i, _gen') = randomR (0, 13 :: Int) gen
        in case i of
             0 -> GetIncCount <$> undefined
             1 -> CreateCritter <$> undefined
@@ -423,11 +427,11 @@ data CryptoCritter = CryptoCritter
   , cmatronid :: Integer
   , csireid :: Integer
   , cgeneration :: Integer
-  , cowner :: [KeyPair]
+  , cowner :: [SomeKeyPair]
   , ctransferring :: Bool
-  , ctransferto :: [KeyPair]
+  , ctransferto :: [SomeKeyPair]
   , cavailabletobreed :: Bool
-  } deriving (Eq, Show, Generic)
+  }
 
 -- -- interpolateCritterJSONObject :: Parser CryptoCritter
 -- interpolateCritterJSONObject critter = do

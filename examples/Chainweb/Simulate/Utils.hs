@@ -5,66 +5,52 @@
 
 module Chainweb.Simulate.Utils where
 
-import Control.Monad.Zip
-
 import Data.Aeson
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
-import Data.Maybe (catMaybes, maybeToList)
 import Data.Text (Text)
-
-import GHC.Generics
+import qualified Data.Text as T
 
 import NeatInterpolation
 
-import Pact.ApiReq (KeyPair(..))
-import Pact.Types.Command (mkCommand, Command (..), PublicMeta)
-import Pact.Types.Crypto (PPKScheme(..), importPublic, importPrivate)
-import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
+import Pact.ApiReq (ApiKeyPair(..),mkExec, mkKeyPairs)
+import Pact.Types.Command (Command (..))
+import Pact.Types.Crypto (SomeKeyPair,PublicKeyBS(..), PrivateKeyBS(..),
+  PPKScheme(..), formatPublicKey)
+import Pact.Types.Util (toB16Text)
 
-testAdminPrivates :: ByteString
-testAdminPrivates =
-  "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d2"
+testApiKeyPairs :: [ApiKeyPair]
+testApiKeyPairs =
+  let (pub, priv, addr, scheme) = someED25519Pair
+      apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+   in [apiKP]
 
-testAdminPublics :: ByteString
-testAdminPublics =
-  "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c0dbc"
+testSomeKeyPairs :: IO [SomeKeyPair]
+testSomeKeyPairs = do
+    let (pub, priv, addr, scheme) = someED25519Pair
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+    mkKeyPairs [apiKP]
 
-testPrivates :: [ByteString]
-testPrivates =
-  [ "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d3"
-  , "53108fc90b19a24aa7724184e6b9c6c1d3247765be4535906342bd5f8138f7d4"
-  ]
+formatB16PubKey :: SomeKeyPair -> Text
+formatB16PubKey = toB16Text . formatPublicKey
 
-testPublics :: [ByteString]
-testPublics =
-  [ "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c1dbc"
-  , "201a45a367e5ebc8ca5bba94602419749f452a85b7e9144f29a99f3f906c2dbc"
-  ]
+someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+someED25519Pair =
+    ( PubBS $ getByteString
+        "ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"
+    , PrivBS $ getByteString
+        "8693e641ae2bbe9ea802c736f42027b03f86afe63cae315e7169c9c496c17332"
+    , "ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"
+    , ED25519
+    )
 
-testAdminKeyPairs :: [KeyPair]
-testAdminKeyPairs =
-  let mPair =
-        mzip (importPrivate testAdminPrivates) (importPublic testAdminPublics)
-      mKeyPair =
-        fmap (\(sec, pub) -> KeyPair {_kpSecret = sec, _kpPublic = pub}) mPair
-   in maybeToList mKeyPair
+getByteString :: ByteString -> ByteString
+getByteString = fst . B16.decode
 
-testKeyPairs :: [KeyPair]
-testKeyPairs =
-  catMaybes $
-  zipWith
-    (\sec pub -> KeyPair <$> (importPrivate sec) <*> (importPublic pub))
-    testPublics
-    testPrivates
-
-createTable :: Nonce -> TableName -> Command ByteString
-createTable (getNonce -> nonce) (getTableName -> tableName) = command
+initAdminKeysetContract :: [SomeKeyPair] -> IO (Command Text)
+initAdminKeysetContract adminKeyset = do
+  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+  mkExec (T.unpack theCode) theData def adminKeyset Nothing
   where
-    command = mkCommand [] (def :: PublicMeta) nonce (Exec (ExecMsg theCode theData))
-    theCode = [text|(create-table $tableName)|]
-    theData = Null
-
-newtype Nonce = Nonce {getNonce :: Text} deriving (Eq, Show, Generic)
-
-newtype TableName = TableName {getTableName :: Text} deriving (Eq, Show, Generic)
+    theCode = [text|(define-keyset 'admin-keyset (read-keyset "admin-keyset"))|]

@@ -17,7 +17,6 @@ import Data.Aeson
 import Data.Default
 import Data.Text (Text)
 import qualified Data.Text as T
--- import Data.ByteString (ByteString)
 
 import Fake
 import Fake.Provider.Person.EN_US
@@ -30,39 +29,25 @@ import Text.Printf (printf)
 
 -- pact
 
-import Pact.ApiReq (KeyPair(..), mkExec)
+import Pact.ApiReq (mkExec)
 import Pact.Types.Command (Command (..))
--- import Pact.Types.Crypto (PPKScheme)
--- import Pact.Types.RPC (PactRPC(..), ExecMsg(..))
+import Pact.Types.Crypto (SomeKeyPair)
 
 -- chainweb
 
--- import Chainweb.Simulate.Utils
+import Chainweb.Simulate.Utils
 
-{-
-   ;; Keysets cannot be created in code, thus we read them in
-;; from the load message data.
-(define-keyset '$keyset (read-keyset "$keyset"))
-
--}
-
-helloWorldContractLoader :: [KeyPair] -> IO (Command Text)
-helloWorldContractLoader  adminKeyset =
+helloWorldContractLoader :: [SomeKeyPair] -> IO (Command Text)
+helloWorldContractLoader adminKeyset = do
+  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
   mkExec (T.unpack theCode) theData def adminKeyset Nothing
   where
-    theData = object ["admin-keyset" .= adminKeyset]
-    theCode = [text| ;;
-;; "Hello, world!" smart contract/module
-
-(define-keyset 'admin-keyset (read-keyset 'admin-keyset))
-
-;; Define the module.
+    theCode = [text|
 (module helloWorld 'admin-keyset
   "A smart contract to greet the world."
   (defun hello (name)
     "Do the hello-world dance"
-    (format "Hello {}!" [name]))
-)
+    (format "Hello {}!" [name])))
 |]
 
 newtype Name = Name {getName :: Text} deriving (Eq, Show, Generic)

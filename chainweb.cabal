@@ -608,6 +608,7 @@ executable transaction-generator
         --external
         , aeson >= 1.4
         , base >= 4.11
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10
         , configuration-tools >= 0.4
         , data-default >= 0.7

@@ -18,10 +18,6 @@
 
 module Main where
 
--- module Main
---   ( main
---   ) where
-
 import Configuration.Utils hiding (Error, Lens', (<.>))
 import Control.Concurrent (threadDelay)
 import Control.Lens hiding ((.=))
@@ -30,7 +26,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
 
--- import Data.ByteString (ByteString)
 import Data.Default (def, Default (..))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
@@ -39,7 +34,6 @@ import Data.Word (Word16)
 import Fake (generate, fake)
 
 import Network.HTTP.Client
--- import qualified Network.HTTP.Client as HTTP
 
 import GHC.Generics
 
@@ -50,13 +44,14 @@ import System.Random.MWC (Gen, asGenIO, uniformR, withSystemRandom)
 import System.Random.MWC.Distributions (normal)
 
 -- -- PACT
-import Pact.ApiReq
 import Pact.Server.Client
 import Pact.Types.API
-import Pact.Types.Command
+import Pact.Types.Command (Command (..))
+import Pact.Types.Crypto (SomeKeyPair)
 
 -- CHAINWEB
 import Chainweb.ChainId
+-- THIS MODULE MAY BE USED LATER
 -- import Chainweb.Simulate.Contracts.CommercialPaper
 import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
@@ -99,9 +94,11 @@ defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand = Init
     , _nodeChainId = testChainId 1
-    , _nodePort = 8080          -- this is default port according to the "pact -s" docs
-    , _serverRootPath = undefined
+    , _nodePort = tmpNodePort
+    , _serverRootPath = "http://localhost:" ++ show tmpNodePort
     }
+  where
+    tmpNodePort = 8080          -- this is default port according to the "pact -s" docs
 
 transactionConfigParser :: MParser TransactionConfig
 transactionConfigParser = id
@@ -127,39 +124,45 @@ data TimingDistribution
 instance Default TimingDistribution where
   def = Gaussian 1000000 (div 1000000 16)
 
--- I don't think that I need this newtype.
-newtype ContractName = ContractName
-  { contractName :: Text
-  } deriving (Eq, Show)
-
 data GeneratorConfig = GeneratorConfig
   { _timingdist :: TimingDistribution
   , _transactionCount :: IORef Integer
+  , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
   , _genClientEnv :: ClientEnv
   }
 
 makeLenses ''GeneratorConfig
 
-sampleTransaction :: TransactionGenerator (PrimState IO) (Command Text)
-sampleTransaction = do
-  (contractIndex, _) <- liftIO $ randomR (1, numContracts) <$> newStdGen
+generateTransaction :: TransactionGenerator (PrimState IO) (Command Text)
+generateTransaction = do
+  contractIndex <- liftIO $ randomRIO (1, numContracts)
   sample <-
     case contractIndex of
       1 -> do
-        liftIO $ generate fake >>= helloRequest
-      2 ->
-        liftIO $ do spiritualFake <- mkRandomSimplePaymentRequest <$> newStdGen >>= generate
-                    createSimplePaymentRequest spiritualFake -- very holy
+        liftIO $ do
+            name <- generate fake
+            helloRequest name
+      2 -> do
+        kacts <- view genAccountsKeysets
+        liftIO $ do
+            paymentsRequest <- mkRandomSimplePaymentRequest kacts >>= generate
+            print paymentsRequest -- This is for debugging purposes
+            case paymentsRequest of
+                RequestPay fromAccount _ _ ->
+                        let errmsg = "This account does not have an associated keyset!"
+                            mkeyset = maybe (fail errmsg) Just (lookup fromAccount kacts)
+                        in createSimplePaymentRequest paymentsRequest mkeyset
+                _ -> createSimplePaymentRequest paymentsRequest Nothing
       3 -> liftIO $ undefined
       _ -> fail "No contract here"
   distribution <- view timingdist
-  gen2 <- get
+  gen <- get
   delay <-
     case distribution of
       Gaussian gmean gvar ->
         truncate <$>
-        liftIO (normal (fromIntegral gmean) (fromIntegral gvar) gen2)
-      Uniform ulow uhigh -> liftIO (uniformR (ulow, uhigh) gen2)
+        liftIO (normal (fromIntegral gmean) (fromIntegral gvar) gen)
+      Uniform ulow uhigh -> liftIO (uniformR (ulow, uhigh) gen)
   liftIO $ threadDelay delay
   liftIO $ putStrLn ("The delay is " ++ (show delay) ++ " seconds.")
   return sample
@@ -183,7 +186,7 @@ sendTransaction cmd = do
 
 loop :: TransactionGenerator (PrimState IO) ()
 loop = do
-  transaction <- sampleTransaction
+  transaction <- generateTransaction
   pollResponse <- sendTransaction transaction
   liftIO $ print pollResponse
   counter <- view transactionCount
@@ -192,7 +195,7 @@ loop = do
   loop
 
 mkGeneratorConfig :: Maybe Int -> IO GeneratorConfig
-mkGeneratorConfig mport = GeneratorConfig <$> pure def <*> newIORef 0 <*> go
+mkGeneratorConfig mport = GeneratorConfig <$> pure def <*> newIORef 0 <*> pure mempty <*> go
   where
     go = do mgr <- newManager defaultManagerSettings
             url <- parseBaseUrl ("http://localhost:" ++ maybe _testPort show mport)
@@ -211,30 +214,40 @@ _testPort = "8080"
 _serverPath :: String
 _serverPath = "http://localhost:" ++ _testPort
 
+loadContracts :: IO ()
+loadContracts = do
+  mgr <- newManager defaultManagerSettings
+  url <- parseBaseUrl _serverPath
+  let clientEnv = mkClientEnv mgr url
+  ts <- testSomeKeyPairs
+  contracts <- traverse ($ ts) contractLoaders
+  pollresponse <- runExceptT $ do
+     rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch contracts)) clientEnv
+     ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
+  print pollresponse
+
 main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config -> do
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
-      Init -> do mgr <- newManager defaultManagerSettings
-                 url <- parseBaseUrl _serverPath
-                 let clientEnv = mkClientEnv mgr url
-                 contracts <- traverse ($ testAdminKeyPairs) contractLoaders
-                 accounts <- createAccounts
-                 pollresponse <- runExceptT $ do
-                    rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch (contracts ++ accounts))) clientEnv
-                    ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
-                 print pollresponse
+      Init -> loadContracts
       Run -> do
         putStrLn "Transactions are being generated"
         gencfg <- mkGeneratorConfig Nothing
+        (keysets, accounts) <- unzip <$> createAccounts
+        _pollresponse <-
+            runExceptT $ do
+                rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch accounts)) (_genClientEnv gencfg)
+                ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
+        print _pollresponse
         withSystemRandom . asGenIO $ \gen ->
           evalStateT
-            (runReaderT (runTransactionGenerator loop) gencfg)
+            (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
             gen
 
-contractLoaders :: [[KeyPair] -> IO (Command Text)]
-contractLoaders = take numContracts [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
+contractLoaders :: [[SomeKeyPair] -> IO (Command Text)]
+contractLoaders = initAdminKeysetContract : take numContracts [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
 
 numContracts :: Int
 numContracts = 2
