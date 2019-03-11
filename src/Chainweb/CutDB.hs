@@ -38,6 +38,7 @@ module Chainweb.CutDB
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
+, cutDbPayloadCas
 , member
 , cut
 , _cut
@@ -102,7 +103,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.HashMap
 import Data.PQueue
 import Data.Singletons
 
@@ -139,7 +139,7 @@ defaultCutDbConfig v = CutDbConfig
 -- | This is a singleton DB that contains the latest chainweb cut as only
 -- entry.
 --
-data CutDb = CutDb
+data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
         -- FIXME: TBQueue is a poor choice in applications that require low
@@ -157,54 +157,57 @@ data CutDb = CutDb
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
-    , _cutDbPayloadStore :: !(WebBlockPayloadStore HashMapCas)
+    , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
     }
 
-instance HasChainGraph CutDb where
+instance HasChainGraph (CutDb cas) where
     _chainGraph = _chainGraph . _cutDbHeaderStore
     {-# INLINE _chainGraph #-}
 
-instance HasChainwebVersion CutDb where
+instance HasChainwebVersion (CutDb cas) where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
 
+cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
+cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
+
 -- We export the 'WebBlockHeaderDb' read-only
 --
-cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
+cutDbWebBlockHeaderDb :: Getter (CutDb cas) WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
 -- This the main API method of chainweb-consensus.
 --
-_cut :: CutDb -> IO Cut
+_cut :: CutDb cas -> IO Cut
 _cut = readTVarIO . _cutDbCut
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
 -- This the main API method of chainweb-consensus.
 --
-cut :: Getter CutDb (IO Cut)
+cut :: Getter (CutDb cas) (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb -> CutHashes -> IO ()
+addCutHashes :: CutDb cas -> CutHashes -> IO ()
 addCutHashes db = pQueueInsert (_cutDbQueue db) . Down
 
 -- | An 'STM' version of '_cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-_cutStm :: CutDb -> STM Cut
+_cutStm :: CutDb cas -> STM Cut
 _cutStm = readTVar . _cutDbCut
 
 -- | An 'STM' version of 'cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-cutStm :: Getter CutDb (STM Cut)
+cutStm :: Getter (CutDb cas) (STM Cut)
 cutStm = to _cutStm
 
-member :: CutDb -> ChainId -> BlockHash -> IO Bool
+member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
     th <- maxHeader chainDb
     lookup chainDb h >>= \case
@@ -216,21 +219,23 @@ member db cid h = do
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 withCutDb
-    :: CutDbConfig
+    :: PayloadCas cas
+    => CutDbConfig
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore HashMapCas
-    -> (CutDb -> IO a)
+    -> WebBlockPayloadStore cas
+    -> (CutDb cas -> IO a)
     -> IO a
 withCutDb config logfun headerStore payloadStore
     = bracket (startCutDb config logfun headerStore payloadStore) stopCutDb
 
 startCutDb
-    :: CutDbConfig
+    :: PayloadCas cas
+    => CutDbConfig
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore HashMapCas
-    -> IO CutDb
+    -> WebBlockPayloadStore cas
+    -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
@@ -248,7 +253,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
             ]
         processor queue cutVar
 
-stopCutDb :: CutDb -> IO ()
+stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
@@ -291,7 +296,7 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
 -- produced faster than they are consumed from the stream, the stream skips over
 -- cuts and always returns the latest cut in the db.
 --
-cutStream :: MonadIO m => CutDb -> S.Stream (Of Cut) m r
+cutStream :: MonadIO m => CutDb cas -> S.Stream (Of Cut) m r
 cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
   where
     go cur = do
@@ -335,11 +340,11 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 
 -- | 'CutDb' with type level 'ChainwebVersion'
 --
-newtype CutDbT (v :: ChainwebVersionT) = CutDbT CutDb
+newtype CutDbT cas (v :: ChainwebVersionT) = CutDbT (CutDb cas)
     deriving (Generic)
 
-data SomeCutDb = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT v)
+data SomeCutDb cas = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT cas v)
 
-someCutDbVal :: ChainwebVersion -> CutDb -> SomeCutDb
-someCutDbVal (FromSing (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @v db
+someCutDbVal :: ChainwebVersion -> CutDb cas -> SomeCutDb cas
+someCutDbVal (FromSing (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
 

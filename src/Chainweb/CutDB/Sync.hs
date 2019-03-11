@@ -67,7 +67,7 @@ getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: ChainwebVersion -> PeerInfo -> CutDb -> P2pSession
+syncSession :: ChainwebVersion -> PeerInfo -> CutDb cas -> P2pSession
 syncSession v p db logg env = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)

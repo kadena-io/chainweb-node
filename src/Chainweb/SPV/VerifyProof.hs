@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Payload.SPV.VerifyProof
+-- Module: Chainweb.SPV.VerifyProof
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -11,7 +11,7 @@
 --
 -- TODO
 --
-module Chainweb.Payload.SPV.VerifyProof
+module Chainweb.SPV.VerifyProof
 (
 -- * Transaction Proofs
   runTransactionProof
@@ -37,7 +37,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.CutDB
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
-import Chainweb.Payload.SPV
+import Chainweb.SPV
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -51,7 +51,7 @@ runTransactionProof (TransactionProof _ p)
     = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 verifyTransactionProof
-    :: CutDb
+    :: CutDb cas
     -> TransactionProof SHA512t_256
     -> IO Transaction
 verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
@@ -72,7 +72,7 @@ runTransactionOutputProof (TransactionOutputProof _ p)
     = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 verifyTransactionOutputProof
-    :: CutDb
+    :: CutDb cas
     -> TransactionOutputProof SHA512t_256
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do

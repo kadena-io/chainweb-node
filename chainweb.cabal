@@ -101,15 +101,18 @@ library
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
-        , Chainweb.Payload.SPV
-        , Chainweb.Payload.SPV.CreateProof
-        , Chainweb.Payload.SPV.VerifyProof
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.SPV
+        , Chainweb.SPV.CreateProof
+        , Chainweb.SPV.VerifyProof
+        , Chainweb.SPV.RestAPI
+        , Chainweb.SPV.RestAPI.Server
+        , Chainweb.SPV.RestAPI.Client
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
         , Chainweb.Store.Git

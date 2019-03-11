@@ -60,6 +60,7 @@ import Chainweb.Graph
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
+import Data.CAS.HashMap
 import Data.LogMessage
 
 import Utils.Logging
@@ -110,7 +111,7 @@ pChainwebNodeConfiguration = id
 
 type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
-runMonitor :: Logger -> CutDb -> IO ()
+runMonitor :: Logger -> CutDb cas -> IO ()
 runMonitor logger db =
     L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
         let logg = loggerFun logger'
@@ -128,7 +129,7 @@ runMonitor logger db =
 
 node :: ChainwebConfiguration -> Logger -> IO ()
 node conf logger =
-    withChainweb conf logfuns $ \cw ->
+    withChainweb @HashMapCas conf logfuns $ \cw ->
         race_
             (runChainweb cw)
             (runMonitor logger (_cutsCutDb $ _chainwebCuts cw))

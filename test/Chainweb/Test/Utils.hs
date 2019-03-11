@@ -355,7 +355,7 @@ testHost = "localhost"
 
 data TestClientEnv t cas = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envCutDb :: !(Maybe CutDb)
+    , _envCutDb :: !(Maybe (CutDb cas))
     , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _envMempools :: ![(ChainId, MempoolBackend t)]
     , _envPayloadDbs :: ![(ChainId, PayloadDb cas)]
@@ -381,7 +381,7 @@ pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion 
 
 pattern PayloadTestClientEnv
     :: ClientEnv
-    -> CutDb
+    -> CutDb cas
     -> [(ChainId, PayloadDb cas)]
     -> ChainwebVersion
     -> TestClientEnv t cas
@@ -511,7 +511,7 @@ withPayloadServer
     => FromJSON t
     => Bool
     -> ChainwebVersion
-    -> IO CutDb
+    -> IO (CutDb HashMapCas)
     -> IO [(ChainId, PayloadDb HashMapCas)]
     -> (IO (TestClientEnv t HashMapCas) -> TestTree)
     -> TestTree

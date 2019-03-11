@@ -73,7 +73,7 @@ powMiner
     => LogFunction
     -> MinerConfig
     -> NodeId
-    -> CutDb
+    -> CutDb cas
     -> WebBlockHeaderDb
     -> PayloadDb cas
     -> IO ()

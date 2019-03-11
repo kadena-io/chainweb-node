@@ -50,19 +50,14 @@ module Chainweb.Chainweb
 , pChainwebConfiguration
 
 -- * Peer Resources
+, ChainwebPeer(..)
 , allocatePeer
 , withPeer
 , peerServerSettings
 
 -- * Cut Resources
 , Cuts(..)
-, cutsChainwebVersion
-, cutsCutConfig
-, cutsP2pConfig
-, cutsPeer
 , cutsCutDb
-, cutsPeerDb
-, cutsLogFun
 
 , withCuts
 , runCutNetworkCutSync
@@ -94,7 +89,6 @@ module Chainweb.Chainweb
 
 -- * Chainweb Resources
 , Chainweb(..)
-, chainwebChainwebVersion
 , chainwebChains
 , chainwebCuts
 , chainwebNodeId
@@ -176,7 +170,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.HashMap hiding (toList)
 import Data.LogMessage
 
 import Network.X509.SelfSigned
@@ -308,43 +301,67 @@ withPeer conf = bracket (allocatePeer conf) $ close . _chainwebPeerSocket
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
-data Cuts = Cuts
-    { _cutsChainwebVersion :: !ChainwebVersion
-    , _cutsCutConfig :: !CutDbConfig
+data Cuts cas = Cuts
+    { _cutsCutConfig :: !CutDbConfig
     , _cutsP2pConfig :: !P2pConfiguration
     , _cutsPeer :: !Peer
-    , _cutsCutDb :: !CutDb
+    , _cutsCutDb :: !(CutDb cas)
     , _cutsPeerDb :: !PeerDb
     , _cutsLogFun :: !ALogFunction
-    , _cutsHeaderStore :: !WebBlockHeaderStore
-    , _cutsPayloadStore :: !(WebBlockPayloadStore HashMapCas)
+    , _cutsCutSyncSession :: !P2pSession
+    , _cutsHeaderSyncSession :: !P2pSession
+    , _cutsPayloadSyncSession :: !P2pSession
     }
 
-makeLenses ''Cuts
+makeLensesFor
+    [ ("_cutsCutDb", "cutsCutDb")
+    ] ''Cuts
+
+instance HasChainwebVersion (Cuts cas) where
+    _chainwebVersion = _chainwebVersion . _cutsCutDb
+    {-# INLINE _chainwebVersion #-}
 
 withCuts
-    :: ChainwebVersion
+    :: PayloadCas cas
+    => ChainwebVersion
     -> CutDbConfig
     -> P2pConfiguration
     -> Peer
     -> PeerDb
     -> ALogFunction
     -> WebBlockHeaderDb
+    -> PayloadDb cas
     -> HTTP.Manager
-    -> (Cuts -> IO a)
+    -> (Cuts cas -> IO a)
     -> IO a
-withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain mgr f = do
+withCuts v cutDbConfig p2pConfig peer peerDb logfun webchain payloadDb mgr f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (_getLogFunction logfun)
 
     -- initialize payload store
-    payloadStore <- newWebPayloadStore v mgr pact (_getLogFunction logfun)
+    payloadStore <- newWebPayloadStore mgr pact payloadDb (_getLogFunction logfun)
 
     withCutDb cutDbConfig (_getLogFunction logfun) headerStore payloadStore $ \cutDb ->
-        f $ Cuts v cutDbConfig p2pConfig peer cutDb peerDb logfun headerStore payloadStore
+        f $ Cuts
+            { _cutsCutConfig  = cutDbConfig
+            , _cutsP2pConfig = p2pConfig
+            , _cutsPeer = peer
+            , _cutsCutDb = cutDb
+            , _cutsPeerDb = peerDb
+            , _cutsLogFun = logfun
+            , _cutsCutSyncSession = C.syncSession v (_peerInfo peer) cutDb
+            , _cutsHeaderSyncSession =
+                session attemptsLimit (_webBlockHeaderStoreQueue headerStore)
+            , _cutsPayloadSyncSession =
+                session attemptsLimit (_webBlockPayloadStoreQueue payloadStore)
+            }
+  where
+    attemptsLimit = 10
 
-cutNetworks :: HTTP.Manager -> Cuts -> [IO ()]
+-- | The networks that are used by the cut DB.
+--
+cutNetworks :: HTTP.Manager -> Cuts cas -> [IO ()]
 cutNetworks mgr cuts =
     [ runCutNetworkCutSync mgr cuts
     , runCutNetworkHeaderSync mgr cuts
@@ -353,25 +370,21 @@ cutNetworks mgr cuts =
 
 -- | P2P Network for pushing Cuts
 --
-runCutNetworkCutSync :: HTTP.Manager -> Cuts -> IO ()
-runCutNetworkCutSync mgr cuts = mkCutNetworkSync mgr cuts "cut sync"
-    $ C.syncSession (_cutsChainwebVersion cuts) (_peerInfo $ _cutsPeer cuts) (_cutsCutDb cuts)
+runCutNetworkCutSync :: HTTP.Manager -> Cuts cas -> IO ()
+runCutNetworkCutSync mgr c
+    = mkCutNetworkSync mgr c "cut sync" $ _cutsCutSyncSession c
 
 -- | P2P Network for Block Headers
 --
-runCutNetworkHeaderSync :: HTTP.Manager -> Cuts -> IO ()
-runCutNetworkHeaderSync mgr cuts = mkCutNetworkSync mgr cuts "block header sync"
-    $ session attemptsLimit $ _webBlockHeaderStoreQueue $ view cutsHeaderStore cuts
-  where
-    attemptsLimit = 10
+runCutNetworkHeaderSync :: HTTP.Manager -> Cuts cas -> IO ()
+runCutNetworkHeaderSync mgr c
+    = mkCutNetworkSync mgr c "block header sync" $ _cutsHeaderSyncSession c
 
 -- | P2P Network for Block Payloads
 --
-runCutNetworkPayloadSync :: HTTP.Manager -> Cuts -> IO ()
-runCutNetworkPayloadSync mgr cuts = mkCutNetworkSync mgr cuts "block payload sync"
-    $ session attemptsLimit $ _webBlockPayloadStoreQueue $ view cutsPayloadStore cuts
-  where
-    attemptsLimit = 10
+runCutNetworkPayloadSync :: HTTP.Manager -> Cuts cas -> IO ()
+runCutNetworkPayloadSync mgr c
+    = mkCutNetworkSync mgr c "block payload sync" $ _cutsPayloadSyncSession c
 
 -- | P2P Network for Block Payloads
 --
@@ -380,14 +393,14 @@ runCutNetworkPayloadSync mgr cuts = mkCutNetworkSync mgr cuts "block payload syn
 --
 mkCutNetworkSync
     :: HTTP.Manager
-    -> Cuts
+    -> Cuts cas
     -> T.Text
     -> P2pSession
     -> IO ()
 mkCutNetworkSync mgr cuts label s = bracket create destroy $ \n ->
     p2pStartNode (_cutsP2pConfig cuts) n
   where
-    v = _cutsChainwebVersion cuts
+    v = _chainwebVersion cuts
     peer = _cutsPeer cuts
     logfun = _cutsLogFun cuts
     peerDb = _cutsPeerDb cuts
@@ -572,12 +585,12 @@ mempoolSyncP2pSession chain logg0 env = go
 -- -------------------------------------------------------------------------- --
 -- Miner
 
-data Miner = Miner
+data Miner cas = Miner
     { _minerLogFun :: !ALogFunction
     , _minerNodeId :: !NodeId
-    , _minerCutDb :: !CutDb
+    , _minerCutDb :: !(CutDb cas)
     , _minerWebBlockHeaderDb :: !WebBlockHeaderDb
-    , _minerWebPayloadDb :: !(PayloadDb HashMapCas)
+    , _minerWebPayloadDb :: !(PayloadDb cas)
     , _minerConfig :: !MinerConfig
     }
 
@@ -585,10 +598,10 @@ withMiner
     :: ALogFunction
     -> MinerConfig
     -> NodeId
-    -> CutDb
+    -> CutDb cas
     -> WebBlockHeaderDb
-    -> PayloadDb HashMapCas
-    -> (Miner -> IO a)
+    -> PayloadDb cas
+    -> (Miner cas -> IO a)
     -> IO a
 withMiner logFun conf nid cutDb webDb payloadDb inner = inner $ Miner
     { _minerLogFun = logFun
@@ -599,7 +612,7 @@ withMiner logFun conf nid cutDb webDb payloadDb inner = inner $ Miner
     , _minerConfig = conf
     }
 
-runMiner :: ChainwebVersion -> Miner -> IO ()
+runMiner :: PayloadCas cas => ChainwebVersion -> Miner cas -> IO ()
 runMiner v m = (chooseMiner v)
     (_getLogFunction $ _minerLogFun m)
     (_minerConfig m)
@@ -609,13 +622,14 @@ runMiner v m = (chooseMiner v)
     (_minerWebPayloadDb m)
   where
     chooseMiner
-        :: ChainwebVersion
+        :: PayloadCas cas
+        => ChainwebVersion
         -> LogFunction
         -> MinerConfig
         -> NodeId
-        -> CutDb
+        -> CutDb cas
         -> WebBlockHeaderDb
-        -> PayloadDb HashMapCas
+        -> PayloadDb cas
         -> IO ()
     chooseMiner Test{} = testMiner
     chooseMiner TestWithTime{} = testMiner
@@ -638,36 +652,36 @@ makeLenses ''ChainwebLogFunctions
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
 
-data Chainweb = Chainweb
-    { _chainwebChainwebVersion :: !ChainwebVersion
-    , _chainwebHostAddress :: !HostAddress
+data Chainweb cas = Chainweb
+    { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId Chain)
-    , _chainwebCuts :: !Cuts
+    , _chainwebCuts :: !(Cuts cas)
     , _chainwebNodeId :: !NodeId
-    , _chainwebMiner :: !Miner
+    , _chainwebMiner :: !(Miner cas)
     , _chainwebLogFun :: !ALogFunction
     , _chainwebSocket :: !Socket
     , _chainwebPeer :: !Peer
-    , _chainwebPayloadDb :: !(PayloadDb HashMapCas)
+    , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
     }
 
 makeLenses ''Chainweb
 
-instance HasChainwebVersion Chainweb where
-    _chainwebVersion = _chainwebChainwebVersion
+instance HasChainwebVersion (Chainweb cas) where
+    _chainwebVersion = _chainwebVersion . _chainwebCuts
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph Chainweb where
+instance HasChainGraph (Chainweb cas) where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainweb
-    :: ChainwebConfiguration
+    :: PayloadCas cas
+    => ChainwebConfiguration
     -> ChainwebLogFunctions
-    -> (Chainweb -> IO a)
+    -> (Chainweb cas -> IO a)
     -> IO a
 withChainweb conf logFuns inner = withPeer (view confLens conf) $ \(ChainwebPeer c peer sock) ->
     withChainwebInternal (set confLens c conf) logFuns sock peer inner
@@ -687,11 +701,12 @@ mempoolConfig = Mempool.InMemConfig
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainwebInternal
-    :: ChainwebConfiguration
+    :: PayloadCas cas
+    => ChainwebConfiguration
     -> ChainwebLogFunctions
     -> Socket
     -> Peer
-    -> (Chainweb -> IO a)
+    -> (Chainweb cas -> IO a)
     -> IO a
 withChainwebInternal conf logFuns socket peer inner = do
     let nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
@@ -712,18 +727,18 @@ withChainwebInternal conf logFuns socket peer inner = do
     -- Initialize global resources
     go peerDb payloadDb cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainBlockHeaderDb cs)
-        withConnectionManger (_chainwebNodeLogFun logFuns) peer peerDb $ \mgr ->
-            withCuts v cutConfig p2pConf peer peerDb (_chainwebCutLogFun logFuns) webchain mgr $ \cuts ->
+        withConnectionManger (_chainwebNodeLogFun logFuns) peer peerDb $ \mgr -> do
+            let cutLogfun = _chainwebCutLogFun logFuns
+            withCuts v cutConfig p2pConf peer peerDb cutLogfun webchain payloadDb mgr $ \cuts ->
                 withMiner
                     (_chainwebMinerLogFun logFuns)
                     (_configMiner conf)
                     cwnid
                     (_cutsCutDb cuts)
                     webchain
-                    (_webBlockPayloadStoreCas $ _cutsPayloadStore cuts)
+                    payloadDb
                     $ \m -> inner Chainweb
-                        { _chainwebChainwebVersion = v
-                        , _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                        { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         , _chainwebChains = cs
                         , _chainwebCuts = cuts
                         , _chainwebNodeId = cwnid
@@ -750,7 +765,7 @@ withChainwebInternal conf logFuns socket peer inner = do
 
 -- Starts server and runs all network clients
 --
-runChainweb :: Chainweb -> IO ()
+runChainweb :: PayloadCas cas => Chainweb cas -> IO ()
 runChainweb cw = do
     logfun Info "start chainweb node"
 
@@ -780,7 +795,7 @@ runChainweb cw = do
             (_peerCertificate $ _chainwebPeer cw)
             (_peerKey $ _chainwebPeer cw)
             (_chainwebSocket cw)
-            (_chainwebChainwebVersion cw)
+            (_chainwebVersion cw)
             ChainwebServerDbs
                 { _chainwebServerCutDb = Just cutDb
                 , _chainwebServerBlockHeaderDbs = chainDbsToServe
