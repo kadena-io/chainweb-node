@@ -272,8 +272,8 @@ data ChainwebPeer = ChainwebPeer
 
 -- makeLenses ''ChainwebPeer
 
--- | Allocate Peer resources. All P2P networks of a chainweb node share the a
--- single Peer and the associated underlying network resources.
+-- | Allocate Peer resources. All P2P networks of a chainweb node share a single
+-- Peer and the associated underlying network resources.
 --
 -- The following resources are allocated:
 --

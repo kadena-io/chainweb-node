@@ -136,24 +136,11 @@ defaultCutDbConfig v = CutDbConfig
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
--- | This is a singleton DB that contains the latest chainweb cut as only
--- entry.
+-- | This is a singleton DB that contains the latest chainweb cut as only entry.
 --
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
-        -- FIXME: TBQueue is a poor choice in applications that require low
-        -- latencies (internally, it uses the classic function queue
-        -- implementation with two stacks that has a performance distribution
-        -- with a very long tail.)
-        --
-        -- TODO use a priority queue, that prioritizes heavier cuts and newer
-        -- cuts. It should also be non-blocking but instead discard older
-        -- entries. We may use the streaming-concurrency package for that.
-        --
-        -- For now we treat all peers equal. A local miner is just another peer
-        -- that provides new cuts.
-
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -347,4 +334,3 @@ data SomeCutDb cas = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDb
 
 someCutDbVal :: ChainwebVersion -> CutDb cas -> SomeCutDb cas
 someCutDbVal (FromSing (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
-

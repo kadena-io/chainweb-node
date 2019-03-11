@@ -124,6 +124,5 @@ somePayloadServers
     => ChainwebVersion
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer
-somePayloadServers v = mconcat
-    . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
-
+somePayloadServers v
+    = mconcat . fmap (somePayloadServer . uncurry (somePayloadDbVal v))

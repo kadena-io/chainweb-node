@@ -54,15 +54,10 @@ import Chainweb.Version
 
 -- | FIXME: include own peer info
 --
-cutGetHandler
-    :: CutDb cas
-    -> Handler CutHashes
+cutGetHandler :: CutDb cas -> Handler CutHashes
 cutGetHandler db = liftIO $ cutToCutHashes Nothing <$> _cut db
 
-cutPutHandler
-    :: CutDb cas
-    -> CutHashes
-    -> Handler NoContent
+cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
 cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --
@@ -87,10 +82,5 @@ someCutServer v = someCutServerT . someCutDbVal v
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
-serveCutOnPort
-    :: Port
-    -> ChainwebVersion
-    -> CutDb cas
-    -> IO ()
+serveCutOnPort :: Port -> ChainwebVersion -> CutDb cas -> IO ()
 serveCutOnPort p v = run (int p) . someServerApplication . someCutServer v
-
