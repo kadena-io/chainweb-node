@@ -269,14 +269,21 @@ applyPactCmds
     -> MinerInfo
     -> PactT ([FullLogTxOutput], Word64)
 applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
-    resultPair <- foldM f ([], fromIntegral prevTxId) cmds
-    return $ first reverse resultPair
+    (outs, newEM) <- foldM f ([], (P.Transactional (P.TxId prevTxId))) cmds
+    newTxId <- case newEM of
+          P.Transactional (P.TxId txId) -> return txId
+          other -> fail "Transactional ExecutionMode expected"
+    return (reverse outs, newTxId)
     where
-        f :: ([FullLogTxOutput], Word64) -> P.Command ByteString -> PactT ([FullLogTxOutput], Word64)
-        f (outs, prevId) cmd = do
-          let newId = succ prevId
-          txOut <- applyPactCmd isGenesis env' cmdState cmd (P.TxId newId) miner
-          return (txOut : outs, newId)
+        -- f
+          --  :: ([FullLogTxOutput], ExecutionMode)
+          -- -> P.Command ByteString
+          -- -> PactT ([FullLogTxOutput], ExecutionMode)
+        f (outs, prevEm) cmd = do
+          -- let newId = succ prevId
+          (txOut, newEM) <- applyPactCmd isGenesis env' cmdState cmd
+                                  (P.Transactional (P.TxId newId)) miner
+          return (txOut : outs, newEM)
 
 -- | Apply a single Pact command
 applyPactCmd
@@ -284,10 +291,10 @@ applyPactCmd
     -> Env'
     -> MVar P.CommandState
     -> P.Command ByteString
-    -> P.TxId
+    -> P.ExecutionMode
     -> MinerInfo
-    -> PactT FullLogTxOutput
-applyPactCmd isGenesis (Env' dbEnv) cmdState cmd txId miner = do
+    -> PactT (FullLogTxOutput, ExecutionMode)
+applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
     cpEnv <- ask
     let logger = _cpeLogger cpEnv
         gasModel = cpEnv ^. cpeGasEnv . P.geGasModel
@@ -296,9 +303,9 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmd txId miner = do
         procCmd = P.verifyCommand cmd
 
     (result, txLogs) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger Nothing dbEnv cmdState txId cmd procCmd
+        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd procCmd
         else applyCmd logger Nothing miner dbEnv
-             cmdState gasModel txId cmd procCmd
+             cmdState gasModel execMode cmd procCmd
 
     pure $! FullLogTxOutput (P._crResult result) txLogs
 

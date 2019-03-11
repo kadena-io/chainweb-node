@@ -79,15 +79,16 @@ applyCmd
     -> PactDbEnv p
     -> MVar CommandState
     -> GasModel
-    -> TxId
+    -> ExecutionMode
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
-    -> IO (CommandResult, [TxLog Value])
-applyCmd _ _ _ _ _ _ txId cmd (ProcFail s) = pure (jsonResult (Just txId) (cmdToRequestKey cmd) (Gas 0) s, [])
-applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel txId _ (ProcSucc cmd) = do
+    -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
+applyCmd _ _ _ _ _ _ execMode cmd (ProcFail s)
+    = pure ((jsonResult (exToTx execMode) (cmdToRequestKey cmd) (Gas 0) s, []), execMode)
+applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel execMode _ (ProcSucc cmd) = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
-        cmdEnv = CommandEnv entityM (Transactional txId) pactDbEnv cmdState logger gasEnv
+        cmdEnv = CommandEnv entityM execMode pactDbEnv cmdState logger gasEnv
         requestKey = cmdToRequestKey cmd
         modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
 
@@ -96,7 +97,8 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel txId _ (ProcSucc c
     case buyGasResultE of
       Left e1 -> do
         logErrorRequestKey logger requestKey e1 "tx failure for requestKey when buying gas"
-        jsonErrorResult (Just txId) requestKey e1 [] (Gas 0)
+        r <- jsonErrorResult (exToTx execMode) requestKey e1 [] (Gas 0)
+        pure (r, execMode)
       Right _buyGasResult -> do
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
@@ -105,35 +107,41 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel txId _ (ProcSucc c
         logDebugRequestKey logger requestKey "successful gas buy for request key"
         -- Note the use of 'def' here: we run the payload normally without inserting
         -- initial state.
+
+        TODO: does runPayload need to return ExecutionMode ?
         cmdResultE <- tryAny $ runPayload cmdEnv def cmd []
+
         case cmdResultE of
           Left e2 -> do
             logErrorRequestKey logger requestKey e2 "tx failure for request key when running cmd"
-            jsonErrorResult (Just txId) requestKey e2 [] (Gas 0)
+            r <- jsonErrorResult (exToTx execMode) requestKey e2 [] (Gas 0)
+            pure (r, execMode)
           Right (cmdResult, cmdLogs) -> do
             logDebugRequestKey logger requestKey "success for requestKey"
             redeemResultE <- tryAny $ redeemGas modifiedEnv cmd cmdResult {- pactId -} cmdLogs
             case redeemResultE of
               Left e3 -> do
                 logErrorRequestKey logger requestKey e3 "tx failure for request key while redeeming gas"
-                jsonErrorResult (Just txId) requestKey e3 cmdLogs $ _crGas cmdResult
+                r <- jsonErrorResult (exToTx execMode) requestKey e3 cmdLogs $ _crGas cmdResult
+                pure (r, execMode)
               Right (_, redeemLogs) -> do
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure (cmdResult, redeemLogs)
+                pure ((cmdResult, redeemLogs),
 
 applyGenesisCmd
     :: Logger
     -> Maybe EntityName
     -> PactDbEnv p
     -> MVar CommandState
-    -> TxId
+    -> ExecutionMode
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
-    -> IO (CommandResult, [TxLog Value])
-applyGenesisCmd _ _ _ _ txId cmd (ProcFail pCmd) = pure (jsonResult (Just txId) (cmdToRequestKey cmd) (Gas 0) pCmd, [])
-applyGenesisCmd logger entityM dbEnv cmdState txId _ (ProcSucc cmd) = do
+    -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
+applyGenesisCmd _ _ _ _ execMode cmd (ProcFail pCmd)
+    = pure (jsonResult (exToTx execMode) (cmdToRequestKey cmd) (Gas 0) pCmd, [])
+applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv entityM (Transactional txId) dbEnv cmdState logger freeGasEnv
+    let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
         requestKey = cmdToRequestKey cmd
 
     resultE <- tryAny $ runPayload cmdEnv def cmd []
@@ -141,7 +149,7 @@ applyGenesisCmd logger entityM dbEnv cmdState txId _ (ProcSucc cmd) = do
       Left e -> do
         logErrorRequestKey logger requestKey e
           "genesis tx failure for request key while running genesis"
-        jsonErrorResult (Just txId) requestKey e [] (Gas 0)
+        jsonErrorResult (exToTx execMode) requestKey e [] (Gas 0)
       Right result -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
         pure $! result
