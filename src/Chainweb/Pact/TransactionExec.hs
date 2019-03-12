@@ -84,7 +84,7 @@ applyCmd
     -> ProcessedCommand PublicMeta ParsedCode
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
 applyCmd _ _ _ _ _ _ execMode cmd (ProcFail s)
-    = pure ((jsonResult (exToTx execMode) (cmdToRequestKey cmd) (Gas 0) s, []), execMode)
+    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) s, []), execMode)
 applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSucc cmd) = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
@@ -101,7 +101,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSuc
     case buyGasResultE of
       Left e1 -> do
         logErrorRequestKey logger requestKey e1 "tx failure for requestKey when buying gas"
-        r <- jsonErrorResult (exToTx buyGasEM) requestKey e1 [] (Gas 0)
+        r <- jsonErrorResult buyGasEM requestKey e1 [] (Gas 0)
         pure (r, buyGasEM)
       Right _buyGasResult -> do
         -- this call needs to fail hard if Left. It means the continuation did not process
@@ -120,7 +120,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSuc
         case cmdResultE of
           Left e2 -> do
             logErrorRequestKey logger requestKey e2 "tx failure for request key when running cmd"
-            r <- jsonErrorResult (exToTx payloadEM) requestKey e2 [] (Gas 0)
+            r <- jsonErrorResult payloadEM requestKey e2 [] (Gas 0)
             pure (r, payloadEM)
           Right (cmdResult, cmdLogs) -> do
             logDebugRequestKey logger requestKey "success for requestKey"
@@ -133,7 +133,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSuc
             case redeemResultE of
               Left e3 -> do
                 logErrorRequestKey logger requestKey e3 "tx failure for request key while redeeming gas"
-                r <- jsonErrorResult (exToTx redeemGasEM) requestKey e3 cmdLogs $ _crGas cmdResult
+                r <- jsonErrorResult redeemGasEM requestKey e3 cmdLogs $ _crGas cmdResult
                 pure (r, redeemGasEM)
               Right (_, redeemLogs) -> do
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
@@ -149,7 +149,7 @@ applyGenesisCmd
     -> ProcessedCommand PublicMeta ParsedCode
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
 applyGenesisCmd _ _ _ _ execMode cmd (ProcFail pCmd)
-    = pure ((jsonResult (exToTx execMode) (cmdToRequestKey cmd) (Gas 0) pCmd, []), execMode)
+    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) pCmd, []), execMode)
 applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
@@ -164,7 +164,7 @@ applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
       Left e -> do
         logErrorRequestKey logger requestKey e
           "genesis tx failure for request key while running genesis"
-        r <- jsonErrorResult (exToTx payloadEM) requestKey e [] (Gas 0)
+        r <- jsonErrorResult payloadEM requestKey e [] (Gas 0)
         pure (r, payloadEM)
       Right result -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
@@ -172,20 +172,20 @@ applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
-    :: Maybe TxId
+    :: ExecutionMode
     -> RequestKey
     -> SomeException
     -> [TxLog Value]
     -> Gas
     -> IO (CommandResult, [TxLog Value])
-jsonErrorResult txId reqKey err txLogs gas = pure $!
-    ( jsonResult txId reqKey gas $
+jsonErrorResult exMode reqKey err txLogs gas = pure $!
+    ( jsonResult exMode reqKey gas $
         CommandError "Command execution failed" (Just . show $ err)
     , txLogs
     )
 
-jsonResult :: ToJSON a => Maybe TxId -> RequestKey -> Gas -> a -> CommandResult
-jsonResult txId cmd gas a = CommandResult cmd txId (toJSON a) gas
+jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> Gas -> a -> CommandResult
+jsonResult exMode cmd gas a = CommandResult cmd (exToTx exMode) (toJSON a) gas
 
 exToTx :: ExecutionMode -> Maybe TxId
 exToTx (Transactional t) = Just t
@@ -214,7 +214,7 @@ applyExec
     -> IO (CommandResult, [TxLog Value])
 applyExec env@CommandEnv{..} initState rk em senderSigs hash prevLogs = do
   EvalResult{..} <- applyExec' env initState em senderSigs hash
-  return (jsonResult (exToTx _ceMode) rk _erGas $
+  return (jsonResult _ceMode rk _erGas $
           CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
@@ -260,7 +260,7 @@ applyContinuation
     -> IO (CommandResult, [TxLog Value])
 applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash prevLogs = do
   EvalResult{..} <- applyContinuation' env initState msg senderSigs hash
-  pure $! (jsonResult (exToTx _ceMode) rk _erGas $
+  pure $! (jsonResult _ceMode rk _erGas $
            CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
 applyContinuation'
