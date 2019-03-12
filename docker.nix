@@ -14,7 +14,7 @@ in
                 imageName = "alpine";
                 imageDigest = "sha256:a4d41fa0d6bb5b1194189bab4234b1f2abfabb4728bda295f5c53d89766aa046";
                 finalImageTag = "3.8";
-                sha256 = "c87736221ed0bcaa60b8e92a19bec2284899ef89226f2a07968677cf59e637a4";
+                sha256 = "17s0np13ygsc16ahx2zzyry60c03p48cq3skqvlwm6bhfshkwvv8";
                 os = "linux";
                 arch = "amd64";
             };
