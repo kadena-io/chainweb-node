@@ -160,8 +160,12 @@ The following docker images can be found on DockerHub:
 * [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node): Image that spins up a chainweb bootstrap node. Expects the node's configuration file to be present in `/tmp/test-bootstrap-node.config`.
 
 These docker images can also be created locally using Nix:
+
 ```sh
-# Outputs two result tar files, one for the base image and one for the bootstrap image.
+# This outputs two tar files, one for the base image and one for the bootstrap
+# image. You need to be logged in to docker (`docker login`) to fetch the
+# Alpine image that these two new images are based on.
+
 $ nix-build docker.nix
 $ docker load --input result
 $ docker load --input result-2
