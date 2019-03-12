@@ -1,6 +1,4 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Chainweb.Simulate.Utils where
@@ -14,10 +12,11 @@ import qualified Data.Text as T
 
 import NeatInterpolation
 
-import Pact.ApiReq (ApiKeyPair(..),mkExec, mkKeyPairs)
-import Pact.Types.Command (Command (..))
-import Pact.Types.Crypto (SomeKeyPair,PublicKeyBS(..), PrivateKeyBS(..),
-  PPKScheme(..), formatPublicKey)
+import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
+import Pact.Types.Command (Command(..))
+import Pact.Types.Crypto
+    (PPKScheme(..), PrivateKeyBS(..), PublicKeyBS(..), SomeKeyPair,
+    formatPublicKey)
 import Pact.Types.Util (toB16Text)
 
 testApiKeyPairs :: [ApiKeyPair]

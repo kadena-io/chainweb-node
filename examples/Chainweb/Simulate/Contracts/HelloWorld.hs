@@ -1,7 +1,7 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ViewPatterns #-}
+
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
@@ -30,7 +30,7 @@ import Text.Printf (printf)
 -- pact
 
 import Pact.ApiReq (mkExec)
-import Pact.Types.Command (Command (..))
+import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
 -- chainweb

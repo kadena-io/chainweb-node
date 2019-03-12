@@ -1,7 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 -- |
@@ -10,8 +8,8 @@ module Chainweb.Simulate.Contracts.CryptoCritters where
 
 import Data.Aeson
 import Data.Default
-import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import Fake (FGen)
 
@@ -23,7 +21,7 @@ import System.Random (StdGen, randomR)
 
 -- pact
 import Pact.ApiReq (mkExec)
-import Pact.Types.Command (Command (..))
+import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
 -- chainweb
@@ -423,14 +421,14 @@ mkRandomCritterRequest gen = go
             _ -> fail "mkRandomCritterRequest: You should not hit the case."
 
 data CryptoCritter = CryptoCritter
-  { cgenes :: Text
-  , cmatronid :: Integer
-  , csireid :: Integer
-  , cgeneration :: Integer
-  , cowner :: [SomeKeyPair]
-  , ctransferring :: Bool
-  , ctransferto :: [SomeKeyPair]
-  , cavailabletobreed :: Bool
+  { cgenes :: !Text
+  , cmatronid :: !Integer
+  , csireid :: !Integer
+  , cgeneration :: !Integer
+  , cowner :: ![SomeKeyPair]
+  , ctransferring :: !Bool
+  , ctransferto :: ![SomeKeyPair]
+  , cavailabletobreed :: !Bool
   }
 
 -- -- interpolateCritterJSONObject :: Parser CryptoCritter

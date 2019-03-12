@@ -1,9 +1,6 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 module Chainweb.Simulate.Contracts.SimplePayments where
@@ -14,6 +11,7 @@ import Data.Default
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Formatting hiding (text)
 import Fake
 
 import GHC.Generics hiding (from, to)
@@ -25,8 +23,8 @@ import System.Random
 -- PACT
 
 import Pact.ApiReq (mkExec)
-import Pact.Types.Command (Command (..))
-import Pact.Types.Crypto (SomeKeyPair, genKeyPair, defaultScheme)
+import Pact.Types.Command (Command(..))
+import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
 
 -- CHAINWEB
 
@@ -96,8 +94,7 @@ createAccount name = do
     res <- mkExec (T.unpack theCode) theData def adminKeyset Nothing
     return (nameKeyset, res)
   where
-    cappedName = T.toTitle name
-    theCode = [text|(payments.create-account "$cappedName" 1000000.0 (read-keyset "$name-keyset"))|]
+    theCode = sformat ("(payments.create-account \"" % stext % "\" " % float % " (read-keyset \"" % stext % "-keyset\"))") (T.toTitle name) (1000000.0 :: Decimal) name
 
 createAccounts :: IO [([SomeKeyPair], Command Text)]
 createAccounts = traverse createAccount (T.words names)
@@ -113,7 +110,7 @@ accountNames :: [Account]
 accountNames = map (Account . T.toTitle) (T.words names)
 
 instance Fake Account where
-  fake = elements (accountNames)
+  fake = elements accountNames
 
 newtype Amount = Amount
   { getAmount :: Decimal
@@ -135,22 +132,27 @@ newtype Balance = Balance
 instance Fake Balance where
   fake = Balance . fromIntegral <$> fromRange (0, 100000 :: Integer)
 
+distinctPair :: (Fake a, Eq a) => FGen (a,a)
+distinctPair = fake >>= \a -> (,) a <$> suchThat fake (/= a)
+
 mkRandomSimplePaymentRequest :: [(Account, [SomeKeyPair])] -> IO (FGen SimplePaymentRequest)
 mkRandomSimplePaymentRequest kacts = do
   request <- randomRIO (0, 1 :: Int)
   case request of
     0 -> return $ RequestGetBalance <$> fake
-    1 -> return $ RequestPay <$> fake <*> fake <*> fake
+    1 -> return $ do
+        (from, to) <- distinctPair
+        amount <- fake
+        return $ RequestPay from to amount
     -- Lol, this might be used later. For now, this constructor will
     -- not be exercised.
     2 -> return $ do
            acct <- fake
            bal <- fake
-           -- case find ((== acct)  . fst) kacts of
            case lookup acct kacts of
             Nothing -> fail (errmsg ++ T.unpack (getAccount acct) ++ " " ++ show (fst <$> kacts))
             Just keyset -> return $ CreateAccount acct bal keyset
-    _ -> fail ("mkRandomSimplePaymentRequest: error in case statement.")
+    _ -> error "mkRandomSimplePaymentRequest: error in case statement."
   where
     errmsg =
            "mkRandomSimplePaymentRequest: something went wrong."
@@ -159,42 +161,31 @@ mkRandomSimplePaymentRequest kacts = do
 
 data SimplePaymentRequest
   = RequestGetBalance Account
-  | RequestPay Account
-               Account
-               Amount
-  | CreateAccount Account
-                  Balance
-                  [SomeKeyPair]
+  | RequestPay Account Account Amount
+  | CreateAccount Account Balance [SomeKeyPair]
 
 parens :: String -> String
 parens s = "(" ++ s ++ ")"
 
 instance Show SimplePaymentRequest where
-  show (RequestGetBalance account) = "RequestGetBalance: " ++ (parens $ show account)
+  show (RequestGetBalance account) = "RequestGetBalance: " ++ parens (show account)
   show (RequestPay accountA accountB amount) =
-    "RequestPay: " ++ (parens $ show accountA) ++ " " ++ (parens $ show accountB) ++ " " ++ (parens $ show amount)
-  show (CreateAccount account balance _) = "CreateAccount: " ++ (parens $ show account) ++ " " ++ (parens $ show balance)
-
-getInitialBalance :: Balance -> Text
-getInitialBalance = T.pack . show . getBalance
-
-showAmount :: Amount -> Text
-showAmount = T.pack . show . getAmount
+    "RequestPay: " ++ parens (show accountA) ++ " " ++ parens (show accountB) ++ " " ++ parens (show amount)
+  show (CreateAccount account balance _) = "CreateAccount: " ++ parens (show account) ++ " " ++ parens (show balance)
 
 createSimplePaymentRequest :: SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO (Command Text)
-createSimplePaymentRequest (CreateAccount (Account account) (getInitialBalance -> initialBalance) somekeyset) Nothing = do
+createSimplePaymentRequest (CreateAccount (Account account) (Balance initialBalance) somekeyset) Nothing = do
   adminKeyset <- testSomeKeyPairs
-  let theData = object ["keyset" .= fmap formatB16PubKey somekeyset
-                       ,"admin-keyset" .= fmap formatB16PubKey adminKeyset]
-      theCode = [text|(payments.create-account "$account" $initialBalance (read-keyset keyset))|]
+  let theData = object ["keyset" .= fmap formatB16PubKey somekeyset ,"admin-keyset" .= fmap formatB16PubKey adminKeyset]
+      theCode = sformat ("(payments.create-account " % stext % " " % float % ")") account initialBalance
   mkExec (T.unpack theCode) theData def somekeyset Nothing
 
 createSimplePaymentRequest (RequestGetBalance (Account account)) Nothing = do
   adminKeyset <- testSomeKeyPairs
-  let theCode = [text|(payments.get-balance "$account")|]
+  let theCode = sformat ("(payments.get-balance " % stext % ")") account
   mkExec (T.unpack theCode) Null def adminKeyset Nothing
 
-createSimplePaymentRequest (RequestPay (Account from) (Account to) (showAmount -> amount)) (Just keyset) = do
-  let theCode = [text|(payments.pay "$from" "$to" $amount)|]
+createSimplePaymentRequest (RequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
+  let theCode = sformat ("(payments.pay " % stext % " " % stext % " " % float % ")") from to amount
   mkExec (T.unpack theCode) Null def keyset Nothing
 createSimplePaymentRequest _ _ = fail "This case should not be reached."

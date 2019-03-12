@@ -4,8 +4,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -19,20 +19,21 @@
 module Main where
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
+
 import Control.Concurrent (threadDelay)
 import Control.Lens hiding ((.=))
+import Control.Monad.Except
 import Control.Monad.Primitive
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Except
 
-import Data.Default (def, Default (..))
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.Default (Default(..), def)
 import Data.Text (Text)
 import Data.Word (Word16)
 
-import Fake (generate, fake)
+import Fake (fake, generate)
 
+import Numeric.Natural
 import Network.HTTP.Client
 
 import GHC.Generics
@@ -46,7 +47,7 @@ import System.Random.MWC.Distributions (normal)
 -- -- PACT
 import Pact.Server.Client
 import Pact.Types.API
-import Pact.Types.Command (Command (..))
+import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
 -- CHAINWEB
@@ -89,6 +90,13 @@ instance FromJSON (TransactionConfig -> TransactionConfig) where
     <*< nodeChainId ..: "nodeChainId" % o
     <*< nodePort ..: "nodePort" % o
 
+data GeneratorState s = GeneratorState
+  { _gsGen :: Gen s
+  , _gsCounter :: Natural
+  }
+
+makeLenses ''GeneratorState
+
 defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
@@ -126,7 +134,6 @@ instance Default TimingDistribution where
 
 data GeneratorConfig = GeneratorConfig
   { _timingdist :: TimingDistribution
-  , _transactionCount :: IORef Integer
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
   , _genClientEnv :: ClientEnv
   }
@@ -156,7 +163,7 @@ generateTransaction = do
       3 -> liftIO $ undefined
       _ -> fail "No contract here"
   distribution <- view timingdist
-  gen <- get
+  gen <- use gsGen
   delay <-
     case distribution of
       Gaussian gmean gvar ->
@@ -168,8 +175,8 @@ generateTransaction = do
   return sample
 
 newtype TransactionGenerator s a = TransactionGenerator
-  { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (Gen s) IO) a
-  } deriving ( Functor , Applicative , Monad , MonadIO , MonadState (Gen s) , MonadReader GeneratorConfig)
+  { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (GeneratorState s) IO) a
+  } deriving ( Functor , Applicative , Monad , MonadIO , MonadState (GeneratorState s) , MonadReader GeneratorConfig)
 
 
 sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
@@ -189,13 +196,13 @@ loop = do
   transaction <- generateTransaction
   pollResponse <- sendTransaction transaction
   liftIO $ print pollResponse
-  counter <- view transactionCount
-  liftIO $ readIORef counter >>= (\count -> putStrLn $ "Transaction count: " ++ show count)
-  liftIO $ modifyIORef' counter (+ 1)
+  count <- use gsCounter
+  liftIO $ putStrLn $ "Transaction count: " ++ show count
+  gsCounter += 1
   loop
 
 mkGeneratorConfig :: Maybe Int -> IO GeneratorConfig
-mkGeneratorConfig mport = GeneratorConfig <$> pure def <*> newIORef 0 <*> pure mempty <*> go
+mkGeneratorConfig mport = GeneratorConfig <$> pure def <*> pure mempty <*> go
   where
     go = do mgr <- newManager defaultManagerSettings
             url <- parseBaseUrl ("http://localhost:" ++ maybe _testPort show mport)
@@ -244,11 +251,12 @@ main =
         withSystemRandom . asGenIO $ \gen ->
           evalStateT
             (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
-            gen
+            (GeneratorState gen 0)
 
 contractLoaders :: [[SomeKeyPair] -> IO (Command Text)]
 contractLoaders = initAdminKeysetContract : take numContracts [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
 
+-- We are just going to work with some contracts at this point in time.
 numContracts :: Int
 numContracts = 2
 
