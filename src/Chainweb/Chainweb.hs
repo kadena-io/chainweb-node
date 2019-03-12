@@ -221,11 +221,10 @@ withChainweb
     -> (Chainweb logger cas -> IO a)
     -> IO a
 withChainweb conf logger inner
-    = withPeerResources v (view configP2p conf) mgrLogger $ \peer ->
-        withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger peer inner
+    = withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+        withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
   where
     v = _chainwebVersion conf
-    mgrLogger = setComponent "connection-manager" logger
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig

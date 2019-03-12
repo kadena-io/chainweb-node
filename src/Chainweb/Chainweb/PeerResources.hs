@@ -95,6 +95,9 @@ makeLenses ''PeerResources
 -- | Allocate Peer resources. All P2P networks of a chainweb node share a single
 -- Peer and the associated underlying network resources.
 --
+-- Additionally, the continuation is provided with a logger the records the peer
+-- info in each log message.
+--
 -- The following resources are allocated:
 --
 -- * Resolve port and allocating a socket for the port,
@@ -106,17 +109,17 @@ withPeerResources
     => ChainwebVersion
     -> P2pConfiguration
     -> logger
-    -> (PeerResources logger -> IO a)
+    -> (logger -> PeerResources logger -> IO a)
     -> IO a
 withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
     peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
+    let logger' = addLabel ("host", shortPeerInfo (_peerInfo peer)) logger
+        mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
         let cert = _peerCertificate peer
             key = _peerKey peer
         withConnectionManger mgrLogger cert key peerDb $ \mgr -> do
-            inner $ PeerResources conf' peer sock peerDb mgr logger
-  where
-    mgrLogger = setComponent "connection-manager" logger
+            inner logger' (PeerResources conf' peer sock peerDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer

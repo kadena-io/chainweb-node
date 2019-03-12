@@ -128,10 +128,9 @@ runMonitor logger db =
 
 node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
 node conf logger =
-    withChainweb @HashMapCas conf logger $ \cw ->
-        race_
-            (runChainweb cw)
-            (runMonitor logger (_cutResCutDb $ _chainwebCutResources cw))
+    withChainweb @HashMapCas conf logger $ \cw -> race_
+        (runChainweb cw)
+        (runMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw))
 
 withNodeLogger
     :: L.LogConfig

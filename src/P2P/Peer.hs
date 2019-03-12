@@ -50,6 +50,7 @@ module P2P.Peer
 , _peerConfigHost
 , peerConfigHost
 , pPeerConfig
+, shortPeerInfo
 
 -- * Peer
 , Peer(..)
@@ -202,6 +203,11 @@ peerInfoFromText = parseM $ PeerInfo <$> parsePeerId <*> parseAddr
   where
     parsePeerId = Just <$> parseText (A.takeTill (== '@') <* "@") <|> pure Nothing
     parseAddr = parseText A.takeText
+
+shortPeerInfo :: PeerInfo -> T.Text
+shortPeerInfo pinf = toText (_peerAddr pinf) <> "#" <> maybe "" showPid (_peerId pinf)
+  where
+    showPid = T.take 6 . toText
 
 instance HasTextRepresentation PeerInfo where
     toText = peerInfoToText
