@@ -614,7 +614,6 @@ executable transaction-generator
         , data-default >= 0.7
         , Decimal >= 0.4.2
         , fake >= 0.1.1.1
-        , formatting >= 6.3
         , http-client >= 0.5
         , lens >= 4.16
         , mtl >= 2.2
