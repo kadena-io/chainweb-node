@@ -4,7 +4,7 @@
 # Usage
 
 function usage () {
-    echo "USAGE: run-nodes CHAINWEB_NODE_EXE NUMBER_OF_NODES [LOG_DIRECTORY]"
+    echo "USAGE: run-nodes CHAINWEB_NODE_EXE NUMBER_OF_NODES [LOG_DIRECTORY] [ELASTICSEARCH_HOST:PORT]"
     echo "stop nodes with Ctrl-C"
 }
 
@@ -21,7 +21,9 @@ RUN=$1 && shift
 # Number of nodes
 N=$1 && shift
 
-LOG_DIR=$1
+LOG_DIR=$1 && shift
+
+ES_HOST=$1 && shift
 
 # ############################################################################ #
 # some sanity checks
@@ -54,15 +56,24 @@ function run-node () {
 
     if [[ -n "$LOG_DIR" ]] ; then
 
+        # Decide backend for cut logs (easticsearch or file)
+        local es=""
+        if [[ -n "$ES_HOST" ]] ; then
+            es="es:$ES_HOST"
+        else
+            es="file:$LOG_DIR/cuts.node$NID.log"
+        fi
+
         # Run with LOG_DIR
         $RUN \
             --node-id=$NID \
             --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
-            --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
+            --cuts-logger-backend-handle="$es" \
             --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
             $CONFIG_FILE_ARG &
+
     else
 
         # Run without LOG_DIR

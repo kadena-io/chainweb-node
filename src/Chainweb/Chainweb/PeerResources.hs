@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -23,6 +24,7 @@ module Chainweb.Chainweb.PeerResources
 , peerResDb
 , peerResManager
 , peerServerSettings
+, peerLogger
 
 -- * Allocate Peer Resources
 , withPeerResources
@@ -58,12 +60,11 @@ import System.LogLevel
 
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Logger
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
-
-import Data.LogMessage
 
 import Network.X509.SelfSigned
 
@@ -75,7 +76,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Allocate Peer Resources
 
-data PeerResources = PeerResources
+data PeerResources logger = PeerResources
     { _peerResConfig :: !P2pConfiguration
         -- ^ configuration of this peer
     , _peerResPeer :: !Peer
@@ -86,12 +87,16 @@ data PeerResources = PeerResources
         -- ^ the peer db
     , _peerResManager :: !HTTP.Manager
         -- ^ the connection manager
+    , _peerLogger :: !logger
     }
 
 makeLenses ''PeerResources
 
 -- | Allocate Peer resources. All P2P networks of a chainweb node share a single
 -- Peer and the associated underlying network resources.
+--
+-- Additionally, the continuation is provided with a logger the records the peer
+-- info in each log message.
 --
 -- The following resources are allocated:
 --
@@ -100,18 +105,21 @@ makeLenses ''PeerResources
 -- * adjust the P2PConfig with the new values.
 --
 withPeerResources
-    :: ChainwebVersion
+    :: Logger logger
+    => ChainwebVersion
     -> P2pConfiguration
-    -> ALogFunction
-    -> (PeerResources -> IO a)
+    -> logger
+    -> (logger -> PeerResources logger -> IO a)
     -> IO a
-withPeerResources v conf mgrLogfun inner = withSocket conf $ \(conf', sock) -> do
+withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
     peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
+    let logger' = addLabel ("host", shortPeerInfo (_peerInfo peer)) logger
+        mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
         let cert = _peerCertificate peer
             key = _peerKey peer
-        withConnectionManger mgrLogfun cert key peerDb $ \mgr -> do
-            inner $ PeerResources conf' peer sock peerDb mgr
+        withConnectionManger mgrLogger cert key peerDb $ \mgr -> do
+            inner logger' (PeerResources conf' peer sock peerDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer
@@ -154,13 +162,14 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 -- Connection Manager
 --
 withConnectionManger
-    :: ALogFunction
+    :: Logger logger
+    => logger
     -> X509CertPem
     -> X509KeyPem
     -> PeerDb
     -> (HTTP.Manager -> IO a)
     -> IO a
-withConnectionManger logfun cert key peerDb runInner = do
+withConnectionManger logger cert key peerDb runInner = do
     let cred = unsafeMakeCredential cert key
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
@@ -193,7 +202,7 @@ withConnectionManger logfun cert key peerDb runInner = do
             threadDelay 5000000
             connCount <- readIORef connCountRef
             reqCount <- readIORef reqCountRef
-            alogFunction @(JsonLog Value) logfun Debug $ JsonLog $ object
+            logFunctionJson logger Debug $ object
                 [ "clientConnectionCount" .= connCount
                 , "clientRequestCount" .= reqCount
                 ]

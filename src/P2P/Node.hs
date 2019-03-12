@@ -205,10 +205,8 @@ showSessionId :: PeerInfo -> Async (Maybe Bool) -> T.Text
 showSessionId pinf ses = showInfo pinf <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
 
 showInfo :: PeerInfo -> T.Text
-showInfo pinf = toText (_peerAddr pinf) <> "#" <> maybe "" showPid (_peerId pinf)
-
-showPid :: PeerId -> T.Text
-showPid = T.take 6 . toText
+showInfo = shortPeerInfo
+{-# INLINE showInfo #-}
 
 addSession
     :: P2pNode

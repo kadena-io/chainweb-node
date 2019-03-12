@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -51,13 +52,6 @@ module Chainweb.Chainweb
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
--- * Chainweb Logging Functions
-, ChainwebLogFunctions(..)
-, chainwebNodeLogFun
-, chainwebMinerLogFun
-, chainwebCutLogFun
-, chainwebChainLogFuns
-
 -- * Chainweb Resources
 , Chainweb(..)
 , chainwebChains
@@ -65,7 +59,7 @@ module Chainweb.Chainweb
 , chainwebNodeId
 , chainwebHostAddress
 , chainwebMiner
-, chainwebLogFun
+, chainwebLogger
 , chainwebSocket
 , chainwebPeer
 , chainwebPayloadDb
@@ -90,14 +84,13 @@ import Control.Monad
 
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
-import Prelude hiding (log)
-
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
+
+import Prelude hiding (log)
 
 import System.LogLevel
 
@@ -111,6 +104,7 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
@@ -121,8 +115,6 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-
-import Data.LogMessage
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -192,42 +184,30 @@ pChainwebConfiguration = id
         <> help "directory where chain databases are persisted"
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Log Functions
-
-data ChainwebLogFunctions = ChainwebLogFunctions
-    { _chainwebNodeLogFun :: !ALogFunction
-    , _chainwebMinerLogFun :: !ALogFunction
-    , _chainwebCutLogFun :: !ALogFunction
-    , _chainwebChainLogFuns :: !(HM.HashMap ChainId ALogFunction)
-    }
-
-makeLenses ''ChainwebLogFunctions
-
--- -------------------------------------------------------------------------- --
 -- Chainweb Resources
 
-data Chainweb cas = Chainweb
+data Chainweb logger cas = Chainweb
     { _chainwebHostAddress :: !HostAddress
-    , _chainwebChains :: !(HM.HashMap ChainId ChainResources)
-    , _chainwebCutResources :: !(CutResources cas)
+    , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
+    , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebNodeId :: !NodeId
-    , _chainwebMiner :: !(MinerResources cas)
-    , _chainwebLogFun :: !ALogFunction
-    , _chainwebPeer :: !PeerResources
+    , _chainwebMiner :: !(MinerResources logger cas)
+    , _chainwebLogger :: !logger
+    , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
     }
 
 makeLenses ''Chainweb
 
-chainwebSocket :: Getter (Chainweb cas) Socket
+chainwebSocket :: Getter (Chainweb logger cas) Socket
 chainwebSocket = chainwebPeer . peerResSocket
 
-instance HasChainwebVersion (Chainweb cas) where
+instance HasChainwebVersion (Chainweb logger cas) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph (Chainweb cas) where
+instance HasChainGraph (Chainweb logger cas) where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
@@ -235,16 +215,16 @@ instance HasChainGraph (Chainweb cas) where
 --
 withChainweb
     :: PayloadCas cas
+    => Logger logger
     => ChainwebConfiguration
-    -> ChainwebLogFunctions
-    -> (Chainweb cas -> IO a)
+    -> logger
+    -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainweb conf logFuns inner
-    = withPeerResources v (view configP2p conf) mgrLogfun $ \peer ->
-        withChainwebInternal (set configP2p (_peerResConfig peer) conf) logFuns peer inner
+withChainweb conf logger inner
+    = withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+        withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
   where
     v = _chainwebVersion conf
-    mgrLogfun = _chainwebNodeLogFun logFuns
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
@@ -259,45 +239,41 @@ mempoolConfig = Mempool.InMemConfig
 --
 withChainwebInternal
     :: PayloadCas cas
+    => Logger logger
     => ChainwebConfiguration
-    -> ChainwebLogFunctions
-    -> PeerResources
-    -> (Chainweb cas -> IO a)
+    -> logger
+    -> PeerResources logger
+    -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainwebInternal conf logFuns peer inner = do
+withChainwebInternal conf logger peer inner = do
     payloadDb <- emptyPayloadDb
     initializePayloadDb v payloadDb
     go payloadDb mempty (toList cids)
   where
+    chainLogger cid = addLabel ("chain", toText cid) logger
+
     -- Initialize chain resources
     go payloadDb cs (cid : t) =
-        case HM.lookup cid (_chainwebChainLogFuns logFuns) of
-            Nothing -> error $ T.unpack
-                $ "Failed to initialize chainweb node: missing log function for chain " <> toText cid
-            Just logfun ->
-                withChainResources v cid peer chainDbDir logfun mempoolConfig $ \c ->
-                    go payloadDb (HM.insert cid c cs) t
+        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig $ \c ->
+            go payloadDb (HM.insert cid c cs) t
 
     -- Initialize global resources
     go payloadDb cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
-        let cutLogfun = _chainwebCutLogFun logFuns
-        let mgr = _peerResManager peer
-        withCutResources cutConfig peer cutLogfun webchain payloadDb mgr $ \cuts ->
-            withMiner
-                (_chainwebMinerLogFun logFuns)
-                (_configMiner conf)
-                cwnid
-                (_cutResCutDb cuts)
-                webchain
-                payloadDb
-                $ \m -> inner Chainweb
+            cutLogger = setComponent "cut" logger
+            mgr = _peerResManager peer
+        withCutResources cutConfig peer cutLogger webchain payloadDb mgr $ \cuts -> do
+            let mLogger = setComponent "miner" logger
+                mConf = _configMiner conf
+                mCutDb = _cutResCutDb cuts
+            withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
+                inner Chainweb
                     { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs
                     , _chainwebCutResources = cuts
                     , _chainwebNodeId = cwnid
                     , _chainwebMiner = m
-                    , _chainwebLogFun = _chainwebNodeLogFun logFuns
+                    , _chainwebLogger = logger
                     , _chainwebPeer = peer
                     , _chainwebPayloadDb = payloadDb
                     , _chainwebManager = mgr
@@ -315,11 +291,16 @@ withChainwebInternal conf logFuns peer inner = do
         , _cutDbConfigTelemetryLevel = Info
         }
 
--- Starts server and runs all network clients
+-- | Starts server and runs all network clients
 --
-runChainweb :: PayloadCas cas => Chainweb cas -> IO ()
+runChainweb
+    :: forall logger cas
+    . Logger logger
+    => PayloadCas cas
+    => Chainweb logger cas
+    -> IO ()
 runChainweb cw = do
-    logfun Info "start chainweb node"
+    logg Info "start chainweb node"
 
     let cutDb = _cutResCutDb $ _chainwebCutResources cw
         cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
@@ -333,7 +314,7 @@ runChainweb cw = do
     -- collect server resources
     let chains = HM.toList (_chainwebChains cw)
         chainVals = map snd chains
-        proj :: forall a . (ChainResources -> a) -> [(ChainId, a)]
+        proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
         proj f = flip map chains $ \(k, ch) -> (k, f ch)
         chainDbsToServe = proj _chainResBlockHeaderDb
         mempoolsToServe = proj _chainResMempool
@@ -359,7 +340,7 @@ runChainweb cw = do
     -- 1. start server
     --
     withAsync serve $ \server -> do
-        logfun Info "started server"
+        logg Info "started server"
 
         -- Configure Clients
         --
@@ -380,5 +361,5 @@ runChainweb cw = do
         mapConcurrently_ id clients
         wait server
   where
-    logfun = alogFunction @T.Text (_chainwebLogFun cw)
+    logg = logFunctionText $ _chainwebLogger cw
 

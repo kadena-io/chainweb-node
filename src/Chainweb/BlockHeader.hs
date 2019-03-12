@@ -121,6 +121,7 @@ import Data.Kind
 import Data.List (unfoldr)
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Serialize (Serialize(..))
+import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -146,6 +147,8 @@ import Data.CAS
 
 import Numeric.Additive
 import Numeric.AffineSpace
+
+import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
 -- | BlockHeight
@@ -211,7 +214,7 @@ decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 newtype Nonce = Nonce Word64
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable)
+    deriving newtype (Hashable)
 
 instance IsMerkleLogEntry ChainwebHashTag Nonce where
     type Tag Nonce = 'BlockNonceTag
@@ -227,6 +230,13 @@ encodeNonce (Nonce n) = putWord64le n
 
 decodeNonce :: MonadGet m => m Nonce
 decodeNonce = Nonce <$> getWord64le
+
+instance ToJSON Nonce where
+    toJSON (Nonce i) = toJSON $ show i
+
+instance FromJSON Nonce where
+    parseJSON = withText "Nonce"
+        $ either fail (return . Nonce) . readEither . T.unpack
 
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time

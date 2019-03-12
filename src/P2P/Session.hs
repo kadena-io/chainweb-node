@@ -27,7 +27,6 @@ module P2P.Session
 
 import Control.Monad
 
-import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
 import Servant.Client
@@ -43,8 +42,6 @@ import Data.LogMessage
 
 defaultLogFunction :: LogFunction
 defaultLogFunction l = when (l >= Warn) . T.putStrLn . logText
-
-type LogFunctionText = LogLevel -> T.Text -> IO ()
 
 -- -------------------------------------------------------------------------- --
 -- P2P Client Session

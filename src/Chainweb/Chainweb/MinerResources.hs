@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -15,13 +16,14 @@
 --
 module Chainweb.Chainweb.MinerResources
 ( MinerResources(..)
-, withMiner
+, withMinerResources
 , runMiner
 ) where
 
 -- internal modules
 
 import Chainweb.CutDB
+import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.POW
 import Chainweb.Miner.Test
@@ -35,8 +37,8 @@ import Data.LogMessage
 -- -------------------------------------------------------------------------- --
 -- Miner
 
-data MinerResources cas = MinerResources
-    { _minerResLogFun :: !ALogFunction
+data MinerResources logger cas = MinerResources
+    { _minerResLogger :: !logger
     , _minerResNodeId :: !NodeId
     , _minerResCutDb :: !(CutDb cas)
     , _minerResWebBlockHeaderDb :: !WebBlockHeaderDb
@@ -44,17 +46,17 @@ data MinerResources cas = MinerResources
     , _minerResConfig :: !MinerConfig
     }
 
-withMiner
-    :: ALogFunction
+withMinerResources
+    :: logger
     -> MinerConfig
     -> NodeId
     -> CutDb cas
     -> WebBlockHeaderDb
     -> PayloadDb cas
-    -> (MinerResources cas -> IO a)
+    -> (MinerResources logger cas -> IO a)
     -> IO a
-withMiner logFun conf nid cutDb webDb payloadDb inner = inner $ MinerResources
-    { _minerResLogFun = logFun
+withMinerResources logger conf nid cutDb webDb payloadDb inner = inner $ MinerResources
+    { _minerResLogger = logger
     , _minerResNodeId = nid
     , _minerResCutDb = cutDb
     , _minerResWebBlockHeaderDb = webDb
@@ -62,9 +64,14 @@ withMiner logFun conf nid cutDb webDb payloadDb inner = inner $ MinerResources
     , _minerResConfig = conf
     }
 
-runMiner :: PayloadCas cas => ChainwebVersion -> MinerResources cas -> IO ()
+runMiner
+    :: Logger logger
+    => PayloadCas cas
+    => ChainwebVersion
+    -> MinerResources logger cas
+    -> IO ()
 runMiner v m = (chooseMiner v)
-    (_getLogFunction $ _minerResLogFun m)
+    (logFunction $ _minerResLogger m)
     (_minerResConfig m)
     (_minerResNodeId m)
     (_minerResCutDb m)

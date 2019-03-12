@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -19,7 +20,7 @@ module Chainweb.Chainweb.ChainResources
 , chainResBlockHeaderDb
 , chainResPeer
 , chainResMempool
-, chainResLogFun
+, chainResLogger
 , chainResSyncDepth
 , withChainResources
 
@@ -53,6 +54,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
+import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
@@ -65,8 +67,6 @@ import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.LogMessage
-
 import P2P.Node
 import P2P.Session
 
@@ -75,25 +75,25 @@ import qualified Servant.Client as Sv
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
 
-data ChainResources = ChainResources
-    { _chainResPeer :: !PeerResources
+data ChainResources logger = ChainResources
+    { _chainResPeer :: !(PeerResources logger)
     , _chainResBlockHeaderDb :: !BlockHeaderDb
-    , _chainResLogFun :: !ALogFunction
+    , _chainResLogger :: !logger
     , _chainResSyncDepth :: !Depth
     , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
     }
 
 makeLenses ''ChainResources
 
-instance HasChainwebVersion ChainResources where
+instance HasChainwebVersion (ChainResources logger) where
     _chainwebVersion = _chainwebVersion . _chainResBlockHeaderDb
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph ChainResources where
+instance HasChainGraph (ChainResources logger) where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
-instance HasChainId ChainResources where
+instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
@@ -102,13 +102,13 @@ instance HasChainId ChainResources where
 withChainResources
     :: ChainwebVersion
     -> ChainId
-    -> PeerResources
+    -> PeerResources logger
     -> (Maybe FilePath)
-    -> ALogFunction
+    -> logger
     -> Mempool.InMemConfig ChainwebTransaction
-    -> (ChainResources -> IO a)
+    -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logfun mempoolCfg inner =
+withChainResources v cid peer chainDbDir logger mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
@@ -116,7 +116,7 @@ withChainResources v cid peer chainDbDir logfun mempoolCfg inner =
             inner $ ChainResources
                 { _chainResPeer = peer
                 , _chainResBlockHeaderDb = cdb
-                , _chainResLogFun = logfun
+                , _chainResLogger = logger
                 , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
                 }
@@ -138,20 +138,22 @@ withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
 -- | Synchronize the local block database over the P2P network.
 --
 runChainSyncClient
-    :: HTTP.Manager
+    :: Logger logger
+    => HTTP.Manager
         -- ^ HTTP connection pool
-    -> ChainResources
+    -> ChainResources logger
         -- ^ chain resources
     -> IO ()
 runChainSyncClient mgr chain = bracket create destroy go
   where
+    syncLogger = setComponent "sync" $ _chainResLogger chain
     netId = ChainNetwork (_chainId chain)
-    syncLogg = alogFunction @T.Text (_chainResLogFun chain)
+    syncLogg = logFunctionText syncLogger
     create = p2pCreateNode
         (_chainwebVersion chain)
         netId
         (_peerResPeer $ _chainResPeer chain)
-        (_getLogFunction $ _chainResLogFun chain)
+        (logFunction syncLogger)
         (_peerResDb $ _chainResPeer chain)
         mgr
         (chainSyncP2pSession (_chainResSyncDepth chain) (_chainResBlockHeaderDb chain))
@@ -178,33 +180,33 @@ syncDepth g = Depth (2 * diameter g)
 -- | Synchronize the local mempool over the P2P network.
 --
 runMempoolSyncClient
-    :: HTTP.Manager
+    :: Logger logger
+    => HTTP.Manager
         -- ^ HTTP connection pool
-    -> ChainResources
+    -> ChainResources logger
         -- ^ chain resources
     -> IO ()
 runMempoolSyncClient mgr chain = bracket create destroy go
   where
     create = do
-        log Debug "starting mempool p2p sync"
-        p2pCreateNode v netId peer (_getLogFunction $ _chainResLogFun chain) peerDb mgr $
+        logg Debug "starting mempool p2p sync"
+        p2pCreateNode v netId peer (logFunction $ _chainResLogger chain) peerDb mgr $
             mempoolSyncP2pSession chain
     go n = do
         -- Run P2P client node
-        log Info "mempool sync p2p node initialized, starting session"
+        logg Info "mempool sync p2p node initialized, starting session"
         p2pStartNode p2pConfig n
 
-    destroy n = p2pStopNode n `finally` log Info "mempool sync p2p node stopped"
+    destroy n = p2pStopNode n `finally` logg Info "mempool sync p2p node stopped"
 
     v = _chainwebVersion chain
     peer = _peerResPeer $ _chainResPeer chain
     p2pConfig = _peerResConfig $ _chainResPeer chain
     peerDb = _peerResDb $ _chainResPeer chain
     netId = ChainNetwork $ _chainId chain
-    log = alogFunction @T.Text (_chainResLogFun chain)
+    logg = logFunctionText (_chainResLogger chain)
 
-
-mempoolSyncP2pSession :: ChainResources -> P2pSession
+mempoolSyncP2pSession :: ChainResources logger -> P2pSession
 mempoolSyncP2pSession chain logg0 env = go
   where
     go = flip catches [ Handler asyncHandler , Handler errorHandler ] $ do

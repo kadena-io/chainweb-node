@@ -66,8 +66,6 @@ import Chainweb.Utils.Paging
 
 import Data.LogMessage
 
-import P2P.Session
-
 -- -------------------------------------------------------------------------- --
 -- Types
 
