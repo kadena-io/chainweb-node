@@ -220,7 +220,6 @@ library
         , exceptions >= 0.8
         , extra >= 1.6
         , fast-builder >= 0.1
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , heaps >= 0.3
         , hlibgit2 >= 0.18
@@ -388,7 +387,6 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >=1.2
         , these >= 0.7
-        , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
@@ -450,7 +448,6 @@ executable chainweb-node
         , base >= 4.11
         , bytestring >= 0.10
         , case-insensitive >= 1.2
-        , clock >= 0.7
         , configuration-tools >= 0.4
         , deepseq >= 1.4
         , exceptions >= 0.8
@@ -460,7 +457,6 @@ executable chainweb-node
         , monad-control >= 1.0
         , streaming >= 0.2
         , text >= 1.2
-        , unordered-containers >= 0.2
         , wai-app-static >= 3.1
         , wai-cors >= 0.2
         , wai-extra >= 3.0

@@ -63,7 +63,7 @@ loggerHandleConfigToText :: LoggerHandleConfig -> T.Text
 loggerHandleConfigToText StdOut = "stdout"
 loggerHandleConfigToText StdErr = "stderr"
 loggerHandleConfigToText (FileHandle f) = "file:" <> T.pack f
-loggerHandleConfigToText (ElasticSearch f) = "file:" <> toText f
+loggerHandleConfigToText (ElasticSearch f) = "es:" <> toText f
 
 instance HasTextRepresentation LoggerHandleConfig where
     toText = loggerHandleConfigToText

@@ -16,16 +16,15 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- This module defines log messages that are similar to Haskell exceptions
--- from 'Control.Exception'.
+-- This module defines log messages that are similar to Haskell exceptions from
+-- 'Control.Exception'.
 --
--- Log messages and and exceptions are similar in that they can be
--- emitted/thrown anywhere in the code base (in the IO monad, for logs) and are
--- propagated upward through the call stack, until they are eventually picked up
--- by some handler. The difference is that exceptions synchronously interrupt
--- the computation that throws them, while log messages are emitted
--- asynchronously and the computation that emits them continues while the
--- message is handled.
+-- Log messages and exceptions are similar in that they can be emitted/thrown
+-- anywhere in the code base (in the IO monad, for logs) and are propagated
+-- upward through the call stack, until they are eventually picked up by some
+-- handler. The difference is that exceptions synchronously interrupt the
+-- computation that throws them, while log messages are emitted asynchronously
+-- and the computation that emits them continues while the message is handled.
 --
 -- Log messages are usually handled only at the top level by a global handler
 -- (or stack of handlers), but that depends on the implementation of the logger
@@ -36,7 +35,7 @@
 -- log messages types should be extensible.
 --
 -- Unlike exceptions, log messages must be handled. The type systems ensures
--- that the is a /base log handler/ that catches messages of any type, even if
+-- that there is a /base log handler/ that catches messages of any type, even if
 -- it just discards all messages.
 --
 module Utils.Logging
@@ -276,7 +275,7 @@ logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
 -- Configuration
 
 -- | Enables a logger in a log-handler stack based on its 'EnabledConfig'
--- wrapper. If the logger is disabled messages are passed to the inner backend.
+-- wrapper. If the logger is disabled, messages are passed to the inner backend.
 --
 configureHandler
     :: (c -> (Backend b -> IO a) -> IO a)
@@ -330,8 +329,8 @@ instance ToJSON a => ToJSON (JsonLogMessage a) where
         ]
 
 -- | This logger produces one JSON value for each log message of the given type
--- @a@. If the Elasticsearch handle is used the logs are send to an
--- Elasticserachserver. Otherwise JSON values are separate by newline
+-- @a@. If the Elasticsearch handle is used, the logs are send to an
+-- Elasticsearchserver. Otherwise JSON values are separated by newline
 -- characters.
 --
 -- If a logfile is used, the file is opend in write mode and previous content is
@@ -358,9 +357,9 @@ withJsonFileHandleBackend = configureHandler handler
     backend h = BL8.hPutStrLn h . encode . JsonLogMessage
 
 -- | A backend for JSON log messags that sends all logs to the given index of an
--- Elasticserach server. The index is created at startup if it doesn't exist.
--- Messages are sent in a fire-and-forget fashion. If a connection fails the
--- messages is dropped without notice.
+-- Elasticsearch server. The index is created at startup if it doesn't exist.
+-- Messages are sent in a fire-and-forget fashion. If a connection fails, the
+-- messages are dropped without notice.
 --
 -- TODO: if the backend fails to deliver a message it should produce a result
 -- that allows the message (or the failure message) to be passed to another
@@ -379,7 +378,6 @@ withElasticsearchBackend esServer ixName inner = do
         -- which may be fine for many applications.
     inner $ \a -> do
         void $ HTTP.httpLbs (putLog a) mgr
-        return ()
         -- FIXME failure handling?
 
   where
@@ -488,4 +486,3 @@ withExampleLogger port config _sessionsConfig staticDir f = do
                     baseBackend
                         -- The type system enforces that backend is a base logger.
             L.withLogger (L._logConfigLogger config) loggerBackend f
-
