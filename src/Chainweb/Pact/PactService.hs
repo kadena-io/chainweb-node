@@ -34,7 +34,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -272,17 +271,11 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
     (outs, newEM) <- foldM f ([], (P.Transactional (P.TxId prevTxId))) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
-          other -> fail "Transactional ExecutionMode expected"
+          _other -> fail "Transactional ExecutionMode expected"
     return (reverse outs, newTxId)
     where
-        -- f
-          --  :: ([FullLogTxOutput], ExecutionMode)
-          -- -> P.Command ByteString
-          -- -> PactT ([FullLogTxOutput], ExecutionMode)
-        f (outs, prevEm) cmd = do
-          -- let newId = succ prevId
-          (txOut, newEM) <- applyPactCmd isGenesis env' cmdState cmd
-                                  (P.Transactional (P.TxId newId)) miner
+      f (outs, prevEM) cmd = do
+          (txOut, newEM) <- applyPactCmd isGenesis env' cmdState cmd prevEM miner
           return (txOut : outs, newEM)
 
 -- | Apply a single Pact command
@@ -293,7 +286,7 @@ applyPactCmd
     -> P.Command ByteString
     -> P.ExecutionMode
     -> MinerInfo
-    -> PactT (FullLogTxOutput, ExecutionMode)
+    -> PactT (FullLogTxOutput, P.ExecutionMode)
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
     cpEnv <- ask
     let logger = _cpeLogger cpEnv
@@ -302,12 +295,12 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
         procCmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
         procCmd = P.verifyCommand cmd
 
-    (result, txLogs) <- liftIO $! if isGenesis
+    ((result, txLogs), newEM) <- liftIO $! if isGenesis
         then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd procCmd
         else applyCmd logger Nothing miner dbEnv
              cmdState gasModel execMode cmd procCmd
 
-    pure $! FullLogTxOutput (P._crResult result) txLogs
+    pure $! (FullLogTxOutput (P._crResult result) txLogs, newEM)
 
 updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do

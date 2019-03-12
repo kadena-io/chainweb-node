@@ -27,6 +27,6 @@ mkSQLiteState env _cmdCfg = do
             PactDbState
                 { _pdbsDbEnv = envPersist'
                 , _pdbsState = CommandState initRefStore M.empty
-                , _pdbsTxId = 1
+                , _pdbsTxId = 0
                 }
     return theState
