@@ -1,6 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-
+{-# LANGUAGE OverloadedStrings  #-}
 module Chainweb.Simulate.Utils where
 
 import Data.Aeson
@@ -8,9 +6,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
 import Data.Text (Text)
-import qualified Data.Text as T
-
-import NeatInterpolation
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
 import Pact.Types.Command (Command(..))
@@ -50,6 +45,6 @@ getByteString = fst . B16.decode
 initAdminKeysetContract :: [SomeKeyPair] -> IO (Command Text)
 initAdminKeysetContract adminKeyset = do
   let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-  mkExec (T.unpack theCode) theData def adminKeyset Nothing
+  mkExec theCode theData def adminKeyset Nothing
   where
-    theCode = [text|(define-keyset 'admin-keyset (read-keyset "admin-keyset"))|]
+    theCode = "(define-keyset 'admin-keyset (read-keyset \"admin-keyset\"))"

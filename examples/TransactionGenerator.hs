@@ -31,8 +31,6 @@ import Control.Monad.State
 import Data.Default (Default(..), def)
 import Data.Int
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import Data.Word (Word16)
 
 import Fake (fake, generate)
@@ -224,17 +222,25 @@ _testPort = "8080"
 _serverPath :: String
 _serverPath = "http://localhost:" ++ _testPort
 
-newtype ContractLoader a = ContractLoader
-  { loadContract :: [SomeKeyPair] -> IO (Command a)
-  } deriving Functor
+--------------------------------------------------
+-- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
+--------------------------------------------------
+-- newtype ContractLoader a = ContractLoader
+--   { loadContract :: [SomeKeyPair] -> IO (Command a)
+--   } deriving Functor
+--------------------------------------------------
+-- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
+--------------------------------------------------
 
-loadContracts :: [ContractLoader Text] -> IO ()
+type ContractLoader = [SomeKeyPair] -> IO (Command Text)
+
+loadContracts :: [ContractLoader] -> IO ()
 loadContracts contractLoaders = do
   mgr <- newManager defaultManagerSettings
   url <- parseBaseUrl _serverPath
   let clientEnv = mkClientEnv mgr url
   ts <- testSomeKeyPairs
-  contracts <- traverse (`loadContract` ts) contractLoaders
+  contracts <- traverse ($ ts) contractLoaders
   pollresponse <- runExceptT $ do
      rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch contracts)) clientEnv
      ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
@@ -261,7 +267,7 @@ main =
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
       DeployContracts contracts ->
-        loadContracts (ContractLoader initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders))
+        loadContracts (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders))
         where
           go xs ys = if null xs then ys else xs
       Run -> sendTransactions
@@ -270,17 +276,17 @@ main =
 -- contract to chainweb. We will have to carefully consider which
 -- chain we'd like to send the contract to.
 
--- TODO: This function should also incorporate a user's keyset as well.
-createLoader :: FilePath -> ContractLoader Text
-createLoader contractName =
-  ContractLoader $ \_kp -> do
-    theCode <- TIO.readFile contractName
+-- TODO: This function should also incorporate a user's keyset as well
+-- if it is given.
+createLoader :: FilePath -> ContractLoader
+createLoader contractName = \_kp -> do
+    theCode <- readFile contractName
     adminKeyset <- testSomeKeyPairs
     let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-    mkExec (T.unpack theCode) theData def adminKeyset Nothing
+    mkExec theCode theData def adminKeyset Nothing
 
-defaultContractLoaders :: [ContractLoader Text]
-defaultContractLoaders = take numContracts $ map ContractLoader [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
+defaultContractLoaders :: [ContractLoader]
+defaultContractLoaders = take numContracts $ [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
 
 -- We are just going to work with some contracts at this point in time.
 numContracts :: Int

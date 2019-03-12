@@ -6,12 +6,12 @@
 module Chainweb.Simulate.Contracts.SimplePayments where
 
 import Data.Aeson
+import Data.Char
 import Data.Decimal
 import Data.Default
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Formatting hiding (text)
 import Fake
 
 import GHC.Generics hiding (from, to)
@@ -19,6 +19,8 @@ import GHC.Generics hiding (from, to)
 import NeatInterpolation
 
 import System.Random
+
+import Text.Printf
 
 -- PACT
 
@@ -86,28 +88,34 @@ simplePaymentsContractLoader adminKeyset = do
 (create-table payments-table)
   |]
 
-createAccount :: Text -> IO ([SomeKeyPair], Command Text)
+createAccount :: String -> IO ([SomeKeyPair], Command Text)
 createAccount name = do
     adminKeyset <- testSomeKeyPairs
     nameKeyset <- return <$> genKeyPair defaultScheme
-    let theData = object [T.append name "-keyset" .= fmap formatB16PubKey nameKeyset]
-    res <- mkExec (T.unpack theCode) theData def adminKeyset Nothing
+    let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
+    res <- mkExec theCode theData def adminKeyset Nothing
     return (nameKeyset, res)
   where
-    theCode = sformat ("(payments.create-account \"" % stext % "\" " % float % " (read-keyset \"" % stext % "-keyset\"))") (T.toTitle name) (1000000.0 :: Decimal) name
+    theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
 
 createAccounts :: IO [([SomeKeyPair], Command Text)]
-createAccounts = traverse createAccount (T.words names)
+createAccounts = traverse (createAccount . go) (words names)
+  where
+    go (x:xs) = toUpper x : map toLower xs
+    go _ = error "impossible"
 
-names :: Text
+names :: String
 names = "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
 newtype Account = Account
-  { getAccount :: Text
+  { getAccount :: String
   } deriving (Eq, Show, Generic)
 
 accountNames :: [Account]
-accountNames = map (Account . T.toTitle) (T.words names)
+accountNames = map (Account . go) (words names)
+  where
+    go (x:xs) = toUpper x : map toLower xs
+    go _ = error "impossible"
 
 instance Fake Account where
   fake = elements accountNames
@@ -149,7 +157,7 @@ mkRandomSimplePaymentRequest kacts = do
            acct <- fake
            bal <- fake
            case lookup acct kacts of
-            Nothing -> error (errmsg ++ T.unpack (getAccount acct) ++ " " ++ show (fst <$> kacts))
+            Nothing -> error (errmsg ++ (getAccount acct) ++ " " ++ show (fst <$> kacts))
             Just keyset -> return $ CreateAccount acct bal keyset
     _ -> error "mkRandomSimplePaymentRequest: error in case statement."
   where
@@ -176,15 +184,15 @@ createSimplePaymentRequest :: SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO 
 createSimplePaymentRequest (CreateAccount (Account account) (Balance initialBalance) somekeyset) Nothing = do
   adminKeyset <- testSomeKeyPairs
   let theData = object ["keyset" .= fmap formatB16PubKey somekeyset ,"admin-keyset" .= fmap formatB16PubKey adminKeyset]
-      theCode = sformat ("(payments.create-account " % stext % " " % float % ")") account initialBalance
-  mkExec (T.unpack theCode) theData def somekeyset Nothing
+      theCode = printf "(payments.create-account \"%s\" %s)" account (show initialBalance)
+  mkExec theCode theData def somekeyset Nothing
 
 createSimplePaymentRequest (RequestGetBalance (Account account)) Nothing = do
   adminKeyset <- testSomeKeyPairs
-  let theCode = sformat ("(payments.get-balance \"" % stext % "\")") account
-  mkExec (T.unpack theCode) Null def adminKeyset Nothing
+  let theCode = printf "(payments.get-balance \"%s\")" account
+  mkExec theCode Null def adminKeyset Nothing
 
 createSimplePaymentRequest (RequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
-  let theCode = sformat ("(payments.pay \"" % stext % "\" \"" % stext % "\" " % float % ")") from to amount
-  mkExec (T.unpack theCode) Null def keyset Nothing
+  let theCode = printf "(payments.pay \"%s\" \"%s\" %s)" from to (show amount)
+  mkExec theCode Null def keyset Nothing
 createSimplePaymentRequest _ _ = error "createSimplePaymentRequest: impossible"
