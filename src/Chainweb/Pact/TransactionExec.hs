@@ -185,11 +185,11 @@ jsonErrorResult exMode reqKey err txLogs gas = pure $!
     )
 
 jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> Gas -> a -> CommandResult
-jsonResult exMode cmd gas a = CommandResult cmd (exToTx exMode) (toJSON a) gas
-
-exToTx :: ExecutionMode -> Maybe TxId
-exToTx (Transactional t) = Just t
-exToTx Local = Nothing
+jsonResult execMode cmd gas a =
+    let txId = case execMode of
+          Transactional tx -> Just tx
+          _otherMode       -> Nothing
+    in CommandResult cmd txId (toJSON a) gas
 
 runPayload
     :: CommandEnv p
