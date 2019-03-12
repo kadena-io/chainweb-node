@@ -70,6 +70,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.CutResources
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
@@ -232,11 +234,11 @@ node loglevel write stateVar bootstrapPortVar conf =
     sample cw = modifyMVar_ stateVar $ \state -> force <$>
         sampleConsensusState
             nid
-            (view (chainwebCuts . cutsCutDb . cutDbWebBlockHeaderDb) cw)
-            (view (chainwebCuts . cutsCutDb) cw)
+            (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
+            (view (chainwebCutResources . cutsCutDb) cw)
             state
 
-    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _chainwebPeer
+    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _peerResPeer . _chainwebPeer
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes

@@ -182,6 +182,7 @@ data Configuration = Configuration
 --
 data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
+    , _chainDbChainwebVersion :: !ChainwebVersion
     , _chainDbVar :: !(MVar Db)
         -- ^ Database that provides random access the block headers indexed by
         -- their hash. The 'MVar' is used as a lock to sequentialize concurrent
@@ -200,12 +201,16 @@ instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
     {-# INLINE _chainId #-}
 
+instance HasChainwebVersion BlockHeaderDb where
+    _chainwebVersion = _chainDbChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
 -- | Initialize a database handle
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
     initialDb <- dbAddChecked rootEntry emptyDb
-    BlockHeaderDb (_chainId rootEntry)
+    BlockHeaderDb (_chainId rootEntry) (_chainwebVersion rootEntry)
         <$> newMVar initialDb
         <*> newTVarIO (_dbEnumeration initialDb)
   where
@@ -227,7 +232,7 @@ enumeration = readTVar . _chainDbEnumeration
 
 copy :: BlockHeaderDb -> IO BlockHeaderDb
 copy db = withMVar (_chainDbVar db) $ \var ->
-    BlockHeaderDb (_chainDbId db)
+    BlockHeaderDb (_chainDbId db) (_chainwebVersion db)
         <$> newMVar var
         <*> (newTVarIO =<< readTVarIO (_chainDbEnumeration db))
 

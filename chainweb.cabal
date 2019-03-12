@@ -72,6 +72,10 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
         , Chainweb.Chainweb
+        , Chainweb.Chainweb.ChainResources
+        , Chainweb.Chainweb.CutResources
+        , Chainweb.Chainweb.MinerResources
+        , Chainweb.Chainweb.PeerResources
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.Cut.CutHashes

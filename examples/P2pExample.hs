@@ -42,7 +42,7 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.Chainweb
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.P2P.Peer.BootstrapConfig (bootstrapPeerConfig)
@@ -197,14 +197,14 @@ timer seconds = do
 -- Test Node
 
 node :: ChainId -> Natural -> Logger SomeLogMessage -> P2pConfiguration -> IO ()
-node cid t logger conf = do
-    ChainwebPeer c peer sock <- allocatePeer $ _p2pConfigPeer conf
-    withLoggerLabel ("node", sshow (_peerConfigPort c)) logger $ \logger' -> do
+node cid t logger conf = withSocket conf $ \(conf', sock) -> do
+    let port = _peerConfigPort $ _p2pConfigPeer conf'
+    peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
+    withLoggerLabel ("node", sshow port) logger $ \logger' -> do
 
         let logfun l = loggerFunIO logger' (l2l l)
         logfun L.Info $ toLogMessage @T.Text "start test node"
 
-        let conf' = set p2pConfigPeer c conf
         let settings = peerServerSettings peer
         let serve pdb = serveP2pSocket settings sock version
                 [(ChainNetwork cid, pdb)]
