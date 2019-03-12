@@ -142,15 +142,14 @@ mkRandomSimplePaymentRequest kacts = do
     0 -> return $ RequestGetBalance <$> fake
     1 -> return $ do
         (from, to) <- distinctPair
-        amount <- fake
-        return $ RequestPay from to amount
+        RequestPay from to <$> fake
     -- Lol, this might be used later. For now, this constructor will
     -- not be exercised.
     2 -> return $ do
            acct <- fake
            bal <- fake
            case lookup acct kacts of
-            Nothing -> fail (errmsg ++ T.unpack (getAccount acct) ++ " " ++ show (fst <$> kacts))
+            Nothing -> error (errmsg ++ T.unpack (getAccount acct) ++ " " ++ show (fst <$> kacts))
             Just keyset -> return $ CreateAccount acct bal keyset
     _ -> error "mkRandomSimplePaymentRequest: error in case statement."
   where
@@ -188,4 +187,4 @@ createSimplePaymentRequest (RequestGetBalance (Account account)) Nothing = do
 createSimplePaymentRequest (RequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
   let theCode = sformat ("(payments.pay \"" % stext % "\" \"" % stext % "\" " % float % ")") from to amount
   mkExec (T.unpack theCode) Null def keyset Nothing
-createSimplePaymentRequest _ _ = fail "This case should not be reached."
+createSimplePaymentRequest _ _ = error "createSimplePaymentRequest: impossible"

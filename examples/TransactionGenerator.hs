@@ -20,6 +20,7 @@ module Main where
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Lens hiding ((.=))
 import Control.Monad.Except
@@ -28,12 +29,14 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Default (Default(..), def)
+import Data.Int
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Word (Word16)
 
 import Fake (fake, generate)
 
-import Numeric.Natural
 import Network.HTTP.Client
 
 import GHC.Generics
@@ -44,13 +47,14 @@ import System.Random
 import System.Random.MWC (Gen, asGenIO, uniformR, withSystemRandom)
 import System.Random.MWC.Distributions (normal)
 
--- -- PACT
+-- -- pact
+import Pact.ApiReq (mkExec)
 import Pact.Server.Client
 import Pact.Types.API
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
--- CHAINWEB
+-- chainweb
 import Chainweb.ChainId
 -- THIS MODULE MAY BE USED LATER
 -- import Chainweb.Simulate.Contracts.CommercialPaper
@@ -59,8 +63,7 @@ import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
 
-
-data TransactionCommand = NoOp | Init | Run
+data TransactionCommand = NoOp | DeployContracts [FilePath] | Run
   deriving (Show, Eq, Read, Generic)
 
 instance FromJSON TransactionCommand
@@ -68,9 +71,9 @@ instance FromJSON TransactionCommand
 instance ToJSON TransactionCommand
 
 data TransactionConfig = TransactionConfig
-  { _scriptCommand :: TransactionCommand
-  , _nodeChainId :: !ChainId
-  , _nodePort :: !Word16
+  { _scriptCommand  :: TransactionCommand
+  , _nodeChainId    :: !ChainId
+  , _nodePort       :: !Word16
   , _serverRootPath :: String
   } deriving (Generic)
 
@@ -80,8 +83,8 @@ instance ToJSON TransactionConfig where
   toJSON o =
     object
       [ "scriptCommand" .= _scriptCommand o
-      , "nodeChainId" .= _nodeChainId o
-      , "nodePort" .= _nodePort o
+      , "nodeChainId"   .= _nodeChainId o
+      , "nodePort"      .= _nodePort o
       ]
 
 instance FromJSON (TransactionConfig -> TransactionConfig) where
@@ -91,8 +94,8 @@ instance FromJSON (TransactionConfig -> TransactionConfig) where
     <*< nodePort ..: "nodePort" % o
 
 data GeneratorState s = GeneratorState
-  { _gsGen :: Gen s
-  , _gsCounter :: Natural
+  { _gsGen     :: Gen s
+  , _gsCounter :: Int64
   }
 
 makeLenses ''GeneratorState
@@ -100,9 +103,9 @@ makeLenses ''GeneratorState
 defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
-    { _scriptCommand = Init
-    , _nodeChainId = testChainId 1
-    , _nodePort = tmpNodePort
+    { _scriptCommand  = DeployContracts []
+    , _nodeChainId    = testChainId 1
+    , _nodePort       = tmpNodePort
     , _serverRootPath = "http://localhost:" ++ show tmpNodePort
     }
   where
@@ -112,7 +115,7 @@ transactionConfigParser :: MParser TransactionConfig
 transactionConfigParser = id
   <$< scriptCommand .:: option auto
       % long "script-command" <> short 'c'
-      <> help "The specific command to run (Init|Run)."
+      <> help "The specific command to run (DeployContracts|Run)."
   <*< nodeChainId .::option auto
       % long "node-chain-id"
       <> short 'i'
@@ -124,18 +127,18 @@ transactionConfigParser = id
 
 data TimingDistribution
   = Gaussian { mean :: Int
-             , var :: Int }
-  | Uniform { low :: Int
-            , high :: Int }
+             , var  :: Int }
+  | Uniform { low   :: Int
+            , high  :: Int }
   deriving (Eq, Show)
 
 instance Default TimingDistribution where
   def = Gaussian 1000000 (div 1000000 16)
 
 data GeneratorConfig = GeneratorConfig
-  { _timingdist :: TimingDistribution
+  { _timingdist         :: TimingDistribution
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
-  , _genClientEnv :: ClientEnv
+  , _genClientEnv       :: ClientEnv
   }
 
 makeLenses ''GeneratorConfig
@@ -145,22 +148,22 @@ generateTransaction = do
   contractIndex <- liftIO $ randomRIO (1, numContracts)
   sample <-
     case contractIndex of
-      1 -> do
+      1 ->
         liftIO $ do
-            name <- generate fake
-            helloRequest name
+          name <- generate fake
+          helloRequest name
       2 -> do
         kacts <- view genAccountsKeysets
         liftIO $ do
-            paymentsRequest <- mkRandomSimplePaymentRequest kacts >>= generate
-            print paymentsRequest -- This is for debugging purposes
-            case paymentsRequest of
-                RequestPay fromAccount _ _ ->
-                        let errmsg = "This account does not have an associated keyset!"
-                            mkeyset = maybe (fail errmsg) Just (lookup fromAccount kacts)
-                        in createSimplePaymentRequest paymentsRequest mkeyset
-                _ -> createSimplePaymentRequest paymentsRequest Nothing
-      3 -> liftIO $ undefined
+          paymentsRequest <- mkRandomSimplePaymentRequest kacts >>= generate
+          print paymentsRequest -- This is for debugging purposes
+          case paymentsRequest of
+            RequestPay fromAccount _ _ ->
+              let errmsg = "This account does not have an associated keyset!"
+                  mkeyset = lookup fromAccount kacts <|> error errmsg
+               in createSimplePaymentRequest paymentsRequest mkeyset
+            _ -> createSimplePaymentRequest paymentsRequest Nothing
+      3 -> liftIO undefined
       _ -> fail "No contract here"
   distribution <- view timingdist
   gen <- use gsGen
@@ -171,12 +174,12 @@ generateTransaction = do
         liftIO (normal (fromIntegral gmean) (fromIntegral gvar) gen)
       Uniform ulow uhigh -> liftIO (uniformR (ulow, uhigh) gen)
   liftIO $ threadDelay delay
-  liftIO $ putStrLn ("The delay is " ++ (show delay) ++ " seconds.")
+  liftIO $ putStrLn ("The delay is " ++ show delay ++ " seconds.")
   return sample
 
 newtype TransactionGenerator s a = TransactionGenerator
   { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (GeneratorState s) IO) a
-  } deriving ( Functor , Applicative , Monad , MonadIO , MonadState (GeneratorState s) , MonadReader GeneratorConfig)
+  } deriving (Functor, Applicative, Monad, MonadIO, MonadState (GeneratorState s), MonadReader GeneratorConfig)
 
 
 sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
@@ -221,40 +224,63 @@ _testPort = "8080"
 _serverPath :: String
 _serverPath = "http://localhost:" ++ _testPort
 
-loadContracts :: IO ()
-loadContracts = do
+newtype ContractLoader a = ContractLoader
+  { loadContract :: [SomeKeyPair] -> IO (Command a)
+  } deriving Functor
+
+loadContracts :: [ContractLoader Text] -> IO ()
+loadContracts contractLoaders = do
   mgr <- newManager defaultManagerSettings
   url <- parseBaseUrl _serverPath
   let clientEnv = mkClientEnv mgr url
   ts <- testSomeKeyPairs
-  contracts <- traverse ($ ts) contractLoaders
+  contracts <- traverse (`loadContract` ts) contractLoaders
   pollresponse <- runExceptT $ do
      rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch contracts)) clientEnv
      ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
   print pollresponse
 
+sendTransactions :: IO ()
+sendTransactions = do
+  putStrLn "Transactions are being generated"
+  gencfg <- mkGeneratorConfig Nothing
+  (keysets, accounts) <- unzip <$> createAccounts
+  _pollresponse <-
+      runExceptT $ do
+          rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch accounts)) (_genClientEnv gencfg)
+          ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
+  print _pollresponse
+  withSystemRandom . asGenIO $ \gen ->
+    evalStateT
+      (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
+      (GeneratorState gen 0)
+
 main :: IO ()
 main =
-  runWithConfiguration mainInfo $ \config -> do
+  runWithConfiguration mainInfo $ \config ->
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
-      Init -> loadContracts
-      Run -> do
-        putStrLn "Transactions are being generated"
-        gencfg <- mkGeneratorConfig Nothing
-        (keysets, accounts) <- unzip <$> createAccounts
-        _pollresponse <-
-            runExceptT $ do
-                rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch accounts)) (_genClientEnv gencfg)
-                ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
-        print _pollresponse
-        withSystemRandom . asGenIO $ \gen ->
-          evalStateT
-            (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
-            (GeneratorState gen 0)
+      DeployContracts contracts ->
+        loadContracts (ContractLoader initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders))
+        where
+          go xs ys = if null xs then ys else xs
+      Run -> sendTransactions
 
-contractLoaders :: [[SomeKeyPair] -> IO (Command Text)]
-contractLoaders = initAdminKeysetContract : take numContracts [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
+-- TOOD: This is here for when a user wishes to deploy their own
+-- contract to chainweb. We will have to carefully consider which
+-- chain we'd like to send the contract to.
+
+-- TODO: This function should also incorporate a user's keyset as well.
+createLoader :: FilePath -> ContractLoader Text
+createLoader contractName =
+  ContractLoader $ \_kp -> do
+    theCode <- TIO.readFile contractName
+    adminKeyset <- testSomeKeyPairs
+    let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+    mkExec (T.unpack theCode) theData def adminKeyset Nothing
+
+defaultContractLoaders :: [ContractLoader Text]
+defaultContractLoaders = take numContracts $ map ContractLoader [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
 
 -- We are just going to work with some contracts at this point in time.
 numContracts :: Int
