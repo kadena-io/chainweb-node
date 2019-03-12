@@ -24,6 +24,8 @@ module Data.LogMessage
 
 -- * Log Function
 , LogFunction
+, LogFunctionText
+, LogFunctionJson
 , ALogFunction(..)
 , alogFunction
 , aNoLog
@@ -43,6 +45,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
+import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Typeable (Typeable, cast)
@@ -107,6 +110,14 @@ instance LogMessage T.Text where
 --
 type LogFunction = forall a . LogMessage a => LogLevel -> a -> IO ()
 
+-- | 'LogFunction' type specialized to 'T.Text'
+--
+type LogFunctionText = LogLevel -> T.Text -> IO ()
+
+-- | 'LogFunction' type specialized to 'T.Text'
+--
+type LogFunctionJson a = LogLevel -> a -> IO ()
+
 -- | A newtype wrapper that allows to store a 'LogFunction' without running into
 -- impredicative types.
 --
@@ -143,7 +154,7 @@ instance LogMessage SomeJsonLog where
     {-# INLINE logText #-}
 
 newtype TextLog = TextLog T.Text
-    deriving newtype (NFData, LogMessage)
+    deriving newtype (NFData, LogMessage, IsString)
 
 data BinaryLog
     = BinaryLog B.ByteString

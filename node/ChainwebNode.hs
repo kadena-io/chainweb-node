@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -21,13 +22,11 @@ module Main
   ChainwebNodeConfiguration(..)
 
 -- * Monitor
-, CutLog
 , runMonitor
 
 -- * Chainweb Node
 , node
 , withNodeLogger
-, chainwebLogFunctions
 
 -- * Main function
 , main
@@ -39,9 +38,6 @@ import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-
 import GHC.Generics hiding (from)
 
 import qualified Streaming.Prelude as S
@@ -51,13 +47,12 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
-import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -110,68 +105,46 @@ pChainwebNodeConfiguration = id
 -- -------------------------------------------------------------------------- --
 -- Monitor
 
-type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
-runMonitor :: Logger -> CutDb cas -> IO ()
+runMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runMonitor logger db =
     L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
-        let logg = loggerFun logger'
-        logg Info $ TextLog "Initialized Monitor"
+        logFunctionText logger' Info $ "Initialized Monitor"
         void
-            $ S.mapM_ (go (loggerFun logger'))
-            $ S.map (fmap ObjectEncoded)
-            $ S.map _cutMap
+            $ S.mapM_ (logFunctionJson logger' Info)
+            $ S.map (cutToCutHashes Nothing)
             $ cutStream db
-  where
-    go logg c = void $ logg Info $ JsonLog c
+
+            -- This logs complete cuts, which is much more data
+            -- $ S.mapM_ (logFunctionJson logger' Info)
+            -- $ S.map (fmap ObjectEncoded)
+            -- $ S.map _cutMap
+            -- $ cutStream db
+
+-- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: ChainwebConfiguration -> Logger -> IO ()
+node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
 node conf logger =
-    withChainweb @HashMapCas conf logfuns $ \cw ->
+    withChainweb @HashMapCas conf logger $ \cw ->
         race_
             (runChainweb cw)
             (runMonitor logger (_cutResCutDb $ _chainwebCutResources cw))
-  where
-    graph = _chainGraph conf
-    logfuns = chainwebLogFunctions (chainIds_ graph) logger
 
-withNodeLogger :: L.LogConfig -> EnableConfig JsonLoggerConfig -> (Logger -> IO a) -> IO a
+withNodeLogger
+    :: L.LogConfig
+    -> EnableConfig JsonLoggerConfig
+    -> (L.Logger SomeLogMessage -> IO a)
+    -> IO a
 withNodeLogger logConfig cutsLoggerConfig f =
     withFileHandleBackend (L._logConfigBackend logConfig) $ \baseBackend ->
-        withJsonFileHandleBackend @CutLog cutsLoggerConfig $ \monitorBackend -> do
+        withJsonFileHandleBackend @CutHashes cutsLoggerConfig $ \monitorBackend -> do
             let loggerBackend = logHandles
                     [ logHandler monitorBackend
                     ] baseBackend
             L.withLogger (L._logConfigLogger logConfig) loggerBackend f
-
--- | Initialize Logging Functions
---
--- The code could be simplified (and labeling of log messages more fine-grained)
--- by pushing the initialization down to the respective component
--- initializations. But for that the code of those components would take a
--- dependency on the `Logger` type, or at least the API.
---
-chainwebLogFunctions
-    :: Foldable f
-    => f ChainId
-    -> Logger
-    -> ChainwebLogFunctions
-chainwebLogFunctions cids logger = ChainwebLogFunctions
-    { _chainwebNodeLogFun = aLogFunction logger
-    , _chainwebMinerLogFun = aLogFunction (compLogger "miner")
-    , _chainwebCutLogFun = aLogFunction (compLogger "cuts")
-    , _chainwebChainLogFuns = foldl' chainLog mempty cids
-    }
-  where
-    aLogFunction l = ALogFunction $ loggerFun l
-    chainLog m c = HM.insert c
-        (aLogFunction $ addLabel ("chain", sshow c) $ compLogger "chains")
-        m
-    addLabel = over L.setLoggerScope . (:)
-    compLogger l = addLabel ("component" , l) logger
 
 -- -------------------------------------------------------------------------- --
 -- main

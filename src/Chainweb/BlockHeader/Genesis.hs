@@ -242,7 +242,7 @@ adjacents:
 payloadHash: NKHeUOuw64OabnpPUfZRIcc5Fvu_IA90F4DwIFjIRuU
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 149
+nonce: "149"
     |]
 
 
@@ -263,7 +263,7 @@ adjacents:
 payloadHash: WqIppoHOtat38DHUSwrso8mbgQ4opPb7VrkNOwJdlyA
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 785
+nonce: "785"
     |]
 
 testnet00C2 :: BlockHeader
@@ -283,7 +283,7 @@ adjacents:
 payloadHash: djlccWNhufSi0mJsOjm9pRFTjyFpE8IWt7VzIQb00d4
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 377
+nonce: "377"
     |]
 
 testnet00C3 :: BlockHeader
@@ -303,7 +303,7 @@ adjacents:
 payloadHash: bH16cViQSjqd-j7cOD_SIZsnpjoY_e3xpvzgxPlreEE
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 3653
+nonce: "3653"
     |]
 
 testnet00C4 :: BlockHeader
@@ -323,7 +323,7 @@ adjacents:
 payloadHash: 1gMCMjFoi5jK3LTo8E-CSl82SonSRplSVjYOz2GHliA
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 875
+nonce: "875"
     |]
 
 testnet00C5 :: BlockHeader
@@ -343,7 +343,7 @@ adjacents:
 payloadHash: xw-9DsQgnuFnnWJje_htsHAm6W2pEy7392jsvpADk0Q
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 3577
+nonce: "3577"
     |]
 
 testnet00C6 :: BlockHeader
@@ -363,7 +363,7 @@ adjacents:
 payloadHash: TNxIJweDgew0u7rsgrre6G9Q8XuwXO2yiCVratLJbrM
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 852
+nonce: "852"
     |]
 
 testnet00C7 :: BlockHeader
@@ -383,7 +383,7 @@ adjacents:
 payloadHash: HzYMZFvuzkDSPHun8IbS_JYVtpE7_I_ZNSLzndArZa8
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 774
+nonce: "774"
     |]
 
 testnet00C8 :: BlockHeader
@@ -403,7 +403,7 @@ adjacents:
 payloadHash: MTOsiPQ8qe8Jqo51-207n6ybASAnI6OZyBQLiXX3M3Q
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 79
+nonce: "79"
     |]
 
 testnet00C9 :: BlockHeader
@@ -423,5 +423,5 @@ adjacents:
 payloadHash: 3P8FfZRC6A7yNrm76SrnrXrIMGv5yRzO0dbv-FEbVCM
 chainwebVersion: testnet00
 target: ________________________________________HwA
-nonce: 2588
+nonce: "2588"
     |]

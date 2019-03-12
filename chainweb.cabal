@@ -87,6 +87,7 @@ library
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
+        , Chainweb.Logger
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.RestAPI
@@ -286,6 +287,8 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , yaml >= 0.8
+        , yet-another-logger >= 0.3.1
+
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
 
@@ -437,6 +440,7 @@ executable chainweb-node
     other-modules:
         Paths_chainweb
         Utils.Logging
+        Utils.Logging.Handle
     build-depends:
         -- internal
           chainweb
@@ -445,8 +449,12 @@ executable chainweb-node
         , async >= 2.2
         , base >= 4.11
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
         , clock >= 0.7
         , configuration-tools >= 0.4
+        , deepseq >= 1.4
+        , exceptions >= 0.8
+        , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
         , monad-control >= 1.0

@@ -16,16 +16,33 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- This module defines log messages that are similar to Haskell exceptions
+-- from 'Control.Exception'.
+--
+-- Log messages and and exceptions are similar in that they can be
+-- emitted/thrown anywhere in the code base (in the IO monad, for logs) and are
+-- propagated upward through the call stack, until they are eventually picked up
+-- by some handler. The difference is that exceptions synchronously interrupt
+-- the computation that throws them, while log messages are emitted
+-- asynchronously and the computation that emits them continues while the
+-- message is handled.
+--
+-- Log messages are usually handled only at the top level by a global handler
+-- (or stack of handlers), but that depends on the implementation of the logger
+-- (usually a queue, but sometimes just an IO callback), which is orthorgonal to
+-- the the definitions in this module.
+--
+-- Like exceptions, log messages also should be typed dynamically and classes of
+-- log messages types should be extensible.
+--
+-- Unlike exceptions, log messages must be handled. The type systems ensures
+-- that the is a /base log handler/ that catches messages of any type, even if
+-- it just discards all messages.
 --
 module Utils.Logging
 (
-  Logger
-, loggerFun
-, loggerFunText
-
 -- * Base Logger Backend
-, SomeBackend
+  SomeBackend
 
 -- * Log Handlers
 , TextBackend
@@ -74,69 +91,56 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import Data.Typeable
 
 import GHC.Generics
 
+import qualified Network.HTTP.Client as HTTP
 import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
 import Network.Wai.UrlMap
 
-import System.Clock
 import System.IO
 import qualified System.Logger as L
-import System.LogLevel
+import qualified System.Logger.Internal as L
 
 -- internal modules
 
+import Chainweb.HostAddress
+import Chainweb.Logger
 import Chainweb.Utils
 
 import Data.LogMessage
 
 import P2P.Node
-import P2P.Session
 
--- -------------------------------------------------------------------------- --
--- Utils
-
-l2l :: LogLevel -> L.LogLevel
-l2l Quiet = L.Quiet
-l2l Error = L.Error
-l2l Warn = L.Warn
-l2l Info = L.Info
-l2l Debug = L.Debug
-l2l (Other _) = L.Debug
-
-type Logger = L.Logger SomeLogMessage
-
-loggerFun :: Logger -> LogFunction
-loggerFun logger level = L.loggerFunIO logger (l2l level) . toLogMessage
-
-loggerFunText :: Logger -> LogFunctionText
-loggerFunText = loggerFun
+import Utils.Logging.Handle
 
 -- -------------------------------------------------------------------------- --
 -- Json Logger Configuration
 
 data JsonLoggerConfig = JsonLoggerConfig
-    { _jsonLoggerConfigHandle :: !L.LoggerHandleConfig
+    { _jsonLoggerConfigHandle :: !LoggerHandleConfig
     }
     deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''JsonLoggerConfig
 
 defaultJsonLoggerConfig :: JsonLoggerConfig
-defaultJsonLoggerConfig = JsonLoggerConfig L.StdOut
+defaultJsonLoggerConfig = JsonLoggerConfig StdOut
 
 instance ToJSON JsonLoggerConfig where
     toJSON o = object
-        [ "fileHandle" .= _jsonLoggerConfigHandle o
+        [ "handle" .= _jsonLoggerConfigHandle o
         ]
 
 instance FromJSON (JsonLoggerConfig -> JsonLoggerConfig) where
@@ -146,11 +150,15 @@ instance FromJSON (JsonLoggerConfig -> JsonLoggerConfig) where
 pJsonLoggerConfig :: Maybe String -> MParser JsonLoggerConfig
 pJsonLoggerConfig logger = id
     <$< jsonLoggerConfigHandle .::
-        maybe L.pLoggerHandleConfig (L.pLoggerHandleConfig_ . T.pack) logger
+        maybe pLoggerHandleConfig (pLoggerHandleConfig_ . T.pack) logger
 
 -- -------------------------------------------------------------------------- --
 -- Base Logger Backend
 
+-- | The type of log messages handled by backends. 'Left' values are messages
+-- that are emitted by the logging system itself. 'Right' values are messages
+-- from the application.
+--
 type BackendLogMessage a = Either (L.LogMessage T.Text) (L.LogMessage a)
 
 -- | A fully generic backend that can be used to implement any backend including
@@ -160,7 +168,7 @@ type BackendLogMessage a = Either (L.LogMessage T.Text) (L.LogMessage a)
 type GenericBackend a = BackendLogMessage SomeLogMessage -> IO a
 
 -- | A backend that is used for partial log message handlers that may pass
--- messages on subsequent handlers.
+-- messages on to subsequent handlers.
 --
 type SomeBackend = GenericBackend (Maybe (BackendLogMessage SomeLogMessage))
 
@@ -267,6 +275,9 @@ logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
+-- | Enables a logger in a log-handler stack based on its 'EnabledConfig'
+-- wrapper. If the logger is disabled messages are passed to the inner backend.
+--
 configureHandler
     :: (c -> (Backend b -> IO a) -> IO a)
     -> EnableConfig c
@@ -314,36 +325,86 @@ instance ToJSON a => ToJSON (JsonLogMessage a) where
     toJSON (JsonLogMessage a) = object
         [ "level" .= L._logMsgLevel a
         , "scope" .= L._logMsgScope a
-        , "time" .= timeSpecMs (L._logMsgTime a)
+        , "time" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
         , "message" .= case L._logMsg a of (JsonLog msg) -> msg
         ]
 
-timeSpecMs :: TimeSpec -> Double
-timeSpecMs t = int (toNanoSecs t) / 1000000
-{-# INLINE timeSpecMs #-}
-
--- | This logger produces one JSON value for each log message of type the given
--- type @a@. JSON values are separate by newline characters.
+-- | This logger produces one JSON value for each log message of the given type
+-- @a@. If the Elasticsearch handle is used the logs are send to an
+-- Elasticserachserver. Otherwise JSON values are separate by newline
+-- characters.
 --
--- If a logfile is used, the file is opend in write mode and previous content
--- is deleted.
+-- If a logfile is used, the file is opend in write mode and previous content is
+-- deleted.
 --
 -- Note that the output of this logger as a whole doesn't represent a valid JSON
 -- document.
 --
 withJsonFileHandleBackend
-    :: ToJSON a
+    :: forall a b
+    . ToJSON a
+    => Typeable a
     => EnableConfig JsonLoggerConfig
     -> (JsonBackend a -> IO b)
     -> IO b
 withJsonFileHandleBackend = configureHandler handler
   where
     handler c inner = case _jsonLoggerConfigHandle c of
-        L.StdOut -> inner $ backend stdout
-        L.StdErr -> inner $ backend stderr
-        L.FileHandle f -> withFile f WriteMode $ \h -> inner $ backend h
+        StdOut -> inner $ backend stdout
+        StdErr -> inner $ backend stderr
+        FileHandle f -> withFile f WriteMode $ \h -> inner $ backend h
+        ElasticSearch f -> withElasticsearchBackend f (T.toLower $ sshow (typeRep (Proxy @a))) inner
+            -- FIXME pass index name as argument
     backend h = BL8.hPutStrLn h . encode . JsonLogMessage
 
+-- | A backend for JSON log messags that sends all logs to the given index of an
+-- Elasticserach server. The index is created at startup if it doesn't exist.
+-- Messages are sent in a fire-and-forget fashion. If a connection fails the
+-- messages is dropped without notice.
+--
+-- TODO: if the backend fails to deliver a message it should produce a result
+-- that allows the message (or the failure message) to be passed to another
+-- handler.
+--
+withElasticsearchBackend
+    :: ToJSON a
+    => HostAddress
+    -> T.Text
+    -> (JsonBackend a -> IO b)
+    -> IO b
+withElasticsearchBackend esServer ixName inner = do
+    mgr <- HTTP.newManager HTTP.defaultManagerSettings
+    void $ HTTP.httpLbs putIndex mgr
+        -- FIXME Do we need failure handling? This is fire and forget
+        -- which may be fine for many applications.
+    inner $ \a -> do
+        void $ HTTP.httpLbs (putLog a) mgr
+        return ()
+        -- FIXME failure handling?
+
+  where
+    putIndex = HTTP.defaultRequest
+        { HTTP.method = "PUT"
+        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
+        , HTTP.port = int (_hostAddressPort esServer)
+        , HTTP.path = T.encodeUtf8 ixName
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+        , HTTP.requestHeaders = [("content-type", "application/json")]
+        }
+
+    putLog a = HTTP.defaultRequest
+        { HTTP.method = "POST"
+        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
+        , HTTP.port = int (_hostAddressPort esServer)
+        , HTTP.path = T.encodeUtf8 ixName <> "/_doc"
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+        , HTTP.requestHeaders = [("content-type", "application/json")]
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
+        }
+
+-- | A backend for JSON log messages that publishes messages via an HTTP event
+-- source on the given port.
+--
 withJsonEventSourceBackend
     :: ToJSON a
     => W.Port
@@ -361,6 +422,13 @@ withJsonEventSourceBackend port inner = do
         . toEncoding
         . JsonLogMessage
 
+-- | A backend for JSON log messages that publishes messages via an HTTP event
+-- source on the given port. It also serves the static application at the given
+-- directory.
+--
+-- This can be used to serve a client application that visualizes the log data
+-- from the event source. An example can be found in @examples/P2pExample.hs@.
+--
 withJsonEventSourceAppBackend
     :: ToJSON a
     => W.Port
@@ -390,7 +458,7 @@ withJsonEventSourceAppBackend port staticDir inner = do
 withFileHandleLogger
     :: (MonadIO m, MonadBaseControl IO m)
     => L.LogConfig
-    -> (Logger -> m α)
+    -> (L.Logger SomeLogMessage -> m α)
     -> m α
 withFileHandleLogger config f =
     L.withHandleBackend_ logText (L._logConfigBackend config)
@@ -406,7 +474,7 @@ withExampleLogger
     -> EnableConfig JsonLoggerConfig
         -- ^ Sessions logger configuration
     -> FilePath
-    -> (Logger -> IO α)
+    -> (L.Logger SomeLogMessage -> IO α)
     -> IO α
 withExampleLogger port config _sessionsConfig staticDir f = do
     withFileHandleBackend (L._logConfigBackend config)
