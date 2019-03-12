@@ -182,10 +182,10 @@ createSimplePaymentRequest (CreateAccount (Account account) (Balance initialBala
 
 createSimplePaymentRequest (RequestGetBalance (Account account)) Nothing = do
   adminKeyset <- testSomeKeyPairs
-  let theCode = sformat ("(payments.get-balance " % stext % ")") account
+  let theCode = sformat ("(payments.get-balance \"" % stext % "\")") account
   mkExec (T.unpack theCode) Null def adminKeyset Nothing
 
 createSimplePaymentRequest (RequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
-  let theCode = sformat ("(payments.pay " % stext % " " % stext % " " % float % ")") from to amount
+  let theCode = sformat ("(payments.pay \"" % stext % "\" \"" % stext % "\" " % float % ")") from to amount
   mkExec (T.unpack theCode) Null def keyset Nothing
 createSimplePaymentRequest _ _ = fail "This case should not be reached."
