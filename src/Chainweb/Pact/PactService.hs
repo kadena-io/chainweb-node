@@ -268,7 +268,7 @@ applyPactCmds
     -> MinerInfo
     -> PactT ([FullLogTxOutput], Word64)
 applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
-    (outs, newEM) <- foldM f ([], (P.Transactional (P.TxId prevTxId))) cmds
+    (outs, newEM) <- foldM f ([], P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
           _other -> fail "Transactional ExecutionMode expected"

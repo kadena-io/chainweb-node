@@ -180,8 +180,8 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   runExec s03 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
-  -- start a pact at txid 1
-  let pactId = 1
+  -- start a pact at txid 0
+  let pactId = 0
 
       pactResult step = Just (PactExec 2 Nothing True step (PactId $ pack $ show pactId))
 
