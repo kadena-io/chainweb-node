@@ -13,7 +13,6 @@ import Pact.Interpreter
 import Pact.Persist.SQLite ()
 import qualified Pact.Persist.SQLite as P
 import Pact.PersistPactDb
-import Pact.Types.Command
 import Pact.Types.Server
 
 -- internal modules
@@ -28,6 +27,6 @@ mkSQLiteState env _cmdCfg = do
             PactDbState
                 { _pdbsDbEnv = envPersist'
                 , _pdbsState = CommandState initRefStore M.empty
-                , _pdbsExecMode = Transactional 1
+                , _pdbsTxId = 0
                 }
     return theState

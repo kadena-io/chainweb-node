@@ -82,21 +82,27 @@ applyCmd
     -> ExecutionMode
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
-    -> IO (CommandResult, [TxLog Value])
-applyCmd _ _ _ _ _ _ ex cmd (ProcFail s) = pure (jsonResult ex (cmdToRequestKey cmd) (Gas 0) s, [])
-applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc cmd) = do
+    -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
+applyCmd _ _ _ _ _ _ execMode cmd (ProcFail s)
+    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) s, []), execMode)
+applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSucc cmd) = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
-        cmdEnv = CommandEnv entityM exMode pactDbEnv cmdState logger gasEnv
+        cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv
         requestKey = cmdToRequestKey cmd
         modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
 
-    buyGasResultE <- tryAny $ buyGas modifiedEnv cmd minerInfo
+        -- bump the txId for the buyGas transaction
+        buyGasEM = bumpExecMode startEM
+        buyGasEnv = set ceMode buyGasEM modifiedEnv
+
+    buyGasResultE <- tryAny $ buyGas buyGasEnv cmd minerInfo
 
     case buyGasResultE of
       Left e1 -> do
         logErrorRequestKey logger requestKey e1 "tx failure for requestKey when buying gas"
-        jsonErrorResult exMode requestKey e1 [] (Gas 0)
+        r <- jsonErrorResult buyGasEM requestKey e1 [] (Gas 0)
+        pure (r, buyGasEM)
       Right _buyGasResult -> do
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
@@ -105,21 +111,33 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel exMode _ (ProcSucc
         logDebugRequestKey logger requestKey "successful gas buy for request key"
         -- Note the use of 'def' here: we run the payload normally without inserting
         -- initial state.
-        cmdResultE <- tryAny $ runPayload cmdEnv def cmd []
+
+        -- bump the txId for the payload transaction
+        let payloadEM = bumpExecMode buyGasEM
+        let payloadEnv = set ceMode payloadEM cmdEnv
+        cmdResultE <- tryAny $ runPayload payloadEnv def cmd []
+
         case cmdResultE of
           Left e2 -> do
             logErrorRequestKey logger requestKey e2 "tx failure for request key when running cmd"
-            jsonErrorResult exMode requestKey e2 [] (Gas 0)
+            r <- jsonErrorResult payloadEM requestKey e2 [] (Gas 0)
+            pure (r, payloadEM)
           Right (cmdResult, cmdLogs) -> do
             logDebugRequestKey logger requestKey "success for requestKey"
-            redeemResultE <- tryAny $ redeemGas modifiedEnv cmd cmdResult {- pactId -} cmdLogs
+
+            -- bump the txId for the redeem gas transaction
+            let redeemGasEM = bumpExecMode payloadEM
+            let redeemGasEnv = set ceMode redeemGasEM buyGasEnv
+            redeemResultE <- tryAny $ redeemGas redeemGasEnv cmd cmdResult {- pactId -} cmdLogs
+
             case redeemResultE of
               Left e3 -> do
                 logErrorRequestKey logger requestKey e3 "tx failure for request key while redeeming gas"
-                jsonErrorResult exMode requestKey e3 cmdLogs $ _crGas cmdResult
+                r <- jsonErrorResult redeemGasEM requestKey e3 cmdLogs $ _crGas cmdResult
+                pure (r, redeemGasEM)
               Right (_, redeemLogs) -> do
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure (cmdResult, redeemLogs)
+                pure ((cmdResult, redeemLogs), redeemGasEM)
 
 applyGenesisCmd
     :: Logger
@@ -129,22 +147,28 @@ applyGenesisCmd
     -> ExecutionMode
     -> Command a
     -> ProcessedCommand PublicMeta ParsedCode
-    -> IO (CommandResult, [TxLog Value])
-applyGenesisCmd _ _ _ _ ex cmd (ProcFail pCmd) = pure (jsonResult ex (cmdToRequestKey cmd) (Gas 0) pCmd, [])
+    -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
+applyGenesisCmd _ _ _ _ execMode cmd (ProcFail pCmd)
+    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) pCmd, []), execMode)
 applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
         requestKey = cmdToRequestKey cmd
 
-    resultE <- tryAny $ runPayload cmdEnv def cmd []
+        -- bump the txId for the payload transaction
+        payloadEM = bumpExecMode execMode
+        payloadEnv = set ceMode payloadEM cmdEnv
+
+    resultE <- tryAny $ runPayload payloadEnv def cmd []
     case resultE of
       Left e -> do
         logErrorRequestKey logger requestKey e
           "genesis tx failure for request key while running genesis"
-        jsonErrorResult execMode requestKey e [] (Gas 0)
+        r <- jsonErrorResult payloadEM requestKey e [] (Gas 0)
+        pure (r, payloadEM)
       Right result -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
-        pure $! result
+        pure $! (result, payloadEM)
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
@@ -161,11 +185,11 @@ jsonErrorResult exMode reqKey err txLogs gas = pure $!
     )
 
 jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> Gas -> a -> CommandResult
-jsonResult ex cmd gas a = CommandResult cmd (exToTx ex) (toJSON a) gas
-
-exToTx :: ExecutionMode -> Maybe TxId
-exToTx (Transactional t) = Just t
-exToTx Local = Nothing
+jsonResult execMode cmd gas a =
+    let txId = case execMode of
+          Transactional tx -> Just tx
+          _otherMode       -> Nothing
+    in CommandResult cmd txId (toJSON a) gas
 
 runPayload
     :: CommandEnv p
@@ -477,3 +501,7 @@ logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
     <> show k
     <> ": "
     <> show e
+
+bumpExecMode :: ExecutionMode -> ExecutionMode
+bumpExecMode (Transactional (TxId txId)) = Transactional (TxId (succ txId))
+bumpExecMode otherMode = otherMode

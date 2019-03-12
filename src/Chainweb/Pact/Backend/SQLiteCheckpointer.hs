@@ -64,7 +64,7 @@ reinitDbEnv loggers funrec savedata = runExceptT $ do
     return (PactDbState
                (EnvPersist' (PactDbEnvPersist P.pactdb (mkDbEnv db)))
                (_sCommandState savedata)
-               (_sExecMode savedata))
+               (_sPactTxId savedata))
     where
         mkDbEnv db = P.DbEnv db persist logger txRecord txId
         err = "SQLiteCheckpointer.reinitDbEnv: Configuration exception"
@@ -121,7 +121,7 @@ save' lock height hash pactdbstate =
                         -- Then "save" it. Really we're computing the SaveData data and the valid
                         -- prefix for naming the file containing serialized Pact values.
                         (mprefix, toSave) <- liftIO $ saveDb pactdbenvpersist
-                                             (_pdbsState pactdbstate) (_pdbsExecMode pactdbstate)
+                                             (_pdbsState pactdbstate) (_pdbsTxId pactdbstate)
                         let dbFile = P._dbFile <$> (_sSQLiteConfig toSave)
                         let newdbFile = properName <$ dbFile
                         flip (maybe (ExceptT $ return $ Left msgPrefixError)) mprefix $ \prefix -> do
