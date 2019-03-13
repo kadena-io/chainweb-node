@@ -8,7 +8,7 @@ minikube start
 
 # Save local docker images into minishift cluster
 # Source: https://blogmilind.wordpress.com/2018/01/30/running-local-docker-images-in-kubernetes/
-docker save chainweb-base > "chainweb-base.tar"
+docker save chainweb-base > "chainweb-base.tar" 
 docker save chainweb-bootstrap-node > "chainweb-bootstrap-node.tar"
 
 eval $(minikube docker-env)

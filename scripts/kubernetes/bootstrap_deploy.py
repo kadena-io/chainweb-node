@@ -266,9 +266,9 @@ def create_resources():
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
-    create_secret_from_file(core_v1, "scripts/test-bootstrap-node.config")
+    create_secret_from_file(core_v1, "scripts/kubernetes/kube-bootstrap-node.config")
     create_headless_service(core_v1)
-    create_pod_service(core_v1,"us1","chainweb-0")
+    create_pod_service(core_v1,"us2","chainweb-0")
     create_stateful_set(apps_v1beta2)
 
 

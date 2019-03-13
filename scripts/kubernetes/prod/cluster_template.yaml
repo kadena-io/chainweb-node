@@ -1,0 +1,111 @@
+apiVersion: kops/v1alpha2
+kind: Cluster
+metadata:
+  version: {{ .releaseVersion }}
+  name: {{ .clusterPrefix }}.{{ .dnsZone }}
+spec:
+  # route53 permissions needed for external-dns operator
+  additionalPolicies:
+    node: |
+      [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "route53:ChangeResourceRecordSets"
+          ],
+          "Resource": [
+            "arn:aws:route53:::hostedzone/*"
+          ]
+        },
+        {
+          "Effect": "Allow",
+          "Action": [
+            "route53:ListHostedZones",
+            "route53:ListResourceRecordSets"
+          ],
+          "Resource": [
+            "*"
+          ]
+        }
+      ]
+  api:
+    loadBalancer:
+      type: Public
+  authorization:
+    rbac: {}
+  channel: stable
+  cloudProvider: aws
+  configBase: {{ .kopsStateStore }}/{{ .clusterPrefix }}.{{ .dnsZone }}
+  etcdClusters:
+  - etcdMembers:
+    - instanceGroup: master-{{ .awsRegion }}a
+      name: a
+    name: main
+  - etcdMembers:
+    - instanceGroup: master-{{ .awsRegion }}a
+      name: a
+    name: events
+  iam:
+    allowContainerRegistry: true
+    legacy: false
+  kubelet:
+    anonymousAuth: false
+  kubernetesApiAccess:
+  - 0.0.0.0/0
+  kubernetesVersion: {{ .kubernetesVersion }}
+  masterInternalName: api.internal.{{ .clusterPrefix }}.{{ .dnsZone }}
+  masterPublicName: api.{{ .clusterPrefix }}.{{ .dnsZone }}
+  networkCIDR: 172.20.0.0/16
+  networking:
+    kubenet: {}
+  nonMasqueradeCIDR: 100.64.0.0/10
+  sshAccess:
+  - 0.0.0.0/0
+  subnets:
+  - cidr: 172.20.32.0/19
+    name: {{ .awsRegion }}a
+    type: Public
+    zone: {{ .awsRegion }}a
+  topology:
+    dns:
+      type: Public
+    masters: public
+    nodes: public
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{ .clusterPrefix }}.{{ .dnsZone }}
+  name: master-{{ .awsRegion }}a
+spec:
+  image: {{ .baseAwsAmiId }}
+  machineType: {{ .masterSize }}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{ .awsRegion }}a
+  role: Master
+  subnets:
+  - {{ .awsRegion }}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{ .clusterPrefix }}.{{ .dnsZone }}
+  name: nodes
+spec:
+  image: {{ .baseAwsAmiId }}
+  machineType: {{ .nodeSize }}
+  maxSize: {{ .nodesMaxCount }}
+  minSize: {{ .nodesMinCount }}
+  nodeLabels:
+    kops.k8s.io/instancegroup: nodes
+  role: Node
+  subnets:
+  - {{ .awsRegion }}a
