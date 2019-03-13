@@ -323,10 +323,12 @@ newtype JsonLogMessage a = JsonLogMessage
 instance ToJSON a => ToJSON (JsonLogMessage a) where
     toJSON (JsonLogMessage a) = object
         [ "level" .= L._logMsgLevel a
-        , "scope" .= L._logMsgScope a
+        , "scope" .= scopeToJson (L._logMsgScope a)
         , "time" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
         , "message" .= case L._logMsg a of (JsonLog msg) -> msg
         ]
+      where
+        scopeToJson = object . map (uncurry (.=)) . reverse
 
 -- | This logger produces one JSON value for each log message of the given type
 -- @a@. If the Elasticsearch handle is used, the logs are send to an
@@ -343,16 +345,17 @@ withJsonFileHandleBackend
     :: forall a b
     . ToJSON a
     => Typeable a
-    => EnableConfig JsonLoggerConfig
+    => HTTP.Manager
+    -> EnableConfig JsonLoggerConfig
     -> (JsonBackend a -> IO b)
     -> IO b
-withJsonFileHandleBackend = configureHandler handler
+withJsonFileHandleBackend mgr = configureHandler handler
   where
     handler c inner = case _jsonLoggerConfigHandle c of
         StdOut -> inner $ backend stdout
         StdErr -> inner $ backend stderr
         FileHandle f -> withFile f WriteMode $ \h -> inner $ backend h
-        ElasticSearch f -> withElasticsearchBackend f (T.toLower $ sshow (typeRep (Proxy @a))) inner
+        ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower $ sshow (typeRep (Proxy @a))) inner
             -- FIXME pass index name as argument
     backend h = BL8.hPutStrLn h . encode . JsonLogMessage
 
@@ -367,18 +370,18 @@ withJsonFileHandleBackend = configureHandler handler
 --
 withElasticsearchBackend
     :: ToJSON a
-    => HostAddress
+    => HTTP.Manager
+    -> HostAddress
     -> T.Text
     -> (JsonBackend a -> IO b)
     -> IO b
-withElasticsearchBackend esServer ixName inner = do
-    mgr <- HTTP.newManager HTTP.defaultManagerSettings
+withElasticsearchBackend mgr esServer ixName inner = do
     void $ HTTP.httpLbs putIndex mgr
         -- FIXME Do we need failure handling? This is fire and forget
         -- which may be fine for many applications.
-    inner $ \a -> do
-        void $ HTTP.httpLbs (putLog a) mgr
+    inner $ \a -> void $ HTTP.httpLbs (putLog a) mgr
         -- FIXME failure handling?
+        -- FIXME implement batching
 
   where
     putIndex = HTTP.defaultRequest

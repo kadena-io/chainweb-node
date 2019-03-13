@@ -40,6 +40,8 @@ import Control.Monad
 
 import GHC.Generics hiding (from)
 
+import qualified Network.HTTP.Client as HTTP
+
 import qualified Streaming.Prelude as S
 
 import qualified System.Logger as L
@@ -49,6 +51,7 @@ import System.LogLevel
 
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
@@ -59,6 +62,8 @@ import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS.HashMap
 import Data.LogMessage
 
+import P2P.Node
+
 import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
@@ -67,7 +72,7 @@ import Utils.Logging
 data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
     , _nodeConfigLog :: !L.LogConfig
-    , _nodeConfigCutsLogger :: !(EnableConfig JsonLoggerConfig)
+    , _nodeConfigTelemetryLogger :: !(EnableConfig JsonLoggerConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -78,7 +83,7 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = L.defaultLogConfig
         & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
-    , _nodeConfigCutsLogger =
+    , _nodeConfigTelemetryLogger =
         EnableConfig True defaultJsonLoggerConfig
     }
 
@@ -86,21 +91,21 @@ instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
         [ "chainweb" .= _nodeConfigChainweb o
         , "log" .= _nodeConfigLog o
-        , "cutsLogger" .= _nodeConfigCutsLogger o
+        , "telemetryLogger" .= _nodeConfigTelemetryLogger o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
     parseJSON = withObject "ChainwebNodeConfig" $ \o -> id
         <$< nodeConfigChainweb %.: "chainweb" % o
         <*< nodeConfigLog %.: "log" % o
-        <*< nodeConfigCutsLogger %.: "cutsLogger" % o
+        <*< nodeConfigTelemetryLogger %.: "telemetryLogger" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
     <*< nodeConfigLog %:: L.pLogConfig
-    <*< nodeConfigCutsLogger %::
-        pEnableConfig "cuts-logger" % pJsonLoggerConfig (Just "cuts-")
+    <*< nodeConfigTelemetryLogger %::
+        pEnableConfig "telemetry-logger" % pJsonLoggerConfig (Just "telemetry-")
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
@@ -137,11 +142,19 @@ withNodeLogger
     -> EnableConfig JsonLoggerConfig
     -> (L.Logger SomeLogMessage -> IO a)
     -> IO a
-withNodeLogger logConfig cutsLoggerConfig f =
+withNodeLogger logConfig telemetryLoggerConfig f = do
+    mgr <- HTTP.newManager HTTP.defaultManagerSettings
+        -- This manager is used only for telmetry
     withFileHandleBackend (L._logConfigBackend logConfig) $ \baseBackend ->
-        withJsonFileHandleBackend @CutHashes cutsLoggerConfig $ \monitorBackend -> do
+
+        -- Telemetry Backends
+        withJsonFileHandleBackend @CutHashes mgr telemetryLoggerConfig $ \monitorBackend ->
+        withJsonFileHandleBackend @P2pSessionInfo mgr telemetryLoggerConfig $ \p2pInfoBackend ->
+        withJsonFileHandleBackend @ConnectionManagerStats mgr telemetryLoggerConfig $ \managerBackend -> do
             let loggerBackend = logHandles
                     [ logHandler monitorBackend
+                    , logHandler p2pInfoBackend
+                    , logHandler managerBackend
                     ] baseBackend
             L.withLogger (L._logConfigLogger logConfig) loggerBackend f
 
@@ -156,6 +169,6 @@ mainInfo = programInfo
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
-    withNodeLogger (_nodeConfigLog conf) (_nodeConfigCutsLogger conf) $ \logger ->
-        node (_nodeConfigChainweb conf) logger
+    withNodeLogger (_nodeConfigLog conf) (_nodeConfigTelemetryLogger conf) $
+        node (_nodeConfigChainweb conf)
 

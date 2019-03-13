@@ -11,7 +11,7 @@ function usage () {
 # ############################################################################ #
 # Configuration
 
-LOGLEVEL=info
+LOGLEVEL=${LOGLEVEL:-info}
 
 [ "$#" -ge 2 ] || { echo -e "Missing arguments:" 1>&2 ; usage 1>&2 ; exit -1 ; }
 
@@ -61,7 +61,7 @@ function run-node () {
         if [[ -n "$ES_HOST" ]] ; then
             es="es:$ES_HOST"
         else
-            es="file:$LOG_DIR/cuts.node$NID.log"
+            es="file:$LOG_DIR/telemetry.node$NID.log"
         fi
 
         # Run with LOG_DIR
@@ -70,7 +70,7 @@ function run-node () {
             --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
-            --cuts-logger-backend-handle="$es" \
+            --telemetry-logger-backend-handle="$es" \
             --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
             $CONFIG_FILE_ARG &
 

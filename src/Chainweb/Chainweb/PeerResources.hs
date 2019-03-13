@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -33,12 +35,14 @@ module Chainweb.Chainweb.PeerResources
 , withSocket
 , withPeerDb
 , withConnectionManger
+, ConnectionManagerStats(..)
 ) where
 
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
@@ -48,11 +52,13 @@ import qualified Data.HashSet as HS
 import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
 
-import Prelude hiding (log)
+import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
+
+import Prelude hiding (log)
 
 import System.LogLevel
 
@@ -159,6 +165,12 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 -- -------------------------------------------------------------------------- --
 -- Connection Manager
 
+data ConnectionManagerStats = ConnectionManagerStats
+    { _connectionManagerConnectionCount :: !Int
+    , _connectionManagerRequestCount :: !Int
+    }
+    deriving (Show, Eq, Ord, Generic, ToJSON, FromJSON, NFData)
+
 -- Connection Manager
 --
 withConnectionManger
@@ -202,10 +214,8 @@ withConnectionManger logger cert key peerDb runInner = do
             threadDelay 5000000
             connCount <- readIORef connCountRef
             reqCount <- readIORef reqCountRef
-            logFunctionJson logger Debug $ object
-                [ "clientConnectionCount" .= connCount
-                , "clientRequestCount" .= reqCount
-                ]
+            logFunctionJson logger Debug
+                $ ConnectionManagerStats connCount reqCount
 
     snd <$> concurrently logClientConnections (runInner mgr)
 
