@@ -10,8 +10,6 @@
 
 module Chainweb.Miner.Genesis ( mineGenesis ) where
 
-import Control.Lens (_Wrapped', over)
-
 -- internal imports
 
 import Chainweb.BlockHeader
@@ -34,6 +32,6 @@ mineGenesis
     -> BlockHeader
 mineGenesis v p ct n
     | checkTarget (_blockTarget gh) (_blockPow gh) = gh
-    | otherwise = mineGenesis v p ct (over _Wrapped' succ n)
+    | otherwise = mineGenesis v p ct $ succ n
   where
     gh = genesisBlockHeader' v p ct n

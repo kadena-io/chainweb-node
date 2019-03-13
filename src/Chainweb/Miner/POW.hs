@@ -26,7 +26,6 @@ import Data.Reflection (Given, give)
 import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
-import Data.Word (Word64)
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
@@ -94,7 +93,7 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
         -> IO ()
     go gen !i !adjustments0 = do
 
-        nonce0 <- MWC.uniform gen
+        nonce0 <- Nonce <$> MWC.uniform gen
 
         -- counter <- newIORef (1 :: Int)
 
@@ -137,7 +136,7 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
     mine
         :: Given WebBlockHeaderDb
         => Given (PayloadDb cas)
-        => Word64
+        => Nonce
         -> Adjustments
         -> IO (T3 BlockHeader Cut Adjustments)
     mine !nonce !adjustments = do
@@ -169,7 +168,7 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
                 [ (Transaction "testTransaction", TransactionOutput "testOutput")
                 ]
         let payloadHash = _blockPayloadPayloadHash $ newBlockPayload payload
-        testMineWithPayload @cas (Nonce nonce) target ct payloadHash payload nid cid c >>= \case
+        testMineWithPayload @cas nonce target ct payloadHash payload nid cid c >>= \case
             Left BadNonce -> do
                 -- atomicModifyIORef' counter (\n -> (succ n, ()))
                 mine (succ nonce) adjustments'

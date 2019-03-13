@@ -169,8 +169,6 @@ instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-instance Wrapped BlockHeight
-
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
@@ -214,7 +212,7 @@ decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 newtype Nonce = Nonce Word64
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Hashable)
+    deriving newtype (Hashable,Enum)
 
 instance IsMerkleLogEntry ChainwebHashTag Nonce where
     type Tag Nonce = 'BlockNonceTag
@@ -222,8 +220,6 @@ instance IsMerkleLogEntry ChainwebHashTag Nonce where
     fromMerkleNode = decodeMerkleInputNode decodeNonce
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
-
-instance Wrapped Nonce
 
 encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n
