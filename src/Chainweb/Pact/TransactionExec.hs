@@ -158,8 +158,9 @@ applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
         -- bump the txId for the payload transaction
         payloadEM = bumpExecMode execMode
         payloadEnv = set ceMode payloadEM cmdEnv
+        genCapsState = set (evalCapabilities . capGranted) [UserCapability "coin" "COINBASE" []] def
 
-    resultE <- tryAny $ runPayload payloadEnv def cmd []
+    resultE <- tryAny $ runPayload payloadEnv genCapsState cmd []
     case resultE of
       Left e -> do
         logErrorRequestKey logger requestKey e

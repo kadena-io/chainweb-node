@@ -22,6 +22,7 @@ module Chainweb.Pact.PactService
     , serviceRequests
     , setupConfig
     , toCommandConfig
+    , toHashedLogTxOutput
     ) where
 
 import Control.Applicative

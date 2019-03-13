@@ -1,4 +1,4 @@
-(module coin 'kadena
+(module coin GOVERNANCE
 
   "'coin' represents the Kadena Coin Contract."
 
@@ -19,6 +19,8 @@
   ; --------------------------------------------------------------------------
   ; Capabilities
   ; --------------------------------------------------------------------------
+
+  (defcap GOVERNANCE () (enforce false "upgrade disabled"))
 
   (defcap TRANSFER ()
     "Autonomous capability to protect debit and credit actions"
@@ -167,3 +169,5 @@
           }
           )))
 )
+
+(create-table coin-table)
