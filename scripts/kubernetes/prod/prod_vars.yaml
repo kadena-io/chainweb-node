@@ -1,4 +1,4 @@
-releaseVersion: prod-2.0.0.0
+releaseVersion: prod-1.0.0.0
 baseAwsAmiId: kope.io/k8s-1.11-debian-stretch-amd64-hvm-ebs-2018-08-17
 kopsStateStore: s3://chainweb-kops-state-store
 kubernetesVersion: 1.11.7

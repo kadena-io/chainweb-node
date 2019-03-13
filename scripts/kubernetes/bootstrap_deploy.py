@@ -2,8 +2,6 @@ from os import path
 
 import sys
 import yaml
-import base64
-from pick import pick
 
 from kubernetes import client, config
 
@@ -12,7 +10,7 @@ DEPLOYMENT_NAME = "chainweb"
 DEPLOYMENT_IMAGE = "kadena/chainweb-bootstrap-node:v0"
 DNS_NAME = ".chainweb.com."
 PORT_NUMBER = 1789
-PER_REGION_NODES = 1
+PER_CLUSTER_NODES = 1
 
 
 # --- SECRETS
@@ -190,7 +188,7 @@ def create_pod_template_with_pvc():
 def create_stateful_set_obj():
     spec = client.V1beta2StatefulSetSpec(
         pod_management_policy = "Parallel",
-        replicas = PER_REGION_NODES,
+        replicas = PER_CLUSTER_NODES,
         selector = client.V1LabelSelector(
             match_labels = {"app": "chainweb"}
         ),
@@ -250,25 +248,23 @@ def run_valid_action(isCreate):
     if not contexts:
         print("Cannot find any context in kube-config file.")
         return
-    contexts = [context['name'] for context in contexts]
-    active_index = contexts.index(active_context['name'])
-    option, _ = pick(contexts, title="Pick the context to load",
-                     default_index=active_index)
-    config.load_kube_config(context=option)
+    config.load_kube_config()
+    sub_domain = (active_context['name'].split("."))[0]
+
 
     if isCreate:
-        create_resources()
+        create_resources(sub_domain)
     else:
         delete_resources()
 
 
-def create_resources():
+def create_resources(sub_domain):
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
     create_secret_from_file(core_v1, "scripts/kubernetes/kube-bootstrap-node.config")
     create_headless_service(core_v1)
-    create_pod_service(core_v1,"us2","chainweb-0")
+    create_pod_service(core_v1,sub_domain,"chainweb-0")
     create_stateful_set(apps_v1beta2)
 
 
