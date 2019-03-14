@@ -7,8 +7,8 @@ from kubernetes import client, config
 
 NAMESPACE="default"
 DEPLOYMENT_NAME = "chainweb"
-DEPLOYMENT_IMAGE = "kadena/chainweb-bootstrap-node:v0"
-DNS_NAME = ".chainweb.com."
+DEPLOYMENT_IMAGE = "kadena/chainweb-base:v0"
+DNS_NAME = ".chainweb.com"
 PORT_NUMBER = 1789
 PER_CLUSTER_NODES = 1
 
@@ -16,16 +16,46 @@ PER_CLUSTER_NODES = 1
 # --- SECRETS
 #     Adds bootstrap config file as a secret volume.
 
-def create_secret_from_file(api_instance, filename):
-    data = ""
+def create_secret_from_file(api_instance, configPath, certPath, keyPath):
+    config = ""
+    with open(configPath, 'r') as f:
+        config = f.read()
 
-    with open(filename, 'r') as f:
-        data = f.read()
+    cert = ""
+    with open(certPath, 'r') as f:
+        cert = f.read()
+
+    certYaml = dict(
+        chainweb = dict(
+            p2p = dict(
+                peer = dict(
+                    certificate = cert
+                )
+            )
+        )
+    )
+
+    key = ""
+    with open(keyPath, 'r') as f:
+        key = f.read()
+
+    keyYaml = dict(
+        chainweb = dict(
+            p2p = dict(
+                peer = dict(
+                    key = key
+                )
+            )
+        )
+    )
+
 
     secret = client.V1Secret(
         type = "Opaque",
         metadata = client.V1ObjectMeta( name="bootstrap-config" ),
-        string_data = {"test-bootstrap-node.config" : data}
+        string_data = {"node.config" : config,
+                       "cert.config": str(yaml.dump(certYaml, default_flow_style=False, default_style="|")),
+                       "privkey.config": str(yaml.dump(keyYaml, default_flow_style=False, default_style="|"))}
     )
 
     api_instance.create_namespaced_secret( namespace=NAMESPACE, body=secret, pretty='true' )
@@ -156,13 +186,10 @@ def create_pod_template_with_pvc():
         name = "data"
     )
     # Configureate Pod template container
-    isTTY = False
-    if (DEPLOYMENT_IMAGE == "chainweb-base"):
-        isTTY = True        # otherwise container will always "finish" and restart.
     container = client.V1Container(
         name  = "chainweb",
         image = DEPLOYMENT_IMAGE,
-        tty = isTTY,
+        command = ["/bin/chainweb-node", "--node-id=0", "--config-file=/tmp/cert.config", "--config-file=/tmp/privkey.config", "--config-file=/tmp/node.config"],
         ports = [ client.V1ContainerPort( 
             container_port = PORT_NUMBER ) ],
         volume_mounts = [config_mount, pv_mount]
@@ -262,7 +289,11 @@ def create_resources(sub_domain):
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
-    create_secret_from_file(core_v1, "scripts/kubernetes/kube-bootstrap-node.config")
+    configPath = "./bootstrap-node.config"
+    certPath = "./" + sub_domain + DNS_NAME + "-cert.pem"
+    certKeyPath = "./" + sub_domain + DNS_NAME + "-privkey.pem"
+
+    create_secret_from_file(core_v1, configPath, certPath, certKeyPath)
     create_headless_service(core_v1)
     create_pod_service(core_v1,sub_domain,"chainweb-0")
     create_stateful_set(apps_v1beta2)
