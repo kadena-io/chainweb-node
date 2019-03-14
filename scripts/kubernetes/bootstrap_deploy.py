@@ -1,8 +1,9 @@
 from os import path
 
+import argparse
+import base64
 import sys
 import yaml
-import base64
 
 from kubernetes import client, config
 
@@ -136,7 +137,7 @@ def delete_persistent_volume(api_instance, name):
 #     Creates StatefulSet for spinning up bootstrap node(s).
 
 
-def create_pod_template_with_pvc():
+def create_pod_template_with_pvc(args):
     # Mount bootstrap config secret volume
     config_mount = client.V1VolumeMount(
         mount_path="/tmp", name="bootstrap-config-vol")
@@ -144,13 +145,15 @@ def create_pod_template_with_pvc():
     pv_mount = client.V1VolumeMount(
         mount_path="/home",  # better name?
         name="data")
+
     # Configureate Pod template container
-    isTTY = False
-    if (DEPLOYMENT_IMAGE == "chainweb-base"):
-        isTTY = True  # otherwise container will always "finish" and restart.
+    isTTY = args.image == "chainweb-base"  # otherwise container will always "finish" and restart.
+    pull_policy = "Never" if args.local else "Always"
+
     container = client.V1Container(
         name="chainweb",
-        image=DEPLOYMENT_IMAGE,
+        image=args.image,
+        image_pull_policy=pull_policy,
         tty=isTTY,
         ports=[client.V1ContainerPort(container_port=PORT_NUMBER)],
         volume_mounts=[config_mount, pv_mount])
@@ -167,13 +170,13 @@ def create_pod_template_with_pvc():
     return template
 
 
-def create_stateful_set_obj():
+def create_stateful_set_obj(args):
     spec = client.V1beta2StatefulSetSpec(
         pod_management_policy="Parallel",
         replicas=PER_REGION_NODES,
         selector=client.V1LabelSelector(match_labels={"app": "chainweb"}),
         service_name="chainweb-service",
-        template=create_pod_template_with_pvc(),
+        template=create_pod_template_with_pvc(args),
         volume_claim_templates=[create_volume_claim_template()])
     stateful_set = client.V1beta2StatefulSet(
         api_version="apps/v1beta2",
@@ -183,8 +186,8 @@ def create_stateful_set_obj():
     return stateful_set
 
 
-def create_stateful_set(api_instance):
-    stateful_set = create_stateful_set_obj()
+def create_stateful_set(api_instance, args):
+    stateful_set = create_stateful_set_obj(args)
     api_response = api_instance.create_namespaced_stateful_set(
         body=stateful_set, namespace=NAMESPACE, pretty='true')
     print("Statefule Set created. status='%s'" % str(api_response.status))
@@ -205,38 +208,57 @@ def delete_stateful_set(api_instance):
 #     Thus allows for creating/deleting resources in different kubernetes clusters.
 
 
+def arg_parsing():
+    parser = argparse.ArgumentParser(
+        description="Control Chainweb node deployment to Kubernetes")
+    subparsers = parser.add_subparsers()
+
+    # --- `create` flags --- #
+    create_p = subparsers.add_parser(
+        "create", help="Create a Chainweb node cluster")
+
+    create_p.add_argument(
+        "--image",
+        default="kadena/chainweb-bootstrap-node:v0",
+        help="A docker image to run")
+
+    create_p.add_argument(
+        "--local",
+        action="store_true",
+        help="Assume the docker image can be found locally")
+
+    create_p.set_defaults(func=create_resources)
+
+    # --- `delete` flags --- #
+    delete_p = subparsers.add_parser(
+        "delete", help="Tear down a Chainweb node cluster")
+
+    delete_p.set_defaults(func=delete_resources)
+
+    return parser.parse_args()
+
+
 def main():
-    if (len(sys.argv) == 2) and (sys.argv[1] in ["create", "delete"]):
-        isCreate = True if (sys.argv[1] == "create") else False
-        run_valid_action(isCreate)
-    else:
-        print("Expected ONE of the following:" \
-              "\n\t`python <app>.py create`" \
-              "\n\t`python <app>.py delete\n" \
-              "But received: " + str(sys.argv))
-        return
+    args = arg_parsing()
 
-
-def run_valid_action(isCreate):
     # Ask user which context (i.e. cluster) they want to work with
-    contexts, active_context = config.list_kube_config_contexts()
+    contexts, _ = config.list_kube_config_contexts()
 
     if not contexts:
         print("Cannot find any context in kube-config file.")
         return
 
-    # --- DEBUGGING --- #
-    # print("USING CONTEXT: ", active_context)
+    config.load_kube_config()
 
-    config.load_kube_config(context=active_context['name'])
+    print("Running with: ", args)
+    args.func(args)
 
-    if isCreate:
-        create_resources()
-    else:
-        delete_resources()
+    print("Done")
 
 
-def create_resources():
+def create_resources(args):
+    print("Creating cluster...")
+
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
@@ -244,10 +266,12 @@ def create_resources():
                             "scripts/kubernetes/kube-bootstrap-node.config")
     create_headless_service(core_v1)
     create_pod_service(core_v1, "us1", "chainweb-0")
-    create_stateful_set(apps_v1beta2)
+    create_stateful_set(apps_v1beta2, args)
 
 
-def delete_resources():
+def delete_resources(args):
+    print("Deleting cluster...")
+
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
