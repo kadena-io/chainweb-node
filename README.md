@@ -189,11 +189,21 @@ As of at least 2019 March, it is not possible for MacOS users to build these.
 #### Running Locally
 
 1. Ensure that the above dependencies are installed.
-2. Create a local Kubernetes cluster with Minikube: `minikube start`
+2. Create a local Kubernetes cluster with Minikube: `minikube start**
 3. Load the chainweb bootstrap node:
+
+##### Linux
+
+For running your custom-built images. Otherwise, follow the MacOS instructions below.
 
 ```sh
 $ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node:TAG --local
+```
+
+##### MacOS
+
+```sh
+$ python scripts/kubernetes/bootstrap_deploy.py create
 ```
 
 Excluding the `--image` and `--local` flags will cause a default image to be
