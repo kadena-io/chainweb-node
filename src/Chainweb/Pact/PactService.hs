@@ -2,7 +2,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -22,35 +24,46 @@ module Chainweb.Pact.PactService
     , serviceRequests
     , setupConfig
     , toCommandConfig
+    , createCoinContract
     ) where
+
 
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Lens
+import Control.Lens ((.=), over)
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
+import Data.Bifunctor (bimap)
 import Data.ByteString (ByteString)
 import Data.Maybe
+import Data.Text (Text)
+import qualified Data.Text.IO as T (readFile)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import Data.Word
 import qualified Data.Yaml as Y
+
+import NeatInterpolation (text)
+
+-- external pact modules
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P
 
 -- internal modules
+
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
@@ -59,14 +72,15 @@ import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types (RequestMsg(..), NewBlockReq(..),
                                     LocalReq(..), ValidateBlockReq(..))
-import Chainweb.Pact.TransactionExec (applyCmd, applyGenesisCmd)
+import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
 import Chainweb.Payload
 
+
 initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
 initPactService reqQ memPoolAccess = do
-    let loggers = P.neverLog
+    let loggers = P.alwaysLog
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
@@ -87,15 +101,52 @@ initPactService reqQ memPoolAccess = do
                     (,)
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
+
+    -- Coin contract must be created and embedded in the genesis
+    -- block prior to initial save
+    ccState <- createCoinContract theState
+
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) ccState
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
             fail s
         Right _ -> return ()
-    void $ evalStateT
+
+    void $! evalStateT
            (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
-           theState
+           ccState
+
+-- | Create the coin contract using some initial pact db state
+createCoinContract :: PactDbState -> IO PactDbState
+createCoinContract dbState = do
+    let logger = P.newLogger P.alwaysLog $ P.LogName "coin-contract"
+        execMode = P.Transactional . _pdbsTxId $ dbState
+
+    ccMsg <- coinContract
+    (cmdState, Env' pactDbEnv) <- (,) <$> newMVar (_pdbsState dbState) <*> toEnv' (_pdbsDbEnv dbState)
+
+    let cmdEnv = P.CommandEnv Nothing execMode pactDbEnv cmdState logger P.freeGasEnv
+        incEx = over P.ceMode bumpExecMode
+
+    void $! applyExec' cmdEnv initState ccMsg [] (P.hash "")
+
+    coinbaseCmd <- createSender
+    let cmdEnv' = incEx cmdEnv
+    let (P.Transactional txId) = P._ceMode . incEx $ cmdEnv'
+
+    void $! applyExec' cmdEnv' initState coinbaseCmd [] (P.hash "")
+
+    newCmdState <- readMVar cmdState
+    newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
+
+    pure $ PactDbState
+        { _pdbsDbEnv = newEnvPersist
+        , _pdbsState = newCmdState
+        , _pdbsTxId = txId
+        }
+  where
+    initState = initCapabilities ["COINBASE"]
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
@@ -168,6 +219,7 @@ execNewBlock memPoolAccess header = do
         bHash = _blockHash header
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader header
+
     newTrans <- liftIO $! memPoolAccess bHeight
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
@@ -290,7 +342,7 @@ applyPactCmd
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
     cpEnv <- ask
     let logger = _cpeLogger cpEnv
-        gasModel = cpEnv ^. cpeGasEnv . P.geGasModel
+        gasModel = P._geGasModel . _cpeGasEnv $ cpEnv
         -- type signature ensures correct inference
         procCmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
         procCmd = P.verifyCommand cmd
@@ -319,3 +371,17 @@ transactionsFromHeader memPoolAccess bHeader =
     -- MemPoolAccess will be replaced with looking up transactsion from header...
     memPoolAccess (_blockHeight bHeader)
 ----------------------------------------------------------------------------------------------------
+
+coinContract :: IO (P.ExecMsg P.ParsedCode)
+coinContract = buildExecParsedCode Nothing =<< T.readFile "pact/coin-contract/coin.pact"
+
+createSender :: IO (P.ExecMsg P.ParsedCode)
+createSender = buildExecParsedCode senderData
+  [text|
+    (coin.coinbase 'sender0 (read-keyset 'sender-keyset) 1000.0)
+    |]
+  where
+    senderData = Just $ A.object [ ("sender-keyset" :: Text) A..= keyset0 ]
+
+    keyset0 :: [Text]
+    keyset0 = ["ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"]
