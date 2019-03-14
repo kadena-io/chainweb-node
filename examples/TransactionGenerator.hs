@@ -31,7 +31,7 @@ import Control.Monad.State
 import Data.Default (Default(..), def)
 import Data.Int
 import Data.Text (Text)
-import Data.Word (Word16)
+import qualified Data.Text as T
 
 import Fake (fake, generate)
 
@@ -69,10 +69,10 @@ instance FromJSON TransactionCommand
 instance ToJSON TransactionCommand
 
 data TransactionConfig = TransactionConfig
-  { _scriptCommand  :: TransactionCommand
-  , _nodeChainId    :: !ChainId
-  , _nodePort       :: !Word16
+  { _scriptCommand :: TransactionCommand
+  , _nodeChainId :: !ChainId
   , _serverRootPath :: String
+  , _isChainweb :: Bool
   } deriving (Generic)
 
 makeLenses ''TransactionConfig
@@ -81,18 +81,20 @@ instance ToJSON TransactionConfig where
   toJSON o =
     object
       [ "scriptCommand" .= _scriptCommand o
-      , "nodeChainId"   .= _nodeChainId o
-      , "nodePort"      .= _nodePort o
+      , "nodeChainId" .= _nodeChainId o
+      , "serverRootPath" .= _serverRootPath o
+      , "isChainweb" .= _isChainweb o
       ]
 
 instance FromJSON (TransactionConfig -> TransactionConfig) where
   parseJSON = withObject "TransactionConfig" $ \o -> id
     <$< scriptCommand ..: "scriptCommand" % o
     <*< nodeChainId ..: "nodeChainId" % o
-    <*< nodePort ..: "nodePort" % o
+    <*< serverRootPath ..: "serverRootPath" % o
+    <*< isChainweb ..: "isChainweb" % o
 
 data GeneratorState s = GeneratorState
-  { _gsGen     :: Gen s
+  { _gsGen :: Gen s
   , _gsCounter :: Int64
   }
 
@@ -103,10 +105,11 @@ defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
     , _nodeChainId    = testChainId 1
-    , _nodePort       = tmpNodePort
-    , _serverRootPath = "http://localhost:" ++ show tmpNodePort
+    , _serverRootPath = "http://127.0.0.1:" ++ show tmpNodePort
+    , _isChainweb     = False
     }
   where
+    tmpNodePort :: Int
     tmpNodePort = 8080          -- this is default port according to the "pact -s" docs
 
 transactionConfigParser :: MParser TransactionConfig
@@ -118,25 +121,28 @@ transactionConfigParser = id
       % long "node-chain-id"
       <> short 'i'
       <> help "The specific chain that will receive generated \"fake\" transactions."
-  <*< nodePort .:: option auto
-      % long "port"
-      <> short 'p'
-      <> help "The TCP port this transaction generator node uses."
+  <*< serverRootPath .:: option auto
+      % long "server-root"
+      <> help "Server root URL"
+  <*< isChainweb .:: option auto
+      % long "is-chainweb"
+      <> short 'w'
+      <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
 
 data TimingDistribution
   = Gaussian { mean :: Int
-             , var  :: Int }
-  | Uniform { low   :: Int
-            , high  :: Int }
+             , var :: Int }
+  | Uniform { low :: Int
+            , high :: Int }
   deriving (Eq, Show)
 
 instance Default TimingDistribution where
   def = Gaussian 1000000 (div 1000000 16)
 
 data GeneratorConfig = GeneratorConfig
-  { _timingdist         :: TimingDistribution
+  { _timingdist :: TimingDistribution
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
-  , _genClientEnv       :: ClientEnv
+  , _genClientEnv :: ClientEnv
   }
 
 makeLenses ''GeneratorConfig
@@ -202,12 +208,18 @@ loop = do
   gsCounter += 1
   loop
 
-mkGeneratorConfig :: Maybe Int -> IO GeneratorConfig
-mkGeneratorConfig mport = GeneratorConfig <$> pure def <*> pure mempty <*> go
+mkGeneratorConfig :: TransactionConfig -> IO GeneratorConfig
+mkGeneratorConfig config = GeneratorConfig <$> pure def <*> pure mempty <*> go
   where
+    pfx = if _isChainweb config then chainwebPfx else ""
+    pfxUrl = _serverRootPath config ++ T.unpack pfx
     go = do mgr <- newManager defaultManagerSettings
-            url <- parseBaseUrl ("http://localhost:" ++ maybe _testPort show mport)
-            return $ mkClientEnv  mgr url
+            url <- parseBaseUrl pfxUrl
+            return $ mkClientEnv mgr url
+    chainwebPfx = T.concat [ "/chainweb/0.0/testnet00/chain/"
+                           , chainIdToText $ _nodeChainId config
+                           , "/pact"
+                           ]
 
 mainInfo :: ProgramInfo TransactionConfig
 mainInfo =
@@ -246,10 +258,10 @@ loadContracts contractLoaders = do
      ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
   print pollresponse
 
-sendTransactions :: IO ()
-sendTransactions = do
+sendTransactions :: TransactionConfig -> IO ()
+sendTransactions config = do
   putStrLn "Transactions are being generated"
-  gencfg <- mkGeneratorConfig Nothing
+  gencfg <- mkGeneratorConfig config
   (keysets, accounts) <- unzip <$> createAccounts
   _pollresponse <-
       runExceptT $ do
@@ -270,7 +282,7 @@ main =
         loadContracts (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders))
         where
           go xs ys = if null xs then ys else xs
-      Run -> sendTransactions
+      Run -> sendTransactions config
 
 -- TOOD: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
