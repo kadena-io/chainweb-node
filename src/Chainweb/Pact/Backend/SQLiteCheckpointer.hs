@@ -40,16 +40,16 @@ import Chainweb.Pact.Backend.Types
 
 initSQLiteCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
 initSQLiteCheckpointEnv cmdConfig logger gasEnv = do
-    inmem <- newMVar mempty
+    store <- newMVar mempty
     return $
         CheckpointEnv
             { _cpeCheckpointer =
                   Checkpointer
-                      { restore = restore' inmem
-                      , restoreInitial = restoreInitial' inmem
-                      , save = save' inmem
-                      , saveInitial = saveInitial' inmem
-                      , discard = discard' inmem
+                      { restore = restore' store
+                      , restoreInitial = restoreInitial' store
+                      , save = save' store
+                      , saveInitial = saveInitial' store
+                      , discard = discard' store
                       }
             , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger

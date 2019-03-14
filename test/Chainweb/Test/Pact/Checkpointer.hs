@@ -64,9 +64,9 @@ testInMemory = do
 
 testOnDisk :: Assertion
 testOnDisk =
-  withTempDir $ \_ -> do
+  withTempFile $ \fp -> do
 
-    let sqliteConfig = SQLiteConfig "a.sqlite" []
+    let sqliteConfig = SQLiteConfig (fp ++ ".sqlite") []
         conf = CommandConfig (Just sqliteConfig) Nothing Nothing Nothing
         loggers = alwaysLog
     cpEnv <- initSQLiteCheckpointEnv conf
@@ -135,7 +135,7 @@ testCheckpointer loggers CheckpointEnv{..} (PactDbState dbState00) = do
           object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
       unwrapState :: PactDbState -> IO (MVar CommandState, Env')
-      unwrapState (PactDbState mv) = withMVar mv $
+      unwrapState (PactDbState mv) = withMVar mv $!
         \dbs -> (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
 
       wrapState :: (MVar CommandState, Env') -> IO PactDbState
