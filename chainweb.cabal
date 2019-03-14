@@ -143,13 +143,12 @@ library
         , Data.CAS.HashMap
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
-        , Data.HashMap.Weak
-        , Data.HashMap.Weak.Test
         , Data.IVar
         , Data.LogMessage
         , Data.PQueue
         , Data.PQueue.Test
         , Data.Singletons
+        , Data.TaskMap
         , Data.Word.Encoding
 
         , Network.X509.SelfSigned
