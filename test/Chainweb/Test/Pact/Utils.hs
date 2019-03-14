@@ -22,6 +22,8 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 
+import Control.Lens ((.~))
+
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
@@ -33,9 +35,8 @@ import Data.Word (Word64)
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
-import Pact.Types.Command (PublicMeta(..), mkCommand)
-import Pact.Types.Crypto (SomeKeyPair, PublicKeyBS(..), PrivateKeyBS(..),
-                          PPKScheme(..), formatPublicKey)
+import Pact.Types.Command
+import Pact.Types.Crypto
 import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
 import Pact.Types.Util (toB16Text)
 
@@ -43,7 +44,7 @@ import Pact.Types.Util (toB16Text)
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Pact.Types (PactTransaction(..))
+import Chainweb.Pact.Types
 import Chainweb.Test.Utils (toyGenesis)
 
 
@@ -100,7 +101,7 @@ mkPactTransaction
   -> String
   -> IO PactTransaction
 mkPactTransaction keyPairs theData nonce txId theCode = do
-    let pubMeta = def :: PublicMeta
+    let pubMeta = pmSender .~ "sender0" $ def
     cmd <- mkCommand keyPairs pubMeta nonce $
       Exec (ExecMsg (pack theCode) theData)
     pure $ PactTransaction txId cmd

@@ -22,6 +22,7 @@ module Chainweb.Pact.Types
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
+  , GasSupply(..)
     -- * types
   , MinerKeys
   , MinerId
@@ -48,6 +49,7 @@ import Control.Monad.Trans.State
 
 import Data.Aeson as A
 import Data.ByteString (ByteString)
+import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
 
@@ -146,13 +148,19 @@ data MinerInfo = MinerInfo
   , _minerKeys :: MinerKeys
   }
 
+-- Keyset taken from cp examples in Pact
+-- The private key here was taken from `examples/cp` from the Pact repository
 defaultMiner :: MinerInfo
-defaultMiner = MinerInfo "miner" $ KeySet [] (Name "" def)
+defaultMiner = MinerInfo "miner" $ KeySet
+  ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+  (Name "miner-keyset" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath
     , _pdbspPactDbState :: PactDbState
     }
+
+newtype GasSupply = GasSupply { _gasSupply :: Decimal }
 
 type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 

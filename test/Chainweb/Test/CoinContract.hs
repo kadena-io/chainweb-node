@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -17,18 +18,23 @@ module Chainweb.Test.CoinContract
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Control.Concurrent (readMVar)
+
 import Data.Aeson
+import Data.Decimal (Decimal)
 import Data.Default (def)
+import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.Text
+import Data.Word
 
 import Control.Lens ((^.))
 
 -- internal pact modules
 
-import Pact.Types.Gas (GasLimit(..))
-import Pact.Types.Runtime (Capability(..), evalCapabilities, capGranted)
-import Pact.Types.Term (KeySet(..), Name(..), DefName(..))
+import Pact.Repl
+import Pact.Repl.Types
+import Pact.Types.Runtime
 
 -- internal chainweb modules
 
@@ -44,6 +50,9 @@ tests = testGroup "Coin Contract Unit Tests"
     , testCase "Build Exec with Data" buildExecWithData
     , testCase "Build Exec without Data" buildExecWithoutData
     , testCase "Initialize Eval State with Capabilities" initCapabilities'
+    ]
+  , testGroup "Pact Code Unit Tests"
+    [ testCase "Coin Contract Repl Tests" ccReplTests
     ]
   ]
 
@@ -63,9 +72,26 @@ buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 initCapabilities' :: Assertion
 initCapabilities' = initCaps @?= evalCaps
   where
+    -- set the capabilities to be some initial list of caps
     es = initCapabilities initCaps
-    evalCaps = fmap (\(UserCapability _ (DefName t) _) -> t) $
-        es ^. evalCapabilities . capGranted
+    -- extract the caps from the capgranted list
+    evalCaps = extractName =<< es ^. evalCapabilities . capGranted
+    -- extract names from the caps
+    extractName = \case
+      (UserCapability _ (DefName t) _) -> pure t
+      _ -> fail "the impossible has finally happened"
+
+ccReplTests :: Assertion
+ccReplTests = do
+    (r, rst) <- execScript' (Script False ccFile) ccFile
+    either fail (\_ -> execRepl rst) r
+  where
+    execRepl rst = do
+      lst <- readMVar $! _eePactDbVar . _rEnv $ rst
+      for_ (_rlsTests lst) $ \tr ->
+        maybe (pure ()) (uncurry failCC) $ trFailure tr
+
+    failCC i e = fail $ renderInfo (_faInfo i) <> ": " <> unpack e
 
 ------------------------------------------------------------------------------
 -- Test Data
@@ -75,10 +101,9 @@ sender0 :: Text
 sender0 = "sender"
 
 keyset0 :: KeySet
-keyset0 = KeySet [] (Name "default" def)
-
-gasLimit0 :: GasLimit
-gasLimit0 = GasLimit 1
+keyset0 = KeySet
+  ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+  (Name "default" def)
 
 minerId0 :: MinerId
 minerId0 = "default miner"
@@ -86,5 +111,11 @@ minerId0 = "default miner"
 minerKeys0 :: MinerKeys
 minerKeys0 = keyset0
 
+gasLimit0 :: Decimal
+gasLimit0 = fromIntegral @Word64 @Decimal 1
+
 initCaps :: [Text]
 initCaps = ["CAP1", "CAP2"]
+
+ccFile :: String
+ccFile = "pact/coin-contract/coin.repl"
