@@ -89,7 +89,8 @@ function run-node () {
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
             --log-handle="$APP_LOG" \
-            $CONFIG_FILE_ARG &
+            $CONFIG_FILE_ARG \
+            +RTS -T &
 
     else
 
@@ -100,7 +101,8 @@ function run-node () {
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \
-            $CONFIG_FILE_ARG &
+            $CONFIG_FILE_ARG \
+            +RTS -T &
     fi
 }
 
