@@ -214,7 +214,7 @@ withConnectionManger logger cert key peerDb runInner = do
             threadDelay 5000000
             connCount <- readIORef connCountRef
             reqCount <- readIORef reqCountRef
-            logFunctionJson logger Debug
+            logFunctionJson logger Info
                 $ ConnectionManagerStats connCount reqCount
 
     snd <$> concurrently logClientConnections (runInner mgr)

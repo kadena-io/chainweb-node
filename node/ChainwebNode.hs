@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -37,6 +38,9 @@ import Configuration.Utils
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Managed
+
+import Data.Typeable
 
 import GHC.Generics hiding (from)
 
@@ -65,14 +69,14 @@ import Data.LogMessage
 import P2P.Node
 
 import Utils.Logging
+import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
 data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
-    , _nodeConfigLog :: !L.LogConfig
-    , _nodeConfigTelemetryLogger :: !(EnableConfig JsonLoggerConfig)
+    , _nodeConfigLog :: !LogConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -81,35 +85,28 @@ makeLenses ''ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
-    , _nodeConfigLog = L.defaultLogConfig
-        & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
-    , _nodeConfigTelemetryLogger =
-        EnableConfig True defaultJsonLoggerConfig
+    , _nodeConfigLog = defaultLogConfig
+        & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     }
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
         [ "chainweb" .= _nodeConfigChainweb o
-        , "log" .= _nodeConfigLog o
-        , "telemetryLogger" .= _nodeConfigTelemetryLogger o
+        , "logging" .= _nodeConfigLog o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
     parseJSON = withObject "ChainwebNodeConfig" $ \o -> id
         <$< nodeConfigChainweb %.: "chainweb" % o
-        <*< nodeConfigLog %.: "log" % o
-        <*< nodeConfigTelemetryLogger %.: "telemetryLogger" % o
+        <*< nodeConfigLog %.: "logging" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
-    <*< nodeConfigLog %:: L.pLogConfig
-    <*< nodeConfigTelemetryLogger %::
-        pEnableConfig "telemetry-logger" % pJsonLoggerConfig (Just "telemetry-")
+    <*< nodeConfigLog %:: pLogConfig
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
-
 
 runMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runMonitor logger db =
@@ -138,25 +135,47 @@ node conf logger =
         (runMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw))
 
 withNodeLogger
-    :: L.LogConfig
-    -> EnableConfig JsonLoggerConfig
-    -> (L.Logger SomeLogMessage -> IO a)
-    -> IO a
-withNodeLogger logConfig telemetryLoggerConfig f = do
-    mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        -- This manager is used only for telmetry
-    withFileHandleBackend (L._logConfigBackend logConfig) $ \baseBackend ->
+    :: LogConfig
+    -> (L.Logger SomeLogMessage -> IO ())
+    -> IO ()
+withNodeLogger logConfig f = runManaged $ do
 
-        -- Telemetry Backends
-        withJsonFileHandleBackend @CutHashes mgr telemetryLoggerConfig $ \monitorBackend ->
-        withJsonFileHandleBackend @P2pSessionInfo mgr telemetryLoggerConfig $ \p2pInfoBackend ->
-        withJsonFileHandleBackend @ConnectionManagerStats mgr telemetryLoggerConfig $ \managerBackend -> do
-            let loggerBackend = logHandles
-                    [ logHandler monitorBackend
-                    , logHandler p2pInfoBackend
-                    , logHandler managerBackend
-                    ] baseBackend
-            L.withLogger (L._logConfigLogger logConfig) loggerBackend f
+    -- This manager is used only for logging backends
+    mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
+
+    -- Base Backend
+    baseBackend <- managed
+        $ withBaseHandleBackend "ChainwebApp" mgr (_logConfigBackend logConfig)
+
+    -- Telemetry Backends
+    monitorBackend <- managed
+        $ mkTelemetryLogger @CutHashes mgr teleLogConfig
+    p2pInfoBackend <- managed
+        $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
+    managerBackend <- managed
+        $ mkTelemetryLogger @ConnectionManagerStats mgr teleLogConfig
+
+    logger <- managed
+        $ L.withLogger (_logConfigLogger logConfig) $ logHandles
+            [ logHandler monitorBackend
+            , logHandler p2pInfoBackend
+            , logHandler managerBackend
+            ] baseBackend
+
+    liftIO $ f logger
+  where
+    teleLogConfig = _logConfigTelemetryBackend logConfig
+
+mkTelemetryLogger
+    :: forall a b
+    . Typeable a
+    => ToJSON a
+    => HTTP.Manager
+    -> EnableConfig BackendConfig
+    -> (Backend (JsonLog a) -> IO b)
+    -> IO b
+mkTelemetryLogger mgr = configureHandler
+    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr
 
 -- -------------------------------------------------------------------------- --
 -- main
@@ -169,6 +188,5 @@ mainInfo = programInfo
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
-    withNodeLogger (_nodeConfigLog conf) (_nodeConfigTelemetryLogger conf) $
-        node (_nodeConfigChainweb conf)
+    withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
 
