@@ -92,7 +92,7 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
 
 
 serverMempools
-    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t HashMapCas
+    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () HashMapCas
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

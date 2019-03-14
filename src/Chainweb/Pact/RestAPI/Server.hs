@@ -9,7 +9,15 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
-module Chainweb.Pact.RestAPI.Server where
+module Chainweb.Pact.RestAPI.Server
+( PactServerData
+, PactServerData_
+, SomePactServerData(..)
+, somePactServerData
+, pactServer
+, somePactServer
+, somePactServers
+) where
 
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
@@ -29,7 +37,6 @@ import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Vector as V
 import qualified GHC.Event as Ev
-import qualified Pact.Server.ApiServer as P
 import Pact.Types.API
 import Pact.Types.Command
 import Prelude hiding (init, lookup)
@@ -43,6 +50,8 @@ import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Pact.RestAPI
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
@@ -50,22 +59,62 @@ import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
+type PactServerData logger cas =
+    (CutResources logger cas, ChainResources logger)
+
+newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
+    = PactServerData_ { _unPactServerData :: PactServerData logger cas }
+
+data SomePactServerData = forall v c logger cas
+    . (KnownChainwebVersionSymbol v,
+       KnownChainIdSymbol c,
+       PayloadCas cas)
+    => SomePactServerData (PactServerData_ v c logger cas)
+
+
+somePactServerData
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> ChainId
+    -> PactServerData logger cas
+    -> SomePactServerData
+somePactServerData v cid db =
+    case someChainwebVersionVal v of
+      (SomeChainwebVersionT (Proxy :: Proxy vt)) ->
+          case someChainIdVal cid of
+              (SomeChainIdT (Proxy :: Proxy cidt)) ->
+                  SomePactServerData (PactServerData_ @vt @cidt db)
+
+
 pactServer
-    :: KnownChainwebVersionSymbol v
+    :: forall v c cas logger
+     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => PayloadCas cas
-    => CutResources logger cas
-    -> ChainResources logger
-    -> P.ApiEnv
+    => PactServerData logger cas
     -> Server (PactApi v c)
-pactServer cut chain conf =
+pactServer (cut, chain) =
     sendHandler mempool :<|>
     pollHandler cut cid chain :<|>
     listenHandler cut cid chain :<|>
-    localHandler conf
+    localHandler cut cid chain
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
+
+
+somePactServer :: SomePactServerData -> SomeServer
+somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
+    = SomeServer (Proxy @(PactApi v c)) (pactServer @v @c $ _unPactServerData db)
+
+
+somePactServers
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> [(ChainId, PactServerData logger cas)]
+    -> SomeServer
+somePactServers v =
+    mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 
 sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler NoContent
@@ -143,9 +192,15 @@ listenHandler cutR cid chain (ListenerRequest key) =
             mgr <- Ev.getSystemTimerManager
             Ev.unregisterTimeout mgr tkey
 
+-- TODO: reimplement local in terms of pact execution service
+localHandler
+    :: CutResources logger cas
+    -> ChainId
+    -> ChainResources logger
+    -> Command Text
+    -> Handler (CommandSuccess Value)
+localHandler _ _ _ _ = unimplemented
 
-localHandler :: P.ApiEnv -> Command Text -> Handler (CommandSuccess Value)
-localHandler conf x = Handler $ runReaderT (P.localHandler x) conf
 
 
 ------------------------------------------------------------------------------

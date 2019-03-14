@@ -321,6 +321,7 @@ runChainweb cw = do
         chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
         payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+        pactDbsToServe = proj (_chainwebCutResources cw, )
 
         serverSettings = peerServerSettings (_peerResPeer $ _chainwebPeer cw)
         serve = serveChainwebSocketTls
@@ -335,6 +336,7 @@ runChainweb cw = do
                 , _chainwebServerMempools = mempoolsToServe
                 , _chainwebServerPayloadDbs = payloadDbsToServe
                 , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe
+                , _chainwebServerPactDbs = pactDbsToServe
                 }
 
     -- 1. start server
