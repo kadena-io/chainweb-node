@@ -51,12 +51,11 @@ import Chainweb.Version
 
 ------------------------------------------------------------------------------
 pactServer
-    :: forall v c cas
-     . KnownChainwebVersionSymbol v
+    :: KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => PayloadCas cas
-    => CutResources cas
-    -> ChainResources
+    => CutResources logger cas
+    -> ChainResources logger
     -> P.ApiEnv
     -> Server (PactApi v c)
 pactServer cut chain conf =
@@ -81,9 +80,9 @@ sendHandler mempool (SubmitBatch cmds) = Handler $ do
 
 pollHandler
     :: PayloadCas cas
-    => CutResources cas
+    => CutResources logger cas
     -> ChainId
-    -> ChainResources
+    -> ChainResources logger
     -> Poll
     -> Handler PollResponses
 pollHandler cutR cid chain (Poll request) = liftIO $ do
@@ -94,9 +93,9 @@ pollHandler cutR cid chain (Poll request) = liftIO $ do
 
 listenHandler
     :: PayloadCas cas
-    => CutResources cas
+    => CutResources logger cas
     -> ChainId
-    -> ChainResources
+    -> ChainResources logger
     -> ListenerRequest
     -> Handler ApiResult
 listenHandler cutR cid chain (ListenerRequest key) =
@@ -152,9 +151,9 @@ localHandler conf x = Handler $ runReaderT (P.localHandler x) conf
 ------------------------------------------------------------------------------
 internalPoll
     :: PayloadCas cas
-    => CutResources cas
+    => CutResources logger cas
     -> ChainId
-    -> ChainResources
+    -> ChainResources logger
     -> Cut
     -> [RequestKey]
     -> IO (HashMap RequestKey ApiResult)
@@ -171,8 +170,8 @@ lookupRequestKey
     :: PayloadCas cas
     => ChainId
     -> Cut
-    -> CutResources cas
-    -> ChainResources
+    -> CutResources logger cas
+    -> ChainResources logger
     -> RequestKey
     -> IO (Maybe ApiResult)
 lookupRequestKey cid cut cutResources chain key = do
@@ -193,8 +192,8 @@ lookupRequestKey cid cut cutResources chain key = do
 
 lookupRequestKeyInBlock
     :: PayloadCas cas
-    => CutResources cas         -- ^ cut resources
-    -> ChainResources           -- ^ chain
+    => CutResources logger cas  -- ^ cut resources
+    -> ChainResources logger    -- ^ chain
     -> RequestKey               -- ^ key to search
     -> BlockHeight              -- ^ lowest block to search
     -> BlockHeader              -- ^ search starts here
