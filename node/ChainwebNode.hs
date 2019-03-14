@@ -1,12 +1,17 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: ChainwebNode
@@ -23,7 +28,8 @@ module Main
   ChainwebNodeConfiguration(..)
 
 -- * Monitor
-, runMonitor
+, runCutMonitor
+, runRtsMonitor
 
 -- * Chainweb Node
 , node
@@ -33,9 +39,11 @@ module Main
 , main
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding (Error)
 
+import Control.Concurrent
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
@@ -43,6 +51,7 @@ import Control.Monad.Managed
 import Data.Typeable
 
 import GHC.Generics hiding (from)
+import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -106,14 +115,18 @@ pChainwebNodeConfiguration = id
     <*< nodeConfigLog %:: pLogConfig
 
 -- -------------------------------------------------------------------------- --
--- Monitor
+-- Monitors
 
-runMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runMonitor logger db =
-    L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
-        logFunctionText logger' Info $ "Initialized Monitor"
+runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("Cut Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped Cut Monitor"
+  where
+    go l = do
+        logFunctionText l Info $ "Initialized Cut Monitor"
         void
-            $ S.mapM_ (logFunctionJson logger' Info)
+            $ S.mapM_ (logFunctionJson l Info)
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
@@ -125,14 +138,43 @@ runMonitor logger db =
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
+-- This instances are OK, since this is the "Main" module of an application
+--
+deriving instance Generic GCDetails
+deriving instance NFData GCDetails
+deriving instance ToJSON GCDetails
+
+deriving instance Generic RTSStats
+deriving instance NFData RTSStats
+deriving instance ToJSON RTSStats
+
+runRtsMonitor :: Logger logger => logger -> IO ()
+runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("RTS Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped RTS Monitor"
+  where
+    go l = getRTSStatsEnabled >>= \case
+        False -> logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
+        True -> do
+            logFunctionText l Info $ "Initialized RTS Monitor"
+            forever $ do
+                stats <- getRTSStats
+                logFunctionText l Info $ "got stats"
+                logFunctionJson logger Info stats
+                logFunctionText l Info $ "logged stats"
+                threadDelay 60000000 {- 1 minute -}
+
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
 node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
 node conf logger =
-    withChainweb @HashMapCas conf logger $ \cw -> race_
-        (runChainweb cw)
-        (runMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw))
+    withChainweb @HashMapCas conf logger $ \cw -> mapConcurrently_ id
+        [ runChainweb cw
+        , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+        , runRtsMonitor (_chainwebLogger cw)
+        ]
 
 withNodeLogger
     :: LogConfig
@@ -154,12 +196,15 @@ withNodeLogger logConfig f = runManaged $ do
         $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
     managerBackend <- managed
         $ mkTelemetryLogger @ConnectionManagerStats mgr teleLogConfig
+    rtsBackend <- managed
+        $ mkTelemetryLogger @RTSStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
             [ logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler managerBackend
+            , logHandler rtsBackend
             ] baseBackend
 
     liftIO $ f logger
