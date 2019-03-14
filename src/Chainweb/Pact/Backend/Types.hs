@@ -34,6 +34,7 @@ module Chainweb.Pact.Backend.Types
     , PactDbEnvPersist(..)
     , pdepEnv
     , pdepPactDb
+    , PactDbState'(..)
     , PactDbState(..)
     , pdbsDbEnv
     , pdbsTxId
@@ -48,6 +49,7 @@ module Chainweb.Pact.Backend.Types
     , usage
     ) where
 
+import Control.Concurrent.MVar (MVar)
 import Control.Lens
 
 import qualified Data.Aeson as A
@@ -159,12 +161,15 @@ data EnvPersist' =
     forall a. PactDbBackend a =>
               EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState
+newtype PactDbState = PactDbState (MVar PactDbState')
+-- data PactDbState = InMem PactDbState' | OnDisk (MVar PactDbState')
+
+data PactDbState' = PactDbState'
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
     , _pdbsTxId :: P.TxId   }
 
-makeLenses ''PactDbState
+makeLenses ''PactDbState'
 
 data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: Maybe FilePath

@@ -9,11 +9,11 @@
 module Chainweb.Simulate.Contracts.SimplePayments where
 
 import Control.Monad
-import Control.Monad.Zip
+-- import Control.Monad.Zip
 
-import Data.ByteString (ByteString)
+-- import Data.ByteString (ByteString)
 import Data.Decimal
-import Data.Maybe
+-- import Data.Maybe
 import qualified Data.Text as T
 import Data.Text (Text)
 
@@ -31,7 +31,7 @@ import Text.Printf
 import Pact.ApiReq
 
 -- import Pact.Types.Command
-import Pact.Types.Crypto
+-- import Pact.Types.Crypto
 
 -- import Pact.Types.RPC
 simplePaymentsContract :: Text -> Text
@@ -185,7 +185,7 @@ createSimplePaymentRequest (CreateAccount actualIdentifier actualInitialBalance 
       T.pack $
       unlines $
       map
-        (\kp -> printf "") --s:%S p:%s" (show undefined) (show undefined))
+        (\_kp -> printf "") --s:%S p:%s" (show undefined) (show undefined))
         actualKeyset
 createSimplePaymentRequest (RequestGetBalance actualIdentifier) =
   [text|(get-balance $identifier)|]

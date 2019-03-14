@@ -48,13 +48,15 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockHash) PactDbState
+type Store = HashMap (BlockHeight, BlockHash) PactDbState'
 
 restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just dbstate -> return (Right dbstate)
+            Just dbstate -> do
+                    mvar <- newMVar dbstate
+                    return (Right $ PactDbState mvar)
             Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
@@ -63,20 +65,22 @@ restoreInitial' lock = do
     restore' lock (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
-saveInitial' lock p@PactDbState {..} = do
+saveInitial' lock p = do
     let bh = nullBlockHash
     save' lock (BlockHeight 0) bh p
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-save' lock height hash p@PactDbState {..} = do
-     -- Saving off checkpoint.
-     -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
-     modifyMVar_ lock (return . HMS.insert (height, hash) p)
-     -- Closing database connection.
-     case _pdbsDbEnv of
-       EnvPersist' PactDbEnvPersist {..} ->
-         case _pdepEnv of
-           P.DbEnv {..} -> closeDb _db
+save' lock height hash (PactDbState p) =
+     withMVar p $ \pactdbstate -> do
+
+          -- Saving off checkpoint.
+          modifyMVar_ lock (return . HMS.insert (height, hash) pactdbstate)
+
+          -- Closing database connection.
+          case _pdbsDbEnv pactdbstate of
+            EnvPersist' PactDbEnvPersist {..} ->
+              case _pdepEnv of
+                P.DbEnv {..} -> closeDb _db
 
 discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 discard' _ _ _ _ = return (Right ())

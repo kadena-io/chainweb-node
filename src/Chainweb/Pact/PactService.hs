@@ -212,11 +212,12 @@ execValidateBlock memPoolAccess currHeader = do
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
       fail s
--- | In the case of failure when restoring from the checkpointer,
--- close db on failure, or update db state
+
+-- | In the case of failure when restoring from the checkpointer, fail
+-- hard (db would have never been opend), or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
-  Left s  -> gets closePactDb >> fail s
+  Left s  -> fail s
   Right t -> updateState $! t
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -243,7 +244,8 @@ mkSqliteConfig _ _ = Nothing
 
 execTransactions :: Bool -> MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
 execTransactions isGenesis miner txs = do
-    currentState <- get
+    (PactDbState mv) <- get
+    currentState <- liftIO $ takeMVar mv
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
@@ -251,12 +253,13 @@ execTransactions isGenesis miner txs = do
     (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState (_ptCmd <$> txs) (fromIntegral prevTxId) miner
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
-    let updatedState = PactDbState
+    let updatedState = PactDbState'
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
           , _pdbsTxId = P.TxId newTxId
           }
-    return (Transactions (txs `zip` txOuts), updatedState)
+    liftIO $ putMVar mv updatedState
+    return (Transactions (txs `zip` txOuts), PactDbState mv)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
@@ -302,10 +305,10 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
 
     pure $! (FullLogTxOutput (P._crResult result) txLogs, newEM)
 
+-- We are assuming that the MVar in the old PactDbState (in PactT ())
+-- is no longer applicable.
 updateState :: PactDbState  -> PactT ()
-updateState PactDbState {..} = do
-    pdbsDbEnv .= _pdbsDbEnv
-    pdbsState .= _pdbsState
+updateState (PactDbState mv) = put $! (PactDbState mv)
 
 -- TODO: get from config
 pactFilesDir :: String

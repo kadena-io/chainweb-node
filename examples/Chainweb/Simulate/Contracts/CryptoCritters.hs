@@ -10,11 +10,11 @@
 module Chainweb.Simulate.Contracts.CryptoCritters where
 
 -- import Control.Monad
-import Control.Monad.Zip
+-- import Control.Monad.Zip
 
 import Data.Aeson
-import Data.ByteString (ByteString)
-import Data.Maybe
+-- import Data.ByteString (ByteString)
+-- import Data.Maybe
 -- import qualified Data.Text as T
 import Data.Text (Text)
 
@@ -30,7 +30,7 @@ import NeatInterpolation
 
 -- pact
 import Pact.ApiReq
-import Pact.Types.Crypto
+-- import Pact.Types.Crypto
 -- import Pact.Types.Command
 -- import Pact.Types.RPC
 

@@ -6,7 +6,7 @@ module Chainweb.Test.Pact.Checkpointer
   ( tests
   ) where
 
-import Control.Concurrent (MVar, newMVar, readMVar)
+import Control.Concurrent.MVar
 import Control.Monad (void)
 
 import Data.Aeson (Value(..), object, (.=))
@@ -16,15 +16,18 @@ import Data.Text (Text, pack)
 import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
-import Pact.Interpreter (EvalResult(..), mkPureEnv)
+import Pact.Interpreter (EvalResult(..), mkPureEnv, mkSQLiteEnv)
 import Pact.Types.Command (ExecutionMode(Transactional))
 import Pact.Types.Hash (hash)
-import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
+import Pact.Types.Logger (Loggers, LogName(..), alwaysLog, newLogger)
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime (PactExec(..), TxId)
 import Pact.Types.Server (CommandConfig(..), CommandEnv(..), CommandState)
+import Pact.Types.SQLite (SQLiteConfig(..))
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
+
+import System.IO.Extra
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
@@ -35,16 +38,18 @@ import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
 import Chainweb.BlockHeader (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Backend.Types
-    (CheckpointEnv(..), Checkpointer(..), Env'(..), PactDbState(..))
+    (CheckpointEnv(..), Checkpointer(..), Env'(..), PactDbState(..), PactDbState'(..))
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 
 tests :: TestTree
 tests = testGroup "Checkpointer"
-  [ testCase "testInMemory" testInMemory ]
+  [ testCase "testInMemory" testInMemory, testCase "testOnDisk" testOnDisk ]
 
 testInMemory :: Assertion
 testInMemory = do
@@ -56,6 +61,20 @@ testInMemory = do
   state <- mkPureState env conf
 
   testCheckpointer loggers cpEnv state
+
+testOnDisk :: Assertion
+testOnDisk =
+  withTempDir $ \_ -> do
+
+    let sqliteConfig = SQLiteConfig "a.sqlite" []
+        conf = CommandConfig (Just sqliteConfig) Nothing Nothing Nothing
+        loggers = alwaysLog
+    cpEnv <- initSQLiteCheckpointEnv conf
+          (newLogger loggers "SQLiteCheckpointer") freeGasEnv
+    env <- mkSQLiteEnv (newLogger loggers $ LogName "PactService") False sqliteConfig loggers
+    state <- mkSQLiteState env conf
+
+    testCheckpointer loggers cpEnv state
 
 assertEitherSuccess :: Show l => String -> Either l r -> IO r
 assertEitherSuccess msg (Left l) = assertFailure (msg ++ ": " ++ show l)
@@ -92,10 +111,12 @@ tIntList :: [Int] -> Term n
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
 
 testCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
-testCheckpointer loggers CheckpointEnv{..} dbState00 = do
+testCheckpointer loggers CheckpointEnv{..} (PactDbState dbState00) = do
+
+  txId <- withMVar dbState00 (return . _pdbsTxId)
 
   let logger = newLogger loggers "testCheckpointer"
-      txId = _pdbsTxId dbState00
+      -- txId = _pdbsTxId dbState00
 
       runExec :: (MVar CommandState, Env') -> Maybe Value -> Text -> IO EvalResult
       runExec (mcs, Env' pactDbEnv) eData eCode = do
@@ -114,13 +135,16 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
           object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
       unwrapState :: PactDbState -> IO (MVar CommandState, Env')
-      unwrapState dbs = (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
+      unwrapState (PactDbState mv) = withMVar mv $
+        \dbs -> (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
 
       wrapState :: (MVar CommandState, Env') -> IO PactDbState
-      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure txId)
+      wrapState (mcs,dbe') = do
+        pdb' <- PactDbState' <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure txId)
+        PactDbState <$> newMVar pdb'
+        -- return $ PactDbState mv
 
-
-  void $ saveInitial _cpeCheckpointer dbState00
+  void $ saveInitial _cpeCheckpointer (PactDbState dbState00)
     >>= assertEitherSuccess "saveInitial"
 
   ------------------------------------------------------------------
@@ -145,7 +169,6 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= discard _cpeCheckpointer bh00 hash00
     >>= assertEitherSuccess "discard (initial) (new block)"
 
-
   ------------------------------------------------------------------
   -- s02 : validate block workflow (restore -> save), genesis
   ------------------------------------------------------------------
@@ -165,7 +188,6 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ wrapState s02
     >>= save _cpeCheckpointer bh00 hash00
     >>= assertEitherSuccess "save (validate)"
-
 
   ------------------------------------------------------------------
   -- s03 : new block 01

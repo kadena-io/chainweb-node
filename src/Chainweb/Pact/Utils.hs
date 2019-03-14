@@ -42,7 +42,7 @@ toEnvPersist' (Env' pactDbEnv) = do
 -- This is a band-aid solution; We're just going to close the
 -- database connection here to be safe.
 closePactDb :: PactDbState -> IO ()
-closePactDb =  go . _pdbsDbEnv
+closePactDb (PactDbState pactdbstate) = withMVar pactdbstate (go . _pdbsDbEnv)
   where
     go (EnvPersist' (PactDbEnvPersist _ dbEnv)) =
-      either fail return =<< closeDb (P._db dbEnv)
+      either error return =<< closeDb (P._db dbEnv)

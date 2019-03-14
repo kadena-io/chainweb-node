@@ -21,7 +21,7 @@ import NeatInterpolation
 -}
 
 helloWorldContract :: Text -> Text
-helloWorldContract keyset =
+helloWorldContract _keyset =
                    [text| ;;
 ;; "Hello, world!" smart contract/module
 

@@ -9,6 +9,8 @@
 --
 module Chainweb.Pact.Backend.MemoryDb where
 
+import Control.Concurrent.MVar
+
 import qualified Data.Map.Strict as M
 
 import qualified Pact.Interpreter as P
@@ -24,9 +26,9 @@ mkPureState :: P.PactDbEnv (P.DbEnv P.PureDb) -> P.CommandConfig -> IO PactDbSta
 mkPureState env _cmdCfg = do
     P.initSchema env
     envPersist' <- toEnvPersist' (Env' env)
-    return $
-        PactDbState
-            { _pdbsDbEnv = envPersist'
-            , _pdbsState = P.CommandState P.initRefStore M.empty
-            , _pdbsTxId = 0
-            }
+    let theState = PactDbState'
+                      { _pdbsDbEnv = envPersist'
+                      , _pdbsState = P.CommandState P.initRefStore M.empty
+                      , _pdbsTxId = 0
+                      }
+    PactDbState <$> newMVar theState

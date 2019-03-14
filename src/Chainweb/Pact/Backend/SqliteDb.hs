@@ -7,6 +7,8 @@
 --
 module Chainweb.Pact.Backend.SqliteDb where
 
+import Control.Concurrent.MVar
+
 import qualified Data.Map.Strict as M
 
 import Pact.Interpreter
@@ -24,9 +26,9 @@ mkSQLiteState env _cmdCfg = do
     initSchema env
     envPersist' <- toEnvPersist' (Env' env)
     let theState =
-            PactDbState
+            PactDbState'
                 { _pdbsDbEnv = envPersist'
                 , _pdbsState = CommandState initRefStore M.empty
                 , _pdbsTxId = 0
                 }
-    return theState
+    PactDbState <$> newMVar theState
