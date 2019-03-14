@@ -140,9 +140,11 @@ mkdir -p tmp/run-nodes-logs
 
 ## Chainweb Orchestration
 
+This section describes how to not only run a chainweb node, but deploy one.
+
 ### Docker Images
 
-**Dependencies:**
+#### Dependencies
 
 - `nix >= 2.2`
 - `docker >= 1.18`
@@ -171,7 +173,7 @@ As of at least 2019 March, it is not possible for MacOS users to build these.
 
 ### Running Kubernetes
 
-**Dependencies:**
+#### Dependencies
 
 - `kubectl >= 1.13`
   - [Mac / Windows / Ubuntu](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
@@ -191,12 +193,17 @@ As of at least 2019 March, it is not possible for MacOS users to build these.
 3. Load the chainweb bootstrap node:
 
 ```sh
-$ python scripts/kubernetes/bootstrap_deploy.py create
+$ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node:TAG --local
 ```
 
-If successful, you'll see:
+Excluding the `--image` and `--local` flags will cause a default image to be
+pulled from Kadena's DockerHub repository.
+
+If creation was successful, you'll see:
 
 ```
+Running with:  Namespace(func=<function create_resources at 0x7fa30aa86840>, image='chainweb-bootstrap-node:test00', local=True)
+Creating cluster...
 Statefule Set created. status='{'collision_count': None,
  'conditions': None,
  'current_replicas': None,
@@ -206,6 +213,7 @@ Statefule Set created. status='{'collision_count': None,
  'replicas': 0,
  'update_revision': None,
  'updated_replicas': None}'
+Done
 ```
 
 4. The following commands can be used to confirm the status of the bootstrap node:
@@ -233,7 +241,7 @@ http://192.168.99.100:32085
 ```
 
 ```sh
-$ curl https://192.168.99.100:31138/swagger.json -v -k
+$ curl https://192.168.99.100:32085/swagger.json -v -k
 
 # A wall of JSON output.
 ```
