@@ -64,9 +64,9 @@ testInMemory = do
 
 testOnDisk :: Assertion
 testOnDisk =
-  withTempFile $ \fp -> do
+  withTempDir $ \dir -> do
 
-    let sqliteConfig = SQLiteConfig (fp ++ ".sqlite") []
+    let sqliteConfig = SQLiteConfig (dir ++ "/test.sqlite") []
         conf = CommandConfig (Just sqliteConfig) Nothing Nothing Nothing
         loggers = alwaysLog
     cpEnv <- initSQLiteCheckpointEnv conf
