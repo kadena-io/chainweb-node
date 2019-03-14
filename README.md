@@ -194,11 +194,33 @@ As of at least 2019 March, it is not possible for MacOS users to build these.
 
 ##### Linux
 
-For running your custom-built images. Otherwise, follow the MacOS instructions below.
+For running our custom-built images. Otherwise, follow the MacOS instructions
+below to run an image from DockerHub.
+
+First, we must load our built images into *Minikube's* Docker context.
 
 ```sh
-$ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node:TAG --local
+# Offload our built images.
+$ docker save chainweb-base > chainweb-base.tar
+$ docker save chainweb-bootstrap-node > chainweb-bootstrap-node.tar
+
+# Temporarily inject Minikube-specific Docker settings in our environment.
+# You can close your terminal to reset these.
+$ eval `minikube docker-env`
+
+# Load the images into Minikube's Docker context.
+$ docker load --input chainweb-base.tar
+$ docker load --input chainweb-bootstrap-node.tar
 ```
+
+Now we can run our images:
+
+```sh
+$ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node --local
+```
+
+Excluding the `--image` and `--local` flags will cause a default image to be
+pulled from Kadena's DockerHub repository.
 
 ##### MacOS
 
@@ -206,10 +228,7 @@ $ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstra
 $ python scripts/kubernetes/bootstrap_deploy.py create
 ```
 
-Excluding the `--image` and `--local` flags will cause a default image to be
-pulled from Kadena's DockerHub repository.
-
-If creation was successful, you'll see:
+Whichever approach we chose, if creation was successful, we'll see:
 
 ```
 Running with:  Namespace(func=<function create_resources at 0x7fa30aa86840>, image='chainweb-bootstrap-node:test00', local=True)
