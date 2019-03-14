@@ -438,7 +438,7 @@ executable chainweb-node
     other-modules:
         Paths_chainweb
         Utils.Logging
-        Utils.Logging.Handle
+        Utils.Logging.Config
     build-depends:
         -- internal
           chainweb
@@ -454,7 +454,9 @@ executable chainweb-node
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , monad-control >= 1.0
+        , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
         , wai-app-static >= 3.1

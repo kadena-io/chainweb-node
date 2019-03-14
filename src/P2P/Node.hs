@@ -141,7 +141,8 @@ instance Arbitrary P2pNodeStats where
 -- Session Info
 
 data P2pSessionResult
-    = P2pSessionResult Bool
+    = P2pSessionResultSuccess
+    | P2pSessionResultFailure
     | P2pSessionException T.Text
     | P2pSessionTimeout
     deriving (Show, Eq, Ord, Generic)
@@ -151,13 +152,14 @@ data P2pSessionResult
 -- success.
 --
 isSuccess :: P2pSessionResult -> Bool
-isSuccess (P2pSessionResult True) = True
+isSuccess P2pSessionResultSuccess = True
 isSuccess P2pSessionTimeout = True
 isSuccess _ = False
 
 instance Arbitrary P2pSessionResult where
     arbitrary = oneof
-        [ P2pSessionResult <$> arbitrary
+        [ pure P2pSessionResultSuccess
+        , pure P2pSessionResultFailure
         , P2pSessionException <$> arbitrary
         , pure P2pSessionTimeout
         ]
@@ -410,7 +412,7 @@ newSession conf node = do
                 incrementActiveSessionCount peerDb newPeerInfo
                 info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)
-            logg node Info $ "Started peer session " <> showSessionId newPeerInfo newSes
+            logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
     TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
@@ -425,8 +427,8 @@ awaitSessions node = do
         removeSession node p
         result <- case r of
             Right Nothing -> P2pSessionTimeout <$ countTimeout node
-            Right (Just True) -> P2pSessionResult True <$ countSuccess node
-            Right (Just False) -> P2pSessionResult False <$ countFailure node
+            Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
+            Right (Just False) -> P2pSessionResultFailure <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
         return (p, i, a, result)
 
@@ -444,10 +446,10 @@ awaitSessions node = do
         P2pSessionTimeout -> do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResult True -> do
+        P2pSessionResultSuccess -> do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResult False -> incrementSuccessiveFailures peerDb pId
+        P2pSessionResultFailure -> incrementSuccessiveFailures peerDb pId
         P2pSessionException _ -> incrementSuccessiveFailures peerDb pId
 
     -- logging
