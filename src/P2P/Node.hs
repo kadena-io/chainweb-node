@@ -67,7 +67,7 @@ import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Int
-import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT)
+import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT, size)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple
@@ -342,7 +342,6 @@ findNextPeer conf node = do
 
     -- Create a new sessions with a random peer for which there is no active
     -- sessions:
-    i <- randomR node (0, peerCount - 1)
 
     let checkPeer (n :: PeerEntry) = do
             let pid = _peerId $ _peerEntryInfo n
@@ -353,17 +352,21 @@ findNextPeer conf node = do
             return n
 
     -- random circular shift of a set
-    let shift s = uncurry (++)
+    let shift i s = uncurry (++)
             $ swap
             $ splitAt (fromIntegral i)
             $ toList
             $ s
 
+        shiftR s = do
+            i <- randomR node (0, size s - 1)
+            return $ shift i s
+
     -- Classify the peers by priority
     --
     let base = getEQ (_p2pNodeNetworkId node) peers
 #if 0
-    let searchSpace = shift base
+    searchSpace <- shift base
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
@@ -371,7 +374,7 @@ findNextPeer conf node = do
         p1 = getEQ (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
         p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
         p3 = getEQ (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
-        searchSpace = shift p0 ++ shift p1 ++ shift p2 ++ shift p3
+    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
     foldr (orElse . checkPeer) retry searchSpace
