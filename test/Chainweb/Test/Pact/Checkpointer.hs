@@ -160,6 +160,8 @@ testCheckpointer loggers CheckpointEnv{..} (PactDbState dbState00) = do
     >>= assertEitherSuccess "restoreInitial (new block)"
     >>= unwrapState
 
+  putStrLn "coming into runExec"
+
   void $ runExec s01 (Just $ ksData "1") $ defModule "1"
 
   runExec s01 Nothing "(m1.readTbl)"

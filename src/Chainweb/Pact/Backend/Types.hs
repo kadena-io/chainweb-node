@@ -1,11 +1,14 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE RecordWildCards           #-}
+{-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE TypeFamilies              #-}
+
+{-# LANGUAGE StandaloneDeriving        #-}
+{-# OPTIONS_GHC -fno-warn-orphans      #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -53,7 +56,7 @@ import Control.Concurrent.MVar (MVar)
 import Control.Lens
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString as B ()
+import qualified Data.ByteString as B
 import qualified Data.Map as M
 import Data.Serialize
 
@@ -74,14 +77,15 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans ()
 
+import System.IO.Extra
+
 class PactDbBackend e where
     closeDb :: e -> IO (Either String ())
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> P.TxId -> IO (Maybe String, SaveData e)
-    -- TODO: saveDb needs a better name
+    prepSerialization :: PactDbEnvPersist e -> P.CommandState -> P.TxId -> IO (Maybe String, SaveData e)
 
 instance PactDbBackend P.PureDb where
     closeDb = const $ return $ Right ()
-    saveDb PactDbEnvPersist {..} commandState txId =
+    prepSerialization PactDbEnvPersist {..} commandState txId =
       case _pdepEnv of
         P.DbEnv {..} -> do
           let _sTxRecord = _txRecord
@@ -94,14 +98,14 @@ instance PactDbBackend P.PureDb where
 
 instance PactDbBackend P.SQLite where
     closeDb = P.closeSQLite
-    saveDb = saveSQLite
+    prepSerialization = prepSerializationSQLite
 
-saveSQLite
+prepSerializationSQLite
     :: PactDbEnvPersist P.SQLite
     -> P.CommandState
     -> P.TxId
     -> IO (Maybe String, SaveData P.SQLite)
-saveSQLite PactDbEnvPersist {..} commandState txId = do
+prepSerializationSQLite PactDbEnvPersist {..} commandState txId = do
     case _pdepEnv of
       P.DbEnv {..} -> do
         let _sTxRecord = _txRecord
@@ -112,11 +116,7 @@ saveSQLite PactDbEnvPersist {..} commandState txId = do
             prefix = makeFileNamePrefix
         return (Just prefix, SaveData {..})
   where
-    makeFileNamePrefix = "chainweb_pact_serialize_version=" ++ map go saveDataVersion ++ "_"
-      where
-        go x
-           | x == '.' = '-'
-           | otherwise = x
+    makeFileNamePrefix = "chainweb_pact_serialize_version=" ++ saveDataVersion ++ "_"
 
 saveDataVersion :: String
 saveDataVersion = "0.0.0"
@@ -127,7 +127,11 @@ data SaveData p = SaveData
     , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
     , _sPactTxId :: P.TxId
-    } deriving (Generic)
+    } deriving (Generic, Show)
+
+instance Eq (SaveData p) where
+  (SaveData a1 a2 a3 _ a5) == (SaveData b1 b2 b3 _ b5) =
+    a1 == b1 && a2 == b2 && a3 == b3 && a5 == b5
 
 instance Serialize (SaveData p) where
     put SaveData {..} = do
@@ -212,3 +216,71 @@ data CheckpointEnv = CheckpointEnv
     }
 
 makeLenses ''CheckpointEnv
+
+_serializationTest :: IO ()
+_serializationTest = do
+  let savedata =
+        SaveData
+          M.empty
+          (Just $ P.TxId 0)
+          Nothing
+          (P.CommandState P.initRefStore M.empty)
+          (P.TxId 0) :: SaveData P.SQLite
+  let test = decode $ encode savedata
+  either (const $ print "error") (print . (== savedata)) test
+
+_serializationTestFromFile :: IO ()
+_serializationTestFromFile = do
+  contents <- B.readFile "savedatadump.txt"
+  let test :: Either String (SaveData P.SQLite)
+      test = decode contents
+  either (const $ print "can't decode") (const $ putStrLn "success") test
+
+_serializationSQLConfigTest :: IO ()
+_serializationSQLConfigTest = do
+  let thedata =
+        P.SQLiteConfig
+          { P._dbFile = "/tmp/extra-dir-36571033905417/test.sqlite"
+          , P._pragmas = []
+          }
+  case decode (encode thedata) of
+    Left _ -> putStrLn "fuck"
+    Right r -> print $ r == thedata
+
+deriving instance Eq P.CommandState
+deriving instance Eq P.CommandPact
+
+-- This test works.
+_serializationSaveDataFromFile :: IO ()
+_serializationSaveDataFromFile = do
+  let thedata =
+        SaveData
+          M.empty
+          Nothing
+          (Just
+            (P.SQLiteConfig
+             { P._dbFile = "/tmp/extra-dir-36571033905417/test.sqlite"
+             , P._pragmas = []
+             }))
+          (P.CommandState P.initRefStore M.empty)
+          (P.TxId 0)
+      bytes = encode thedata
+  withTempFile $ \file -> do
+    B.writeFile file bytes
+    e <- decode <$> B.readFile file
+    case e of
+      Left _ -> putStrLn "_serialization of \"SaveData\" test fails"
+      Right r ->
+        print (r == thedata)
+
+
+-- _serializationCommandStateTestFromFile :: IO ()
+-- _serializationCommandStateTestFromFile = do
+--   contents <- B.readFile "savedatadumpcommandstate.txt"
+--   let test :: Either String (P.CommandState)
+--       test = decode contents
+
+--   either (const $ print "can't decode") (const $ putStrLn "success") test
+
+-- deriving instance Show P.SQLite
+-- deriving instance Show P.TableStmts

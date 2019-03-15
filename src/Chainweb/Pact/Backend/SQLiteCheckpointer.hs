@@ -22,6 +22,7 @@ import Control.Lens
 import Control.Monad.Except
 
 import System.Directory
+import System.FilePath
 import System.IO.Extra
 
 import Text.Printf
@@ -73,7 +74,10 @@ reinitDbEnv loggers funrec savedata = runExceptT $ do
         txId = _sTxId savedata
 
 maybeToExceptT :: Monad m => e -> (a -> m b) -> Maybe a -> ExceptT e m b
-maybeToExceptT f g = ExceptT . maybe (return $ Left f) (fmap Right . g)
+maybeToExceptT e f = ExceptT . maybe (return $ Left e) (fmap Right . f)
+
+checkpointSQLiteFilePath :: FilePath -> FilePath
+checkpointSQLiteFilePath = undefined
 
 -- NOTE: on a restore', the MVar on the PactDbState SHOULD be empty.
 restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
@@ -87,21 +91,32 @@ restore' lock height hash =
                 flip (maybe (return $ Left (err_version "nothing" saveDataVersion)))
                     (versionCheck chk_file) $ \version ->
                         if version /= saveDataVersion
-                            then return $ Left $err_version version saveDataVersion
-                            else do (copy_sqlite_file, deleteFileAction) <- newTempFileWithin "/test/config/"
-
+                            then return $ Left $ err_version version saveDataVersion
+                            else do (copy_sqlite_file, deleteFileAction) <- first (++ ".sqlite") <$> newTempFileWithin "/tmp"
                                     pdbstate <- runExceptT $ do
 
                                       -- read back SaveData from copied file
-                                      cdata <- do bytes <- liftIO $ B.readFile chk_file
-                                                  ExceptT $ return (first err_decode $ decode bytes)
+                                      cdata <- ExceptT $ do
+                                              bytes <- B.readFile chk_file
+                                              case decode bytes of
+                                                  Left l -> return $ Left $ err_decode l
+                                                  Right r -> return $ Right r
+
+                                      liftIO $ print (P._dbFile <$> _sSQLiteConfig cdata)
+                                      liftIO $ putStrLn "copy_sqlite_file :"
+                                      liftIO $ print copy_sqlite_file
+
+                                      contents <- maybeToExceptT "file not present" B.readFile (P._dbFile <$> _sSQLiteConfig cdata) -- REMINDER: Change the error message!
+                                      liftIO $ B.writeFile copy_sqlite_file contents
+
+                                      contents2 <- liftIO $ B.readFile copy_sqlite_file
+
+                                      liftIO $ print (contents == contents2)
 
                                       -- make copy of SaveData
                                       let copy_data = over (sSQLiteConfig . _Just) (changeSQLFilePath copy_sqlite_file const) cdata
-
                                       -- reinit sqlite db and get PactDbState
                                       pdbstate_to_lock <- ExceptT $ reinitDbEnv P.neverLog P.persister copy_data
-
 
                                       pdb_lock <- liftIO $ newMVar pdbstate_to_lock
 
@@ -125,7 +140,7 @@ restore' lock height hash =
         err_decode = printf "SQLiteCheckpointer.restore': Checkpoint decode exception= %s"
         err_restore = return $ Left "SQLiteCheckpointException.restore': Restore not found exception"
         versionCheck filename = getFirst $ foldMap (First . L.stripPrefix "version=") $
-            splitOn "_" filename
+            splitOn "_" (drop (length sqlPersistDir) filename)
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
 restoreInitial' lock = do
@@ -136,35 +151,74 @@ restoreInitial' lock = do
 changeSQLFilePath :: FilePath -> (FilePath -> FilePath -> FilePath) -> P.SQLiteConfig -> P.SQLiteConfig
 changeSQLFilePath fp f (P.SQLiteConfig dbFile pragmas) = P.SQLiteConfig (f fp dbFile) pragmas
 
+
+sqlPersistDir = "./test/config/dump/"
+
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-save' lock height hash (PactDbState pactdblock) =
-    withMVar lock $ \(store) -> case HMS.lookup (height, hash) store of
-        Just _ -> return $ Left msgSaveKeyError
-        Nothing -> withMVar pactdblock $ \pactdbstate -> runExceptT $ case _pdbsDbEnv pactdbstate of
-                EnvPersist' (pactdbenvpersist@(PactDbEnvPersist _ _dbEnv)) -> case _dbEnv of
-                    dbEnv -> do
-                        ExceptT $ closeDb (P._db dbEnv)
-                        -- Then "save" it. Really we're computing the SaveData data and the valid
-                        -- prefix for naming the file containing serialized Pact values.
-                        (mprefix, toSave) <- liftIO $ saveDb pactdbenvpersist (_pdbsState pactdbstate) (_pdbsTxId pactdbstate)
-                        let dbFile = P._dbFile <$> (_sSQLiteConfig toSave)
-                        let newdbFile = properName <$ dbFile
-                        flip (maybe (ExceptT $ return $ Left msgPrefixError)) mprefix $ \prefix -> do
-                            -- Save serialized Pact values.
-                            let sd = encode toSave
-                            liftIO $ B.writeFile (prefix ++ properName) sd
-                            -- Copy the database file (the connection SHOULD -- be dead).
-                            tempfile <- liftIO $ fst <$> newTempFileWithin "/test/config/" -- should we use Path instead of FilePath here?
-                            -- We write to a temporary file THEN rename it to
-                            -- get an atomic copy of the database file.
-                            contents <- maybeToExceptT msgDbFileError B.readFile dbFile
-                            liftIO $ B.writeFile tempfile contents
-                            maybeToExceptT msgWriteDbError (renameFile tempfile) newdbFile
+save' lock height hash (PactDbState pactdblock) = do
+    eFile <- withMVar lock $ \store ->
+                case HMS.lookup (height, hash) store of
+                  Just _ -> return $ Left msgSaveKeyError
+                  Nothing -> withMVar pactdblock $ \pactdbstate -> runExceptT $ case _pdbsDbEnv pactdbstate of
+                          EnvPersist' (pactdbenvpersist@(PactDbEnvPersist _ _dbEnv)) -> case _dbEnv of
+                              dbEnv -> do
+                                  ExceptT $ closeDb (P._db dbEnv)
+
+                                  -- Then "save" it. Really we're computing the SaveData data and the valid
+                                  -- prefix for naming the file containing serialized Pact values.
+                                  (mprefix, toSave) <- liftIO $ prepSerialization pactdbenvpersist (_pdbsState pactdbstate) (_pdbsTxId pactdbstate)
+
+                                  case mprefix of
+                                    Nothing -> ExceptT $ return $ Left msgPrefixError
+                                    Just prefix -> do
+
+                                      let dbFile = P._dbFile <$> (_sSQLiteConfig toSave)
+                                          dirDbFile = takeDirectory <$> dbFile
+
+                                      toCommitDbFile <- case dirDbFile of
+                                          Nothing -> liftIO $ return Nothing
+                                          Just dir -> liftIO $ (Just . (++ ".sqlite") . fst) <$> newTempFileWithin dir
+
+                                      let serializeFile = (sqlPersistDir ++ prefix ++ saveDataName) <$ dbFile
+
+                                      let toSave' = case toCommitDbFile of
+                                             Nothing -> error "somehow this failed"
+                                             Just file -> over (sSQLiteConfig . _Just) (changeSQLFilePath file const) toSave
+
+                                      let sd = encode toSave'
+                                      liftIO $ putStrLn $ "dFile: "
+                                      liftIO $ print $ dbFile
+                                      liftIO $ putStrLn $ "toCommitDbFile: "
+                                      liftIO $ print $ toCommitDbFile
+                                      liftIO $ print $ "serializeFile: "
+                                      liftIO $ print $ serializeFile
+                                      maybeToExceptT msgWriteSerializeError (`B.writeFile` sd) serializeFile
+
+                                      -- Copy the database file (the connection SHOULD -- be dead).
+                                      tempfile <- liftIO $ fst <$> newTempFileWithin sqlPersistDir -- should we use Path instead of FilePath here?
+
+                                      -- We write to a temporary file THEN rename it to
+                                      -- get an atomic copy of the database file.
+                                      contents <- maybeToExceptT msgDbFileError B.readFile dbFile
+                                      liftIO $ B.writeFile tempfile contents
+                                      maybeToExceptT msgWriteDbError (renameFile tempfile) toCommitDbFile
+                                      maybeToExceptT msgWriteSerializeError return serializeFile
+
+    either
+        (return . Left)
+        (\file -> Right <$> modifyMVar_ lock (return . HMS.insert (height, hash) file))
+        eFile
+
     where
-        properName      = printf "chk.%s.%s" (show hash) (show height)
+        saveDataName =  filter (/= '\"') ("chk." ++ showhash hash ++ "." ++ showbh  height)
+            where showbh (BlockHeight w) = show w
+                  showhash h = if h == nullBlockHash
+                    then "genesisHash"
+                    else show hash
         msgPrefixError  = "SQLiteCheckpointer.save': Prefix not set exception"
         msgDbFileError  = "SQLiteCheckpointer.save': Copy dbFile error"
         msgWriteDbError = "SQLiteCheckpointer.save': Write db error"
+        msgWriteSerializeError = "SQLiteCheckpointer.save': serialization write error"
         msgSaveKeyError = "SQLiteCheckpointer.save': Save key not found exception"
 
 

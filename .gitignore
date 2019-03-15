@@ -34,3 +34,4 @@ log
 report.html
 .hlint.yaml
 *.svg
+test/config/dump/*

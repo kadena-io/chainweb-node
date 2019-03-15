@@ -20,7 +20,7 @@ module Chainweb.Pact.Backend.Orphans where
 
 import Control.Monad
 
-import Data.Aeson
+import Data.Aeson hiding (Object)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Serial
@@ -49,19 +49,19 @@ import Pact.Types.Server
 -----------------------
 -- GENERIC INSTANCES --
 -----------------------
-deriving instance Generic CommandPact -- transferred
+deriving instance Generic CommandPact
 
-deriving instance Generic ModuleData -- transferred
+deriving instance Generic ModuleData
 
 deriving instance Generic (ModuleDef a)
 
-deriving instance Generic Ref -- transferred
+deriving instance Generic Ref
 
-deriving instance Generic RefStore -- transferred
+deriving instance Generic RefStore
 
-deriving instance Generic CommandState -- transferred
+deriving instance Generic CommandState
 
-deriving instance Generic DefName -- transferred
+deriving instance Generic DefName
 
 deriving instance Generic Decimal
 
@@ -96,6 +96,10 @@ deriving instance Generic Use
 deriving instance Generic TableId
 
 deriving instance Generic Pragma
+
+deriving instance Generic (Object n)
+
+deriving instance Generic FieldKey
 
 ----------------------
 -- SERIAL INSTANCES --
@@ -228,21 +232,17 @@ instance Serial1 Exp where
                 _ -> fail "Exp: Deserialization error."
 
 instance Serial1 LiteralExp where
-    serializeWith f t =
-        case t of
-            LiteralExp {..} -> serialize _litLiteral >> f _litInfo
+    serializeWith f LiteralExp {..} = serialize _litLiteral >> f _litInfo
     deserializeWith m = do
         _litLiteral <- deserialize
         _litInfo <- m
         return $ LiteralExp {..}
 
 instance Serial1 AtomExp where
-    serializeWith f t =
-        case t of
-            AtomExp {..} -> do
-                serialize _atomAtom
-                mapM_ serialize _atomQualifiers
-                f _atomInfo
+    serializeWith f AtomExp {..} =
+        do serialize _atomAtom
+           mapM_ serialize _atomQualifiers
+           f _atomInfo
     deserializeWith m = do
         _atomAtom <- deserialize
         _atomQualifiers <- deserialize
@@ -250,12 +250,10 @@ instance Serial1 AtomExp where
         return $ AtomExp {..}
 
 instance Serial1 ListExp where
-    serializeWith f t =
-        case t of
-            ListExp {..} -> do
-                serializeWith (serializeWith f) _listList
-                serialize _listDelimiter
-                f _listInfo
+    serializeWith f ListExp {..} =
+        do serializeWith (serializeWith f) _listList
+           serialize _listDelimiter
+           f _listInfo
     deserializeWith m = do
         _listList <- deserializeWith $ deserializeWith m
         _listDelimiter <- deserialize
@@ -263,11 +261,9 @@ instance Serial1 ListExp where
         return $ ListExp {..}
 
 instance Serial1 SeparatorExp where
-    serializeWith f t =
-        case t of
-            SeparatorExp {..} -> do
-                serialize _sepSeparator
-                f _sepInfo
+    serializeWith f SeparatorExp {..} =
+        do serialize _sepSeparator
+           f _sepInfo
     deserializeWith m = do
         _sepSeparator <- deserialize
         _sepInfo <- m
@@ -339,12 +335,10 @@ instance Serial1 ConstVal where
                 _ -> fail "ConstVal: Deserialization error."
 
 instance Serial1 App where
-    serializeWith f t =
-        case t of
-            App {..} -> do
-                f _appFun
-                serializeWith f _appArgs
-                serialize _appInfo
+    serializeWith f App {..} =
+        do f _appFun
+           serializeWith f _appArgs
+           serialize _appInfo
     deserializeWith m = do
         _appFun <- m
         _appArgs <- deserializeWith m
@@ -419,8 +413,7 @@ instance Serial1 Term where
                 serialize _tInfo
             TObject {..} -> do
                 putWord8 8
-                pairListSerial1Helper (serializeWith f) (serializeWith f) _tObject
-                serializeWith (serializeWith f) _tObjectType
+                serializeWith f _tObject
                 serialize _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -511,8 +504,7 @@ instance Serial1 Term where
                     _tInfo <- deserialize
                     return $ TBinding {..}
                 8 -> do
-                    _tObject <- pairListDeSerial1Helper deserializeWith deserializeWith m
-                    _tObjectType <- deserializeWith (deserializeWith m)
+                    _tObject <- deserializeWith m
                     _tInfo <- deserialize
                     return $ TObject {..}
                 9 -> do
@@ -703,6 +695,21 @@ instance Serial1 TypeVar where
                     return $ TypeVar {..}
                 1 -> liftM SchemaVar deserialize
                 _ -> error "TypeVar: Deserialization error."
+
+instance Serial1 Object where
+  serializeWith f Object {..} = do
+    pairListSerial1Helper serialize (serializeWith f) _oObject
+    serializeWith (serializeWith f)  _oObjectType
+    serialize _oInfo
+  deserializeWith m = do
+    _oObject <- pairListDeSerial1Helper (const deserialize) deserializeWith m
+    _oObjectType <- deserializeWith (deserializeWith m)
+    _oInfo <- deserialize
+    return Object{..}
+
+deriving instance (Generic n, Serial n) => Serial (Object n)
+
+deriving instance Serial FieldKey
 
 -------------------------
 -- SERIALIZE INSTANCES --
@@ -898,7 +905,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
             TObject {..} -> do
                 putWord8 8
                 put _tObject
-                put _tObjectType
                 put _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -986,7 +992,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
                     return $ TBinding {..}
                 8 -> do
                     _tObject <- get
-                    _tObjectType <- get
                     _tInfo <- get
                     return $ TObject {..}
                 9 -> do
@@ -1036,6 +1041,19 @@ instance Serialize NativeDFun where
           (fail "Serial NativeDFun: deserialization error.")
           return
           (nativeDfunDeserialize _nativeName)
+
+instance (Generic n, Serialize n) => Serialize (Object n) where
+  put Object {..} = do
+    put _oObject
+    put _oObjectType
+    put _oInfo
+  get = do
+    _oObject <- get
+    _oObjectType <- get
+    _oInfo <- get
+    return Object {..}
+
+deriving instance Serialize FieldKey
 
 instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
     put = put . Data.HashSet.toList
