@@ -49,6 +49,7 @@ module Chainweb.CutDB
 , withCutDb
 , startCutDb
 , stopCutDb
+, cutDbQueueSize
 
 -- * Some CutDb
 , CutDbT(..)
@@ -205,6 +206,9 @@ member db cid h = do
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
+cutDbQueueSize :: CutDb cas -> IO Natural
+cutDbQueueSize = pQueueSize . _cutDbQueue
+
 withCutDb
     :: PayloadCas cas
     => CutDbConfig
@@ -259,6 +263,8 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
+    & S.filterM (fmap not . isVeryOld)
+    & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
     & S.concat
@@ -269,12 +275,29 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
         (\c -> atomically (writeTVar cutVar c) >> logFun @T.Text Debug "write new cut")
     & S.effects
   where
+    graph = _chainGraph headerStore
+
+    threshold :: Int
+    threshold = int $ 2 * diameter graph* order graph
+
     queueToStream =
         liftIO (pQueueRemove queue) >>= \(Down a) -> S.yield a >> queueToStream
 
+    isVeryOld x = do
+        h <- _cutHeight <$> readTVarIO cutVar
+        let r = int (_cutHashesHeight x) <= (int h - threshold)
+        when r $ logFun @T.Text Debug "skip very old cut"
+        return r
+
+    isOld x = do
+        curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
+        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
+        when r $ logFun @T.Text Debug "skip old cut"
+        return r
+
     isCurrent x = do
-        curHashes <- fmap _blockHash . _cutMap <$> readTVarIO cutVar
-        let r = curHashes == _cutHashes x
+        curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
+        let r = _cutHashes curHashes == _cutHashes x
         when r $ logFun @T.Text Debug "skip current cut"
         return r
 
@@ -304,6 +327,7 @@ cutHashesToBlockHeaderMap
         -- a 'Cut'.
 cutHashesToBlockHeaderMap headerStore payloadStore hs = do
     (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+        & S.map (fmap snd)
         & S.mapM tryGetBlockHeader
         & S.partitionEithers
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id

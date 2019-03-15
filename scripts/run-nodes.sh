@@ -83,6 +83,7 @@ function run-node () {
 
         # Run with LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
             --interface=127.0.0.1 \
@@ -96,6 +97,7 @@ function run-node () {
 
         # Run without LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
             --interface=127.0.0.1 \
