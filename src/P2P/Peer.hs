@@ -233,7 +233,7 @@ pPeerInfoCompact :: Maybe String -> OptionParser PeerInfo
 pPeerInfoCompact service = textOption
     % prefixLong service "peer-info"
     <> suffixHelp service "peer info"
-    <> metavar "<PEERID>:<HOSTADDRESS>"
+    <> metavar "[<PEERID>@]<HOSTADDRESS>"
 
 -- | Create a ClientEnv for querying HTTP API of a PeerInfo
 --
