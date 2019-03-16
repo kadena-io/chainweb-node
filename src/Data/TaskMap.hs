@@ -1,7 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -27,8 +25,7 @@ module Data.TaskMap
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, finally)
 import Control.Monad
 
 import Data.Hashable
@@ -36,7 +33,7 @@ import qualified Data.HashMap.Strict as HM
 
 import GHC.Generics
 
-import Prelude hiding (null, lookup)
+import Prelude hiding (lookup, null)
 
 -- -------------------------------------------------------------------------- --
 -- Task Map
@@ -90,4 +87,3 @@ memo tm@(TaskMap var) k task = do
             return (m', a)
         Just a -> return (m, a)
     wait a
-
