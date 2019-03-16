@@ -140,7 +140,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configChainDbDirPath chainDbDir
         -- Place where the chaindbs are persisted.
 
-    & set (configMiner . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'

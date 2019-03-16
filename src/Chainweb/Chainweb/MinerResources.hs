@@ -29,6 +29,7 @@ import Chainweb.Miner.POW
 import Chainweb.Miner.Test
 import Chainweb.NodeId
 import Chainweb.Payload.PayloadStore
+import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -48,21 +49,23 @@ data MinerResources logger cas = MinerResources
 
 withMinerResources
     :: logger
-    -> MinerConfig
+    -> EnableConfig MinerConfig
     -> NodeId
     -> CutDb cas
     -> WebBlockHeaderDb
     -> PayloadDb cas
-    -> (MinerResources logger cas -> IO a)
+    -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger conf nid cutDb webDb payloadDb inner = inner $ MinerResources
-    { _minerResLogger = logger
-    , _minerResNodeId = nid
-    , _minerResCutDb = cutDb
-    , _minerResWebBlockHeaderDb = webDb
-    , _minerResWebPayloadDb = payloadDb
-    , _minerResConfig = conf
-    }
+withMinerResources logger (EnableConfig enabled conf) nid cutDb webDb payloadDb inner
+    | not enabled = inner Nothing
+    | otherwise = inner . Just $ MinerResources
+        { _minerResLogger = logger
+        , _minerResNodeId = nid
+        , _minerResCutDb = cutDb
+        , _minerResWebBlockHeaderDb = webDb
+        , _minerResWebPayloadDb = payloadDb
+        , _minerResConfig = conf
+        }
 
 runMiner
     :: Logger logger
@@ -93,4 +96,3 @@ runMiner v m = (chooseMiner v)
     chooseMiner TestWithPow{} = powMiner
     chooseMiner Simulation{} = testMiner
     chooseMiner Testnet00 = powMiner
-
