@@ -267,6 +267,7 @@ instance ToJSON LogConfig where
     toJSON o = object
         [ "logger" .= _logConfigLogger o
         , "backend" .= _logConfigBackend o
+        , "telemetryBackend" .= _logConfigTelemetryBackend o
         ]
 
 instance FromJSON (LogConfig -> LogConfig) where
