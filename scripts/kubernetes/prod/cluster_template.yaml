@@ -1,7 +1,6 @@
 apiVersion: kops/v1alpha2
 kind: Cluster
 metadata:
-  version: {{ .releaseVersion }}
   name: {{ .clusterPrefix }}.{{ .dnsZone }}
 spec:
   # route53 permissions needed for external-dns operator
@@ -52,7 +51,7 @@ spec:
     anonymousAuth: false
   kubernetesApiAccess:
   - 0.0.0.0/0
-  kubernetesVersion: {{ .kubernetesVersion }}
+  kubernetesVersion: 1.11.7
   masterInternalName: api.internal.{{ .clusterPrefix }}.{{ .dnsZone }}
   masterPublicName: api.{{ .clusterPrefix }}.{{ .dnsZone }}
   networkCIDR: 172.20.0.0/16
@@ -81,7 +80,7 @@ metadata:
     kops.k8s.io/cluster: {{ .clusterPrefix }}.{{ .dnsZone }}
   name: master-{{ .awsRegion }}a
 spec:
-  image: {{ .baseAwsAmiId }}
+  image: kope.io/k8s-1.11-debian-stretch-amd64-hvm-ebs-2018-08-17
   machineType: {{ .masterSize }}
   maxSize: 1
   minSize: 1
@@ -100,7 +99,7 @@ metadata:
     kops.k8s.io/cluster: {{ .clusterPrefix }}.{{ .dnsZone }}
   name: nodes
 spec:
-  image: {{ .baseAwsAmiId }}
+  image: kope.io/k8s-1.11-debian-stretch-amd64-hvm-ebs-2018-08-17
   machineType: {{ .nodeSize }}
   maxSize: {{ .nodesMaxCount }}
   minSize: {{ .nodesMinCount }}

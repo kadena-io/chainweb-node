@@ -29,32 +29,39 @@ check-clusters: $(CHECK_CLUSTERS)
 delete-clusters: $(DELETE_CLUSTERS)
 
 
-%.$(KOPS_DNS_ZONE).yaml: cluster_template.yaml prod_vars.yaml
+%.$(KOPS_DNS_ZONE).yaml: cluster_template.yaml
 	test -n "$($*_REGION)" # $$($*_REGION)
-	kops toolbox template --values prod_vars.yaml \
+	kops toolbox template --template cluster_template.yaml \
+	--set kopsStateStore=s3://$($*_REGION)-kops-state-store \
+	--set masterSize=t2.medium \
+	--set nodeSize=t2.small \
+	--set nodesMinCount=1 \
+	--set nodesMaxCount=1 \
 	--set clusterPrefix=$* \
 	--set dnsZone=$(KOPS_DNS_ZONE) \
 	--set awsRegion=$($*_REGION) \
-	--template cluster_template.yaml \
 	--output $@
 
 
 %.$(KOPS_DNS_ZONE): %.$(KOPS_DNS_ZONE).yaml
-	kops replace -f $@.yaml --force
-	kops create secret --name $@ sshpublickey admin -i ~/.ssh/id_rsa.pub
-	kops update cluster --name $@ --yes
-	kops get --name $@ -o yaml > $@
+	aws s3 mb s3://$($*_REGION)-kops-state-store
+	kops replace -f $@.yaml --force --state=s3://$($*_REGION)-kops-state-store
+	kops create secret --name $@ sshpublickey admin -i ~/.ssh/id_rsa.pub \
+		--state=s3://$($*_REGION)-kops-state-store
+	kops update cluster --name $@ --yes --state=s3://$($*_REGION)-kops-state-store
+	kops get --name $@ -o yaml --state=s3://$($*_REGION)-kops-state-store > $@ 
 
 
 .PHONY: %-ready
 %-ready:
-	kops validate cluster --name $*.$(KOPS_DNS_ZONE)
-	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE)
+	kops validate cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
+	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
 
 
 .PHONY: %-shutdown
 %-shutdown:
-	-kops delete cluster --name $*.$(KOPS_DNS_ZONE) --yes
+	-kops delete cluster --name $*.$(KOPS_DNS_ZONE) --yes --state=s3://$($*_REGION)-kops-state-store
+	-aws s3 rb s3://$($*_REGION)-kops-state-store --force
 	$(RM) $*.$(KOPS_DNS_ZONE)
 
 
