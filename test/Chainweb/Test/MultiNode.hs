@@ -34,7 +34,7 @@
 --
 module Chainweb.Test.MultiNode ( test ) where
 
-#define DEBUG_MULTINODE_TEST 0
+#define DEBUG_MULTINODE_TEST 1
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -188,7 +188,9 @@ node loglevel write stateVar bootstrapPortVar conf =
         -- publish via an MVar.
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
-        runChainweb cw `finally` sample cw
+        runChainweb cw `finally` do
+            logFunctionText logger Info "write sample consensus state"
+            sample cw
   where
     nid = _configNodeId conf
 

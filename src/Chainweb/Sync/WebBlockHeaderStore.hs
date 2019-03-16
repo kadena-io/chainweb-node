@@ -40,7 +40,6 @@ module Chainweb.Sync.WebBlockHeaderStore
 , newWebPayloadStore
 
 -- * Utils
-, lookupCache
 , memoCache
 , PactExectutionService(..)
 ) where
@@ -82,9 +81,9 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
-import Data.HashMap.Weak
 import Data.LogMessage
 import Data.PQueue
+import Data.TaskMap
 
 import P2P.Peer
 import P2P.TaskQueue
@@ -99,33 +98,23 @@ type ClientError = ServantError
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
 
-lookupCache
-    :: IsCas a
-    => NFData (CasValueType a)
-    => Hashable (CasKeyType (CasValueType a))
-    => a
-    -> AsyncWeakHashMap (CasKeyType (CasValueType a)) (CasValueType a)
-    -> CasKeyType (CasValueType a)
-    -> (CasKeyType (CasValueType a) -> IO (CasValueType a))
-    -> IO (Maybe (CasValueType a))
-lookupCache cas m k a = casLookup cas k >>= \case
-    Nothing -> flip catchAllSynchronous (const $ return Nothing) $ do
-        v <- memoAsync m k a
-        casInsert cas v
-        return $ Just v
-    x -> return x
-
 memoCache
     :: IsCas a
     => Hashable (CasKeyType (CasValueType a))
     => a
-    -> AsyncWeakHashMap (CasKeyType (CasValueType a)) (CasValueType a)
+    -> TaskMap (CasKeyType (CasValueType a)) (CasValueType a)
     -> CasKeyType (CasValueType a)
     -> (CasKeyType (CasValueType a) -> IO (CasValueType a))
     -> IO (CasValueType a)
 memoCache cas m k a = casLookup cas k >>= \case
-    Nothing -> do
-        !v <- memoAsync m k a
+    Nothing -> memo m k $ \k' -> do
+        -- there is the chance of a race here. At this time some task may just
+        -- have finished updating the CAS with the key we are looking for. We
+        -- could solve this by doing a another CAS lookup here. But, depending
+        -- on the CAS, that could be expensive, too. For now we except a few
+        -- duplicate tasks due to races instead of adding an extra CAS lookup to
+        -- every task.
+        !v <- a k'
         casInsert cas v
         return v
     Just x -> return x
@@ -193,7 +182,7 @@ newtype PactExectutionService = PactExectutionService
 data WebBlockPayloadStore cas = WebBlockPayloadStore
     { _webBlockPayloadStoreCas :: !(PayloadDb cas)
         -- ^ Cas for storing complete payload data including outputs.
-    , _webBlockPayloadStoreMemo :: !(AsyncWeakHashMap BlockPayloadHash PayloadWithOutputs)
+    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadWithOutputs)
         -- ^ Internal memo table for active tasks
     , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadWithOutputs))
         -- ^ task queue for scheduling tasks with the task server
@@ -371,7 +360,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
 --
 data WebBlockHeaderStore = WebBlockHeaderStore
     { _webBlockHeaderStoreCas :: !WebBlockHeaderDb
-    , _webBlockHeaderStoreMemo :: !(AsyncWeakHashMap (ChainValue BlockHash) (ChainValue BlockHeader))
+    , _webBlockHeaderStoreMemo :: !(TaskMap (ChainValue BlockHash) (ChainValue BlockHeader))
     , _webBlockHeaderStoreQueue :: !(PQueue (Task ClientEnv (ChainValue BlockHeader)))
     , _webBlockHeaderStoreLogFunction :: !LogFunction
     , _webBlockHeaderStoreMgr :: !HTTP.Manager
