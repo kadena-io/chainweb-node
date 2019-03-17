@@ -88,6 +88,8 @@ import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import qualified Chainweb.Pact.RestAPI as PactAPI
+import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
@@ -111,22 +113,24 @@ import P2P.Node.RestAPI.Server
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t cas = ChainwebServerDbs
+data ChainwebServerDbs t logger cas = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe (CutDb cas))
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
     , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
+    , _chainwebServerPactDbs :: ![(ChainId, PactAPI.PactServerData logger cas)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t cas
+emptyChainwebServerDbs :: ChainwebServerDbs t logger cas
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = []
     , _chainwebServerMempools = []
     , _chainwebServerPayloadDbs = []
     , _chainwebServerPeerDbs = []
+    , _chainwebServerPactDbs = []
     }
 
 -- -------------------------------------------------------------------------- --
@@ -135,9 +139,12 @@ emptyChainwebServerDbs = ChainwebServerDbs
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someHealthCheckApi
-    <> someBlockHeaderDbApis v (selectChainIds cs)
-    <> somePayloadApis v (selectChainIds cs)
+    <> someBlockHeaderDbApis v chains
+    <> somePayloadApis v chains
     <> someP2pApis v cs
+    <> PactAPI.somePactApis v chains
+  where
+    chains = selectChainIds cs
 
 selectChainIds :: [NetworkId] -> [ChainId]
 selectChainIds = mapMaybe f
@@ -186,7 +193,7 @@ someChainwebServer
     => FromJSON t
     => PayloadCas cas
     => ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> SomeServer
 someChainwebServer v dbs =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
@@ -197,6 +204,7 @@ someChainwebServer v dbs =
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
+        <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
 
 chainwebApplication
     :: Show t
@@ -204,7 +212,7 @@ chainwebApplication
     => FromJSON t
     => PayloadCas cas
     => ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> Application
 chainwebApplication v = someServerApplication . someChainwebServer v
 
@@ -215,7 +223,7 @@ serveChainwebOnPort
     => PayloadCas cas
     => Port
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> IO ()
 serveChainwebOnPort p v = run (int p) . chainwebApplication v
 
@@ -226,7 +234,7 @@ serveChainweb
     => PayloadCas cas
     => Settings
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> IO ()
 serveChainweb s v = runSettings s . chainwebApplication v
 
@@ -238,7 +246,7 @@ serveChainwebSocket
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> IO ()
 serveChainwebSocket s sock v = runSettingsSocket s sock . chainwebApplication v
 
@@ -252,7 +260,7 @@ serveChainwebSocketTls
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> IO ()
 serveChainwebSocketTls settings certBytes keyBytes sock v dbs
     = runTLSSocket tlsSettings settings sock app
@@ -272,7 +280,7 @@ serveChainwebSocketTlsEkg
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t logger cas
     -> IO ()
 serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs = do
     store <- serverMetricStore <$> forkServer "127.0.0.1" (int ekgPort)
