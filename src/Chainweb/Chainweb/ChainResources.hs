@@ -59,6 +59,7 @@ import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
@@ -110,6 +111,7 @@ withChainResources
     -> IO a
 withChainResources v cid peer chainDbDir logger mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
+    withPactService mempool $ \_requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
@@ -232,4 +234,3 @@ mempoolSyncP2pSession chain logg0 env = go
     gaslimit = Mempool.mempoolBlockGasLimit pool
     cid = _chainId chain
     v = _chainwebVersion chain
-

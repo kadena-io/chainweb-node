@@ -21,16 +21,16 @@ module Chainweb.Test.Pact.Utils
 , mkPactTransaction
 ) where
 
-
 import Control.Lens ((.~))
 
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import Data.Default (def)
+import Data.Default
+import Data.Maybe
 import Data.Text (Text, pack)
-import Data.Traversable (for)
-import Data.Word (Word64)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -44,9 +44,8 @@ import Pact.Types.Util (toB16Text)
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Pact.Types
 import Chainweb.Test.Utils (toyGenesis)
-
+import Chainweb.Transaction
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -83,25 +82,24 @@ getByteString = fst . B16.decode
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
-mkPactTestTransactions :: [String] -> IO [PactTransaction]
+mkPactTestTransactions :: Vector String -> IO (Vector ChainwebTransaction)
 mkPactTestTransactions cmdStrs = do
     kps <- testKeyPairs
     let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-    let intSeq = [0, 1 ..] :: [Word64]
     -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
-    for (intSeq `zip` cmdStrs) $ \(i,c) ->
-      mkPactTransaction kps theData "1" i c
-  where
+    vMaybes <- traverse (mkPactTransaction kps theData "1") cmdStrs
+    return $ V.map fromJust (V.filter isJust vMaybes)
 
 mkPactTransaction
   :: [SomeKeyPair]
   -> Value
   -> Text
-  -> Word64
   -> String
-  -> IO PactTransaction
-mkPactTransaction keyPairs theData nonce txId theCode = do
+  -> IO (Maybe ChainwebTransaction)
+mkPactTransaction keyPairs theData nonce theCode = do
     let pubMeta = pmSender .~ "sender0" $ def
-    cmd <- mkCommand keyPairs pubMeta nonce $
-      Exec (ExecMsg (pack theCode) theData)
-    pure $ PactTransaction txId cmd
+    cmdBS <- mkCommand keyPairs pubMeta nonce $
+        Exec (ExecMsg (pack theCode) theData)
+    return $ case verifyCommand cmdBS of
+        ProcSucc cmd -> Just $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+        ProcFail{} -> Nothing

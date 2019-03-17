@@ -83,12 +83,9 @@ applyCmd
     -> MVar CommandState
     -> GasModel
     -> ExecutionMode
-    -> Command a
-    -> ProcessedCommand PublicMeta ParsedCode
+    -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyCmd _ _ _ _ _ _ execMode cmd (ProcFail s)
-    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) s, []), execMode)
-applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM _ (ProcSucc cmd) = do
+applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM cmd = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
         cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv
@@ -147,12 +144,9 @@ applyGenesisCmd
     -> PactDbEnv p
     -> MVar CommandState
     -> ExecutionMode
-    -> Command a
-    -> ProcessedCommand PublicMeta ParsedCode
+    -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyGenesisCmd _ _ _ _ execMode cmd (ProcFail pCmd)
-    = pure ((jsonResult execMode (cmdToRequestKey cmd) (Gas 0) pCmd, []), execMode)
-applyGenesisCmd logger entityM dbEnv cmdState execMode _ (ProcSucc cmd) = do
+applyGenesisCmd logger entityM dbEnv cmdState execMode cmd = do
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
         requestKey = cmdToRequestKey cmd

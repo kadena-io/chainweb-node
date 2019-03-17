@@ -24,6 +24,8 @@ import Data.Maybe
 import Data.Scientific
 import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import System.FilePath
 import System.IO.Extra
@@ -90,7 +92,7 @@ execTests t = do
     trans <- liftIO $ mkPactTestTransactions cmdStrs
     (results, _dbState) <- execTransactions (isGenesis t) defaultMiner trans
     let outputs = snd <$> _transactionPairs results
-    let testResponses = zipWith TestResponse testPactRequests outputs
+    let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
 getPactCode :: TestSource -> IO String
@@ -187,14 +189,14 @@ isGenesis = \case
 -- sample data
 ----------------------------------------------------------------------------------------------------
 
-testPactRequests :: [TestRequest]
-testPactRequests =
-  [ testReq1
-  , testReq2
-  , testReq3
-  , testReq4
-  , testReq5
-  ]
+testPactRequests :: Vector TestRequest
+testPactRequests = V.fromList
+    [ testReq1
+    , testReq2
+    , testReq3
+    , testReq4
+    , testReq5
+    ]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest

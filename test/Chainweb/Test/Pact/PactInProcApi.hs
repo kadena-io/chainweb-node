@@ -108,22 +108,24 @@ getBlockHeaders n = do
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 
-testMemPoolAccess :: BlockHeight -> IO [PactTransaction]
-testMemPoolAccess (BlockHeight 0) = do
+testMemPoolAccess :: MemPoolAccess
+testMemPoolAccess (BlockHeight 0) _bHash = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-    let cmdStrs =
+    let cmdStrs = V.fromList
           [ moduleStr
           , "(create-table test1.accounts)"
           , "(test1.create-global-accounts)"
           , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
     mkPactTestTransactions cmdStrs
-testMemPoolAccess (BlockHeight n) = do
+testMemPoolAccess (BlockHeight n) _bHash = do
     let cmdStrs = cmdBlocks ! fromIntegral n
     mkPactTestTransactions cmdStrs
 
-cmdBlocks :: Vector [String]
-cmdBlocks =  V.fromList [ [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
-                          , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
-                        , [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
-                          , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
+cmdBlocks :: Vector (Vector String)
+cmdBlocks =  V.fromList [ V.fromList
+                              [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
+                              , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
+                        , V.fromList
+                              [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
+                              , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
                         ]
