@@ -38,7 +38,7 @@ module Chainweb.Pact.TransactionExec
 import Control.Concurrent
 import Control.Exception.Safe (SomeException(..), throwM, tryAny)
 import Control.Lens hiding ((.=))
-import Control.Monad (join, void, when)
+import Control.Monad (join, void, when, unless)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
@@ -127,7 +127,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM cmd = do
             -- bump the txId for the redeem gas transaction
             let redeemGasEM = bumpExecMode payloadEM
             let redeemGasEnv = set ceMode redeemGasEM buyGasEnv
-            redeemResultE <- tryAny $ redeemGas redeemGasEnv cmd cmdResult pactId minerInfo supply
+            redeemResultE <- tryAny $ redeemGas redeemGasEnv cmd cmdResult pactId supply
 
             case redeemResultE of
               Left e3 -> do
@@ -224,28 +224,29 @@ applyExec'
     -> [UserSig]
     -> Hash
     -> IO EvalResult
-applyExec' env@CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash = do
+applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash = do
     when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
     (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv permissiveNamespacePolicy
+                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv permissiveNamespacePolicy noSPVSupport
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
-    newCmdPact <- join <$> mapM (handlePactExec env _erInput) _erExec
+    newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
     let newPacts = case newCmdPact of
           Nothing -> pacts
-          Just cmdPact -> Map.insert (_cpTxId cmdPact) cmdPact pacts
+          Just cmdPact -> Map.insert (_pePactId cmdPact) cmdPact pacts
     void $! swapMVar _ceState $ CommandState _erRefStore newPacts
-    for_ newCmdPact $ \p ->
-      logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show p
+    for_ newCmdPact $ \PactExec{..} ->
+      logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show (_pePactId,_peStep,_peYield,_peExecuted)
     return er
 
-handlePactExec :: CommandEnv p -> [Term Name] -> PactExec -> IO (Maybe CommandPact)
-handlePactExec CommandEnv{..} [t] PactExec{..} = case _ceMode of
-    Local -> return Nothing
-    Transactional tid -> return $ Just $ CommandPact tid t _peStepCount _peStep _peYield
-handlePactExec _ em _ =  throwCmdEx $
-    "handlePactExec: defpact execution must occur as a single command: " ++ show em
+handlePactExec :: Either PactContinuation [Term Name] -> PactExec -> IO (Maybe PactExec)
+handlePactExec (Left pc) _ = throwCmdEx $ "handlePactExec: internal error, continuation input: " ++ show pc
+handlePactExec (Right em) pe = do
+  unless (length em == 1) $
+    throwCmdEx $ "handlePactExec: defpact execution must occur as a single command: " ++ show em
+  return $ Just pe
+
 
 applyContinuation
     :: CommandEnv p
@@ -273,27 +274,27 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
             state@CommandState{..} <- readMVar _ceState
-            case Map.lookup _cmTxId _csPacts of
-                Nothing -> throwCmdEx $ "applyContinuation: txid not found: " ++ show _cmTxId
-                Just pact@CommandPact{..}
+            case Map.lookup _cmPactId _csPacts of
+                Nothing -> throwCmdEx $ "applyContinuation: txid not found: " ++ show _cmPactId
+                Just PactExec{..}
           -- Verify valid ContMsg Step
                  -> do
-                    when (_cmStep < 0 || _cmStep >= _cpStepCount) $
+                    when (_cmStep < 0 || _cmStep >= _peStepCount) $
                         throwCmdEx $ "Invalid step value: " ++ show _cmStep
                     if _cmRollback
-                        then when (_cmStep /= _cpStep) $
+                        then when (_cmStep /= _peStep) $
                              throwCmdEx
                                  ("Invalid rollback step value: Received " ++
-                                  show _cmStep ++ " but expected " ++ show _cpStep)
+                                  show _cmStep ++ " but expected " ++ show _peStep)
                         else when
-                                 (_cmStep /= (_cpStep + 1))
+                                 (_cmStep /= (_peStep + 1))
                                  (throwCmdEx $
                                   "Invalid continuation step value: Received " ++
-                                  show _cmStep ++ " but expected " ++ show (_cpStep + 1))
+                                  show _cmStep ++ " but expected " ++ show (_peStep + 1))
           -- Setup environement and get result
                     let sigs = userSigsToPactKeySet senderSigs
                         pactStep =
-                            Just $ PactStep _cmStep _cmRollback (PactId $ pack $ show _cmTxId) _cpYield
+                            Just $ PactStep _cmStep _cmRollback _cmPactId _peYield
                         evalEnv =
                             setupEvalEnv
                                 _ceDbEnv
@@ -303,7 +304,8 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
                                 _csRefStore
                                 _ceGasEnv
                                 permissiveNamespacePolicy
-                    res <- tryAny $ evalContinuationState initState evalEnv _cpContinuation
+                                noSPVSupport
+                    res <- tryAny $ evalContinuationState initState evalEnv _peContinuation
           -- Update pact's state
                     case res of
                         Left (SomeException ex) -> throwM ex
@@ -315,40 +317,38 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
                                     _erExec
                             if _cmRollback
                                 then rollbackUpdate env msg state
-                                else continuationUpdate env msg state pact exec
+                                else continuationUpdate env msg state exec
                             pure er
 
 rollbackUpdate :: CommandEnv p -> ContMsg -> CommandState -> IO ()
 rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
     -- if step doesn't have a rollback function, no error thrown.
     -- Therefore, pact will be deleted from state.
-    let newState = CommandState _csRefStore $ Map.delete _cmTxId _csPacts
+    let newState = CommandState _csRefStore $ Map.delete _cmPactId _csPacts
     logLog _ceLogger "DEBUG" $
-        "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmTxId
+        "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
     void $! swapMVar _ceState newState
 
 continuationUpdate
     :: CommandEnv p
     -> ContMsg
     -> CommandState
-    -> CommandPact
     -> PactExec
     -> IO ()
-continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} CommandPact{..} PactExec{..} = do
+continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} newPactExec@PactExec{..} = do
     let nextStep = _cmStep + 1
-        isLast = nextStep >= _cpStepCount
+        isLast = nextStep >= _peStepCount
         updateState pacts = CommandState _csRefStore pacts -- never loading modules during continuations
     if isLast
         then do
           logLog _ceLogger "DEBUG" $
-            "applyContinuation: continuationUpdate: reaping pact: " ++ show _cmTxId
-          void $! swapMVar _ceState $ updateState $ Map.delete _cmTxId _csPacts
+            "applyContinuation: continuationUpdate: reaping pact: " ++ show _pePactId
+          void $! swapMVar _ceState $ updateState $ Map.delete _pePactId _csPacts
         else do
-            let newPact = CommandPact _cpTxId _cpContinuation
-                  _cpStepCount _cmStep _peYield
-            logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact " ++ show _cmTxId ++ ": " ++ show newPact
+            logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact "
+              ++ show _pePactId ++ ": " ++ show newPactExec
             void $! swapMVar _ceState $ updateState $
-              Map.insert _cmTxId newPact _csPacts
+              Map.insert _pePactId newPactExec _csPacts
 
 ------------------------------------------------------------------------------
 -- Coin Contract
@@ -380,29 +380,21 @@ redeemGas
     -> Command (Payload PublicMeta ParsedCode)
     -> CommandResult -- ^ result from the user command payload
     -> PactId        -- ^ result of the buy-gas continuation
-    -> MinerInfo     -- ^ the block miner
     -> GasSupply     -- ^ the total calculated supply of gas (as Decimal)
     -> IO (CommandResult, [TxLog Value])
-redeemGas env cmd cmdResult pactId (MinerInfo _minerId minerKeys) (GasSupply supply) = do
+redeemGas env cmd cmdResult pactId (GasSupply supply) = do
     let (Gas fee)  = _crGas cmdResult
-        pid        = toTxId pactId
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities ["FUND_TX"]
 
-    applyContinuation env initState rk (redeemGasCmd fee supply pid)
+    applyContinuation env initState rk (redeemGasCmd fee supply pactId)
       (_cmdSigs cmd) (_cmdHash cmd) []
   where
     redeemGasCmd fee total pid = ContMsg pid 1 False $ object
-      [ "fee" .= (feeOf total fee)
-      , "total" .= supply
-      , "miner-keyset" .= minerKeys
+      [ "fee" .= feeOf total fee
       ]
 
-    feeOf total fee = total - (fromIntegral @Int64 @Decimal fee)
-    -- TODO: this needs to be revisited. 'PactId' contains 'Text', but the 'TxId'
-    -- required by 'ContMsg' requires 'Word64'. The 'read' here is dirty but
-    -- necessary until this is fixed in pact.
-    toTxId (PactId pid) = TxId . read . unpack $ pid
+    feeOf total fee = total - fromIntegral @Int64 @Decimal fee
 
 -- | The miner reward function (i.e. 'coinbase'). Miners are rewarded
 -- on a per-block, rather than a per-transaction basis.

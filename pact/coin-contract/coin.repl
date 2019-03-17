@@ -49,16 +49,15 @@
 
 (env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"] })
 (env-keys ["keys1", "keys2"])
-(env-step 0)
 
 (test-capability (TRANSFER))
 (test-capability (FUND_TX))
+(pact-state true)
 
 (credit 'k1 (read-keyset 'k1) 1.0)
 (fund-tx 'k1 'k2 (read-keyset 'k2) 1.0)
 
-(env-step 1)
-(fund-tx 'k1 'k2 (read-keyset 'k2) 1.0)
+(continue-pact 2 1)
 (expect "k2 should now have 0.4 coins after mining 0.4 coin fee" 0.4 (account-balance 'k2))
 (expect "k1 should now have 0.6 coins after paying for 0.4 coin fee" 0.6 (account-balance 'k1))
 

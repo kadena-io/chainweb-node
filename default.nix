@@ -141,8 +141,8 @@ in
         pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "45deba99a0113b006876dcf186813f217143d588";
-          sha256 = "0x0bcv5nqrwxq3almpb0g15yw0653kiy6j1w8y8i9z73f8bjivjf";
+          rev = "caf1b25bcf02bb3c3ac2d83a561c608ef97356b1";
+          sha256 = "1g6vrsdkbw2ivqrd26sn5m6yk6j3is26j4f9ikxpna5wcnjlyc6v";
         }) {}) pkgs.z3;
 
         streaming = callHackageDirect {
@@ -214,8 +214,8 @@ in
         sbv = pkgs.haskell.lib.dontCheck (self.callCabal2nix "sbv" (pkgs.fetchFromGitHub {
           owner = "LeventErkok";
           repo = "sbv";
-          rev = "68375576f87d17a2da759c56f7147f4e559471a2";
-          sha256 = "11qmgc8jnsx1m2hy3x28ihl941ik4wsdpj0bkbsz226zncad13dp";
+          rev = "365b1a369a2550d6284608df3fbc17e2663c4d3c";
+          sha256 = "134f148g28dg7b3c1rvkh85pfl9pdlvrvl6al4vlz72f3y5mb2xg";
         }) {});
 
         # Our own custom fork
