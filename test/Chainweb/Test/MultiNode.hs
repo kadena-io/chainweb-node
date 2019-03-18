@@ -34,7 +34,9 @@
 --
 module Chainweb.Test.MultiNode ( test ) where
 
+#ifndef DEBUG_MULTINODE_TEST
 #define DEBUG_MULTINODE_TEST 0
+#endif
 
 import Control.Concurrent
 import Control.Concurrent.Async
