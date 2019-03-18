@@ -199,20 +199,25 @@ pPactDbConfig = id
     <$< pdbcPersistDir .:: fmap Just % textOption
         % long "pact-db-dir"
         <> help "Directory for Pact database files"
+        <> metavar "PATH"
     <*< pdbcLogDir .:: textOption
         % long "pact-log-dir"
         <> help "Directory for Pact HTTP logs"
+        <> metavar "PATH"
     <*< pdbcPragmas %:: pLeftMonoidalUpdate pPragma
     <*< pdbcGasLimit .:: option auto
         % long "pact-gas-limit"
         <> help "Gas limit for each transaction, defaults to 0"
+        <> metavar "INT"
     <*< pdbcGasRate .:: option auto
         % long "pact-gas-rate"
         <> help "Gas price per action, defaults to 0"
+        <> metavar "INT"
   where
     pPragma = (:[]) <$> strOption
         % long "pact-db-pragma"
         <> help "SQLite pragma to use with persistence DBs (can be used multiple times)"
+        <> metavar "PRAGMA"
 
 usage :: String
 usage =
