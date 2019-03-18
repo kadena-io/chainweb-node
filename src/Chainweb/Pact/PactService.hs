@@ -96,7 +96,7 @@ initPactService reqQ memPoolAccess = do
                 env <- P.mkPureEnv loggers
                 liftA2
                     (,)
-                    (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
+                    (initInMemoryCheckpointEnv cmdConfig logger gasEnv Nothing)
                     (mkPureState env cmdConfig)
             Just sqlc -> do
                 env <- P.mkSQLiteEnv logger False sqlc loggers
