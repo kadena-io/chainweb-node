@@ -37,9 +37,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (first,second)
+import Data.Bifunctor (first, second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
+import Data.Foldable (toList)
+import Data.Either
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.IO as T (readFile)
@@ -72,13 +74,14 @@ import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types (RequestMsg(..), NewBlockReq(..),
-                                    LocalReq(..), ValidateBlockReq(..))
+import Chainweb.Pact.Service.Types ( LocalReq(..), NewBlockReq(..), PactValidationErr(..)
+                                   , RequestMsg(..), ValidateBlockReq(..) )
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Utils
 
 
 initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
@@ -167,8 +170,8 @@ serviceRequests memPoolAccess reqQ = go
                 liftIO $ putMVar _newResultVar $ toNewBlockResults txs
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- execValidateBlock memPoolAccess _valBlockHeader
-                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs
+                txs <- execValidateBlock _valBlockHeader _valPayloadData
+                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs _valBlockHeader
                 go
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
@@ -202,16 +205,64 @@ toNewBlockResults ts =
         bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
     in (blockTrans, bPayHash)
 
-toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
+toValidateBlockResults :: Transactions -> BlockHeader -> Either PactValidationErr PayloadWithOutputs
+toValidateBlockResults ts bHeader =
+                 -- :: Seq (Transaction, FullLogTxOUtput)
+    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
+
+    -- toTransactionBytes :: P.Command ByteString -> Transaction
+    -- toOutputBytes :: FullLogTxOutput -> TransactionOutput
+
+        -- (seqTrans, transOuts) = bimap _transactionBytes toOutputBytes <$> oldSeq
+
+        trans = fst <$> oldSeq
+        seqTrans = _transactionBytes <$> trans
+        transOuts = toOutputBytes . snd <$> oldSeq -- :: Seq.TransactionOutput
+        -- (seqTrans, transOuts) = bimap _transactionBytes toOutputBytes <$> oldSeq
+        -- h = to `asTypeOf` _
+
+        blockTrans = snd $ newBlockTransactions trans
+        blockOuts = snd $ newBlockOutputs transOuts
+
+        blockPL = blockPayload blockTrans blockOuts
+        plData = payloadData blockTrans blockPL
+
+        plWithOuts = payloadWithOutputs plData transOuts
+        newHash = _payloadWithOutputsPayloadHash plWithOuts
+
+        prevHash = _blockPayloadHash bHeader
+
+    in if newHash == prevHash
+        then Right plWithOuts
+        else Left $ PactValidationErr
+            "Hash from Pact execution does not match the previously stored hash"
+
+
+{-
+toValidateBlockResults :: Transactions -> PayloadWithOutputs
 toValidateBlockResults ts =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
-        newSeq = second toOutputBytes <$> oldSeq
+        (seqTrans, transOuts) = bimap toTransactionBytes toOutputBytes <$> oldSeq
 
-        seqTrans = fst <$> newSeq
         blockTrans = snd $ newBlockTransactions seqTrans
+        (_, blockOuts) = newBlockOutputs transOuts
 
-        (_, blockOuts) = newBlockOutputs $ snd <$> newSeq
-    in (blockTrans, blockOuts)
+        blockPL = blockPayload blockTrans blockOuts
+        plData = payloadData blockTrans blockPL
+        plWithOuts = payloadWithOutputs plData transOuts
+
+    {-
+    toNewBlockResults returns ::: BlockPayloadHash
+
+    here, _payloadWithOutputsPayloadHash in PayloadWithOutputs ::: !BlockPayloadHash
+
+
+    -}
+    if compareValidation plWithOuts todoPrevHashFromNewBlock
+        then return Right plWithOuts
+        else return Left $ PactValidationErr
+            "Hash from Pact execution does not match the previously stored hash"
+-}
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
@@ -238,9 +289,8 @@ execNewBlock memPoolAccess header = do
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-execValidateBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-execValidateBlock memPoolAccess currHeader = do
-
+execValidateBlock :: BlockHeader -> PayloadData -> PactT Transactions
+execValidateBlock currHeader plData = do
     cpEnv <- ask
     -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
@@ -249,8 +299,7 @@ execValidateBlock memPoolAccess currHeader = do
         bHash = _blockHash currHeader
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader currHeader
-
-    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
+    trans <- liftIO $ transactionsFromHeader currHeader plData
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
       else restore checkPointer (pred bHeight) bParent
@@ -375,9 +424,26 @@ pactFilesDir = "test/config/"
 --         for validation from the header?
 --       * Remove the MempoolAccess param
 ----------------------------------------------------------------------------------------------------
+{-
 transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO (Vector ChainwebTransaction)
 transactionsFromHeader memPoolAccess bHeader =
     memPoolAccess (_blockHeight bHeader) (_blockParent bHeader)
+-}
+transactionsFromHeader :: BlockHeader -> PayloadData -> IO (Vector ChainwebTransaction)
+transactionsFromHeader bHeader plData = do
+    let transSeq = _payloadDataTransactions plData
+    let transList = toList transSeq
+    let bytes = _transactionBytes <$> transList
+
+
+    let eithers = toCWTransaction <$> bytes
+
+    -- Note: if any transactions fail to convert, the final validation hash will fail to match
+    -- the one computed during newBlock
+    let theRights  =  rights eithers
+    return $ V.fromList theRights
+  where
+    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
 ----------------------------------------------------------------------------------------------------
 
 coinContract :: IO (P.ExecMsg P.ParsedCode)

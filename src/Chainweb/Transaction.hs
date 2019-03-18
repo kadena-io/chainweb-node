@@ -50,6 +50,7 @@ chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
 chainwebTransactionConfig = Mempool.TransactionConfig chainwebPayloadCodec
     commandHash
     Mempool.chainwebTestHashMeta
+
     getGasPrice
     getGasLimit
     (const txmeta)

@@ -80,9 +80,12 @@ newBlock bHeader reqQ = do
     addRequest reqQ msg
     return resultVar
 
-validateBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockOutputs))
+validateBlock
+    :: BlockHeader
+    -> TQueue RequestMsg
+    -> IO (MVar (Either PactValidationErr PayloadWithOutputs))
 validateBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockOutputs))
+    resultVar <- newEmptyMVar :: IO (MVar (Either PactValidationErr PayloadWithOutputs))
     let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar}

@@ -21,11 +21,13 @@ import qualified Data.Vector as V
 import System.FilePath
 import System.IO.Extra
 
+import Test.HUnit
 import Test.Tasty
 import Test.Tasty.Golden
 
 import Chainweb.BlockHeader
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
@@ -65,11 +67,20 @@ checkNewResponse filePrefix (bTrans, bplHash) = do
     ttBlockPayHash <- checkBlockPayloadHash filePrefix bplHash
     return $ testGroup "newResponse" (ttBlockTxs : [ttBlockPayHash])
 
-checkValidateResponse :: FilePath -> (BlockTransactions, BlockOutputs) -> IO TestTree
-checkValidateResponse filePrefix (bTrans, bOuts) = do
-    ttBlockTxs <- checkBlockTransactions filePrefix bTrans
-    ttBlockPayHash <- checkBlockOutputs filePrefix bOuts
-    return $ testGroup "validate" (ttBlockTxs : [ttBlockPayHash])
+checkValidateResponse :: FilePath -> Either PactValidationErr PayloadWithOutputs -> IO TestTree
+checkValidateResponse filePrefix (Left s) = return $ assertFailure s
+checkValidateResponse filePrefix (Right plwo) = do
+
+    ttTrans <- checkTrans
+    ttTransOut <- checkTransOut
+    ttBlockPlHash <- checkBlockPayloadHash
+    ttBlockTransHash <- checkBlockTransHash
+    ttBlockOutsHash <- checkBlockOutsHash
+
+    -- ttBlockTxs <- checkBlockTransactions filePrefix bTrans
+    -- ttBlockPayHash <- checkBlockOutputs filePrefix bOuts
+    return $ testGroup "validate"
+        (ttTrans : [ttTransOut, ttBlockPlHash, ttBlockTransHash, ttBlockOutsHash])
 
 checkBlockTransactions :: FilePath -> BlockTransactions -> IO TestTree
 checkBlockTransactions filePrefix bTrans = do
