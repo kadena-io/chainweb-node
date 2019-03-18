@@ -1,6 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -31,8 +31,8 @@ import System.FilePath
 import System.IO.Extra
 
 import Test.Tasty
-import Test.Tasty.HUnit
 import Test.Tasty.Golden
+import Test.Tasty.HUnit
 
 import Pact.Gas
 import Pact.Interpreter
@@ -57,7 +57,7 @@ pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
     let loggers = alwaysLog
     let logger = newLogger loggers $ LogName "PactService"
-    pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
+    let pactCfg = defaultPactDbConfig
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)

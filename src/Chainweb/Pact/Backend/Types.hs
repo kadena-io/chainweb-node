@@ -49,7 +49,6 @@ module Chainweb.Pact.Backend.Types
     , sSQLiteConfig
     , sCommandState
     , sPactTxId
-    , usage
     ) where
 
 import Configuration.Utils hiding (Lens', (<.>))
@@ -218,16 +217,6 @@ pPactDbConfig = id
         % long "pact-db-pragma"
         <> help "SQLite pragma to use with persistence DBs (can be used multiple times)"
         <> metavar "PRAGMA"
-
-usage :: String
-usage =
-    "Config file is YAML format with the following properties: \n\
-  \persistDir - Directory for database files. \n\
-  \logDir     - Directory for HTTP logs \n\
-  \pragmas    - SQLite pragmas to use with persistence DBs \n\
-  \gasLimit   - Gas limit for each transaction, defaults to 0 \n\
-  \gasRate    - Gas price per action, defaults to 0 \n\
-  \\n"
 
 data Checkpointer = Checkpointer
     { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)

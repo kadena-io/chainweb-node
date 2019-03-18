@@ -20,8 +20,8 @@ import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
 
 import System.FilePath
-import System.LogLevel
 import System.IO.Extra
+import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.Golden
@@ -42,7 +42,7 @@ pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
 
     -- Init for tests
-    withPactService' logger testMemPoolAccess $ \reqQ -> do
+    withPactService' defaultPactDbConfig logger testMemPoolAccess $ \reqQ -> do
         let headers = V.fromList $ getBlockHeaders 4
 
         -- newBlock test

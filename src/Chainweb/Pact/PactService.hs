@@ -22,7 +22,6 @@ module Chainweb.Pact.PactService
     , mkSQLiteState
     , pactFilesDir
     , serviceRequests
-    , setupConfig
     , toCommandConfig
     , createCoinContract
     ) where
@@ -31,7 +30,6 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Lens (over, (.=))
 import Control.Monad
 import Control.Monad.Reader
@@ -51,7 +49,6 @@ import qualified Data.Text.IO as T (readFile)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
-import qualified Data.Yaml as Y
 
 import NeatInterpolation (text)
 
@@ -294,14 +291,6 @@ updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
   Left s -> gets closePactDb >> fail s
   Right t -> updateState $! t
-
-setupConfig :: FilePath -> IO PactDbConfig
-setupConfig configFile =
-    Y.decodeFileEither configFile >>= \case
-        Left e -> do
-            putStrLn usage
-            throwIO (userError ("Error loading config file: " ++ show e))
-        Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig pdbc = P.CommandConfig
