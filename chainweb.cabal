@@ -361,6 +361,7 @@ test-suite chainweb-tests
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
+        , loglevel >= 0.1
         , massiv >= 0.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3
