@@ -363,12 +363,15 @@ prereduction Test{} = 0
 prereduction TestWithTime{} = 0
 prereduction TestWithPow{} = 7
 prereduction Simulation{} = 0
--- As mentioned in `maxTarget`, 11 bits has been shown experimentally to be high
--- enough to keep mining slow during the initial conditions of a
--- 10-chain-10-miner scenario, thereby avoiding (too many) aggressive forks. For
--- other, more realistic network scenarios, Difficulty Adjustment quickly
--- compensates for any imbalances.
-prereduction Testnet00 = 11
+-- As alluded to in `maxTarget`, 11 bits has been shown experimentally to be
+-- high enough to keep mining slow during the initial conditions of a
+-- single-machine-10-chain-10-miner scenario, thereby avoiding (too many)
+-- aggressive forks. Therefore for a machine running a single miner across 10
+-- chains, we increase this further to 14 (3 bits => 8x harder) to come as close
+-- as possible to a stable, "preadjusted" state, such that mining rates won't be
+-- wildly imbalanced over the first few days. Subsequent Difficulty Adjustment
+-- compensates for any remaining imbalance.
+prereduction Testnet00 = 14
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.
