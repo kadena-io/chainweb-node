@@ -31,6 +31,8 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
+    , defaultPactDbConfig
+    , pPactDbConfig
     , PactDbEnvPersist(..)
     , pdepEnv
     , pdepPactDb
@@ -47,6 +49,8 @@ module Chainweb.Pact.Backend.Types
     , sPactTxId
     , usage
     ) where
+
+import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Lens
 
@@ -68,9 +72,11 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Orphans ()
+import Chainweb.Utils (textOption)
 
 class PactDbBackend e where
     closeDb :: e -> IO (Either String ())
@@ -170,13 +176,42 @@ data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: Maybe FilePath
     , _pdbcLogDir :: FilePath
     , _pdbcPragmas :: [P.Pragma]
-    , _pdbcGasLimit :: Maybe Int
-    , _pdbcGasRate :: Maybe Int
+    , _pdbcGasLimit :: Int
+    , _pdbcGasRate :: Int
     } deriving (Eq, Show, Generic)
 
 instance A.FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
+
+defaultPactDbConfig :: PactDbConfig
+defaultPactDbConfig = PactDbConfig
+    { _pdbcPersistDir = Nothing
+    , _pdbcLogDir = "/tmp/pact-db-logs/"
+    , _pdbcPragmas = []
+    , _pdbcGasLimit = 0
+    , _pdbcGasRate = 0
+    }
+
+pPactDbConfig :: MParser PactDbConfig
+pPactDbConfig = id
+    <$< pdbcPersistDir .:: fmap Just % textOption
+        % long "pact-db-dir"
+        <> help "Directory for Pact database files"
+    <*< pdbcLogDir .:: textOption
+        % long "pact-log-dir"
+        <> help "Directory for Pact HTTP logs"
+    <*< pdbcPragmas %:: pLeftMonoidalUpdate pPragma
+    <*< pdbcGasLimit .:: option auto
+        % long "pact-gas-limit"
+        <> help "Gas limit for each transaction, defaults to 0"
+    <*< pdbcGasRate .:: option auto
+        % long "pact-gas-rate"
+        <> help "Gas price per action, defaults to 0"
+  where
+    pPragma = (:[]) <$> strOption
+        % long "pact-db-pragma"
+        <> help "SQLite pragma to use with persistence DBs (can be used multiple times)"
 
 usage :: String
 usage =

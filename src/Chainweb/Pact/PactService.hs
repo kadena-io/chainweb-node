@@ -32,22 +32,22 @@ import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Lens ((.=), over)
+import Control.Lens (over, (.=))
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (first,second)
+import Data.Bifunctor (first, second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
 import Data.Maybe
-import Data.Text (Text)
-import qualified Data.Text.IO as T (readFile)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T (readFile)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
@@ -78,11 +78,11 @@ import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types (RequestMsg(..), NewBlockReq(..),
-                                    LocalReq(..), ValidateBlockReq(..))
+import Chainweb.Pact.Service.Types
+    (LocalReq(..), NewBlockReq(..), RequestMsg(..), ValidateBlockReq(..))
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
 import Chainweb.Transaction
 
@@ -158,7 +158,7 @@ createCoinContract dbState = do
     let cmdEnv' = incEx cmdEnv
     txId <- case P._ceMode . incEx $ cmdEnv' of
           P.Transactional tId -> return tId
-          _other              -> fail "Non - Transactional ExecutionMode found"
+          _other -> fail "Non - Transactional ExecutionMode found"
 
     void $! applyExec' cmdEnv' initState coinbaseCmd [] (P.hash "")
 
@@ -293,7 +293,7 @@ execValidateBlock memPoolAccess currHeader = do
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
-  Left s  -> gets closePactDb >> fail s
+  Left s -> gets closePactDb >> fail s
   Right t -> updateState $! t
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -305,11 +305,11 @@ setupConfig configFile =
         Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
-toCommandConfig PactDbConfig {..} = P.CommandConfig
-    { _ccSqlite = mkSqliteConfig _pdbcPersistDir _pdbcPragmas
+toCommandConfig pdbc = P.CommandConfig
+    { _ccSqlite = mkSqliteConfig (_pdbcPersistDir pdbc) (_pdbcPragmas pdbc)
     , _ccEntity = Nothing
-    , _ccGasLimit = _pdbcGasLimit
-    , _ccGasRate = _pdbcGasRate
+    , _ccGasLimit = Just $ _pdbcGasLimit pdbc
+    , _ccGasRate = Just $ _pdbcGasRate pdbc
     }
 
 -- SqliteConfig is part of Pact' CommandConfig datatype, which is used with both in-memory and
