@@ -148,7 +148,7 @@ runChainSyncClient
     -> IO ()
 runChainSyncClient mgr chain = bracket create destroy go
   where
-    syncLogger = setComponent "sync" $ _chainResLogger chain
+    syncLogger = setComponent "header-sync" $ _chainResLogger chain
     netId = ChainNetwork (_chainId chain)
     syncLogg = logFunctionText syncLogger
     create = p2pCreateNode
@@ -192,7 +192,7 @@ runMempoolSyncClient mgr chain = bracket create destroy go
   where
     create = do
         logg Debug "starting mempool p2p sync"
-        p2pCreateNode v netId peer (logFunction $ _chainResLogger chain) peerDb mgr $
+        p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr $
             mempoolSyncP2pSession chain
     go n = do
         -- Run P2P client node
@@ -206,7 +206,9 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     p2pConfig = _peerResConfig $ _chainResPeer chain
     peerDb = _peerResDb $ _chainResPeer chain
     netId = ChainNetwork $ _chainId chain
-    logg = logFunctionText (_chainResLogger chain)
+
+    logg = logFunctionText syncLogger
+    syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
 mempoolSyncP2pSession chain logg0 env = go
