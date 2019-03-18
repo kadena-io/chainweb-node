@@ -238,5 +238,7 @@ withConnectionManger logger cert key peerDb runInner = do
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
-    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+    serviceIdToHostAddress (h, p) = HostAddress
+        <$> readHostnameBytes (B8.pack h)
+        <*> readPortBytes p
 
