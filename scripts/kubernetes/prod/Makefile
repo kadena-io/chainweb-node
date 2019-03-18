@@ -1,5 +1,5 @@
 
-SECTIONS = eu1
+SECTIONS = us1 us2 eu1
 
 us1_REGION = us-east-1
 us2_REGION = us-west-2
@@ -9,6 +9,7 @@ eu1_REGION = eu-central-1
 
 KOPS_DNS_ZONE = chainweb.k8s.local
 EXTERNAL_DNS_ZONE = chainweb.com
+IMAGE = kadena/chainweb-bootstrap-node:v0
 
 .DEFAULT_GOAL := deploys
 
@@ -86,13 +87,19 @@ cleanup-deploys: $(CLEANUP_DEPLOYS)
 	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/privkey.pem  $@
 
 
-DEPLOY_DEPS := external_dns.yaml  ../bootstrap_deploy.py
+DEPLOY_DEPS := external_dns.yaml  ../bootstrap_deploy.py  ./bootstrap-node.config
 
 .PHONY: %-deploy
 %-deploy: $(DEPLOY_DEPS)  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
 	kubectl config use-context $*.$(KOPS_DNS_ZONE) && \
 	kubectl apply -f external_dns.yaml && \
-	python ../bootstrap_deploy.py create --sub-domain=$*
+	python ../bootstrap_deploy.py create \
+	--subDomain=$* \
+	--image=$(IMAGE) \
+	--nodeConfig=./bootstrap-node.config \
+	--certificate=$*.$(EXTERNAL_DNS_ZONE)-cert.pem \
+	--privateKey=$*.$(EXTERNAL_DNS_ZONE)-privkey.pem
+
 
 
 .PHONY: %-cleanup

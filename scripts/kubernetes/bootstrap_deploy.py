@@ -22,33 +22,34 @@ def create_secret_from_file(api_instance, configPath, certPath, keyPath):
     with open(configPath, 'r') as f:
         config = f.read()
 
-    cert = ""
-    with open(certPath, 'r') as f:
-        cert = f.read()
+    data = {
+        "node.config": config,
+    }
 
-    certYaml = dict(chainweb=dict(p2p=dict(peer=dict(certificate=cert))))
+    # if certificate file provided
+    if certPath:
+        cert = ""
+        with open(certPath, 'r') as f:
+            cert = f.read()
 
-    key = ""
-    with open(keyPath, 'r') as f:
-        key = f.read()
+        certYaml = dict(chainweb=dict(p2p=dict(peer=dict(certificate=cert))))
+        data["cert.config"] = str(
+            yaml.dump(certYaml, default_flow_style=False, default_style="|"))
 
-    keyYaml = dict(chainweb=dict(p2p=dict(peer=dict(key=key))))
+    # if certificate private key file provided
+    if keyPath:
+        key = ""
+        with open(keyPath, 'r') as f:
+            key = f.read()
+
+        keyYaml = dict(chainweb=dict(p2p=dict(peer=dict(key=key))))
+        data["privkey.config"] = str(
+            yaml.dump(keyYaml, default_flow_style=False, default_style="|"))
 
     secret = client.V1Secret(
         type="Opaque",
         metadata=client.V1ObjectMeta(name="bootstrap-config"),
-        string_data={
-            "node.config":
-            config,
-            "cert.config":
-            str(
-                yaml.dump(
-                    certYaml, default_flow_style=False, default_style="|")),
-            "privkey.config":
-            str(
-                yaml.dump(
-                    keyYaml, default_flow_style=False, default_style="|"))
-        })
+        string_data=data)
 
     api_instance.create_namespaced_secret(
         namespace=NAMESPACE, body=secret, pretty='true')
@@ -170,16 +171,21 @@ def create_pod_template_with_pvc(args):
     # Configureate Pod template container
     isTTY = args.image == "chainweb-base"  # otherwise container will always "finish" and restart.
     pull_policy = "Never" if args.local else "Always"
+    command = [
+        "/bin/chainweb-node", "--node-id=0", "--config-file=/tmp/node.config"
+    ]
+
+    # if certificate file was present
+    if args.certificate:
+        command.append("--config-file=/tmp/cert.config")
+    # if certificate private key was present
+    if args.privateKey:
+        command.append("--config-file=/tmp/privkey.config")
 
     container = client.V1Container(
         name="chainweb",
         image=args.image,
-        command=[
-            "/bin/chainweb-node", "--node-id=0",
-            "--config-file=/tmp/cert.config",
-            "--config-file=/tmp/privkey.config",
-            "--config-file=/tmp/node.config"
-        ],
+        command=command,
         image_pull_policy=pull_policy,
         tty=isTTY,
         ports=[client.V1ContainerPort(container_port=PORT_NUMBER)],
@@ -250,14 +256,22 @@ def arg_parsing():
         help="A docker image to run")
 
     create_p.add_argument(
-        "--sub-domain",
-        default="us1",
+        "--subDomain",
+        default="testing",
         help="Sub-domain name for application to run externally")
 
     create_p.add_argument(
         "--local",
         action="store_true",
         help="Assume the docker image can be found locally")
+
+    create_p.add_argument("--certificate", help="Filename of CA certificate.")
+
+    create_p.add_argument(
+        "--privateKey", help="Filename of CA certificate private key.")
+
+    create_p.add_argument(
+        "--nodeConfig", help="Filename of chainweb node config.")
 
     create_p.set_defaults(func=create_resources)
 
@@ -294,13 +308,10 @@ def create_resources(args):
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
 
-    configPath = "./bootstrap-node.config"
-    certPath = "./" + args.sub_domain + DNS_NAME + "-cert.pem"
-    certKeyPath = "./" + args.sub_domain + DNS_NAME + "-privkey.pem"
-
-    create_secret_from_file(core_v1, configPath, certPath, certKeyPath)
+    create_secret_from_file(core_v1, args.nodeConfig, args.certificate,
+                            args.privateKey)
     create_headless_service(core_v1)
-    create_pod_service(core_v1, args.sub_domain, "chainweb-0")
+    create_pod_service(core_v1, args.subDomain, "chainweb-0")
     create_stateful_set(apps_v1beta2, args)
 
 
