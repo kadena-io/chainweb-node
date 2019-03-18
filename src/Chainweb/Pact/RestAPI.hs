@@ -45,3 +45,6 @@ somePactApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
     return $ SomeApi (pactApi @v' @c')
+
+somePactApis :: ChainwebVersion -> [ChainId] -> SomeApi
+somePactApis v cs = mconcat $ map (somePactApi v) cs

@@ -71,8 +71,12 @@ syncSession :: ChainwebVersion -> PeerInfo -> CutDb cas -> P2pSession
 syncSession v p db logg env = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
-        (forever $ receive >> threadDelay 1000000)
+        (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
+            -- Usually we rely on blocks being pushed to us, but every 3
+            -- seconds we pull.
+
             -- FIXME make this configurable or dynamic
+            -- FIXME use Etag along with if-non-match precondition.
 
     -- this code must not be reached
     logg @T.Text Error "unexpectedly exited cut sync session"

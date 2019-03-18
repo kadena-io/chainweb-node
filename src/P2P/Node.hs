@@ -67,7 +67,7 @@ import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Int
-import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT)
+import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT, size)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple
@@ -141,7 +141,8 @@ instance Arbitrary P2pNodeStats where
 -- Session Info
 
 data P2pSessionResult
-    = P2pSessionResult Bool
+    = P2pSessionResultSuccess
+    | P2pSessionResultFailure
     | P2pSessionException T.Text
     | P2pSessionTimeout
     deriving (Show, Eq, Ord, Generic)
@@ -151,13 +152,14 @@ data P2pSessionResult
 -- success.
 --
 isSuccess :: P2pSessionResult -> Bool
-isSuccess (P2pSessionResult True) = True
+isSuccess P2pSessionResultSuccess = True
 isSuccess P2pSessionTimeout = True
 isSuccess _ = False
 
 instance Arbitrary P2pSessionResult where
     arbitrary = oneof
-        [ P2pSessionResult <$> arbitrary
+        [ pure P2pSessionResultSuccess
+        , pure P2pSessionResultFailure
         , P2pSessionException <$> arbitrary
         , pure P2pSessionTimeout
         ]
@@ -340,7 +342,6 @@ findNextPeer conf node = do
 
     -- Create a new sessions with a random peer for which there is no active
     -- sessions:
-    i <- randomR node (0, peerCount - 1)
 
     let checkPeer (n :: PeerEntry) = do
             let pid = _peerId $ _peerEntryInfo n
@@ -351,17 +352,21 @@ findNextPeer conf node = do
             return n
 
     -- random circular shift of a set
-    let shift s = uncurry (++)
+    let shift i s = uncurry (++)
             $ swap
             $ splitAt (fromIntegral i)
             $ toList
             $ s
 
+        shiftR s = do
+            i <- randomR node (0, size s - 1)
+            return $ shift i s
+
     -- Classify the peers by priority
     --
     let base = getEQ (_p2pNodeNetworkId node) peers
 #if 0
-    let searchSpace = shift base
+    searchSpace <- shift base
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
@@ -369,7 +374,7 @@ findNextPeer conf node = do
         p1 = getEQ (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
         p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
         p3 = getEQ (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
-        searchSpace = shift p0 ++ shift p1 ++ shift p2 ++ shift p3
+    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
     foldr (orElse . checkPeer) retry searchSpace
@@ -410,7 +415,7 @@ newSession conf node = do
                 incrementActiveSessionCount peerDb newPeerInfo
                 info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)
-            logg node Info $ "Started peer session " <> showSessionId newPeerInfo newSes
+            logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
     TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
@@ -425,8 +430,8 @@ awaitSessions node = do
         removeSession node p
         result <- case r of
             Right Nothing -> P2pSessionTimeout <$ countTimeout node
-            Right (Just True) -> P2pSessionResult True <$ countSuccess node
-            Right (Just False) -> P2pSessionResult False <$ countFailure node
+            Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
+            Right (Just False) -> P2pSessionResultFailure <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
         return (p, i, a, result)
 
@@ -444,10 +449,10 @@ awaitSessions node = do
         P2pSessionTimeout -> do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResult True -> do
+        P2pSessionResultSuccess -> do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResult False -> incrementSuccessiveFailures peerDb pId
+        P2pSessionResultFailure -> incrementSuccessiveFailures peerDb pId
         P2pSessionException _ -> incrementSuccessiveFailures peerDb pId
 
     -- logging

@@ -148,9 +148,17 @@ pP2pConfiguration networkId = id
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
-    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate (pure <$> pPeerInfoCompact net)
+    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate
+        (pure <$> pKnownPeerInfo)
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
   where
     net = T.unpack . networkIdToText <$> networkId
+
+    pKnownPeerInfo = textOption
+        % prefixLong net "known-peer-info"
+        <> suffixHelp net
+            "peer info that is added to the list of known peers. This option can be used multiple times."
+        <> metavar "[<PEERID>@]<HOSTADDRESS>"
+

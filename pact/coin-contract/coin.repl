@@ -1,20 +1,11 @@
 (begin-tx)
 
-(env-data { "kadena" : ["foo"] })
-(env-keys ["foo"])
-(define-keyset 'kadena (read-keyset 'kadena))
+(load "coin.pact")
 
 (commit-tx)
 (begin-tx)
 
-(load "coin-contract.pact")
-(create-table coin-table)
-
-(commit-tx)
-(begin-tx)
-
-(typecheck 'coin-contract)
-(verify 'coin-contract)
+(verify 'coin)
 
 (env-data { "k1" : ["keys1"], "k2": ["keys2"] })
 (env-keys ["keys1", "keys2"])
@@ -48,16 +39,34 @@
 (test-capability (FUND_TX))
 (expect-failure "FUND-TX fails for insufficient funds" (fund-tx 'k1 'k2 (read-keyset 'k2) 1.0))
 (credit 'k1 (read-keyset 'k1) 1.0)
+
+(env-data { "fee" : 0.0, "k1" : ["keys1"], "k2": ["keys2"] })
+(env-keys ["keys1", "keys2"])
+
 (fund-tx 'k1 'k2 (read-keyset 'k2) 1.0)
 (expect "k2 should now have 0.0 coins having mined the tx due to 0 gas" 0.0 (account-balance 'k2))
 (expect "k1 should now have 0.0 coins after paying miner" 0.0 (account-balance 'k1))
+
+(env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"] })
+(env-keys ["keys1", "keys2"])
+
+(test-capability (TRANSFER))
+(test-capability (FUND_TX))
+(pact-state true)
+
+(credit 'k1 (read-keyset 'k1) 1.0)
+(fund-tx 'k1 'k2 (read-keyset 'k2) 1.0)
+
+(continue-pact 2 1)
+(expect "k2 should now have 0.4 coins after mining 0.4 coin fee" 0.4 (account-balance 'k2))
+(expect "k1 should now have 0.6 coins after paying for 0.4 coin fee" 0.6 (account-balance 'k1))
 
 ;; transfers should respect balances as intended
 (expect "roundtrip 0.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
 (credit 'k1 (read-keyset 'k1) 1.0)
 (transfer 'k1 'k2 (read-keyset 'k2) 1.0)
-(expect "k1 now has 0.0 coins after transfer to 'k2" 0.0 (account-balance 'k1))
-(expect "k2 now has 1.0 coins after transfer from 'k1" 1.0 (account-balance 'k2))
+(expect "k1 now has 0.6 coins after transfer to 'k2" 0.6 (account-balance 'k1))
+(expect "k2 now has 1.4 coins after transfer from 'k1" 1.4 (account-balance 'k2))
 (expect-failure "k1 now has insufficient funds and cannot transfer" (transfer 'k1 'k2 (read-keyset 'k2) 1.0))
 
 ; coinbase should fail when 'COINBASE' capability is not in scope
@@ -65,4 +74,10 @@
 (expect-failure "coinbase fails when capability is not in scope" (coinbase 'k1 (read-keyset 'k1) 0.0))
 (test-capability (COINBASE))
 (coinbase 'k1 (read-keyset 'k1) 1.0)
-(expect "after coinbase, k1 should have 1.0 coins in its account" 1.0 (account-balance 'k1))
+(expect "after coinbase, k1 should have 1.6 coins in its account" 1.6 (account-balance 'k1))
+
+(env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"] })
+(env-keys ["keys1", "keys2", "keys3"])
+
+(coinbase 'k3 (read-keyset 'k3) 1.0)
+(expect "coinbase should create accounts and credit them some amount" 1.0 (account-balance 'k3))

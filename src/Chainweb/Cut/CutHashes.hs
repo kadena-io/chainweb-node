@@ -45,7 +45,7 @@ import P2P.Peer
 -- Cut Hashes
 
 data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHash)
+    { _cutHashes :: !(HM.HashMap ChainId (BlockHeight, BlockHash))
     , _cutOrigin :: !(Maybe PeerInfo)
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
@@ -77,7 +77,7 @@ instance FromJSON CutHashes where
 
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
-    { _cutHashes = _blockHash <$> _cutMap c
+    { _cutHashes = (_blockHeight &&& _blockHash) <$> _cutMap c
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c

@@ -337,7 +337,7 @@ withChainServer
     => ToJSON t
     => FromJSON t
     => PayloadCas cas
-    => ChainwebServerDbs t cas
+    => ChainwebServerDbs t logger cas
     -> (ClientEnv -> IO a)
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
@@ -468,7 +468,7 @@ clientEnvWithChainwebTestServer
     => PayloadCas cas
     => Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t cas)
+    -> IO (ChainwebServerDbs t logger cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 clientEnvWithChainwebTestServer tls v dbsIO

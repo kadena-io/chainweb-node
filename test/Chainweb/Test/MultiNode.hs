@@ -140,7 +140,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configChainDbDirPath chainDbDir
         -- Place where the chaindbs are persisted.
 
-    & set (configMiner . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
@@ -188,7 +188,9 @@ node loglevel write stateVar bootstrapPortVar conf =
         -- publish via an MVar.
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
-        runChainweb cw `finally` sample cw
+        runChainweb cw `finally` do
+            logFunctionText logger Info "write sample consensus state"
+            sample cw
   where
     nid = _configNodeId conf
 

@@ -18,11 +18,14 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
 import Data.Aeson
+import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import System.FilePath
 import System.IO.Extra
@@ -45,13 +48,14 @@ import Chainweb.Test.Pact.Utils
 
 tests :: IO TestTree
 tests = do
-    stdTests <- pactExecTests StdBlock
-    genesisTests <- pactExecTests GenesisBlock
-    pure $ testGroup "Simple pact execution tests" (stdTests <> genesisTests)
+    setup <- pactTestSetup
+    stdTests <- pactExecTests setup StdBlock
+    -- genesisTests <- pactExecTests setup GenesisBlock
+    pure $ testGroup "Simple pact execution tests" stdTests
 
 pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
-    let loggers = neverLog
+    let loggers = alwaysLog
     let logger = newLogger loggers $ LogName "PactService"
     pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
@@ -69,11 +73,17 @@ pactTestSetup = do
                 env <- mkSQLiteEnv logger False sqlc loggers
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
-    pure $ PactTestSetup checkpointEnv theState
 
-pactExecTests :: BlockType -> IO [TestTree]
-pactExecTests t = do
-    (PactTestSetup env st) <- pactTestSetup
+    -- Coin contract must be created and embedded in the genesis
+    -- block prior to initial save
+    ccState <- createCoinContract theState
+    void $! saveInitial (_cpeCheckpointer checkpointEnv) ccState
+
+    pure $ PactTestSetup checkpointEnv ccState
+
+
+pactExecTests :: PactTestSetup -> BlockType -> IO [TestTree]
+pactExecTests (PactTestSetup env st) t =
     fst <$> runStateT (runReaderT (execTests t) env) st
 
 execTests :: BlockType -> PactT [TestTree]
@@ -82,7 +92,7 @@ execTests t = do
     trans <- liftIO $ mkPactTestTransactions cmdStrs
     (results, _dbState) <- execTransactions (isGenesis t) defaultMiner trans
     let outputs = snd <$> _transactionPairs results
-    let testResponses = zipWith TestResponse testPactRequests outputs
+    let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
 
 getPactCode :: TestSource -> IO String
@@ -131,7 +141,7 @@ fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
 fileCompareTxLogs fp resp =
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
     where
-        ioBs = return $ toS $ show <$> _flTxLogs $ _trOutput resp
+        ioBs = return $ toS $ show <$> take 1 . _flTxLogs $ _trOutput resp
 
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes
@@ -179,14 +189,14 @@ isGenesis = \case
 -- sample data
 ----------------------------------------------------------------------------------------------------
 
-testPactRequests :: [TestRequest]
-testPactRequests =
-  [ testReq1
-  , testReq2
-  , testReq3
-  , testReq4
-  , testReq5
-  ]
+testPactRequests :: Vector TestRequest
+testPactRequests = V.fromList
+    [ testReq1
+    , testReq2
+    , testReq3
+    , testReq4
+    , testReq5
+    ]
 
 testReq1 :: TestRequest
 testReq1 = TestRequest

@@ -28,7 +28,7 @@ import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
 import Chainweb.Pact.Utils (toEnv')
 
 import Pact.ApiReq
-import Pact.Types.Command
+import Pact.Types.Command (ProcessedCommand(..),Command,verifyCommand,CommandResult(..),ExecutionMode(..))
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.Server (CommandConfig(..))
 import Pact.Interpreter (mkPureEnv)
@@ -48,8 +48,11 @@ genPayloadModule _v = do
       go (outs,prevEM) (inp,cmd) = case env' of
         Env' pactDbEnv -> do
           let procCmd = verifyCommand (fmap encodeUtf8 cmd)
+          parsedCmd <- case procCmd of
+            f@ProcFail{} -> fail (show f)
+            ProcSucc c -> return c
           ((result,txLogs),newEM) <-
-            applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM cmd procCmd
+            applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
           -- TODO this is a heuristic for a failed tx
           when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
           let fullOut = FullLogTxOutput (_crResult result) txLogs

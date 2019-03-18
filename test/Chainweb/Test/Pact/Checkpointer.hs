@@ -6,12 +6,14 @@ module Chainweb.Test.Pact.Checkpointer
   ( tests
   ) where
 
-import Control.Concurrent (MVar, newMVar, readMVar)
+import Control.Arrow ((&&&))
+import Control.Concurrent (MVar, newMVar, readMVar, modifyMVar)
 import Control.Monad (void)
+import Control.Lens (preview, _Just)
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.Default (def)
-import Data.Text (Text, pack)
+import Data.Text (Text)
 
 import NeatInterpolation (text)
 
@@ -21,7 +23,7 @@ import Pact.Types.Command (ExecutionMode(Transactional))
 import Pact.Types.Hash (hash)
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (PactExec(..), TxId)
+import Pact.Types.Runtime (peStep, TxId)
 import Pact.Types.Server (CommandConfig(..), CommandEnv(..), CommandState)
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
@@ -95,29 +97,32 @@ testCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
 testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   let logger = newLogger loggers "testCheckpointer"
-      txId = _pdbsTxId dbState00
 
-      runExec :: (MVar CommandState, Env') -> Maybe Value -> Text -> IO EvalResult
-      runExec (mcs, Env' pactDbEnv) eData eCode = do
+      incTxId mv = modifyMVar mv (return . (id &&& succ))
+
+      runExec :: (MVar CommandState, Env',MVar TxId) -> Maybe Value -> Text -> IO EvalResult
+      runExec (mcs, Env' pactDbEnv, txIdV) eData eCode = do
+          txId <- incTxId txIdV
           let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
           execMsg <- buildExecParsedCode eData eCode
           applyExec' cmdenv def execMsg [] (hash "")
 
-      runCont :: (MVar CommandState, Env') -> TxId -> Int -> IO EvalResult
-      runCont (mcs, Env' pactDbEnv) pactId step = do
+      runCont :: (MVar CommandState, Env',MVar TxId) -> PactId -> Int -> IO EvalResult
+      runCont (mcs, Env' pactDbEnv, txIdV) pactId step = do
+          txId <- incTxId txIdV
           let contMsg = ContMsg pactId step False Null
-              cmdenv = CommandEnv Nothing (Transactional pactId) pactDbEnv mcs logger freeGasEnv
+              cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
           applyContinuation' cmdenv def contMsg [] (hash "")
 
       ksData :: Text -> Value
       ksData idx =
           object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
-      unwrapState :: PactDbState -> IO (MVar CommandState, Env')
-      unwrapState dbs = (,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs)
+      unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
+      unwrapState dbs = (,,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs) <*> newMVar (_pdbsTxId dbs)
 
-      wrapState :: (MVar CommandState, Env') -> IO PactDbState
-      wrapState (mcs,dbe') = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> (pure txId)
+      wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
+      wrapState (mcs,dbe',txidV) = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> readMVar txidV
 
 
   void $ saveInitial _cpeCheckpointer dbState00
@@ -180,14 +185,14 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   runExec s03 Nothing "(m1.readTbl)"
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
-  -- start a pact at txid 0
-  let pactId = 0
-
-      pactResult step = Just (PactExec 2 Nothing True step (PactId $ pack $ show pactId))
+  -- start a pact
+  -- test is that exec comes back with proper step
+  let pactId = 1
+      pactCheckStep = preview (_Just . peStep) . _erExec
 
   runExec s03 Nothing "(m1.dopact 'pactA)"
-    >>= \EvalResult{..} ->
-           _erExec @?= pactResult 0
+    >>= ((Just 0 @=?) . pactCheckStep)
+
 
   void $ wrapState s03
     >>= discard _cpeCheckpointer bh00 hash00
@@ -215,7 +220,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   -- start a pact at txid 4, would fail if new block 01 had not been discarded
   runExec s04 Nothing "(m1.dopact 'pactA)"
-    >>= \EvalResult{..} -> _erExec @?= pactResult 0
+    >>= ((Just 0 @=?) . pactCheckStep)
 
   void $ wrapState s04
     >>= save _cpeCheckpointer bh01 hash01
@@ -241,7 +246,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
   runCont s05 pactId 1
-    >>= \EvalResult{..} -> _erExec @?= pactResult 1
+    >>= ((Just 1 @=?) . pactCheckStep)
 
   void $ wrapState s05
     >>= save _cpeCheckpointer bh02 hash02
@@ -305,7 +310,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   -- this would fail if not a fork
   runCont s08 pactId 1
-    >>= \EvalResult{..} -> _erExec @?= pactResult 1
+    >>= ((Just 1 @=?) . pactCheckStep)
 
   void $ wrapState s08
     >>= save _cpeCheckpointer bh02 hash02Fork

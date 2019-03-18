@@ -4,7 +4,7 @@ let
     inherit (nixpkgs) pkgs;
     inherit (nixpkgs.haskell.lib) justStaticExecutables dontCheck;
     chainwebDrv = ( import ./. { system = "x86_64-linux"; } ).ghc.chainweb;
-    chainwebStatic = justStaticExecutables 
+    chainwebStatic = justStaticExecutables
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv);
 in
     let baseImage = pkgs.dockerTools.buildImage {
@@ -12,8 +12,11 @@ in
             tag = "latest";
             fromImage = pkgs.dockerTools.pullImage {
                 imageName = "alpine";
-                imageDigest = "sha256:e1871801d30885a610511c867de0d6baca7ed4e6a2573d506bbec7fd3b03873f";
-                sha256 = "05wcg38vsygjzf59cspfbb7cq98c7x18kz2yym6rbdgx960a0kyq";
+                imageDigest = "sha256:a4d41fa0d6bb5b1194189bab4234b1f2abfabb4728bda295f5c53d89766aa046";
+                finalImageTag = "3.8";
+                sha256 = "17s0np13ygsc16ahx2zzyry60c03p48cq3skqvlwm6bhfshkwvv8";
+                os = "linux";
+                arch = "amd64";
             };
             contents = [ chainwebStatic ];
             config = {
@@ -29,8 +32,8 @@ in
                 tag = "latest";
                 fromImage = baseImage;
                 config = {
-                    Cmd = ["/bin/chainweb-node" 
-                           "--node-id=0" 
+                    Cmd = ["/bin/chainweb-node"
+                           "--node-id=0"
                            "--config-file=/tmp/test-bootstrap-node.config"];
                     WorkingDir = "/home";
                 };

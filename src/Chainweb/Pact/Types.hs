@@ -18,10 +18,10 @@ module Chainweb.Pact.Types
   , HashedLogTxOutput(..)
   , PactDbStatePersist(..)
   , PactT
-  , PactTransaction(..)
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
+  , GasSupply(..)
     -- * types
   , MinerKeys
   , MinerId
@@ -34,8 +34,6 @@ module Chainweb.Pact.Types
   , minerKeys
   , pdbspRestoreFile
   , pdbspPactDbState
-  , ptCmd
-  , ptTxId
     -- * defaults
   , defaultMiner
     -- * module exports
@@ -47,45 +45,27 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
 import Data.Aeson as A
-import Data.ByteString (ByteString)
+import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
-
-import GHC.Word
+import Data.Vector (Vector)
 
 -- internal pact modules
 
-import Pact.Types.Command (Command(..))
 import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 import Pact.Types.Util (Hash(..))
 
 -- internal chainweb modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
-
--- TODO: _ptTxId needs to be removed from the below, and the real TxId needs to be
--- checkpointed & restored
-data PactTransaction = PactTransaction
-    { _ptTxId :: Word64
-    , _ptCmd :: Command ByteString
-    } deriving (Show, Eq)
-
-instance ToJSON PactTransaction where
-    toJSON o = object
-        [ "ptTxId" .= _ptTxId o
-        , "ptCmd" .= _ptCmd o ]
-    {-# INLINE toJSON #-}
-
-instance FromJSON PactTransaction where
-    parseJSON = withObject "PactTransaction" $ \o -> PactTransaction
-        <$> o .: "ptTxId"
-        <*> o .: "ptCmd"
-    {-# INLINE parseJSON #-}
+import Chainweb.Transaction
+import Chainweb.Payload (Transaction)
 
 newtype Transactions = Transactions
-    { _transactionPairs :: [(PactTransaction, FullLogTxOutput)]
+    { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
     } deriving (Eq)
 
 instance ToJSON Transactions where
@@ -146,20 +126,25 @@ data MinerInfo = MinerInfo
   , _minerKeys :: MinerKeys
   }
 
+-- Keyset taken from cp examples in Pact
+-- The private key here was taken from `examples/cp` from the Pact repository
 defaultMiner :: MinerInfo
-defaultMiner = MinerInfo "miner" $ KeySet [] (Name "" def)
+defaultMiner = MinerInfo "miner" $ KeySet
+  ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+  (Name "miner-keyset" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath
     , _pdbspPactDbState :: PactDbState
     }
 
+newtype GasSupply = GasSupply { _gasSupply :: Decimal }
+
 type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
 
-type MemPoolAccess = BlockHeight -> IO [PactTransaction]
+type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
-makeLenses ''PactTransaction
 makeLenses ''FullLogTxOutput
 makeLenses ''HashedLogTxOutput

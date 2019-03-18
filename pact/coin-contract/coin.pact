@@ -39,6 +39,9 @@
     (with-read coin-table account { "guard" := g }
       (enforce-guard g)))
 
+  (defcap GOVERNANCE ()
+    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
+
   ; --------------------------------------------------------------------------
   ; Coin Contract
   ; --------------------------------------------------------------------------
@@ -69,14 +72,15 @@
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
              (refund (- total fee)))
-        (enforce (> 0.0 refund) "fee less than refund")
+        (enforce (>= refund 0.0) "fee must be less than or equal to total")
+
 
         ; directly update instead of credit
         (if (> refund 0.0)
           (with-read coin-table sender
             { "balance" := balance }
             (update coin-table sender
-              { "balance": (+ balance fee) })
+              { "balance": (+ balance refund) })
             )
           "noop")
         (credit miner miner-guard fee)

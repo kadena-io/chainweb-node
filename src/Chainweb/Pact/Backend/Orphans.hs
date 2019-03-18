@@ -20,7 +20,7 @@ module Chainweb.Pact.Backend.Orphans where
 
 import Control.Monad
 
-import Data.Aeson
+import Data.Aeson hiding (Object)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Serial
@@ -49,8 +49,6 @@ import Pact.Types.Server
 -----------------------
 -- GENERIC INSTANCES --
 -----------------------
-deriving instance Generic CommandPact -- transferred
-
 deriving instance Generic ModuleData -- transferred
 
 deriving instance Generic (ModuleDef a)
@@ -66,8 +64,6 @@ deriving instance Generic DefName -- transferred
 deriving instance Generic Decimal
 
 deriving instance Generic Guard
-
-deriving instance Generic PactId
 
 deriving instance Generic Example
 
@@ -97,11 +93,17 @@ deriving instance Generic TableId
 
 deriving instance Generic Pragma
 
+deriving instance Generic (Object n)
+
+deriving instance Generic FieldKey
+
+deriving instance Generic PactExec
+
+deriving instance Generic PactContinuation
+
 ----------------------
 -- SERIAL INSTANCES --
 ----------------------
-
-deriving instance Serial CommandPact
 
 deriving instance Serial TxId
 
@@ -165,6 +167,15 @@ deriving instance Serial NominalDiffTime
 deriving instance Serial Micro
 
 deriving instance Serial Decimal
+
+deriving instance (Generic n, Serial n) => Serial (Object n)
+
+deriving instance Serial FieldKey
+
+deriving instance Serial PactExec
+
+deriving instance Serial PactContinuation
+
 
 instance Serial1 Governance where
   serializeWith f (Governance t) = case t of
@@ -291,6 +302,17 @@ instance Serial1 Def where
         _dMeta <- deserialize
         _dInfo <- deserialize
         return $ Def {..}
+
+instance Serial1 Object where
+  serializeWith f Object {..} = do
+    pairListSerial1Helper serialize (serializeWith f) _oObject
+    serializeWith (serializeWith f) _oObjectType
+    serialize _oInfo
+  deserializeWith m = do
+    _oObject <- pairListDeSerial1Helper (const deserialize) deserializeWith m
+    _oObjectType <- deserializeWith (deserializeWith m)
+    _oInfo <- deserialize
+    return $ Object {..}
 
 deriving instance Serial NativeDefName
 
@@ -419,8 +441,7 @@ instance Serial1 Term where
                 serialize _tInfo
             TObject {..} -> do
                 putWord8 8
-                pairListSerial1Helper (serializeWith f) (serializeWith f) _tObject
-                serializeWith (serializeWith f) _tObjectType
+                serializeWith f _tObject
                 serialize _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -511,8 +532,7 @@ instance Serial1 Term where
                     _tInfo <- deserialize
                     return $ TBinding {..}
                 8 -> do
-                    _tObject <- pairListDeSerial1Helper deserializeWith deserializeWith m
-                    _tObjectType <- deserializeWith (deserializeWith m)
+                    _tObject <- deserializeWith m
                     _tInfo <- deserialize
                     return $ TObject {..}
                 9 -> do
@@ -728,8 +748,6 @@ deriving instance Serialize Pragma
 
 deriving instance Serialize CommandState
 
-deriving instance Serialize CommandPact
-
 deriving instance Serialize Name
 
 deriving instance Serialize ModuleName
@@ -898,7 +916,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
             TObject {..} -> do
                 putWord8 8
                 put _tObject
-                put _tObjectType
                 put _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -986,7 +1003,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
                     return $ TBinding {..}
                 8 -> do
                     _tObject <- get
-                    _tObjectType <- get
                     _tInfo <- get
                     return $ TObject {..}
                 9 -> do
@@ -1044,3 +1060,11 @@ instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
 instance (Hashable k, Ord k, Serialize k, Serialize v) => Serialize (HashMap k v) where
     put = put . Data.HashMap.Strict.toList
     get = get >>= return . Data.HashMap.Strict.fromList
+
+deriving instance (Generic n, Serialize n) => Serialize (Object n)
+
+deriving instance Serialize FieldKey
+
+deriving instance Serialize PactExec
+
+deriving instance Serialize PactContinuation

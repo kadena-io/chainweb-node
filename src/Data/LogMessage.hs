@@ -137,7 +137,7 @@ aNoLog = ALogFunction $ \_ _ -> return ()
 -- LogMessage Types
 
 newtype JsonLog a = JsonLog a
-    deriving newtype (NFData)
+    deriving newtype (NFData, ToJSON, FromJSON)
 
 instance (Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a) where
     logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a

@@ -60,7 +60,7 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
-import Data.HashMap.Weak
+import Data.TaskMap
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --

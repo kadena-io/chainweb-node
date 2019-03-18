@@ -50,7 +50,7 @@ import Chainweb.Sync.WebBlockHeaderStore
 
 import Data.CAS
 import qualified Data.CAS.HashMap as CAS
-import Data.HashMap.Weak
+import Data.TaskMap
 import Data.IVar
 import Data.PQueue
 

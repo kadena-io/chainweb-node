@@ -138,51 +138,198 @@ mkdir -p tmp/run-nodes-logs
 # stop all nodes with Ctrl-C
 ```
 
-## Running the Examples
-
-A simple end-to-end example for mining and synchronizing nodes for a single
-chain is provided in `single-chain-example`. It demonstrates simple usage of the
-`P2P`, `Sync` and `BlockHeaderDB` modules of the `chainweb` library.
-
-```bash
-cabal run single-chain-example
-
-stack exec single-chain-example
-```
-
 ## Chainweb Orchestration
+
+This section describes how to not only run a chainweb node, but deploy one.
 
 ### Docker Images
 
+#### Dependencies
+
+- `nix >= 2.2`
+- `docker >= 1.18`
+
 The following docker images can be found on DockerHub:
+
 * [chainweb-base](https://hub.docker.com/r/kadena/chainweb-base): Base image containing
     all of Chainweb's dependencies and executables.
-* [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node): Image that spins up a chainweb bootstrap node. Expects the node's configuration file to be present in `/tmp/test-bootstrap-node.config`.
+* [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node):
+  Image that spins up a chainweb bootstrap node. Expects the node's
+  configuration file to be present in `/tmp/test-bootstrap-node.config`.
 
-These docker images can also be created locally using Nix:
+Linux users can also create these images locally using Nix:
+
 ```sh
-# Outputs two result tar files, one for the base image and one for the bootstrap image.
+# This outputs two tar files, one for the base image and one for the bootstrap
+# image. You need to be logged in to docker (`docker login`) to fetch the
+# Alpine image that these two new images are based on.
+
 $ nix-build docker.nix
 $ docker load --input result
 $ docker load --input result-2
 ```
 
-NB: 02/21/2019
-MacOS users will need a Linux builder to create docker images using nix. Instructions for seting up a docker builder for nix can be found [here](https://medium.com/@zw3rk/provisioning-a-nixos-server-from-macos-d36055afc4ad).
+As of at least 2019 March, it is not possible for MacOS users to build these.
 
-### Running Kubernetes - TBD
+### Running Kubernetes
 
-1. Install the Kubernetes command-line tool, [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
-2. Install a local or cloud-based Kubernetes cluster. [Minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/) is a popular local cluster solution. To install an AWS cluster, follow the instructions [here](https://medium.com/containermind/how-to-create-a-kubernetes-cluster-on-aws-in-few-minutes-89dda10354f4).
-3. Install Python 2.7 and the python packages outlined in `scripts/kubernetes/requirements.txt`. If you have `pip` installed you can run `pip install -r scripts/kubernetes/requirements.txt` to install all dependencies.
-4. To create the Kubernetes resources to start up a chainweb bootstrap node, run `python scripts/kubernetes/bootstrap_deploy.py create`.
-5. For instructions on how to interact with Kubernetes, follow these [examples](http://kubernetesbyexample.com/). Note that they are using a Minishift local cluster instead of a Minikube one.
-6. To clean up these resources, run `python scripts/kubernetes/boostrap_deploy.py delete`.
+#### Dependencies
 
+- `kubectl >= 1.13`
+  - [Mac / Windows / Ubuntu](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
+  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/kubectl/)
+- `minikube >= 0.35`
+  - [Mac / Windows](https://kubernetes.io/docs/tasks/tools/install-minikube/)
+  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/minikube/)
+- `python >= 3.7`
+- `kubernetes` Python Library
+  - [PyPI](https://pypi.org/project/kubernetes/)
+  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/python-kubernetes/)
 
-NB: 03/06/2019
-To run the cluster with your local docker images, follow the instructions [here](https://blogmilind.wordpress.com/2018/01/30/running-local-docker-images-in-kubernetes/). The script `scripts/dev_startup.sh` automates some of these steps already for minikube clusters. This method will not work for cloud-based clusters.
+#### Running Locally
 
+1. Ensure that the above dependencies are installed.
+2. Create a local Kubernetes cluster with Minikube: `minikube start**
+3. Load the chainweb bootstrap node:
+
+##### Linux
+
+For running our custom-built images. Otherwise, follow the MacOS instructions
+below to run an image from DockerHub.
+
+First, we must load our built images into *Minikube's* Docker context.
+
+```sh
+# Unnecessary if done above
+$ nix-build docker.nix
+
+# Temporarily inject Minikube-specific Docker settings in our environment.
+# You can close your terminal to reset these.
+$ eval `minikube docker-env`
+
+# Load the images into Minikube's Docker context.
+$ docker load --input result
+$ docker load --input result-2
+```
+
+Now we can run our images:
+
+```sh
+$ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node --local
+```
+
+Excluding the `--image` and `--local` flags will cause a default image to be
+pulled from Kadena's DockerHub repository.
+
+##### MacOS
+
+```sh
+$ python scripts/kubernetes/bootstrap_deploy.py create
+```
+
+Whichever approach we chose, if creation was successful, we'll see:
+
+```
+Running with:  Namespace(func=<function create_resources at 0x7fa30aa86840>, image='chainweb-bootstrap-node:test00', local=True)
+Creating cluster...
+Statefule Set created. status='{'collision_count': None,
+ 'conditions': None,
+ 'current_replicas': None,
+ 'current_revision': None,
+ 'observed_generation': None,
+ 'ready_replicas': None,
+ 'replicas': 0,
+ 'update_revision': None,
+ 'updated_replicas': None}'
+Done
+```
+
+4. The following commands can be used to confirm the status of the bootstrap node:
+
+```sh
+$ kubectl get pods
+
+NAME         READY   STATUS    RESTARTS   AGE
+chainweb-0   1/1     Running   0          12s
+```
+
+```sh
+$ kubectl get service
+
+NAME                TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)         AGE
+chainweb-0          LoadBalancer   10.105.226.234   <pending>     443:32085/TCP   6m
+chainweb-headless   ClusterIP      None             <none>        1789/TCP        6m
+kubernetes          ClusterIP      10.96.0.1        <none>        443/TCP         3h29m
+```
+
+```sh
+$ minikube service chainweb-0 --url
+
+http://192.168.99.100:32085
+```
+
+```sh
+$ curl https://192.168.99.100:32085/swagger.json -v -k
+
+# A wall of JSON output.
+```
+
+```sh
+$ watch -n 1 "kubectl logs chainweb-0 | tail -n 25"
+
+# An auto-updating feed of log messages. You should see blocks being mined.
+```
+
+5. To clean up these resources, run `python scripts/kubernetes/boostrap_deploy.py delete`.
+
+#### Running on AWS
+
+*Pending.*
+
+<!-- 3. For instructions on how to interact with Kubernetes, follow these -->
+<!--    [examples](http://kubernetesbyexample.com/). Note that they are using a -->
+<!--    Minishift local cluster instead of a Minikube one. -->
+
+<!-- [K8S cluster on AWS](https://medium.com/containermind/how-to-create-a-kubernetes-cluster-on-aws-in-few-minutes-89dda10354f4). -->
+
+<!-- NB: 03/06/2019 To run the cluster with your local docker images, follow the -->
+<!-- instructions -->
+<!-- [here](https://blogmilind.wordpress.com/2018/01/30/running-local-docker-images-in-kubernetes/). -->
+<!-- The script `scripts/dev_startup.sh` automates some of these steps already for -->
+<!-- minikube clusters. This method will not work for cloud-based clusters. -->
+
+#### Connecting to a Bootstrap Node
+
+The `chainweb-node` binary has a built-in list of official bootstrap nodes, but
+we can specify others on the command line. For a locally running bootstrap, we
+first confirm the IP and port:
+
+```sh
+$ minikube service chainweb-0 --url
+
+http://192.168.99.100:32742
+```
+
+Now we run a `chainweb-node` as usual, except that we add the `--peer-info`
+flag:
+
+```sh
+$ chainweb-node --node-id=<SOME-ID> --peer-info=9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ@192.168.99.100:32742
+
+# A wall of log messages.
+```
+
+`9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ` is the certificate fingerprint of
+the built-in test certificate. This may differ from your situation, but the true
+fingerprint can always be found in your `chainweb-node`'s log messages.
+
+Connecting to an official bootstrap node is even simpler:
+
+```sh
+$ chainweb-node --node-id=<SOME-ID> --peer-info=us1.chainweb.com:443
+
+# A wall of log messages.
+```
 
 ## Component Structure
 
