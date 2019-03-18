@@ -3,7 +3,8 @@
   "'coin' represents the Kadena Coin Contract."
 
 
-  ; (implements coin-contract-sig)
+  ; (implements coin-sig)
+  ; (implements spv-sig)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -15,6 +16,12 @@
     )
 
   (deftable coin-table:{coin-schema})
+
+  (defschema creates-schema
+    exists:string
+    )
+
+  (deftable creates-table:{creates-schema})
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -170,6 +177,44 @@
           , "guard": guard
           }
           )))
+
+  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
+    (with-capability (TRANSFER)
+      (debit delete-account quantity)
+      { "create-chain-id": create-chain-id
+      , "create-account": create-account
+      , "create-account-guard": create-account-guard
+      , "quantity": quantity
+      , "delete-chain-id": (chain-id)
+      , "delete-account": delete-account
+      , "delete-tx-hash": (tx-hash)
+      }))
+
+  (defun create-coin (proof)
+    (let ((outputs (at "outputs" (verify-spv "TXOUT" proof))))
+      (enforce (= 1 (length output)) "only one tx in outputs")
+      (bind (at 0 outputs)
+        { "create-chain-id":= create-chain-id
+        , "create-account" := create-account
+        , "create-account-guard" := create-account-guard
+        , "quantity" := quantity
+        , "delete-tx-hash" := delete-tx-hash
+        , "delete-chain-id" := delete-chain-id
+        }
+        (enforce (= (chain-id) create-chain-id "enforce correct create chain ID"))
+        (let ((create-id (format "%:%" [delete-tx-hash delete-chain-id])))
+          (with-default-read create-id creates-table
+            { "exists": false }
+            { "exists":= exists }
+            (enforce (not exists) (format "enforce unique usage of %" [create-id]))
+            (insert creates create-id { "exists": true })
+            (with-capability (TRANSFER)
+              (credit create-account create-account-guard quantity)))
+          )))
+    )
+
+
 )
 
 (create-table coin-table)
+(create-table creates-table)
