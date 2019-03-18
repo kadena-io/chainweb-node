@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -177,10 +179,9 @@ data PactDbConfig = PactDbConfig
     , _pdbcLogDir :: FilePath
     , _pdbcPragmas :: [P.Pragma]
     , _pdbcGasLimit :: Int
-    , _pdbcGasRate :: Int
-    } deriving (Eq, Show, Generic)
-
-instance A.FromJSON PactDbConfig
+    , _pdbcGasRate :: Int }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (A.FromJSON, A.ToJSON)
 
 makeLenses ''PactDbConfig
 

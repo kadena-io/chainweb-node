@@ -59,6 +59,7 @@ import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import Chainweb.Pact.Backend.Types (PactDbConfig)
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
@@ -107,12 +108,13 @@ withChainResources
     -> PeerResources logger
     -> (Maybe FilePath)
     -> logger
+    -> PactDbConfig
     -> Mempool.InMemConfig ChainwebTransaction
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logger mempoolCfg inner =
+withChainResources v cid peer chainDbDir logger pdbc mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService (setComponent "pact" logger) mempool $ \_requestQ -> do
+    withPactService pdbc (setComponent "pact" logger) mempool $ \_requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $

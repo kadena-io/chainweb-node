@@ -101,11 +101,10 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", T.pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
-initPactService :: Logger logger => logger -> TQueue RequestMsg -> MemPoolAccess -> IO ()
-initPactService chainwebLogger reqQ memPoolAccess = do
+initPactService :: Logger logger => PactDbConfig -> logger -> TQueue RequestMsg -> MemPoolAccess -> IO ()
+initPactService pactCfg chainwebLogger reqQ memPoolAccess = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 $ P._ccGasLimit cmdConfig
     let gasRate = fromMaybe 0 $ P._ccGasRate cmdConfig

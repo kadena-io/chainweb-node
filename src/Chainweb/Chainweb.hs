@@ -49,6 +49,7 @@ module Chainweb.Chainweb
 , configMiner
 , configP2p
 , configChainDbDirPath
+, configPactConfig
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -108,6 +109,8 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Pact.Backend.Types
+    (PactDbConfig, defaultPactDbConfig, pPactDbConfig)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -128,6 +131,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configP2p :: !P2pConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
+    , _configPactConfig :: PactDbConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -148,6 +152,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configP2p = defaultP2pConfiguration v
     , _configChainDbDirPath = Nothing
+    , _configPactConfig = defaultPactDbConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -157,6 +162,7 @@ instance ToJSON ChainwebConfiguration where
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
         , "chainDbDirPath" .= _configChainDbDirPath o
+        , "pactConfig" .= _configPactConfig o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -166,6 +172,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
         <*< configChainDbDirPath ..: "chainDbDirPath" % o
+        <*< configPactConfig ..: "pactConfig" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -182,6 +189,7 @@ pChainwebConfiguration = id
     <*< configChainDbDirPath .:: fmap Just % textOption
         % long "chain-db-dir"
         <> help "directory where chain databases are persisted"
+    <*< configPactConfig %:: pPactDbConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -252,9 +260,11 @@ withChainwebInternal conf logger peer inner = do
   where
     chainLogger cid = addLabel ("chain", toText cid) logger
 
+    pdbc = _configPactConfig conf
+
     -- Initialize chain resources
     go payloadDb cs (cid : t) =
-        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig $ \c ->
+        withChainResources v cid peer chainDbDir (chainLogger cid) pdbc mempoolConfig $ \c ->
             go payloadDb (HM.insert cid c cs) t
 
     -- Initialize global resources
