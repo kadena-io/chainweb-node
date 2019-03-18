@@ -1,7 +1,6 @@
 # Chainweb
 
-Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput]
-(http://kadena.io/docs/chainweb-v15.pdf)
+Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
 ## Building from Source
 
