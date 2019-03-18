@@ -16,6 +16,7 @@ PER_CLUSTER_NODES = 1
 # --- SECRETS
 #     Adds bootstrap config file as a secret volume.
 
+
 def create_secret_from_file(api_instance, configPath, certPath, keyPath):
     config = ""
     with open(configPath, 'r') as f:
@@ -25,38 +26,29 @@ def create_secret_from_file(api_instance, configPath, certPath, keyPath):
     with open(certPath, 'r') as f:
         cert = f.read()
 
-    certYaml = dict(
-        chainweb = dict(
-            p2p = dict(
-                peer = dict(
-                    certificate = cert
-                )
-            )
-        )
-    )
+    certYaml = dict(chainweb=dict(p2p=dict(peer=dict(certificate=cert))))
 
     key = ""
     with open(keyPath, 'r') as f:
         key = f.read()
 
-    keyYaml = dict(
-        chainweb = dict(
-            p2p = dict(
-                peer = dict(
-                    key = key
-                )
-            )
-        )
-    )
-
+    keyYaml = dict(chainweb=dict(p2p=dict(peer=dict(key=key))))
 
     secret = client.V1Secret(
-        type = "Opaque",
-        metadata = client.V1ObjectMeta( name="bootstrap-config" ),
-        string_data = {"node.config" : config,
-                       "cert.config": str(yaml.dump(certYaml, default_flow_style=False, default_style="|")),
-                       "privkey.config": str(yaml.dump(keyYaml, default_flow_style=False, default_style="|"))}
-    )
+        type="Opaque",
+        metadata=client.V1ObjectMeta(name="bootstrap-config"),
+        string_data={
+            "node.config":
+            config,
+            "cert.config":
+            str(
+                yaml.dump(
+                    certYaml, default_flow_style=False, default_style="|")),
+            "privkey.config":
+            str(
+                yaml.dump(
+                    keyYaml, default_flow_style=False, default_style="|"))
+        })
 
     api_instance.create_namespaced_secret(
         namespace=NAMESPACE, body=secret, pretty='true')
@@ -182,7 +174,12 @@ def create_pod_template_with_pvc(args):
     container = client.V1Container(
         name="chainweb",
         image=args.image,
-        command = ["/bin/chainweb-node", "--node-id=0", "--config-file=/tmp/cert.config", "--config-file=/tmp/privkey.config", "--config-file=/tmp/node.config"],
+        command=[
+            "/bin/chainweb-node", "--node-id=0",
+            "--config-file=/tmp/cert.config",
+            "--config-file=/tmp/privkey.config",
+            "--config-file=/tmp/node.config"
+        ],
         image_pull_policy=pull_policy,
         tty=isTTY,
         ports=[client.V1ContainerPort(container_port=PORT_NUMBER)],
@@ -202,15 +199,12 @@ def create_pod_template_with_pvc(args):
 
 def create_stateful_set_obj(args):
     spec = client.V1beta2StatefulSetSpec(
-        pod_management_policy = "Parallel",
-        replicas = PER_CLUSTER_NODES,
-        selector = client.V1LabelSelector(
-            match_labels = {"app": "chainweb"}
-        ),
-        service_name = "chainweb-service",
-        template = create_pod_template_with_pvc(args),
-        volume_claim_templates = [create_volume_claim_template()]
-    )
+        pod_management_policy="Parallel",
+        replicas=PER_CLUSTER_NODES,
+        selector=client.V1LabelSelector(match_labels={"app": "chainweb"}),
+        service_name="chainweb-service",
+        template=create_pod_template_with_pvc(args),
+        volume_claim_templates=[create_volume_claim_template()])
     stateful_set = client.V1beta2StatefulSet(
         api_version="apps/v1beta2",
         kind="StatefulSet",
@@ -295,7 +289,7 @@ def main():
 
 
 def create_resources(args):
-    print("Creating cluster...TestingPush")
+    print("Creating cluster...")
 
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
@@ -306,7 +300,7 @@ def create_resources(args):
 
     create_secret_from_file(core_v1, configPath, certPath, certKeyPath)
     create_headless_service(core_v1)
-    create_pod_service(core_v1,args.sub_domain,"chainweb-0")
+    create_pod_service(core_v1, args.sub_domain, "chainweb-0")
     create_stateful_set(apps_v1beta2, args)
 
 
