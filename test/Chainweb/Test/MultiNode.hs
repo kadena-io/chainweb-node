@@ -5,10 +5,13 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.MultiNode
@@ -49,7 +52,6 @@ import qualified Data.Text as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
-import Data.Time.Clock
 
 import GHC.Generics
 
@@ -67,13 +69,15 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.CutResources
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -83,47 +87,10 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.LogMessage
+import Data.CAS.HashMap hiding (toList)
 
 import P2P.Node.Configuration
 import P2P.Peer
-
--- -------------------------------------------------------------------------- --
--- Generic Log Functions
-
--- | Simpel generic log functions for chainweb. For production purposes a proper
--- logging framework should be used.
---
-chainwebLogFunctions
-    :: Foldable f
-    => LogLevel
-    -> (T.Text -> IO ())
-    -> NodeId
-    -> f ChainId
-    -> ChainwebLogFunctions
-chainwebLogFunctions level write nid cids = ChainwebLogFunctions
-    { _chainwebNodeLogFun = aLogFunction "node"
-    , _chainwebMinerLogFun = aLogFunction "miner"
-    , _chainwebCutLogFun = aLogFunction "cut"
-    , _chainwebChainLogFuns = foldl' chainLog mempty cids
-    }
-  where
-    -- a log function that logs only errors and writes them to stdout
-    aLogFunction label = ALogFunction $ \l msg -> if
-        | l <= level -> do
-            now <- getCurrentTime
-            write
-                $ sq (sshow now)
-                <> sq (toText nid)
-                <> sq label
-                <> sq (sshow l)
-                <> " "
-                <> logText msg
-        | otherwise -> return ()
-
-    chainLog m c = HM.insert c (aLogFunction (toText c)) m
-
-    sq t = "[" <> t <> "]"
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration
@@ -173,7 +140,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configChainDbDirPath chainDbDir
         -- Place where the chaindbs are persisted.
 
-    & set (configMiner . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
@@ -215,26 +182,29 @@ node
     -> ChainwebConfiguration
     -> IO ()
 node loglevel write stateVar bootstrapPortVar conf =
-    withChainweb conf logfuns $ \cw -> do
+    withChainweb @HashMapCas conf logger $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
-        runChainweb cw `finally` sample cw
+        runChainweb cw `finally` do
+            logFunctionText logger Info "write sample consensus state"
+            sample cw
   where
     nid = _configNodeId conf
 
-    logfuns = chainwebLogFunctions loglevel write nid (chainIds_ $ _chainGraph conf)
+    logger :: GenericLogger
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
     sample cw = modifyMVar_ stateVar $ \state -> force <$>
         sampleConsensusState
             nid
-            (view (chainwebCuts . cutsCutDb . cutDbWebBlockHeaderDb) cw)
-            (view (chainwebCuts . cutsCutDb) cw)
+            (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
+            (view (chainwebCutResources . cutsCutDb) cw)
             state
 
-    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _chainwebPeer
+    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _peerResPeer . _chainwebPeer
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
@@ -370,7 +340,12 @@ instance HasChainGraph ConsensusState where
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
 
-sampleConsensusState :: NodeId -> WebBlockHeaderDb -> CutDb -> ConsensusState -> IO ConsensusState
+sampleConsensusState
+    :: NodeId
+    -> WebBlockHeaderDb
+    -> CutDb cas
+    -> ConsensusState
+    -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do
     !hashes' <- S.fold_ (flip HS.insert) (_stateBlockHashes s) id
         $ S.map _blockHash

@@ -29,6 +29,8 @@ module Chainweb.RestAPI.Orphans () where
 import Control.Lens
 import Control.Monad
 
+import Crypto.Hash.Algorithms
+
 import Data.Aeson hiding (decode, encode)
 import Data.Bifunctor
 import Data.Bytes.Put
@@ -47,14 +49,16 @@ import Servant.API
 -- internal modules
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.CutDB
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
+import Chainweb.SPV
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
@@ -99,6 +103,12 @@ instance FromHttpApiData ChainId where
 
 instance ToHttpApiData ChainId where
     toUrlPiece = chainIdToText
+
+instance FromHttpApiData BlockHeight where
+    parseUrlPiece = fmap BlockHeight . parseUrlPiece
+
+instance ToHttpApiData BlockHeight where
+    toUrlPiece (BlockHeight k) = toUrlPiece k
 
 instance FromHttpApiData MinRank where
     parseUrlPiece = fmap (MinRank . Min) . parseUrlPiece
@@ -186,6 +196,12 @@ instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & format ?~ "byte"
+
+instance ToParamSchema BlockHeight where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerInteger
+        & minimum_ ?~ 0
+        & exclusiveMinimum ?~ False
 
 instance ToParamSchema MinRank where
     toParamSchema _ = mempty
@@ -283,6 +299,12 @@ instance ToSchema BlockOutputsHash where
 
 instance ToSchema Transaction where
     declareNamedSchema _ = return $ NamedSchema (Just "Transaction") $ byteSchema
+
+instance ToSchema (TransactionProof SHA512t_256) where
+    declareNamedSchema _ = return $ NamedSchema (Just "TransactionProof") $ byteSchema
+
+instance ToSchema (TransactionOutputProof SHA512t_256) where
+    declareNamedSchema _ = return $ NamedSchema (Just "TransactionOutputProof") $ byteSchema
 
 instance ToSchema PayloadData where
     declareNamedSchema _ = do

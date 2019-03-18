@@ -63,7 +63,7 @@ lookupHandler mempool txs = handleErrs (liftIO look)
 getBlockHandler :: Show t => MempoolBackend t -> Maybe Int64 -> Handler [t]
 getBlockHandler mempool mbSz = handleErrs (liftIO gb)
   where
-    sz = fromMaybe (mempoolBlockSizeLimit mempool) mbSz
+    sz = fromMaybe (mempoolBlockGasLimit mempool) mbSz
     gb = V.toList <$> mempoolGetBlock mempool sz
 
 
@@ -71,6 +71,7 @@ data GpData t = GpData {
       _gpChan :: !(Chan.TBMChan t)
     , _gpThr :: !(Async.Async ())
     }
+
 
 getPendingHandler :: Show t => MempoolBackend t -> Handler (Streams.InputStream [TransactionHash])
 getPendingHandler mempool = liftIO $ mask_ $ do
@@ -95,6 +96,7 @@ getPendingHandler mempool = liftIO $ mask_ $ do
     inputStreamAct (ref, _) = do
         (GpData chan _) <- readIORef ref
         atomically $ Chan.readTBMChan chan
+
 
 subscribeHandler :: Show t => Int -> MempoolBackend t -> Handler (Streams.InputStream [t])
 subscribeHandler keepaliveSecs mempool = liftIO $ do
@@ -121,17 +123,17 @@ handleErrs = (`catch` \(e :: SomeException) ->
                  throwError $ err400 { errBody = sshow e })
 
 
-
-
 someMempoolServer :: (Show t, ToJSON t, FromJSON t) => SomeMempool t -> SomeServer
 someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
   = SomeServer (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
+
 
 someMempoolServers
     :: (Show t, ToJSON t, FromJSON t)
     => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
 someMempoolServers v = mconcat
     . fmap (someMempoolServer . uncurry (someMempoolVal v))
+
 
 mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c t)
 mempoolServer (Mempool_ keepaliveSecs mempool) =
@@ -141,6 +143,7 @@ mempoolServer (Mempool_ keepaliveSecs mempool) =
     :<|> getBlockHandler mempool
     :<|> getPendingHandler mempool
     :<|> subscribeHandler keepaliveSecs mempool
+
 
 mempoolApp
     :: forall v c t

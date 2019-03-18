@@ -65,6 +65,10 @@ module Chainweb.Payload
 , PayloadData(..)
 , payloadData
 , newPayloadData
+
+-- * All Payload Data in a Single Structure
+, PayloadWithOutputs(..)
+, payloadWithOutputs
 ) where
 
 import Control.DeepSeq
@@ -544,6 +548,10 @@ instance FromJSON PayloadData where
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
+instance IsCasValue PayloadData where
+    type CasKeyType PayloadData = BlockPayloadHash
+    casKey = _payloadDataPayloadHash
+    {-# INLINE casKey #-}
 
 payloadData :: BlockTransactions -> BlockPayload -> PayloadData
 payloadData txs payload = PayloadData
@@ -555,3 +563,27 @@ payloadData txs payload = PayloadData
 
 newPayloadData :: BlockTransactions -> BlockOutputs -> PayloadData
 newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
+
+-- -------------------------------------------------------------------------- --
+-- All Payload Data in a Single Structure
+
+data PayloadWithOutputs = PayloadWithOutputs
+    { _payloadWithOutputsTransactions :: !(S.Seq (Transaction, TransactionOutput))
+    , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
+    , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
+    , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
+    }
+
+instance IsCasValue PayloadWithOutputs where
+    type CasKeyType PayloadWithOutputs = BlockPayloadHash
+    casKey = _payloadWithOutputsPayloadHash
+    {-# INLINE casKey #-}
+
+payloadWithOutputs :: PayloadData -> S.Seq TransactionOutput -> PayloadWithOutputs
+payloadWithOutputs d outputs = PayloadWithOutputs
+    { _payloadWithOutputsTransactions = S.zip (_payloadDataTransactions d) outputs
+    , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
+    , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
+    , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
+    }
+

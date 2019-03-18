@@ -102,25 +102,26 @@ import qualified Crypto.PubKey.RSA.Types as RSA (KeyPair(..), toPublicKey)
 import Crypto.Random.Types (MonadRandom)
 
 import Data.ASN1.BinaryEncoding (DER(..))
-import Data.ASN1.Encoding (encodeASN1', decodeASN1')
+import Data.ASN1.Encoding (decodeASN1', encodeASN1')
 import Data.ASN1.Types
 import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
-import qualified Data.ByteString as B (ByteString, pack, length)
+import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8 (unpack)
 import Data.Default (def)
 import Data.Foldable (toList)
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe
-import Data.PEM (PEM(..), pemWriteBS, pemParseBS)
+import Data.Maybe (maybeToList)
+import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
 import Data.Proxy
 import Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.X509
-import Data.X509.Validation (ServiceID, Fingerprint(..), getFingerprint, ValidationCacheQueryCallback)
+import Data.X509.Validation
+    (Fingerprint(..), ServiceID, ValidationCacheQueryCallback, getFingerprint)
 
 import GHC.Generics
 import GHC.Stack
@@ -427,8 +428,8 @@ fingerprintFromText t = do
     return $ Fingerprint bytes
 {-# INLINE fingerprintFromText #-}
 
-unsafeFingerprintFromText :: String -> Fingerprint
-unsafeFingerprintFromText = fromJust . fingerprintFromText . T.pack
+unsafeFingerprintFromText :: HasCallStack => String -> Fingerprint
+unsafeFingerprintFromText = fromJuste . fingerprintFromText . T.pack
 {-# INLINE unsafeFingerprintFromText #-}
 
 -- -------------------------------------------------------------------------- --
@@ -446,8 +447,8 @@ x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
 x509CertPemFromText t = return . X509CertPem $ T.encodeUtf8 t
 {-# INLINE x509CertPemFromText #-}
 
-unsafeX509CertPemFromText :: String -> X509CertPem
-unsafeX509CertPemFromText = fromJust . x509CertPemFromText . T.pack
+unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
+unsafeX509CertPemFromText = fromJuste . x509CertPemFromText . T.pack
 {-# INLINE unsafeX509CertPemFromText #-}
 
 instance HasTextRepresentation X509CertPem where
@@ -471,11 +472,10 @@ pX509CertPem service = textOption
 {-# INLINE pX509CertPem #-}
 
 validateX509CertPem :: MonadError T.Text m => X509CertPem -> m ()
-validateX509CertPem pemCert = do
-    void $ case decodePemX509Cert pemCert of
+validateX509CertPem pemCert =
+    case decodePemX509Cert pemCert of
         Left e -> throwError $ sshow e
         Right _ -> return ()
-    return ()
 
 decodePemX509Cert :: MonadThrow m => X509CertPem -> m (SignedExact Certificate)
 decodePemX509Cert (X509CertPem bytes) =
@@ -524,8 +524,8 @@ x509KeyPemFromText :: MonadThrow m => T.Text -> m X509KeyPem
 x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
 {-# INLINE x509KeyPemFromText #-}
 
-unsafeX509KeyPemFromText :: String -> X509KeyPem
-unsafeX509KeyPemFromText = fromJust . x509KeyPemFromText . T.pack
+unsafeX509KeyPemFromText :: HasCallStack => String -> X509KeyPem
+unsafeX509KeyPemFromText = fromJuste . x509KeyPemFromText . T.pack
 {-# INLINE unsafeX509KeyPemFromText #-}
 
 instance HasTextRepresentation X509KeyPem where
@@ -559,11 +559,10 @@ encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
     }
 
 validateX509KeyPem :: MonadError T.Text m => X509KeyPem -> m ()
-validateX509KeyPem pemKey = do
-    void $ case decodePemX509Key pemKey of
+validateX509KeyPem pemKey =
+    case decodePemX509Key pemKey of
         Left e -> throwError $ sshow e
         Right _ -> return ()
-    return ()
 
 decodePemX509Key :: MonadThrow m => X509KeyPem -> m PrivKey
 decodePemX509Key (X509KeyPem bytes) =
@@ -715,4 +714,3 @@ tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
 #endif
         }
-

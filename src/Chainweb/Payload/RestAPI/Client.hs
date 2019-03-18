@@ -24,6 +24,8 @@ import Data.Proxy
 import Servant.Client
 
 -- internal modules
+
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.RestAPI
@@ -39,7 +41,7 @@ payloadClient_
     => KnownChainIdSymbol c
     => BlockPayloadHash
     -> ClientM PayloadData
-payloadClient_ = client (payloadApi @v @c)
+payloadClient_ = client (payloadGetApi @v @c)
 
 payloadClient
     :: ChainwebVersion

@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -28,8 +30,7 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
-import Control.Monad.IO.Class
-import Control.Monad.STM
+import Control.Monad.Except
 
 import Data.Proxy
 
@@ -40,6 +41,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
@@ -52,43 +54,33 @@ import Chainweb.Version
 
 -- | FIXME: include own peer info
 --
-cutGetHandler
-    :: CutDb
-    -> Handler CutHashes
+cutGetHandler :: CutDb cas -> Handler CutHashes
 cutGetHandler db = liftIO $ cutToCutHashes Nothing <$> _cut db
 
-cutPutHandler
-    :: CutDb
-    -> CutHashes
-    -> Handler NoContent
-cutPutHandler db c = NoContent <$ liftIO (atomically (addCutHashes db c))
+cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
+cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
 
 cutServer
-    :: forall (v :: ChainwebVersionT)
-    . CutDbT v
+    :: forall cas (v :: ChainwebVersionT)
+    . CutDbT cas v
     -> Server (CutApi v)
 cutServer (CutDbT db) = cutGetHandler db :<|> cutPutHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server
 
-someCutServerT :: SomeCutDb -> SomeServer
-someCutServerT (SomeCutDb (db :: CutDbT v)) =
+someCutServerT :: SomeCutDb cas -> SomeServer
+someCutServerT (SomeCutDb (db :: CutDbT cas v)) =
     SomeServer (Proxy @(CutApi v)) (cutServer db)
 
-someCutServer :: ChainwebVersion -> CutDb -> SomeServer
+someCutServer :: ChainwebVersion -> CutDb cas -> SomeServer
 someCutServer v = someCutServerT . someCutDbVal v
 
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
-serveCutOnPort
-    :: Port
-    -> ChainwebVersion
-    -> CutDb
-    -> IO ()
+serveCutOnPort :: Port -> ChainwebVersion -> CutDb cas -> IO ()
 serveCutOnPort p v = run (int p) . someServerApplication . someCutServer v
-

@@ -62,7 +62,7 @@ import P2P.Peer
 -- TODO: add ChainwebVersion?
 --
 data P2pConfiguration = P2pConfiguration
-    { _p2pConfigPeer:: !PeerConfig
+    { _p2pConfigPeer :: !PeerConfig
         -- ^ the local peer.
 
     , _p2pConfigMaxSessionCount :: !Natural
@@ -75,7 +75,7 @@ data P2pConfiguration = P2pConfiguration
         -- ^ interval at which peers are rotated out of the active set
 
     , _p2pConfigKnownPeers :: ![PeerInfo]
-        -- ^ List of know peers. Must not be empty.
+        -- ^ List of known peers. Must not be empty.
 
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
         -- ^ the path where the peer database is persisted
@@ -90,13 +90,16 @@ instance Arbitrary P2pConfiguration where
         <*> arbitrary <*> arbitrary <*> arbitrary
 
 defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration v@Test{} = testP2pConfiguration v
-defaultP2pConfiguration v@TestWithTime{} = testP2pConfiguration v
-defaultP2pConfiguration v@TestWithPow{} = testP2pConfiguration v
-defaultP2pConfiguration _ = error "TODO not implemented"
+defaultP2pConfiguration v@Test{} = p2pConfiguration v
+defaultP2pConfiguration v@TestWithTime{} = p2pConfiguration v
+defaultP2pConfiguration v@TestWithPow{} = p2pConfiguration v
+defaultP2pConfiguration Simulation{} = error "P2pConfiguration for Simulation yet undefined"
+defaultP2pConfiguration Testnet00 = p2pConfiguration Testnet00
 
-testP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-testP2pConfiguration v = P2pConfiguration
+-- | These are acceptable values for both test and production chainwebs.
+--
+p2pConfiguration :: ChainwebVersion -> P2pConfiguration
+p2pConfiguration v = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
@@ -145,10 +148,17 @@ pP2pConfiguration networkId = id
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
-    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate (pure <$> pPeerInfoCompact net)
+    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate
+        (pure <$> pKnownPeerInfo)
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
   where
     net = T.unpack . networkIdToText <$> networkId
+
+    pKnownPeerInfo = textOption
+        % prefixLong net "known-peer-info"
+        <> suffixHelp net
+            "peer info that is added to the list of known peers. This option can be used multiple times."
+        <> metavar "[<PEERID>@]<HOSTADDRESS>"
 

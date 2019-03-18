@@ -34,14 +34,13 @@ import Servant
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.CutDB
+import Chainweb.Cut.CutHashes
 import Chainweb.RestAPI.NetworkID
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
 import Data.Singletons
-
-import Chainweb.RestAPI.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/cut@
@@ -81,9 +80,7 @@ type CutApi v
     = CutGetApi v
     :<|> CutPutApi v
 
-cutApi
-    :: forall (v :: ChainwebVersionT)
-    . Proxy (CutApi v)
+cutApi :: forall (v :: ChainwebVersionT) . Proxy (CutApi v)
 cutApi = Proxy
 
 -- -------------------------------------------------------------------------- --

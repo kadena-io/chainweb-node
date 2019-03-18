@@ -51,6 +51,7 @@ import Foreign.Storable
 
 import GHC.Generics
 import GHC.TypeNats
+import GHC.Stack (HasCallStack)
 
 import Numeric.Natural
 
@@ -85,7 +86,7 @@ merkleLogHash :: MonadThrow m => B.ByteString -> m MerkleLogHash
 merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot
 {-# INLINE merkleLogHash #-}
 
-unsafeMerkleLogHash :: B.ByteString -> MerkleLogHash
+unsafeMerkleLogHash :: HasCallStack => B.ByteString -> MerkleLogHash
 unsafeMerkleLogHash = MerkleLogHash
     . either (error . displayException) id
     . decodeMerkleRoot
@@ -129,4 +130,3 @@ instance FromJSON MerkleLogHash where
         either (fail . show) return
             $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
-

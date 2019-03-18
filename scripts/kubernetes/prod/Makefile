@@ -92,7 +92,7 @@ DEPLOY_DEPS := external_dns.yaml  ../bootstrap_deploy.py
 %-deploy: $(DEPLOY_DEPS)  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
 	kubectl config use-context $*.$(KOPS_DNS_ZONE) && \
 	kubectl apply -f external_dns.yaml && \
-	python ../bootstrap_deploy.py create
+	python ../bootstrap_deploy.py create --sub-domain=$*
 
 
 .PHONY: %-cleanup

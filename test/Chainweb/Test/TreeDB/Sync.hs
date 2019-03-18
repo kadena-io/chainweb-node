@@ -15,7 +15,7 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb, copy)
 import Chainweb.ChainId (ChainId, testChainId)
 import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.RestAPI
-import Chainweb.Test.Utils (insertN, withDB, withChainServer)
+import Chainweb.Test.Utils (insertN, withChainServer, withDB)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
@@ -45,7 +45,7 @@ diam = Depth 6
 cid :: ChainId
 cid = testChainId 0
 
-blockHeaderDbs :: [(ChainId, BlockHeaderDb)] -> ChainwebServerDbs MockTx HashMapCas
+blockHeaderDbs :: [(ChainId, BlockHeaderDb)] -> ChainwebServerDbs MockTx () HashMapCas
 blockHeaderDbs chainDbs = emptyChainwebServerDbs
     { _chainwebServerBlockHeaderDbs = chainDbs
     }

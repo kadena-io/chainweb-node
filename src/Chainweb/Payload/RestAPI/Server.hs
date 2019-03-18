@@ -40,6 +40,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -56,7 +57,12 @@ import Data.CAS
 
 -- | Query the 'BlockPayload' by its 'BlockPayloadHash'
 --
-payloadHandler :: PayloadCas cas => PayloadDb cas -> BlockPayloadHash -> Handler PayloadData
+payloadHandler
+    :: forall cas
+    . PayloadCas cas
+    => PayloadDb cas
+    -> BlockPayloadHash
+    -> Handler PayloadData
 payloadHandler db k = run >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
@@ -79,8 +85,12 @@ err404Msg msg = err404 { errBody = encode msg }
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
 
-payloadServer :: PayloadCas cas => PayloadDb_ cas v c -> Server (PayloadApi v c)
-payloadServer (PayloadDb_ db) = payloadHandler db
+payloadServer
+    :: forall cas v (c :: ChainIdT)
+    . PayloadCas cas
+    => PayloadDb_ cas v c
+    -> Server (PayloadApi v c)
+payloadServer (PayloadDb_ db) = payloadHandler @cas db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -114,5 +124,5 @@ somePayloadServers
     => ChainwebVersion
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer
-somePayloadServers v = mconcat
-    . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
+somePayloadServers v
+    = mconcat . fmap (somePayloadServer . uncurry (somePayloadDbVal v))

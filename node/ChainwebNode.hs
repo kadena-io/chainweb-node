@@ -1,10 +1,17 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: ChainwebNode
@@ -21,28 +28,32 @@ module Main
   ChainwebNodeConfiguration(..)
 
 -- * Monitor
-, CutLog
-, runMonitor
+, runCutMonitor
+, runRtsMonitor
 
 -- * Chainweb Node
 , node
 , withNodeLogger
-, chainwebLogFunctions
 
 -- * Main function
 , main
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding (Error)
 
+import Control.Concurrent
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Managed
 
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
+import Data.Typeable
 
 import GHC.Generics hiding (from)
+import GHC.Stats
+
+import qualified Network.HTTP.Client as HTTP
 
 import qualified Streaming.Prelude as S
 
@@ -51,26 +62,30 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Chainweb
-import Chainweb.Cut
+import Chainweb.Chainweb.CutResources
+import Chainweb.Chainweb.PeerResources
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
+import Data.CAS.HashMap
 import Data.LogMessage
 
+import P2P.Node
+
 import Utils.Logging
+import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
 data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
-    , _nodeConfigLog :: !L.LogConfig
-    , _nodeConfigCutsLogger :: !(EnableConfig JsonLoggerConfig)
+    , _nodeConfigLog :: !LogConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -79,97 +94,133 @@ makeLenses ''ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
-    , _nodeConfigLog = L.defaultLogConfig
-        & L.logConfigLogger . L.loggerConfigThreshold .~ L.Info
-    , _nodeConfigCutsLogger =
-        EnableConfig True defaultJsonLoggerConfig
+    , _nodeConfigLog = defaultLogConfig
+        & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     }
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
         [ "chainweb" .= _nodeConfigChainweb o
-        , "log" .= _nodeConfigLog o
-        , "cutsLogger" .= _nodeConfigCutsLogger o
+        , "logging" .= _nodeConfigLog o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
     parseJSON = withObject "ChainwebNodeConfig" $ \o -> id
         <$< nodeConfigChainweb %.: "chainweb" % o
-        <*< nodeConfigLog %.: "log" % o
-        <*< nodeConfigCutsLogger %.: "cutsLogger" % o
+        <*< nodeConfigLog %.: "logging" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
-    <*< nodeConfigLog %:: L.pLogConfig
-    <*< nodeConfigCutsLogger %::
-        pEnableConfig "cuts-logger" % pJsonLoggerConfig (Just "cuts-")
+    <*< nodeConfigLog %:: pLogConfig
 
 -- -------------------------------------------------------------------------- --
--- Monitor
+-- Monitors
 
-type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
-
-runMonitor :: Logger -> CutDb -> IO ()
-runMonitor logger db =
-    L.withLoggerLabel ("component", "monitor") logger $ \logger' -> do
-        let logg = loggerFun logger'
-        logg Info $ TextLog "Initialized Monitor"
-        void
-            $ S.mapM_ (go (loggerFun logger'))
-            $ S.map (fmap ObjectEncoded)
-            $ S.map _cutMap
-            $ cutStream db
+runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("Cut Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped Cut Monitor"
   where
-    go logg c = void $ logg Info $ JsonLog c
+    go l = do
+        logFunctionText l Info $ "Initialized Cut Monitor"
+        void
+            $ S.mapM_ (logFunctionJson l Info)
+            $ S.map (cutToCutHashes Nothing)
+            $ cutStream db
+
+            -- This logs complete cuts, which is much more data
+            -- $ S.mapM_ (logFunctionJson logger' Info)
+            -- $ S.map (fmap ObjectEncoded)
+            -- $ S.map _cutMap
+            -- $ cutStream db
+
+-- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
+
+-- This instances are OK, since this is the "Main" module of an application
+--
+deriving instance Generic GCDetails
+deriving instance NFData GCDetails
+deriving instance ToJSON GCDetails
+
+deriving instance Generic RTSStats
+deriving instance NFData RTSStats
+deriving instance ToJSON RTSStats
+
+runRtsMonitor :: Logger logger => logger -> IO ()
+runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("RTS Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped RTS Monitor"
+  where
+    go l = getRTSStatsEnabled >>= \case
+        False -> logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
+        True -> do
+            logFunctionText l Info $ "Initialized RTS Monitor"
+            forever $ do
+                stats <- getRTSStats
+                logFunctionText l Info $ "got stats"
+                logFunctionJson logger Info stats
+                logFunctionText l Info $ "logged stats"
+                threadDelay 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: ChainwebConfiguration -> Logger -> IO ()
+node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
 node conf logger =
-    withChainweb conf logfuns $ \cw ->
-        race_
-            (runChainweb cw)
-            (runMonitor logger (_cutsCutDb $ _chainwebCuts cw))
-  where
-    graph = _chainGraph conf
-    logfuns = chainwebLogFunctions (chainIds_ graph) logger
+    withChainweb @HashMapCas conf logger $ \cw -> mapConcurrently_ id
+        [ runChainweb cw
+        , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+        , runRtsMonitor (_chainwebLogger cw)
+        ]
 
-withNodeLogger :: L.LogConfig -> EnableConfig JsonLoggerConfig -> (Logger -> IO a) -> IO a
-withNodeLogger logConfig cutsLoggerConfig f =
-    withFileHandleBackend (L._logConfigBackend logConfig) $ \baseBackend ->
-        withJsonFileHandleBackend @CutLog cutsLoggerConfig $ \monitorBackend -> do
-            let loggerBackend = logHandles
-                    [ logHandler monitorBackend
-                    ] baseBackend
-            L.withLogger (L._logConfigLogger logConfig) loggerBackend f
+withNodeLogger
+    :: LogConfig
+    -> (L.Logger SomeLogMessage -> IO ())
+    -> IO ()
+withNodeLogger logConfig f = runManaged $ do
 
--- | Initialize Logging Functions
---
--- The code could be simplified (and labeling of log messages more fine-grained)
--- by pushing the initialization down to the respective component
--- initializations. But for that the code of those components would take a
--- dependency on the `Logger` type, or at least the API.
---
-chainwebLogFunctions
-    :: Foldable f
-    => f ChainId
-    -> Logger
-    -> ChainwebLogFunctions
-chainwebLogFunctions cids logger = ChainwebLogFunctions
-    { _chainwebNodeLogFun = aLogFunction logger
-    , _chainwebMinerLogFun = aLogFunction (compLogger "miner")
-    , _chainwebCutLogFun = aLogFunction (compLogger "cuts")
-    , _chainwebChainLogFuns = foldl' chainLog mempty cids
-    }
+    -- This manager is used only for logging backends
+    mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
+
+    -- Base Backend
+    baseBackend <- managed
+        $ withBaseHandleBackend "ChainwebApp" mgr (_logConfigBackend logConfig)
+
+    -- Telemetry Backends
+    monitorBackend <- managed
+        $ mkTelemetryLogger @CutHashes mgr teleLogConfig
+    p2pInfoBackend <- managed
+        $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
+    managerBackend <- managed
+        $ mkTelemetryLogger @ConnectionManagerStats mgr teleLogConfig
+    rtsBackend <- managed
+        $ mkTelemetryLogger @RTSStats mgr teleLogConfig
+
+    logger <- managed
+        $ L.withLogger (_logConfigLogger logConfig) $ logHandles
+            [ logHandler monitorBackend
+            , logHandler p2pInfoBackend
+            , logHandler managerBackend
+            , logHandler rtsBackend
+            ] baseBackend
+
+    liftIO $ f logger
   where
-    aLogFunction l = ALogFunction $ loggerFun l
-    chainLog m c = HM.insert c
-        (aLogFunction $ addLabel ("chain", sshow c) $ compLogger "chains")
-        m
-    addLabel = over L.setLoggerScope . (:)
-    compLogger l = addLabel ("component" , l) logger
+    teleLogConfig = _logConfigTelemetryBackend logConfig
+
+mkTelemetryLogger
+    :: forall a b
+    . Typeable a
+    => ToJSON a
+    => HTTP.Manager
+    -> EnableConfig BackendConfig
+    -> (Backend (JsonLog a) -> IO b)
+    -> IO b
+mkTelemetryLogger mgr = configureHandler
+    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr
 
 -- -------------------------------------------------------------------------- --
 -- main
@@ -182,6 +233,5 @@ mainInfo = programInfo
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
-    withNodeLogger (_nodeConfigLog conf) (_nodeConfigCutsLogger conf) $ \logger ->
-        node (_nodeConfigChainweb conf) logger
+    withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
 

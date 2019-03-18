@@ -19,7 +19,6 @@ module Chainweb.CutDB.Sync
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad
-import Control.Monad.STM
 
 import qualified Data.Text as T
 
@@ -33,11 +32,13 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Peer
 import P2P.Session
 
 -- -------------------------------------------------------------------------- --
@@ -66,15 +67,19 @@ getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: ChainwebVersion -> CutDb -> P2pSession
-syncSession v db logg env = do
+syncSession :: ChainwebVersion -> PeerInfo -> CutDb cas -> P2pSession
+syncSession v p db logg env = do
     race_
-        (void $ S.mapM_ send $ S.map (cutToCutHashes Nothing) $ cutStream db)
-        (forever $ receive >> threadDelay 1000000)
+        (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
+        (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
+            -- Usually we rely on blocks being pushed to us, but every 3
+            -- seconds we pull.
+
             -- FIXME make this configurable or dynamic
+            -- FIXME use Etag along with if-non-match precondition.
 
     -- this code must not be reached
-    void $ logg @T.Text Error "unexpectedly exited cut sync session"
+    logg @T.Text Error "unexpectedly exited cut sync session"
     return False
   where
     cenv = CutClientEnv v env
@@ -86,4 +91,5 @@ syncSession v db logg env = do
     receive = do
         c <- getCut cenv
         logg @T.Text Debug $ "got cut " <> sshow c
-        atomically $ addCutHashes db c
+        addCutHashes db c
+

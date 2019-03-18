@@ -36,6 +36,7 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+    , pdbsTxId
     , pdbsState
     , SaveData(..)
     , saveDataVersion
@@ -43,6 +44,7 @@ module Chainweb.Pact.Backend.Types
     , sTxId
     , sSQLiteConfig
     , sCommandState
+    , sPactTxId
     , usage
     ) where
 
@@ -72,12 +74,12 @@ import Chainweb.Pact.Backend.Orphans ()
 
 class PactDbBackend e where
     closeDb :: e -> IO (Either String ())
-    saveDb :: PactDbEnvPersist e -> P.CommandState -> IO (Maybe String, SaveData e)
+    saveDb :: PactDbEnvPersist e -> P.CommandState -> P.TxId -> IO (Maybe String, SaveData e)
     -- TODO: saveDb needs a better name
 
 instance PactDbBackend P.PureDb where
     closeDb = const $ return $ Right ()
-    saveDb PactDbEnvPersist {..} commandState =
+    saveDb PactDbEnvPersist {..} commandState txId =
       case _pdepEnv of
         P.DbEnv {..} -> do
           let _sTxRecord = _txRecord
@@ -85,20 +87,26 @@ instance PactDbBackend P.PureDb where
               _sSQLiteConfig = Nothing
               _sCommandState = commandState
               _sVersion = saveDataVersion
+              _sPactTxId = txId
           return (Nothing, SaveData {..})
 
 instance PactDbBackend P.SQLite where
     closeDb = P.closeSQLite
     saveDb = saveSQLite
 
-saveSQLite :: PactDbEnvPersist P.SQLite -> P.CommandState -> IO (Maybe String, SaveData P.SQLite)
-saveSQLite PactDbEnvPersist {..} commandState = do
+saveSQLite
+    :: PactDbEnvPersist P.SQLite
+    -> P.CommandState
+    -> P.TxId
+    -> IO (Maybe String, SaveData P.SQLite)
+saveSQLite PactDbEnvPersist {..} commandState txId = do
     case _pdepEnv of
       P.DbEnv {..} -> do
         let _sTxRecord = _txRecord
             _sTxId = _txId
             _sSQLiteConfig = Just $ P.config _db
             _sCommandState = commandState
+            _sPactTxId = txId
             prefix = makeFileNamePrefix
         return (Just prefix, SaveData {..})
   where
@@ -113,9 +121,10 @@ saveDataVersion = "0.0.0"
 
 data SaveData p = SaveData
     { _sTxRecord :: M.Map P.TxTable [P.TxLog A.Value]
-    , _sTxId :: Maybe P.TxId
+    , _sTxId :: Maybe P.TxId -- TODO: is this needed:
     , _sSQLiteConfig :: Maybe P.SQLiteConfig
     , _sCommandState :: P.CommandState
+    , _sPactTxId :: P.TxId
     } deriving (Generic)
 
 instance Serialize (SaveData p) where
@@ -124,11 +133,13 @@ instance Serialize (SaveData p) where
         put _sTxId
         put _sSQLiteConfig
         put _sCommandState
+        put _sPactTxId
     get = do
         _sTxRecord <- get
         _sTxId <- get
         _sSQLiteConfig <- get
         _sCommandState <- get
+        _sPactTxId <- get
         return $ SaveData {..}
 
 data Env' =
@@ -151,7 +162,7 @@ data EnvPersist' =
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist'
     , _pdbsState :: P.CommandState
-    }
+    , _pdbsTxId :: P.TxId   }
 
 makeLenses ''PactDbState
 

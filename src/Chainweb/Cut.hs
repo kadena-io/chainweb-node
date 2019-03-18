@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -72,6 +73,7 @@ module Chainweb.Cut
 
 , MineFailure(..)
 , testMine
+, testMineWithPayload
 , createNewCut
 , randomChainId
 , arbitraryChainGraphChainId
@@ -108,10 +110,11 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
 import Data.Int (Int64)
-import Data.Maybe
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
+import qualified Data.Sequence as Seq
 import Data.Tuple.Strict (T2(..))
 
 import GHC.Generics (Generic)
@@ -134,10 +137,13 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (genesisBlockHeaders, genesisBlockTarget)
 import Chainweb.ChainId
 import Chainweb.Difficulty (HashTarget, checkTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Time, getCurrentTimeIntegral, second)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
@@ -553,7 +559,8 @@ data MineFailure = BadNonce | BadAdjacents
 -- dependencies.
 --
 testMine
-    :: HasChainId cid
+    :: forall cid
+    . HasChainId cid
     => Given WebBlockHeaderDb
     => Nonce
     -> HashTarget
@@ -563,9 +570,28 @@ testMine
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMine n target t pay nid i c =
-    forM (createNewCut n target t pay nid i c) $ \p@(T2 h _) ->
+testMine n target t payloadHash nid i c =
+    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
+
+testMineWithPayload
+    :: forall cas cid
+    . HasChainId cid
+    => PayloadCas cas
+    => Given WebBlockHeaderDb
+    => Given (PayloadDb cas)
+    => Nonce
+    -> HashTarget
+    -> Time Int64
+    -> BlockPayloadHash
+    -> Seq.Seq (Transaction, TransactionOutput)
+    -> NodeId
+    -> cid
+    -> Cut
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
+testMineWithPayload n target t payloadHash payload nid i c =
+    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
+        p <$ addNewPayload (given @(PayloadDb cas)) payload <* insertWebBlockHeaderDb h
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
@@ -650,7 +676,7 @@ arbitraryCut v = T.sized $ \s -> do
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ x) -> x)
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine :: Cut -> ChainId -> T.Gen (Maybe (T2 BlockHeader Cut))
     mine c cid = do
@@ -689,7 +715,7 @@ arbitraryWebChainCut initialCut = do
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ c') -> c')
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
@@ -721,7 +747,7 @@ arbitraryWebChainCut_ initialCut = do
             & S.mapMaybeM (fmap hush . mine c)
             & S.map (\(T2 _ c') -> c')
             & S.head_
-            & fmap fromJust
+            & fmap fromJuste
 
     mine c cid = do
         n <- Nonce <$> TT.liftGen T.arbitrary
@@ -1032,4 +1058,3 @@ ioTest
     -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
 ioTest v f = T.monadicIO $ giveNewWebChain v $ f >>= T.assert
-

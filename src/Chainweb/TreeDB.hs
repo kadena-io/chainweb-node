@@ -10,7 +10,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -87,7 +86,7 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
-import Data.Maybe
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Typeable
 
@@ -455,7 +454,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     --
     maxRank :: HasCallStack => db -> IO Natural
-    maxRank db = fmap (rank . fromJust)
+    maxRank db = fmap (rank . fromJuste)
         $ S.last_
         $ leafEntries db Nothing Nothing Nothing Nothing
     {-# INLINEABLE maxRank #-}
@@ -482,7 +481,7 @@ maxHeader db = do
         $ leafEntries db Nothing Nothing Nothing Nothing
 
 root :: TreeDb db => db -> IO (DbEntry db)
-root db = fmap fromJust $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
+root db = fmap fromJuste $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
@@ -694,7 +693,7 @@ lookupParentM g db e = case parent e of
     Nothing -> case g of
         GenesisParentSelf -> return e
         _ -> throwM
-            $ InternalInvariantViolation "Called getParentEntry on genesis block"
+            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
         Just x -> return x
@@ -714,7 +713,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentSelf -> return $ Just e
         GenesisParentNone -> return Nothing
         GenesisParentThrow -> throwM
-            $ InternalInvariantViolation "Called getParentEntry on genesis block"
+            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
         Just x -> return $ Just x
@@ -742,7 +741,7 @@ foldableEntries k l mir mar f = S.each f
 toTree :: (TreeDb db, Ord (DbKey db)) => db -> IO (Tree (DbEntry db))
 toTree db = do
     let es = entries db Nothing Nothing Nothing Nothing
-    hs <- S.toList_ $ S.map (\h -> (h, key h, [maybe (key h) id $ parent h] )) es
+    hs <- S.toList_ $ S.map (\h -> (h, key h, [fromMaybe (key h) $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
         g' = transposeG g
     pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'

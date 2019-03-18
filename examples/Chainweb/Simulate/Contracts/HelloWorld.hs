@@ -1,4 +1,7 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
@@ -10,33 +13,50 @@
 
 module Chainweb.Simulate.Contracts.HelloWorld where
 
+import Data.Aeson
+import Data.Default
 import Data.Text (Text)
+import qualified Data.Text as T
+
+import Fake
+import Fake.Provider.Person.EN_US
+
+import GHC.Generics
+
 import NeatInterpolation
 
-{-
-   ;; Keysets cannot be created in code, thus we read them in
-;; from the load message data.
-(define-keyset '$keyset (read-keyset "$keyset"))
+import Text.Printf (printf)
 
--}
+-- pact
 
-helloWorldContract :: Text -> Text
-helloWorldContract keyset =
-                   [text| ;;
-;; "Hello, world!" smart contract/module
+import Pact.ApiReq (mkExec)
+import Pact.Types.Command (Command(..))
+import Pact.Types.Crypto (SomeKeyPair)
 
-;; Define the module.
+-- chainweb
+
+import Chainweb.Simulate.Utils
+
+helloWorldContractLoader :: [SomeKeyPair] -> IO (Command Text)
+helloWorldContractLoader adminKeyset = do
+  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+  mkExec (T.unpack theCode) theData def adminKeyset Nothing
+  where
+    theCode = [text|
 (module helloWorld 'admin-keyset
   "A smart contract to greet the world."
   (defun hello (name)
     "Do the hello-world dance"
-    (format "Hello {}!" [name]))
-)
+    (format "Hello {}!" [name])))
 |]
 
-hello :: Text
-hello = [text|
-  (defun hello (name)
-    "Do the hello-world dance"
-    (format "Hello {}!" [name]))
-|]
+newtype Name = Name {getName :: Text} deriving (Eq, Show, Generic)
+
+instance Fake Name where
+  fake = Name <$> personName
+
+helloRequest :: Name -> IO (Command Text)
+helloRequest (Name name) = mkExec theCode theData def [] Nothing
+  where
+    theData = Null
+    theCode = printf "(helloWorld.hello \"%s\")" name

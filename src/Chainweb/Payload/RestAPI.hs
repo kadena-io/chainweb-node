@@ -24,6 +24,8 @@ module Chainweb.Payload.RestAPI
 -- * Payload GET API
 , PayloadGetApi
 , payloadGetApi
+
+-- * Payload API
 , PayloadApi
 , payloadApi
 
@@ -39,6 +41,8 @@ import Data.Proxy
 import Servant.API
 
 -- internal modules
+
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -56,9 +60,10 @@ data SomePayloadDb cas = forall v c
     => SomePayloadDb (PayloadDb_ cas v c)
 
 somePayloadDbVal :: forall cas . ChainwebVersion -> ChainId -> PayloadDb cas -> SomePayloadDb cas
-somePayloadDbVal v cid db = case someChainwebVersionVal v of
-     (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
-         (SomeChainIdT (Proxy :: Proxy cidt)) -> SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
+somePayloadDbVal v cid db = runIdentity $ do
+    SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
+    SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
+    return $ SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API

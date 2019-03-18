@@ -35,6 +35,7 @@ import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
     evaluate, finally, handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
+
 import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -46,25 +47,32 @@ import Data.Int (Int64)
 import Data.IORef
     (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef,
     writeIORef)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
+import Pact.Types.Gas (GasPrice(..))
+
 import Prelude hiding (init, lookup)
+
 import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
-------------------------------------------------------------------------------
+
+-- internal imports
+
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (fromJuste)
 
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
-type Priority = (Down TransactionFees, Int64)
+type Priority = (Down GasPrice, Int64)
 
-toPriority :: TransactionFees -> Int64 -> Priority
+toPriority :: GasPrice -> Int64 -> Priority
 toPriority r s = (Down r, s)
 
 
@@ -281,7 +289,7 @@ makeSelfFinalizingInMemPool cfg =
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
         let back = toMempoolBackend mp
         let txcfg = mempoolTxConfig back
-        let bsl = mempoolBlockSizeLimit back
+        let bsl = mempoolBlockGasLimit back
         return $! wrapBackend txcfg bsl (ref, wk)
 
   where
@@ -292,7 +300,7 @@ makeSelfFinalizingInMemPool cfg =
         return x
 
     wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10
+        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
       where
         f1 = withRef mp . flip mempoolMember
         f2 = withRef mp . flip mempoolLookup
@@ -304,6 +312,7 @@ makeSelfFinalizingInMemPool cfg =
         f8 = withRef mp . flip mempoolGetPendingTransactions
         f9 = withRef mp mempoolSubscribe
         f10 = withRef mp mempoolShutdown
+        f11 = withRef mp mempoolClear
 
 
 ------------------------------------------------------------------------------
@@ -335,7 +344,7 @@ toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lock broadcaster _) =
     MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe shutdown
+                   markConfirmed reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lock
     lookup = lookupInMem lock
@@ -347,6 +356,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     getPending = getPendingInMem cfg lock
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
+    clear = clearInMem lock
 
 
 ------------------------------------------------------------------------------
@@ -395,7 +405,7 @@ lookupInMem lock txs = do
         validated <- readIORef $ _inmemValidated mdata
         confirmed <- readIORef $ _inmemConfirmed mdata
         return $! (q, validated, confirmed)
-    return $! V.map (fromJust . lookupOne q validated confirmed) txs
+    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
   where
     lookupOne q validated confirmed txHash =
         lookupQ q txHash <|>
@@ -433,13 +443,13 @@ insertInMem broadcaster cfg lock txs = do
   where
     txcfg = _inmemTxCfg cfg
     validateTx = txValidate txcfg
-    getSize = txSize txcfg
+    getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     hasher = txHasher txcfg
 
     sizeOK tx = getSize tx <= maxSize
-    getPriority x = let r = txFees txcfg x
-                        s = txSize txcfg x
+    getPriority x = let r = txGasPrice txcfg x
+                        s = txGasLimit txcfg x
                     in toPriority r s
     exists mdata txhash = do
         valMap <- readIORef $ _inmemValidated mdata
@@ -473,7 +483,7 @@ getBlockInMem cfg lock size0 = do
     -- try to find a smaller tx to fit in the block. DECIDE: exhaustive search
     -- of pending instead?
     maxSkip = 30 :: Int
-    getSize = txSize $ _inmemTxCfg cfg
+    getSize = txGasLimit $ _inmemTxCfg cfg
 
     go (psq, sz) = lookahead sz maxSkip psq
 
@@ -552,17 +562,17 @@ reintroduceInMem :: TxBroadcaster t
                  -> IO ()
 reintroduceInMem broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
-                   (V.map fromJust . V.filter isJust) <$>
+                   (V.map fromJuste . V.filter isJust) <$>
                    V.mapM (reintroduceOne mdata) txhashes
     -- we'll rebroadcast reintroduced transactions, clients can filter.
     broadcastTxs newOnes broadcaster
 
   where
     txcfg = _inmemTxCfg cfg
-    fees = txFees txcfg
-    size = txSize txcfg
-    getPriority x = let r = fees x
-                        s = size x
+    price = txGasPrice txcfg
+    limit = txGasLimit txcfg
+    getPriority x = let r = price x
+                        s = limit x
                     in toPriority r s
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
@@ -574,8 +584,18 @@ reintroduceInMem broadcaster cfg lock txhashes = do
 
 
 ------------------------------------------------------------------------------
+clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
+clearInMem lock = do
+    withMVarMasked lock $ \mdata -> do
+        writeIORef (_inmemPending mdata) $ PSQ.empty
+        writeIORef (_inmemValidated mdata) $ HashMap.empty
+        writeIORef (_inmemConfirmed mdata) $ HashSet.empty
+        -- we won't reset the broadcaster but that's ok, the same one can be
+        -- re-used
+
+
+------------------------------------------------------------------------------
 nextTxId :: IORef SubscriptionId -> IO SubscriptionId
 nextTxId = flip atomicModifyIORef' (dup . (+1))
   where
     dup a = (a, a)
-

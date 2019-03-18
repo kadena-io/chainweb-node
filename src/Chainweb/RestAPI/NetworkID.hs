@@ -44,7 +44,6 @@ import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Hashable
-import Data.Maybe
 import Data.Proxy
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup hiding (option)
@@ -52,10 +51,11 @@ import Data.Semigroup hiding (option)
 import qualified Data.Text as T
 
 import GHC.Generics (Generic)
+import GHC.Stack (HasCallStack)
 
 import Test.QuickCheck
 
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck.Instances ()  -- Arbitrary V4.UUID
 
 -- Internal imports
 
@@ -86,8 +86,8 @@ networkIdFromText t = case T.break (== '/') t of
         | T.null b -> throwM . TextFormatException $ "missing '/' in network id: \"" <> t <> "\"."
         | otherwise -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
 
-unsafeNetworkIdFromText :: T.Text -> NetworkId
-unsafeNetworkIdFromText = fromJust . networkIdFromText
+unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId
+unsafeNetworkIdFromText = fromJuste . networkIdFromText
 {-# INLINE unsafeNetworkIdFromText #-}
 
 instance ToJSON NetworkId where
@@ -172,4 +172,3 @@ instance SingKind NetworkIdT where
 
     toSing (ChainNetwork (FromSing c)) = withSingI c $ SomeSing (SChainNetwork c)
     toSing CutNetwork = SomeSing SCutNetwork
-

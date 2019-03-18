@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -14,7 +13,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: P2P.Node.PeerDB
@@ -98,7 +96,7 @@ import Prelude hiding (null)
 import System.IO.SafeWrite
 import System.IO.Temp
 
-import Test.QuickCheck (Property, ioProperty, property, (===), Arbitrary(..))
+import Test.QuickCheck (Arbitrary(..), Property, ioProperty, property, (===))
 
 -- internal modules
 
@@ -304,7 +302,7 @@ fromPeerInfoList :: NetworkId -> [PeerInfo] -> IO PeerDb
 fromPeerInfoList nid peers = fromPeerEntryList $ newPeerEntry nid <$> peers
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
-peerDbInsertList peers (PeerDb lock var) = do
+peerDbInsertList peers (PeerDb lock var) =
     withMVar lock
         . const
         . atomically

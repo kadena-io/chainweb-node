@@ -12,14 +12,13 @@
 --
 -- Test the invariants of the `TreeDb` typeclass.
 --
-module Chainweb.Test.TreeDB ( withTreeDb, treeDbInvariants, RunStyle(..) ) where
+module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
 
 import Control.Exception (SomeException(..), try)
-import Control.Lens (each, from, over, to, view, (^.), (^..))
+import Control.Lens (each, from, over, to, (^.), (^..))
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM)
-import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashSet as HS
 import Data.List (sort, sortOn)
 import Data.Maybe (isJust, isNothing)
@@ -143,7 +142,7 @@ handOfGod_prop
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     h <- maxHeader db
-    try (insert db (over (isoBH . blockNonce . _Unwrapped) succ h)) >>= \case
+    try (insert db (over (isoBH . blockNonce) succ h)) >>= \case
         Left (_ :: SomeException) -> pure True
         Right _ -> do
             h' <- maxHeader db
@@ -222,7 +221,7 @@ maxRank_prop
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     r <- maxRank db
-    let h = view (_Unwrapped . to fromIntegral) . maximum . (^.. each . isoBH . to _blockHeight) $ treeLeaves t
+    let h = fromIntegral . maximum . (^.. each . isoBH . to _blockHeight) $ treeLeaves t
     pure $ r == h
   where
     t :: Tree (DbEntry db)

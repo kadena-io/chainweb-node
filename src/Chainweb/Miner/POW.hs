@@ -3,6 +3,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Miner.POW
@@ -17,13 +20,12 @@
 module Chainweb.Miner.POW ( powMiner ) where
 
 import Control.Lens (ix, (^?), (^?!))
-import Control.Monad.STM (atomically)
 
 import qualified Data.HashMap.Strict as HM
 import Data.Reflection (Given, give)
+import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
-import Data.Word (Word64)
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
@@ -35,10 +37,13 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
@@ -62,28 +67,33 @@ import Data.LogMessage (LogFunction)
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
 powMiner
-    :: LogFunction
+    :: forall cas
+    . PayloadCas cas
+    => LogFunction
     -> MinerConfig
     -> NodeId
-    -> CutDb
+    -> CutDb cas
     -> WebBlockHeaderDb
+    -> PayloadDb cas
     -> IO ()
-powMiner logFun _ nid cutDb wcdb = do
+powMiner logFun _ nid cutDb wcdb payloadDb = do
     logg Info "Started Proof-of-Work Miner"
     gen <- MWC.createSystemRandom
-    give wcdb $ go gen 1 HM.empty
+    give wcdb $ give payloadDb $ go gen 1 HM.empty
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
-    go :: Given WebBlockHeaderDb
-       => MWC.GenIO
-       -> Int
-       -> Adjustments
-       -> IO ()
+    go
+        :: Given WebBlockHeaderDb
+        => Given (PayloadDb cas)
+        => MWC.GenIO
+        -> Int
+        -> Adjustments
+        -> IO ()
     go gen !i !adjustments0 = do
 
-        nonce0 <- MWC.uniform gen
+        nonce0 <- Nonce <$> MWC.uniform gen
 
         -- counter <- newIORef (1 :: Int)
 
@@ -95,7 +105,7 @@ powMiner logFun _ nid cutDb wcdb = do
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        atomically $! addCutHashes cutDb (cutToCutHashes Nothing c')
+        addCutHashes cutDb (cutToCutHashes Nothing c')
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
@@ -125,7 +135,8 @@ powMiner logFun _ nid cutDb wcdb = do
     --
     mine
         :: Given WebBlockHeaderDb
-        => Word64
+        => Given (PayloadDb cas)
+        => Nonce
         -> Adjustments
         -> IO (T3 BlockHeader Cut Adjustments)
     mine !nonce !adjustments = do
@@ -153,8 +164,11 @@ powMiner logFun _ nid cutDb wcdb = do
 
         -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-        let payloadHash = testBlockPayload p
-        testMine (Nonce nonce) target ct payloadHash nid cid c >>= \case
+        let payload = S.fromList
+                [ (Transaction "testTransaction", TransactionOutput "testOutput")
+                ]
+        let payloadHash = _blockPayloadPayloadHash $ newBlockPayload payload
+        testMineWithPayload @cas nonce target ct payloadHash payload nid cid c >>= \case
             Left BadNonce -> do
                 -- atomicModifyIORef' counter (\n -> (succ n, ()))
                 mine (succ nonce) adjustments'

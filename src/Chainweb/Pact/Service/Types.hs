@@ -13,18 +13,25 @@ import Control.Concurrent.MVar.Strict
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
+import Chainweb.Payload
 
-data RequestType = ValidateBlock | NewBlock deriving (Show)
+data RequestMsg = NewBlockMsg NewBlockReq
+                | ValidateBlockMsg ValidateBlockReq
+                | LocalMsg LocalReq
+                | CloseMsg
 
-data RequestMsg =
-    RequestMsg
-        { _reqRequestType :: RequestType
-        , _reqBlockHeader :: BlockHeader
-        , _reqResultVar :: MVar Transactions
-        }
-    | LocalRequestMsg
-        -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
-        { _localRequest :: BlockHeader
-        , _localResultVar :: MVar (Either String Transactions)
-        }
-    | CloseMsg
+data NewBlockReq = NewBlockReq
+    { _newBlockHeader :: BlockHeader
+    , _newResultVar :: MVar (BlockTransactions, BlockPayloadHash)
+    }
+
+data ValidateBlockReq = ValidateBlockReq
+    { _valBlockHeader :: BlockHeader
+    , _valResultVar :: MVar (BlockTransactions, BlockOutputs)
+    }
+
+data LocalReq = LocalReq
+    -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
+    { _localRequest :: BlockHeader
+    , _localResultVar :: MVar (Either String Transactions)
+    }

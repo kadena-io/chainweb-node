@@ -20,7 +20,7 @@ module Chainweb.Pact.Backend.Orphans where
 
 import Control.Monad
 
-import Data.Aeson
+import Data.Aeson hiding (Object)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Serial
@@ -49,9 +49,9 @@ import Pact.Types.Server
 -----------------------
 -- GENERIC INSTANCES --
 -----------------------
-deriving instance Generic CommandPact -- transferred
-
 deriving instance Generic ModuleData -- transferred
+
+deriving instance Generic (ModuleDef a)
 
 deriving instance Generic Ref -- transferred
 
@@ -65,7 +65,7 @@ deriving instance Generic Decimal
 
 deriving instance Generic Guard
 
-deriving instance Generic PactId
+deriving instance Generic Example
 
 deriving instance Generic TableName
 
@@ -79,7 +79,11 @@ deriving instance Generic (Term n)
 
 deriving instance Generic (Def n)
 
-deriving instance Generic Module
+deriving instance Generic (Governance g)
+
+deriving instance Generic (Module g)
+
+deriving instance Generic Interface
 
 deriving instance Generic KeySetName
 
@@ -89,14 +93,25 @@ deriving instance Generic TableId
 
 deriving instance Generic Pragma
 
+deriving instance Generic (Object n)
+
+deriving instance Generic FieldKey
+
+deriving instance Generic PactExec
+
+deriving instance Generic PactContinuation
+
 ----------------------
 -- SERIAL INSTANCES --
 ----------------------
-deriving instance Serial CommandPact
 
 deriving instance Serial TxId
 
 deriving instance Serial ModuleData
+
+deriving instance Serial Interface
+
+deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
 
 deriving instance Serial Ref
 
@@ -118,6 +133,8 @@ deriving instance Serial Delta
 deriving instance Serial Info
 
 deriving instance Serial DefName
+
+deriving instance Serial Example
 
 deriving instance Serial ModuleName
 
@@ -150,6 +167,60 @@ deriving instance Serial NominalDiffTime
 deriving instance Serial Micro
 
 deriving instance Serial Decimal
+
+deriving instance (Generic n, Serial n) => Serial (Object n)
+
+deriving instance Serial FieldKey
+
+deriving instance Serial PactExec
+
+deriving instance Serial PactContinuation
+
+
+instance Serial1 Governance where
+  serializeWith f (Governance t) = case t of
+    Left r  -> putWord8 0 >> serialize r
+    Right a -> putWord8 1 >> f a
+
+  deserializeWith m = Governance <$> go
+    where
+      go = getWord8 >>= \a ->
+        case a of
+          0 -> Left <$> deserialize
+          1 -> Right <$> m
+          _ -> fail "Governance: Deserialization error."
+
+instance Serial1 Module where
+  serializeWith f Module{..} = do
+    serialize _mName
+    serializeWith f _mGovernance
+    serialize _mMeta
+    serialize _mCode
+    serialize _mHash
+    serialize _mBlessed
+    serialize _mInterfaces
+    serialize _mImports
+
+  deserializeWith m = Module
+    <$> deserialize       -- name
+    <*> deserializeWith m -- gov
+    <*> deserialize       -- meta
+    <*> deserialize       -- code
+    <*> deserialize       -- hash
+    <*> deserialize       -- blessed
+    <*> deserialize       -- interfaces
+    <*> deserialize       -- imports
+
+instance Serial1 ModuleDef where
+    serializeWith f t = case t of
+      MDModule m -> putWord8 0 >> serializeWith f m
+      MDInterface i -> putWord8 1 >> serialize i
+
+    deserializeWith m = getWord8 >>= \a ->
+      case a of
+        0 -> MDModule <$> deserializeWith m
+        1 -> MDInterface <$> deserialize
+        _ -> fail "ModuleDef: Deserialization error."
 
 instance Serial1 Exp where
     serializeWith f t =
@@ -232,6 +303,17 @@ instance Serial1 Def where
         _dInfo <- deserialize
         return $ Def {..}
 
+instance Serial1 Object where
+  serializeWith f Object {..} = do
+    pairListSerial1Helper serialize (serializeWith f) _oObject
+    serializeWith (serializeWith f) _oObjectType
+    serialize _oInfo
+  deserializeWith m = do
+    _oObject <- pairListDeSerial1Helper (const deserialize) deserializeWith m
+    _oObjectType <- deserializeWith (deserializeWith m)
+    _oInfo <- deserialize
+    return $ Object {..}
+
 deriving instance Serial NativeDefName
 
 instance Serial NativeDFun where
@@ -241,10 +323,10 @@ instance Serial NativeDFun where
     maybe
       (fail "Serial NativeDFun: deserialization error.")
       return
-      (native_dfun_deserialize _nativeName)
+      (nativeDfunDeserialize _nativeName)
 
-native_dfun_deserialize :: NativeDefName -> Maybe NativeDFun
-native_dfun_deserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
+nativeDfunDeserialize :: NativeDefName -> Maybe NativeDFun
+nativeDfunDeserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
   where
     getText (NativeDefName text) = text
     name = Name (getText nativename) def
@@ -313,7 +395,7 @@ instance Serial1 Term where
         case t of
             TModule {..} -> do
                 putWord8 0
-                serialize _tModuleDef
+                serializeWith (serializeWith f) _tModuleDef
                 serializeWith f _tModuleBody
                 serialize _tInfo
             TList {..} -> do
@@ -359,8 +441,7 @@ instance Serial1 Term where
                 serialize _tInfo
             TObject {..} -> do
                 putWord8 8
-                pairListSerial1Helper (serializeWith f) (serializeWith f) _tObject
-                serializeWith (serializeWith f) _tObjectType
+                serializeWith f _tObject
                 serialize _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -403,7 +484,7 @@ instance Serial1 Term where
         getWord8 >>= \a ->
             case a of
                 0 -> do
-                    _tModuleDef <- deserialize
+                    _tModuleDef <- deserializeWith (deserializeWith m)
                     _tModuleBody <- deserializeWith m
                     _tInfo <- deserialize
                     return $ TModule {..}
@@ -420,6 +501,7 @@ instance Serial1 Term where
                     _tNativeName <- deserialize
                     _tNativeFun <- deserialize
                     _tFunTypes <- deserializeWith (deserializeWith (deserializeWith m))
+                    _tNativeExamples <- deserialize
                     _tNativeDocs <- deserialize
                     _tNativeTopLevelOnly <- deserialize
                     _tInfo <- deserialize
@@ -450,8 +532,7 @@ instance Serial1 Term where
                     _tInfo <- deserialize
                     return $ TBinding {..}
                 8 -> do
-                    _tObject <- pairListDeSerial1Helper deserializeWith deserializeWith m
-                    _tObjectType <- deserializeWith (deserializeWith m)
+                    _tObject <- deserializeWith m
                     _tInfo <- deserialize
                     return $ TObject {..}
                 9 -> do
@@ -571,7 +652,9 @@ deriving instance
 
 deriving instance (Generic n, Serial n) => Serial (Def n)
 
-deriving instance Serial Module
+deriving instance (Generic g, Serial g) => Serial (Governance g)
+
+deriving instance (Generic g, Serial g) => Serial (Module g)
 
 deriving instance Serial PrimType
 
@@ -644,6 +727,7 @@ instance Serial1 TypeVar where
 -------------------------
 -- SERIALIZE INSTANCES --
 -------------------------
+
 deriving instance Serialize TableId
 
 instance Serialize (Table DataKey) where
@@ -664,8 +748,6 @@ deriving instance Serialize Pragma
 
 deriving instance Serialize CommandState
 
-deriving instance Serialize CommandPact
-
 deriving instance Serialize Name
 
 deriving instance Serialize ModuleName
@@ -680,11 +762,17 @@ deriving instance Serialize Parsed
 
 deriving instance Serialize Delta
 
+deriving instance (Serialize a, Generic a) => Serialize (ModuleDef a)
+
 deriving instance Serialize ModuleData
 
 deriving instance Serialize Ref
 
-deriving instance Serialize Module
+deriving instance (Generic g, Serialize g) => Serialize (Governance g)
+
+deriving instance (Generic g, Serialize g) => Serialize (Module g)
+
+deriving instance Serialize Interface
 
 deriving instance Serialize Use
 
@@ -779,6 +867,8 @@ deriving instance Serialize PactId
 
 deriving instance Serialize TableName
 
+deriving instance Serialize Example
+
 instance (Generic n, Serialize n) => Serialize (Term n) where
     put t =
         case t of
@@ -826,7 +916,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
             TObject {..} -> do
                 putWord8 8
                 put _tObject
-                put _tObjectType
                 put _tInfo
             TSchema {..} -> do
                 putWord8 9
@@ -886,6 +975,7 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
                     _tNativeName <- get
                     _tNativeFun <- get
                     _tFunTypes <- get
+                    _tNativeExamples <- get
                     _tNativeDocs <- get
                     _tNativeTopLevelOnly <- get
                     _tInfo <- get
@@ -913,7 +1003,6 @@ instance (Generic n, Serialize n) => Serialize (Term n) where
                     return $ TBinding {..}
                 8 -> do
                     _tObject <- get
-                    _tObjectType <- get
                     _tInfo <- get
                     return $ TObject {..}
                 9 -> do
@@ -962,7 +1051,7 @@ instance Serialize NativeDFun where
         maybe
           (fail "Serial NativeDFun: deserialization error.")
           return
-          (native_dfun_deserialize _nativeName)
+          (nativeDfunDeserialize _nativeName)
 
 instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
     put = put . Data.HashSet.toList
@@ -971,3 +1060,11 @@ instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
 instance (Hashable k, Ord k, Serialize k, Serialize v) => Serialize (HashMap k v) where
     put = put . Data.HashMap.Strict.toList
     get = get >>= return . Data.HashMap.Strict.fromList
+
+deriving instance (Generic n, Serialize n) => Serialize (Object n)
+
+deriving instance Serialize FieldKey
+
+deriving instance Serialize PactExec
+
+deriving instance Serialize PactContinuation

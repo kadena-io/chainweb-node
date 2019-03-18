@@ -109,13 +109,13 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable
 import qualified Data.List as L
-import Data.Maybe
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Word (Word8, Word16)
+import Data.Word (Word16, Word8)
 
 import GHC.Generics
+import GHC.Stack (HasCallStack)
 
 import Test.QuickCheck
 
@@ -167,7 +167,7 @@ ipV4Parser = (,,,)
 
 portParser :: Parser Port
 portParser = Port
-    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^(16 :: Int) -1))
+    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^(16 :: Int)))
     <?> "port"
 
 -- -------------------------------------------------------------------------- --
@@ -287,8 +287,8 @@ hostnameFromText :: MonadThrow m => T.Text -> m Hostname
 hostnameFromText = readHostnameBytes . T.encodeUtf8
 {-# INLINE hostnameFromText #-}
 
-unsafeHostnameFromText :: T.Text -> Hostname
-unsafeHostnameFromText = fromJust . hostnameFromText
+unsafeHostnameFromText :: HasCallStack => T.Text -> Hostname
+unsafeHostnameFromText = fromJuste . hostnameFromText
 {-# INLINE unsafeHostnameFromText #-}
 
 instance ToJSON Hostname where
@@ -347,8 +347,8 @@ hostAddressFromText :: MonadThrow m => T.Text -> m HostAddress
 hostAddressFromText = readHostAddressBytes . T.encodeUtf8
 {-# INLINE hostAddressFromText #-}
 
-unsafeHostAddressFromText :: T.Text -> HostAddress
-unsafeHostAddressFromText = fromJust . hostAddressFromText
+unsafeHostAddressFromText :: HasCallStack => T.Text -> HostAddress
+unsafeHostAddressFromText = fromJuste . hostAddressFromText
 {-# INLINE unsafeHostAddressFromText #-}
 
 instance HasTextRepresentation HostAddress where
@@ -425,4 +425,3 @@ properties =
     [ ("readHostnameBytes", property prop_readHostnameBytes)
     , ("readHostAddressBytes", property prop_readHostAddressBytes)
     ]
-

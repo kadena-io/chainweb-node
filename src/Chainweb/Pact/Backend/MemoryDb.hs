@@ -28,4 +28,5 @@ mkPureState env _cmdCfg = do
         PactDbState
             { _pdbsDbEnv = envPersist'
             , _pdbsState = P.CommandState P.initRefStore M.empty
+            , _pdbsTxId = 0
             }

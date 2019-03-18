@@ -32,6 +32,13 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
+common warning-flags
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+
 flag tls13
     description:
         Enable TLSv1.3; depends on the master branch of the tls package.
@@ -50,16 +57,14 @@ flag ed25519
 -- -------------------------------------------------------------------------- --
 
 library
+    import: warning-flags
     default-language: Haskell2010
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
     hs-source-dirs: src
     exposed-modules:
-          Chainweb.BlockHash
+          BackCompat.Test.QuickCheck
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -67,8 +72,13 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.ChainId
         , Chainweb.Chainweb
+        , Chainweb.Chainweb.ChainResources
+        , Chainweb.Chainweb.CutResources
+        , Chainweb.Chainweb.MinerResources
+        , Chainweb.Chainweb.PeerResources
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client
@@ -77,6 +87,7 @@ library
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
+        , Chainweb.Logger
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.RestAPI
@@ -86,6 +97,7 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
+        , Chainweb.Miner.Genesis
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
@@ -94,17 +106,26 @@ library
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
-        , Chainweb.Payload.SPV
         , Chainweb.PowHash
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.SPV
+        , Chainweb.SPV.CreateProof
+        , Chainweb.SPV.VerifyProof
+        , Chainweb.SPV.RestAPI
+        , Chainweb.SPV.RestAPI.Server
+        , Chainweb.SPV.RestAPI.Client
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
         , Chainweb.Store.Git
         , Chainweb.Store.Git.Internal
+        , Chainweb.Sync.WebBlockHeaderStore
+        , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
+        , Chainweb.Transaction
         , Chainweb.TreeDB
         , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
@@ -122,8 +143,12 @@ library
         , Data.CAS.HashMap
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
+        , Data.IVar
         , Data.LogMessage
+        , Data.PQueue
+        , Data.PQueue.Test
         , Data.Singletons
+        , Data.TaskMap
         , Data.Word.Encoding
 
         , Network.X509.SelfSigned
@@ -140,6 +165,8 @@ library
         , P2P.Node.RestAPI.Client
         , P2P.Peer
         , P2P.Session
+        , P2P.TaskQueue
+        , P2P.TaskQueue.Test
 
         -- pact
         , Chainweb.Pact.Backend.InMemoryCheckpointer
@@ -154,6 +181,9 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
+        , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.Orphans
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
@@ -179,20 +209,17 @@ library
         , connection >= 0.2.8
         , connection >=0.2
         , containers >= 0.5
-        , cryptohash-sha512 >= 0.11
         , cryptonite >=0.25
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
         , directory >= 1.3
-        , direct-sqlite >= 2.3
         , ekg >= 0.4
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
         , fast-builder >= 0.1
         , hashable >= 1.2
-        , hashtables >= 1.2
         , heaps >= 0.3
         , hlibgit2 >= 0.18
         , hourglass >=0.2
@@ -220,7 +247,6 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safe >= 0.3
         , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.14
@@ -246,7 +272,6 @@ library
         , transformers >= 0.5
         , trifecta >= 2
         , thyme == 0.3.6.0
-        , unliftio >= 0.2
         , unordered-containers >= 0.2
         , uuid >= 1.3
         , wai >= 3.2
@@ -260,6 +285,8 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , yaml >= 0.8
+        , yet-another-logger >= 0.3.1
+
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
 
@@ -271,19 +298,18 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
     other-modules:
+        Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeaderDB
+        Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
         Chainweb.Test.DiGraph
         Chainweb.Test.Mempool
@@ -291,12 +317,12 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Socket
         Chainweb.Test.Mempool.Sync
-        Chainweb.Test.MultiNode
-        Chainweb.Test.Orphans.External
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -324,7 +350,6 @@ test-suite chainweb-tests
         , bytestring >= 0.10
         , containers >= 0.5
         , data-default >=0.7
-        , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
@@ -332,28 +357,23 @@ test-suite chainweb-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
-        , io-streams >= 1.5
         , lens >= 4.16
-        , loglevel >= 0.1
         , massiv >= 0.2
         , mwc-random >= 0.13
-        , neat-interpolation >= 0.3.2
+        , neat-interpolation >= 0.3
         , network >= 2.6
         , pact >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
+        , resource-pool >= 0.2
         , resourcet >= 1.2
         , scientific >= 0.3
-        , servant >= 0.14.1
         , servant-client >= 0.14
-        , servant-server >= 0.14.1
         , string-conv >= 0.1
         , stm
         , stm-chans
@@ -366,8 +386,6 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >=1.2
         , these >= 0.7
-        , time >= 1.8
-        , tls >=1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
@@ -382,29 +400,24 @@ test-suite chainweb-tests
 -- Chainweb Benchmarking
 -- -------------------------------------------------------------------------- --
 benchmark chainweb-bench
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: Bench.hs
-  hs-source-dirs:
-      bench
-  ghc-options:
-      -Wall
-      -Wincomplete-record-updates
-      -Wincomplete-uni-patterns
-      -Wredundant-constraints
-      -threaded
-      -O2
-      -with-rtsopts=-N
-  build-depends:
+    import: warning-flags
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    main-is: Bench.hs
+    hs-source-dirs:
+        bench
+    ghc-options:
+        -threaded
+        -O2
+        -with-rtsopts=-N
+    build-depends:
         -- internal
-        chainweb
+          chainweb
 
         -- external
         , base >= 4.11
         , criterion >= 1.1
-        , deepseq
         , streaming >= 0.2
-        , text
         , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
@@ -414,12 +427,9 @@ benchmark chainweb-bench
 -- The application that runs an chainweb node
 --
 executable chainweb-node
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: node
@@ -427,6 +437,7 @@ executable chainweb-node
     other-modules:
         Paths_chainweb
         Utils.Logging
+        Utils.Logging.Config
     build-depends:
         -- internal
           chainweb
@@ -435,14 +446,18 @@ executable chainweb-node
         , async >= 2.2
         , base >= 4.11
         , bytestring >= 0.10
-        , clock >= 0.7
+        , case-insensitive >= 1.2
         , configuration-tools >= 0.4
+        , deepseq >= 1.4
+        , exceptions >= 0.8
+        , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , monad-control >= 1.0
+        , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
-        , unordered-containers >= 0.2
         , wai-app-static >= 3.1
         , wai-cors >= 0.2
         , wai-extra >= 3.0
@@ -453,12 +468,9 @@ executable chainweb-node
 -- variety of testing such as using the network, etc--things that aren't allowed
 -- in a nix build sandbox.
 executable slow-tests
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: test
@@ -497,7 +509,6 @@ executable slow-tests
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
-        , generic-lens >= 1.1
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
@@ -547,12 +558,9 @@ executable slow-tests
 -- -------------------------------------------------------------------------- --
 
 executable blockheaderdb-example
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples
@@ -575,12 +583,9 @@ executable blockheaderdb-example
 -- -------------------------------------------------------------------------- --
 
 executable p2p-example
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples test
@@ -602,7 +607,6 @@ executable p2p-example
         , loglevel >= 0.1
         , mwc-random >= 0.13
         , text >= 1.2
-        , tls >=1.4
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
@@ -614,21 +618,19 @@ executable p2p-example
 -- -------------------------------------------------------------------------- --
 
 executable transaction-generator
+    import: warning-flags
     default-language: Haskell2010
     ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
         -threaded
         -with-rtsopts=-N
     hs-source-dirs: examples
     main-is: TransactionGenerator.hs
     other-modules:
-            Chainweb.Simulate.Contracts.CommercialPaper
-            Chainweb.Simulate.Contracts.CryptoCritters
-            Chainweb.Simulate.Contracts.HelloWorld
-            Chainweb.Simulate.Contracts.SimplePayments
+        Chainweb.Simulate.Contracts.CommercialPaper
+        Chainweb.Simulate.Contracts.CryptoCritters
+        Chainweb.Simulate.Contracts.HelloWorld
+        Chainweb.Simulate.Contracts.SimplePayments
+        Chainweb.Simulate.Utils
     build-depends:
         --internal
           chainweb
@@ -636,16 +638,13 @@ executable transaction-generator
         --external
         , aeson >= 1.4
         , base >= 4.11
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10
         , configuration-tools >= 0.4
-        , containers >= 0.5
-        , cryptonite
-        , crypto-api
         , data-default >= 0.7
         , Decimal >= 0.4.2
-        , ed25519-donna
         , fake >= 0.1.1.1
-        , hashable >= 1.2
+        , http-client >= 0.5
         , lens >= 4.16
         , mtl >= 2.2
         , mwc-random >= 0.13
@@ -653,5 +652,5 @@ executable transaction-generator
         , pact >= 2.6
         , primitive >= 0.6
         , random >= 1.1
+        , servant-client >= 0.14
         , text >= 1.2
-        , unordered-containers >= 0.2

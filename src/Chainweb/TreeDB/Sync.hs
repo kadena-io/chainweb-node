@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -32,7 +33,8 @@ module Chainweb.TreeDB.Sync
   , linearSync
     -- * Sync Session
   , syncSession
-  , chainSyncSession
+  , singleChainSyncSession
+  , chainwebSyncSession
     -- * Utils
   , minHeight
   ) where
@@ -63,8 +65,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 
 import Data.LogMessage
-
-import P2P.Session
 
 -- -------------------------------------------------------------------------- --
 -- Types
@@ -161,25 +161,32 @@ linearSync d local peer = do
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
--- | Form a living sync process between two `TreeDb` instances. Once our local
--- Db syncs to the peer, the local will send back all the new `BlockHeader`s
--- that it finds.
+-- | The same function as @syncSession@, but with less logging.
 --
-syncSession
+syncSession_
     :: BlockHeaderTreeDb local
     => BlockHeaderTreeDb peer
-    => local
+    => Bool
+        -- ^ Whether to gossip around newly discovered block headers. For a
+        -- multi-chain scenario this is not needed, since new Cuts are gossiped
+        -- around in the network.
+    -> Int
+        -- ^ Delay between full synchronizations in microseconds
+    -> local
     -> PeerTree peer
     -> Depth
     -> LogFunction
     -> IO Bool
-syncSession local peer d logg = do
+syncSession_ sendBlocks fullSyncDelay local peer d logg = do
     receiveBlockHeaders
     m <- maxHeader local
-    race_
-        (S.mapM_ send $ allEntries local (Just $ Exclusive $ key m))
-        (forever $ receiveBlockHeaders >> threadDelay 5000000)
+
+    let gossip = S.mapM_ send $ allEntries local (Just $ Exclusive $ key m)
+        fullSync = forever $ receiveBlockHeaders >> threadDelay fullSyncDelay
             -- FIXME make this configurable or dynamic
+    if
+        | sendBlocks -> race_ gossip fullSync
+        | otherwise -> fullSync
 
     -- this code must not be reached
     void $ logg @T.Text Error "unexpectedly exited sync session"
@@ -194,18 +201,28 @@ syncSession local peer d logg = do
         branchSync local peer d logg
         logg @T.Text Debug "finished full sync"
 
--- | Adds a little bit more logging to syncSession
+-- | A sync session that does
 --
-chainSyncSession
+-- * a full sync at the beginning and then every 5 seconds, and
+-- * optionally, after the first full sync it forward every newly discovered block
+--   header to the peer.
+--
+syncSession
     :: BlockHeaderTreeDb local
     => BlockHeaderTreeDb peer
-    => local
+    => Bool
+        -- ^ Whether to gossip around newly discovered block headers. For a
+        -- multi-chain scenario this is not needed, since new Cuts are gossiped
+        -- around in the network.
+    -> Int
+        -- ^ Delay between full synchronizations in microseconds
+    -> local
     -> PeerTree peer
     -> Depth
     -> LogFunction
     -> IO Bool
-chainSyncSession local peer depth logFun =
-    try (syncSession local peer depth logFun) >>= \case
+syncSession sendBlocks fullSyncDelay local peer depth logFun =
+    try (syncSession_ sendBlocks fullSyncDelay local peer depth logFun) >>= \case
         Left e -> do
             case sshow @SomeException e of
                 "<<Timeout>>" -> logg Debug "Session timeout"
@@ -218,6 +235,36 @@ chainSyncSession local peer depth logFun =
   where
     logg :: LogFunctionText
     logg = logFun
+
+-- | A sync session that does
+--
+-- * a full sync at the beginning and then every 5 seconds.
+-- * after the first full sync it forward every newly discovered block header
+--   to the peer.
+--
+singleChainSyncSession
+    :: BlockHeaderTreeDb local
+    => BlockHeaderTreeDb peer
+    => local
+    -> PeerTree peer
+    -> Depth
+    -> LogFunction
+    -> IO Bool
+singleChainSyncSession = syncSession True 5000000 {- 5 seconds -}
+
+-- | A sync session that does
+--
+-- * a full sync at the beginning and then every minute.
+--
+chainwebSyncSession
+    :: BlockHeaderTreeDb local
+    => BlockHeaderTreeDb peer
+    => local
+    -> PeerTree peer
+    -> Depth
+    -> LogFunction
+    -> IO Bool
+chainwebSyncSession = syncSession False 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Utils

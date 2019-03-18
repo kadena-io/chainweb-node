@@ -4,16 +4,29 @@
 # Usage
 
 function usage () {
-    echo "USAGE: run-nodes CHAINWEB_NODE_EXE NUMBER_OF_NODES [LOG_DIRECTORY]"
-    echo "stop nodes with Ctrl-C"
+    echo "USAGE:"
+    echo
+    echo "    run-nodes CHAINWEB_NODE_EXE NUMBER_OF_NODES [LOG_DIRECTORY|es:ELASTICSEARCH_HOST:PORT]"
+    echo
+    echo "If third argument starts with 'es:' it is used for logging to Elasticsearch."
+    echo "NUMBER_OF_NODES must be between 1 and 100."
+    echo "Stop nodes with Ctrl-C"
 }
 
 # ############################################################################ #
 # Configuration
 
-LOGLEVEL=info
+function err () {
+    echo "Error:" 1>&2
+    echo -n "    " 1>&2
+    echo "$@" 1>&2
+    echo 1>&2
+    usage 1>&2
+}
 
-[ "$#" -ge 2 ] || { echo -e "Missing arguments:" 1>&2 ; usage 1>&2 ; exit -1 ; }
+LOGLEVEL=${LOGLEVEL:-info}
+
+[ "$#" -ge 2 ] || { err "Missing arguments" ; exit -1 ; }
 
 # Chainweb-node application
 RUN=$1 && shift
@@ -21,20 +34,23 @@ RUN=$1 && shift
 # Number of nodes
 N=$1 && shift
 
-LOG_DIR=$1
+LOG_DIR=$1 && shift
 
 # ############################################################################ #
 # some sanity checks
 
 # Check chainweb-node application
-[ -x "$RUN" ] || { echo "chainweb-node \"$RUN\" can't be exectuted" 1>&1 ; usage 1>&2 ; exit -1 ; }
+[ -x "$RUN" ] || { err "chainweb-node \"$RUN\" can't be exectuted" ; exit -1 ; }
 
 # check number of nodes
-[ "$N" -ge 1 ] || { echo "number of nodes \"$N\" to small" 1>&2 ; exit -1 ; }
-[ "$N" -le 100 ] || { echo "number of nodes \"$N\" to big" 1>&2 ; exit -1 ; }
+[ "$N" -ge 1 ] || { err "number of nodes \"$N\" to small" ; exit -1 ; }
+[ "$N" -le 100 ] || { err "number of nodes \"$N\" to big" ; exit -1 ; }
 
 # check logdir
-[ -z "$LOG_DIR" -o -d "$LOG_DIR" ] || { echo "log directory \"$LOG_DIR\" doesn't exist" 1>&2 ; usage 1>&2 ; exit -1 ; }
+
+ES=$([[ $LOG_DIR =~ ^es:.*:[0-9]+$ ]] && echo 1)
+
+[ -z "$LOG_DIR" -o -n "$ES" -o -d "$LOG_DIR" ] || { err "log directory \"$LOG_DIR\" doesn't exist" ; exit -1 ; }
 
 # ############################################################################ #
 # Kill all nodes on exit
@@ -54,25 +70,41 @@ function run-node () {
 
     if [[ -n "$LOG_DIR" ]] ; then
 
+        # Decide handles for logs (easticsearch or file)
+        local APP_LOG=""
+        local TELEMETRY_LOG=""
+        if [[ -n "$ES" ]] ; then
+            APP_LOG="$LOG_DIR"
+            TELEMETRY_LOG="$LOG_DIR"
+        else
+            TELEMETRY_LOG="file:$LOG_DIR/telemetry.node$NID.log"
+            APP_LOG="file:$LOG_DIR/node$NID.log"
+        fi
+
         # Run with LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
-            --cuts-logger-backend-handle="file:$LOG_DIR/cuts.node$NID.log" \
-            --logger-backend-handle="file:$LOG_DIR/node$NID.log" \
-            $CONFIG_FILE_ARG &
+            --telemetry-log-handle="$TELEMETRY_LOG" \
+            --log-handle="$APP_LOG" \
+            $CONFIG_FILE_ARG \
+            +RTS -T &
+
     else
 
         # Run without LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             $PORT_ARG \
-            $CONFIG_FILE_ARG &
+            $CONFIG_FILE_ARG \
+            +RTS -T &
     fi
 }
 

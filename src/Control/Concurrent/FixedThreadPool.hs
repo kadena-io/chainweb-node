@@ -96,7 +96,7 @@ newGroup k = Group <$> newMVar k <*> newIORef Nothing <*> newEmptyMVar
 doneGroup :: Group -> Maybe SomeException -> IO ()
 doneGroup (Group sema gerr done) mberr = mask_ $ do
     b <- modifyMVar sema dec
-    when (isJust mberr) $ handleErr
+    when (isJust mberr) handleErr
     when b $ void (readIORef gerr >>= tryPutMVar done)
   where
     handleErr = writeIORef gerr mberr
