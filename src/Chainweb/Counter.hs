@@ -9,7 +9,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -183,9 +182,9 @@ instance NFData CounterValue where
 
 -- | The Counters are rolled at the time the message is logged (not when it is
 -- processed by the backend). This adds a small amount of overhead, but ensures
--- that the time stampe of the log matches the time when the logs are rolled.
--- This means that logs are rolled even when the message ends up being discarded
--- by the backend, which means that counts are lost along with the discarded
+-- that the timestamp of the log matches the time when the logs are rolled. This
+-- means that logs are rolled even when the message ends up being discarded by
+-- the backend, which means that counts are lost along with the discarded
 -- messages. This is consistent with the semantics of discarding log messages.
 --
 newtype CounterLog = CounterLog (V.Vector CounterValue)
@@ -214,4 +213,3 @@ logFunctionCounter logger level = logFunction logger level
 {-# INLINE logFunctionCounter #-}
 
 type LogFunctionCounter = forall f . Foldable f => LogLevel -> f CounterValue -> IO ()
-
