@@ -89,6 +89,7 @@ library
         , Chainweb.Chainweb.CutResources
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
+        , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.Cut.CutHashes
