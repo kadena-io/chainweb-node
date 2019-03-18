@@ -295,7 +295,7 @@ def main():
 
 
 def create_resources(args):
-    print("Creating cluster...")
+    print("Creating cluster...TestingPush")
 
     apps_v1beta2 = client.AppsV1beta2Api()
     core_v1 = client.CoreV1Api()
