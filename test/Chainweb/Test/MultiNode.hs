@@ -205,8 +205,9 @@ node loglevel write stateVar bootstrapPortVar conf =
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
         runChainweb cw `finally` do
-            logFunctionText logger Info "write sample consensus state"
+            logFunctionText logger Info "write sample data"
             sample cw
+            logFunctionText logger Info "shutdown node"
   where
     nid = _configNodeId conf
 
