@@ -23,11 +23,6 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/LeventErkok/sbv.git
-    tag: 365b1a369a2550d6284608df3fbc17e2663c4d3c
-
-source-repository-package
-    type: git
     location: git@github.com:kadena-io/thyme.git
     tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
