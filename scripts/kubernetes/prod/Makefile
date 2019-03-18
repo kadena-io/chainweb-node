@@ -1,5 +1,5 @@
 
-SECTIONS = us1 us2 eu1
+SECTIONS = eu1
 
 us1_REGION = us-east-1
 us2_REGION = us-west-2
