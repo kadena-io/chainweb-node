@@ -1,5 +1,8 @@
 
-SECTIONS = us1 us2 eu1
+# For demo
+SECTIONS = eu1
+
+#SECTIONS = us1 us2 eu1
 
 us1_REGION = us-east-1
 us2_REGION = us-west-2
@@ -9,7 +12,7 @@ eu1_REGION = eu-central-1
 
 KOPS_DNS_ZONE = chainweb.k8s.local
 EXTERNAL_DNS_ZONE = chainweb.com
-IMAGE = kadena/chainweb-bootstrap-node:v0
+IMAGE = kadena/chainweb-bootstrap-node:latest
 
 .DEFAULT_GOAL := deploys
 
