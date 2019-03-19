@@ -8,37 +8,41 @@
 --
 -- Generate Haskell modules for inclusion of transactions in genesis blocks
 --
-module Chainweb.BlockHeader.Genesis.GenPayload
-  ( genTestnet
-  ) where
+
+module Chainweb.BlockHeader.Genesis.GenPayload ( genTestnet ) where
 
 import Control.Arrow ((***))
 import Control.Concurrent (newMVar)
-import Control.Monad (when,foldM)
+import Control.Monad (foldM, when)
+
 import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
-import Data.ByteString.Lazy (toStrict)
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (toStrict)
 import qualified Data.Sequence as S
-import Data.Text (Text,unpack)
+import Data.Text (Text, unpack)
 import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Data.Text.IO as TIO
-import Data.Text.Encoding (encodeUtf8,decodeUtf8)
 import qualified Data.Yaml as Yaml
 
-import Chainweb.Payload
-import Chainweb.Pact.PactService (toHashedLogTxOutput,mkPureState)
+-- internal modules
+
+import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
+import Chainweb.Pact.PactService (mkPureState, toHashedLogTxOutput)
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
 import Chainweb.Pact.Utils (toEnv')
+import Chainweb.Payload
 
 import Pact.ApiReq (mkApiReq)
-import Pact.Types.Command (ProcessedCommand(..),Command,verifyCommand,CommandResult(..),ExecutionMode(..))
-import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
-import Pact.Types.Server (CommandConfig(..))
 import Pact.Interpreter (mkPureEnv)
+import Pact.Types.Command
+    (Command, CommandResult(..), ExecutionMode(..), ProcessedCommand(..),
+    verifyCommand)
+import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.Persistence (TxId(TxId))
+import Pact.Types.Server (CommandConfig(..))
 
 genTestnet :: IO ()
 genTestnet = genPayloadModule "Testnet"
@@ -55,12 +59,12 @@ genPayloadModule v = do
         Env' pactDbEnv -> do
           let procCmd = verifyCommand (fmap encodeUtf8 cmd)
           parsedCmd <- case procCmd of
-            f@ProcFail{} -> fail (show f)
+            f@ProcFail{} -> error (show f)
             ProcSucc c -> return c
           ((result,txLogs),newEM) <-
             applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
           -- TODO this is a heuristic for a failed tx
-          when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
+          when (null txLogs) $ error $ "transaction failed: " ++ show (cmd,result)
           let fullOut = FullLogTxOutput (_crResult result) txLogs
               hashedOut = toHashedLogTxOutput fullOut
           return ((inp,encodeJSON hashedOut):outs,newEM)
@@ -80,29 +84,30 @@ genPayloadModule v = do
   TIO.writeFile fileName moduleCode
   putStrLn $ "Wrote " ++ fileName
 
-
-
-
 startModule :: Text -> [Text]
 startModule moduleName =
   [ "{-# LANGUAGE QuasiQuotes #-}"
   , ""
+  , "-- This modules is auto-generated. DO NOT EDIT IT MANUALLY."
+  , ""
   , "module Chainweb.BlockHeader.Genesis." <> moduleName <> " ( payloadBlock ) where"
   , ""
-  , "import NeatInterpolation (text)"
   , "import Data.Text.Encoding (encodeUtf8)"
-  , "import Chainweb.Payload (PayloadWithOutputs)"
   , "import Data.Yaml (decodeThrow)"
+  , ""
+  , "import NeatInterpolation (text)"
+  , ""
+  , "import Chainweb.Payload (PayloadWithOutputs)"
   , "import Chainweb.Utils (fromJuste)"
   , ""
   , "payloadBlock :: PayloadWithOutputs"
   , "payloadBlock = fromJuste $ decodeThrow $ encodeUtf8 [text|"
   ]
+
 endModule :: [Text]
 endModule =
   [ "|]"
   ]
-
 
 initPact :: IO (Loggers, PactDbState)
 initPact = do

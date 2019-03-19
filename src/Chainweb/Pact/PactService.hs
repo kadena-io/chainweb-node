@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -27,7 +28,6 @@ module Chainweb.Pact.PactService
     , toHashedLogTxOutput
     ) where
 
-
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -41,13 +41,13 @@ import qualified Data.Aeson as A
 import Data.Bifunctor (first, second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
-import Data.Foldable (toList)
-import Data.Either
 import Data.Default (def)
+import Data.Either
+import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
-import Data.Text.Encoding (encodeUtf8)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
@@ -75,17 +75,18 @@ import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types ( LocalReq(..), NewBlockReq(..), PactValidationErr(..)
-                                   , RequestMsg(..), ValidateBlockReq(..) )
+import Chainweb.Pact.Service.Types
+    (LocalReq(..), NewBlockReq(..), PactValidationErr(..), RequestMsg(..),
+    ValidateBlockReq(..))
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
 -- genesis block (temporary)
-import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload ( payloadBlock )
+import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
 
 testnetDbConfig :: PactDbConfig
 testnetDbConfig = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
@@ -134,7 +135,7 @@ initPactService chainwebLogger reqQ memPoolAccess = do
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
             when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
-            fail s
+            error s
         Right _ -> return ()
 
     void $! evalStateT
@@ -153,8 +154,7 @@ createCoinContract loggers dbState = do
     newEM <- foldM applyC initEx cmds
     txId <- case newEM of
           P.Transactional tId -> return tId
-          _other              -> fail "Non - Transactional ExecutionMode found"
-
+          _other -> error "Non - Transactional ExecutionMode found"
 
     newCmdState <- readMVar cmdState
     newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
@@ -168,9 +168,9 @@ createCoinContract loggers dbState = do
 inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
 inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
   case A.eitherDecodeStrict t of
-    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
+    Left e -> error $ "genesis transaction payload decode failed: " ++ show e
     Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
+      f@P.ProcFail{} -> error $ "genesis transaction payload verify failed: " ++ show f
       P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
@@ -264,7 +264,7 @@ execNewBlock memPoolAccess header = do
     (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
-    either fail (\_ -> pure results) closeStatus
+    either error (\_ -> pure results) closeStatus
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
@@ -295,13 +295,13 @@ execValidateBlock currHeader plData = do
       -- TODO: fix - If this error message does not appear, the database has been closed.
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
-      fail s
+      error s
 
 -- | In the case of failure when restoring from the checkpointer,
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
-  Left s  -> gets closePactDb >> fail s
+  Left s -> gets closePactDb >> error s
   Right t -> updateState $! t
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -359,7 +359,7 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
     (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
-          _other -> fail "Transactional ExecutionMode expected"
+          _other -> error "Transactional ExecutionMode expected"
     return (outs, newTxId)
   where
       f (outs, prevEM) cmd = do
