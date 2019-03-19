@@ -1,10 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -38,17 +38,24 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (first,second)
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (toStrict)
+import Data.Default (def)
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.IO as T (readFile)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
+import qualified Data.Text as T
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
 
 import NeatInterpolation (text)
+
+import System.LogLevel
 
 -- external pact modules
 
@@ -65,6 +72,7 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
@@ -76,11 +84,26 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.Transaction
 
+pactLogLevel :: String -> LogLevel
+pactLogLevel "INFO" = Info
+pactLogLevel "ERROR" = Error
+pactLogLevel "DEBUG" = Debug
+pactLogLevel "WARN" = Warn
+pactLogLevel _ = Info
 
-initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
-initPactService reqQ memPoolAccess = do
-    let loggers = P.alwaysLog
+pactLoggers :: Logger logger => logger -> P.Loggers
+pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
+  where
+    fun :: P.LoggerLogFun
+    fun _ (P.LogName n) cat msg = do
+        let namedLogger = addLabel ("logger", T.pack n) logger
+        logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
+
+initPactService :: Logger logger => logger -> TQueue RequestMsg -> MemPoolAccess -> IO ()
+initPactService chainwebLogger reqQ memPoolAccess = do
+    let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
     let cmdConfig = toCommandConfig pactCfg
@@ -133,7 +156,9 @@ createCoinContract dbState = do
 
     coinbaseCmd <- createSender
     let cmdEnv' = incEx cmdEnv
-    let (P.Transactional txId) = P._ceMode . incEx $ cmdEnv'
+    txId <- case P._ceMode . incEx $ cmdEnv' of
+          P.Transactional tId -> return tId
+          _other              -> fail "Non - Transactional ExecutionMode found"
 
     void $! applyExec' cmdEnv' initState coinbaseCmd [] (P.hash "")
 
@@ -175,22 +200,21 @@ toHashedLogTxOutput FullLogTxOutput{..} =
         , _hlTxLogHash = hashed
         }
 
-toCWTransaction :: PactTransaction -> Transaction
-toCWTransaction pTrans =
-    let pCmd = _ptCmd pTrans
-        ptBytes = A.encode pCmd
-    in Transaction { _transactionBytes = toS ptBytes }
+toTransactionBytes :: P.Command ByteString -> Transaction
+toTransactionBytes cwTrans =
+    let plBytes = toStrict $ A.encode cwTrans
+    in Transaction { _transactionBytes = plBytes }
 
-toCWOutput :: FullLogTxOutput -> TransactionOutput
-toCWOutput flOut =
+toOutputBytes :: FullLogTxOutput -> TransactionOutput
+toOutputBytes flOut =
     let hashedLogOut = toHashedLogTxOutput flOut
         outBytes = A.encode hashedLogOut
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
 toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
 toNewBlockResults ts =
-    let oldSeq = Seq.fromList $ _transactionPairs ts
-        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
+    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
+        newSeq = second toOutputBytes <$> oldSeq
 
         seqTrans = fst <$> newSeq
         blockTrans = snd $ newBlockTransactions seqTrans
@@ -200,8 +224,8 @@ toNewBlockResults ts =
 
 toValidateBlockResults :: Transactions -> (BlockTransactions, BlockOutputs)
 toValidateBlockResults ts =
-    let oldSeq = Seq.fromList $ _transactionPairs ts
-        newSeq = bimap toCWTransaction toCWOutput <$> oldSeq
+    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
+        newSeq = second toOutputBytes <$> oldSeq
 
         seqTrans = fst <$> newSeq
         blockTrans = snd $ newBlockTransactions seqTrans
@@ -220,7 +244,7 @@ execNewBlock memPoolAccess header = do
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader header
 
-    newTrans <- liftIO $! memPoolAccess bHeight
+    newTrans <- liftIO $! memPoolAccess bHeight bHash
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
       else restore checkPointer bHeight bHash
@@ -246,7 +270,7 @@ execValidateBlock memPoolAccess currHeader = do
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader currHeader
 
-    trans <- liftIO $! transactionsFromHeader memPoolAccess currHeader
+    trans <- liftIO $ transactionsFromHeader memPoolAccess currHeader
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
       else restore checkPointer (pred bHeight) bParent
@@ -264,6 +288,7 @@ execValidateBlock memPoolAccess currHeader = do
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
       fail s
+
 -- | In the case of failure when restoring from the checkpointer,
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
@@ -293,14 +318,15 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just $ P.SQLiteConfig f xs
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: Bool -> MinerInfo -> [PactTransaction] -> PactT (Transactions, PactDbState)
-execTransactions isGenesis miner txs = do
+execTransactions :: Bool -> MinerInfo -> Vector ChainwebTransaction -> PactT (Transactions, PactDbState)
+execTransactions isGenesis miner ctxs = do
     currentState <- get
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
-    let prevTxId  = _pdbsTxId currentState
-    (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState (_ptCmd <$> txs) (fromIntegral prevTxId) miner
+    let prevTxId = _pdbsTxId currentState
+    (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs (fromIntegral prevTxId) miner
+
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
@@ -308,49 +334,50 @@ execTransactions isGenesis miner txs = do
           , _pdbsState = newCmdState
           , _pdbsTxId = P.TxId newTxId
           }
-    return (Transactions (txs `zip` txOuts), updatedState)
+        cmdBSToTx = toTransactionBytes . fmap payloadBytes
+        paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
+    return (Transactions paired, updatedState)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
     :: Bool
     -> Env'
     -> MVar P.CommandState
-    -> [P.Command ByteString]
+    -> Vector (P.Command PayloadWithText)
     -> Word64
     -> MinerInfo
-    -> PactT ([FullLogTxOutput], Word64)
+    -> PactT (Vector FullLogTxOutput, Word64)
 applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
-    (outs, newEM) <- foldM f ([], P.Transactional (P.TxId prevTxId)) cmds
+    (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
           _other -> fail "Transactional ExecutionMode expected"
-    return (reverse outs, newTxId)
-    where
+    return (outs, newTxId)
+  where
       f (outs, prevEM) cmd = do
           (txOut, newEM) <- applyPactCmd isGenesis env' cmdState cmd prevEM miner
-          return (txOut : outs, newEM)
+          return (outs `V.snoc` txOut, newEM)
 
 -- | Apply a single Pact command
 applyPactCmd
     :: Bool
     -> Env'
     -> MVar P.CommandState
-    -> P.Command ByteString
+    -> P.Command PayloadWithText
     -> P.ExecutionMode
     -> MinerInfo
     -> PactT (FullLogTxOutput, P.ExecutionMode)
-applyPactCmd isGenesis (Env' dbEnv) cmdState cmd execMode miner = do
+applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     cpEnv <- ask
     let logger = _cpeLogger cpEnv
         gasModel = P._geGasModel . _cpeGasEnv $ cpEnv
-        -- type signature ensures correct inference
-        procCmd :: P.ProcessedCommand P.PublicMeta P.ParsedCode
-        procCmd = P.verifyCommand cmd
 
+    -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
+    let cmd = payloadObj <$> cmdIn
     ((result, txLogs), newEM) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd procCmd
+        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd
         else applyCmd logger Nothing miner dbEnv
-             cmdState gasModel execMode cmd procCmd
+             cmdState gasModel execMode cmd
 
     pure $! (FullLogTxOutput (P._crResult result) txLogs, newEM)
 
@@ -364,12 +391,13 @@ pactFilesDir :: String
 pactFilesDir = "test/config/"
 
 ----------------------------------------------------------------------------------------------------
--- TODO: Replace these placeholders with the real API functions:
+-- TODO: * Replace these placeholders with the real API functions: How to I get the transactions
+--         for validation from the header?
+--       * Remove the MempoolAccess param
 ----------------------------------------------------------------------------------------------------
-transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO [PactTransaction]
+transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO (Vector ChainwebTransaction)
 transactionsFromHeader memPoolAccess bHeader =
-    -- MemPoolAccess will be replaced with looking up transactsion from header...
-    memPoolAccess (_blockHeight bHeader)
+    memPoolAccess (_blockHeight bHeader) (_blockParent bHeader)
 ----------------------------------------------------------------------------------------------------
 
 coinContract :: IO (P.ExecMsg P.ParsedCode)

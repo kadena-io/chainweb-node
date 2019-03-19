@@ -14,26 +14,23 @@ extra-deps:
   - fake-0.1.1.1@sha256:a551fed1dbdd2ce3629cb843597d24793562cdd136e1252ae2febe0b91d239a8
   - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
   - FloatingHex-0.4
-  - generic-lens-1.1.0.0@sha256:caaab13ae4f2a68e43671d25fb56746ba14bc9d5d787d594a66c7f56eba3fa66
+  - hspec-2.5.8
+  - hspec-core-2.5.8
+  - hspec-discover-2.5.8
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
+  # QuickCheck-2.12
+  - QuickCheck-2.12.6.1
+  - QuickCheck-GenT-0.2.0
+  - sbv-8.1
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
   - tasty-1.2
   - vector-algorithms-0.8.0.1@sha256:94ef7560517dfd133157e0532ccf3c039477a8eef4b270fe59b52a036fc1f0a1
   - yet-another-logger-0.3.1
-  - hspec-2.5.8
-  - hspec-core-2.5.8
-  - hspec-discover-2.5.8
-  # QuickCheck-2.12
-  - QuickCheck-2.12.6.1
-  - QuickCheck-GenT-0.2.0
+
+  - git: git@github.com:kadena-io/merkle-log.git
+    commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
   - git: https://github.com/kadena-io/pact.git
     commit: caf1b25bcf02bb3c3ac2d83a561c608ef97356b1
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-  # temporarily using a patched fork of sbv to disable "unsupported query call"
-  # until it's fixed upstream
-  - git: https://github.com/LeventErkok/sbv.git
-    commit: 68375576f87d17a2da759c56f7147f4e559471a2
-  - git: git@github.com:kadena-io/merkle-log.git
-    commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376

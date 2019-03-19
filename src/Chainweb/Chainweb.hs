@@ -125,7 +125,7 @@ import P2P.Peer
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
-    , _configMiner :: !MinerConfig
+    , _configMiner :: !(EnableConfig MinerConfig)
     , _configP2p :: !P2pConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
     }
@@ -145,7 +145,7 @@ defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = defaultMinerConfig
+    , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configP2p = defaultP2pConfiguration v
     , _configChainDbDirPath = Nothing
     }
@@ -177,7 +177,7 @@ pChainwebConfiguration = id
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
-    <*< configMiner %:: pMinerConfig
+    <*< configMiner %:: pEnableConfig "mining" pMinerConfig
     <*< configP2p %:: pP2pConfiguration Nothing
     <*< configChainDbDirPath .:: fmap Just % textOption
         % long "chain-db-dir"
@@ -191,7 +191,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebNodeId :: !NodeId
-    , _chainwebMiner :: !(MinerResources logger cas)
+    , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -347,12 +347,13 @@ runChainweb cw = do
         -- Configure Clients
         --
         let mgr = view chainwebManager cw
+            miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
 
         -- 2. Run Clients
         --
         let clients :: [IO ()]
             clients = concat
-                [ [runMiner (_chainwebVersion cw) (_chainwebMiner cw)]
+                [ miner
                 -- FIXME: should we start mining with some delay, so
                 -- that the block header base is up to date?
                 , cutNetworks mgr (_chainwebCutResources cw)
@@ -364,4 +365,3 @@ runChainweb cw = do
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
-

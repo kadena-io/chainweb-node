@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -27,31 +28,51 @@ import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
 import Control.Monad.STM
 
+import Data.Int
+
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
+import Chainweb.Logger
 import qualified Chainweb.Pact.PactService as PS
+import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.Transaction
 
 -- | Initialization for Pact (in process) Api
-withPactService :: (TQueue RequestMsg -> IO a) -> IO a
-withPactService action = withPactService' tempMemPoolAccess action -- TODO: replace with real mempool
+withPactService
+    :: Logger logger
+    => logger
+    -> MempoolBackend ChainwebTransaction
+    -> (TQueue RequestMsg -> IO a)
+    -> IO a
+withPactService logger memPool action
+    = withPactService' logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-withPactService' :: MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
-withPactService' memPoolAccess action = do
+withPactService' :: Logger logger => logger -> MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
+withPactService' logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService reqQ memPoolAccess)
+    a <- async (PS.initPactService logger reqQ memPoolAccess)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ
     closeQueue reqQ
     return r
+
+-- TODO: get from config
+maxBlockSize :: Int64
+maxBlockSize = 10000
+
+pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
+pactMemPoolAccess mempool _height _hash =
+    -- TODO: log request with height hash
+    mempoolGetBlock mempool maxBlockSize
 
 initWebService :: TQueue RequestMsg -> IO a -> IO a
 initWebService reqQ action = do
@@ -78,7 +99,3 @@ validateBlock bHeader reqQ = do
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
-
--- TODO: replace reference to this with actual mempool and delete this
-tempMemPoolAccess :: BlockHeight -> IO [PactTransaction]
-tempMemPoolAccess _ = error "PactApi - MemPool access not implemented yet"

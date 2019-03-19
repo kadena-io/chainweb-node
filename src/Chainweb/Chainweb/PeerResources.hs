@@ -38,7 +38,7 @@ module Chainweb.Chainweb.PeerResources
 , ConnectionManagerStats(..)
 ) where
 
-import Configuration.Utils hiding (Lens', (<.>))
+import Configuration.Utils hiding (Lens', (<.>), Error)
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -187,20 +187,21 @@ withConnectionManger logger cert key peerDb runInner = do
         (TlsSecure True certCacheLookup)
         (Just cred)
 
+    let settings' = settings
+            { HTTP.managerConnCount = 5
+                -- keep only 5 connections alive
+            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
+                -- timeout connection-attempts after 1 sec instead of the default of 30 sec
+            , HTTP.managerIdleConnectionCount = 512
+                -- total number of connections to keep alive. 512 is the default
+            }
+
+
     connCountRef <- newIORef (0 :: Int)
     reqCountRef <- newIORef (0 :: Int)
-    mgr <- HTTP.newManager settings
-        { HTTP.managerConnCount = 5
-            -- keep only 5 connections alive
-        , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
-            -- timeout connection attempts after 1 sec instead of 30 sec default
-        , HTTP.managerIdleConnectionCount = 512
-            -- total number of connections to keep alive. 512 is the default
-
-        -- Debugging
-
-        , HTTP.managerTlsConnection = do
-            mk <- HTTP.managerTlsConnection settings
+    mgr <- HTTP.newManager settings'
+        { HTTP.managerTlsConnection = do
+            mk <- HTTP.managerTlsConnection settings'
             return $ \a b c -> do
                 atomicModifyIORef' connCountRef $ (,()) . succ
                 mk a b c
@@ -208,16 +209,27 @@ withConnectionManger logger cert key peerDb runInner = do
         , HTTP.managerModifyRequest = \req -> do
             atomicModifyIORef' reqCountRef $ (,()) . succ
             HTTP.managerModifyRequest settings req
+                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+                    -- overwrite the explicit connection timeout from servant-client
+                    -- (If the request has a timeout configured, the global timeout of
+                    -- the manager is ignored)
+                }
         }
 
     let logClientConnections = forever $ do
-            threadDelay 5000000
-            connCount <- readIORef connCountRef
-            reqCount <- readIORef reqCountRef
-            logFunctionJson logger Info
-                $ ConnectionManagerStats connCount reqCount
+            threadDelay 60000000 {- 1 minute -}
+            stats <- ConnectionManagerStats
+                <$> readIORef connCountRef
+                <*> readIORef reqCountRef
+            logFunctionJson logger Info stats
 
-    snd <$> concurrently logClientConnections (runInner mgr)
+    let runLogClientConnections umask = do
+            umask logClientConnections `catchAllSynchronous` \e -> do
+                logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
+            logFunctionText logger Info "Restarting connection manager logger"
+            runLogClientConnections umask
+
+    withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
 
   where
     certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)

@@ -510,7 +510,7 @@ parseJsonFromText l = withText l $ either fail return . eitherFromText
 type OptionParser a = O.Parser a
 
 prefixLong :: HasName f => Maybe String -> String -> Mod f a
-prefixLong prefix l = long $ maybe "" ("-" <>) prefix <> l
+prefixLong prefix l = long $ maybe "" (<> "-") prefix <> l
 
 suffixHelp :: Maybe String -> String -> Mod f a
 suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix

@@ -200,17 +200,16 @@ below to run an image from DockerHub.
 First, we must load our built images into *Minikube's* Docker context.
 
 ```sh
-# Offload our built images.
-$ docker save chainweb-base > chainweb-base.tar
-$ docker save chainweb-bootstrap-node > chainweb-bootstrap-node.tar
+# Unnecessary if done above
+$ nix-build docker.nix
 
 # Temporarily inject Minikube-specific Docker settings in our environment.
 # You can close your terminal to reset these.
 $ eval `minikube docker-env`
 
 # Load the images into Minikube's Docker context.
-$ docker load --input chainweb-base.tar
-$ docker load --input chainweb-bootstrap-node.tar
+$ docker load --input result
+$ docker load --input result-2
 ```
 
 Now we can run our images:
@@ -299,6 +298,38 @@ $ watch -n 1 "kubectl logs chainweb-0 | tail -n 25"
 <!-- The script `scripts/dev_startup.sh` automates some of these steps already for -->
 <!-- minikube clusters. This method will not work for cloud-based clusters. -->
 
+#### Connecting to a Bootstrap Node
+
+The `chainweb-node` binary has a built-in list of official bootstrap nodes, but
+we can specify others on the command line. For a locally running bootstrap, we
+first confirm the IP and port:
+
+```sh
+$ minikube service chainweb-0 --url
+
+http://192.168.99.100:32742
+```
+
+Now we run a `chainweb-node` as usual, except that we add the `--peer-info`
+flag:
+
+```sh
+$ chainweb-node --node-id=<SOME-ID> --peer-info=9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ@192.168.99.100:32742
+
+# A wall of log messages.
+```
+
+`9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ` is the certificate fingerprint of
+the built-in test certificate. This may differ from your situation, but the true
+fingerprint can always be found in your `chainweb-node`'s log messages.
+
+Connecting to an official bootstrap node is even simpler:
+
+```sh
+$ chainweb-node --node-id=<SOME-ID> --peer-info=us1.chainweb.com:443
+
+# A wall of log messages.
+```
 
 ## Component Structure
 
