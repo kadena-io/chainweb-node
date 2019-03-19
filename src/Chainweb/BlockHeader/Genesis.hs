@@ -46,6 +46,7 @@ import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Yaml as Yaml
@@ -133,8 +134,11 @@ genesisBlockPayload TestWithTime{} _ = emptyPayload
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ =
-    error "genesisBlockPayload: Shouldn't be called for Testnet00"
+genesisBlockPayload Testnet00 _ = (txs, outs)
+  where
+    (txSeq, outSeq) = Seq.unzip $ _payloadWithOutputsTransactions payloadBlock
+    (_, txs) = newBlockTransactions txSeq
+    (_, outs) = newBlockOutputs outSeq
 
 emptyPayload :: (BlockTransactions, BlockOutputs)
 emptyPayload = (txs, outs)
