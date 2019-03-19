@@ -113,9 +113,9 @@ withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
     let logger' = addLabel ("host", shortPeerInfo (_peerInfo peer)) logger
         mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
-        let cert = _peerCertificate peer
+        let certChain = _peerCertificateChain peer
             key = _peerKey peer
-        withConnectionManger mgrLogger cert key peerDb $ \mgr -> do
+        withConnectionManger mgrLogger certChain key peerDb $ \mgr -> do
             inner logger' (PeerResources conf' peer sock peerDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
@@ -161,13 +161,13 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 withConnectionManger
     :: Logger logger
     => logger
-    -> X509CertPem
+    -> X509CertChainPem
     -> X509KeyPem
     -> PeerDb
     -> (HTTP.Manager -> IO a)
     -> IO a
-withConnectionManger logger cert key peerDb runInner = do
-    let cred = unsafeMakeCredential cert key
+withConnectionManger logger certs key peerDb runInner = do
+    let cred = unsafeMakeCredential certs key
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
         (Just cred)
