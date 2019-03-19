@@ -19,6 +19,7 @@ module Chainweb.Pact.RestAPI.Server
 , somePactServers
 ) where
 
+import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.Lens ((^.))
