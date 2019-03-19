@@ -230,9 +230,8 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration (TestWithTime petersonChainGraph))
+    (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
-
