@@ -67,7 +67,6 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))

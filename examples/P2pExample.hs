@@ -164,10 +164,11 @@ example conf logger =
 
     -- P2P node configuration
     --
-    p2pConfig = (defaultP2pConfiguration version)
+    p2pConfig = defaultP2pConfiguration
         { _p2pConfigMaxSessionCount = _maxSessionCount conf
         , _p2pConfigMaxPeerCount = _maxPeerCount conf
         , _p2pConfigSessionTimeout = int $ _sessionTimeoutSeconds conf
+        , _p2pConfigKnownPeers = bootstrapPeerInfos version
         }
 
     -- Configuration for bootstrap node
