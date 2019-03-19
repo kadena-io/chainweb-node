@@ -67,7 +67,7 @@ pactTestSetup = do
         case _ccSqlite cmdConfig of
             Nothing -> do
                 env <- mkPureEnv loggers
-                liftA2 (,) (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
+                liftA2 (,) (initInMemoryCheckpointEnv cmdConfig logger gasEnv Nothing)
                     (mkPureState env cmdConfig)
             Just sqlc -> do
                 env <- mkSQLiteEnv logger False sqlc loggers
