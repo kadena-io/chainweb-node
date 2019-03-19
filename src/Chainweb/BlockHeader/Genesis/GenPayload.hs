@@ -1,4 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+module Chainweb.BlockHeader.Genesis.GenPayload
+  ( genTestnet
+  ) where
 -- |
 -- Module: Chainweb.BlockHeader.Genesis.GenPayload
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -16,10 +20,12 @@ import Data.Aeson.Encode.Pretty
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString (ByteString)
 import qualified Data.Sequence as S
-import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text (Text,unpack)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import Data.Text.Encoding (encodeUtf8,decodeUtf8)
+import qualified Data.Yaml as Yaml
 
-import Chainweb.Version
 import Chainweb.Payload
 import Chainweb.Pact.PactService (toHashedLogTxOutput,mkPureState)
 import Chainweb.Pact.TransactionExec
@@ -27,18 +33,18 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
 import Chainweb.Pact.Utils (toEnv')
 
-import Pact.ApiReq
+import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command (ProcessedCommand(..),Command,verifyCommand,CommandResult(..),ExecutionMode(..))
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.Server (CommandConfig(..))
 import Pact.Interpreter (mkPureEnv)
 import Pact.Types.Persistence (TxId(TxId))
 
-main :: IO ()
-main = genPayloadModule Testnet00
+genTestnet :: IO ()
+genTestnet = genPayloadModule "Testnet"
 
-genPayloadModule :: ChainwebVersion -> IO ()
-genPayloadModule _v = do
+genPayloadModule :: Text -> IO ()
+genPayloadModule v = do
   coinTx <- mkTx "pact/coin-contract/load-coin-contract.yaml"
   grantsTx <- mkTx "pact/genesis/testnet00/grants.yaml"
   (loggers,state) <- initPact
@@ -59,9 +65,43 @@ genPayloadModule _v = do
               hashedOut = toHashedLogTxOutput fullOut
           return ((inp,encodeJSON hashedOut):outs,newEM)
   (txs,_) <- foldM go ([],Transactional (TxId 0)) [coinTx,grantsTx]
-  print txs
-  let payload = newBlockPayload $ S.fromList $ map (Transaction *** TransactionOutput) txs
-  print payload
+
+  let pairs = S.fromList $ map (Transaction *** TransactionOutput) $ reverse txs
+      payload = newBlockPayload pairs
+      payloadWO = PayloadWithOutputs
+        { _payloadWithOutputsTransactions = pairs
+        , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash payload
+        , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash payload
+        , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash payload }
+      payloadYaml = decodeUtf8 $ Yaml.encode payloadWO
+      moduleName = v <> "GenesisPayload"
+      moduleCode = T.unlines $ startModule moduleName <> [payloadYaml] <> endModule
+      fileName = "src/Chainweb/BlockHeader/Genesis/" ++ unpack moduleName ++ ".hs"
+  TIO.writeFile fileName moduleCode
+  putStrLn $ "Wrote " ++ fileName
+
+
+
+
+startModule :: Text -> [Text]
+startModule moduleName =
+  [ "{-# LANGUAGE QuasiQuotes #-}"
+  , ""
+  , "module Chainweb.BlockHeader.Genesis." <> moduleName <> " ( payloadBlock ) where"
+  , ""
+  , "import NeatInterpolation (text)"
+  , "import Data.Text.Encoding (encodeUtf8)"
+  , "import Chainweb.Payload (PayloadWithOutputs)"
+  , "import Data.Yaml (decodeThrow)"
+  , "import Chainweb.Utils (fromJuste)"
+  , ""
+  , "payloadBlock :: PayloadWithOutputs"
+  , "payloadBlock = fromJuste $ decodeThrow $ encodeUtf8 [text|"
+  ]
+endModule :: [Text]
+endModule =
+  [ "|]"
+  ]
 
 
 initPact :: IO (Loggers, PactDbState)
