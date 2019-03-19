@@ -24,7 +24,7 @@ module Chainweb.Miner.Test ( testMiner ) where
 import Control.Concurrent (threadDelay)
 import Control.Lens ((^?!))
 
-import Data.Reflection (Given, give)
+import Data.Reflection (give)
 import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
@@ -74,7 +74,7 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
 
     ver <- getVer
 
-    give wcdb $ give payloadDb $ go gen ver 1
+    go gen ver 1
   where
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
@@ -95,9 +95,7 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
     miners = _minerCount $ _configTestMiners conf
 
     go
-        :: Given WebBlockHeaderDb
-        => Given (PayloadDb cas)
-        => MWC.GenIO
+        :: MWC.GenIO
         -> ChainwebVersion
         -> Int
         -> IO ()
@@ -130,9 +128,7 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
             Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
     mine
-        :: Given WebBlockHeaderDb
-        => Given (PayloadDb cas)
-        => MWC.GenIO
+        :: MWC.GenIO
         -> Word64
         -> IO Cut
     mine gen !nonce = do
@@ -167,7 +163,8 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
         let payload = newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase") $ S.fromList
                 [ (Transaction "testTransaction", TransactionOutput "testOutput")
                 ]
-        testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c >>= \case
-            Left BadNonce -> mine gen (succ nonce)
-            Left BadAdjacents -> mine gen nonce
-            Right (T2 _ newCut) -> pure newCut
+        (give payloadDb $ give wcdb $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c)
+            >>= \case
+                Left BadNonce -> mine gen (succ nonce)
+                Left BadAdjacents -> mine gen nonce
+                Right (T2 _ newCut) -> pure newCut
