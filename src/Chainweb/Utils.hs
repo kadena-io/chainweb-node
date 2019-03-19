@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -143,6 +144,9 @@ module Chainweb.Utils
 -- * Filesystem
 , withTempDir
 
+-- * Type Level
+, symbolText
+
 ) where
 
 import Configuration.Utils
@@ -173,6 +177,7 @@ import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
+import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
@@ -183,6 +188,7 @@ import Data.Word (Word64)
 
 import GHC.Generics
 import GHC.Stack (HasCallStack)
+import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import Numeric.Natural
 
@@ -744,3 +750,10 @@ withTempDir tag f = bracket create delete f
 
     delete :: Path Absolute -> IO ()
     delete = toAbsoluteFilePath >=> removeDirectoryRecursive
+
+-- -------------------------------------------------------------------------- --
+-- Typelevel
+
+symbolText :: forall s a . KnownSymbol s => IsString a => a
+symbolText = fromString $ symbolVal (Proxy @s)
+

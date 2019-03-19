@@ -1,15 +1,14 @@
 # Chainweb
 
-A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
-Read [our whitepaper](http://kadena.io/docs/chainweb-v15.pdf).
+Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
 ## Building from Source
 
 ### Building with Nix
 
-The most reliable way to build chainweb is to use the
+The most reliable way to build Chainweb is to use the
 [Nix](https://nixos.org/nix/) package manager. Once you've installed Nix, use
-the command `nix-build` from the repository root to build chainweb. To do
+the command `nix-build` from the repository root to build Chainweb. To do
 incremental builds, run `nix-shell` and then `cabal build` or `cabal new-build`
 inside the resulting shell.
 
@@ -31,14 +30,14 @@ cabal install --enable-tests
 stack install --test
 ```
 
-This will build the chainweb library, the `chainweb-node` executable, the main
+This will build the Chainweb library, the `chainweb-node` executable, the main
 test suite, and a few extra example executables.
 
 ### Running the test suite
 
-There have been some issues with the test suite running out of file
-descriptors. This may cause test suite failures.  This can be fixed by raising
-ulimits as follows:
+There have been some reported issues with the test suite running out of file
+descriptors. This may cause test suite failures. If this happens, it can be
+fixed by raising ulimits as follows:
 
 On linux add the following line to `/etc/security/limits.conf`:
 
@@ -47,6 +46,7 @@ On linux add the following line to `/etc/security/limits.conf`:
 ```
 
 On mac follow instructions [here](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
+
 Create the file `/Library/LaunchDaemons/limit.maxfiles.plist`.
 
 
@@ -55,26 +55,28 @@ Create the file `/Library/LaunchDaemons/limit.maxfiles.plist`.
 A chainweb-node has two identifiers:
 
 *   The node-id is a permanent identifier that is used for the `miner`
-    field in the header of newly mined blocks. In its current form it is a
-    placeholder for an identity, e.g. a public key, that in the future will be
-    provided by the pact layer. If such an identity doesn't exist or isn't
-    needed, the node-id may be removed completely or kept only for debugging
-    purposes. The user must provide each node with a unique node-id on startup.
+    field in the header of newly mined blocks.
+    * In its current form it is a placeholder for an identity, e.g. a public
+      key, that in the future will be provided by the Pact layer.
+    * If such an identity doesn't exist or isn't needed, the node-id may be
+      removed completely or kept only for debugging purposes.
+    * The user must provide each node with a unique node-id on startup.
 
-*   The peer-id is used to identify the node in the peer-to-peer network. It is
-    a fingerprint of an ephemeral X509 certificate that, if not provided in
-    the configuration, is created automatically and  can be dropped and
-    recreated at any time. Since the peer-id is used in caches and for
-    reputation management, nodes are incentivised to persist and reuse peer-ids.
-    When no peer-id is provided, a node generates a new peer-id on startup.
+*   The peer-id is used to identify the node in the peer-to-peer network.
+    * It is a fingerprint of an ephemeral X509 certificate that, if not provided
+      in the configuration, is created automatically and can be dropped and
+    recreated at any time.
+    * Since the peer-id is used in caches and for reputation management, nodes
+      are incentivised to persist and reuse peer-ids.
+    * When no peer-id is provided, a node generates a new peer-id on startup.
 
-On startup a chainweb-node tries to connect to the P2P network. For that each
+Upon startup, a chainweb-node tries to connect to the P2P network. Each
 chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
 chainweb-node, this is a single node with host-name `localhost`, and port
 `1789`. The hard-coded certificate for the *Test* bootstrap node is defined in
 the bootstrap configuration file `scripts/test-bootstrap-node.config`.
 
-In order for a chainweb-node to be useful it must be able to connect to the
+In order for a chainweb-node to be useful, it must be able to connect to the
 bootstrap node. The *Test* bootstrap node can be started as follows:
 
 ```sh
@@ -84,7 +86,7 @@ chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config`
 (`--interface=127.0.0.1` can be used to restrict availability of a node to the
 loopback network.)
 
-When the default bootstrap node is available additional chainweb-nodes can be
+When the default bootstrap node is available, additional Chainweb nodes can be
 started as
 
 ```sh
@@ -93,12 +95,12 @@ chainweb-node --node-id=NID
 
 where `NID` must be replaced with a unique node id.
 
-The default `--port` value is 0 which causes the node to request a free port
+The default `--port` value is 0, which causes the node to request a free port
 from the operating system.
 
 ## Configuring a chainweb-node
 
-Alternative or additional bootstrap nodes can be specified at startup either on
+Alternative or additional bootstrap nodes can be specified at startup, either on
 the command line or through a configuration file.
 
 The available command line options are shown by running
@@ -109,7 +111,7 @@ chainweb-node --help
 
 The configuration of a chainweb-node can be printed by appending
 `--print-config` to the command line. Without any additional command line
-arguments `chainweb-node --print-config` shows the default configuration.
+arguments, `chainweb-node --print-config` shows the default configuration.
 
 Custom configurations can be created by generating a configuration file
 with the default configuration:
@@ -140,7 +142,7 @@ mkdir -p tmp/run-nodes-logs
 
 ## Chainweb Orchestration
 
-This section describes how to not only run a chainweb node, but deploy one.
+This section describes how to not only run a Chainweb node, but also how to deploy one.
 
 ### Docker Images
 
@@ -154,7 +156,7 @@ The following docker images can be found on DockerHub:
 * [chainweb-base](https://hub.docker.com/r/kadena/chainweb-base): Base image containing
     all of Chainweb's dependencies and executables.
 * [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node):
-  Image that spins up a chainweb bootstrap node. Expects the node's
+  Image that spins up a Chainweb bootstrap node. It expects the node's
   configuration file to be present in `/tmp/test-bootstrap-node.config`.
 
 Linux users can also create these images locally using Nix:
@@ -190,11 +192,11 @@ As of at least 2019 March, it is not possible for MacOS users to build these.
 
 1. Ensure that the above dependencies are installed.
 2. Create a local Kubernetes cluster with Minikube: `minikube start**
-3. Load the chainweb bootstrap node:
+3. Load the Chainweb bootstrap node:
 
 ##### Linux
 
-For running our custom-built images. Otherwise, follow the MacOS instructions
+Used for running custom-built images. Otherwise, follow the MacOS instructions
 below to run an image from DockerHub.
 
 First, we must load our built images into *Minikube's* Docker context.
@@ -340,22 +342,22 @@ The production components are:
 
 *   `chainweb-node`: An application that runs a Chainweb node. It maintains copies
     of a number of chains from a given Chainweb instance. It provides interfaces
-    (command-line and RPC) for directly interacting with the chainweb or for
+    (command-line and RPC) for directly interacting with the Chainweb or for
     implementing applications such as miners and transaction management tools.
 
-*   `chainweb-tests`: A test suite for the chainweb library and chainweb-node.
+*   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
 
-In addition, the following example executables are included which demonstrate
+In addition, the following example executables are included to demonstrate
 the use of individual sub-components:
 
-*   `single-chain-example`: An simple end-to-end scenario for mining
+*   `single-chain-example`: A simple end-to-end scenario for mining
     and synchronizing nodes for a single chain.
 
-*   `blockheaderdb-example`: Example for how to use the BlockHeaderDB API of chainweb.
+*   `blockheaderdb-example`: Example for how to use the BlockHeaderDB API of Chainweb.
 
 *   `p2p-example`: A simple p2p network implementation.
 
-# Architecture Overview
+## Architecture Overview
 
 For a detailed description of the `chainweb` architecture,
 [see here](docs/Architecture.md).

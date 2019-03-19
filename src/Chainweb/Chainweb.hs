@@ -305,7 +305,7 @@ runChainweb cw = do
     let cutDb = _cutResCutDb $ _chainwebCutResources cw
         cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
-    -- Startup sequnce:
+    -- Startup sequence:
     --
     -- 1. Start serving Rest API
     -- 2. Start Clients
