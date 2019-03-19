@@ -36,8 +36,8 @@ test suite, and a few extra example executables.
 ### Running the test suite
 
 There have been some reported issues with the test suite running out of file
-descriptors. This may cause test suite failures. If this happens, it can be fixed by raising
-ulimits as follows:
+descriptors. This may cause test suite failures. If this happens, it can be
+fixed by raising ulimits as follows:
 
 On linux add the following line to `/etc/security/limits.conf`:
 
@@ -56,14 +56,18 @@ A chainweb-node has two identifiers:
 
 *   The node-id is a permanent identifier that is used for the `miner`
     field in the header of newly mined blocks.
-    * In its current form it is a placeholder for an identity, e.g. a public key, that in the future will be provided by the Pact layer.
-    * If such an identity doesn't exist or isn't needed, the node-id may be removed completely or kept only for debugging purposes.
+    * In its current form it is a placeholder for an identity, e.g. a public
+      key, that in the future will be provided by the Pact layer.
+    * If such an identity doesn't exist or isn't needed, the node-id may be
+      removed completely or kept only for debugging purposes.
     * The user must provide each node with a unique node-id on startup.
 
 *   The peer-id is used to identify the node in the peer-to-peer network.
-    * It is a fingerprint of an ephemeral X509 certificate that, if not provided in the configuration, is created automatically and  can be dropped and
+    * It is a fingerprint of an ephemeral X509 certificate that, if not provided
+      in the configuration, is created automatically and can be dropped and
     recreated at any time.
-    * Since the peer-id is used in caches and for reputation management, nodes are incentivised to persist and reuse peer-ids.
+    * Since the peer-id is used in caches and for reputation management, nodes
+      are incentivised to persist and reuse peer-ids.
     * When no peer-id is provided, a node generates a new peer-id on startup.
 
 Upon startup, a chainweb-node tries to connect to the P2P network. Each
