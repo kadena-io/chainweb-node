@@ -36,6 +36,7 @@ import qualified Data.Text as T
 import Fake (fake, generate)
 
 import Network.HTTP.Client
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 
 import GHC.Generics
 
@@ -105,12 +106,9 @@ defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
     , _nodeChainId    = testChainId 1
-    , _serverRootPath = "http://127.0.0.1:" ++ show tmpNodePort
+    , _serverRootPath = "http://127.0.0.1:" ++ show 1789
     , _isChainweb     = False
     }
-  where
-    tmpNodePort :: Int
-    tmpNodePort = 8080          -- this is default port according to the "pact -s" docs
 
 transactionConfigParser :: MParser TransactionConfig
 transactionConfigParser = id
@@ -229,7 +227,7 @@ mainInfo =
     defaultTransactionConfig
 
 _testPort :: String
-_testPort = "8080"
+_testPort = "1789"
 
 _serverPath :: String
 _serverPath = "http://localhost:" ++ _testPort
@@ -248,7 +246,8 @@ type ContractLoader = [SomeKeyPair] -> IO (Command Text)
 
 loadContracts :: [ContractLoader] -> IO ()
 loadContracts contractLoaders = do
-  mgr <- newManager defaultManagerSettings
+  -- mgr <- newManager defaultManagerSettings
+  mgr <- newManager tlsManagerSettings
   url <- parseBaseUrl _serverPath
   let clientEnv = mkClientEnv mgr url
   ts <- testSomeKeyPairs

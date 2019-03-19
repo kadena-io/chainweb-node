@@ -51,9 +51,11 @@ module Chainweb.Pact.Backend.Types
 import Control.Lens
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString as B ()
+import qualified Data.ByteString as B (readFile, writeFile)
+import Data.Bytes.Serial
+import Data.Bytes.Get
+import Data.Bytes.Put
 import qualified Data.Map as M
-import Data.Serialize
 
 import GHC.Generics
 
@@ -66,6 +68,8 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
+
+import System.IO.Extra
 
 -- internal modules
 import Chainweb.BlockHash
@@ -127,20 +131,22 @@ data SaveData p = SaveData
     , _sPactTxId :: P.TxId
     } deriving (Generic)
 
-instance Serialize (SaveData p) where
-    put SaveData {..} = do
-        put _sTxRecord
-        put _sTxId
-        put _sSQLiteConfig
-        put _sCommandState
-        put _sPactTxId
-    get = do
-        _sTxRecord <- get
-        _sTxId <- get
-        _sSQLiteConfig <- get
-        _sCommandState <- get
-        _sPactTxId <- get
-        return $ SaveData {..}
+instance Serial (SaveData p)
+
+-- instance Serialize (SaveData p) where
+--     put SaveData {..} = do
+--         put _sTxRecord
+--         put _sTxId
+--         put _sSQLiteConfig
+--         put _sCommandState
+--         put _sPactTxId
+--     get = do
+--         _sTxRecord <- get
+--         _sTxId <- get
+--         _sSQLiteConfig <- get
+--         _sCommandState <- get
+--         _sPactTxId <- get
+--         return $ SaveData {..}
 
 data Env' =
     forall a. PactDbBackend a =>
@@ -207,3 +213,32 @@ data CheckpointEnv = CheckpointEnv
     }
 
 makeLenses ''CheckpointEnv
+
+_serializationSaveDataFromFile :: IO ()
+_serializationSaveDataFromFile = do
+  let thedata = SaveData
+                 M.empty
+                 Nothing
+                 (Just
+                     (P.SQLiteConfig
+                         { P._dbFile = "/tmp/extra-dir-36571033905417/test.sqlite"
+                         , P._pragmas = []
+                         }))
+                 (P.CommandState P.initRefStore M.empty)
+                 (P.TxId 0)
+      bytes = runPutS (serialize thedata)
+  withTempFile $ \file -> do
+    B.writeFile file bytes
+    e <- runGetS deserialize <$> B.readFile file
+    case e of
+        Left _ -> putStrLn "_serializaiton of \"SaveData\" test fails"
+        Right r ->
+            print (checkEq r thedata)
+  where
+    checkEq :: SaveData p -> SaveData p -> Bool
+    checkEq a b = _sTxRecord a == _sTxRecord b
+                && _sTxId a  == _sTxId b
+                && _sSQLiteConfig a == _sSQLiteConfig b
+                && eqCommandState (_sCommandState a) (_sCommandState b)
+                && _sPactTxId a == _sPactTxId b
+    eqCommandState a b = P._csRefStore a == P._csRefStore b && P._csPacts a == P._csPacts b
