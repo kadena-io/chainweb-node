@@ -50,7 +50,6 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
-import Chainweb.Version
 
 import P2P.Peer
 
@@ -89,22 +88,20 @@ instance Arbitrary P2pConfiguration where
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
 
-defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration v@Test{} = p2pConfiguration v
-defaultP2pConfiguration v@TestWithTime{} = p2pConfiguration v
-defaultP2pConfiguration v@TestWithPow{} = p2pConfiguration v
-defaultP2pConfiguration Simulation{} = error "P2pConfiguration for Simulation yet undefined"
-defaultP2pConfiguration Testnet00 = p2pConfiguration Testnet00
-
 -- | These are acceptable values for both test and production chainwebs.
 --
-p2pConfiguration :: ChainwebVersion -> P2pConfiguration
-p2pConfiguration v = P2pConfiguration
+defaultP2pConfiguration :: P2pConfiguration
+defaultP2pConfiguration = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
-    , _p2pConfigKnownPeers = bootstrapPeerInfos v
+    , _p2pConfigKnownPeers = mempty
+        -- by default we start with an empty list. The hard-coded bootstrap peer
+        -- infos depend on the chainweb version which may change depending on
+        -- the configuration. So we have to wait until all configuration parsing
+        -- is complete
+
     , _p2pConfigPeerDbFilePath = Nothing
     }
 
