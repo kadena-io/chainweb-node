@@ -1,9 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -41,13 +42,17 @@ import qualified Data.Aeson as A
 import Data.Bifunctor (first,second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
+import Data.Default (def)
 import qualified Data.Sequence as Seq
 import Data.Text.Encoding (encodeUtf8)
 import Data.String.Conv (toS)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
+
+import System.LogLevel
 
 -- external pact modules
 
@@ -63,6 +68,7 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
@@ -82,9 +88,24 @@ import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload ( payloadBlock )
 testnetDbConfig :: PactDbConfig
 testnetDbConfig = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
-initPactService :: TQueue RequestMsg -> MemPoolAccess -> IO ()
-initPactService reqQ memPoolAccess = do
-    let loggers = P.alwaysLog
+pactLogLevel :: String -> LogLevel
+pactLogLevel "INFO" = Info
+pactLogLevel "ERROR" = Error
+pactLogLevel "DEBUG" = Debug
+pactLogLevel "WARN" = Warn
+pactLogLevel _ = Info
+
+pactLoggers :: Logger logger => logger -> P.Loggers
+pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
+  where
+    fun :: P.LoggerLogFun
+    fun _ (P.LogName n) cat msg = do
+        let namedLogger = addLabel ("logger", T.pack n) logger
+        logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
+
+initPactService :: Logger logger => logger -> TQueue RequestMsg -> MemPoolAccess -> IO ()
+initPactService chainwebLogger reqQ memPoolAccess = do
+    let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig testnetDbConfig
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)

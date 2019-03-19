@@ -254,7 +254,7 @@ data PeerConfig = PeerConfig
 
     , _peerConfigInterface :: !HostPreference
         -- ^ The network interface that the peer binds to. Default is to
-        -- bind to all available interfaces (0.0.0.0).
+        -- bind to all available interfaces ('*').
 
     , _peerConfigCertificate :: !(Maybe X509CertPem)
         -- ^ The X509 certificate of the peer. If this is Nothing a new ephemeral
@@ -286,7 +286,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
     { _peerConfigAddr = HostAddress localhost 0
-    , _peerConfigInterface = fromString "0.0.0.0"
+    , _peerConfigInterface = fromString "*"
     , _peerConfigCertificate = Nothing
     , _peerConfigKey = Nothing
     }

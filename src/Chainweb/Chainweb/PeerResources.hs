@@ -1,12 +1,7 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -35,24 +30,19 @@ module Chainweb.Chainweb.PeerResources
 , withSocket
 , withPeerDb
 , withConnectionManger
-, ConnectionManagerStats(..)
 ) where
 
 import Configuration.Utils hiding (Lens', (<.>), Error)
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashSet as HS
-import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
-
-import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
@@ -64,6 +54,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Counter
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
@@ -165,12 +156,6 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 -- -------------------------------------------------------------------------- --
 -- Connection Manager
 
-data ConnectionManagerStats = ConnectionManagerStats
-    { _connectionManagerConnectionCount :: !Int
-    , _connectionManagerRequestCount :: !Int
-    }
-    deriving (Show, Eq, Ord, Generic, ToJSON, FromJSON, NFData)
-
 -- Connection Manager
 --
 withConnectionManger
@@ -196,18 +181,17 @@ withConnectionManger logger cert key peerDb runInner = do
                 -- total number of connections to keep alive. 512 is the default
             }
 
-
-    connCountRef <- newIORef (0 :: Int)
-    reqCountRef <- newIORef (0 :: Int)
+    connCountRef <- newCounter @"connection-count"
+    reqCountRef <- newCounter @"request-count"
+    urlStats <- newCounterMap @"url-counts"
     mgr <- HTTP.newManager settings'
         { HTTP.managerTlsConnection = do
             mk <- HTTP.managerTlsConnection settings'
-            return $ \a b c -> do
-                atomicModifyIORef' connCountRef $ (,()) . succ
-                mk a b c
+            return $ \a b c -> inc connCountRef >> mk a b c
 
         , HTTP.managerModifyRequest = \req -> do
-            atomicModifyIORef' reqCountRef $ (,()) . succ
+            inc reqCountRef
+            incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
                 { HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
                     -- overwrite the explicit connection timeout from servant-client
@@ -218,10 +202,11 @@ withConnectionManger logger cert key peerDb runInner = do
 
     let logClientConnections = forever $ do
             threadDelay 60000000 {- 1 minute -}
-            stats <- ConnectionManagerStats
-                <$> readIORef connCountRef
-                <*> readIORef reqCountRef
-            logFunctionJson logger Info stats
+            logFunctionCounter logger Info =<< sequence
+                [ roll connCountRef
+                , roll reqCountRef
+                , roll urlStats
+                ]
 
     let runLogClientConnections umask = do
             umask logClientConnections `catchAllSynchronous` \e -> do
@@ -238,5 +223,7 @@ withConnectionManger logger cert key peerDb runInner = do
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
-    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+    serviceIdToHostAddress (h, p) = HostAddress
+        <$> readHostnameBytes (B8.pack h)
+        <*> readPortBytes p
 
