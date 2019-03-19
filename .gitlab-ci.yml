@@ -21,11 +21,11 @@ nix-macos:
   script:
     - nix-build
     - nix-build -A ghc.chainweb.doc
-    - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+#    - scripts/collectArtifacts.sh
+#  artifacts:
+#    paths:
+#    - public/
+#    expire_in: 1 week
 
 nix-shell-macos:
   tags:
@@ -39,11 +39,11 @@ nix-linux:
   script:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
-    - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+#    - scripts/collectArtifacts.sh
+#  artifacts:
+#    paths:
+#    - public/
+#    expire_in: 1 week
 
 nix-shell-linux:
   tags:
