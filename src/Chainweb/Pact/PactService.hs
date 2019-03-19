@@ -43,8 +43,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
 import Data.Foldable (toList)
 import Data.Either
-import Data.Maybe
-import Data.Text (Text)
 import Data.Default (def)
 import qualified Data.Sequence as Seq
 import Data.Text.Encoding (encodeUtf8)
@@ -242,8 +240,8 @@ toValidateBlockResults ts bHeader =
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
         then Right plWithOuts
-        else Left $ PactValidationErr
-            "Hash from Pact execution does not match the previously stored hash"
+        else Left $ PactValidationErr $ toS $
+            "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
