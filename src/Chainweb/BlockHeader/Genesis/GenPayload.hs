@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Chainweb.BlockHeader.Genesis.GenPayload
-  ( genTestnet
-  ) where
 -- |
 -- Module: Chainweb.BlockHeader.Genesis.GenPayload
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -11,6 +8,9 @@ module Chainweb.BlockHeader.Genesis.GenPayload
 --
 -- Generate Haskell modules for inclusion of transactions in genesis blocks
 --
+module Chainweb.BlockHeader.Genesis.GenPayload
+  ( genTestnet
+  ) where
 
 import Control.Arrow ((***))
 import Control.Concurrent (newMVar)
