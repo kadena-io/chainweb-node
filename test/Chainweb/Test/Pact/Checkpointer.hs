@@ -53,7 +53,7 @@ testInMemory = do
   let conf = CommandConfig Nothing Nothing Nothing Nothing
       loggers = alwaysLog
   cpEnv <- initInMemoryCheckpointEnv conf
-        (newLogger loggers "inMemCheckpointer") freeGasEnv
+        (newLogger loggers "inMemCheckpointer") freeGasEnv (Just 0)
   env <- mkPureEnv loggers
   state <- mkPureState env conf
 

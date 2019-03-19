@@ -42,8 +42,8 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv mbound = do
         CheckpointEnv
             { _cpeCheckpointer =
                   Checkpointer
-                      { restore = restore' inmem
-                      , restoreInitial = restoreInitial' inmem
+                      { restore = restore' inmem bound
+                      , restoreInitial = restoreInitial' inmem bound
                       , save = save' inmem bound
                       , saveInitial = saveInitial' inmem bound
                       , discard = discard' inmem
@@ -57,22 +57,26 @@ type Store = HashMap (BlockHeight, BlockHash) PactDbStateRecency
 
 data PactDbStateRecency
   = NoRecency PactDbState       -- "no" as in disregard
-  | Recency PactDbState
-            {-# UNPACK #-}!Natural
+  | Recency PactDbState !Natural
 
-restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
-restore' lock height hash = do
-    withMVarMasked lock $ \store -> do
-        case HMS.lookup (height, hash) store of
-            Just dbstate' -> case dbstate' of
-                NoRecency dbstate  -> return $ Right dbstate
-                Recency dbstate _ -> return $ Right dbstate
-            Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
+restore' :: MVar Store -> Natural -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
+restore' lock bound height hash = do
+    ret <- withMVarMasked lock $ \store -> do
+        let ret = case HMS.lookup (height, hash) store of
+                    Just dbstate' -> case dbstate' of
+                         NoRecency dbstate -> Right dbstate
+                         Recency dbstate b -> if b >= bound
+                            then Left "InMemoryCheckpointer.restore': About to cleaned up, cannot restore"
+                            else Right dbstate
+                    Nothing -> Left "InMemoryCheckpointer.restore':Restore not found exception"
+        return ret
+    pruneStore bound lock
+    return ret
 
-restoreInitial' :: MVar Store -> IO (Either String PactDbState)
-restoreInitial' lock = do
+restoreInitial' :: MVar Store -> Natural -> IO (Either String PactDbState)
+restoreInitial' lock bound = do
     let bh = nullBlockHash
-    restore' lock (BlockHeight 0) bh
+    restore' lock bound (BlockHeight 0) bh
 
 saveInitial' :: MVar Store -> Natural -> PactDbState -> IO (Either String ())
 saveInitial' lock bound p@PactDbState {..} = do
@@ -94,7 +98,7 @@ save' lock bound height hash p@PactDbState {..} = do
      modifyMVar_ lock (return . HMS.insert (height, hash) dataToSave . HMS.map upRecency)
 
      -- prune the store
-     pruneStore bound lock
+     -- pruneStore bound lock
 
      -- Closing database connection.
      case _pdbsDbEnv of
