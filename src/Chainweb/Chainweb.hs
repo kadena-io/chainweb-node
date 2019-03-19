@@ -326,7 +326,7 @@ runChainweb cw = do
         serverSettings = peerServerSettings (_peerResPeer $ _chainwebPeer cw)
         serve = serveChainwebSocketTls
             serverSettings
-            (_peerCertificate $ _peerResPeer $ _chainwebPeer cw)
+            (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
             (_peerKey $ _peerResPeer $ _chainwebPeer cw)
             (_peerResSocket $ _chainwebPeer cw)
             (_chainwebVersion cw)
