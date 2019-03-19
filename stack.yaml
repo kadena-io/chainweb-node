@@ -28,7 +28,7 @@ extra-deps:
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
   - git: https://github.com/kadena-io/pact.git
-    commit: 45deba99a0113b006876dcf186813f217143d588
+    commit: caf1b25bcf02bb3c3ac2d83a561c608ef97356b1
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   # temporarily using a patched fork of sbv to disable "unsupported query call"

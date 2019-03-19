@@ -9,12 +9,14 @@ module Chainweb.Pact.Backend.SQLiteCheckpointer where
 
 import Data.Bifunctor
 import qualified Data.ByteString as B
+import Data.Bytes.Get
+import Data.Bytes.Put
+import Data.Bytes.Serial hiding (restore, store)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 import qualified Data.List as L
 import Data.List.Split
 import Data.Monoid
-import Data.Serialize
 import Data.String
 
 import Control.Concurrent.MVar
@@ -91,7 +93,7 @@ restore' lock height hash =
                                 -- read back SaveData from copied file
                                 cdata <- do
                                     bytes <- liftIO $ B.readFile chk_file
-                                    ExceptT $ return (first err_decode $ decode bytes)
+                                    ExceptT $ return (first err_decode $ runGetS deserialize bytes)
                                 ExceptT $ withTempFile $ \copy_sqlite_file -> do
                                     -- create copy of the sqlite file
                                     let copy_data = over (sSQLiteConfig . _Just)
@@ -126,7 +128,7 @@ save' lock height hash pactdbstate =
                         let newdbFile = properName <$ dbFile
                         flip (maybe (ExceptT $ return $ Left msgPrefixError)) mprefix $ \prefix -> do
                             -- Save serialized Pact values.
-                            let sd = encode toSave
+                            let sd = runPutS (serialize toSave)
                             liftIO $ B.writeFile (prefix ++ properName) sd
                             -- Copy the database file (the connection SHOULD -- be dead).
                             tempfile <- liftIO $ fst <$> newTempFileWithin "./" -- should we use Path instead of FilePath here?
