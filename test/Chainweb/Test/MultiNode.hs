@@ -34,7 +34,9 @@
 --
 module Chainweb.Test.MultiNode ( test ) where
 
+#ifndef DEBUG_MULTINODE_TEST
 #define DEBUG_MULTINODE_TEST 0
+#endif
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -48,6 +50,7 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.List
+import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
@@ -106,6 +109,12 @@ import P2P.Peer
 -- similulate a full-scale chain in a miniaturized settings.
 --
 
+host :: Hostname
+host = unsafeHostnameFromText "::1"
+
+interface :: HostPreference
+interface = "::1"
+
 -- | Test Configuration for a scaled down Test chainweb.
 --
 config
@@ -121,9 +130,13 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configNodeId nid
         -- Set the node id.
 
-    & set (configP2p . p2pConfigPeer . peerConfigInterface) "127.0.0.1"
+    & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
+
+    & set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressHost) host
+        -- Set bootstrap host
 
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
         -- We make room for all test peers in peer db.
@@ -166,10 +179,13 @@ bootstrapConfig conf = conf
     & set (configP2p . p2pConfigKnownPeers) []
   where
     peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
-        & set (peerConfigAddr . hostAddressPort) 0
+        & set peerConfigPort 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
         -- assigned by the OS.
+
+        & set peerConfigHost host
+        & set peerConfigInterface interface
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -189,8 +205,9 @@ node loglevel write stateVar bootstrapPortVar conf =
         when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
 
         runChainweb cw `finally` do
-            logFunctionText logger Info "write sample consensus state"
+            logFunctionText logger Info "write sample data"
             sample cw
+            logFunctionText logger Info "shutdown node"
   where
     nid = _configNodeId conf
 

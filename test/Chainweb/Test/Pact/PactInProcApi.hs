@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -16,10 +15,12 @@ import Control.Concurrent.MVar.Strict
 import qualified Data.Aeson as A (encode)
 import Data.Sequence (Seq)
 import Data.String.Conv (toS)
+import qualified Data.Text.IO as T
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
 
 import System.FilePath
+import System.LogLevel
 import System.IO.Extra
 
 import Test.Tasty.HUnit
@@ -27,6 +28,7 @@ import Test.Tasty
 import Test.Tasty.Golden
 
 import Chainweb.BlockHeader
+import Chainweb.Logger
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -39,9 +41,10 @@ tests = testGroup "Pact in-proc API tests" <$> pactApiTest
 
 pactApiTest :: IO [TestTree]
 pactApiTest = do
+    let logger = genericLogger Warn T.putStrLn
 
     -- Init for tests
-    withPactService' testMemPoolAccess $ \reqQ -> do
+    withPactService' logger testMemPoolAccess $ \reqQ -> do
         let headers = V.fromList $ getBlockHeaders 4
 
         -- newBlock test

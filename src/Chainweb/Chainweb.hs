@@ -63,6 +63,7 @@ module Chainweb.Chainweb
 , chainwebSocket
 , chainwebPeer
 , chainwebPayloadDb
+, chainwebPactData
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -79,11 +80,14 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.Async
+import Control.Exception (bracket)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
 import Data.Foldable
+import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
+import Data.List (sortBy)
 
 import GHC.Generics hiding (from)
 
@@ -108,6 +112,8 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Pact.RestAPI.Server
+    (PactServerData, createPactServerData, destroyPactServerData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -196,6 +202,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
+    , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     }
 
 makeLenses ''Chainweb
@@ -266,7 +273,8 @@ withChainwebInternal conf logger peer inner = do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
-            withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
+            withPactData cs cuts $ \pactData ->
+                withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
                 inner Chainweb
                     { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs
@@ -277,7 +285,14 @@ withChainwebInternal conf logger peer inner = do
                     , _chainwebPeer = peer
                     , _chainwebPayloadDb = payloadDb
                     , _chainwebManager = mgr
+                    , _chainwebPactData = pactData
                     }
+
+    withPactData cs cuts = bracket (createPactData cs cuts) destroyPactData
+    createPactData cs cuts =
+        mapM (\(cid, cr) -> (cid,) <$> createPactServerData cuts cr) $
+        sortBy (compare `on` fst) (HM.toList cs)
+    destroyPactData = mapM_ (destroyPactServerData . snd)
 
     v = _configChainwebVersion conf
     graph = _chainGraph v
@@ -305,7 +320,7 @@ runChainweb cw = do
     let cutDb = _cutResCutDb $ _chainwebCutResources cw
         cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
-    -- Startup sequnce:
+    -- Startup sequence:
     --
     -- 1. Start serving Rest API
     -- 2. Start Clients
@@ -321,12 +336,12 @@ runChainweb cw = do
         chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
         payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
-        pactDbsToServe = proj (_chainwebCutResources cw, )
+        pactDbsToServe = _chainwebPactData cw
 
         serverSettings = peerServerSettings (_peerResPeer $ _chainwebPeer cw)
         serve = serveChainwebSocketTls
             serverSettings
-            (_peerCertificate $ _peerResPeer $ _chainwebPeer cw)
+            (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
             (_peerKey $ _peerResPeer $ _chainwebPeer cw)
             (_peerResSocket $ _chainwebPeer cw)
             (_chainwebVersion cw)

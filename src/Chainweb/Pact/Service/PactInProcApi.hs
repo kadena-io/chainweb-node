@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -32,6 +33,7 @@ import Data.Int
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
+import Chainweb.Logger
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Service.Http.PactApi
@@ -42,15 +44,21 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 -- | Initialization for Pact (in process) Api
-withPactService :: MempoolBackend ChainwebTransaction -> (TQueue RequestMsg -> IO a) -> IO a
-withPactService memPool action = withPactService' (pactMemPoolAccess memPool) action
+withPactService
+    :: Logger logger
+    => logger
+    -> MempoolBackend ChainwebTransaction
+    -> (TQueue RequestMsg -> IO a)
+    -> IO a
+withPactService logger memPool action
+    = withPactService' logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-withPactService' :: MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
-withPactService' memPoolAccess action = do
+withPactService' :: Logger logger => logger -> MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
+withPactService' logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService reqQ memPoolAccess)
+    a <- async (PS.initPactService logger reqQ memPoolAccess)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ
