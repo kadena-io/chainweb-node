@@ -270,6 +270,7 @@ def arg_parsing():
     create_p.add_argument(
         "--privateKey", help="Filename of CA certificate private key.")
 
+    # TODO make a mandatory argument for `create`
     create_p.add_argument(
         "--nodeConfig", help="Filename of chainweb node config.")
 
@@ -280,6 +281,17 @@ def arg_parsing():
         "delete", help="Tear down a Chainweb node cluster")
 
     delete_p.set_defaults(func=delete_resources)
+
+    # --- `update` flags --- #
+    update_p = subparsers.add_parser(
+        "update", help="Update Chainweb node deployment component(s)")
+
+    update_p.add_argument(
+        "--image",
+        default="kadena/chainweb-bootstrap-node:latest",
+        help="A docker image to update deployment with")
+
+    update_p.set_defaults(func=update_resources)
 
     return parser.parse_args()
 
@@ -313,6 +325,29 @@ def create_resources(args):
     create_headless_service(core_v1)
     create_pod_service(core_v1, args.subDomain, "chainweb-0")
     create_stateful_set(apps_v1beta2, args)
+
+
+def update_resources(args):
+    print("Updating cluster...")
+
+    apps_v1beta2 = client.AppsV1beta2Api()
+
+    stateful_set_patch = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [{
+                        "name": "chainweb",
+                        "image": args.image
+                    }]
+                }
+            }
+        }
+    }
+
+    api_response = apps_v1beta2.patch_namespaced_stateful_set(
+        DEPLOYMENT_NAME, NAMESPACE, stateful_set_patch, pretty=True)
+    print("Container image updated. status='%s'" % str(api_response.status))
 
 
 def delete_resources(args):
