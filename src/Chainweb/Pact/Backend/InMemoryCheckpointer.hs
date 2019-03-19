@@ -113,7 +113,7 @@ pruneStore :: Natural -> MVar Store -> IO ()
 pruneStore bound lock = when (bound > 0) (modifyMVar_ lock (return . HMS.mapMaybe go))
   where
     go a@(NoRecency _)  = Just a
-     -- ^ this case should never be reached, but GHC doesn't realize that.
+     -- this case should never be reached, but GHC doesn't realize that.
     go p@(Recency _ r) = if r < bound
         then Just p
         else Nothing
