@@ -45,7 +45,6 @@ module Chainweb.Pact.Backend.Types
     , sSQLiteConfig
     , sCommandState
     , sPactTxId
-    , usage
     ) where
 
 import Control.Lens
@@ -183,16 +182,6 @@ data PactDbConfig = PactDbConfig
 instance A.FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
-
-usage :: String
-usage =
-    "Config file is YAML format with the following properties: \n\
-  \persistDir - Directory for database files. \n\
-  \logDir     - Directory for HTTP logs \n\
-  \pragmas    - SQLite pragmas to use with persistence DBs \n\
-  \gasLimit   - Gas limit for each transaction, defaults to 0 \n\
-  \gasRate    - Gas price per action, defaults to 0 \n\
-  \\n"
 
 data Checkpointer = Checkpointer
     { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)

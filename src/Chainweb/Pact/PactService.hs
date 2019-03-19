@@ -14,7 +14,8 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( execNewBlock
+    ( pactDbConfig
+    , execNewBlock
     , execTransactions
     , execValidateBlock
     , initPactService
@@ -22,7 +23,6 @@ module Chainweb.Pact.PactService
     , mkSQLiteState
     , pactFilesDir
     , serviceRequests
-    , setupConfig
     , toCommandConfig
     , createCoinContract
     , toHashedLogTxOutput
@@ -31,7 +31,6 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Lens ((.=))
 import Control.Monad
 import Control.Monad.Reader
@@ -51,7 +50,6 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
-import qualified Data.Yaml as Y
 
 import System.LogLevel
 
@@ -89,12 +87,12 @@ import Chainweb.Version (ChainwebVersion(..))
 -- genesis block (temporary)
 import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
 
-testnetDbConfig :: ChainwebVersion -> PactDbConfig
-testnetDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-testnetDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-testnetDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-testnetDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-testnetDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig :: ChainwebVersion -> PactDbConfig
+pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -121,7 +119,7 @@ initPactService
 initPactService ver chainwebLogger reqQ memPoolAccess = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    let cmdConfig = toCommandConfig $ testnetDbConfig ver
+    let cmdConfig = toCommandConfig $ pactDbConfig ver
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
@@ -314,14 +312,6 @@ updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
   Left s -> gets closePactDb >> error s
   Right t -> updateState $! t
-
-setupConfig :: FilePath -> IO PactDbConfig
-setupConfig configFile =
-    Y.decodeFileEither configFile >>= \case
-        Left e -> do
-            putStrLn usage
-            throwIO (userError ("Error loading config file: " ++ show e))
-        Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} = P.CommandConfig
