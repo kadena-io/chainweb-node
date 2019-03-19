@@ -41,7 +41,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 
 -- * Utils
 , memoCache
-, PactExectutionService(..)
+, PactExecutionService(..)
 ) where
 
 import Control.Concurrent.Async
@@ -79,6 +79,7 @@ import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.CAS
 import Data.LogMessage
@@ -176,8 +177,7 @@ instance IsCas WebBlockHeaderCas where
 -- -------------------------------------------------------------------------- --
 -- Obtain and Validate Block Payloads
 
-newtype PactExectutionService = PactExectutionService
-    (BlockHeader -> PayloadData -> IO PayloadWithOutputs)
+
 
 data WebBlockPayloadStore cas = WebBlockPayloadStore
     { _webBlockPayloadStoreCas :: !(PayloadDb cas)
@@ -190,7 +190,7 @@ data WebBlockPayloadStore cas = WebBlockPayloadStore
         -- ^ LogFunction
     , _webBlockPayloadStoreMgr :: !HTTP.Manager
         -- ^ Manager object for making HTTP requests
-    , _webBlockPayloadStorePact :: !PactExectutionService
+    , _webBlockPayloadStorePact :: !WebPactExecutionService
         -- ^ handle to the pact execution service for validating transactions
         -- and computing outputs.
     }
@@ -220,7 +220,7 @@ getBlockPayload s priority maybeOrigin h
     validateTxs = pact h
 
     mgr = _webBlockPayloadStoreMgr s
-    PactExectutionService pact = _webBlockPayloadStorePact s
+    pact = _pactValidateBlock $ _webPactExecutionService $ _webBlockPayloadStorePact s
     cas = _webBlockPayloadStoreCas s
     memoMap = _webBlockPayloadStoreMemo s
     queue = _webBlockPayloadStoreQueue s
@@ -245,7 +245,7 @@ getBlockPayload s priority maybeOrigin h
                 logfun Debug $ "task " <> sshow k <> " failed to receive from origin: " <> sshow e
                 return Nothing
 
-    -- | Query a block payload via the tasj queue
+    -- | Query a block payload via the task queue
     --
     queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadWithOutputs)
     queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
@@ -380,7 +380,7 @@ newEmptyWebPayloadStore
     :: PayloadCas cas
     => ChainwebVersion
     -> HTTP.Manager
-    -> PactExectutionService
+    -> WebPactExecutionService
     -> LogFunction
     -> IO (WebBlockPayloadStore cas)
 newEmptyWebPayloadStore v mgr pact logfun = do
@@ -390,7 +390,7 @@ newEmptyWebPayloadStore v mgr pact logfun = do
 
 newWebPayloadStore
     :: HTTP.Manager
-    -> PactExectutionService
+    -> WebPactExecutionService
     -> PayloadDb cas
     -> LogFunction
     -> IO (WebBlockPayloadStore cas)
@@ -428,4 +428,3 @@ getBlockHeader headerStore payloadStore cid priority maybeOrigin h
         maybeOrigin
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}
-
