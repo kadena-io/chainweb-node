@@ -121,10 +121,6 @@ instance Serial RefStore where
 
 deriving instance Serial CommandState
 
-deriving instance Serial PactExec
-
-deriving instance Serial PactContinuation
-
 deriving instance Serial Code
 
 deriving instance Serial Parsed
@@ -724,22 +720,6 @@ instance Serial1 TypeVar where
                     return $ TypeVar {..}
                 1 -> liftM SchemaVar deserialize
                 _ -> error "TypeVar: Deserialization error."
-
-
-instance Serial1 Object where
-  serializeWith f Object {..} = do
-    pairListSerial1Helper serialize (serializeWith f) _oObject
-    serializeWith (serializeWith f) _oObjectType
-    serialize _oInfo
-  deserializeWith m = do
-    _oObject <- pairListDeSerial1Helper (const deserialize) deserializeWith m
-    _oObjectType <- deserializeWith (deserializeWith m)
-    _oInfo <- deserialize
-    return Object {..}
-
-deriving instance (Generic n, Serial n) => Serial (Object n)
-
-deriving instance Serial FieldKey
 
 instance Serial (Table DataKey) where
   serialize (DataTable t) = serialize t
