@@ -646,6 +646,7 @@ executable transaction-generator
         , Decimal >= 0.4.2
         , fake >= 0.1.1.1
         , http-client >= 0.5
+        , http-client-tls >=0.3
         , lens >= 4.16
         , mtl >= 2.2
         , mwc-random >= 0.13
