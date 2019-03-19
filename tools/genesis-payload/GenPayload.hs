@@ -9,7 +9,7 @@
 -- Generate Haskell modules for inclusion of transactions in genesis blocks
 --
 
-module Chainweb.BlockHeader.Genesis.GenPayload ( genTestnet ) where
+module Main ( main ) where
 
 import Control.Arrow ((***))
 import Control.Concurrent (newMVar)
@@ -44,8 +44,8 @@ import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.Persistence (TxId(TxId))
 import Pact.Types.Server (CommandConfig(..))
 
-genTestnet :: IO ()
-genTestnet = genPayloadModule "Testnet"
+main :: IO ()
+main = genPayloadModule "Testnet"
 
 genPayloadModule :: Text -> IO ()
 genPayloadModule v = do
@@ -88,7 +88,7 @@ startModule :: Text -> [Text]
 startModule moduleName =
   [ "{-# LANGUAGE QuasiQuotes #-}"
   , ""
-  , "-- This modules is auto-generated. DO NOT EDIT IT MANUALLY."
+  , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
   , ""
   , "module Chainweb.BlockHeader.Genesis." <> moduleName <> " ( payloadBlock ) where"
   , ""

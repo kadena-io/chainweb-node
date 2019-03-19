@@ -85,7 +85,6 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.GenPayload
         , Chainweb.BlockHeader.Genesis.TestnetGenesisPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
