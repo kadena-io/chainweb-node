@@ -67,7 +67,6 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -230,9 +229,8 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration (TestWithTime petersonChainGraph))
+    (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
-

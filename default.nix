@@ -138,12 +138,12 @@ in
         });
 
         # pact-2.6.1
-        pact = addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
           rev = "caf1b25bcf02bb3c3ac2d83a561c608ef97356b1";
           sha256 = "1g6vrsdkbw2ivqrd26sn5m6yk6j3is26j4f9ikxpna5wcnjlyc6v";
-        }) {}) pkgs.z3;
+          }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
           pkg = "streaming";

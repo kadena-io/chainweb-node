@@ -60,20 +60,29 @@ instance Ord CutHashes where
 
 instance ToJSON CutHashes where
     toJSON c = object
-        [ "hashes" .= _cutHashes c
+        [ "hashes" .= (hashWithHeight <$> _cutHashes c)
         , "origin" .= _cutOrigin c
         , "weight" .= _cutHashesWeight c
         , "height" .= _cutHashesHeight c
         , "instance" .= _cutHashesChainwebVersion c
         ]
+      where
+        hashWithHeight h = object
+            [ "height" .= fst h
+            , "hash" .= snd h
+            ]
 
 instance FromJSON CutHashes where
     parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> o .: "hashes"
+        <$> (o .: "hashes" >>= traverse hashWithHeight)
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
         <*> o .: "instance"
+      where
+        hashWithHeight = withObject "HashWithHeight" $ \o -> (,)
+            <$> o .: "height"
+            <*> o .: "hash"
 
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
