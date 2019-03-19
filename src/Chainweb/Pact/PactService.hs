@@ -53,6 +53,8 @@ import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
 
+import Debug.Trace
+
 import System.LogLevel
 
 -- external pact modules
