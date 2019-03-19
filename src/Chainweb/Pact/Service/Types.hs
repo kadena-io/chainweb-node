@@ -24,17 +24,11 @@ data RequestMsg = NewBlockMsg NewBlockReq
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
-    , _newResultVar :: MVar (BlockTransactions, BlockPayloadHash)
+    , _newResultVar :: MVar PayloadWithOutputs
     }
 
 newtype PactValidationErr = PactValidationErr { _pveErrMsg :: Text }
 
-{-
-data ValidateBlockReq = ValidateBlockReq
-    { _valBlockHeader :: BlockHeader
-    , _valResultVar :: MVar (BlockTransactions, BlockOutputs)
-    }
--}
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valPayloadData :: PayloadData

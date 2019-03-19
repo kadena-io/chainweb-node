@@ -71,9 +71,9 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (BlockTransactions, BlockPayloadHash))
+newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar PayloadWithOutputs)
 newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (BlockTransactions, BlockPayloadHash))
+    resultVar <- newEmptyMVar :: IO (MVar PayloadWithOutputs)
     let msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newResultVar = resultVar }
@@ -82,13 +82,15 @@ newBlock bHeader reqQ = do
 
 validateBlock
     :: BlockHeader
+    -> PayloadData
     -> TQueue RequestMsg
     -> IO (MVar (Either PactValidationErr PayloadWithOutputs))
-validateBlock bHeader reqQ = do
+validateBlock bHeader plData reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (Either PactValidationErr PayloadWithOutputs))
     let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
-          , _valResultVar = resultVar}
+          , _valResultVar = resultVar
+          , _valPayloadData = plData }
     addRequest reqQ msg
     return resultVar
 

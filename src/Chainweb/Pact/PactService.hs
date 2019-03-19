@@ -194,75 +194,37 @@ toOutputBytes flOut =
         outBytes = A.encode hashedLogOut
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
-toNewBlockResults :: Transactions -> (BlockTransactions, BlockPayloadHash)
+toNewBlockResults :: Transactions -> PayloadWithOutputs
 toNewBlockResults ts =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
         newSeq = second toOutputBytes <$> oldSeq
-
-        seqTrans = fst <$> newSeq
-        blockTrans = snd $ newBlockTransactions seqTrans
-
-        bPayHash = _blockPayloadPayloadHash $ newBlockPayload newSeq
-    in (blockTrans, bPayHash)
+        bPayload = newBlockPayload newSeq
+    in PayloadWithOutputs
+        { _payloadWithOutputsTransactions = newSeq
+        , _payloadWithOutputsPayloadHash =  _blockPayloadPayloadHash bPayload
+        , _payloadWithOutputsTransactionsHash =  _blockPayloadTransactionsHash bPayload -- :: !BlockTransactionsHash
+        , _payloadWithOutputsOutputsHash =  _blockPayloadOutputsHash bPayload
+        }
 
 toValidateBlockResults :: Transactions -> BlockHeader -> Either PactValidationErr PayloadWithOutputs
 toValidateBlockResults ts bHeader =
-                 -- :: Seq (Transaction, FullLogTxOUtput)
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
-
-    -- toTransactionBytes :: P.Command ByteString -> Transaction
-    -- toOutputBytes :: FullLogTxOutput -> TransactionOutput
-
-        -- (seqTrans, transOuts) = bimap _transactionBytes toOutputBytes <$> oldSeq
-
         trans = fst <$> oldSeq
-        seqTrans = _transactionBytes <$> trans
         transOuts = toOutputBytes . snd <$> oldSeq -- :: Seq.TransactionOutput
-        -- (seqTrans, transOuts) = bimap _transactionBytes toOutputBytes <$> oldSeq
-        -- h = to `asTypeOf` _
 
         blockTrans = snd $ newBlockTransactions trans
         blockOuts = snd $ newBlockOutputs transOuts
 
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
-
         plWithOuts = payloadWithOutputs plData transOuts
+
         newHash = _payloadWithOutputsPayloadHash plWithOuts
-
         prevHash = _blockPayloadHash bHeader
-
     in if newHash == prevHash
         then Right plWithOuts
         else Left $ PactValidationErr
             "Hash from Pact execution does not match the previously stored hash"
-
-
-{-
-toValidateBlockResults :: Transactions -> PayloadWithOutputs
-toValidateBlockResults ts =
-    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
-        (seqTrans, transOuts) = bimap toTransactionBytes toOutputBytes <$> oldSeq
-
-        blockTrans = snd $ newBlockTransactions seqTrans
-        (_, blockOuts) = newBlockOutputs transOuts
-
-        blockPL = blockPayload blockTrans blockOuts
-        plData = payloadData blockTrans blockPL
-        plWithOuts = payloadWithOutputs plData transOuts
-
-    {-
-    toNewBlockResults returns ::: BlockPayloadHash
-
-    here, _payloadWithOutputsPayloadHash in PayloadWithOutputs ::: !BlockPayloadHash
-
-
-    -}
-    if compareValidation plWithOuts todoPrevHashFromNewBlock
-        then return Right plWithOuts
-        else return Left $ PactValidationErr
-            "Hash from Pact execution does not match the previously stored hash"
--}
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
 execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
@@ -299,7 +261,7 @@ execValidateBlock currHeader plData = do
         bHash = _blockHash currHeader
         checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader currHeader
-    trans <- liftIO $ transactionsFromHeader currHeader plData
+    trans <- liftIO $ transactionsFromPayload plData
     cpData <- liftIO $! if isGenesisBlock
       then restoreInitial checkPointer
       else restore checkPointer (pred bHeight) bParent
@@ -419,25 +381,12 @@ updateState PactDbState {..} = do
 pactFilesDir :: String
 pactFilesDir = "test/config/"
 
-----------------------------------------------------------------------------------------------------
--- TODO: * Replace these placeholders with the real API functions: How to I get the transactions
---         for validation from the header?
---       * Remove the MempoolAccess param
-----------------------------------------------------------------------------------------------------
-{-
-transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO (Vector ChainwebTransaction)
-transactionsFromHeader memPoolAccess bHeader =
-    memPoolAccess (_blockHeight bHeader) (_blockParent bHeader)
--}
-transactionsFromHeader :: BlockHeader -> PayloadData -> IO (Vector ChainwebTransaction)
-transactionsFromHeader bHeader plData = do
+transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
+transactionsFromPayload plData = do
     let transSeq = _payloadDataTransactions plData
     let transList = toList transSeq
     let bytes = _transactionBytes <$> transList
-
-
     let eithers = toCWTransaction <$> bytes
-
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
     let theRights  =  rights eithers

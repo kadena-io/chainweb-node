@@ -14,6 +14,7 @@ module Chainweb.Test.Pact.PactInProcApi where
 import Control.Concurrent.MVar.Strict
 
 import qualified Data.Aeson as A (encode)
+import Data.Sequence (Seq)
 import Data.String.Conv (toS)
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
@@ -21,7 +22,7 @@ import qualified Data.Vector as V
 import System.FilePath
 import System.IO.Extra
 
-import Test.HUnit
+import Test.Tasty.HUnit
 import Test.Tasty
 import Test.Tasty.Golden
 
@@ -45,42 +46,72 @@ pactApiTest = do
 
         -- newBlock test
         respVar0 <- newBlock (headers ! 0) reqQ
-        rsp0 <- takeMVar respVar0 -- wait for response
-        tt0 <- checkNewResponse "new-block-expected-0" rsp0
+        plwo <- takeMVar respVar0 -- wait for response
+        tt0 <- checkNewResponse "new-block-expected-0" plwo
 
         -- validate the same transactions sent to newBlock above
-        respVar0b <- validateBlock (headers ! 0) reqQ
+        let plData = PayloadData
+              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
+              , _payloadDataPayloadHash =  _payloadWithOutputsPayloadHash plwo
+              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
+              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
+              }
+
+        respVar0b <- validateBlock (headers ! 0) plData reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
 
-        -- validate a different set of transactions (not sent to newBlock)
-        respVar1 <- validateBlock (headers ! 1) reqQ
-        rsp1 <- takeMVar respVar1 -- wait for response
-        tt1 <- checkValidateResponse "validateBlock-expected-1" rsp1
+        return $ tt0 : [tt0b]
 
-        return $ tt0 : tt0b : [tt1]
-
-
-checkNewResponse :: FilePath -> (BlockTransactions, BlockPayloadHash) -> IO TestTree
-checkNewResponse filePrefix (bTrans, bplHash) = do
-    ttBlockTxs <- checkBlockTransactions filePrefix bTrans
-    ttBlockPayHash <- checkBlockPayloadHash filePrefix bplHash
-    return $ testGroup "newResponse" (ttBlockTxs : [ttBlockPayHash])
+checkNewResponse :: FilePath -> PayloadWithOutputs -> IO TestTree
+checkNewResponse filePrefix plwo = checkPayloadWithOutputs filePrefix "newBlock" plwo
 
 checkValidateResponse :: FilePath -> Either PactValidationErr PayloadWithOutputs -> IO TestTree
-checkValidateResponse filePrefix (Left s) = return $ assertFailure s
-checkValidateResponse filePrefix (Right plwo) = do
+checkValidateResponse _filePrefix (Left s) = assertFailure $ toS (_pveErrMsg s)
+checkValidateResponse filePrefix (Right plwo) =
+    checkPayloadWithOutputs filePrefix "validateBlock" plwo
 
-    ttTrans <- checkTrans
-    ttTransOut <- checkTransOut
-    ttBlockPlHash <- checkBlockPayloadHash
-    ttBlockTransHash <- checkBlockTransHash
-    ttBlockOutsHash <- checkBlockOutsHash
-
-    -- ttBlockTxs <- checkBlockTransactions filePrefix bTrans
-    -- ttBlockPayHash <- checkBlockOutputs filePrefix bOuts
-    return $ testGroup "validate"
+checkPayloadWithOutputs :: FilePath -> String -> PayloadWithOutputs-> IO TestTree
+checkPayloadWithOutputs filePrefix groupName plwo = do
+    ttTrans <- checkTransactions filePrefix (fst <$> _payloadWithOutputsTransactions plwo)
+    ttTransOut <- checkTransOut filePrefix (snd <$> _payloadWithOutputsTransactions plwo)
+    ttBlockPlHash <- checkBlockPayloadHash filePrefix (_payloadWithOutputsPayloadHash plwo)
+    ttBlockTransHash <- checkBlockTransHash filePrefix (_payloadWithOutputsTransactionsHash plwo)
+    ttBlockOutsHash <- checkBlockOutsHash filePrefix (_payloadWithOutputsOutputsHash plwo)
+    return $ testGroup groupName
         (ttTrans : [ttTransOut, ttBlockPlHash, ttBlockTransHash, ttBlockOutsHash])
+
+checkTransactions :: FilePath -> Seq Transaction -> IO TestTree
+checkTransactions filePrefix trans = do
+    let fp = filePrefix ++ "-trans.txt"
+    let ioBsTrans = return $ foldMap (toS . _transactionBytes) trans
+    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsTrans
+
+checkTransOut :: FilePath -> Seq TransactionOutput -> IO TestTree
+checkTransOut filePrefix transOuts = do
+    let fp = filePrefix ++ "-transOuts.txt"
+    let ioTransOuts = return $ foldMap (toS . _transactionOutputBytes) transOuts
+    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioTransOuts
+
+checkBlockPayloadHash :: FilePath -> BlockPayloadHash -> IO TestTree
+checkBlockPayloadHash filePrefix bPayHash = do
+   let fp = filePrefix ++ "-blockPayHash.txt"
+   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+   where
+       ioBs = return $ A.encode bPayHash
+
+checkBlockTransHash :: FilePath -> BlockTransactionsHash -> IO TestTree
+checkBlockTransHash filePrefix bTransHash = do
+   let fp = filePrefix ++ "-blockTransHash.txt"
+   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
+   where
+       ioBs = return $ A.encode bTransHash
+
+checkBlockOutsHash :: FilePath -> BlockOutputsHash -> IO TestTree
+checkBlockOutsHash filePrefix bOutsHash = do
+   let fp2 = filePrefix ++ "-blockOuts-hash.txt"
+   let ioBsOutsHash = return $ A.encode bOutsHash
+   return $ goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsOutsHash
 
 checkBlockTransactions :: FilePath -> BlockTransactions -> IO TestTree
 checkBlockTransactions filePrefix bTrans = do
@@ -93,25 +124,6 @@ checkBlockTransactions filePrefix bTrans = do
     let ttTransHash = goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsHash
 
     return $ testGroup "BlockTransactions" $ ttTrans : [ttTransHash]
-
-checkBlockPayloadHash :: FilePath -> BlockPayloadHash -> IO TestTree
-checkBlockPayloadHash filePrefix bPayHash = do
-   let fp = filePrefix ++ "-blockPayHash.txt"
-   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
-   where
-       ioBs = return $ A.encode bPayHash
-
-checkBlockOutputs :: FilePath -> BlockOutputs -> IO TestTree
-checkBlockOutputs filePrefix bOuts = do
-   let fp = filePrefix ++ "-blockOuts.txt"
-   let ioBsOuts = return $ foldMap (toS . _transactionOutputBytes) (_blockOutputs bOuts)
-   let ttOuts = goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsOuts
-
-   let fp2 = filePrefix ++ "-blockOut-hash.txt"
-   let ioBsOutsHash = return $ A.encode $ _blockOutputsHash bOuts
-   let ttOutsHash = goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsOutsHash
-
-   return $ testGroup "BlockOutputs" $ ttOuts : [ttOutsHash]
 
 getBlockHeaders :: Int -> [BlockHeader]
 getBlockHeaders n = do
