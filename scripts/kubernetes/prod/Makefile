@@ -1,6 +1,6 @@
 
 # For demo
-SECTIONS = eu1
+SECTIONS = us1 us2
 
 #SECTIONS = us1 us2 eu1
 
@@ -12,7 +12,7 @@ eu1_REGION = eu-central-1
 
 KOPS_DNS_ZONE = chainweb.k8s.local
 EXTERNAL_DNS_ZONE = chainweb.com
-IMAGE = kadena/chainweb-bootstrap-node:latest
+IMAGE = kadena/chainweb-bootstrap-node:testnet00-demo
 
 .DEFAULT_GOAL := deploys
 
@@ -39,8 +39,8 @@ delete-clusters: $(DELETE_CLUSTERS)
 	--set kopsStateStore=s3://$($*_REGION)-kops-state-store \
 	--set masterSize=t2.medium \
 	--set nodeSize=t2.small \
-	--set nodesMinCount=1 \
-	--set nodesMaxCount=1 \
+	--set nodesMinCount=2 \
+	--set nodesMaxCount=2 \
 	--set clusterPrefix=$* \
 	--set dnsZone=$(KOPS_DNS_ZONE) \
 	--set awsRegion=$($*_REGION) \
@@ -83,19 +83,23 @@ cleanup-deploys: $(CLEANUP_DEPLOYS)
 
 
 %.$(EXTERNAL_DNS_ZONE)-cert.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
-	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/cert.pem  $@
+	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/fullchain.pem  $@
 
 
 %.$(EXTERNAL_DNS_ZONE)-privkey.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
 	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/privkey.pem  $@
 
+%_external_dns.yaml: external_dns_template.yaml
+	kops toolbox template --template external_dns_template.yaml \
+	--set subDomain=$* \
+	--output $@
 
-DEPLOY_DEPS := external_dns.yaml  ../bootstrap_deploy.py  ./bootstrap-node.config
+DEPLOY_DEPS := ../bootstrap_deploy.py  ./bootstrap-node.config
 
 .PHONY: %-deploy
-%-deploy: $(DEPLOY_DEPS)  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
+%-deploy: $(DEPLOY_DEPS)  %_external_dns.yaml  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
 	kubectl config use-context $*.$(KOPS_DNS_ZONE) && \
-	kubectl apply -f external_dns.yaml && \
+	kubectl apply -f $*_external_dns.yaml && \
 	python ../bootstrap_deploy.py create \
 	--subDomain=$* \
 	--image=$(IMAGE) \

@@ -32,7 +32,8 @@ def create_secret_from_file(api_instance, configPath, certPath, keyPath):
         with open(certPath, 'r') as f:
             cert = f.read()
 
-        certYaml = dict(chainweb=dict(p2p=dict(peer=dict(certificate=cert))))
+        certYaml = dict(
+            chainweb=dict(p2p=dict(peer=dict(certificateChain=cert))))
         data["cert.config"] = str(
             yaml.dump(certYaml, default_flow_style=False, default_style="|"))
 
@@ -172,7 +173,8 @@ def create_pod_template_with_pvc(args):
     isTTY = args.image == "chainweb-base"  # otherwise container will always "finish" and restart.
     pull_policy = "Never" if args.local else "Always"
     command = [
-        "/bin/chainweb-node", "--node-id=0", "--config-file=/tmp/node.config"
+        "/bin/chainweb-node", "--config-file=/tmp/node.config",
+        "--disable-mining"
     ]
 
     # if certificate file was present
@@ -264,6 +266,11 @@ def arg_parsing():
         "--local",
         action="store_true",
         help="Assume the docker image can be found locally")
+
+    create_p.add_argument(
+        "--logToElasticSearch",
+        action="store_true",
+        help="Sends logs to elastic search logger")
 
     create_p.add_argument("--certificate", help="Filename of CA certificate.")
 
