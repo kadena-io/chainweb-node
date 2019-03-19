@@ -106,12 +106,9 @@ defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
     , _nodeChainId    = testChainId 0
-    , _serverRootPath = "http://127.0.0.1:" ++ show tmpNodePort
+    , _serverRootPath = "http://127.0.0.1:" ++ show 1789
     , _isChainweb     = False
     }
-  where
-    tmpNodePort :: Int
-    tmpNodePort = 1789          -- this is default port according to the "pact -s" docs
 
 transactionConfigParser :: MParser TransactionConfig
 transactionConfigParser = id
@@ -233,7 +230,7 @@ _testPort :: String
 _testPort = "1789"
 
 _serverPath :: String
-_serverPath = "http://localhost:" ++ _testPort
+_serverPath = "https://localhost:" ++ _testPort
 
 --------------------------------------------------
 -- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
