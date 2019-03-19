@@ -587,3 +587,17 @@ payloadWithOutputs d outputs = PayloadWithOutputs
     , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
     }
 
+instance ToJSON PayloadWithOutputs where
+  toJSON o = object
+    [ "transactions" .= _payloadWithOutputsTransactions o
+    , "payloadHash" .= _payloadWithOutputsPayloadHash o
+    , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
+    , "outputsHash" .= _payloadWithOutputsOutputsHash o
+    ]
+
+instance FromJSON PayloadWithOutputs where
+    parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
+        <$> o .: "transactions"
+        <*> o .: "payloadHash"
+        <*> o .: "transactionsHash"
+        <*> o .: "outputsHash"

@@ -25,6 +25,7 @@ module Chainweb.Pact.PactService
     , setupConfig
     , toCommandConfig
     , createCoinContract
+    , toHashedLogTxOutput
     ) where
 
 
@@ -32,7 +33,7 @@ import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Lens ((.=), over)
+import Control.Lens ((.=))
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
@@ -42,18 +43,14 @@ import Data.Bifunctor (first,second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
-import Data.Maybe
-import Data.Text (Text)
-import qualified Data.Text.IO as T (readFile)
 import qualified Data.Sequence as Seq
+import Data.Text.Encoding (encodeUtf8)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
-
-import NeatInterpolation (text)
 
 import System.LogLevel
 
@@ -64,7 +61,6 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
-import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P
@@ -86,6 +82,12 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
 
+-- genesis block (temporary)
+import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload ( payloadBlock )
+
+testnetDbConfig :: PactDbConfig
+testnetDbConfig = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
 pactLogLevel "ERROR" = Error
@@ -105,11 +107,8 @@ initPactService :: Logger logger => logger -> TQueue RequestMsg -> MemPoolAccess
 initPactService chainwebLogger reqQ memPoolAccess = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    pactCfg <- setupConfig $ pactFilesDir ++ "pact.yaml"
-    let cmdConfig = toCommandConfig pactCfg
-    let gasLimit = fromMaybe 0 $ P._ccGasLimit cmdConfig
-    let gasRate = fromMaybe 0 $ P._ccGasRate cmdConfig
-    let gasEnv = P.GasEnv (fromIntegral gasLimit) 0.0 $ P.constGasModel (fromIntegral gasRate)
+    let cmdConfig = toCommandConfig testnetDbConfig
+    let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
             Nothing -> do
@@ -143,24 +142,17 @@ initPactService chainwebLogger reqQ memPoolAccess = do
 -- | Create the coin contract using some initial pact db state
 createCoinContract :: PactDbState -> IO PactDbState
 createCoinContract dbState = do
-    let logger = P.newLogger P.alwaysLog $ P.LogName "coin-contract"
-        execMode = P.Transactional . _pdbsTxId $ dbState
+    let logger = P.newLogger P.alwaysLog $ P.LogName "genesis"
+        initEx = P.Transactional . _pdbsTxId $ dbState
 
-    ccMsg <- coinContract
+    cmds <- inflateGenesis
     (cmdState, Env' pactDbEnv) <- (,) <$> newMVar (_pdbsState dbState) <*> toEnv' (_pdbsDbEnv dbState)
-
-    let cmdEnv = P.CommandEnv Nothing execMode pactDbEnv cmdState logger P.freeGasEnv
-        incEx = over P.ceMode bumpExecMode
-
-    void $! applyExec' cmdEnv initState ccMsg [] (P.hash "")
-
-    coinbaseCmd <- createSender
-    let cmdEnv' = incEx cmdEnv
-    txId <- case P._ceMode . incEx $ cmdEnv' of
+    let applyC em cmd = snd <$> applyGenesisCmd logger Nothing pactDbEnv cmdState em cmd
+    newEM <- foldM applyC initEx cmds
+    txId <- case newEM of
           P.Transactional tId -> return tId
           _other              -> fail "Non - Transactional ExecutionMode found"
 
-    void $! applyExec' cmdEnv' initState coinbaseCmd [] (P.hash "")
 
     newCmdState <- readMVar cmdState
     newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
@@ -170,8 +162,14 @@ createCoinContract dbState = do
         , _pdbsState = newCmdState
         , _pdbsTxId = txId
         }
-  where
-    initState = initCapabilities ["COINBASE"]
+
+inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
+inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
+  case A.eitherDecodeStrict t of
+    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
+    Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
+      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
+      P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
@@ -399,17 +397,3 @@ transactionsFromHeader :: MemPoolAccess -> BlockHeader -> IO (Vector ChainwebTra
 transactionsFromHeader memPoolAccess bHeader =
     memPoolAccess (_blockHeight bHeader) (_blockParent bHeader)
 ----------------------------------------------------------------------------------------------------
-
-coinContract :: IO (P.ExecMsg P.ParsedCode)
-coinContract = buildExecParsedCode Nothing =<< T.readFile "pact/coin-contract/coin.pact"
-
-createSender :: IO (P.ExecMsg P.ParsedCode)
-createSender = buildExecParsedCode senderData
-  [text|
-    (coin.coinbase 'sender0 (read-keyset 'sender-keyset) 1000.0)
-    |]
-  where
-    senderData = Just $ A.object [ ("sender-keyset" :: Text) A..= keyset0 ]
-
-    keyset0 :: [Text]
-    keyset0 = ["ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"]
