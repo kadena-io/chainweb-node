@@ -282,7 +282,7 @@ lookupRequestKeyInBlock cutR chain key minHeight = go
         parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
         let parentHeight = _blockHeight parentHeader
         if parentHeight <= minHeight
-          then MaybeT (return Nothing)
+          then pass
           else go parentHeader
 
 

@@ -175,6 +175,7 @@ library
         , Chainweb.Pact.Backend.SQLiteCheckpointer
         , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Backend.Types
+        , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.Service.Http.PactApi
         , Chainweb.Pact.Service.Http.Types
@@ -201,6 +202,7 @@ library
         , base >= 4.11
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
+        , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
