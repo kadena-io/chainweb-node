@@ -52,7 +52,6 @@ type Store = HashMap (BlockHeight, BlockHash) PactDbState
 
 restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 restore' lock height hash = do
-    putStrLn $ "restore': height = " ++ show height ++ ", hash = " ++ show hash
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
             Just dbstate -> return (Right dbstate)
@@ -70,7 +69,6 @@ saveInitial' lock p@PactDbState {..} = do
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@PactDbState {..} = do
-     putStrLn $ "save': height = " ++ show height ++ ", hash = " ++ show hash
      -- Saving off checkpoint.
      -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
      modifyMVar_ lock (return . HMS.insert (height, hash) p)

@@ -48,7 +48,6 @@ pactApiTest = do
         let headers = V.fromList $ getBlockHeaders 4
 
         -- newBlock test
-        let blockParentHash = _blockParent (headers ! 0)
         respVar0 <- newBlock (headers ! 0) reqQ
         plwo <- takeMVar respVar0 -- wait for response
         tt0 <- checkNewResponse "new-block-expected-0" plwo
@@ -61,7 +60,7 @@ pactApiTest = do
               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
               }
-        let toValidateHeader = (headers ! 0) {_blockPayloadHash = matchingPlHash }
+        let toValidateHeader = (headers ! 0) { _blockPayloadHash = matchingPlHash }
         respVar0b <- validateBlock toValidateHeader plData reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
