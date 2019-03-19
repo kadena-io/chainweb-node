@@ -59,12 +59,12 @@ genPayloadModule v = do
         Env' pactDbEnv -> do
           let procCmd = verifyCommand (fmap encodeUtf8 cmd)
           parsedCmd <- case procCmd of
-            f@ProcFail{} -> error (show f)
+            f@ProcFail{} -> fail (show f)
             ProcSucc c -> return c
           ((result,txLogs),newEM) <-
             applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
           -- TODO this is a heuristic for a failed tx
-          when (null txLogs) $ error $ "transaction failed: " ++ show (cmd,result)
+          when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
           let fullOut = FullLogTxOutput (_crResult result) txLogs
               hashedOut = toHashedLogTxOutput fullOut
           return ((inp,encodeJSON hashedOut):outs,newEM)

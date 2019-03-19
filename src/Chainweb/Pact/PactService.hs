@@ -144,7 +144,7 @@ initPactService ver chainwebLogger reqQ memPoolAccess = do
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
             when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
-            error s
+            fail s
         Right _ -> return ()
 
     void $! evalStateT
@@ -163,7 +163,7 @@ createCoinContract loggers dbState = do
     newEM <- foldM applyC initEx cmds
     txId <- case newEM of
           P.Transactional tId -> return tId
-          _other -> error "Non - Transactional ExecutionMode found"
+          _other -> fail "Non - Transactional ExecutionMode found"
 
     newCmdState <- readMVar cmdState
     newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
@@ -177,15 +177,15 @@ createCoinContract loggers dbState = do
 inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
 inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
   case A.eitherDecodeStrict t of
-    Left e -> error $ "genesis transaction payload decode failed: " ++ show e
+    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
     Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-      f@P.ProcFail{} -> error $ "genesis transaction payload verify failed: " ++ show f
+      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
       P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
 serviceRequests memPoolAccess reqQ = go
-    where
+  where
     go = do
         msg <- liftIO $ getNextRequest reqQ
         case msg of
@@ -273,7 +273,7 @@ execNewBlock memPoolAccess header = do
     (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
-    either error (\_ -> pure results) closeStatus
+    either fail (\_ -> pure results) closeStatus
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
@@ -304,13 +304,13 @@ execValidateBlock currHeader plData = do
       -- TODO: fix - If this error message does not appear, the database has been closed.
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
-      error s
+      fail s
 
 -- | In the case of failure when restoring from the checkpointer,
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
-  Left s -> gets closePactDb >> error s
+  Left s -> gets closePactDb >> fail s
   Right t -> updateState $! t
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
@@ -360,7 +360,7 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
     (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
-          _other -> error "Transactional ExecutionMode expected"
+          _other -> fail "Transactional ExecutionMode expected"
     return (outs, newTxId)
   where
       f (outs, prevEM) cmd = do
