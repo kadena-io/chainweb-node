@@ -84,12 +84,17 @@ import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
 import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
 
-testnetDbConfig :: PactDbConfig
-testnetDbConfig = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+testnetDbConfig :: ChainwebVersion -> PactDbConfig
+testnetDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+testnetDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+testnetDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+testnetDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+testnetDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -106,11 +111,17 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", T.pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
-initPactService :: Logger logger => logger -> TQueue RequestMsg -> MemPoolAccess -> IO ()
-initPactService chainwebLogger reqQ memPoolAccess = do
+initPactService
+    :: Logger logger
+    => ChainwebVersion
+    -> logger
+    -> TQueue RequestMsg
+    -> MemPoolAccess
+    -> IO ()
+initPactService ver chainwebLogger reqQ memPoolAccess = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    let cmdConfig = toCommandConfig testnetDbConfig
+    let cmdConfig = toCommandConfig $ testnetDbConfig ver
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
