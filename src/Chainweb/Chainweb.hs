@@ -152,7 +152,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
-    , _configP2p = defaultP2pConfiguration v
+    , _configP2p = defaultP2pConfiguration
     , _configChainDbDirPath = Nothing
     }
 
@@ -227,11 +227,12 @@ withChainweb
     -> logger
     -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainweb conf logger inner
-    = withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+withChainweb c logger inner = do
+    withPeerResources v (view configP2p conf) logger $ \logger' peer ->
         withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
   where
-    v = _chainwebVersion conf
+    v = _chainwebVersion c
+    conf = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
