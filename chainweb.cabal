@@ -32,13 +32,6 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
-common warning-flags
-    ghc-options:
-        -Wall
-        -Wincomplete-record-updates
-        -Wincomplete-uni-patterns
-        -Wredundant-constraints
-
 flag tls13
     description:
         Enable TLSv1.3; depends on the master branch of the tls package.
@@ -52,12 +45,32 @@ flag ed25519
     default: False
     manual: True
 
+flag debug
+    description:
+        Enable various debugging features
+    default: False
+    manual:True
+
+common debugging-flags
+    if flag(debug)
+        ghc-options:
+            -g
+        cpp-options:
+            -DDEBUG_MULTINODE_TEST=1
+
+common warning-flags
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wredundant-constraints
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
 
 library
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     hs-source-dirs: src
     exposed-modules:
@@ -76,6 +89,7 @@ library
         , Chainweb.Chainweb.CutResources
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
+        , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.Cut.CutHashes
@@ -298,7 +312,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -400,8 +414,9 @@ test-suite chainweb-tests
 -- -------------------------------------------------------------------------- --
 -- Chainweb Benchmarking
 -- -------------------------------------------------------------------------- --
+
 benchmark chainweb-bench
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     type: exitcode-stdio-1.0
     main-is: Bench.hs
@@ -428,7 +443,7 @@ benchmark chainweb-bench
 -- The application that runs an chainweb node
 --
 executable chainweb-node
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -465,11 +480,16 @@ executable chainweb-node
         , warp >= 3.2
         , yet-another-logger >= 0.3.1
 
+-- -------------------------------------------------------------------------- --
+-- Slow Tests
+-- -------------------------------------------------------------------------- --
+
 -- This is not classified as a test suite because that allows us to do a wider
 -- variety of testing such as using the network, etc--things that aren't allowed
 -- in a nix build sandbox.
+--
 executable slow-tests
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -535,6 +555,7 @@ executable slow-tests
         , stm
         , stm-chans
         , streaming >= 0.2.2
+        , streaming-commons >= 0.2
         , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
@@ -559,7 +580,7 @@ executable slow-tests
 -- -------------------------------------------------------------------------- --
 
 executable blockheaderdb-example
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -584,7 +605,7 @@ executable blockheaderdb-example
 -- -------------------------------------------------------------------------- --
 
 executable p2p-example
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -619,7 +640,7 @@ executable p2p-example
 -- -------------------------------------------------------------------------- --
 
 executable transaction-generator
-    import: warning-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded

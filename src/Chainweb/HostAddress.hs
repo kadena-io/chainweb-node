@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -39,8 +40,15 @@
 -- @1*digit@ designates the decimal representation of an octet. The specification
 -- takes the form of hostnames from section 2.1 RFC1123, but limiting the
 -- rightmost (top-most) label to the from given in section 3 of RFC1034, which
--- allows to disambiguate domain names and IPv4 addresses. IPv6 Addresses are
--- not supported.
+-- allows to disambiguate domain names and IPv4 addresses.
+--
+-- IPv6 Addresses are partially supported. IPv6 address are parsed as described
+-- in RFC4291, but embedding of IPv4 addresses is not supported. IPv6 addresses
+-- are printed exactly as they where parsed. No normalization is performed. In
+-- particular the recommendations from RFC5952 are not considered. For host
+-- addresses RFC3986 and RFC 5952 are followed by requiring that IPv6 literals
+-- are enclosed in square brackets. Anything else from RFC3986, which is
+-- concerning URIs is ignored.
 --
 -- Additional restriction for hostname apply from RFC1123: labels must have not
 -- more than 63 octets, letters are case-insenstive. The maximum length must not
@@ -59,11 +67,14 @@ module Chainweb.HostAddress
 , portToText
 , portFromText
 , pPort
+, readPortBytes
 
 -- * Hostnames
 , Hostname
 , hostnameBytes
 , localhost
+, localhostIPv4
+, localhostIPv6
 , readHostnameBytes
 , hostnameToText
 , hostnameFromText
@@ -125,9 +136,14 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- Internal Parsers
 
-hostParser :: Parser ()
-hostParser = ()
-    <$ (hostNameParser <|> () <$ ipV4Parser)
+data HostType = HostTypeName | HostTypeIPv4 | HostTypeIPv6
+    deriving (Show, Eq, Ord, Generic, Hashable)
+
+hostParser :: Parser HostType
+hostParser
+    = HostTypeName <$ hostNameParser
+    <|> HostTypeIPv4 <$ ipV4Parser
+    <|> HostTypeIPv6 <$ ipV6Parser
     <?> "host"
 
 hostNameParser :: Parser ()
@@ -165,10 +181,53 @@ ipV4Parser = (,,,)
     octet = (decimal >>= \(d :: Integer) -> int d <$ guard (d < 256))
         <?> "octet"
 
+ipV6Parser :: Parser [Maybe Word16]
+ipV6Parser = p0
+  where
+    p0 = l1 <$> elision <* endOfInput
+        <|> l3 <$> elision <*> h16 <*> p2 6
+        <|> l2 <$> h16 <*> p1 7
+        <?> "IPv6address"
+
+    p1 :: Int -> Parser [Maybe Word16]
+    p1 0 = l0 <$ endOfInput <?> "IPv6 prefix: too many segments"
+    p1 i = l1 <$> elision <* endOfInput
+        <|> l3 <$> elision <*> h16 <*> p2 (i - 2)
+        <|> l2 <$ ":" <*> h16 <*> p1 (i - 1)
+        <?> "IPv6 prefix"
+
+    p2 :: Int -> Parser [Maybe Word16]
+    p2 0 = l0 <$ endOfInput <?> "IPv6 suffix: too many segments"
+    p2 i = l2 <$ ":" <*> h16 <*> p2 (i - 1)
+        <|> l0 <$ endOfInput
+        <?> "IPv6 suffix"
+
+    elision :: Parser (Maybe Word16)
+    elision = Nothing <$ "::"
+
+    h16 :: Parser (Maybe Word16)
+    h16 = Just <$> do
+        h <- hexadecimal @Integer
+        guard $ h < int (maxBound @Word16)
+        return (int h)
+        <?> "h16"
+
+    l0 = []
+    l1 = pure
+    l2 = (:)
+    l3 a b t = a:b:t
+
 portParser :: Parser Port
 portParser = Port
     <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^(16 :: Int)))
     <?> "port"
+
+parseBytes :: MonadThrow m => T.Text -> Parser a -> B8.ByteString -> m a
+parseBytes name parser b = either (throwM . TextFormatException . msg) return
+    $ parseOnly (parser <* endOfInput) b
+  where
+    msg e = "Failed to parse " <> sshow b <> " as " <> name <> ": "
+        <> T.pack e
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Values
@@ -176,16 +235,16 @@ portParser = Port
 -- | TODO should we exclude network, broadcast, otherwise special values?
 --
 arbitraryIpV4 :: Gen Hostname
-arbitraryIpV4 = Hostname . CI.mk . B8.intercalate "." . fmap sshow
+arbitraryIpV4 = HostnameIPv4 . CI.mk . B8.intercalate "." . fmap sshow
     <$> replicateM 4 (arbitrary :: Gen Word8)
 
 arbitraryIpV6 :: Gen Hostname
-arbitraryIpV6 = Hostname . CI.mk . B8.intercalate "." . fmap sshow
+arbitraryIpV6 = HostnameIPv6 . CI.mk . B8.intercalate ":" . fmap sshow
     <$> replicateM 8 (arbitrary :: Gen Word8)
 
 arbitraryDomainName :: Gen Hostname
 arbitraryDomainName = sized $ \n -> resize (min n 254)
-    . fmap (Hostname . mconcat . L.intersperse ".")
+    . fmap (HostnameName . mconcat . L.intersperse ".")
     $ (<>)
         <$> listOf (arbitraryDomainLabel False)
         <*> vectorOf 1 (arbitraryDomainLabel True)
@@ -216,8 +275,7 @@ newtype Port = Port Word16
     deriving newtype (Show, Real, Integral, Num, Bounded, Enum, ToJSON, FromJSON)
 
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port
-readPortBytes = either (throwM . TextFormatException . T.pack) return
-    . parseOnly (portParser <* endOfInput)
+readPortBytes = parseBytes "port" portParser
 {-# INLINE readPortBytes #-}
 
 arbitraryPort :: Gen Port
@@ -249,33 +307,58 @@ pPort service = textOption
 -- -------------------------------------------------------------------------- --
 -- Hostnames
 
-newtype Hostname = Hostname (CI.CI B8.ByteString)
+data Hostname
+    = HostnameName (CI.CI B8.ByteString)
+    | HostnameIPv4 (CI.CI B8.ByteString)
+    | HostnameIPv6 (CI.CI B8.ByteString)
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
-    deriving newtype (Show)
+
+instance Show Hostname where
+    show = B8.unpack . hostnameBytes
 
 readHostnameBytes :: MonadThrow m => B8.ByteString -> m Hostname
-readHostnameBytes b = Hostname
-    <$> either (throwM . TextFormatException . T.pack) return (parseOnly parser b)
+readHostnameBytes b = parseBytes "hostname" parser b
   where
-    parser = CI.mk b <$ hostParser <* endOfInput
+    parser = hostParser <* endOfInput >>= \case
+        HostTypeName -> return $ HostnameName (CI.mk b)
+        HostTypeIPv4 -> return $ HostnameIPv4 (CI.mk b)
+        HostTypeIPv6 -> return $ HostnameIPv6 (CI.mk b)
 {-# INLINE readHostnameBytes #-}
 
 localhost :: Hostname
-localhost = Hostname "localhost"
+localhost = HostnameName "localhost"
 {-# INLINE localhost #-}
 
+-- | Using explicit IP addresses and not to "localhost" greatly improves
+-- networking performance and Mac OS X.
+--
+localhostIPv4 :: Hostname
+localhostIPv4 = HostnameIPv4 "127.0.0.1"
+{-# INLINE localhostIPv4 #-}
+
+-- | Using explicit IP addresses and not to "localhost" greatly improves
+-- networking performance and Mac OS X.
+--
+localhostIPv6 :: Hostname
+localhostIPv6 = HostnameIPv6 "::1"
+{-# INLINE localhostIPv6 #-}
+
 hostnameBytes :: Hostname -> B8.ByteString
-hostnameBytes (Hostname b) = CI.original b
+hostnameBytes (HostnameName b) = CI.original b
+hostnameBytes (HostnameIPv4 b) = CI.original b
+hostnameBytes (HostnameIPv6 b) = CI.original b
 {-# INLINE hostnameBytes #-}
 
 arbitraryHostname :: Gen Hostname
 arbitraryHostname = oneof
     [ arbitraryIpV4
+    , arbitraryIpV4
     , arbitraryDomainName
         --  Note that not every valid domain name is also a valid host name.
         --  Generally, a hostname has at least one associated IP address.
         --  Also, syntactic restriction apply for certain top-level domains.
+    , pure (HostnameName "localhost")
     , pure localhost
     ]
 
@@ -330,14 +413,32 @@ data HostAddress = HostAddress
 makeLenses ''HostAddress
 
 hostAddressBytes :: HostAddress -> B8.ByteString
-hostAddressBytes a = hostnameBytes (_hostAddressHost a)
-    <> ":" <> sshow (_hostAddressPort a)
+hostAddressBytes a = host <> ":" <> sshow (_hostAddressPort a)
+  where
+    ha = _hostAddressHost a
+    host = case ha of
+        HostnameIPv6 _ -> "[" <> hostnameBytes ha <> "]"
+        _ -> hostnameBytes ha
 {-# INLINE hostAddressBytes #-}
 
 readHostAddressBytes :: MonadThrow m => B8.ByteString -> m HostAddress
-readHostAddressBytes bytes = do
-    let (h,p) = B8.break (== ':') bytes
-    HostAddress <$> readHostnameBytes h <*> readPortBytes (B8.drop 1 p)
+readHostAddressBytes bytes = parseBytes "hostaddress" (hostAddressParser bytes) bytes
+
+-- | Parser a host address. The input bytestring isn't used for parsing but for
+-- the constructing the reslt HostAddress.
+--
+hostAddressParser :: B8.ByteString -> Parser HostAddress
+hostAddressParser b = HostAddress
+    <$> hostnameParser'
+    <* ":"
+    <*> portParser
+  where
+    host = B8.init $ fst $ B8.breakEnd (== ':') b
+    hostnameParser'
+        = HostnameName (CI.mk host) <$ hostNameParser
+        <|> HostnameIPv4 (CI.mk host) <$ ipV4Parser
+        <|> HostnameIPv6 (CI.mk $ B8.init $ B8.tail host) <$ "[" <* ipV6Parser <* "]"
+        <?> "host"
 
 hostAddressToText :: HostAddress -> T.Text
 hostAddressToText = T.decodeUtf8 . hostAddressBytes
