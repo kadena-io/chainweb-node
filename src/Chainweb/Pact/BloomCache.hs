@@ -82,7 +82,7 @@ createCache cutDb bdb = mask_ $ do
         begin = silently . restore $ go Nothing
         go !lastCut = do
             !cut <- waitForNewCut cutDb lastCut
-            update cutDb bdb mapVar cut (reap $! lowestHeight cut)
+            update cutDb bdb mapVar cut (reap $! boundHeight $ lowestHeight cut)
             go $! Just cut
         silently = flip catches [
                 -- cancellation msg should quit, all others restart
@@ -161,9 +161,10 @@ updateChain cutDb bdb blockHeader mp = do
     let leafHeight = _blockHeight blockHeader
     let minHeight = boundHeight leafHeight
     fromMaybe mp <$> runMaybeT (updateChain' cutDb bdb minHeight blockHeader mp)
-  where
-    boundHeight h | h <= mAX_HEIGHT_DELTA = 0
-                  | otherwise = h - mAX_HEIGHT_DELTA
+
+boundHeight :: BlockHeight -> BlockHeight
+boundHeight h | h <= mAX_HEIGHT_DELTA = 0
+              | otherwise = h - mAX_HEIGHT_DELTA
 
 
 updateChain'
