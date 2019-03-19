@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -43,6 +44,7 @@ module Network.X509.SelfSigned
 
 -- * Server Settings
 , tlsServerSettings
+, tlsServerChainSettings
 
 -- * Low level Utils
 
@@ -80,6 +82,13 @@ module Network.X509.SelfSigned
 , validateX509KeyPem
 , decodePemX509Key
 
+-- ** PEM encode certificate chain
+, X509CertChainPem(..)
+, x509CertChainPemToText
+, x509CertChainPemFromText
+, pX509CertChainPem
+, unsafeX509CertChainPemFromText
+, validateX509CertChainPem
 ) where
 
 import Configuration.Utils
@@ -107,11 +116,13 @@ import Data.ASN1.Types
 import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
 import qualified Data.ByteString as B (ByteString, length, pack)
-import qualified Data.ByteString.Char8 as B8 (unpack)
+import qualified Data.ByteString.Char8 as B8
 import Data.Default (def)
+import Data.Foldable
 import Data.Foldable (toList)
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
+import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (maybeToList)
 import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
@@ -132,7 +143,7 @@ import Network.HTTP.Client (ManagerSettings)
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
 import Network.TLS.Extra (ciphersuite_default)
-import Network.Wai.Handler.WarpTLS as WARP (TLSSettings(..), tlsSettingsMemory)
+import Network.Wai.Handler.WarpTLS as WARP (TLSSettings(..), tlsSettingsMemory, tlsSettingsChainMemory)
 
 import Numeric.Natural (Natural)
 
@@ -626,11 +637,13 @@ generateLocalhostCertificate days
 
 -- | Create a client credential for a certificate
 --
-unsafeMakeCredential :: HasCallStack => X509CertPem -> X509KeyPem -> Credential
-unsafeMakeCredential (X509CertPem certBytes) (X509KeyPem keyBytes) =
-    case credentialLoadX509FromMemory certBytes keyBytes of
+unsafeMakeCredential :: HasCallStack => X509CertChainPem -> X509KeyPem -> Credential
+unsafeMakeCredential (X509CertChainPem cert chain) (X509KeyPem keyBytes) =
+    case credentialLoadX509ChainFromMemory (x509Bytes cert) (x509Bytes <$> chain) keyBytes of
         Left e -> error $ "failed to read certificate or key: " <> e
         Right x -> x
+  where
+    x509Bytes (X509CertPem bytes) = bytes
 
 -- | A certificate policy for using self-signed certifcates with a connection
 -- manager
@@ -714,3 +727,86 @@ tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
 #endif
         }
+
+-- | TLS server settings
+--
+tlsServerChainSettings
+    :: X509CertChainPem
+    -> X509KeyPem
+    -> WARP.TLSSettings
+tlsServerChainSettings (X509CertChainPem cert chain) (X509KeyPem keyBytes)
+    = (tlsSettingsChainMemory (x509Bytes cert) (x509Bytes <$> chain) keyBytes)
+        { tlsCiphers = ciphersuite_default
+#if WITH_TLS13
+        , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
+#endif
+        }
+  where
+    x509Bytes (X509CertPem bytes) = bytes
+
+-- -------------------------------------------------------------------------- --
+-- Split Certificate Chain into the head and the remaining certificats
+
+pattern CertHeader :: B8.ByteString
+pattern CertHeader = "-----BEGIN CERTIFICATE-----"
+
+takeCert :: MonadThrow m => [B8.ByteString] -> m ([B8.ByteString], [B8.ByteString])
+takeCert (CertHeader : t) = return $ first (CertHeader :) $ L.break (== CertHeader) t
+takeCert _ = throwM $ DecodeException "failed to decode X509 PEM certificate. Missing header."
+
+parseCerts :: MonadThrow m => B8.ByteString -> m [B8.ByteString]
+parseCerts bytes = go (B8.lines bytes)
+  where
+    go [] = return []
+    go l = do
+        (h, t) <- takeCert l
+        (B8.intercalate "\n" h :) <$> go t
+
+parseCertChain :: MonadThrow m => B8.ByteString -> m X509CertChainPem
+parseCertChain bytes = parseCerts bytes >>= \case
+    [] -> throwM $ DecodeException "certificate must have at least one certificate"
+    (h : t) -> return $ X509CertChainPem (X509CertPem h) (X509CertPem <$> t)
+
+data X509CertChainPem = X509CertChainPem X509CertPem ![X509CertPem]
+    deriving (Show, Eq, Ord, Generic, NFData)
+
+x509CertChainPemToText :: X509CertChainPem -> T.Text
+x509CertChainPemToText (X509CertChainPem a b) = T.intercalate "\n"
+    $ x509CertPemToText a
+    : (x509CertPemToText <$> b)
+{-# INLINE x509CertChainPemToText #-}
+
+x509CertChainPemFromText :: MonadThrow m => T.Text -> m X509CertChainPem
+x509CertChainPemFromText = parseCertChain . T.encodeUtf8
+{-# INLINE x509CertChainPemFromText #-}
+
+unsafeX509CertChainPemFromText :: HasCallStack => String -> X509CertChainPem
+unsafeX509CertChainPemFromText = unsafeFromText . T.pack
+{-# INLINE unsafeX509CertChainPemFromText #-}
+
+instance HasTextRepresentation X509CertChainPem where
+    toText = x509CertChainPemToText
+    {-# INLINE toText #-}
+    fromText = x509CertChainPemFromText
+    {-# INLINE fromText #-}
+
+instance ToJSON X509CertChainPem where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON X509CertChainPem where
+    parseJSON = parseJsonFromText "X509CertChainPem"
+    {-# INLINE parseJSON #-}
+
+pX509CertChainPem :: Maybe String -> OptionParser X509CertChainPem
+pX509CertChainPem service = textOption
+    % prefixLong service "certificate-chain"
+    <> suffixHelp service "PEM encoded X509 certificate or certificate chain of the local peer"
+{-# INLINE pX509CertChainPem #-}
+
+validateX509CertChainPem :: MonadError T.Text m => X509CertChainPem -> m ()
+validateX509CertChainPem (X509CertChainPem a b)  =
+    case traverse_ decodePemX509Cert (a : b) of
+        Left e -> throwError $ sshow e
+        Right () -> return ()
+
