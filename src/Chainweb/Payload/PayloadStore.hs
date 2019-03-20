@@ -26,7 +26,6 @@ module Chainweb.Payload.PayloadStore
 , TransactionDbCas
 , transactionDbBlockTransactions
 , transactionDbBlockPayloads
-, emptyTransactionDb
 
 -- * Caches
 
@@ -38,7 +37,6 @@ module Chainweb.Payload.PayloadStore
 , payloadCacheBlockOutputs
 , payloadCacheOutputTrees
 , payloadCacheTransactionTrees
-, emptyPayloadCache
 
 -- * Payload Database
 
@@ -46,7 +44,7 @@ module Chainweb.Payload.PayloadStore
 , PayloadCas
 , payloadCache
 , transactionDb
-, emptyPayloadDb
+, emptyInMemoryPayloadDb
 
 -- ** Initialize Payload Database with Genesis Payloads
 
@@ -72,6 +70,7 @@ import Chainweb.Payload
 import Chainweb.Version
 
 import Data.CAS
+import qualified Data.CAS.HashMap as HashCAS
 
 type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
 
@@ -112,9 +111,6 @@ type TransactionDbCas cas =
     ( CasConstraint cas BlockPayload
     , CasConstraint cas BlockTransactions
     )
-
-emptyTransactionDb :: TransactionDbCas cas => IO (TransactionDb cas)
-emptyTransactionDb = TransactionDb <$> emptyCas <*> emptyCas
 
 -- -------------------------------------------------------------------------- --
 -- Caches
@@ -159,9 +155,6 @@ type PayloadCacheCas cas =
     , CasConstraint cas OutputTree
     )
 
-emptyPayloadCache :: PayloadCacheCas cas => IO (PayloadCache cas)
-emptyPayloadCache = PayloadCache <$> emptyCas <*> emptyCas <*> emptyCas
-
 -- -------------------------------------------------------------------------- --
 -- Payload Database
 
@@ -180,8 +173,35 @@ type PayloadCas cas =
     , CasConstraint cas BlockPayload
     )
 
-emptyPayloadDb :: PayloadCas cas => IO (PayloadDb cas)
-emptyPayloadDb = PayloadDb <$> emptyTransactionDb <*> emptyPayloadCache
+emptyInMemoryBlockPayloadStore :: IO (BlockPayloadStore HashCAS.HashMapCas)
+emptyInMemoryBlockPayloadStore = BlockPayloadStore <$> HashCAS.emptyCas
+
+emptyInMemoryBlockTransactionsStore :: IO (BlockTransactionsStore HashCAS.HashMapCas)
+emptyInMemoryBlockTransactionsStore = BlockTransactionsStore <$> HashCAS.emptyCas
+
+emptyInMemoryTransactionDb :: IO (TransactionDb HashCAS.HashMapCas)
+emptyInMemoryTransactionDb =
+    TransactionDb <$> emptyInMemoryBlockTransactionsStore <*> emptyInMemoryBlockPayloadStore
+
+emptyInMemoryBlockOutputsStore :: IO (BlockOutputsStore HashCAS.HashMapCas)
+emptyInMemoryBlockOutputsStore = BlockOutputsStore <$> HashCAS.emptyCas
+
+emptyInMemoryTransactionTreeStore :: IO (TransactionTreeStore HashCAS.HashMapCas)
+emptyInMemoryTransactionTreeStore = TransactionTreeStore <$> HashCAS.emptyCas
+
+emptyInMemoryOutputTreeStore :: IO (OutputTreeStore HashCAS.HashMapCas)
+emptyInMemoryOutputTreeStore = OutputTreeStore <$> HashCAS.emptyCas
+
+emptyInMemoryPayloadCache :: IO (PayloadCache HashCAS.HashMapCas)
+emptyInMemoryPayloadCache =
+    PayloadCache <$> emptyInMemoryBlockOutputsStore
+                 <*> emptyInMemoryTransactionTreeStore
+                 <*> emptyInMemoryOutputTreeStore
+
+emptyInMemoryPayloadDb :: IO (PayloadDb HashCAS.HashMapCas)
+emptyInMemoryPayloadDb =
+    PayloadDb <$> emptyInMemoryTransactionDb <*> emptyInMemoryPayloadCache
+
 
 -- -------------------------------------------------------------------------- --
 -- Initialize a PayloadDb with Genesis Payloads
@@ -284,7 +304,3 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
                     (_blockPayloadOutputsHash pd)
             Nothing -> return ()
     {-# INLINE casDelete #-}
-
-    emptyCas = emptyPayloadDb
-    {-# INLINE emptyCas #-}
-
