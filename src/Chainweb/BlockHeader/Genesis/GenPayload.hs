@@ -15,10 +15,12 @@ module Chainweb.BlockHeader.Genesis.GenPayload
 import Control.Arrow ((***))
 import Control.Concurrent (newMVar)
 import Control.Monad (when,foldM)
+
 import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString (ByteString)
+import Data.Default (def)
 import qualified Data.Sequence as S
 import Data.Text (Text,unpack)
 import qualified Data.Text as T
@@ -58,7 +60,7 @@ genPayloadModule v = do
             f@ProcFail{} -> fail (show f)
             ProcSucc c -> return c
           ((result,txLogs),newEM) <-
-            applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
+            applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM def parsedCmd
           -- TODO this is a heuristic for a failed tx
           when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
           let fullOut = FullLogTxOutput (_crResult result) txLogs

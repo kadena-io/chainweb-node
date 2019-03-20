@@ -68,7 +68,7 @@ import Pact.Types.Util (Hash(..))
 
 -- internal Chainweb modules
 
-import Chainweb.Pact.Types (MinerId, MinerInfo(..), MinerKeys, GasSupply(..))
+import Chainweb.Pact.Types (MinerInfo(..), GasSupply(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
 ------------------------------------------------------------------------------
@@ -82,13 +82,14 @@ applyCmd
     -> PactDbEnv p
     -> MVar CommandState
     -> GasModel
+    -> PublicData
     -> ExecutionMode
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM cmd = do
+applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cmd = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
-        cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv
+        cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv pubData
         requestKey = cmdToRequestKey cmd
         modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
         supply = gasSupplyOf cmd
@@ -144,11 +145,14 @@ applyGenesisCmd
     -> PactDbEnv p
     -> MVar CommandState
     -> ExecutionMode
+    -> PublicData
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyGenesisCmd logger entityM dbEnv cmdState execMode cmd = do
+applyGenesisCmd logger entityM dbEnv cmdState execMode pubData cmd = do
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv
+    let cmdEnv =
+          CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv pubData
+
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all capabilities in scope
     let initState = initCapabilities ["TRANSFER", "FUND_TX", "COINBASE"]
@@ -229,7 +233,8 @@ applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs has
     (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv permissiveNamespacePolicy noSPVSupport
+                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv
+                  permissiveNamespacePolicy noSPVSupport _cePublicData
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
     newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
     let newPacts = case newCmdPact of
@@ -305,6 +310,7 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
                                 _ceGasEnv
                                 permissiveNamespacePolicy
                                 noSPVSupport
+                                _cePublicData
                     res <- tryAny $ evalContinuationState initState evalEnv _peContinuation
           -- Update pact's state
                     case res of
@@ -420,10 +426,10 @@ coinbase env cmd (MinerInfo minerId minerKeys) reward = do
 
 -- | Build the 'coin-contract.buygas' command
 mkBuyGasCmd
-    :: MinerId   -- ^ Id of the miner to fund
-    -> MinerKeys -- ^ Miner keyset
-    -> Text      -- ^ Address of the sender from the command
-    -> Decimal   -- ^ The gas limit total * price
+    :: Text    -- ^ Id of the miner to fund
+    -> KeySet  -- ^ Miner keyset
+    -> Text    -- ^ Address of the sender from the command
+    -> Decimal -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd minerId minerKeys sender total =
     buildExecParsedCode buyGasData
@@ -437,7 +443,7 @@ mkBuyGasCmd minerId minerKeys sender total =
       ]
 {-# INLINABLE mkBuyGasCmd #-}
 
-mkCoinbaseCmd :: MinerId -> MinerKeys -> Decimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd :: Text -> KeySet -> Decimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd minerId minerKeys reward = buildExecParsedCode coinbaseData
     [text| (coin.coinbase '$minerId (read-keyset 'minerKeys) (read-decimal 'reward)) |]
   where

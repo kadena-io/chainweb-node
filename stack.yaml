@@ -32,6 +32,6 @@ extra-deps:
   - git: git@github.com:kadena-io/merkle-log.git
     commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
   - git: https://github.com/kadena-io/pact.git
-    commit: caf1b25bcf02bb3c3ac2d83a561c608ef97356b1
+    commit: 641542c16dfbd3806c4e646429e90027b1f3d07f
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
