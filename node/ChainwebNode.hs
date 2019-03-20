@@ -76,6 +76,8 @@ import Data.LogMessage
 
 import P2P.Node
 
+import PkgInfo
+
 import Utils.Logging
 import Utils.Logging.Config
 
@@ -232,5 +234,5 @@ mainInfo = programInfo
     (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \conf ->
+main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
