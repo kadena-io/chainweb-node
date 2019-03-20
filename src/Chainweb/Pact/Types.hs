@@ -24,6 +24,7 @@ module Chainweb.Pact.Types
   , PactServiceEnv(..)
     -- * types
   , PactServiceM
+  , TransactionM
     -- * optics
   , flCommandResult
   , flTxLogs
@@ -57,6 +58,7 @@ import Data.Vector (Vector)
 
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Persistence (TxLog(..))
+import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 import Pact.Types.Util (Hash(..))
 
@@ -149,6 +151,7 @@ data PactServiceEnv = PactServiceEnv
   }
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactDbState IO)
+type TransactionM p = ReaderT (CommandEnv p) IO
 
 type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
