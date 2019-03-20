@@ -5,6 +5,7 @@ packages:
   - tools/chain2gexf/
   - tools/genesis-payload/
   - tools/mine-genesis/
+  - tools/ea/
 
 extra-deps:
   - aeson-1.4.2.0
