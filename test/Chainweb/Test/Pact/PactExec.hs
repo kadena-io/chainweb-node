@@ -1,6 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -31,8 +31,10 @@ import System.FilePath
 import System.IO.Extra
 
 import Test.Tasty
-import Test.Tasty.HUnit
 import Test.Tasty.Golden
+import Test.Tasty.HUnit
+
+-- internal modules
 
 import Pact.Gas
 import Pact.Interpreter
@@ -40,11 +42,13 @@ import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Server
 
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
+import Chainweb.Version (ChainwebVersion(..))
 
 tests :: IO TestTree
 tests = do
@@ -57,7 +61,7 @@ pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
     let loggers = alwaysLog
     let logger = newLogger loggers $ LogName "PactService"
-    pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
+    let pactCfg = pactDbConfig (Test petersonChainGraph)
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
@@ -76,7 +80,7 @@ pactTestSetup = do
 
     -- Coin contract must be created and embedded in the genesis
     -- block prior to initial save
-    ccState <- createCoinContract loggers theState
+    ccState <- testnet00CreateCoinContract loggers theState
     void $! saveInitial (_cpeCheckpointer checkpointEnv) ccState
 
     pure $ PactTestSetup checkpointEnv ccState

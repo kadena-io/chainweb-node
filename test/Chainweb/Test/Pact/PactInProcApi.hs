@@ -20,20 +20,22 @@ import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
 
 import System.FilePath
-import System.LogLevel
 import System.IO.Extra
+import System.LogLevel
 
 import Test.Tasty.HUnit
 import Test.Tasty
 import Test.Tasty.Golden
 
 import Chainweb.BlockHeader
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Logger
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
+import Chainweb.Version (ChainwebVersion(..))
 
 
 tests :: IO TestTree
@@ -44,7 +46,7 @@ pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
 
     -- Init for tests
-    withPactService' logger testMemPoolAccess $ \reqQ -> do
+    withPactService' (Test petersonChainGraph) logger testMemPoolAccess $ \reqQ -> do
         let headers = V.fromList $ getBlockHeaders 4
 
         -- newBlock test

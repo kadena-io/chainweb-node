@@ -12,7 +12,7 @@ author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
 copyright:    Copyright (C) 2018 Kadena LLC
 category:     Blockchain, Currency, Bitcoin
-build-type:   Simple
+build-type:   Custom
 
 tested-with:
     GHC == 8.6.3
@@ -65,6 +65,13 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Wredundant-constraints
 
+custom-setup
+    setup-depends:
+          Cabal
+        , base >= 4.11
+        , configuration-tools >= 0.4
+
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -78,7 +85,6 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.GenPayload
         , Chainweb.BlockHeader.Genesis.TestnetGenesisPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
@@ -458,6 +464,9 @@ executable chainweb-node
         Paths_chainweb
         Utils.Logging
         Utils.Logging.Config
+        PkgInfo
+    autogen-modules:
+        PkgInfo
     build-depends:
         -- internal
           chainweb
