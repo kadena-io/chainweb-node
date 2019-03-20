@@ -315,7 +315,7 @@ withChainwebInternal conf logger peer payloadDb inner = do
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
             withPactData cs cuts $ \pactData ->
-                withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
+                withMinerResources mLogger mConf cwnid mCutDb $ \m ->
                 inner Chainweb
                     { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs

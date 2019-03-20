@@ -176,8 +176,6 @@ instance IsCas WebBlockHeaderCas where
 -- -------------------------------------------------------------------------- --
 -- Obtain and Validate Block Payloads
 
-
-
 data WebBlockPayloadStore cas = WebBlockPayloadStore
     { _webBlockPayloadStoreCas :: !(PayloadDb cas)
         -- ^ Cas for storing complete payload data including outputs.
