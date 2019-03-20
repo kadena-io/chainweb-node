@@ -42,7 +42,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, _head)
+import Control.Lens (set, view, over)
 import Control.Monad
 
 import Data.Aeson
@@ -135,8 +135,10 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
 
-    & set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressHost) host
-        -- Set bootstrap host
+    & set (configP2p . p2pConfigKnownPeers) mempty
+    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
+        -- The bootstrap peer info is set later after the bootstrap nodes
+        -- has started and got its port assigned.
 
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
         -- We make room for all test peers in peer db.
@@ -156,15 +158,18 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
+    & set (configTransactionIndex . enableConfigEnabled) False
+        -- disable transaction index
+
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
 --
-setBootstrapPort
-    :: Port
-        -- ^ Port of bootstrap node
+setBootstrapPeerInfo
+    :: PeerInfo
+        -- ^ Peer info of bootstrap node
     -> ChainwebConfiguration
     -> ChainwebConfiguration
-setBootstrapPort
-    = set (configP2p . p2pConfigKnownPeers . _head . peerAddr . hostAddressPort)
+setBootstrapPeerInfo
+    = over (configP2p . p2pConfigKnownPeers) . (:)
         -- The the port of the bootstrap node. Normally this is hard-coded.
         -- But in test-suites that may run concurrently we want to use a port
         -- that is assigned by the OS.
@@ -194,15 +199,16 @@ node
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
-    -> MVar Port
+    -> MVar PeerInfo
     -> ChainwebConfiguration
     -> IO ()
-node loglevel write stateVar bootstrapPortVar conf =
+node loglevel write stateVar bootstrapPeerInfoVar conf =
     withChainweb @HashMapCas conf logger $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
-        when (nid == NodeId 0) $ putMVar bootstrapPortVar (cwPort cw)
+        when (nid == NodeId 0) $ putMVar bootstrapPeerInfoVar
+            $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
         runChainweb cw `finally` do
             logFunctionText logger Info "write sample data"
@@ -220,8 +226,6 @@ node loglevel write stateVar bootstrapPortVar conf =
             (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
             (view (chainwebCutResources . cutsCutDb) cw)
             state
-
-    cwPort = _hostAddressPort . _peerAddr . _peerInfo . _peerResPeer . _chainwebPeer
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
@@ -251,7 +255,7 @@ runNodes loglevel write stateVar v n chainDbDir = do
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
-                setBootstrapPort <$> readMVar bootstrapPortVar <*> pure baseConf
+                setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
         node loglevel write stateVar bootstrapPortVar conf
 

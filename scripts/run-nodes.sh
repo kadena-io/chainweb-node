@@ -91,6 +91,7 @@ function run-node () {
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
             --log-handle="$APP_LOG" \
+            --disable-transaction-index \
             $CONFIG_FILE_ARG \
             +RTS -T &
 
@@ -104,6 +105,7 @@ function run-node () {
             --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
+            --disable-transaction-index \
             $PORT_ARG \
             $CONFIG_FILE_ARG \
             +RTS -T &
