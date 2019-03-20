@@ -100,13 +100,13 @@ genesisBlockTarget = maxTarget
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
-genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
-genesisTime Test{} _ = BlockCreationTime epoche
-genesisTime TestWithTime{} _ = BlockCreationTime epoche
-genesisTime TestWithPow{} _ = BlockCreationTime epoche
-genesisTime Simulation{} _ = BlockCreationTime epoche
+genesisTime :: ChainwebVersion -> BlockCreationTime
+genesisTime Test{} = BlockCreationTime epoche
+genesisTime TestWithTime{} = BlockCreationTime epoche
+genesisTime TestWithPow{} = BlockCreationTime epoche
+genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
-genesisTime Testnet00 _ = BlockCreationTime . Time $ TimeSpan 1551207336601038
+genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
@@ -163,7 +163,7 @@ genesisBlockHeader Testnet00 p =
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
 genesisBlockHeader v p =
-    genesisBlockHeader' v p (genesisTime v $ _chainId p) (Nonce 0)
+    genesisBlockHeader' v p (genesisTime v) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 -- __Will not dispatch to hard-coded `BlockHeader`s!__
