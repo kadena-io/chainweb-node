@@ -53,7 +53,7 @@ import qualified Data.Sequence as Seq
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
-import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
