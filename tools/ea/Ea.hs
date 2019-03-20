@@ -110,7 +110,7 @@ headers v cs ct = take (fromIntegral cs) $ map f [0..]
     f cid = mineGenesis v (testChainId cid) ct (Nonce 0)
 
 headerModule :: ChainwebVersion -> [BlockHeader] -> Text
-headerModule v hs = fold $
+headerModule v hs = T.unlines $
     [ "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
@@ -120,6 +120,8 @@ headerModule v hs = fold $
     , "import Data.Text (Text)"
     , "import Data.Text.Encoding (encodeUtf8)"
     , "import Data.Yaml (decodeThrow)"
+    , ""
+    , "import GHC.Stack (HasCallStack)"
     , ""
     , "import NeatInterpolation (text)"
     , ""
@@ -132,13 +134,12 @@ headerModule v hs = fold $
     ] <> map (genesisHeader v) (zip [0..] hs)
 
 genesisHeader :: ChainwebVersion -> (Int, BlockHeader) -> Text
-genesisHeader v (n, h) = fold
+genesisHeader v (n, h) = T.unlines
     [ fname <> " :: BlockHeader"
     , fname <> " = unsafeFromYamlText"
     , "    [text|"
     , TE.decodeUtf8 . Yaml.encode $ ObjectEncoded h
     , "    |]"
-    , ""
     ]
   where
     fname = chainwebVersionToText v <> "C" <> sshow n
@@ -186,7 +187,7 @@ genPayloadModule v = do
 -- | Generate the entire module.
 payloadModule :: Text -> [(ByteString, ByteString)] -> Text
 payloadModule moduleName txs =
-    fold $ startModule moduleName <> [payloadYaml txs] <> endModule
+    T.unlines $ startModule moduleName <> [payloadYaml txs] <> endModule
 
 payloadYaml :: [(ByteString, ByteString)] -> Text
 payloadYaml txs = TE.decodeUtf8 $ Yaml.encode payloadWO
