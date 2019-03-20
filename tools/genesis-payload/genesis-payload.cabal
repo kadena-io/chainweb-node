@@ -29,6 +29,8 @@ executable genesis-payload
         , base
         , bytestring
         , containers
-        , pact
+                , pact
+                , loglevel
         , text
-        , yaml
+                , vector
+                , yaml

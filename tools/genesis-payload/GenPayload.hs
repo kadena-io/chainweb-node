@@ -11,38 +11,35 @@
 
 module Main ( main ) where
 
-import Control.Arrow ((***))
-import Control.Concurrent (newMVar)
-import Control.Monad (foldM, when)
+import Control.Monad (forM)
 
 import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
-import qualified Data.Sequence as S
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Yaml
+import System.LogLevel
+import qualified Data.Vector as V
 
 -- internal modules
 
-import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
-import Chainweb.Pact.PactService (mkPureState, toHashedLogTxOutput)
-import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (toEnv')
-import Chainweb.Payload
+import Chainweb.ChainId
+import Chainweb.Version
+import Chainweb.BlockHeader
+import Chainweb.Graph
+import Chainweb.Logger
+import Chainweb.Pact.PactService
+import Chainweb.Transaction
+import Chainweb.BlockHeader.Genesis
 
 import Pact.ApiReq (mkApiReq)
-import Pact.Interpreter (mkPureEnv)
 import Pact.Types.Command
-    (Command, CommandResult(..), ExecutionMode(..), ProcessedCommand(..),
+    (Command(..), ProcessedCommand(..),
     verifyCommand)
-import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
-import Pact.Types.Persistence (TxId(TxId))
-import Pact.Types.Server (CommandConfig(..))
 
 main :: IO ()
 main = genPayloadModule "Testnet"
@@ -51,35 +48,19 @@ genPayloadModule :: Text -> IO ()
 genPayloadModule v = do
   coinTx <- mkTx "pact/coin-contract/load-coin-contract.yaml"
   grantsTx <- mkTx "pact/genesis/testnet00/grants.yaml"
-  (loggers,state) <- initPact
-  cmdStateVar <- newMVar (_pdbsState state)
-  env' <- toEnv' (_pdbsDbEnv state)
-  let logger = newLogger loggers "GenPayload"
-
-      go (outs,prevEM) (inp,cmd) = case env' of
-        Env' pactDbEnv -> do
-          let procCmd = verifyCommand (fmap encodeUtf8 cmd)
-          parsedCmd <- case procCmd of
-            f@ProcFail{} -> fail (show f)
-            ProcSucc c -> return c
-          ((result,txLogs),newEM) <-
-            applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
-          -- TODO this is a heuristic for a failed tx
-          when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
-          let fullOut = FullLogTxOutput (_crResult result) txLogs
-              hashedOut = toHashedLogTxOutput fullOut
-          return ((inp,encodeJSON hashedOut):outs,newEM)
-
-  (txs,_) <- foldM go ([],Transactional (TxId 0)) [coinTx,grantsTx]
-
-  let pairs = S.fromList $ map (Transaction *** TransactionOutput) $ reverse txs
-      payload = newBlockPayload pairs
-      payloadWO = PayloadWithOutputs
-        { _payloadWithOutputsTransactions = pairs
-        , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash payload
-        , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash payload
-        , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash payload }
-      payloadYaml = decodeUtf8 $ Yaml.encode payloadWO
+  cwTxs <- forM [coinTx,grantsTx] $ \(_,cmd) -> do
+    let cmdBS = fmap encodeUtf8 cmd
+        procCmd = verifyCommand cmdBS
+    case procCmd of
+      f@ProcFail{} -> fail (show f)
+      ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
+  let mempool _ _ = return $ V.fromList cwTxs
+      logger = genericLogger Warn TIO.putStrLn
+      cid = testChainId 0
+      header = toyGenesis cid
+  payloadWO <- fmap toNewBlockResults $ initPactService' Testnet00 logger $
+    execNewBlock True mempool header
+  let payloadYaml = decodeUtf8 $ Yaml.encode payloadWO
       moduleName = v <> "GenesisPayload"
       moduleCode = T.unlines $ startModule moduleName <> [payloadYaml] <> endModule
       fileName = "src/Chainweb/BlockHeader/Genesis/" ++ unpack moduleName ++ ".hs"
@@ -111,13 +92,6 @@ endModule =
   [ "|]"
   ]
 
-initPact :: IO (Loggers, PactDbState)
-initPact = do
-  let conf = CommandConfig Nothing Nothing Nothing Nothing
-      loggers = alwaysLog
-  env <- mkPureEnv loggers
-  state <- mkPureState env conf
-  return (loggers,state)
 
 mkTx :: FilePath -> IO (ByteString,Command Text)
 mkTx yamlFile = do
@@ -126,3 +100,10 @@ mkTx yamlFile = do
 
 encodeJSON :: ToJSON a => a -> ByteString
 encodeJSON = toStrict . encodePretty' (defConfig { confCompare = compare })
+
+
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
+
+toyGenesis :: ChainId -> BlockHeader
+toyGenesis cid = genesisBlockHeader toyVersion cid

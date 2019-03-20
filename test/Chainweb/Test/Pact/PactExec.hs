@@ -49,6 +49,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.ChainId
 
 tests :: IO TestTree
 tests = do
@@ -80,15 +81,15 @@ pactTestSetup = do
 
     -- Coin contract must be created and embedded in the genesis
     -- block prior to initial save
-    ccState <- testnet00CreateCoinContract loggers theState
-    void $! saveInitial (_cpeCheckpointer checkpointEnv) ccState
+    --ccState <- testnet00CreateCoinContract loggers theState
+    void $! saveInitial (_cpeCheckpointer checkpointEnv) theState
 
-    pure $ PactTestSetup checkpointEnv ccState
+    pure $ PactTestSetup checkpointEnv theState
 
 
 pactExecTests :: PactTestSetup -> BlockType -> IO [TestTree]
 pactExecTests (PactTestSetup env st) t =
-    fst <$> runStateT (runReaderT (execTests t) env) st
+    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (testChainId 0) >> execTests t) env) st
 
 execTests :: BlockType -> PactT [TestTree]
 execTests t = do

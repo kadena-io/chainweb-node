@@ -33,6 +33,7 @@ import Data.Int
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Pact.PactService as PS
@@ -48,25 +49,27 @@ import Chainweb.Version (ChainwebVersion)
 withPactService
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> MempoolBackend ChainwebTransaction
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver logger memPool action
-    = withPactService' ver logger (pactMemPoolAccess memPool) action
+withPactService ver cid logger memPool action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
 withPactService'
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> MemPoolAccess
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver logger memPoolAccess action = do
+withPactService' ver cid logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver logger reqQ memPoolAccess)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ
