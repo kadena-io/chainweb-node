@@ -47,7 +47,7 @@ import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Int (Int64)
 import qualified Data.Map.Lazy as Map
-import Data.Text (Text)
+import Data.Text (Text,pack)
 import Data.Word (Word64)
 
 import NeatInterpolation (text)
@@ -69,6 +69,7 @@ import Pact.Types.Util (Hash(..))
 -- internal Chainweb modules
 
 import Chainweb.Pact.Types (MinerId, MinerInfo(..), MinerKeys, GasSupply(..))
+import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
 ------------------------------------------------------------------------------
@@ -107,7 +108,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel startEM cmd = do
       Right buyGasResult -> do
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
-        pactId <- either fail pure buyGasResult
+        pactId <- either internalError pure buyGasResult
         logDebugRequestKey logger requestKey "successful gas buy for request key"
         -- Note the use of 'def' here: we run the payload normally without inserting
         -- initial state.
@@ -361,7 +362,7 @@ buyGas
     -> Command (Payload PublicMeta ParsedCode)
     -> MinerInfo
     -> GasSupply
-    -> IO (Either String PactId)
+    -> IO (Either Text PactId)
 buyGas env cmd (MinerInfo minerId minerKeys) (GasSupply supply) = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = initCapabilities ["FUND_TX"]
@@ -464,7 +465,7 @@ buildExecParsedCode value code = maybe (go Null) go value
       Right t -> pure $ ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast
-      Left err -> fail $ "buildExecParsedCode: parse failed: " <> show err
+      Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
 
 ------------------------------------------------------------------------------
 -- Helpers

@@ -16,7 +16,6 @@ import Chainweb.Payload
 import Chainweb.ChainId
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.MerkleLogHash (nullHashBytes)
 
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
@@ -39,13 +38,16 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
 
 mkPactExecutionService :: TQueue RequestMsg -> PactExecutionService
 mkPactExecutionService q = PactExecutionService
-  { _pactValidateBlock = \h _pd -> do
-      mv <- validateBlock h q
-      tempBBToPWO <$> takeMVar mv
+  { _pactValidateBlock = \h pd -> do
+      mv <- validateBlock h pd q
+      r <- takeMVar mv
+      case r of
+        Right pdo -> return pdo
+        Left e -> throwM e
   , _pactNewBlock = \h -> do
       mv <- newBlock h q
-      tempBBToPWO <$> takeMVar mv
+      r <- takeMVar mv
+      case r of
+        Right pdo -> return pdo
+        Left e -> throwM e
   }
-
-tempBBToPWO :: (BlockTransactions, a) -> PayloadWithOutputs
-tempBBToPWO _ = PayloadWithOutputs mempty (BlockPayloadHash nullHashBytes) (BlockTransactionsHash nullHashBytes) (BlockOutputsHash nullHashBytes)

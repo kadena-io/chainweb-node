@@ -49,7 +49,10 @@ pactApiTest = do
 
         -- newBlock test
         respVar0 <- newBlock (headers ! 0) reqQ
-        plwo <- takeMVar respVar0 -- wait for response
+        mvr <- takeMVar respVar0 -- wait for response
+        plwo <- case mvr of
+          Left e -> assertFailure (show e)
+          Right r -> return r
         tt0 <- checkNewResponse "new-block-expected-0" plwo
 
         -- validate the same transactions sent to newBlock above
@@ -70,8 +73,8 @@ pactApiTest = do
 checkNewResponse :: FilePath -> PayloadWithOutputs -> IO TestTree
 checkNewResponse filePrefix plwo = checkPayloadWithOutputs filePrefix "newBlock" plwo
 
-checkValidateResponse :: FilePath -> Either PactValidationErr PayloadWithOutputs -> IO TestTree
-checkValidateResponse _filePrefix (Left s) = assertFailure $ toS (_pveErrMsg s)
+checkValidateResponse :: FilePath -> Either PactException PayloadWithOutputs -> IO TestTree
+checkValidateResponse _filePrefix (Left s) = assertFailure $ show s
 checkValidateResponse filePrefix (Right plwo) =
     checkPayloadWithOutputs filePrefix "validateBlock" plwo
 

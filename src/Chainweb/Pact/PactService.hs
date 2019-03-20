@@ -31,9 +31,9 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Lens ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
@@ -75,8 +75,7 @@ import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types ( LocalReq(..), NewBlockReq(..), PactValidationErr(..)
-                                   , RequestMsg(..), ValidateBlockReq(..) )
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
@@ -134,7 +133,7 @@ initPactService chainwebLogger reqQ memPoolAccess = do
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
             when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
-            fail s
+            internalError' s
         Right _ -> return ()
 
     void $! evalStateT
@@ -153,7 +152,7 @@ createCoinContract loggers dbState = do
     newEM <- foldM applyC initEx cmds
     txId <- case newEM of
           P.Transactional tId -> return tId
-          _other              -> fail "Non - Transactional ExecutionMode found"
+          _other              -> internalError "Non - Transactional ExecutionMode found"
 
 
     newCmdState <- readMVar cmdState
@@ -168,9 +167,9 @@ createCoinContract loggers dbState = do
 inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
 inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
   case A.eitherDecodeStrict t of
-    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
+    Left e -> internalError' $ "genesis transaction payload decode failed: " ++ show e
     Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
+      f@P.ProcFail{} -> internalError' $ "genesis transaction payload verify failed: " ++ show f
       P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
@@ -183,12 +182,18 @@ serviceRequests memPoolAccess reqQ = go
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- execNewBlock memPoolAccess _newBlockHeader
-                liftIO $ putMVar _newResultVar $ toNewBlockResults txs
+                txs <- try $ execNewBlock memPoolAccess _newBlockHeader
+                case txs of
+                  Left (SomeException e) ->
+                    liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
+                  Right r -> liftIO $ putMVar _newResultVar $ Right $ toNewBlockResults r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- execValidateBlock _valBlockHeader _valPayloadData
-                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs _valBlockHeader
+                txs <- try $ execValidateBlock _valBlockHeader _valPayloadData
+                case txs of
+                  Left (SomeException e) ->
+                    liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
+                  Right r -> liftIO $ putMVar _valResultVar $ toValidateBlockResults r _valBlockHeader
                 go
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
@@ -223,7 +228,7 @@ toNewBlockResults ts =
         , _payloadWithOutputsOutputsHash =  _blockPayloadOutputsHash bPayload
         }
 
-toValidateBlockResults :: Transactions -> BlockHeader -> Either PactValidationErr PayloadWithOutputs
+toValidateBlockResults :: Transactions -> BlockHeader -> Either PactException PayloadWithOutputs
 toValidateBlockResults ts bHeader =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
         trans = fst <$> oldSeq
@@ -240,7 +245,7 @@ toValidateBlockResults ts bHeader =
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
         then Right plWithOuts
-        else Left $ PactValidationErr $ toS $
+        else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
@@ -264,7 +269,8 @@ execNewBlock memPoolAccess header = do
     (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
-    either fail (\_ -> pure results) closeStatus
+    either internalError' (\_ -> pure results) closeStatus
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
@@ -295,13 +301,13 @@ execValidateBlock currHeader plData = do
       -- TODO: fix - If this error message does not appear, the database has been closed.
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
-      fail s
+      internalError' s
 
 -- | In the case of failure when restoring from the checkpointer,
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactT ()
 updateOrCloseDb = \case
-  Left s  -> gets closePactDb >> fail s
+  Left s  -> gets closePactDb >> internalError' s
   Right t -> updateState $! t
 
 setupConfig :: FilePath -> IO PactDbConfig
@@ -309,7 +315,7 @@ setupConfig configFile =
     Y.decodeFileEither configFile >>= \case
         Left e -> do
             putStrLn usage
-            throwIO (userError ("Error loading config file: " ++ show e))
+            internalError' $ "Error loading config file: " ++ show e
         Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
@@ -359,7 +365,7 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
     (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
-          _other -> fail "Transactional ExecutionMode expected"
+          _other -> internalError "Transactional ExecutionMode expected"
     return (outs, newTxId)
   where
       f (outs, prevEM) cmd = do
