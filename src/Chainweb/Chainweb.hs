@@ -42,13 +42,19 @@
 --
 module Chainweb.Chainweb
 (
+-- * Pact Configuration
+  TransactionIndexConfig(..)
+, defaultTransactionIndexConfig
+, pTransactionIndexConfig
+
 -- * Configuration
-  ChainwebConfiguration(..)
+, ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
 , configMiner
 , configP2p
 , configChainDbDirPath
+, configTransactionIndex
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -63,6 +69,7 @@ module Chainweb.Chainweb
 , chainwebSocket
 , chainwebPeer
 , chainwebPayloadDb
+, chainwebPactData
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -79,11 +86,14 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.Async
+import Control.Exception (bracket)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
 import Data.Foldable
+import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
+import Data.List (sortBy)
 
 import GHC.Generics hiding (from)
 
@@ -108,6 +118,8 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Pact.RestAPI.Server
+    (PactServerData, createPactServerData, destroyPactServerData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -120,6 +132,26 @@ import P2P.Node.Configuration
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
+-- TransactionIndexConfig
+
+data TransactionIndexConfig = TransactionIndexConfig
+    deriving (Show, Eq, Generic)
+
+makeLenses ''TransactionIndexConfig
+
+defaultTransactionIndexConfig :: TransactionIndexConfig
+defaultTransactionIndexConfig = TransactionIndexConfig
+
+instance ToJSON TransactionIndexConfig where
+    toJSON _ = object []
+
+instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
+    parseJSON = withObject "TransactionIndexConfig" $ const (return id)
+
+pTransactionIndexConfig :: MParser TransactionIndexConfig
+pTransactionIndexConfig = pure id
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
@@ -128,6 +160,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configP2p :: !P2pConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
+    , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -146,8 +179,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
-    , _configP2p = defaultP2pConfiguration v
+    , _configP2p = defaultP2pConfiguration
     , _configChainDbDirPath = Nothing
+    , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -157,6 +191,7 @@ instance ToJSON ChainwebConfiguration where
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
         , "chainDbDirPath" .= _configChainDbDirPath o
+        , "transactionIndex" .= _configTransactionIndex o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -166,6 +201,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
         <*< configChainDbDirPath ..: "chainDbDirPath" % o
+        <*< configTransactionIndex %.: "transactionIndex" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -182,6 +218,8 @@ pChainwebConfiguration = id
     <*< configChainDbDirPath .:: fmap Just % textOption
         % long "chain-db-dir"
         <> help "directory where chain databases are persisted"
+    <*< configTransactionIndex %::
+        pEnableConfig "transaction-index" pTransactionIndexConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -196,6 +234,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
+    , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     }
 
 makeLenses ''Chainweb
@@ -220,11 +259,17 @@ withChainweb
     -> logger
     -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainweb conf logger inner
-    = withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+withChainweb c logger inner = do
+    withPeerResources v (view configP2p conf) logger $ \logger' peer ->
         withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
   where
-    v = _chainwebVersion conf
+    v = _chainwebVersion c
+
+    -- Here we inject the hard-coded bootstrap peer infos for the configured
+    -- chainweb version into the configuration.
+    conf
+        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
@@ -266,7 +311,8 @@ withChainwebInternal conf logger peer inner = do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
-            withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
+            withPactData cs cuts $ \pactData ->
+                withMinerResources mLogger mConf cwnid mCutDb webchain payloadDb $ \m ->
                 inner Chainweb
                     { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                     , _chainwebChains = cs
@@ -277,7 +323,17 @@ withChainwebInternal conf logger peer inner = do
                     , _chainwebPeer = peer
                     , _chainwebPayloadDb = payloadDb
                     , _chainwebManager = mgr
+                    , _chainwebPactData = pactData
                     }
+
+    withPactData cs cuts
+        | _enableConfigEnabled (_configTransactionIndex conf)
+            = bracket (createPactData cs cuts) destroyPactData
+        | otherwise = ($ [])
+    createPactData cs cuts =
+        mapM (\(cid, cr) -> (cid,) <$> createPactServerData cuts cr) $
+        sortBy (compare `on` fst) (HM.toList cs)
+    destroyPactData = mapM_ (destroyPactServerData . snd)
 
     v = _configChainwebVersion conf
     graph = _chainGraph v
@@ -305,7 +361,7 @@ runChainweb cw = do
     let cutDb = _cutResCutDb $ _chainwebCutResources cw
         cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
-    -- Startup sequnce:
+    -- Startup sequence:
     --
     -- 1. Start serving Rest API
     -- 2. Start Clients
@@ -321,12 +377,12 @@ runChainweb cw = do
         chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
         payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
-        pactDbsToServe = proj (_chainwebCutResources cw, )
+        pactDbsToServe = _chainwebPactData cw
 
         serverSettings = peerServerSettings (_peerResPeer $ _chainwebPeer cw)
         serve = serveChainwebSocketTls
             serverSettings
-            (_peerCertificate $ _peerResPeer $ _chainwebPeer cw)
+            (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
             (_peerKey $ _peerResPeer $ _chainwebPeer cw)
             (_peerResSocket $ _chainwebPeer cw)
             (_chainwebVersion cw)

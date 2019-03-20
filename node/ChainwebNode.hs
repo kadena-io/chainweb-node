@@ -64,10 +64,9 @@ import System.LogLevel
 
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
-import Chainweb.Chainweb.PeerResources
+import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -194,17 +193,18 @@ withNodeLogger logConfig f = runManaged $ do
         $ mkTelemetryLogger @CutHashes mgr teleLogConfig
     p2pInfoBackend <- managed
         $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
-    managerBackend <- managed
-        $ mkTelemetryLogger @ConnectionManagerStats mgr teleLogConfig
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
+    counterBackend <- managed $ configureHandler
+        (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
+        teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
             [ logHandler monitorBackend
             , logHandler p2pInfoBackend
-            , logHandler managerBackend
             , logHandler rtsBackend
+            , logHandler counterBackend
             ] baseBackend
 
     liftIO $ f logger
@@ -229,9 +229,8 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration (TestWithTime petersonChainGraph))
+    (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
-
