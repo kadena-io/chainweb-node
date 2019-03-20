@@ -27,6 +27,7 @@ module P2P.Node.Configuration
 , p2pConfigSessionTimeout
 , p2pConfigKnownPeers
 , p2pConfigPeerDbFilePath
+, p2pConfigIgnoreBootstrapNodes
 , defaultP2pConfiguration
 , pP2pConfiguration
 ) where
@@ -78,6 +79,8 @@ data P2pConfiguration = P2pConfiguration
 
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
         -- ^ the path where the peer database is persisted
+
+    , _p2pConfigIgnoreBootstrapNodes :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -87,6 +90,7 @@ instance Arbitrary P2pConfiguration where
     arbitrary = P2pConfiguration
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 -- | These are acceptable values for both test and production chainwebs.
 --
@@ -103,6 +107,7 @@ defaultP2pConfiguration = P2pConfiguration
         -- is complete
 
     , _p2pConfigPeerDbFilePath = Nothing
+    , _p2pConfigIgnoreBootstrapNodes = False
     }
 
 instance ToJSON P2pConfiguration where
@@ -113,6 +118,7 @@ instance ToJSON P2pConfiguration where
         , "sessionTimeout" .= _p2pConfigSessionTimeout o
         , "peers" .= _p2pConfigKnownPeers o
         , "peerDbFilePath" .= _p2pConfigPeerDbFilePath o
+        , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
         ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
@@ -123,6 +129,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
+        <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -132,6 +139,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "sessionTimeout"
         <*> o .: "peers"
         <*> o .: "peerDbFilePath"
+        <*> o .: "ignoreBootstrapNodes"
 
 pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
@@ -150,6 +158,9 @@ pP2pConfiguration networkId = id
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
+    <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
+        % prefixLong net "ignore-boostrap-nodes"
+        <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
   where
     net = T.unpack . networkIdToText <$> networkId
 
