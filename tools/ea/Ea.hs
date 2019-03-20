@@ -87,8 +87,12 @@ main = unwrapRecord "ea" >>= \case
             file = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> ".hs"
         TIO.writeFile (T.unpack file) modl
         putStrLn $ "Generated Genesis BlockHeaders for " <> show v
-    Payload v0 txs -> do
-        putStrLn "Not implemented yet"
+    Payload v0 txs0 -> do
+        v <- chainwebVersionFromText v0
+        let txs = bool txs0 [defCoinContract, defGrants] $ null txs0
+        genPayloadModule v txs
+        putStrLn $ "Generated Genesis Payload for " <> show v
+        putStrLn "Please recompile Chainweb and Ea before using the 'headers' command."
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -148,22 +152,20 @@ genesisHeader v (n, h) = T.unlines
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> IO ()
-genPayloadModule v = do
-    coinTx <- mkTx "pact/coin-contract/load-coin-contract.yaml"
-    grantsTx <- mkTx "pact/genesis/testnet00/grants.yaml"
+genPayloadModule :: ChainwebVersion -> [FilePath] -> IO ()
+genPayloadModule v txFiles = do
+    rawTxs <- traverse mkTx txFiles
     (loggers, state) <- initPact
     cmdStateVar <- newMVar (_pdbsState state)
     env' <- toEnv' (_pdbsDbEnv state)
 
     let logger = newLogger loggers "GenPayload"
 
-    (txs, _) <- foldM (go logger env' cmdStateVar) ([],Transactional (TxId 0)) [coinTx,grantsTx]
+    (txs, _) <- foldM (go logger env' cmdStateVar) ([],Transactional (TxId 0)) rawTxs
 
-    let moduleName = T.toTitle (chainwebVersionToText v) <> "GenesisPayload"
-        fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName <> ".hs"
+    let fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
 
-    TIO.writeFile (T.unpack fileName) $ payloadModule moduleName txs
+    TIO.writeFile (T.unpack fileName) $ payloadModule v txs
   where
     go :: Logger
        -> Env'
@@ -185,9 +187,8 @@ genPayloadModule v = do
         pure ((inp, encodeJSON hashedOut):outs, newEM)
 
 -- | Generate the entire module.
-payloadModule :: Text -> [(ByteString, ByteString)] -> Text
-payloadModule moduleName txs =
-    T.unlines $ startModule moduleName <> [payloadYaml txs] <> endModule
+payloadModule :: ChainwebVersion -> [(ByteString, ByteString)] -> Text
+payloadModule v txs = T.unlines $ startModule v <> [payloadYaml txs] <> endModule
 
 payloadYaml :: [(ByteString, ByteString)] -> Text
 payloadYaml txs = TE.decodeUtf8 $ Yaml.encode payloadWO
@@ -200,13 +201,13 @@ payloadYaml txs = TE.decodeUtf8 $ Yaml.encode payloadWO
     payload = newBlockPayload pairs
     pairs = S.fromList . map (Transaction *** TransactionOutput) $ reverse txs
 
-startModule :: Text -> [Text]
-startModule moduleName =
+startModule :: ChainwebVersion -> [Text]
+startModule v =
     [ "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""
-    , "module Chainweb.BlockHeader.Genesis." <> moduleName <> " ( payloadBlock ) where"
+    , "module Chainweb.BlockHeader.Genesis." <> moduleName v <> "Payload ( payloadBlock ) where"
     , ""
     , "import Data.Text.Encoding (encodeUtf8)"
     , "import Data.Yaml (decodeThrow)"
