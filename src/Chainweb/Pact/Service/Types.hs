@@ -11,6 +11,8 @@ module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.MVar.Strict
 
+import Data.Text (Text)
+
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -22,12 +24,15 @@ data RequestMsg = NewBlockMsg NewBlockReq
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
-    , _newResultVar :: MVar (BlockTransactions, BlockPayloadHash)
+    , _newResultVar :: MVar PayloadWithOutputs
     }
+
+newtype PactValidationErr = PactValidationErr { _pveErrMsg :: Text }
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
-    , _valResultVar :: MVar (BlockTransactions, BlockOutputs)
+    , _valPayloadData :: PayloadData
+    , _valResultVar :: MVar (Either PactValidationErr PayloadWithOutputs)
     }
 
 data LocalReq = LocalReq

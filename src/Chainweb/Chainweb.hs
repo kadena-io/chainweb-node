@@ -42,13 +42,19 @@
 --
 module Chainweb.Chainweb
 (
+-- * Pact Configuration
+  TransactionIndexConfig(..)
+, defaultTransactionIndexConfig
+, pTransactionIndexConfig
+
 -- * Configuration
-  ChainwebConfiguration(..)
+, ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
 , configMiner
 , configP2p
 , configChainDbDirPath
+, configTransactionIndex
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -127,6 +133,26 @@ import P2P.Node.Configuration
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
+-- TransactionIndexConfig
+
+data TransactionIndexConfig = TransactionIndexConfig
+    deriving (Show, Eq, Generic)
+
+makeLenses ''TransactionIndexConfig
+
+defaultTransactionIndexConfig :: TransactionIndexConfig
+defaultTransactionIndexConfig = TransactionIndexConfig
+
+instance ToJSON TransactionIndexConfig where
+    toJSON _ = object []
+
+instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
+    parseJSON = withObject "TransactionIndexConfig" $ const (return id)
+
+pTransactionIndexConfig :: MParser TransactionIndexConfig
+pTransactionIndexConfig = pure id
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
@@ -135,6 +161,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configP2p :: !P2pConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
+    , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -155,6 +182,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configP2p = defaultP2pConfiguration
     , _configChainDbDirPath = Nothing
+    , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -164,6 +192,7 @@ instance ToJSON ChainwebConfiguration where
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
         , "chainDbDirPath" .= _configChainDbDirPath o
+        , "transactionIndex" .= _configTransactionIndex o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -173,6 +202,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
         <*< configChainDbDirPath ..: "chainDbDirPath" % o
+        <*< configTransactionIndex %.: "transactionIndex" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -189,6 +219,8 @@ pChainwebConfiguration = id
     <*< configChainDbDirPath .:: fmap Just % textOption
         % long "chain-db-dir"
         <> help "directory where chain databases are persisted"
+    <*< configTransactionIndex %::
+        pEnableConfig "transaction-index" pTransactionIndexConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -233,7 +265,12 @@ withChainweb c logger inner = do
         withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
   where
     v = _chainwebVersion c
-    conf = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+
+    -- Here we inject the hard-coded bootstrap peer infos for the configured
+    -- chainweb version into the configuration.
+    conf
+        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
@@ -291,7 +328,10 @@ withChainwebInternal conf logger peer inner = do
                     , _chainwebPactData = pactData
                     }
 
-    withPactData cs cuts = bracket (createPactData cs cuts) destroyPactData
+    withPactData cs cuts
+        | _enableConfigEnabled (_configTransactionIndex conf)
+            = bracket (createPactData cs cuts) destroyPactData
+        | otherwise = ($ [])
     createPactData cs cuts =
         mapM (\(cid, cr) -> (cid,) <$> createPactServerData cuts cr) $
         sortBy (compare `on` fst) (HM.toList cs)
