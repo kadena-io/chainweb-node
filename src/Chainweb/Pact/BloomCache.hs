@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -46,7 +47,8 @@ import Data.Hashable (hashWithSalt)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.IORef
-import Data.Maybe (fromMaybe)
+import Data.List (lookup)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.Text (Text)
 import Pact.Types.Command
 import Pact.Types.Util (Hash(..))
@@ -54,6 +56,7 @@ import Pact.Types.Util (Hash(..))
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB (CutDb)
 import qualified Chainweb.CutDB as CutDB
@@ -62,7 +65,6 @@ import Chainweb.Payload.PayloadStore
 import qualified Chainweb.TreeDB as TreeDB
 import Data.CAS
 ------------------------------------------------------------------------------
-
 
 instance Bloom.Hashable Hash where
     hashIO32 (Hash bytes) salt =
@@ -86,9 +88,9 @@ data TransactionBloomCache = TransactionBloomCache {
 createCache
     :: PayloadCas cas
     => CutDb cas
-    -> BlockHeaderDb
+    -> [(ChainId, BlockHeaderDb)]
     -> IO TransactionBloomCache
-createCache cutDb bdb = mask_ $ do
+createCache cutDb bdbs = mask_ $ do
     !m <- newIORef HashMap.empty
     !t <- Async.asyncWithUnmask $ threadProc m
     return $! TransactionBloomCache m t
@@ -99,12 +101,12 @@ createCache cutDb bdb = mask_ $ do
         begin = silently . restore $ go Nothing
         go !lastCut = do
             !cut <- waitForNewCut cutDb lastCut
-            update cutDb bdb mapVar cut (reap $! boundHeight $ lowestHeight cut)
+            update cutDb bdbs mapVar cut (reap $! boundHeight $ lowestHeight cut)
             go $! Just cut
         silently = flip catches [
                 -- cancellation msg should quit, all others restart
                 Handler (\(_::SomeAsyncException) -> return ())
-              , Handler (\(_::SomeException) -> begin)
+              , Handler (\(_::SomeException) -> begin) -- TODO: log here and delay
               ]
 
     lowestHeight = foldl' f (BlockHeight maxBound) . HashMap.toList . _cutMap
@@ -113,7 +115,6 @@ createCache cutDb bdb = mask_ $ do
 
     reap !minHeight = HashMap.filterWithKey $ const . (>= minHeight) . fst
 
-
 destroyCache :: TransactionBloomCache -> IO ()
 destroyCache = Async.cancel . _thread
 
@@ -121,10 +122,10 @@ destroyCache = Async.cancel . _thread
 withCache
     :: PayloadCas cas
     => CutDb cas
-    -> BlockHeaderDb
+    -> [(ChainId, BlockHeaderDb)]
     -> (TransactionBloomCache -> IO a)
     -> IO a
-withCache cutDb bdb = bracket (createCache cutDb bdb) destroyCache
+withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
 
 
 member :: Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
@@ -152,19 +153,19 @@ mAX_HEIGHT_DELTA = 16384
 update
     :: PayloadCas cas
     => CutDb cas
-    -> BlockHeaderDb
+    -> [(ChainId, BlockHeaderDb)]
     -> IORef TransactionBloomCache_
     -> Cut
     -> (TransactionBloomCache_ -> TransactionBloomCache_)
     -> IO ()
-update cutDb bdb mv cut atEnd = do
+update cutDb bdbs mv cut atEnd = do
     mp <- readIORef mv
     !mp' <- atEnd <$> f mp
     writeIORef mv mp'
   where
     f mp = foldM upd mp hdrs
     hdrs = HashMap.toList $ _cutMap cut
-    upd !mp (_, blockHeader) = updateChain cutDb bdb blockHeader mp
+    upd !mp (cid, blockHeader) = updateChain cutDb (fromJust $! lookup cid bdbs) blockHeader mp
 
 
 updateChain
@@ -198,13 +199,14 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
         if HashMap.member hkey mp
             then return mp   -- we can stop here, rest of parents are in cache
             else do
+                let bh = _blockHeight blockHeader
                 !mp' <- insBloom <|> return mp
-                let parentHash = _blockParent blockHeader
-                parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
-                let parentHeight = _blockHeight parentHeader
-                if parentHeight <= minHeight
-                    then return mp'
-                    else go mp' parentHeader
+                if bh <= minHeight
+                  then return mp'
+                  else do
+                    let parentHash = _blockParent blockHeader
+                    parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
+                    go mp' parentHeader
       where
         hgt = _blockHeight blockHeader
         hc = _blockHash blockHeader
