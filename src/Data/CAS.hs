@@ -41,4 +41,3 @@ class IsCasValue (CasValueType a) => IsCas a where
     casLookup :: a -> CasKeyType (CasValueType a) -> IO (Maybe (CasValueType a))
     casInsert :: a -> CasValueType a -> IO ()
     casDelete :: a -> CasKeyType (CasValueType a) -> IO ()
-    emptyCas :: IO a
