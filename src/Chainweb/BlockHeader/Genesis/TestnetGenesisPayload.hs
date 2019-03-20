@@ -1,11 +1,15 @@
 {-# LANGUAGE QuasiQuotes #-}
 
+-- This module is auto-generated. DO NOT EDIT IT MANUALLY.
+
 module Chainweb.BlockHeader.Genesis.TestnetGenesisPayload ( payloadBlock ) where
 
-import NeatInterpolation (text)
 import Data.Text.Encoding (encodeUtf8)
-import Chainweb.Payload (PayloadWithOutputs)
 import Data.Yaml (decodeThrow)
+
+import NeatInterpolation (text)
+
+import Chainweb.Payload (PayloadWithOutputs)
 import Chainweb.Utils (fromJuste)
 
 payloadBlock :: PayloadWithOutputs
