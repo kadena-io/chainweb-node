@@ -128,7 +128,7 @@ initPactService chainwebLogger reqQ memPoolAccess = do
 
     -- Coin contract must be created and embedded in the genesis
     -- block prior to initial save
-    ccState <- createCoinContract theState
+    ccState <- createCoinContract loggers theState
 
     estate <- saveInitial (_cpeCheckpointer checkpointEnv) ccState
     case estate of
@@ -142,9 +142,9 @@ initPactService chainwebLogger reqQ memPoolAccess = do
            ccState
 
 -- | Create the coin contract using some initial pact db state
-createCoinContract :: PactDbState -> IO PactDbState
-createCoinContract dbState = do
-    let logger = P.newLogger P.alwaysLog $ P.LogName "genesis"
+createCoinContract :: P.Loggers -> PactDbState -> IO PactDbState
+createCoinContract loggers dbState = do
+    let logger = P.newLogger loggers $ P.LogName "genesis"
         initEx = P.Transactional . _pdbsTxId $ dbState
 
     cmds <- inflateGenesis
