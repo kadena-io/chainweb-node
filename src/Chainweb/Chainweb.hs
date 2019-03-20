@@ -257,11 +257,13 @@ withChainweb
     => Logger logger
     => ChainwebConfiguration
     -> logger
+    -> PayloadDb cas
     -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainweb c logger inner = do
+withChainweb c logger payloadDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
-        withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger' peer inner
+    withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger'
+                         peer payloadDb inner
   where
     v = _chainwebVersion c
 
@@ -288,22 +290,22 @@ withChainwebInternal
     => ChainwebConfiguration
     -> logger
     -> PeerResources logger
+    -> PayloadDb cas
     -> (Chainweb logger cas -> IO a)
     -> IO a
-withChainwebInternal conf logger peer inner = do
-    payloadDb <- emptyPayloadDb
+withChainwebInternal conf logger peer payloadDb inner = do
     initializePayloadDb v payloadDb
-    go payloadDb mempty (toList cids)
+    go mempty (toList cids)
   where
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go payloadDb cs (cid : t) =
+    go cs (cid : t) =
         withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig $ \c ->
-            go payloadDb (HM.insert cid c cs) t
+            go (HM.insert cid c cs) t
 
     -- Initialize global resources
-    go payloadDb cs [] = do
+    go cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer

@@ -68,6 +68,7 @@ import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -170,8 +171,9 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \
 -- Run Node
 
 node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
-node conf logger =
-    withChainweb @HashMapCas conf logger $ \cw -> mapConcurrently_ id
+node conf logger = do
+    pdb <- emptyInMemoryPayloadDb
+    withChainweb @HashMapCas conf logger pdb $ \cw -> mapConcurrently_ id
         [ runChainweb cw
         , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
         , runRtsMonitor (_chainwebLogger cw)
