@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | This structure records a probabilistic sketch of which transactions were
 -- processed in recent blocks. We keep a (fixed) maximum block horizon, i.e. if
@@ -37,10 +38,13 @@ import Data.Aeson
 import Data.BloomFilter (Bloom)
 import qualified Data.BloomFilter as Bloom
 import qualified Data.BloomFilter.Easy as Bloom
-import Data.ByteString.Char8 (ByteString)
+import qualified Data.BloomFilter.Hash as Bloom
+import Data.Bytes.Get
+import qualified Data.ByteString.Char8 as B
 import Data.Foldable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.Hashable (hashWithSalt)
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -59,7 +63,20 @@ import qualified Chainweb.TreeDB as TreeDB
 import Data.CAS
 ------------------------------------------------------------------------------
 
-type TransactionBloomCache_ = HashMap (BlockHeight, BlockHash) (Bloom ByteString)
+
+instance Bloom.Hashable Hash where
+    hashIO32 (Hash bytes) salt =
+        return $! fromIntegral $ hashWithSalt (fromIntegral salt) (hashCode :: Int)
+      where
+        hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 bytes)
+
+    hashIO64 (Hash bytes) salt =
+        return $! fromIntegral $ hashWithSalt (fromIntegral salt) hashCode
+      where
+        hashCode = either error id $ runGetS getWord64host (B.take 8 bytes)
+
+
+type TransactionBloomCache_ = HashMap (BlockHeight, BlockHash) (Bloom Hash)
 
 data TransactionBloomCache = TransactionBloomCache {
     _map :: {-# UNPACK #-} !(IORef TransactionBloomCache_)
@@ -111,7 +128,7 @@ withCache cutDb bdb = bracket (createCache cutDb bdb) destroyCache
 
 
 member :: Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
-member (Hash h) k (TransactionBloomCache mv _) = do
+member h k (TransactionBloomCache mv _) = do
     mp <- readIORef mv
     -- N.B. return false positive on block missing
     fmap (fromMaybe True) $ runMaybeT $ do
@@ -195,14 +212,15 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
         insBloom = do
             let payloadHash = _blockPayloadHash blockHeader
             (PayloadWithOutputs txsBs _ _ _) <- MaybeT $ casLookup pdb payloadHash
-            hashes <- mapM (fmap (unH . _cmdHash) . fromTx) txsBs
-            let !bloom = Bloom.easyList 0.025 $ toList hashes
+            hashes <- mapM (fmap _cmdHash . fromTx) txsBs
+            let ~bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
             return $! HashMap.insert hkey bloom mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
     fromTx (tx, _) = MaybeT (return (toPactTx tx))
-    unH (Hash h) = h
 
+bloomFalsePositiveRate :: Double
+bloomFalsePositiveRate = 0.08
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
