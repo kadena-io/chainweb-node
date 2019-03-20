@@ -43,8 +43,8 @@ import Data.Bytes.Get
 import qualified Data.ByteString.Char8 as B
 import Data.Foldable
 import Data.Hashable (hashWithSalt)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -213,7 +213,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             let payloadHash = _blockPayloadHash blockHeader
             (PayloadWithOutputs txsBs _ _ _) <- MaybeT $ casLookup pdb payloadHash
             hashes <- mapM (fmap _cmdHash . fromTx) txsBs
-            let !bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
+            let ~bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
             return $! HashMap.insert hkey bloom mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
