@@ -55,6 +55,7 @@ genPayloadModule v = do
   cmdStateVar <- newMVar (_pdbsState state)
   env' <- toEnv' (_pdbsDbEnv state)
   let logger = newLogger loggers "GenPayload"
+
       go (outs,prevEM) (inp,cmd) = case env' of
         Env' pactDbEnv -> do
           let procCmd = verifyCommand (fmap encodeUtf8 cmd)
@@ -68,6 +69,7 @@ genPayloadModule v = do
           let fullOut = FullLogTxOutput (_crResult result) txLogs
               hashedOut = toHashedLogTxOutput fullOut
           return ((inp,encodeJSON hashedOut):outs,newEM)
+
   (txs,_) <- foldM go ([],Transactional (TxId 0)) [coinTx,grantsTx]
 
   let pairs = S.fromList $ map (Transaction *** TransactionOutput) $ reverse txs

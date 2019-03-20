@@ -80,7 +80,7 @@ pactTestSetup = do
 
     -- Coin contract must be created and embedded in the genesis
     -- block prior to initial save
-    ccState <- createCoinContract loggers theState
+    ccState <- testnet00CreateCoinContract loggers theState
     void $! saveInitial (_cpeCheckpointer checkpointEnv) ccState
 
     pure $ PactTestSetup checkpointEnv ccState

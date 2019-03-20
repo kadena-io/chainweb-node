@@ -24,7 +24,7 @@ module Chainweb.Pact.PactService
     , pactFilesDir
     , serviceRequests
     , toCommandConfig
-    , createCoinContract
+    , testnet00CreateCoinContract
     , toHashedLogTxOutput
     ) where
 
@@ -136,9 +136,9 @@ initPactService ver chainwebLogger reqQ memPoolAccess = do
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    -- Coin contract must be created and embedded in the genesis
-    -- block prior to initial save
-    ccState <- createCoinContract loggers theState
+    -- Conditionally create the Coin contract and embedded into the genesis
+    -- block prior to initial save.
+    ccState <- initialPayloadState ver loggers theState
 
     estate <- saveInitial (_cpeCheckpointer checkpointEnv) ccState
     case estate of
@@ -151,13 +151,24 @@ initPactService ver chainwebLogger reqQ memPoolAccess = do
            (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
            ccState
 
--- | Create the coin contract using some initial pact db state
-createCoinContract :: P.Loggers -> PactDbState -> IO PactDbState
-createCoinContract loggers dbState = do
+-- | Conditionally create the Coin contract and embedded into the genesis
+-- block prior to initial save.
+--
+initialPayloadState :: ChainwebVersion -> P.Loggers -> PactDbState -> IO PactDbState
+initialPayloadState Test{} _ s = pure s
+initialPayloadState TestWithTime{} _ s = pure s
+initialPayloadState TestWithPow{} _ s = pure s
+initialPayloadState Simulation{} _ s = pure s
+initialPayloadState Testnet00 l s = testnet00CreateCoinContract l s
+
+-- | Create the coin contract using some initial pact db state.
+--
+testnet00CreateCoinContract :: P.Loggers -> PactDbState -> IO PactDbState
+testnet00CreateCoinContract loggers dbState = do
     let logger = P.newLogger loggers $ P.LogName "genesis"
         initEx = P.Transactional . _pdbsTxId $ dbState
 
-    cmds <- inflateGenesis
+    cmds <- testnet00InflateGenesis
     (cmdState, Env' pactDbEnv) <- (,) <$> newMVar (_pdbsState dbState) <*> toEnv' (_pdbsDbEnv dbState)
     let applyC em cmd = snd <$> applyGenesisCmd logger Nothing pactDbEnv cmdState em cmd
     newEM <- foldM applyC initEx cmds
@@ -174,13 +185,14 @@ createCoinContract loggers dbState = do
         , _pdbsTxId = txId
         }
 
-inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
-inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
-  case A.eitherDecodeStrict t of
-    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
-    Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
-      P.ProcSucc c -> return c
+testnet00InflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
+testnet00InflateGenesis =
+    forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
+        case A.eitherDecodeStrict t of
+            Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
+            Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
+                f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
+                P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
