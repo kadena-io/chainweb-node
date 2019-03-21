@@ -36,7 +36,7 @@ module Chainweb.Pact.Types
   , pdbspPactDbState
   , psMempoolAccess
   , psCheckpointEnv
-  , psSpvService
+  , psSpvSupport
   , psPublicData
     -- * defaults
   , defaultMiner
@@ -58,6 +58,7 @@ import Data.Vector (Vector)
 
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Persistence (TxLog(..))
+import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 import Pact.Types.Util (Hash(..))
@@ -146,11 +147,12 @@ newtype GasSupply = GasSupply { _gasSupply :: Decimal }
 data PactServiceEnv = PactServiceEnv
   { _psMempoolAccess :: MemPoolAccess
   , _psCheckpointEnv :: CheckpointEnv
-  , _psSpvService :: Int
+  , _psSpvSupport :: SPVSupport
   , _psPublicData :: PublicData
   }
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactDbState IO)
+
 type TransactionM p = ReaderT (CommandEnv p) IO
 
 type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)

@@ -454,9 +454,14 @@ mkBuyGasCmd minerId minerKeys sender total =
 
 mkCoinbaseCmd :: Text -> KeySet -> Decimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd minerId minerKeys reward = buildExecParsedCode coinbaseData
-    [text| (coin.coinbase '$minerId (read-keyset 'minerKeys) (read-decimal 'reward)) |]
+    [text|
+      (coin.coinbase '$minerId (read-keyset 'minerKeys) (read-decimal 'reward))
+      |]
   where
-    coinbaseData = Just $ object [ "miner-keyset" .= minerKeys, "reward" .= reward ]
+    coinbaseData = Just $ object
+      [ "miner-keyset" .= minerKeys
+      , "reward" .= reward
+      ]
 {-# INLINABLE mkCoinbaseCmd #-}
 
 -- | Initialize a fresh eval state with magic capabilities.

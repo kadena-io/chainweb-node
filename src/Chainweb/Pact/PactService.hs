@@ -134,8 +134,9 @@ initPactService chainwebLogger reqQ memPoolAccess spvService = do
 
     -- pubdata contains gas particulars, chain id, blockheight (optional), blocktime
     let pubData = def
-    -- TODO: that def needs to change
-    let psEnv = PactServiceEnv memPoolAccess checkpointEnv spvService pubData
+        spvSupport = pactSPVSupport spvService
+
+    let psEnv = PactServiceEnv memPoolAccess checkpointEnv spvSupport pubData
     -- Coin contract must be created and embedded in the genesis
     -- block prior to initial save
     ccState <- createCoinContract loggers theState pubData
@@ -150,6 +151,11 @@ initPactService chainwebLogger reqQ memPoolAccess spvService = do
     void $! evalStateT
            (runReaderT (serviceRequests memPoolAccess reqQ) psEnv)
            ccState
+
+-- | SPVSupport ~
+-- Text (TXIN/TXOUT) -> Object Name (json) -> IO (Either Text (Object Name))
+pactSPVSupport :: SPVService -> P.SPVSupport
+pactSPVSupport _spv = undefined -- \_txType _ks ->
 
 -- | Create the coin contract using some initial pact db state
 createCoinContract :: P.Loggers -> PactDbState -> P.PublicData -> IO PactDbState
