@@ -233,7 +233,7 @@ execNewBlock memPoolAccess header = do
 
     (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
     put updatedState
-    closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
+    closeStatus <- liftIO $! discard checkPointer updatedState
     either fail (\_ -> pure results) closeStatus
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation

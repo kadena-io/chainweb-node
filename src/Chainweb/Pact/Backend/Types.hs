@@ -193,7 +193,7 @@ data Checkpointer = Checkpointer
     , restoreInitial ::IO (Either String PactDbState)
     , save :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
     , saveInitial :: PactDbState -> IO (Either String ())
-    , discard :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
+    , discard :: PactDbState -> IO (Either String ())
     }
 
 -- functions like the ones below need to be implemented internally

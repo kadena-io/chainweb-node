@@ -181,7 +181,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1]]
 
   void $ wrapState s01
-    >>= discard _cpeCheckpointer bh00 hash00
+    >>= discard _cpeCheckpointer
     >>= assertEitherSuccess "discard (initial) (new block)"
 
 
@@ -229,7 +229,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
 
   void $ wrapState s03
-    >>= discard _cpeCheckpointer bh00 hash00
+    >>= discard _cpeCheckpointer
     >>= assertEitherSuccess "discard for block 01"
   -- ^^ note that this is the same discard as on s01 above, and yet ... it works
   -- (ie, doesn't blow away genesis??)
@@ -300,7 +300,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
     >>= \EvalResult{..} -> _erOutput @?= [tIntList [1,2]]
 
   void $ wrapState s06
-    >>= discard _cpeCheckpointer bh02 hash02
+    >>= discard _cpeCheckpointer
     >>= assertEitherSuccess "discard for block 02"
 
   ------------------------------------------------------------------
