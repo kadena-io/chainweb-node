@@ -53,11 +53,11 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.CAS
 import Data.CAS.HashMap (HashMapCas)
@@ -157,7 +157,7 @@ withLocalPayloadStore
     -> IO a
 withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
     mem <- new
-    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr pact
+    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact
 
 startLocalPayloadStore
     :: HTTP.Manager
@@ -166,7 +166,7 @@ startLocalPayloadStore
 startLocalPayloadStore mgr payloadDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
-    return $ (server, WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr pact)
+    return $ (server, WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact)
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
@@ -255,3 +255,16 @@ randomTransaction cutDb = do
   where
     payloadDb = view cutDbPayloadCas cutDb
 
+
+
+-- | FAKE pact execution service
+--
+fakePact :: WebPactExecutionService
+fakePact = WebPactExecutionService $ PactExecutionService
+  { _pactValidateBlock =
+      \_ d -> return
+              $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
+  , _pactNewBlock = \_h -> error "Unimplemented"
+  }
+  where
+    getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

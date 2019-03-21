@@ -22,6 +22,7 @@ module Chainweb.Chainweb.ChainResources
 , chainResMempool
 , chainResLogger
 , chainResSyncDepth
+, chainResPact
 , withChainResources
 
 -- * Chain Sync
@@ -67,6 +68,7 @@ import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 import P2P.Node
 import P2P.Session
@@ -82,6 +84,7 @@ data ChainResources logger = ChainResources
     , _chainResLogger :: !logger
     , _chainResSyncDepth :: !Depth
     , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
+    , _chainResPact :: PactExecutionService
     }
 
 makeLenses ''ChainResources
@@ -112,7 +115,7 @@ withChainResources
     -> IO a
 withChainResources v cid peer chainDbDir logger mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool $ \_requestQ -> do
+    withPactService v cid (setComponent "pact" logger) mempool $ \requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
@@ -122,6 +125,7 @@ withChainResources v cid peer chainDbDir logger mempoolCfg inner =
                 , _chainResLogger = logger
                 , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
+                , _chainResPact = mkPactExecutionService requestQ
                 }
 
 withPersistedDb

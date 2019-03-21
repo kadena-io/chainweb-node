@@ -30,7 +30,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
 -- TODO: Input, possibly output type will change for use with 'local' command
-type PactAPI = "local" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either String Transactions)
+type PactAPI = "local" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either PactException Transactions)
 
 data LocalEnv = LocalEnv {_rieReqQ :: (TQueue RequestMsg)}
 

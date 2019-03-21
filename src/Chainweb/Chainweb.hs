@@ -126,6 +126,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -306,9 +307,10 @@ withChainwebInternal conf logger peer payloadDb inner = do
     -- Initialize global resources
     go cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
+            pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer
-        withCutResources cutConfig peer cutLogger webchain payloadDb mgr $ \cuts -> do
+        withCutResources cutConfig peer cutLogger webchain payloadDb mgr pact $ \cuts -> do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts

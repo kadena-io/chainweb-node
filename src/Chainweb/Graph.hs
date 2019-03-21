@@ -275,6 +275,7 @@ checkWebChainId g p = unless (isWebChain g p)
         (Expected (vertices $ _chainGraphGraph $ _chainGraph g))
         (Actual (_chainId p))
 
+
 isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
 isWebChain g p = isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
 {-# INLINE isWebChain #-}
