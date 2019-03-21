@@ -85,7 +85,7 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
-import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
