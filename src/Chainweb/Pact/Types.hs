@@ -24,7 +24,6 @@ module Chainweb.Pact.Types
   , PactServiceEnv(..)
     -- * types
   , PactServiceM
-  , TransactionM
     -- * optics
   , flCommandResult
   , flTxLogs
