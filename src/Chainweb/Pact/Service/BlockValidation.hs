@@ -45,6 +45,7 @@ validateBlock bHeader plData reqQ = do
     let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar
-          , _valPayloadData = plData }
+          , _valPayloadData = plData
+          }
     addRequest reqQ msg
     return resultVar
