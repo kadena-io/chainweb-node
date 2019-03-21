@@ -53,15 +53,16 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.CAS
-import Data.TaskMap
+import Data.CAS.HashMap (HashMapCas)
 import Data.LogMessage
+import Data.TaskMap
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respetive Payload Store
@@ -74,33 +75,31 @@ import Data.LogMessage
 -- inserted.
 --
 withTestCutDb
-    :: forall cas a
+    :: forall a
     . HasCallStack
-    => PayloadCas cas
     => ChainwebVersion
     -> Int
     -> LogFunction
-    -> (CutDb cas -> IO a)
+    -> (CutDb HashMapCas -> IO a)
     -> IO a
 withTestCutDb v n logfun f = do
-    payloadDb <- emptyPayloadDb @cas
+    payloadDb <- emptyInMemoryPayloadDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb $ \payloadStore ->
-            withCutDb @cas (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
+            withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
                 foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
                 f cutDb
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
 withTestPayloadResource
-    :: PayloadCas cas
-    => ChainwebVersion
+    :: ChainwebVersion
     -> Int
     -> LogFunction
-    -> (IO (CutDb cas, PayloadDb cas) -> TestTree)
+    -> (IO (CutDb HashMapCas, PayloadDb HashMapCas) -> TestTree)
     -> TestTree
 withTestPayloadResource v n logfun inner
     = withResource start stopTestPayload $ \envIO -> do
@@ -112,14 +111,12 @@ withTestPayloadResource v n logfun inner
 -- Internal Utils for mocking up the backends
 
 startTestPayload
-    :: forall cas
-    . PayloadCas cas
-    => ChainwebVersion
+    :: ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb cas, PayloadDb cas)
+    -> IO (Async (), Async(), CutDb HashMapCas, PayloadDb HashMapCas)
 startTestPayload v logfun n = do
-    payloadDb <- emptyPayloadDb @cas
+    payloadDb <- emptyInMemoryPayloadDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
@@ -129,7 +126,7 @@ startTestPayload v logfun n = do
     foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
-stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
+stopTestPayload :: (Async (), Async (), CutDb HashMapCas, PayloadDb HashMapCas) -> IO ()
 stopTestPayload (pserver, hserver, cutDb, _) = do
     stopCutDb cutDb
     cancel hserver
@@ -155,30 +152,28 @@ startLocalWebBlockHeaderStore mgr webDb = do
 
 withLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb cas
-    -> (WebBlockPayloadStore cas -> IO a)
+    -> PayloadDb HashMapCas
+    -> (WebBlockPayloadStore HashMapCas -> IO a)
     -> IO a
 withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
     mem <- new
-    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr pact
+    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact
 
 startLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb cas
-    -> IO (Async (), WebBlockPayloadStore cas)
+    -> PayloadDb HashMapCas
+    -> IO (Async (), WebBlockPayloadStore HashMapCas)
 startLocalPayloadStore mgr payloadDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
-    return $ (server, WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr pact)
+    return $ (server, WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact)
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
 --
 mine
-    :: forall cas
-    . HasCallStack
-    => PayloadCas cas
-    => CutDb cas
+    :: HasCallStack
+    => CutDb HashMapCas
     -> Cut
     -> IO Cut
 mine cutDb c = do
@@ -218,9 +213,8 @@ mine cutDb c = do
 -- The web chain must contain at least one block that isn't a genesis block.
 --
 randomBlockHeader
-    :: forall cas
-    . HasCallStack
-    => CutDb cas
+    :: HasCallStack
+    => CutDb HashMapCas
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
@@ -235,24 +229,21 @@ randomBlockHeader cutDb = do
 -- transaction isn't ahead of the longest cut.
 --
 randomTransaction
-    :: forall cas
-    . HasCallStack
-    => PayloadCas cas
-    => CutDb cas
+    :: HasCallStack
+    => CutDb HashMapCas
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
-    bh <- randomBlockHeader @cas cutDb
+    bh <- randomBlockHeader cutDb
     Just pay <- casLookup
-        @(BlockPayloadStore cas)
         (_transactionDbBlockPayloads $ _transactionDb payloadDb)
         (_blockPayloadHash bh)
     Just btxs <-
-        casLookup @(BlockTransactionsStore cas)
+        casLookup
             (_transactionDbBlockTransactions $ _transactionDb payloadDb)
             (_blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
-        casLookup @(BlockOutputsStore cas)
+        casLookup
             (_payloadCacheBlockOutputs $ _payloadCache payloadDb)
             (_blockPayloadOutputsHash pay)
     return
@@ -264,3 +255,16 @@ randomTransaction cutDb = do
   where
     payloadDb = view cutDbPayloadCas cutDb
 
+
+
+-- | FAKE pact execution service
+--
+fakePact :: WebPactExecutionService
+fakePact = WebPactExecutionService $ PactExecutionService
+  { _pactValidateBlock =
+      \_ d -> return
+              $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
+  , _pactNewBlock = \_h -> error "Unimplemented"
+  }
+  where
+    getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

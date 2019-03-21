@@ -23,8 +23,6 @@ module Chainweb.Chainweb.CutResources
 , cutNetworks
 ) where
 
-import Configuration.Utils hiding (Lens', (<.>))
-
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
@@ -43,28 +41,19 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB
 import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Logger
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import P2P.Node
 import P2P.Peer
 import P2P.Session
 import P2P.TaskQueue
 
--- -------------------------------------------------------------------------- --
--- PRELIMINARY TESTING
 
--- | FAKE pact execution service
---
-pact :: PactExectutionService
-pact = PactExectutionService $ \_ d -> return
-    $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
-  where
-    getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -101,9 +90,10 @@ withCutResources
     -> WebBlockHeaderDb
     -> PayloadDb cas
     -> HTTP.Manager
+    -> WebPactExecutionService
     -> (CutResources logger cas -> IO a)
     -> IO a
-withCutResources cutDbConfig peer logger webchain payloadDb mgr f = do
+withCutResources cutDbConfig peer logger webchain payloadDb mgr pact f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
@@ -206,4 +196,3 @@ mkCutNetworkSync mgr cuts label cutSync = bracket create destroy $ \n ->
     destroy n = do
         p2pStopNode n
         logFunctionText logger Info $ label <> ": stopped"
-

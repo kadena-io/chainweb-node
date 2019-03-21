@@ -14,7 +14,7 @@
 --
 module Data.CAS.HashMap
 ( HashMapCas
-, newCas
+, emptyCas
 , toList
 , size
 ) where
@@ -42,12 +42,12 @@ instance (Show (CasKeyType v), Hashable (CasKeyType v), IsCasValue v) => IsCas (
     casDelete cas@(HashMapCas var) k = casLookup cas k >>= \case
         Nothing -> return ()
         Just _ -> atomically $ modifyTVar' var $ HM.delete k
-    emptyCas = newCas
+
 
 -- | Create new empty CAS
 --
-newCas :: Hashable (CasKeyType v) => IsCasValue v => IO (HashMapCas v)
-newCas = HashMapCas <$> newTVarIO mempty
+emptyCas :: Hashable (CasKeyType v) => IsCasValue v => IO (HashMapCas v)
+emptyCas = HashMapCas <$> newTVarIO mempty
 
 -- | Return all entries of CAS as List
 --

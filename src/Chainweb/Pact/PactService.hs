@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -13,20 +14,21 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( execNewBlock
+    ( pactDbConfig
+    , execNewBlock
     , execTransactions
     , execValidateBlock
-    , initPactService
+    , initPactService, initPactService'
     , mkPureState
     , mkSQLiteState
     , pactFilesDir
     , serviceRequests
-    , setupConfig
     , toCommandConfig
-    , createCoinContract
+    , testnet00CreateCoinContract
     , toHashedLogTxOutput
+    , toNewBlockResults
+    , initialPayloadState
     ) where
-
 
 import Control.Applicative
 import Control.Concurrent
@@ -34,6 +36,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Lens ((.=), (^.))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
@@ -41,17 +44,15 @@ import qualified Data.Aeson as A
 import Data.Bifunctor (first, second)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
-import Data.Foldable (toList)
-import Data.Either
 import Data.Default (def)
+import Data.Either
+import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
-import Data.Text.Encoding (encodeUtf8)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
-import qualified Data.Yaml as Y
 
 import System.LogLevel
 
@@ -70,27 +71,34 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types ( LocalReq(..), NewBlockReq(..), PactValidationErr(..)
-                                   , RequestMsg(..), ValidateBlockReq(..) )
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
 
-import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload ( payloadBlock )
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
-testnetDbConfig :: PactDbConfig
-testnetDbConfig = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+
+pactDbConfig :: ChainwebVersion -> PactDbConfig
+pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -107,15 +115,30 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", T.pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
+
 type SPVService = Int
 
 initPactService
-  :: Logger logger
-  => logger -> TQueue RequestMsg -> MemPoolAccess -> SPVService -> IO ()
-initPactService chainwebLogger reqQ memPoolAccess spvService = do
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> TQueue RequestMsg
+    -> MemPoolAccess
+    -> IO ()
+initPactService ver cid chainwebLogger reqQ memPoolAccess =
+  initPactService' ver chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
+
+initPactService'
+    :: Logger logger
+    => ChainwebVersion
+    -> logger
+    -> PactT a
+    -> IO a
+initPactService' ver chainwebLogger act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
-    let cmdConfig = toCommandConfig testnetDbConfig
+    let cmdConfig = toCommandConfig $ pactDbConfig ver
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
         case P._ccSqlite cmdConfig of
@@ -132,79 +155,59 @@ initPactService chainwebLogger reqQ memPoolAccess spvService = do
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    -- pubdata contains gas particulars, chain id, blockheight (optional), blocktime
-    let pubData = def
-        spvSupport = pactSPVSupport spvService
-
-    let psEnv = PactServiceEnv memPoolAccess checkpointEnv spvSupport pubData
-    -- Coin contract must be created and embedded in the genesis
-    -- block prior to initial save
-    ccState <- createCoinContract loggers theState pubData
-
-    estate <- saveInitial (_cpeCheckpointer checkpointEnv) ccState
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
-            fail s
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
+            internalError' s
         Right _ -> return ()
 
-    void $! evalStateT
-           (runReaderT (serviceRequests memPoolAccess reqQ) psEnv)
-           ccState
+    evalStateT
+           (runReaderT act checkpointEnv)
+           theState
 
--- | SPVSupport ~
--- Text (TXIN/TXOUT) -> Object Name (json) -> IO (Either Text (Object Name))
-pactSPVSupport :: SPVService -> P.SPVSupport
-pactSPVSupport _spv = undefined -- \_txType _ks ->
+initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
+initialPayloadState Test{} _ = return ()
+initialPayloadState TestWithTime{} _ = return ()
+initialPayloadState TestWithPow{} _ = return ()
+initialPayloadState Simulation{} _ = return ()
+initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
--- | Create the coin contract using some initial pact db state
-createCoinContract :: P.Loggers -> PactDbState -> P.PublicData -> IO PactDbState
-createCoinContract loggers dbState pubData = do
-    let logger = P.newLogger loggers $ P.LogName "genesis"
-        initEx = P.Transactional . _pdbsTxId $ dbState
-
-    cmds <- inflateGenesis
-    (cmdState, Env' pactDbEnv) <- (,) <$> newMVar (_pdbsState dbState) <*> toEnv' (_pdbsDbEnv dbState)
-    let applyC em cmd = snd <$> applyGenesisCmd logger Nothing pactDbEnv cmdState em pubData cmd
-    newEM <- foldM applyC initEx cmds
-    txId <- case newEM of
-          P.Transactional tId -> return tId
-          _other              -> fail "Non - Transactional ExecutionMode found"
-
-
-    newCmdState <- readMVar cmdState
-    newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
-
-    pure $ PactDbState
-      { _pdbsDbEnv = newEnvPersist
-      , _pdbsState = newCmdState
-      , _pdbsTxId = txId
-      }
-
-inflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
-inflateGenesis = forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
-  case A.eitherDecodeStrict t of
-    Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
-    Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-      f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
-      P.ProcSucc c -> return c
+testnet00CreateCoinContract :: ChainId -> PactT ()
+testnet00CreateCoinContract cid = do
+    let PayloadWithOutputs{..} = payloadBlock
+        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsPayloadHash
+                           _payloadWithOutputsTransactionsHash
+                           _payloadWithOutputsOutputsHash
+        genesisHeader = genesisBlockHeader Testnet00 cid
+    txs <- execValidateBlock genesisHeader inputPayloadData
+    case toValidateBlockResults txs genesisHeader of
+      Left e -> throwM e
+      Right _ -> return ()
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = go
-    where
+  where
     go = do
         msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- execNewBlock memPoolAccess _newBlockHeader
-                liftIO $ putMVar _newResultVar $ toNewBlockResults txs
+                txs <- try $ execNewBlock False memPoolAccess _newBlockHeader
+                case txs of
+                  Left (SomeException e) ->
+                    liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
+                  Right r -> liftIO $ putMVar _newResultVar $ Right $ toNewBlockResults r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- execValidateBlock _valBlockHeader _valPayloadData
-                liftIO $ putMVar _valResultVar $ toValidateBlockResults txs _valBlockHeader
+                txs <- try $ execValidateBlock _valBlockHeader _valPayloadData
+                case txs of
+                  Left (SomeException e) ->
+                    liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
+                  Right r -> liftIO $ putMVar _valResultVar $ toValidateBlockResults r _valBlockHeader
                 go
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
@@ -239,7 +242,7 @@ toNewBlockResults ts =
         , _payloadWithOutputsOutputsHash =  _blockPayloadOutputsHash bPayload
         }
 
-toValidateBlockResults :: Transactions -> BlockHeader -> Either PactValidationErr PayloadWithOutputs
+toValidateBlockResults :: Transactions -> BlockHeader -> Either PactException PayloadWithOutputs
 toValidateBlockResults ts bHeader =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
         trans = fst <$> oldSeq
@@ -256,31 +259,32 @@ toValidateBlockResults ts bHeader =
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
         then Right plWithOuts
-        else Left $ PactValidationErr $ toS $
+        else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
-execNewBlock :: MemPoolAccess -> BlockHeader -> PactServiceM Transactions
-execNewBlock memPoolAccess header = do
-    psEnv <- ask
+execNewBlock :: Bool -> MemPoolAccess -> BlockHeader -> PactT Transactions
+execNewBlock runGenesis memPoolAccess header = do
+    cpEnv <- ask
     -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
         bHeight = _blockHeight header
         bHash = _blockHash header
-        checkPointer = psEnv ^. psCheckpointEnv . cpeCheckpointer
-        isGenesisBlock = isGenesisBlockHeader header
+        checkPointer = _cpeCheckpointer cpEnv
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
-    cpData <- liftIO $! if isGenesisBlock
+    cpData <- liftIO $! if runGenesis
       then restoreInitial checkPointer
       else restore checkPointer bHeight bHash
 
     updateOrCloseDb cpData
 
-    (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
+    (results, updatedState) <- execTransactions runGenesis miner newTrans
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
-    either fail (\_ -> pure results) closeStatus
+    either internalError' (\_ -> pure results) closeStatus
+
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
@@ -311,22 +315,14 @@ execValidateBlock currHeader plData = do
       -- TODO: fix - If this error message does not appear, the database has been closed.
       when (s == "SQLiteCheckpointer.save': Save key not found exception") $
         get >>= liftIO . closePactDb
-      fail s
+      internalError' s
 
 -- | In the case of failure when restoring from the checkpointer,
 -- close db on failure, or update db state
 updateOrCloseDb :: Either String PactDbState -> PactServiceM ()
 updateOrCloseDb = \case
-  Left s  -> gets closePactDb >> fail s
+  Left s -> gets closePactDb >> fail s
   Right t -> updateState $! t
-
-setupConfig :: FilePath -> IO PactDbConfig
-setupConfig configFile =
-    Y.decodeFileEither configFile >>= \case
-        Left e -> do
-            putStrLn usage
-            throwIO (userError ("Error loading config file: " ++ show e))
-        Right v -> return v
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} = P.CommandConfig
@@ -375,7 +371,7 @@ applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
     (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
     newTxId <- case newEM of
           P.Transactional (P.TxId txId) -> return txId
-          _other -> fail "Transactional ExecutionMode expected"
+          _other -> internalError "Transactional ExecutionMode expected"
     return (outs, newTxId)
   where
       f (outs, prevEM) cmd = do
@@ -427,4 +423,3 @@ transactionsFromPayload plData = do
     return $ V.fromList theRights
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-----------------------------------------------------------------------------------------------------

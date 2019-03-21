@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,8 +11,10 @@
 module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.MVar.Strict
-
-import Data.Text (Text)
+import Control.Monad.Catch
+import Data.Aeson (FromJSON,ToJSON)
+import Data.Text (Text,pack)
+import GHC.Generics
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
@@ -24,19 +27,33 @@ data RequestMsg = NewBlockMsg NewBlockReq
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
-    , _newResultVar :: MVar PayloadWithOutputs
+    , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
 
-newtype PactValidationErr = PactValidationErr { _pveErrMsg :: Text }
+data PactException
+  = BlockValidationFailure Text
+  | PactInternalError Text
+  deriving (Eq,Show,Generic)
+
+instance ToJSON PactException
+instance FromJSON PactException
+
+instance Exception PactException
+
+
+internalError :: MonadThrow m => Text -> m a
+internalError = throwM . PactInternalError
+
+internalError' :: MonadThrow m => String -> m a
+internalError' = internalError . pack
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valPayloadData :: PayloadData
-    , _valResultVar :: MVar (Either PactValidationErr PayloadWithOutputs)
+    , _valResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
 
 data LocalReq = LocalReq
-    -- TODO: request type will change to Command (Payload PublicMeta ParsedCode)
     { _localRequest :: BlockHeader
-    , _localResultVar :: MVar (Either String Transactions)
+    , _localResultVar :: MVar (Either PactException Transactions)
     }
