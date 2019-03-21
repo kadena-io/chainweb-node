@@ -80,7 +80,7 @@ instance FromJSON Transactions where
 
 instance Show Transactions where
     show ts =
-        let f x acc = "trans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
+        let f x acc = "\ntrans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
         in foldr f "" (_transactionPairs ts)
 
 data FullLogTxOutput = FullLogTxOutput

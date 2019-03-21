@@ -14,8 +14,6 @@ module Chainweb.Pact.RestAPI.Server
 , PactServerData_
 , SomePactServerData(..)
 , somePactServerData
-, createPactServerData
-, destroyPactServerData
 , pactServer
 , somePactServer
 , somePactServers
@@ -67,21 +65,6 @@ import Chainweb.Version
 ------------------------------------------------------------------------------
 type PactServerData logger cas =
     (CutResources logger cas, ChainResources logger, TransactionBloomCache)
-
-createPactServerData
-    :: PayloadCas cas
-    => CutResources logger cas
-    -> ChainResources logger
-    -> IO (PactServerData logger cas)
-createPactServerData cut chain = do
-    b <- Bloom.createCache cutDb bdb
-    return $! (cut, chain, b)
-  where
-    cutDb = cut ^. cutsCutDb
-    bdb = chain ^. chainResBlockHeaderDb
-
-destroyPactServerData :: PactServerData logger cas -> IO ()
-destroyPactServerData (_, _, b) = Bloom.destroyCache b
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
     = PactServerData_ { _unPactServerData :: PactServerData logger cas }

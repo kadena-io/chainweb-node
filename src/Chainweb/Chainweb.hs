@@ -86,7 +86,6 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.Async
-import Control.Exception (bracket)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -118,8 +117,8 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import Chainweb.Pact.RestAPI.Server
-    (PactServerData, createPactServerData, destroyPactServerData)
+import qualified Chainweb.Pact.BloomCache as Bloom
+import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -127,6 +126,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -307,9 +307,10 @@ withChainwebInternal conf logger peer payloadDb inner = do
     -- Initialize global resources
     go cs [] = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
+            pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer
-        withCutResources cutConfig peer cutLogger webchain payloadDb mgr $ \cuts -> do
+        withCutResources cutConfig peer cutLogger webchain payloadDb mgr pact $ \cuts -> do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
@@ -328,14 +329,14 @@ withChainwebInternal conf logger peer payloadDb inner = do
                     , _chainwebPactData = pactData
                     }
 
-    withPactData cs cuts
+    withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf)
-            = bracket (createPactData cs cuts) destroyPactData
-        | otherwise = ($ [])
-    createPactData cs cuts =
-        mapM (\(cid, cr) -> (cid,) <$> createPactServerData cuts cr) $
-        sortBy (compare `on` fst) (HM.toList cs)
-    destroyPactData = mapM_ (destroyPactServerData . snd)
+            = let l = sortBy (compare `on` fst) (HM.toList cs)
+                  bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
+              in Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
+                 m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
+
+        | otherwise = m []
 
     v = _configChainwebVersion conf
     graph = _chainGraph v

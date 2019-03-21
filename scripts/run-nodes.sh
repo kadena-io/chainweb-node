@@ -24,8 +24,14 @@ function err () {
     usage 1>&2
 }
 
-LOGLEVEL=${LOGLEVEL:-info}
+function transaction-index-flags () {
+    if (( ! ${TRANSACTION_INDEX:-0} )); then
+        echo "disabling tx index" >/dev/stderr
+        echo "--disable-transaction-index"
+    fi
+}
 
+LOGLEVEL=${LOGLEVEL:-info}
 [ "$#" -ge 2 ] || { err "Missing arguments" ; exit -1 ; }
 
 # Chainweb-node application
@@ -91,7 +97,7 @@ function run-node () {
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
             --log-handle="$APP_LOG" \
-            --disable-transaction-index \
+            $(transaction-index-flags) \
             $CONFIG_FILE_ARG \
             +RTS -T &
 
@@ -105,7 +111,7 @@ function run-node () {
             --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
-            --disable-transaction-index \
+            $(transaction-index-flags) \
             $PORT_ARG \
             $CONFIG_FILE_ARG \
             +RTS -T &

@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -26,38 +27,34 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Sequence as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
 import Options.Generic
 
+import System.LogLevel (LogLevel(..))
+
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisTime)
-import Chainweb.ChainId (testChainId)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisTime)
+import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.Graph (singletonChainGraph)
+import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
-import Chainweb.Pact.Backend.Types (Env'(..), PactDbState(..))
-import Chainweb.Pact.PactService (mkPureState, toHashedLogTxOutput)
-import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (toEnv')
-import Chainweb.Payload
+import Chainweb.Pact.PactService
 import Chainweb.Time (Time(..), TimeSpan(..))
+import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Utils (sshow)
 import Chainweb.Version
-    (ChainwebVersion, chainwebVersionFromText, chainwebVersionToText)
+    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionToText)
 
 import Pact.ApiReq (mkApiReq)
-import Pact.Interpreter (mkPureEnv)
 import Pact.Types.Command hiding (Payload)
-import Pact.Types.Logger (Logger, Loggers, alwaysLog, newLogger)
-import Pact.Types.Persistence (TxId(TxId))
-import Pact.Types.Server (CommandConfig(..), CommandState)
 
 ---
 
@@ -155,51 +152,32 @@ genesisHeader v (n, h) = T.unlines
 genPayloadModule :: ChainwebVersion -> [FilePath] -> IO ()
 genPayloadModule v txFiles = do
     rawTxs <- traverse mkTx txFiles
-    (loggers, state) <- initPact
-    cmdStateVar <- newMVar (_pdbsState state)
-    env' <- toEnv' (_pdbsDbEnv state)
-
-    let logger = newLogger loggers "GenPayload"
-
-    (txs, _) <- foldM (go logger env' cmdStateVar) ([],Transactional (TxId 0)) rawTxs
-
-    let fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
-
-    TIO.writeFile (T.unpack fileName) $ payloadModule v txs
-  where
-    go :: Logger
-       -> Env'
-       -> MVar CommandState
-       -> ([(a, ByteString)], ExecutionMode)
-       -> (a, Command Text)
-       -> IO ([(a, ByteString)], ExecutionMode)
-    go logger (Env' pactDbEnv) cmdStateVar (outs, prevEM) (inp, cmd) = do
-        let procCmd = verifyCommand (TE.encodeUtf8 <$> cmd)
-
-        parsedCmd <- case procCmd of
+    cwTxs <- forM rawTxs $ \(_, cmd) -> do
+        let cmdBS = fmap TE.encodeUtf8 cmd
+            procCmd = verifyCommand cmdBS
+        case procCmd of
             f@ProcFail{} -> fail (show f)
-            ProcSucc c -> pure c
-        ((result,txLogs),newEM) <- applyGenesisCmd logger Nothing pactDbEnv cmdStateVar prevEM parsedCmd
-        -- TODO this is a heuristic for a failed tx
-        when (null txLogs) $ fail $ "transaction failed: " ++ show (cmd,result)
-        let fullOut = FullLogTxOutput (_crResult result) txLogs
-            hashedOut = toHashedLogTxOutput fullOut
-        pure ((inp, encodeJSON hashedOut):outs, newEM)
+            ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
 
--- | Generate the entire module.
-payloadModule :: ChainwebVersion -> [(ByteString, ByteString)] -> Text
-payloadModule v txs = T.unlines $ startModule v <> [payloadYaml txs] <> endModule
+    let mempool _ _ = return $ V.fromList cwTxs
+        logger = genericLogger Warn TIO.putStrLn
+        cid = testChainId 0
+        header = toyGenesis cid
 
-payloadYaml :: [(ByteString, ByteString)] -> Text
-payloadYaml txs = TE.decodeUtf8 $ Yaml.encode payloadWO
-  where
-    payloadWO = PayloadWithOutputs
-        { _payloadWithOutputsTransactions = pairs
-        , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash payload
-        , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash payload
-        , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash payload }
-    payload = newBlockPayload pairs
-    pairs = S.fromList . map (Transaction *** TransactionOutput) $ reverse txs
+    payloadWO <- fmap toNewBlockResults $ initPactService' Testnet00 logger $
+        execNewBlock True mempool header
+
+    let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
+        modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
+        fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
+
+    TIO.writeFile (T.unpack fileName) modl
+
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
+
+toyGenesis :: ChainId -> BlockHeader
+toyGenesis cid = genesisBlockHeader toyVersion cid
 
 startModule :: ChainwebVersion -> [Text]
 startModule v =
@@ -225,14 +203,6 @@ endModule :: [Text]
 endModule =
     [ "|]"
     ]
-
-initPact :: IO (Loggers, PactDbState)
-initPact = do
-    let conf = CommandConfig Nothing Nothing Nothing Nothing
-        loggers = alwaysLog
-    env <- mkPureEnv loggers
-    state <- mkPureState env conf
-    pure (loggers,state)
 
 mkTx :: FilePath -> IO (ByteString,Command Text)
 mkTx yamlFile = do

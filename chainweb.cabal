@@ -159,6 +159,7 @@ library
         , Chainweb.Utils.Paging
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
+        , Chainweb.WebPactExecutionService
 
         , Control.Concurrent.FixedThreadPool
 

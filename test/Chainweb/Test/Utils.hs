@@ -73,9 +73,6 @@ module Chainweb.Test.Utils
 , testCaseSch
 , testGroupSch
 , testPropertySch
-
--- * Mock Pact Execution Service
-, pact
 ) where
 
 import Control.Concurrent
@@ -125,11 +122,9 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (bootstrapCertificate, bootstrapKey)
@@ -645,15 +640,3 @@ schedule Parallel tgs = map _schTest tgs
 schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
   where
     f a b = after AllFinish (_schLabel a) $ _schTest b
-
--- -------------------------------------------------------------------------- --
--- Pact Execution Service
-
--- | FAKE pact execution service
---
-pact :: PactExectutionService
-pact = PactExectutionService $ \_ d -> return
-    $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
-  where
-    getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
-

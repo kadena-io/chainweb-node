@@ -33,6 +33,7 @@ import Data.Int
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Pact.PactService as PS
@@ -48,25 +49,27 @@ import Chainweb.Version (ChainwebVersion)
 withPactService
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> MempoolBackend ChainwebTransaction
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver logger memPool action
-    = withPactService' ver logger (pactMemPoolAccess memPool) action
+withPactService ver cid logger memPool action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
 withPactService'
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> MemPoolAccess
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver logger memPoolAccess action = do
+withPactService' ver cid logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver logger reqQ memPoolAccess)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ
@@ -87,9 +90,9 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar PayloadWithOutputs)
+newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
 newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar PayloadWithOutputs)
+    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newResultVar = resultVar }
@@ -100,9 +103,9 @@ validateBlock
     :: BlockHeader
     -> PayloadData
     -> TQueue RequestMsg
-    -> IO (MVar (Either PactValidationErr PayloadWithOutputs))
+    -> IO (MVar (Either PactException PayloadWithOutputs))
 validateBlock bHeader plData reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (Either PactValidationErr PayloadWithOutputs))
+    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar

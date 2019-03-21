@@ -72,10 +72,10 @@ pactServiceApp env = serve pactAPI $ hoistServer pactAPI (toHandler env) pactSer
 -- | Handler for "local" requests
 --   TODO: Request type will probably be Command (Payload PublicMeta ParsedCode)
 --   Response type will likely change as well
-localReq :: BlockHeader -> PactAppM (Either String Transactions)
+localReq :: BlockHeader -> PactAppM (Either PactException Transactions)
 localReq bHeader = do
     reqQ <- view rieReqQ
-    respVar <- liftIO $ (newEmptyMVar :: IO (MVar (Either String Transactions)))
+    respVar <- liftIO $ (newEmptyMVar :: IO (MVar (Either PactException Transactions)))
     let msg = LocalMsg LocalReq
           { _localRequest = bHeader
           , _localResultVar = respVar}
