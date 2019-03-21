@@ -18,7 +18,7 @@ module Chainweb.Pact.PactService
     , execNewBlock
     , execTransactions
     , execValidateBlock
-    , initPactService
+    , initPactService, initPactService'
     , mkPureState
     , mkSQLiteState
     , pactFilesDir
@@ -26,6 +26,8 @@ module Chainweb.Pact.PactService
     , toCommandConfig
     , testnet00CreateCoinContract
     , toHashedLogTxOutput
+    , toNewBlockResults
+    , initialPayloadState
     ) where
 
 import Control.Applicative
@@ -33,6 +35,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
@@ -46,7 +49,6 @@ import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
@@ -67,6 +69,7 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
@@ -85,6 +88,7 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
@@ -112,11 +116,21 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
 initPactService
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
     -> IO ()
-initPactService ver chainwebLogger reqQ memPoolAccess = do
+initPactService ver cid chainwebLogger reqQ memPoolAccess =
+  initPactService' ver chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
+
+initPactService'
+    :: Logger logger
+    => ChainwebVersion
+    -> logger
+    -> PactT a
+    -> IO a
+initPactService' ver chainwebLogger act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -136,63 +150,38 @@ initPactService ver chainwebLogger reqQ memPoolAccess = do
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    -- Conditionally create the Coin contract and embedded into the genesis
-    -- block prior to initial save.
-    ccState <- initialPayloadState ver loggers theState
-
-    estate <- saveInitial (_cpeCheckpointer checkpointEnv) ccState
+    estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
-            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb ccState)
+            when (s == "SQLiteCheckpointer.save': Save key not found exception") (closePactDb theState)
             fail s
         Right _ -> return ()
 
-    void $! evalStateT
-           (runReaderT (serviceRequests memPoolAccess reqQ) checkpointEnv)
-           ccState
+    evalStateT
+           (runReaderT act checkpointEnv)
+           theState
 
--- | Conditionally create the Coin contract and embedded into the genesis
--- block prior to initial save.
---
-initialPayloadState :: ChainwebVersion -> P.Loggers -> PactDbState -> IO PactDbState
-initialPayloadState Test{} _ s = pure s
-initialPayloadState TestWithTime{} _ s = pure s
-initialPayloadState TestWithPow{} _ s = pure s
-initialPayloadState Simulation{} _ s = pure s
-initialPayloadState Testnet00 l s = testnet00CreateCoinContract l s
 
--- | Create the coin contract using some initial pact db state.
---
-testnet00CreateCoinContract :: P.Loggers -> PactDbState -> IO PactDbState
-testnet00CreateCoinContract loggers dbState = do
-    let logger = P.newLogger loggers $ P.LogName "genesis"
-        initEx = P.Transactional . _pdbsTxId $ dbState
+initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
+initialPayloadState Test{} _ = return ()
+initialPayloadState TestWithTime{} _ = return ()
+initialPayloadState TestWithPow{} _ = return ()
+initialPayloadState Simulation{} _ = return ()
+initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
-    cmds <- testnet00InflateGenesis
-    (cmdState, Env' pactDbEnv) <- (,) <$> newMVar (_pdbsState dbState) <*> toEnv' (_pdbsDbEnv dbState)
-    let applyC em cmd = snd <$> applyGenesisCmd logger Nothing pactDbEnv cmdState em cmd
-    newEM <- foldM applyC initEx cmds
-    txId <- case newEM of
-          P.Transactional tId -> return tId
-          _other -> fail "Non - Transactional ExecutionMode found"
+testnet00CreateCoinContract :: ChainId -> PactT ()
+testnet00CreateCoinContract cid = do
+    let PayloadWithOutputs{..} = payloadBlock
+        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsPayloadHash
+                           _payloadWithOutputsTransactionsHash
+                           _payloadWithOutputsOutputsHash
+        genesisHeader = genesisBlockHeader Testnet00 cid
+    txs <- execValidateBlock genesisHeader inputPayloadData
+    case toValidateBlockResults txs genesisHeader of
+      Left (PactValidationErr e) -> throwM $ userError $ "genesis validation failed! " ++ show e
+      Right _ -> return ()
 
-    newCmdState <- readMVar cmdState
-    newEnvPersist <- toEnvPersist' $ Env' pactDbEnv
-
-    pure $ PactDbState
-        { _pdbsDbEnv = newEnvPersist
-        , _pdbsState = newCmdState
-        , _pdbsTxId = txId
-        }
-
-testnet00InflateGenesis :: IO (Seq.Seq (P.Command (P.Payload P.PublicMeta P.ParsedCode)))
-testnet00InflateGenesis =
-    forM (_payloadWithOutputsTransactions payloadBlock) $ \(Transaction t,_) ->
-        case A.eitherDecodeStrict t of
-            Left e -> fail $ "genesis transaction payload decode failed: " ++ show e
-            Right cmd -> case P.verifyCommand (fmap encodeUtf8 cmd) of
-                f@P.ProcFail{} -> fail $ "genesis transaction payload verify failed: " ++ show f
-                P.ProcSucc c -> return c
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
@@ -204,7 +193,7 @@ serviceRequests memPoolAccess reqQ = go
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- execNewBlock memPoolAccess _newBlockHeader
+                txs <- execNewBlock False memPoolAccess _newBlockHeader
                 liftIO $ putMVar _newResultVar $ toNewBlockResults txs
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
@@ -265,27 +254,27 @@ toValidateBlockResults ts bHeader =
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
-execNewBlock :: MemPoolAccess -> BlockHeader -> PactT Transactions
-execNewBlock memPoolAccess header = do
+execNewBlock :: Bool -> MemPoolAccess -> BlockHeader -> PactT Transactions
+execNewBlock runGenesis memPoolAccess header = do
     cpEnv <- ask
     -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
         bHeight = _blockHeight header
         bHash = _blockHash header
         checkPointer = _cpeCheckpointer cpEnv
-        isGenesisBlock = isGenesisBlockHeader header
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
-    cpData <- liftIO $! if isGenesisBlock
+    cpData <- liftIO $! if runGenesis
       then restoreInitial checkPointer
       else restore checkPointer bHeight bHash
 
     updateOrCloseDb cpData
 
-    (results, updatedState) <- execTransactions isGenesisBlock miner newTrans
+    (results, updatedState) <- execTransactions runGenesis miner newTrans
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
     either fail (\_ -> pure results) closeStatus
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated

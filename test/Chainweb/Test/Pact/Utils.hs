@@ -21,12 +21,9 @@ module Chainweb.Test.Pact.Utils
 , mkPactTransaction
 ) where
 
-import Control.Lens ((.~))
-
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import Data.Default
 import Data.Maybe
 import Data.Text (Text, pack)
 import Data.Vector (Vector)
@@ -39,6 +36,7 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
 import Pact.Types.Util (toB16Text)
+import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
 -- internal chainweb modules
 
@@ -97,7 +95,7 @@ mkPactTransaction
   -> String
   -> IO (Maybe ChainwebTransaction)
 mkPactTransaction keyPairs theData nonce theCode = do
-    let pubMeta = pmSender .~ "sender00" $ def
+    let pubMeta = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001) (ParsedDecimal 0.0)
     cmdBS <- mkCommand keyPairs pubMeta nonce $
         Exec (ExecMsg (pack theCode) theData)
     return $ case verifyCommand cmdBS of
