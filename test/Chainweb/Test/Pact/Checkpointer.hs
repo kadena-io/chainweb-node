@@ -46,14 +46,48 @@ import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 
 tests :: TestTree
 tests = testGroup "Checkpointer"
-  [ testCase "testInMemory" testInMemory ]
+  [ testCase "testInMemory" testInMemory
+  , testCase "testPassingBoundedInMemory" passingBoundedTests
+  , testCase "testFailingBoundedCheckpointer" failingBoundedTests ]
 
 testInMemory :: Assertion
 testInMemory = do
   let conf = CommandConfig Nothing Nothing Nothing Nothing
       loggers = alwaysLog
   cpEnv <- initInMemoryCheckpointEnv conf
-        (newLogger loggers "inMemCheckpointer") freeGasEnv (Just 0)
+        (newLogger loggers "inMemCheckpointer") freeGasEnv Nothing
+  env <- mkPureEnv loggers
+  state <- mkPureState env conf
+
+  testCheckpointer loggers cpEnv state
+
+passingBoundedTests :: Assertion
+passingBoundedTests = mapM_ testPassingBoundedInMemory [0, 10]
+
+failingBoundedTests ::  Assertion
+failingBoundedTests = mapM_ testFailingBoundedInMemory [1,2,3]
+
+-- 0  <- this is the unbounded case
+-- 3  <- this should fail
+-- 10 <- this should not fail
+
+testPassingBoundedInMemory :: Int -> Assertion
+testPassingBoundedInMemory bound = do
+  let conf = CommandConfig Nothing Nothing Nothing Nothing
+      loggers = alwaysLog
+  cpEnv <- initInMemoryCheckpointEnv conf
+        (newLogger loggers "inMemCheckpointer") freeGasEnv (Just bound)
+  env <- mkPureEnv loggers
+  state <- mkPureState env conf
+
+  testPassingBoundedCheckpointer loggers cpEnv state
+
+testFailingBoundedInMemory :: Int -> Assertion
+testFailingBoundedInMemory bound = do
+  let conf = CommandConfig Nothing Nothing Nothing Nothing
+      loggers = alwaysLog
+  cpEnv <- initInMemoryCheckpointEnv conf
+        (newLogger loggers "inMemCheckpointer") freeGasEnv (Just bound)
   env <- mkPureEnv loggers
   state <- mkPureState env conf
 
@@ -315,3 +349,225 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ wrapState s08
     >>= save _cpeCheckpointer bh02 hash02Fork
     >>= assertEitherSuccess "save block 02"
+
+testPassingBoundedCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
+testPassingBoundedCheckpointer loggers CheckpointEnv{..} dbState00 = do
+
+  let logger = newLogger loggers "testBoundedCheckpointer"
+
+      incTxId mv = modifyMVar mv (return . (id &&& succ))
+
+      runExec :: (MVar CommandState, Env',MVar TxId) -> Maybe Value -> Text -> IO EvalResult
+      runExec (mcs, Env' pactDbEnv, txIdV) eData eCode = do
+          txId <- incTxId txIdV
+          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
+          execMsg <- buildExecParsedCode eData eCode
+          applyExec' cmdenv def execMsg [] (hash "")
+
+
+      runCont :: (MVar CommandState, Env',MVar TxId) -> PactId -> Int -> IO EvalResult
+      runCont (mcs, Env' pactDbEnv, txIdV) pactId step = do
+        txId <- incTxId txIdV
+        let contMsg = ContMsg pactId step False Null
+            cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
+        applyContinuation' cmdenv def contMsg [] (hash "")
+
+      ksData :: Text -> Value
+      ksData idx =
+          object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+
+      unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
+      unwrapState dbs = (,,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs) <*> newMVar (_pdbsTxId dbs)
+
+      wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
+      wrapState (mcs,dbe',txidV) = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> readMVar txidV
+
+  void $ saveInitial _cpeCheckpointer dbState00
+    >>= assertEitherSuccess "saveInitial"
+
+  let bh00 = BlockHeight 0
+      hash00 = nullBlockHash
+
+  ------------------------------------------------------------------
+  -- s01 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  s01 <- restoreInitial _cpeCheckpointer
+    >>= assertEitherSuccess "restoreInitial"
+    >>= unwrapState
+
+  void $ runExec s01 (Just $ ksData "1") $ defModule "1"
+
+  void $ wrapState s01
+    >>= save _cpeCheckpointer bh00 hash00
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s02 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  let bh01 = BlockHeight 01
+  hash01 <- BlockHash <$> merkleLogHash "0000000000000000000000000000001a"
+
+  s02 <- restore _cpeCheckpointer bh00 hash00
+    >>= assertEitherSuccess "restore for validate block 01"
+    >>= unwrapState
+
+  void $ runExec s02 (Just $ ksData "2") $ defModule "2"
+
+  void $ wrapState s02
+    >>= save _cpeCheckpointer bh01 hash01
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s03 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  let bh02 = BlockHeight 02
+  hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
+
+  s03 <- restore _cpeCheckpointer bh01 hash01
+    >>= assertEitherSuccess "restore for validate block 02"
+    >>= unwrapState
+
+  void $ runExec s03 (Just $ ksData "3") $ defModule "3"
+
+  void $ wrapState s03
+    >>= save _cpeCheckpointer bh02 hash02
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s04 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+  let bh03 = BlockHeight 03
+  hash03 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003a"
+
+
+  s04 <- restore _cpeCheckpointer bh02 hash02
+    >>= assertEitherSuccess "restore for validate block 03"
+    >>= unwrapState
+
+  void $ runExec s04 (Just $ ksData "4") $ defModule "4"
+
+  void $ wrapState s04
+    >>= save _cpeCheckpointer bh03 hash03
+    >>= assertEitherSuccess "save (validate)"
+
+testFailingBoundedCheckpointer :: Loggers -> CheckpointEnv -> PactDbState -> Assertion
+testFailingBoundedCheckpointer loggers CheckpointEnv{..} dbState00 = do
+
+  let logger = newLogger loggers "testBoundedCheckpointer"
+
+      incTxId mv = modifyMVar mv (return . (id &&& succ))
+
+      runExec :: (MVar CommandState, Env',MVar TxId) -> Maybe Value -> Text -> IO EvalResult
+      runExec (mcs, Env' pactDbEnv, txIdV) eData eCode = do
+          txId <- incTxId txIdV
+          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
+          execMsg <- buildExecParsedCode eData eCode
+          applyExec' cmdenv def execMsg [] (hash "")
+
+
+      runCont :: (MVar CommandState, Env',MVar TxId) -> PactId -> Int -> IO EvalResult
+      runCont (mcs, Env' pactDbEnv, txIdV) pactId step = do
+        txId <- incTxId txIdV
+        let contMsg = ContMsg pactId step False Null
+            cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
+        applyContinuation' cmdenv def contMsg [] (hash "")
+
+      ksData :: Text -> Value
+      ksData idx =
+          object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+
+      unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
+      unwrapState dbs = (,,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs) <*> newMVar (_pdbsTxId dbs)
+
+      wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
+      wrapState (mcs,dbe',txidV) = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> readMVar txidV
+
+  void $ saveInitial _cpeCheckpointer dbState00
+    >>= assertEitherSuccess "saveInitial"
+
+  let bh00 = BlockHeight 0
+      hash00 = nullBlockHash
+
+  ------------------------------------------------------------------
+  -- s01 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  s01 <- restoreInitial _cpeCheckpointer
+    >>= assertEitherSuccess "restoreInitial"
+    >>= unwrapState
+
+  void $ runExec s01 (Just $ ksData "1") $ defModule "1"
+
+  void $ wrapState s01
+    >>= save _cpeCheckpointer bh00 hash00
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s02 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  let bh01 = BlockHeight 01
+  hash01 <- BlockHash <$> merkleLogHash "0000000000000000000000000000001a"
+
+  s02 <- restore _cpeCheckpointer bh00 hash00
+    >>= assertEitherSuccess "restore for validate block 01"
+    >>= unwrapState
+
+  void $ runExec s02 (Just $ ksData "2") $ defModule "2"
+
+  void $ wrapState s02
+    >>= save _cpeCheckpointer bh01 hash01
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s03 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+
+  let bh02 = BlockHeight 02
+  hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
+
+  s03 <- restore _cpeCheckpointer bh01 hash01
+    >>= assertEitherSuccess "restore for validate block 02"
+    >>= unwrapState
+
+  void $ runExec s03 (Just $ ksData "3") $ defModule "3"
+
+  void $ wrapState s03
+    >>= save _cpeCheckpointer bh02 hash02
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s04 : validate block workflow (restore -> save), genesis
+  ------------------------------------------------------------------
+  let bh03 = BlockHeight 03
+  hash03 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003a"
+
+
+  s04 <- restore _cpeCheckpointer bh02 hash02
+    >>= assertEitherSuccess "restore for validate block 03"
+    >>= unwrapState
+
+  void $ runExec s04 (Just $ ksData "4") $ defModule "4"
+
+  void $ wrapState s04
+    >>= save _cpeCheckpointer bh03 hash03
+    >>= assertEitherSuccess "save (validate)"
+
+  ------------------------------------------------------------------
+  -- s05 : restore for forking
+  ------------------------------------------------------------------
+
+  hashFork <- BlockHash <$> merkleLogHash "0000000000000000000000000000001b"
+
+  s01a <- restore _cpeCheckpointer bh00 hash00
+    >>= assertEitherSuccess "can't restore for block 01"
+    >>= unwrapState
+
+  void $ runExec s01a (Just $ ksData "1") $ defModule "1"
+
+  void $ wrapState s01a
+    >>= save _cpeCheckpointer bh01 hashFork
+    >>= assertEitherSuccess "save (validate)"

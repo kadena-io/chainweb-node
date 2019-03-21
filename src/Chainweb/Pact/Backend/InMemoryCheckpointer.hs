@@ -11,6 +11,7 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
     ( initInMemoryCheckpointEnv
     ) where
 
+import Data.Bifunctor
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 import Data.Maybe
@@ -18,25 +19,19 @@ import Data.Maybe
 import Control.Concurrent.MVar
 import Control.Monad (when)
 
-import qualified Pact.PersistPactDb as P
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
-
-import Numeric.Natural
+import qualified Pact.PersistPactDb as P (DbEnv(..))
+import qualified Pact.Types.Logger as P (Logger(..))
+import qualified Pact.Types.Runtime as P (GasEnv(..))
+import qualified Pact.Types.Server as P (CommandConfig(..))
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
--- MIGHT INCLUDE THIS MODULE LATER
--- import Chainweb.ChainId
--- MIGHT INCLUDE THIS MODULE LATER
-
-initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> Maybe Natural -> IO CheckpointEnv
+initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> Maybe Int -> IO CheckpointEnv
 initInMemoryCheckpointEnv cmdConfig logger gasEnv mbound = do
-    inmem <- newMVar mempty
+    inmem <- newMVar (mempty, 0)
     let bound = fromMaybe 10 mbound
     return $
         CheckpointEnv
@@ -53,54 +48,38 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv mbound = do
             , _cpeGasEnv = gasEnv
             }
 
-type Store = HashMap (BlockHeight, BlockHash) PactDbStateRecency
+type Store = (HashMap (BlockHeight, BlockHash) PactDbState, Int)
 
-data PactDbStateRecency
-  = NoRecency PactDbState       -- "no" as in disregard
-  | Recency PactDbState !Natural
+restore' :: MVar Store -> Int -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
+restore' lock bound bh@(BlockHeight height) hash =
+    withMVarMasked lock $ \(store, maxheight) ->
+      return $
+        case HMS.lookup (bh, hash) store of
+          Just dbstate -> if bound == 0 || fromIntegral height > maxheight - bound && fromIntegral height < maxheight
+                  then Right dbstate
+                  else Left $ "InMemoryCheckpointer.restore': This blockeight (" ++ show bh ++ ") is no longer in the checkpointer"
+          Nothing -> Left "InMemoryCheckpointer.restore':Restore not found exception"
 
-restore' :: MVar Store -> Natural -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
-restore' lock bound height hash = do
-    ret <- withMVarMasked lock $ \store -> do
-        let ret = case HMS.lookup (height, hash) store of
-                    Just dbstate' -> case dbstate' of
-                         NoRecency dbstate -> Right dbstate
-                         Recency dbstate b -> if b >= bound
-                            then Left "InMemoryCheckpointer.restore': About to cleaned up, cannot restore"
-                            else Right dbstate
-                    Nothing -> Left "InMemoryCheckpointer.restore':Restore not found exception"
-        return ret
-    pruneStore bound lock
-    return ret
-
-restoreInitial' :: MVar Store -> Natural -> IO (Either String PactDbState)
+restoreInitial' :: MVar Store -> Int -> IO (Either String PactDbState)
 restoreInitial' lock bound = do
     let bh = nullBlockHash
     restore' lock bound (BlockHeight 0) bh
 
-saveInitial' :: MVar Store -> Natural -> PactDbState -> IO (Either String ())
+saveInitial' :: MVar Store -> Int -> PactDbState -> IO (Either String ())
 saveInitial' lock bound p@PactDbState {..} = do
     let bh = nullBlockHash
     save' lock bound (BlockHeight 0) bh p
 
-save' :: MVar Store -> Natural -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
+save' :: MVar Store -> Int -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock bound height hash p@PactDbState {..} = do
 
      -- Saving off checkpoint.
+     modifyMVar_ lock (return . bimap (HMS.insert (height, hash) p) succ)
 
-     let dataToSave = if bound == 0
-            then NoRecency p
-            else Recency p 0
+     -- Prune the store.
+     pruneStore bound lock
 
-     let upRecency a@(NoRecency _) = a
-         upRecency (Recency a r) = Recency a (r+1)
-
-     modifyMVar_ lock (return . HMS.insert (height, hash) dataToSave . HMS.map upRecency)
-
-     -- prune the store
-     -- pruneStore bound lock
-
-     -- Closing database connection.
+     -- "Closing" database connection.
      case _pdbsDbEnv of
        EnvPersist' PactDbEnvPersist {..} ->
          case _pdepEnv of
@@ -109,11 +88,10 @@ save' lock bound height hash p@PactDbState {..} = do
 discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 discard' _ _ _ _ = return (Right ())
 
-pruneStore :: Natural -> MVar Store -> IO ()
-pruneStore bound lock = when (bound > 0) (modifyMVar_ lock (return . HMS.mapMaybe go))
+pruneStore :: Int -> MVar Store -> IO ()
+pruneStore bound lock = when (bound > 0) $
+    modifyMVar_ lock $ \(hmap, maxheight) ->
+                               return (HMS.filterWithKey (go maxheight) hmap, maxheight)
   where
-    go a@(NoRecency _)  = Just a
-     -- this case should never be reached, but GHC doesn't realize that.
-    go p@(Recency _ r) = if r < bound
-        then Just p
-        else Nothing
+    go mh (BlockHeight height, _) _ =
+        mh <= bound || ((fromIntegral height) > mh - bound && (fromIntegral height) < mh)
