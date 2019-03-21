@@ -144,8 +144,8 @@ save' lock height hash pactdbstate =
         msgWriteDbError = "SQLiteCheckpointer.save': Write db error"
         msgSaveKeyError = "SQLiteCheckpointer.save': Save key not found exception"
 
-discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-discard' _ _ _ pactdbstate =
+discard' :: MVar Store -> PactDbState -> IO (Either String ())
+discard' _ pactdbstate =
   case _pdbsDbEnv pactdbstate of
     EnvPersist' (PactDbEnvPersist _ _dbEnv) ->
       case _dbEnv of

@@ -47,7 +47,6 @@ import Control.Monad.Trans.State
 import Data.Aeson as A
 import Data.Decimal (Decimal)
 import Data.Default (def)
-import Data.Text (Text)
 import Data.Vector (Vector)
 
 -- internal pact modules
@@ -60,9 +59,9 @@ import Pact.Types.Util (Hash(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Payload
 import Chainweb.Pact.Backend.Types
 import Chainweb.Transaction
-import Chainweb.Payload (Transaction)
 
 newtype Transactions = Transactions
     { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
@@ -118,13 +117,6 @@ instance ToJSON HashedLogTxOutput where
     {-# INLINE toJSON #-}
 
 
-type MinerKeys = KeySet
-type MinerId = Text
-
-data MinerInfo = MinerInfo
-  { _minerAccount :: MinerId
-  , _minerKeys :: MinerKeys
-  }
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository

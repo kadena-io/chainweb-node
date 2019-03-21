@@ -50,6 +50,7 @@ data ChainwebHashTag
     | TransactionOutputTag
     | BlockTransactionsHashTag
     | BlockOutputsHashTag
+    | MinerInfoTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -71,10 +72,10 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'TransactionOutputTag = 0x0014
     type MerkleTagVal ChainwebHashTag 'BlockTransactionsHashTag = 0x0015
     type MerkleTagVal ChainwebHashTag 'BlockOutputsHashTag = 0x0016
+    type MerkleTagVal ChainwebHashTag 'MinerInfoTag = 0x0017
 
 instance IsMerkleLogEntry ChainwebHashTag Void where
     type Tag Void = 'VoidTag
     toMerkleNode = \case
     fromMerkleNode _ = throwM
         $ MerkleLogDecodeException "can't deserialize value of type Void"
-
