@@ -35,9 +35,9 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Catch
 
 import qualified Data.Aeson as A
 import Data.Bifunctor (first, second)
@@ -69,8 +69,8 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
-import Chainweb.Logger
 import Chainweb.ChainId
+import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
@@ -88,8 +88,8 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
-import Chainweb.BlockHeader.Genesis.TestnetGenesisPayload (payloadBlock)
-import Chainweb.BlockHeader.Genesis
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
@@ -169,10 +169,10 @@ initPactService' ver chainwebLogger act = do
 -- block prior to initial save.
 --
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
-initialPayloadState Test{} _  = return ()
-initialPayloadState TestWithTime{} _  = return ()
-initialPayloadState TestWithPow{} _  = return ()
-initialPayloadState Simulation{} _  = return ()
+initialPayloadState Test{} _ = return ()
+initialPayloadState TestWithTime{} _ = return ()
+initialPayloadState TestWithPow{} _ = return ()
+initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
 -- | Create the coin contract using some initial pact db state.

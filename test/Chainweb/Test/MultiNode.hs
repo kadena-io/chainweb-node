@@ -157,8 +157,8 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
-    & set (configTransactionIndex . enableConfigEnabled) False
-        -- disable transaction index
+    & set (configTransactionIndex . enableConfigEnabled) True
+        -- enable transaction index
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
 --
