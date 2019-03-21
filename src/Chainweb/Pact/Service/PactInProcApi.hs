@@ -69,7 +69,7 @@ withPactService'
     -> IO a
 withPactService' ver cid logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess 3)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ

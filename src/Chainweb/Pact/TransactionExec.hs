@@ -70,7 +70,7 @@ import Pact.Types.Util (Hash(..))
 
 -- internal Chainweb modules
 
-import Chainweb.Pact.Types (MinerId, MinerInfo(..), MinerKeys, GasSupply(..))
+import Chainweb.Pact.Types (MinerInfo(..), GasSupply(..))
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 

@@ -33,7 +33,7 @@ module Chainweb.Pact.PactService
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception hiding (try)
 import Control.Lens ((.=), (^.))
 import Control.Monad
 import Control.Monad.Catch
@@ -60,7 +60,6 @@ import System.LogLevel
 
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
-import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
@@ -125,17 +124,21 @@ initPactService
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
+    -> SPVService
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess =
-  initPactService' ver chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
+initPactService ver cid chainwebLogger reqQ memPoolAccess spv =
+  initPactService' ver chainwebLogger memPoolAccess spv $
+    initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
 
 initPactService'
     :: Logger logger
     => ChainwebVersion
     -> logger
-    -> PactT a
+    -> MemPoolAccess
+    -> SPVService
+    -> PactServiceM a
     -> IO a
-initPactService' ver chainwebLogger act = do
+initPactService' ver chainwebLogger mpa spvService act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -162,18 +165,25 @@ initPactService' ver chainwebLogger act = do
             internalError' s
         Right _ -> return ()
 
-    evalStateT
-           (runReaderT act checkpointEnv)
-           theState
 
-initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
+    let spv = pactSPVSupport spvService
+        pd = def
+
+    let pse = PactServiceEnv mpa checkpointEnv spv pd
+
+    evalStateT (runReaderT act pse) theState
+
+pactSPVSupport :: SPVService -> P.SPVSupport
+pactSPVSupport _spv = P.SPVSupport $ \_ _ -> undefined
+
+initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
 initialPayloadState TestWithTime{} _ = return ()
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
-testnet00CreateCoinContract :: ChainId -> PactT ()
+testnet00CreateCoinContract :: ChainId -> PactServiceM ()
 testnet00CreateCoinContract cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
@@ -191,7 +201,7 @@ serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = go
   where
     go = do
-        msg <- liftIO $ getNextRequest reqQ
+        msg <- liftIO $! getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
@@ -263,14 +273,14 @@ toValidateBlockResults ts bHeader =
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
 -- | Note: The BlockHeader param here is the header of the parent of the new block
-execNewBlock :: Bool -> MemPoolAccess -> BlockHeader -> PactT Transactions
+execNewBlock :: Bool -> MemPoolAccess -> BlockHeader -> PactServiceM Transactions
 execNewBlock runGenesis memPoolAccess header = do
-    cpEnv <- ask
+    psEnv <- ask
     -- TODO: miner data needs to be added to BlockHeader...
     let miner = defaultMiner
         bHeight = _blockHeight header
         bHash = _blockHash header
-        checkPointer = _cpeCheckpointer cpEnv
+        checkPointer = psEnv ^. psCheckpointEnv . cpeCheckpointer
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
     cpData <- liftIO $! if runGenesis
