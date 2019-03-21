@@ -19,8 +19,6 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
-    , newBlock
-    , validateBlock
     ) where
 
 import Control.Concurrent.Async
@@ -32,8 +30,8 @@ import Data.Int
 
 import qualified Network.Wai.Handler.Warp as Warp
 
-import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Pact.PactService as PS
@@ -41,7 +39,6 @@ import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
-import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion)
 
@@ -52,9 +49,10 @@ withPactService
     -> ChainId
     -> logger
     -> MempoolBackend ChainwebTransaction
+    -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger memPool action
+withPactService ver cid logger memPool _mv action
     = withPactService' ver cid logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
@@ -90,28 +88,6 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
-newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
-    let msg = NewBlockMsg NewBlockReq
-          { _newBlockHeader = bHeader
-          , _newResultVar = resultVar }
-    addRequest reqQ msg
-    return resultVar
-
-validateBlock
-    :: BlockHeader
-    -> PayloadData
-    -> TQueue RequestMsg
-    -> IO (MVar (Either PactException PayloadWithOutputs))
-validateBlock bHeader plData reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
-    let msg = ValidateBlockMsg ValidateBlockReq
-          { _valBlockHeader = bHeader
-          , _valResultVar = resultVar
-          , _valPayloadData = plData }
-    addRequest reqQ msg
-    return resultVar
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
