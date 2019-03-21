@@ -183,7 +183,7 @@ withConnectionManger logger certs key peerDb runInner = do
 
     connCountRef <- newCounter @"connection-count"
     reqCountRef <- newCounter @"request-count"
-    urlStats <- newCounterMap @"url-counts"
+    -- urlStats <- newCounterMap @"url-counts"
     mgr <- HTTP.newManager settings'
         { HTTP.managerTlsConnection = do
             mk <- HTTP.managerTlsConnection settings'
@@ -191,7 +191,7 @@ withConnectionManger logger certs key peerDb runInner = do
 
         , HTTP.managerModifyRequest = \req -> do
             inc reqCountRef
-            incKey urlStats (sshow $ HTTP.getUri req)
+            -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
                 { HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
                     -- overwrite the explicit connection timeout from servant-client
@@ -205,7 +205,7 @@ withConnectionManger logger certs key peerDb runInner = do
             logFunctionCounter logger Info =<< sequence
                 [ roll connCountRef
                 , roll reqCountRef
-                , roll urlStats
+                -- , roll urlStats
                 ]
 
     let runLogClientConnections umask = do
