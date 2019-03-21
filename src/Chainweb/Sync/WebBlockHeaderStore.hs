@@ -167,7 +167,6 @@ instance IsCas WebBlockHeaderCas where
     casInsert (WebBlockHeaderCas db) (ChainValue _ h)
         = give db (insertWebBlockHeaderDb h)
     casDelete = error "not implemented"
-    emptyCas = error "not implemented"
 
     -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the
     -- instance is available only locally.
@@ -382,9 +381,9 @@ newEmptyWebPayloadStore
     -> HTTP.Manager
     -> WebPactExecutionService
     -> LogFunction
+    -> PayloadDb cas
     -> IO (WebBlockPayloadStore cas)
-newEmptyWebPayloadStore v mgr pact logfun = do
-    payloadCas <- emptyPayloadDb
+newEmptyWebPayloadStore v mgr pact logfun payloadCas = do
     initializePayloadDb v payloadCas
     newWebPayloadStore mgr pact payloadCas logfun
 

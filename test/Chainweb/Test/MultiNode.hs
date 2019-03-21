@@ -42,7 +42,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, over)
+import Control.Lens (over, set, view)
 import Control.Monad
 
 import Data.Aeson
@@ -83,14 +83,13 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-
-import Data.CAS.HashMap hiding (toList)
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -158,8 +157,8 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
-    & set (configTransactionIndex . enableConfigEnabled) False
-        -- disable transaction index
+    & set (configTransactionIndex . enableConfigEnabled) True
+        -- enable transaction index
 
 -- | Set the boostrap node port of a 'ChainwebConfiguration'
 --
@@ -202,8 +201,9 @@ node
     -> MVar PeerInfo
     -> ChainwebConfiguration
     -> IO ()
-node loglevel write stateVar bootstrapPeerInfoVar conf =
-    withChainweb @HashMapCas conf logger $ \cw -> do
+node loglevel write stateVar bootstrapPeerInfoVar conf = do
+    pdb <- emptyInMemoryPayloadDb
+    withChainweb conf logger pdb $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.

@@ -152,7 +152,8 @@ module Chainweb.Utils
 import Configuration.Utils
 
 import Control.DeepSeq
-import Control.Exception (IOException, SomeAsyncException(..), bracket, evaluate)
+import Control.Exception
+    (IOException, SomeAsyncException(..), bracket, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -756,4 +757,3 @@ withTempDir tag f = bracket create delete f
 
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
-

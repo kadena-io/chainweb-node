@@ -33,32 +33,43 @@ import Data.Int
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Logger
-import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Mempool.Mempool
+import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Version (ChainwebVersion)
 
 -- | Initialization for Pact (in process) Api
 withPactService
     :: Logger logger
-    => logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
     -> MempoolBackend ChainwebTransaction
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService logger memPool action
-    = withPactService' logger (pactMemPoolAccess memPool) action
+withPactService ver cid logger memPool action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool) action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
-withPactService' :: Logger logger => logger -> MemPoolAccess -> (TQueue RequestMsg -> IO a) -> IO a
-withPactService' logger memPoolAccess action = do
+withPactService'
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> MemPoolAccess
+    -> (TQueue RequestMsg -> IO a)
+    -> IO a
+withPactService' ver cid logger memPoolAccess action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService logger reqQ memPoolAccess)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ

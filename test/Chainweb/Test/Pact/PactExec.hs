@@ -1,6 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -31,8 +31,10 @@ import System.FilePath
 import System.IO.Extra
 
 import Test.Tasty
-import Test.Tasty.HUnit
 import Test.Tasty.Golden
+import Test.Tasty.HUnit
+
+-- internal modules
 
 import Pact.Gas
 import Pact.Interpreter
@@ -40,24 +42,26 @@ import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Server
 
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.ChainId
 
 tests :: IO TestTree
 tests = do
     setup <- pactTestSetup
-    stdTests <- pactExecTests setup StdBlock
-    -- genesisTests <- pactExecTests setup GenesisBlock
+    stdTests <- pactExecTests setup
     pure $ testGroup "Simple pact execution tests" stdTests
 
 pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
     let loggers = alwaysLog
     let logger = newLogger loggers $ LogName "PactService"
-    pactCfg <- setupConfig $ testPactFilesDir ++ "pact.yaml"
+    let pactCfg = pactDbConfig (Test petersonChainGraph)
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
@@ -74,23 +78,20 @@ pactTestSetup = do
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    -- Coin contract must be created and embedded in the genesis
-    -- block prior to initial save
-    ccState <- createCoinContract loggers theState
-    void $! saveInitial (_cpeCheckpointer checkpointEnv) ccState
+    void $! saveInitial (_cpeCheckpointer checkpointEnv) theState
 
-    pure $ PactTestSetup checkpointEnv ccState
+    pure $ PactTestSetup checkpointEnv theState
 
 
-pactExecTests :: PactTestSetup -> BlockType -> IO [TestTree]
-pactExecTests (PactTestSetup env st) t =
-    fst <$> runStateT (runReaderT (execTests t) env) st
+pactExecTests :: PactTestSetup -> IO [TestTree]
+pactExecTests (PactTestSetup env st) =
+    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (testChainId 0) >> execTests) env) st
 
-execTests :: BlockType -> PactT [TestTree]
-execTests t = do
+execTests :: PactT [TestTree]
+execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
-    (results, _dbState) <- execTransactions (isGenesis t) defaultMiner trans
+    (results, _dbState) <- execTransactions False defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses
@@ -177,13 +178,6 @@ data PactTestSetup = PactTestSetup
   { _checkpointEnv :: CheckpointEnv
   , _pactDbState :: PactDbState
   }
-
-data BlockType = GenesisBlock | StdBlock
-
-isGenesis :: BlockType -> Bool
-isGenesis = \case
-  GenesisBlock -> True
-  _ -> False
 
 ----------------------------------------------------------------------------------------------------
 -- sample data

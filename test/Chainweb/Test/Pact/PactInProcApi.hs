@@ -20,20 +20,24 @@ import Data.Vector (Vector, (!))
 import qualified Data.Vector as V
 
 import System.FilePath
-import System.LogLevel
 import System.IO.Extra
+import System.LogLevel
 
 import Test.Tasty.HUnit
 import Test.Tasty
 import Test.Tasty.Golden
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.BlockHeader.Genesis
+
 
 
 tests :: IO TestTree
@@ -42,17 +46,20 @@ tests = testGroup "Pact in-proc API tests" <$> pactApiTest
 pactApiTest :: IO [TestTree]
 pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
+        cid = testChainId 0
 
     -- Init for tests
-    withPactService' logger testMemPoolAccess $ \reqQ -> do
+    withPactService' Testnet00 cid logger testMemPoolAccess $ \reqQ -> do
         let headers = V.fromList $ getBlockHeaders 4
 
         -- newBlock test
-        respVar0 <- newBlock (headers ! 0) reqQ
+        let genesisHeader = genesisBlockHeader Testnet00 cid
+        respVar0 <- newBlock genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response
         plwo <- case mvr of
           Left e -> assertFailure (show e)
           Right r -> return r
+
         tt0 <- checkNewResponse "new-block-expected-0" plwo
 
         -- validate the same transactions sent to newBlock above
@@ -63,7 +70,7 @@ pactApiTest = do
               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
               }
-        let toValidateHeader = (headers ! 0) { _blockPayloadHash = matchingPlHash }
+        let toValidateHeader = (headers ! 1) { _blockPayloadHash = matchingPlHash, _blockParent = _blockHash genesisHeader }
         respVar0b <- validateBlock toValidateHeader plData reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
@@ -139,16 +146,13 @@ getBlockHeaders n = do
     gbh0 : after0s
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess (BlockHeight 0) _bHash = do
+testMemPoolAccess _ _bHash = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     let cmdStrs = V.fromList
           [ moduleStr
           , "(create-table test1.accounts)"
           , "(test1.create-global-accounts)"
           , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
-    mkPactTestTransactions cmdStrs
-testMemPoolAccess (BlockHeight n) _bHash = do
-    let cmdStrs = cmdBlocks ! fromIntegral n
     mkPactTestTransactions cmdStrs
 
 cmdBlocks :: Vector (Vector String)

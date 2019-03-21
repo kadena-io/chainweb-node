@@ -42,23 +42,18 @@ module Chainweb.BlockHeader.Genesis
 
 import Control.Arrow ((&&&))
 
-import Data.Bytes.Put (putByteString, runPutS)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
-import Data.Text (Text)
-import qualified Data.Text.Encoding as T
-import qualified Data.Yaml as Yaml
-
-import GHC.Stack (HasCallStack)
-
-import NeatInterpolation (text)
+import qualified Data.Sequence as Seq
 
 -- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis.Testnet00
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -68,7 +63,6 @@ import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
-import Chainweb.Utils (fromJuste)
 import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
@@ -99,13 +93,13 @@ genesisBlockTarget = maxTarget
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
-genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
-genesisTime Test{} _ = BlockCreationTime epoche
-genesisTime TestWithTime{} _ = BlockCreationTime epoche
-genesisTime TestWithPow{} _ = BlockCreationTime epoche
-genesisTime Simulation{} _ = BlockCreationTime epoche
+genesisTime :: ChainwebVersion -> BlockCreationTime
+genesisTime Test{} = BlockCreationTime epoche
+genesisTime TestWithTime{} = BlockCreationTime epoche
+genesisTime TestWithPow{} = BlockCreationTime epoche
+genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
-genesisTime Testnet00 _ = BlockCreationTime . Time $ TimeSpan 1551207336601038
+genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
@@ -116,17 +110,16 @@ genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 -- In other words, 0 is a meaningless hard-coding.
 genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
 
--- TODO: characterize genesis block payload. Should this be the value of
--- chainId instead of empty string?
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v@Test{} c
-    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v@TestWithTime{} c
-    = _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v c = hashPayload v c $ runPutS $ do
-    putByteString "GENESIS:"
-    encodeChainwebVersion v
-    encodeChainId c
+genesisBlockPayloadHash v@Test{} c =
+    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash v@TestWithTime{} c =
+    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash v@TestWithPow{} c =
+    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash v@Simulation{} c =
+    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
+genesisBlockPayloadHash Testnet00 _ = _payloadWithOutputsPayloadHash payloadBlock
 
 genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
 genesisBlockPayload Test{} _ = emptyPayload
@@ -134,9 +127,11 @@ genesisBlockPayload TestWithTime{} _ = emptyPayload
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
--- TODO This should soon be made to hold the Coin Contract and associated
--- transactions.
-genesisBlockPayload Testnet00 _ = emptyPayload
+genesisBlockPayload Testnet00 _ = (txs, outs)
+  where
+    (txSeq, outSeq) = Seq.unzip $ _payloadWithOutputsTransactions payloadBlock
+    (_, txs) = newBlockTransactions txSeq
+    (_, outs) = newBlockOutputs outSeq
 
 emptyPayload :: (BlockTransactions, BlockOutputs)
 emptyPayload = (txs, outs)
@@ -161,7 +156,7 @@ genesisBlockHeader Testnet00 p =
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
 genesisBlockHeader v p =
-    genesisBlockHeader' v p (genesisTime v $ _chainId p) (Nonce 0)
+    genesisBlockHeader' v p (genesisTime v) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 -- __Will not dispatch to hard-coded `BlockHeader`s!__
@@ -206,9 +201,6 @@ genesisBlockHeaders v = HM.fromList
 -- -------------------------------------------------------------------------- --
 -- Testnet00
 
-unsafeFromYamlText :: HasCallStack => Text -> BlockHeader
-unsafeFromYamlText = _objectEncoded . fromJuste . Yaml.decodeThrow . T.encodeUtf8
-
 -- | Ten Genesis Blocks for `Testnet00`.
 testnet00Geneses :: HM.HashMap ChainId BlockHeader
 testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
@@ -224,204 +216,3 @@ testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
          , testnet00C8
          , testnet00C9 ]
 {-# NOINLINE testnet00Geneses #-}
-
-testnet00C0 :: BlockHeader
-testnet00C0 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
-height: 0
-hash: kq8i_RdCxuxTvhoLVsAve2zhwP8jcND8k0YYcrjBbcA
-miner: 0/0
-chainId: 0
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '2': zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
-  '5': jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
-  '3': iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
-payloadHash: NKHeUOuw64OabnpPUfZRIcc5Fvu_IA90F4DwIFjIRuU
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '8346'
-    |]
-
-
-testnet00C1 :: BlockHeader
-testnet00C1 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
-height: 0
-hash: WpqouWRbtAD09j5-TQ1NyMZpj9jHlurPOyOArLhJehc
-miner: 0/1
-chainId: 1
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '4': E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
-  '3': iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
-  '6': xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
-payloadHash: WqIppoHOtat38DHUSwrso8mbgQ4opPb7VrkNOwJdlyA
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '7168'
-    |]
-
-testnet00C2 :: BlockHeader
-testnet00C2 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
-height: 0
-hash: 8PoSUNqi66ACmHI2Yb2Tah-ZVar1J2BENRXJ1K2sXBM
-miner: 0/2
-chainId: 2
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '7': wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
-  '0': hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
-  '4': E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
-payloadHash: djlccWNhufSi0mJsOjm9pRFTjyFpE8IWt7VzIQb00d4
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '6573'
-    |]
-
-testnet00C3 :: BlockHeader
-testnet00C3 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
-height: 0
-hash: oSEG2xyDdrEjUqSEgfFiqi8YAOuA7xotRKxwiDQ-3mE
-miner: 0/3
-chainId: 3
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '0': hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
-  '1': gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
-  '8': -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
-payloadHash: bH16cViQSjqd-j7cOD_SIZsnpjoY_e3xpvzgxPlreEE
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '9952'
-    |]
-
-testnet00C4 :: BlockHeader
-testnet00C4 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
-height: 0
-hash: 0g9nUxBM_SbbaTc-nU0TCg_iB2dWsDLE1YJ5pYYfByA
-miner: 0/4
-chainId: 4
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '1': gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
-  '2': zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
-  '9': CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
-payloadHash: 1gMCMjFoi5jK3LTo8E-CSl82SonSRplSVjYOz2GHliA
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '8235'
-    |]
-
-testnet00C5 :: BlockHeader
-testnet00C5 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
-height: 0
-hash: aOYK4D4Sbp24O3LnIfnTlBGAQRtzHUymIT5SW6mhxh4
-miner: 0/5
-chainId: 5
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '0': hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
-  '6': xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
-  '9': CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
-payloadHash: xw-9DsQgnuFnnWJje_htsHAm6W2pEy7392jsvpADk0Q
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '54476'
-    |]
-
-testnet00C6 :: BlockHeader
-testnet00C6 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
-height: 0
-hash: LdaI982UBpV9mVIUwQC5vl1ufSt6lUmiChTShWQMqzw
-miner: 0/6
-chainId: 6
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '7': wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
-  '1': gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
-  '5': jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
-payloadHash: TNxIJweDgew0u7rsgrre6G9Q8XuwXO2yiCVratLJbrM
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '53767'
-    |]
-
-testnet00C7 :: BlockHeader
-testnet00C7 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
-height: 0
-hash: OYt5jezLH1DlPCN3DI22jvNNGUYl7rcTjoKIpViLeSY
-miner: 0/7
-chainId: 7
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '2': zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
-  '8': -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
-  '6': xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
-payloadHash: HzYMZFvuzkDSPHun8IbS_JYVtpE7_I_ZNSLzndArZa8
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '17471'
-    |]
-
-testnet00C8 :: BlockHeader
-testnet00C8 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
-height: 0
-hash: ckD0Bo0uQh6curoLNZuGxEsumBz_9I7CcJs26aCQX30
-miner: 0/8
-chainId: 8
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '7': wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
-  '3': iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
-  '9': CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
-payloadHash: MTOsiPQ8qe8Jqo51-207n6ybASAnI6OZyBQLiXX3M3Q
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '11757'
-    |]
-
-testnet00C9 :: BlockHeader
-testnet00C9 = unsafeFromYamlText
-    [text|
-creationTime: 1551207336601038
-parent: CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
-height: 0
-hash: rIY3HA3U378M-wjRU5at8RvSeYG0gAqQ_V7LIn6LU-o
-miner: 0/9
-chainId: 9
-weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-adjacents:
-  '4': E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
-  '5': jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
-  '8': -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
-payloadHash: 3P8FfZRC6A7yNrm76SrnrXrIMGv5yRzO0dbv-FEbVCM
-chainwebVersion: testnet00
-target: ________________________________________AwA
-nonce: '4653'
-    |]
