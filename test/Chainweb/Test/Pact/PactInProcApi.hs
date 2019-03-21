@@ -150,9 +150,6 @@ testMemPoolAccess _ _bHash = do
           , "(test1.create-global-accounts)"
           , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
     mkPactTestTransactions cmdStrs
---testMemPoolAccess (BlockHeight n) _bHash = do
- --   let cmdStrs = cmdBlocks ! fromIntegral n
- --   mkPactTestTransactions cmdStrs
 
 cmdBlocks :: Vector (Vector String)
 cmdBlocks =  V.fromList [ V.fromList

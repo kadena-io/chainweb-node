@@ -150,10 +150,6 @@ initPactService' ver chainwebLogger act = do
                     (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    -- Conditionally create the Coin contract and embedded into the genesis
-    -- block prior to initial save.
-    -- ccState <- initialPayloadState ver chainId loggers theState
-
     estate <- saveInitial (_cpeCheckpointer checkpointEnv) theState
     case estate of
         Left s -> do -- TODO: fix - If this error message does not appear, the database has been closed.
@@ -165,9 +161,7 @@ initPactService' ver chainwebLogger act = do
            (runReaderT act checkpointEnv)
            theState
 
--- | Conditionally create the Coin contract and embedded into the genesis
--- block prior to initial save.
---
+
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
 initialPayloadState Test{} _ = return ()
 initialPayloadState TestWithTime{} _ = return ()
@@ -175,8 +169,6 @@ initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
--- | Create the coin contract using some initial pact db state.
---
 testnet00CreateCoinContract :: ChainId -> PactT ()
 testnet00CreateCoinContract cid = do
     let PayloadWithOutputs{..} = payloadBlock
@@ -282,6 +274,7 @@ execNewBlock runGenesis memPoolAccess header = do
     put updatedState
     closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
     either fail (\_ -> pure results) closeStatus
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
