@@ -36,7 +36,8 @@ import qualified Data.Text as T
 import Fake (fake, generate)
 
 import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
+-- import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.X509.SelfSigned hiding (name)
 
 import GHC.Generics
 
@@ -106,7 +107,7 @@ defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
     , _nodeChainId    = testChainId 1
-    , _serverRootPath = "http://127.0.0.1:" ++ show 1789
+    , _serverRootPath = "http://127.0.0.1:" ++ show (1789 :: Int)
     , _isChainweb     = False
     }
 
@@ -247,7 +248,9 @@ type ContractLoader = [SomeKeyPair] -> IO (Command Text)
 loadContracts :: [ContractLoader] -> IO ()
 loadContracts contractLoaders = do
   -- mgr <- newManager defaultManagerSettings
-  mgr <- newManager tlsManagerSettings
+  mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+  -- mgr <- newManager tlsManagerSettings
+  mgr <- newManager mgrSettings
   url <- parseBaseUrl _serverPath
   let clientEnv = mkClientEnv mgr url
   ts <- testSomeKeyPairs
