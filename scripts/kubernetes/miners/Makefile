@@ -1,18 +1,17 @@
 
 # For demo
-SECTIONS = us1 us2 eu1 eu2
+SECTIONS = us1 us2 eu1 as1
 
 #SECTIONS = us1 us2 eu1
 
 us1_REGION = us-east-1
 us2_REGION = us-west-2
 eu1_REGION = eu-central-1
-eu2_REGION = eu-west-2
+as1_REGION = ap-southeast-2
 
 # ------------------ VARIABLES: DON'T CHANGE --------------
 
-KOPS_DNS_ZONE = chainweb.k8s.local
-EXTERNAL_DNS_ZONE = chainweb.com
+KOPS_DNS_ZONE = miners.chainweb.k8s.local
 IMAGE = kadena/chainweb-bootstrap-node:testnet00-party
 
 .DEFAULT_GOAL := deploys
@@ -37,7 +36,7 @@ delete-clusters: $(DELETE_CLUSTERS)
 %.$(KOPS_DNS_ZONE).yaml: cluster_template.yaml
 	test -n "$($*_REGION)" # $$($*_REGION)
 	kops toolbox template --template cluster_template.yaml \
-	--set kopsStateStore=s3://$($*_REGION)-kops-state-store \
+	--set kopsStateStore=s3://$($*_REGION)-miner-kops-state-store \
 	--set masterSize=t3.medium \
 	--set nodeSize=t3.xlarge \
 	--set nodesMinCount=2 \
@@ -49,24 +48,24 @@ delete-clusters: $(DELETE_CLUSTERS)
 
 
 %.$(KOPS_DNS_ZONE): %.$(KOPS_DNS_ZONE).yaml
-	aws s3 mb s3://$($*_REGION)-kops-state-store
-	kops replace -f $@.yaml --force --state=s3://$($*_REGION)-kops-state-store
+	aws s3 mb s3://$($*_REGION)-miner-kops-state-store
+	kops replace -f $@.yaml --force --state=s3://$($*_REGION)-miner-kops-state-store
 	kops create secret --name $@ sshpublickey admin -i ~/.ssh/id_rsa.pub \
-		--state=s3://$($*_REGION)-kops-state-store
-	kops update cluster --name $@ --yes --state=s3://$($*_REGION)-kops-state-store
-	kops get --name $@ -o yaml --state=s3://$($*_REGION)-kops-state-store > $@ 
+		--state=s3://$($*_REGION)-miner-kops-state-store
+	kops update cluster --name $@ --yes --state=s3://$($*_REGION)-miner-kops-state-store
+	kops get --name $@ -o yaml --state=s3://$($*_REGION)-miner-kops-state-store > $@ 
 
 
 .PHONY: %-ready
 %-ready:
-	kops validate cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
-	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
+	kops validate cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-miner-kops-state-store
+	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-miner-kops-state-store
 
 
 .PHONY: %-shutdown
 %-shutdown:
-	-kops delete cluster --name $*.$(KOPS_DNS_ZONE) --yes --state=s3://$($*_REGION)-kops-state-store
-	-aws s3 rb s3://$($*_REGION)-kops-state-store --force
+	-kops delete cluster --name $*.$(KOPS_DNS_ZONE) --yes --state=s3://$($*_REGION)-miner-kops-state-store
+	-aws s3 rb s3://$($*_REGION)-miner-kops-state-store --force
 	$(RM) $*.$(KOPS_DNS_ZONE)
 
 
@@ -86,36 +85,29 @@ cleanup-deploys: $(CLEANUP_DEPLOYS)
 check-deploys: $(CHECK_DEPLOYS)
 
 
-%.$(EXTERNAL_DNS_ZONE)-cert.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
-	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/fullchain.pem  $@
-
-
-%.$(EXTERNAL_DNS_ZONE)-privkey.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
-	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/privkey.pem  $@
-
-%_external_dns.yaml: external_dns_template.yaml
-	kops toolbox template --template external_dns_template.yaml \
-	--set subDomain=$* \
+%_miner1.yaml: miner_template.yaml
+	kops toolbox template --template miner_template.yaml \
+	--set image=$(IMAGE) \
+	--set name=$*-miner1 \
 	--output $@
 
-DEPLOY_DEPS := ../bootstrap_deploy.py  ./bootstrap-node.config
+%_miner2.yaml: miner_template.yaml
+	kops toolbox template --template miner_template.yaml \
+	--set image=$(IMAGE) \
+	--set name=$*-miner2 \
+	--output $@
+
 
 .PHONY: %-deploy
-%-deploy: $(DEPLOY_DEPS)  %_external_dns.yaml  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
-	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_external_dns.yaml
-	python ../bootstrap_deploy.py create \
-	--context=$*.$(KOPS_DNS_ZONE) \
-	--subDomain=$* \
-	--image=$(IMAGE) \
-	--nodeConfig=./bootstrap-node.config \
-	--certificate=$*.$(EXTERNAL_DNS_ZONE)-cert.pem \
-	--privateKey=$*.$(EXTERNAL_DNS_ZONE)-privkey.pem
-
+%-deploy: %_miner1.yaml %_miner2.yaml
+	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_miner1.yaml
+	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_miner2.yaml
 
 
 .PHONY: %-cleanup
-%-cleanup: %-ready ../bootstrap_deploy.py
-	python ../bootstrap_deploy.py delete --context=$*.$(KOPS_DNS_ZONE)
+%-cleanup: %-ready
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete pod/$*-miner1 service/$*-miner1
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete pod/$*-miner2 service/$*-miner2
 
 .PHONY: %-status
 %-status:

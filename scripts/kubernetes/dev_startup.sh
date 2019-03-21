@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Start minikube
-eval `opam config env`
+# Start minikubeeval `opam config env`
+
 minikube delete &&
 minikube start
 

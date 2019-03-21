@@ -6,6 +6,8 @@ import sys
 import yaml
 
 from kubernetes import client, config
+from kubernetes.client import configuration
+
 
 NAMESPACE = "default"
 DEPLOYMENT_NAME = "chainweb"
@@ -174,7 +176,9 @@ def create_pod_template_with_pvc(args):
     pull_policy = "Never" if args.local else "Always"
     command = [
         "/bin/chainweb-node", "--config-file=/tmp/node.config",
-        "--disable-mining"
+        "--telemetry-log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
+        "--log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
+        "--disable-transaction-index"
     ]
 
     # if certificate file was present
@@ -188,6 +192,10 @@ def create_pod_template_with_pvc(args):
         name="chainweb",
         image=args.image,
         command=command,
+        resources=client.V1ResourceRequirements(requests={
+            "cpu": "400m",
+            "memory": "14Gi"
+        }),
         image_pull_policy=pull_policy,
         tty=isTTY,
         ports=[client.V1ContainerPort(container_port=PORT_NUMBER)],
@@ -272,6 +280,10 @@ def arg_parsing():
         action="store_true",
         help="Sends logs to elastic search logger")
 
+    create_p.add_argument(
+        "--context",
+        help="kubectl config context to use")
+
     create_p.add_argument("--certificate", help="Filename of CA certificate.")
 
     create_p.add_argument(
@@ -287,6 +299,8 @@ def arg_parsing():
     delete_p = subparsers.add_parser(
         "delete", help="Tear down a Chainweb node cluster")
 
+    delete_p.add_argument("--context", help="kubectl config context to use")
+
     delete_p.set_defaults(func=delete_resources)
 
     # --- `update` flags --- #
@@ -298,6 +312,8 @@ def arg_parsing():
         default="kadena/chainweb-bootstrap-node:latest",
         help="A docker image to update deployment with")
 
+    update_p.add_argument("--context", help="kubectl config context to use")
+
     update_p.set_defaults(func=update_resources)
 
     return parser.parse_args()
@@ -306,26 +322,48 @@ def arg_parsing():
 def main():
     args = arg_parsing()
 
-    # Ask user which context (i.e. cluster) they want to work with
-    contexts, _ = config.list_kube_config_contexts()
+    contexts, active_context = config.list_kube_config_contexts()
 
     if not contexts:
         print("Cannot find any context in kube-config file.")
         return
 
-    config.load_kube_config()
+    contexts = [context['name'] for context in contexts]
+    active_index = contexts.index(active_context['name'])
 
-    print("Running with: ", args)
-    args.func(args)
+    if args.context:
+        new_index = contexts.index(args.context)
+        option = contexts[new_index]
+        config.load_kube_config(context=option)
 
-    print("Done")
+        print("Active host is %s" % option)
+
+        print("Running with: ", args)
+        args.func(args, option)
+
+        print("Done")
+    else:
+        option = contexts[active_index]
+        config.load_kube_config(context=option)
+
+        print("Active host is %s" % option)
+
+        print("Running with: ", args)
+        args.func(args, option)
+
+        print("Done")
 
 
-def create_resources(args):
+
+
+
+def create_resources(args, context):
     print("Creating cluster...")
 
-    apps_v1beta2 = client.AppsV1beta2Api()
-    core_v1 = client.CoreV1Api()
+    apps_v1beta2 = client.AppsV1beta2Api(
+        api_client=config.new_client_from_config(context=context))
+    core_v1 = client.CoreV1Api(
+        api_client=config.new_client_from_config(context=context))
 
     create_secret_from_file(core_v1, args.nodeConfig, args.certificate,
                             args.privateKey)
@@ -334,10 +372,11 @@ def create_resources(args):
     create_stateful_set(apps_v1beta2, args)
 
 
-def update_resources(args):
+def update_resources(args, context):
     print("Updating cluster...")
 
-    apps_v1beta2 = client.AppsV1beta2Api()
+    apps_v1beta2 = client.AppsV1beta2Api(
+        api_client=config.new_client_from_config(context=context))
 
     stateful_set_patch = {
         "spec": {
@@ -357,11 +396,13 @@ def update_resources(args):
     print("Container image updated. status='%s'" % str(api_response.status))
 
 
-def delete_resources(args):
+def delete_resources(args, context):
     print("Deleting cluster...")
 
-    apps_v1beta2 = client.AppsV1beta2Api()
-    core_v1 = client.CoreV1Api()
+    apps_v1beta2 = client.AppsV1beta2Api(
+        api_client=config.new_client_from_config(context=context))
+    core_v1 = client.CoreV1Api(
+        api_client=config.new_client_from_config(context=context))
 
     try_delete(delete_stateful_set, apps_v1beta2)
     try_delete(delete_secret, core_v1)
