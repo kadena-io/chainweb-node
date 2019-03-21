@@ -107,8 +107,7 @@ targetChain c srcBlock = do
 spvTransactionRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionRoundtripTest v step = do
     step "setup cut db"
-    withTestCutDb @HashMapCas v 100 (\_ _ -> return ()) $ \cutDb -> do
-
+    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
         step "pick random transaction"
         (h, txIx, tx, _) <- randomTransaction cutDb
 
@@ -143,7 +142,7 @@ spvTransactionRoundtripTest v step = do
 spvTransactionOutputRoundtripTest :: ChainwebVersion -> Step -> IO ()
 spvTransactionOutputRoundtripTest v step = do
     step "setup cut db"
-    withTestCutDb @HashMapCas v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
 
         step "pick random transaction output"
         (h, outIx, _, out) <- randomTransaction cutDb

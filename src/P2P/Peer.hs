@@ -42,7 +42,7 @@ module P2P.Peer
 , PeerConfig(..)
 , peerConfigAddr
 , peerConfigInterface
-, peerConfigCertificate
+, peerConfigCertificateChain
 , peerConfigKey
 , defaultPeerConfig
 , _peerConfigPort
@@ -56,7 +56,7 @@ module P2P.Peer
 , Peer(..)
 , peerInfo
 , peerInterface
-, peerCertificate
+, peerCertificateChain
 , peerKey
 , unsafeCreatePeer
 
@@ -254,10 +254,10 @@ data PeerConfig = PeerConfig
 
     , _peerConfigInterface :: !HostPreference
         -- ^ The network interface that the peer binds to. Default is to
-        -- bind to all available interfaces (0.0.0.0).
+        -- bind to all available interfaces ('*').
 
-    , _peerConfigCertificate :: !(Maybe X509CertPem)
-        -- ^ The X509 certificate of the peer. If this is Nothing a new ephemeral
+    , _peerConfigCertificateChain :: !(Maybe X509CertChainPem)
+        -- ^ The X509 certificate chain of the peer. If this is Nothing a new ephemeral
         -- certificate is generated on startup and discarded on exit.
 
     , _peerConfigKey :: !(Maybe X509KeyPem)
@@ -286,8 +286,8 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
     { _peerConfigAddr = HostAddress localhost 0
-    , _peerConfigInterface = fromString "0.0.0.0"
-    , _peerConfigCertificate = Nothing
+    , _peerConfigInterface = fromString "*"
+    , _peerConfigCertificateChain = Nothing
     , _peerConfigKey = Nothing
     }
 
@@ -295,7 +295,7 @@ instance ToJSON PeerConfig where
     toJSON o = object
         [ "hostaddress" .= _peerConfigAddr o
         , "interface" .= hostPreferenceToText (_peerConfigInterface o)
-        , "certificate" .= _peerConfigCertificate o
+        , "certificateChain" .= _peerConfigCertificateChain o
         , "key" .= _peerConfigKey o
         ]
 
@@ -303,14 +303,14 @@ instance FromJSON PeerConfig where
     parseJSON = withObject "PeerConfig" $ \o -> PeerConfig
         <$> o .: "hostaddress"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
-        <*> o .: "certificate"
+        <*> o .: "certificateChain"
         <*> o .: "key"
 
 instance FromJSON (PeerConfig -> PeerConfig) where
     parseJSON = withObject "PeerConfig" $ \o -> id
         <$< peerConfigAddr %.: "hostaddress" % o
         <*< setProperty peerConfigInterface "interface" (parseJsonFromText "interface") o
-        <*< peerConfigCertificate ..: "certificate" % o
+        <*< peerConfigCertificateChain ..: "certificateChain" % o
         <*< peerConfigKey ..: "key" % o
 
 pPeerConfig :: Maybe String -> MParser PeerConfig
@@ -319,7 +319,7 @@ pPeerConfig service = id
     <*< peerConfigInterface .:: textOption
         % prefixLong service "interface"
         <> suffixHelp service "interface that the Rest API binds to (see HostPreference documentation for details)"
-    <*< peerConfigCertificate .:: fmap Just % pX509CertPem service
+    <*< peerConfigCertificateChain .:: fmap Just % pX509CertChainPem service
     <*< peerConfigKey .:: fmap Just % pX509KeyPem service
 {-# INLINE pPeerConfig #-}
 
@@ -332,7 +332,7 @@ data Peer = Peer
     { _peerInfo :: !PeerInfo
         -- ^ The peer id is the SHA256 fingerprint of the certificate
     , _peerInterface :: !HostPreference
-    , _peerCertificate :: !X509CertPem
+    , _peerCertificateChain :: !X509CertChainPem
     , _peerKey :: !X509KeyPem
     }
     deriving (Show, Eq, Ord, Generic)
@@ -341,9 +341,12 @@ makeLenses ''Peer
 
 unsafeCreatePeer :: HasCallStack => PeerConfig -> IO Peer
 unsafeCreatePeer conf = do
-    (fp, cert, key) <- case (_peerConfigCertificate conf, _peerConfigKey conf) of
-        (Nothing, _) -> generateSelfSignedCertificate @DefCertType 365 dn Nothing
-        (Just c, Just k) -> return (unsafeFingerprintPem c, c, k)
+    (fp, certs, key) <- case (_peerConfigCertificateChain conf, _peerConfigKey conf) of
+        (Nothing, _) -> do
+            (fp, c, k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
+            return (fp, X509CertChainPem c [], k)
+        (Just c@(X509CertChainPem a _), Just k) ->
+            return (unsafeFingerprintPem a, c, k)
         _ -> error "missing certificate key in peer config"
     return $ Peer
         { _peerInfo = PeerInfo
@@ -351,7 +354,7 @@ unsafeCreatePeer conf = do
             , _peerAddr = _peerConfigAddr conf
             }
         , _peerInterface = _peerConfigInterface conf
-        , _peerCertificate = cert
+        , _peerCertificateChain = certs
         , _peerKey = key
         }
   where
@@ -361,7 +364,7 @@ instance ToJSON Peer where
     toJSON p = object
         [ "info" .= _peerInfo p
         , "interface" .= hostPreferenceToText (_peerInterface p)
-        , "certifcate" .= _peerCertificate p
+        , "certifcateChain" .= _peerCertificateChain p
         , "key" .= _peerKey p
         ]
     {-# INLINE toJSON #-}
@@ -390,7 +393,7 @@ bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Simulation{} = error
     $ "bootstrap peer info isn't defined for chainweb version Simulation"
-bootstrapPeerInfos Testnet00 = [testnet00BootstrapPeerInfo]
+bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -412,18 +415,26 @@ testBootstrapPeerInfos =
             }
         }
 
-testnet00BootstrapPeerInfo :: PeerInfo
-testnet00BootstrapPeerInfo = PeerInfo
-    { _peerId = Nothing
-    , _peerAddr = HostAddress
-        { _hostAddressHost = testnetBootstrapHost
-        , _hostAddressPort = 443
+testnet00BootstrapPeerInfo :: [PeerInfo]
+testnet00BootstrapPeerInfo = map f testnetBootstrapHosts
+  where
+    f hn = PeerInfo
+        { _peerId = Nothing
+        , _peerAddr = HostAddress
+            { _hostAddressHost = hn
+            , _hostAddressPort = 443
+            }
         }
-    }
 
--- This can be changed as needed.
-testnetBootstrapHost :: Hostname
-testnetBootstrapHost = unsafeHostnameFromText "https://us1.chainweb.com"
+-- | Official TestNet bootstrap nodes.
+--
+testnetBootstrapHosts :: [Hostname]
+testnetBootstrapHosts = map unsafeHostnameFromText
+    [ "us1.chainweb.com"
+    , "us2.chainweb.com"
+    , "eu1.chainweb.com"
+    , "eu2.chainweb.com"
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
@@ -431,13 +442,13 @@ testnetBootstrapHost = unsafeHostnameFromText "https://us1.chainweb.com"
 instance Arbitrary PeerConfig where
     arbitrary = do
         (c, k) <- oneof
-            [ return (Just certRsa, Just keyRsa)
-            , return (Just certEd25519, Just keyEd25519)
+            [ return (Just (X509CertChainPem certRsa []), Just keyRsa)
+            , return (Just (X509CertChainPem certEd25519 []), Just keyEd25519)
             , return (Nothing, Nothing)
             ]
         PeerConfig
             <$> arbitrary
-            <*> oneof (return <$> ["0.0.0.0", "127.0.0.1", "*", "*4", "!4", "*6", "!6"])
+            <*> oneof (return <$> ["0.0.0.0", "127.0.0.1", "::1", "*", "*4", "!4", "*6", "!6"])
             <*> return c
             <*> return k
       where

@@ -26,11 +26,7 @@ import Data.Bytes.Put
 import Data.Bytes.Serial
 import Data.Decimal
 import Data.Default
-import Data.Hashable
 import Data.HashMap.Strict
-import Data.HashSet
-import Data.List.NonEmpty
-import Data.Serialize hiding (getWord8, putWord8)
 import Data.Thyme.Clock
 import Data.Thyme.Internal.Micro
 import qualified Data.Vector as Vector
@@ -49,17 +45,18 @@ import Pact.Types.Server
 -----------------------
 -- GENERIC INSTANCES --
 -----------------------
-deriving instance Generic ModuleData -- transferred
+
+deriving instance Generic ModuleData
 
 deriving instance Generic (ModuleDef a)
 
-deriving instance Generic Ref -- transferred
+deriving instance Generic Ref
 
-deriving instance Generic RefStore -- transferred
+deriving instance Generic RefStore
 
-deriving instance Generic CommandState -- transferred
+deriving instance Generic CommandState
 
-deriving instance Generic DefName -- transferred
+deriving instance Generic DefName
 
 deriving instance Generic Decimal
 
@@ -724,347 +721,17 @@ instance Serial1 TypeVar where
                 1 -> liftM SchemaVar deserialize
                 _ -> error "TypeVar: Deserialization error."
 
--------------------------
--- SERIALIZE INSTANCES --
--------------------------
+instance Serial (Table DataKey) where
+  serialize (DataTable t) = serialize t
+  deserialize = DataTable <$> deserialize
+instance Serial (Table TxKey) where
+  serialize (TxTable t) = serialize t
+  deserialize = TxTable <$> deserialize
 
-deriving instance Serialize TableId
+deriving instance Serial TableId
 
-instance Serialize (Table DataKey) where
-    put (DataTable t) = put t
-    get = DataTable <$> get
+deriving instance Serial (TxLog Value)
 
-instance Serialize (Table TxKey) where
-    put (TxTable t) = put t
-    get = TxTable <$> get
+deriving instance Serial SQLiteConfig
 
-deriving instance Serialize (TxLog Value)
-
-deriving instance Serialize TxId
-
-deriving instance Serialize SQLiteConfig
-
-deriving instance Serialize Pragma
-
-deriving instance Serialize CommandState
-
-deriving instance Serialize Name
-
-deriving instance Serialize ModuleName
-
-deriving instance Serialize NamespaceName
-
-deriving instance Serialize Info
-
-deriving instance Serialize Code
-
-deriving instance Serialize Parsed
-
-deriving instance Serialize Delta
-
-deriving instance (Serialize a, Generic a) => Serialize (ModuleDef a)
-
-deriving instance Serialize ModuleData
-
-deriving instance Serialize Ref
-
-deriving instance (Generic g, Serialize g) => Serialize (Governance g)
-
-deriving instance (Generic g, Serialize g) => Serialize (Module g)
-
-deriving instance Serialize Interface
-
-deriving instance Serialize Use
-
-deriving instance Serialize Meta
-
-deriving instance Serialize (Exp Info)
-
-deriving instance Serialize (LiteralExp Info)
-
-deriving instance Serialize (AtomExp Info)
-
-deriving instance Serialize (ListExp Info)
-
-deriving instance Serialize ListDelimiter
-
-deriving instance Serialize (SeparatorExp Info)
-
-deriving instance Serialize Separator
-
-deriving instance Serialize KeySetName
-
-instance Serialize RefStore where
-    put RefStore {..} = put _rsModules
-    get = do
-        let _rsNatives = nativeDefs
-        _rsModules <- get
-        return $ RefStore {..}
-
-deriving instance Serialize SchemaPartial
-deriving instance
-         (Generic n, Serialize n) => Serialize (Type (Term n))
-
-deriving instance Serialize SchemaType
-
-deriving instance Serialize PrimType
-
-deriving instance Serialize GuardType
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (FunType (Term n))
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (Arg (Term n))
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (TypeVar (Term n))
-
-deriving instance Serialize TypeVarName
-
-deriving instance Serialize DefName
-
-deriving instance Serialize DefType
-
-instance (Generic n, Serialize n) => Serialize (Def n) where
-    put Def {..} = do
-        put _dDefName
-        put _dModule
-        put _dDefType
-        put _dFunType
-        put _dDefBody
-        put _dMeta
-        put _dInfo
-    get = Def <$> get <*> get <*> get <*> get <*> get <*> get <*> get
-
-deriving instance Serialize NativeDefName
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (FunTypes (Term n))
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (ConstVal (Term n))
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (App (Term n))
-
-deriving instance
-         (Generic n, Serialize n) => Serialize (BindType (Type (Term n)))
-
-deriving instance Serialize TypeName
-
-deriving instance Serialize Guard
-
-deriving instance Serialize UserGuard
-
-deriving instance Serialize ModuleGuard
-
-deriving instance Serialize KeySet
-
-deriving instance Serialize PactGuard
-
-deriving instance Serialize PactId
-
-deriving instance Serialize TableName
-
-deriving instance Serialize Example
-
-instance (Generic n, Serialize n) => Serialize (Term n) where
-    put t =
-        case t of
-            TModule {..} -> do
-                putWord8 0
-                put _tModuleDef
-                put _tModuleBody
-                put _tInfo
-            TList {..} -> do
-                putWord8 1
-                put _tList
-                put _tListType
-                put _tInfo
-            TDef {..} -> do
-                putWord8 2
-                put _tDef
-                put _tInfo
-            TNative {..} -> do
-                putWord8 3
-                put _tNativeName
-                put _tNativeFun
-                put _tFunTypes
-                put _tFunTypes
-            TConst {..} -> do
-                putWord8 4
-                put _tConstArg
-                put _tModule
-                put _tConstVal
-                put _tMeta
-                put _tInfo
-            TApp {..} -> do
-                putWord8 5
-                put _tApp
-                put _tInfo
-            TVar {..} -> do
-                putWord8 6
-                put _tVar
-                put _tInfo
-            TBinding {..} -> do
-                putWord8 7
-                put _tBindPairs
-                put _tBindBody
-                put _tBindType
-                put _tInfo
-            TObject {..} -> do
-                putWord8 8
-                put _tObject
-                put _tInfo
-            TSchema {..} -> do
-                putWord8 9
-                put _tSchemaName
-                put _tModule
-                put _tMeta
-                put _tFields
-                put _tInfo
-            TLiteral {..} -> do
-                putWord8 10
-                put _tLiteral
-                put _tInfo
-            TGuard {..} -> do
-                putWord8 11
-                put _tGuard
-                put _tInfo
-            TUse {..} -> do
-                putWord8 12
-                put _tUse
-                put _tInfo
-            TValue {..} -> do
-                putWord8 13
-                put _tValue
-                put _tInfo
-            TStep {..} -> do
-                putWord8 14
-                put _tStepEntity
-                put _tStepExec
-                put _tStepRollback
-                put _tInfo
-            TTable {..} -> do
-                putWord8 15
-                put _tTableName
-                put _tModule
-                put _tHash
-                put _tTableType
-                put _tMeta
-                put _tInfo
-    get =
-        getWord8 >>= \a ->
-            case a of
-                0 -> do
-                    _tModuleDef <- get
-                    _tModuleBody <- get
-                    _tInfo <- get
-                    return $ TModule {..}
-                1 -> do
-                    _tList <- get
-                    _tListType <- get
-                    _tInfo <- get
-                    return $ TList {..}
-                2 -> do
-                    _tDef <- get
-                    _tInfo <- get
-                    return $ TDef {..}
-                3 -> do
-                    _tNativeName <- get
-                    _tNativeFun <- get
-                    _tFunTypes <- get
-                    _tNativeExamples <- get
-                    _tNativeDocs <- get
-                    _tNativeTopLevelOnly <- get
-                    _tInfo <- get
-                    return $ TNative {..}
-                4 -> do
-                    _tConstArg <- get
-                    _tModule <- get
-                    _tConstVal <- get
-                    _tMeta <- get
-                    _tInfo <- get
-                    return $ TConst {..}
-                5 -> do
-                    _tApp <- get
-                    _tInfo <- get
-                    return $ TApp {..}
-                6 -> do
-                    _tVar <- get
-                    _tInfo <- get
-                    return $ TVar {..}
-                7 -> do
-                    _tBindPairs <- get
-                    _tBindBody <- get
-                    _tBindType <- get
-                    _tInfo <- get
-                    return $ TBinding {..}
-                8 -> do
-                    _tObject <- get
-                    _tInfo <- get
-                    return $ TObject {..}
-                9 -> do
-                    _tSchemaName <- get
-                    _tModule <- get
-                    _tMeta <- get
-                    _tFields <- get
-                    _tInfo <- get
-                    return $ TSchema {..}
-                10 -> do
-                    _tLiteral <- get
-                    _tInfo <- get
-                    return $ TLiteral {..}
-                11 -> do
-                    _tGuard <- get
-                    _tInfo <- get
-                    return $ TGuard {..}
-                12 -> do
-                    _tUse <- get
-                    _tInfo <- get
-                    return $ TUse {..}
-                13 -> do
-                    _tValue <- get
-                    _tInfo <- get
-                    return $ TValue {..}
-                14 -> do
-                    _tStepEntity <- get
-                    _tStepExec <- get
-                    _tStepRollback <- get
-                    _tInfo <- get
-                    return $ TStep {..}
-                15 -> do
-                    _tTableName <- get
-                    _tModule <- get
-                    _tHash <- get
-                    _tTableType <- get
-                    _tMeta <- get
-                    _tInfo <- get
-                    return $ TTable {..}
-                _ -> fail "Term: get error."
-
-instance Serialize NativeDFun where
-    put NativeDFun {..} = put _nativeName
-    get = do
-        _nativeName <- get
-        maybe
-          (fail "Serial NativeDFun: deserialization error.")
-          return
-          (nativeDfunDeserialize _nativeName)
-
-instance (Eq h, Hashable h, Serialize h) => Serialize (HashSet h) where
-    put = put . Data.HashSet.toList
-    get = get >>= return . Data.HashSet.fromList
-
-instance (Hashable k, Ord k, Serialize k, Serialize v) => Serialize (HashMap k v) where
-    put = put . Data.HashMap.Strict.toList
-    get = get >>= return . Data.HashMap.Strict.fromList
-
-deriving instance (Generic n, Serialize n) => Serialize (Object n)
-
-deriving instance Serialize FieldKey
-
-deriving instance Serialize PactExec
-
-deriving instance Serialize PactContinuation
+deriving instance Serial Pragma

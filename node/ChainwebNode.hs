@@ -64,11 +64,11 @@ import System.LogLevel
 
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
-import Chainweb.Chainweb.PeerResources
+import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.Logger
+import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -76,6 +76,8 @@ import Data.CAS.HashMap
 import Data.LogMessage
 
 import P2P.Node
+
+import PkgInfo
 
 import Utils.Logging
 import Utils.Logging.Config
@@ -169,8 +171,9 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \
 -- Run Node
 
 node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
-node conf logger =
-    withChainweb @HashMapCas conf logger $ \cw -> mapConcurrently_ id
+node conf logger = do
+    pdb <- emptyInMemoryPayloadDb
+    withChainweb @HashMapCas conf logger pdb $ \cw -> mapConcurrently_ id
         [ runChainweb cw
         , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
         , runRtsMonitor (_chainwebLogger cw)
@@ -194,17 +197,18 @@ withNodeLogger logConfig f = runManaged $ do
         $ mkTelemetryLogger @CutHashes mgr teleLogConfig
     p2pInfoBackend <- managed
         $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
-    managerBackend <- managed
-        $ mkTelemetryLogger @ConnectionManagerStats mgr teleLogConfig
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
+    counterBackend <- managed $ configureHandler
+        (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
+        teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
             [ logHandler monitorBackend
             , logHandler p2pInfoBackend
-            , logHandler managerBackend
             , logHandler rtsBackend
+            , logHandler counterBackend
             ] baseBackend
 
     liftIO $ f logger
@@ -229,9 +233,8 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration (TestWithTime petersonChainGraph))
+    (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
-main = runWithConfiguration mainInfo $ \conf ->
+main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf ->
     withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
-

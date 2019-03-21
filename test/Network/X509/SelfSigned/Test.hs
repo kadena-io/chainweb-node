@@ -63,7 +63,7 @@ testCertType l = testCaseSteps l $ \step -> do
     step "Generate Certificate"
 
     (fp, cert, key) <- generateLocalhostCertificate @k 1
-    let cred = unsafeMakeCredential cert key
+    let cred = unsafeMakeCredential (X509CertChainPem cert []) key
 
     step "Start Server"
     bracket openFreePort (close . snd) $ \(p, sock) -> do
