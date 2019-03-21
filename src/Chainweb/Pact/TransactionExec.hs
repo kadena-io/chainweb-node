@@ -202,12 +202,11 @@ runPayload
     -> Command (Payload PublicMeta ParsedCode)
     -> [TxLog Value] -- log state
     -> IO (CommandResult, [TxLog Value])
-runPayload env initState c@Command{..} txLogs =
-    case _pPayload _cmdPayload of
-      Exec pm ->
-        applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash txLogs
-      Continuation ym ->
-        applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash txLogs
+runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
+    Exec pm ->
+      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash txLogs
+    Continuation ym ->
+      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash txLogs
 
 applyExec
     :: CommandEnv p
@@ -278,7 +277,7 @@ applyContinuation'
     -> [UserSig]
     -> Hash
     -> IO EvalResult
-applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash = do
+applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash =
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
@@ -335,9 +334,9 @@ rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
     -- if step doesn't have a rollback function, no error thrown.
     -- Therefore, pact will be deleted from state.
     let newState = CommandState _csRefStore $ Map.delete _cmPactId _csPacts
-    liftIO $! logLog _ceLogger "DEBUG" $
-        "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
-    void . liftIO $! swapMVar _ceState newState
+    void $! logLog _ceLogger "DEBUG" $
+      "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
+    void $! swapMVar _ceState newState
 
 continuationUpdate
     :: CommandEnv p
@@ -351,13 +350,13 @@ continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} newPactExec@PactE
         updateState pacts = CommandState _csRefStore pacts -- never loading modules during continuations
     if isLast
         then do
-          liftIO $! logLog _ceLogger "DEBUG" $
+          logLog _ceLogger "DEBUG" $
             "applyContinuation: continuationUpdate: reaping pact: " ++ show _pePactId
-          void . liftIO $! swapMVar _ceState $ updateState $ Map.delete _pePactId _csPacts
+          void $! swapMVar _ceState $ updateState $ Map.delete _pePactId _csPacts
         else do
-            liftIO $! logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact "
+            logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact "
               ++ show _pePactId ++ ": " ++ show newPactExec
-            void . liftIO $! swapMVar _ceState $ updateState $
+            void $! swapMVar _ceState $ updateState $
               Map.insert _pePactId newPactExec _csPacts
 
 ------------------------------------------------------------------------------

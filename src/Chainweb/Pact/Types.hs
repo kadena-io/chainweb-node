@@ -153,8 +153,6 @@ data PactServiceEnv = PactServiceEnv
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactDbState IO)
 
-type TransactionM p = ReaderT (CommandEnv p) IO
-
 type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
 makeLenses ''MinerInfo
