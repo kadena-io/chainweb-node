@@ -58,7 +58,6 @@ import Data.Vector (Vector)
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Runtime (SPVSupport(..))
-import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 import Pact.Types.Util (Hash(..))
 
