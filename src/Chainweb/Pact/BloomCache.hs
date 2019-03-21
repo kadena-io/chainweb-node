@@ -48,8 +48,9 @@ import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.IORef
 import Data.List (lookup)
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import GHC.Stack (HasCallStack)
 import Pact.Types.Command
 import Pact.Types.Util (Hash(..))
 ------------------------------------------------------------------------------
@@ -63,6 +64,7 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Utils (fromJuste)
 import Data.CAS
 ------------------------------------------------------------------------------
 
@@ -122,7 +124,7 @@ destroyCache = Async.cancel . _thread
 withCache
     :: PayloadCas cas
     => CutDb cas
-    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, BlockHeaderDb)] -- TODO: should be WebBlockHeaderDb or WebBlockHeaderStore
     -> (TransactionBloomCache -> IO a)
     -> IO a
 withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
@@ -151,7 +153,8 @@ mAX_HEIGHT_DELTA = 16384
 
 
 update
-    :: PayloadCas cas
+    :: HasCallStack
+    => PayloadCas cas
     => CutDb cas
     -> [(ChainId, BlockHeaderDb)]
     -> IORef TransactionBloomCache_
@@ -165,7 +168,8 @@ update cutDb bdbs mv cut atEnd = do
   where
     f mp = foldM upd mp hdrs
     hdrs = HashMap.toList $ _cutMap cut
-    upd !mp (cid, blockHeader) = updateChain cutDb (fromJust $! lookup cid bdbs) blockHeader mp
+    upd !mp (cid, blockHeader) =
+        updateChain cutDb (fromJuste $! lookup cid bdbs) blockHeader mp
 
 
 updateChain
