@@ -50,9 +50,9 @@ import Chainweb.Sync.WebBlockHeaderStore
 
 import Data.CAS
 import qualified Data.CAS.HashMap as CAS
-import Data.HashMap.Weak
 import Data.IVar
 import Data.PQueue
+import Data.TaskMap
 
 import P2P.TaskQueue
 
@@ -81,7 +81,7 @@ instance IsCasValue Fib where
 testAsyncFib :: Natural -> PropertyM IO ()
 testAsyncFib n = do
     m <- run new
-    cas <- run $ emptyCas @(CAS.HashMapCas Fib)
+    cas <- run CAS.emptyCas
     t <- run $ newIORef @Int 0
 
     let fib 0 = tick t $ return $ Fib 0 1

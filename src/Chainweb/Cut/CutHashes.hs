@@ -45,7 +45,7 @@ import P2P.Peer
 -- Cut Hashes
 
 data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHash)
+    { _cutHashes :: !(HM.HashMap ChainId (BlockHeight, BlockHash))
     , _cutOrigin :: !(Maybe PeerInfo)
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
@@ -60,24 +60,33 @@ instance Ord CutHashes where
 
 instance ToJSON CutHashes where
     toJSON c = object
-        [ "hashes" .= _cutHashes c
+        [ "hashes" .= (hashWithHeight <$> _cutHashes c)
         , "origin" .= _cutOrigin c
         , "weight" .= _cutHashesWeight c
         , "height" .= _cutHashesHeight c
         , "instance" .= _cutHashesChainwebVersion c
         ]
+      where
+        hashWithHeight h = object
+            [ "height" .= fst h
+            , "hash" .= snd h
+            ]
 
 instance FromJSON CutHashes where
     parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> o .: "hashes"
+        <$> (o .: "hashes" >>= traverse hashWithHeight)
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
         <*> o .: "instance"
+      where
+        hashWithHeight = withObject "HashWithHeight" $ \o -> (,)
+            <$> o .: "height"
+            <*> o .: "hash"
 
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
-    { _cutHashes = _blockHash <$> _cutMap c
+    { _cutHashes = (_blockHeight &&& _blockHash) <$> _cutMap c
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c

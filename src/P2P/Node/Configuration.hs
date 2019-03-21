@@ -27,6 +27,7 @@ module P2P.Node.Configuration
 , p2pConfigSessionTimeout
 , p2pConfigKnownPeers
 , p2pConfigPeerDbFilePath
+, p2pConfigIgnoreBootstrapNodes
 , defaultP2pConfiguration
 , pP2pConfiguration
 ) where
@@ -50,7 +51,6 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
-import Chainweb.Version
 
 import P2P.Peer
 
@@ -79,6 +79,8 @@ data P2pConfiguration = P2pConfiguration
 
     , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
         -- ^ the path where the peer database is persisted
+
+    , _p2pConfigIgnoreBootstrapNodes :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -88,24 +90,24 @@ instance Arbitrary P2pConfiguration where
     arbitrary = P2pConfiguration
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
-
-defaultP2pConfiguration :: ChainwebVersion -> P2pConfiguration
-defaultP2pConfiguration v@Test{} = p2pConfiguration v
-defaultP2pConfiguration v@TestWithTime{} = p2pConfiguration v
-defaultP2pConfiguration v@TestWithPow{} = p2pConfiguration v
-defaultP2pConfiguration Simulation{} = error "P2pConfiguration for Simulation yet undefined"
-defaultP2pConfiguration Testnet00 = p2pConfiguration Testnet00
+        <*> arbitrary
 
 -- | These are acceptable values for both test and production chainwebs.
 --
-p2pConfiguration :: ChainwebVersion -> P2pConfiguration
-p2pConfiguration v = P2pConfiguration
+defaultP2pConfiguration :: P2pConfiguration
+defaultP2pConfiguration = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
-    , _p2pConfigKnownPeers = bootstrapPeerInfos v
+    , _p2pConfigKnownPeers = mempty
+        -- by default we start with an empty list. The hard-coded bootstrap peer
+        -- infos depend on the chainweb version which may change depending on
+        -- the configuration. So we have to wait until all configuration parsing
+        -- is complete
+
     , _p2pConfigPeerDbFilePath = Nothing
+    , _p2pConfigIgnoreBootstrapNodes = False
     }
 
 instance ToJSON P2pConfiguration where
@@ -116,6 +118,7 @@ instance ToJSON P2pConfiguration where
         , "sessionTimeout" .= _p2pConfigSessionTimeout o
         , "peers" .= _p2pConfigKnownPeers o
         , "peerDbFilePath" .= _p2pConfigPeerDbFilePath o
+        , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
         ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
@@ -126,6 +129,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
+        <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -135,6 +139,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "sessionTimeout"
         <*> o .: "peers"
         <*> o .: "peerDbFilePath"
+        <*> o .: "ignoreBootstrapNodes"
 
 pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
@@ -148,9 +153,20 @@ pP2pConfiguration networkId = id
     <*< p2pConfigSessionTimeout .:: textOption
         % prefixLong net "p2p-session-timeout"
         <> suffixHelp net "timeout for sessions in seconds"
-    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate (pure <$> pPeerInfoCompact net)
+    <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate
+        (pure <$> pKnownPeerInfo)
     <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
+    <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
+        % prefixLong net "ignore-boostrap-nodes"
+        <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
   where
     net = T.unpack . networkIdToText <$> networkId
+
+    pKnownPeerInfo = textOption
+        % prefixLong net "known-peer-info"
+        <> suffixHelp net
+            "peer info that is added to the list of known peers. This option can be used multiple times."
+        <> metavar "[<PEERID>@]<HOSTADDRESS>"
+

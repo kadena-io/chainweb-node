@@ -256,16 +256,16 @@ serveChainwebSocketTls
     => FromJSON t
     => PayloadCas cas
     => Settings
-    -> X509CertPem
+    -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> IO ()
-serveChainwebSocketTls settings certBytes keyBytes sock v dbs
+serveChainwebSocketTls settings certChain key sock v dbs
     = runTLSSocket tlsSettings settings sock app
   where
-    tlsSettings = tlsServerSettings certBytes keyBytes
+    tlsSettings = tlsServerChainSettings certChain key
     app = chainwebApplication v dbs
 
 serveChainwebSocketTlsEkg

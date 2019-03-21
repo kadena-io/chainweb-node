@@ -20,6 +20,8 @@
   ; Capabilities
   ; --------------------------------------------------------------------------
 
+  (defcap GOVERNANCE () (enforce false "upgrade disabled"))
+
   (defcap TRANSFER ()
     "Autonomous capability to protect debit and credit actions"
     true)

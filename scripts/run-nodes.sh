@@ -83,12 +83,15 @@ function run-node () {
 
         # Run with LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
+            --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
             --log-handle="$APP_LOG" \
+            --disable-transaction-index \
             $CONFIG_FILE_ARG \
             +RTS -T &
 
@@ -96,10 +99,13 @@ function run-node () {
 
         # Run without LOG_DIR
         $RUN \
+            --hostname=127.0.0.1 \
             --node-id=$NID \
             --test-miners=$N \
+            --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
+            --disable-transaction-index \
             $PORT_ARG \
             $CONFIG_FILE_ARG \
             +RTS -T &

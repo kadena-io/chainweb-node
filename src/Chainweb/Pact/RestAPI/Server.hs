@@ -14,11 +14,15 @@ module Chainweb.Pact.RestAPI.Server
 , PactServerData_
 , SomePactServerData(..)
 , somePactServerData
+, createPactServerData
+, destroyPactServerData
 , pactServer
 , somePactServer
 , somePactServers
 ) where
 
+
+import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.Lens ((^.))
@@ -49,6 +53,8 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
+import Chainweb.Pact.BloomCache (TransactionBloomCache)
+import qualified Chainweb.Pact.BloomCache as Bloom
 import Chainweb.Pact.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
@@ -60,7 +66,22 @@ import Chainweb.Version
 
 ------------------------------------------------------------------------------
 type PactServerData logger cas =
-    (CutResources logger cas, ChainResources logger)
+    (CutResources logger cas, ChainResources logger, TransactionBloomCache)
+
+createPactServerData
+    :: PayloadCas cas
+    => CutResources logger cas
+    -> ChainResources logger
+    -> IO (PactServerData logger cas)
+createPactServerData cut chain = do
+    b <- Bloom.createCache cutDb bdb
+    return $! (cut, chain, b)
+  where
+    cutDb = cut ^. cutsCutDb
+    bdb = chain ^. chainResBlockHeaderDb
+
+destroyPactServerData :: PactServerData logger cas -> IO ()
+destroyPactServerData (_, _, b) = Bloom.destroyCache b
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
     = PactServerData_ { _unPactServerData :: PactServerData logger cas }
@@ -93,10 +114,10 @@ pactServer
     => PayloadCas cas
     => PactServerData logger cas
     -> Server (PactApi v c)
-pactServer (cut, chain) =
+pactServer (cut, chain, bloom) =
     sendHandler mempool :<|>
-    pollHandler cut cid chain :<|>
-    listenHandler cut cid chain :<|>
+    pollHandler cut cid chain bloom :<|>
+    listenHandler cut cid chain bloom :<|>
     localHandler cut cid chain
   where
     cid = FromSing (SChainId :: Sing c)
@@ -132,12 +153,13 @@ pollHandler
     => CutResources logger cas
     -> ChainId
     -> ChainResources logger
+    -> TransactionBloomCache
     -> Poll
     -> Handler PollResponses
-pollHandler cutR cid chain (Poll request) = liftIO $ do
+pollHandler cutR cid chain bloomCache (Poll request) = liftIO $ do
     -- get current best cut
     cut <- CutDB._cut $ _cutResCutDb cutR
-    PollResponses <$> internalPoll cutR cid chain cut request
+    PollResponses <$> internalPoll cutR cid chain bloomCache cut request
 
 
 listenHandler
@@ -145,9 +167,10 @@ listenHandler
     => CutResources logger cas
     -> ChainId
     -> ChainResources logger
+    -> TransactionBloomCache
     -> ListenerRequest
     -> Handler ApiResult
-listenHandler cutR cid chain (ListenerRequest key) =
+listenHandler cutR cid chain bloomCache (ListenerRequest key) =
     liftIO $ handleTimeout runListen
   where
     nullResponse = ApiResult (object []) Nothing Nothing
@@ -161,7 +184,7 @@ listenHandler cutR cid chain (ListenerRequest key) =
                 (Just cut) -> poll cut
 
         poll cut = do
-            hm <- internalPoll cutR cid chain cut [key]
+            hm <- internalPoll cutR cid chain bloomCache cut [key]
             if HashMap.null hm
               then go (Just cut)
               else return $! snd $ head $ HashMap.toList hm
@@ -209,15 +232,16 @@ internalPoll
     => CutResources logger cas
     -> ChainId
     -> ChainResources logger
+    -> TransactionBloomCache
     -> Cut
     -> [RequestKey]
     -> IO (HashMap RequestKey ApiResult)
-internalPoll cutR cid chain cut requestKeys =
+internalPoll cutR cid chain bloomCache cut requestKeys =
     toHashMap <$> mapM lookup requestKeys
   where
     lookup :: RequestKey -> IO (Maybe (RequestKey, ApiResult))
-    lookup key = fmap (key,) <$> lookupRequestKey cid cut cutR chain key
-
+    lookup key =
+        fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
     toHashMap = HashMap.fromList . catMaybes
 
 
@@ -227,9 +251,10 @@ lookupRequestKey
     -> Cut
     -> CutResources logger cas
     -> ChainResources logger
+    -> TransactionBloomCache
     -> RequestKey
     -> IO (Maybe ApiResult)
-lookupRequestKey cid cut cutResources chain key = do
+lookupRequestKey cid cut cutResources chain bloomCache key = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
 
@@ -237,7 +262,8 @@ lookupRequestKey cid cut cutResources chain key = do
     let minHeight = boundHeight leafHeight
 
     -- walk backwards from there. Bound the number of blocks searched
-    runMaybeT $ lookupRequestKeyInBlock cutResources chain key minHeight chainLeaf
+    runMaybeT $ lookupRequestKeyInBlock cutResources chain bloomCache key
+                                        minHeight chainLeaf
 
   where
     boundHeight h | h <= maxHeightDelta = 0
@@ -249,16 +275,27 @@ lookupRequestKeyInBlock
     :: PayloadCas cas
     => CutResources logger cas  -- ^ cut resources
     -> ChainResources logger    -- ^ chain
+    -> TransactionBloomCache    -- ^ bloom filter cache
     -> RequestKey               -- ^ key to search
     -> BlockHeight              -- ^ lowest block to search
     -> BlockHeader              -- ^ search starts here
     -> MaybeT IO ApiResult
-lookupRequestKeyInBlock cutR chain key minHeight = go
+lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
   where
+    keyHash = unRequestKey key
+    pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
     go blockHeader = do
-        -- TODO: bloom filter cache
+        -- bloom reports false positives, so if it says "no" we're sure the
+        -- transaction is not in this block and we can skip decoding it.
+        needToLook <- liftIO $ Bloom.member keyHash
+                          (_blockHeight blockHeader, _blockHash blockHeader)
+                          bloomCache
+        if needToLook
+          then lookupInPayload blockHeader
+          else lookupParent blockHeader
+
+    lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
-        let pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
         (PayloadWithOutputs txsBs _ _ _) <- MaybeT $ casLookup pdb payloadHash
         txs <- mapM fromTx txsBs
 
@@ -274,7 +311,7 @@ lookupRequestKeyInBlock cutR chain key minHeight = go
     fromTx (tx, out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
-    matchingHash (cmd, _) = _cmdHash cmd == unRequestKey key
+    matchingHash (cmd, _) = _cmdHash cmd == keyHash
 
     lookupParent blockHeader = do
         let parentHash = _blockParent blockHeader
@@ -282,13 +319,12 @@ lookupRequestKeyInBlock cutR chain key minHeight = go
         parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
         let parentHeight = _blockHeight parentHeader
         if parentHeight <= minHeight
-          then MaybeT (return Nothing)
+          then empty
           else go parentHeader
 
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
-
 
 validateCommand :: Command Text -> Maybe (Command PayloadWithText)
 validateCommand cmdText = let

@@ -105,7 +105,7 @@ defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
-    , _nodeChainId    = testChainId 0
+    , _nodeChainId    = testChainId 1
     , _serverRootPath = "http://127.0.0.1:" ++ show 1789
     , _isChainweb     = False
     }

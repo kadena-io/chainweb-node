@@ -59,6 +59,7 @@ import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
@@ -100,7 +101,8 @@ instance HasChainId (ChainResources logger) where
 -- Intializes all local Chain resources, but doesn't start any networking.
 --
 withChainResources
-    :: ChainwebVersion
+    :: Logger logger
+    => ChainwebVersion
     -> ChainId
     -> PeerResources logger
     -> (Maybe FilePath)
@@ -110,6 +112,7 @@ withChainResources
     -> IO a
 withChainResources v cid peer chainDbDir logger mempoolCfg inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
+    withPactService v (setComponent "pact" logger) mempool $ \_requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
@@ -146,7 +149,7 @@ runChainSyncClient
     -> IO ()
 runChainSyncClient mgr chain = bracket create destroy go
   where
-    syncLogger = setComponent "sync" $ _chainResLogger chain
+    syncLogger = setComponent "header-sync" $ _chainResLogger chain
     netId = ChainNetwork (_chainId chain)
     syncLogg = logFunctionText syncLogger
     create = p2pCreateNode
@@ -190,7 +193,7 @@ runMempoolSyncClient mgr chain = bracket create destroy go
   where
     create = do
         logg Debug "starting mempool p2p sync"
-        p2pCreateNode v netId peer (logFunction $ _chainResLogger chain) peerDb mgr $
+        p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr $
             mempoolSyncP2pSession chain
     go n = do
         -- Run P2P client node
@@ -204,7 +207,9 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     p2pConfig = _peerResConfig $ _chainResPeer chain
     peerDb = _peerResDb $ _chainResPeer chain
     netId = ChainNetwork $ _chainId chain
-    logg = logFunctionText (_chainResLogger chain)
+
+    logg = logFunctionText syncLogger
+    syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
 mempoolSyncP2pSession chain logg0 env = go
@@ -232,4 +237,3 @@ mempoolSyncP2pSession chain logg0 env = go
     gaslimit = Mempool.mempoolBlockGasLimit pool
     cid = _chainId chain
     v = _chainwebVersion chain
-

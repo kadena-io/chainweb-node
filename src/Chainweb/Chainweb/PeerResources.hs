@@ -1,12 +1,7 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -35,24 +30,19 @@ module Chainweb.Chainweb.PeerResources
 , withSocket
 , withPeerDb
 , withConnectionManger
-, ConnectionManagerStats(..)
 ) where
 
-import Configuration.Utils hiding (Lens', (<.>))
+import Configuration.Utils hiding (Lens', (<.>), Error)
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashSet as HS
-import Data.IORef
 import Data.IxSet.Typed (getEQ, getOne)
-
-import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
@@ -64,6 +54,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Counter
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
@@ -122,9 +113,9 @@ withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
     let logger' = addLabel ("host", shortPeerInfo (_peerInfo peer)) logger
         mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
-        let cert = _peerCertificate peer
+        let certChain = _peerCertificateChain peer
             key = _peerKey peer
-        withConnectionManger mgrLogger cert key peerDb $ \mgr -> do
+        withConnectionManger mgrLogger certChain key peerDb $ \mgr -> do
             inner logger' (PeerResources conf' peer sock peerDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
@@ -165,59 +156,65 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 -- -------------------------------------------------------------------------- --
 -- Connection Manager
 
-data ConnectionManagerStats = ConnectionManagerStats
-    { _connectionManagerConnectionCount :: !Int
-    , _connectionManagerRequestCount :: !Int
-    }
-    deriving (Show, Eq, Ord, Generic, ToJSON, FromJSON, NFData)
-
 -- Connection Manager
 --
 withConnectionManger
     :: Logger logger
     => logger
-    -> X509CertPem
+    -> X509CertChainPem
     -> X509KeyPem
     -> PeerDb
     -> (HTTP.Manager -> IO a)
     -> IO a
-withConnectionManger logger cert key peerDb runInner = do
-    let cred = unsafeMakeCredential cert key
+withConnectionManger logger certs key peerDb runInner = do
+    let cred = unsafeMakeCredential certs key
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
         (Just cred)
 
-    connCountRef <- newIORef (0 :: Int)
-    reqCountRef <- newIORef (0 :: Int)
-    mgr <- HTTP.newManager settings
-        { HTTP.managerConnCount = 5
-            -- keep only 5 connections alive
-        , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
-            -- timeout connection attempts after 1 sec instead of 30 sec default
-        , HTTP.managerIdleConnectionCount = 512
-            -- total number of connections to keep alive. 512 is the default
+    let settings' = settings
+            { HTTP.managerConnCount = 5
+                -- keep only 5 connections alive
+            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 1000000
+                -- timeout connection-attempts after 1 sec instead of the default of 30 sec
+            , HTTP.managerIdleConnectionCount = 512
+                -- total number of connections to keep alive. 512 is the default
+            }
 
-        -- Debugging
-
-        , HTTP.managerTlsConnection = do
-            mk <- HTTP.managerTlsConnection settings
-            return $ \a b c -> do
-                atomicModifyIORef' connCountRef $ (,()) . succ
-                mk a b c
+    connCountRef <- newCounter @"connection-count"
+    reqCountRef <- newCounter @"request-count"
+    urlStats <- newCounterMap @"url-counts"
+    mgr <- HTTP.newManager settings'
+        { HTTP.managerTlsConnection = do
+            mk <- HTTP.managerTlsConnection settings'
+            return $ \a b c -> inc connCountRef >> mk a b c
 
         , HTTP.managerModifyRequest = \req -> do
-            atomicModifyIORef' reqCountRef $ (,()) . succ
+            inc reqCountRef
+            incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
+                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+                    -- overwrite the explicit connection timeout from servant-client
+                    -- (If the request has a timeout configured, the global timeout of
+                    -- the manager is ignored)
+                }
         }
 
     let logClientConnections = forever $ do
-            threadDelay 5000000
-            connCount <- readIORef connCountRef
-            reqCount <- readIORef reqCountRef
-            logFunctionJson logger Info
-                $ ConnectionManagerStats connCount reqCount
+            threadDelay 60000000 {- 1 minute -}
+            logFunctionCounter logger Info =<< sequence
+                [ roll connCountRef
+                , roll reqCountRef
+                , roll urlStats
+                ]
 
-    snd <$> concurrently logClientConnections (runInner mgr)
+    let runLogClientConnections umask = do
+            umask logClientConnections `catchAllSynchronous` \e -> do
+                logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
+            logFunctionText logger Info "Restarting connection manager logger"
+            runLogClientConnections umask
+
+    withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
 
   where
     certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
@@ -226,5 +223,7 @@ withConnectionManger logger cert key peerDb runInner = do
         pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
         return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
-    serviceIdToHostAddress (h, p) = readHostAddressBytes $ B8.pack h <> ":" <> p
+    serviceIdToHostAddress (h, p) = HostAddress
+        <$> readHostnameBytes (B8.pack h)
+        <*> readPortBytes p
 

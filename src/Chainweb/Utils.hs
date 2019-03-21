@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -143,12 +144,16 @@ module Chainweb.Utils
 -- * Filesystem
 , withTempDir
 
+-- * Type Level
+, symbolText
+
 ) where
 
 import Configuration.Utils
 
 import Control.DeepSeq
-import Control.Exception (IOException, SomeAsyncException(..), bracket, evaluate)
+import Control.Exception
+    (IOException, SomeAsyncException(..), bracket, evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -173,6 +178,7 @@ import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
+import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
@@ -183,6 +189,7 @@ import Data.Word (Word64)
 
 import GHC.Generics
 import GHC.Stack (HasCallStack)
+import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import Numeric.Natural
 
@@ -510,7 +517,7 @@ parseJsonFromText l = withText l $ either fail return . eitherFromText
 type OptionParser a = O.Parser a
 
 prefixLong :: HasName f => Maybe String -> String -> Mod f a
-prefixLong prefix l = long $ maybe "" ("-" <>) prefix <> l
+prefixLong prefix l = long $ maybe "" (<> "-") prefix <> l
 
 suffixHelp :: Maybe String -> String -> Mod f a
 suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix
@@ -744,3 +751,9 @@ withTempDir tag f = bracket create delete f
 
     delete :: Path Absolute -> IO ()
     delete = toAbsoluteFilePath >=> removeDirectoryRecursive
+
+-- -------------------------------------------------------------------------- --
+-- Typelevel
+
+symbolText :: forall s a . KnownSymbol s => IsString a => a
+symbolText = fromString $ symbolVal (Proxy @s)
