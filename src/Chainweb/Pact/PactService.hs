@@ -184,9 +184,8 @@ testnet00CreateCoinContract cid = do
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
-        genesisHeader = (genesisBlockHeader Testnet00 cid) { _blockPayloadHash = _payloadWithOutputsPayloadHash }
+        genesisHeader = genesisBlockHeader Testnet00 cid
     txs <- execValidateBlock genesisHeader inputPayloadData
-    -- failing z-TEwU2t7DU5kPrNEnXEiQie_Wu8ew4DgUrDwGm3_y4 /= 3OWKmFiHQg3_8Hq775ZPqo4wjUeuy6x5P7wyaziVAfg
     case toValidateBlockResults txs genesisHeader of
       Left (PactValidationErr e) -> throwM $ userError $ "genesis validation failed! " ++ show e
       Right _ -> return ()
