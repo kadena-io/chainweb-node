@@ -121,6 +121,7 @@ module Chainweb.Utils
 , catchAllSynchronous
 , trySynchronous
 , tryAllSynchronous
+, runForever
 
 -- * Command Line Options
 , OptionParser
@@ -150,7 +151,7 @@ module Chainweb.Utils
 
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding (Error)
 
 import Control.DeepSeq
 import Control.Exception
@@ -200,6 +201,7 @@ import qualified Streaming as S (concats, effect, maps)
 import qualified Streaming.Prelude as S
 
 import System.Directory (removeDirectoryRecursive)
+import System.LogLevel
 import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
 import System.Path.IO (getTemporaryDirectory)
 import System.Random (randomIO)
@@ -631,6 +633,18 @@ tryAllSynchronous
     -> m (Either SomeException a)
 tryAllSynchronous = trySynchronous
 {-# INLINE tryAllSynchronous #-}
+
+runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
+runForever logfun name a = do
+    logfun Info $ "start " <> name
+    go
+    logfun Info $ name <> " stopped"
+  where
+    go :: IO ()
+    go = forever a `catchAllSynchronous` \e -> do
+        logfun Error $ name <> " failed: " <> sshow e
+        go
+
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring

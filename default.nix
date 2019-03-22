@@ -1,6 +1,7 @@
 { rpRef ? "f3ff81d519b226752c83eefd4df6718539c3efdc"
 , rpSha ? "1ijxfwl36b9b2j4p9j3bv8vf7qfi570m1c5fjyvyac0gy0vi5g8j"
 , system ? builtins.currentSystem
+, runTests ? true
 }:
 
 let rp = builtins.fetchTarball {
@@ -48,7 +49,11 @@ in
           sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
         };
 
-        chainweb = doCoverage (doHaddock super.chainweb);
+        chainweb = overrideCabal super.chainweb (drv: {
+          doCheck = runTests;
+          doHaddock = runTests;
+          doCoverage = runTests;
+        });
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
         x509 = callHackageDirect {
