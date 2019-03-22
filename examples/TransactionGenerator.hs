@@ -1,11 +1,15 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -25,36 +29,37 @@ import Control.Concurrent (threadDelay)
 import Control.Lens hiding ((.=))
 import Control.Monad.Except
 import Control.Monad.Primitive
-import Control.Monad.Reader
+import Control.Monad.Reader hiding (local)
 import Control.Monad.State
 
 import Data.Default (Default(..), def)
 import Data.Int
+import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import Fake (fake, generate)
 
-import Network.HTTP.Client
--- import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Client hiding (Proxy)
 import Network.X509.SelfSigned hiding (name)
 
 import GHC.Generics
 
+
+import Servant
 import Servant.Client
 
 import System.Random
 import System.Random.MWC (Gen, asGenIO, uniformR, withSystemRandom)
 import System.Random.MWC.Distributions (normal)
 
--- -- pact
+-- PACT
 import Pact.ApiReq (mkExec)
-import Pact.Server.Client
 import Pact.Types.API
-import Pact.Types.Command (Command(..))
+import Pact.Types.Command (Command(..), CommandSuccess(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
--- chainweb
+-- CHAINWEB
 import Chainweb.ChainId
 -- THIS MODULE MAY BE USED LATER
 -- import Chainweb.Simulate.Contracts.CommercialPaper
@@ -62,6 +67,7 @@ import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
+import Chainweb.Pact.RestAPI
 
 data TransactionCommand = NoOp | DeployContracts [FilePath] | Run
   deriving (Show, Eq, Read, Generic)
@@ -106,9 +112,9 @@ defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand  = DeployContracts []
-    , _nodeChainId    = testChainId 1
-    , _serverRootPath = "http://127.0.0.1:" ++ show (1789 :: Int)
-    , _isChainweb     = False
+    , _nodeChainId    = testChainId 0
+    , _serverRootPath = "https://127.0.0.1:" ++ show (1789 :: Int)
+    , _isChainweb     = True
     }
 
 transactionConfigParser :: MParser TransactionConfig
@@ -185,23 +191,25 @@ newtype TransactionGenerator s a = TransactionGenerator
   } deriving (Functor, Applicative, Monad, MonadIO, MonadState (GeneratorState s), MonadReader GeneratorConfig)
 
 
-sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
+-- sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
+sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError NoContent) -- NoContent should be changed back to RequestKeys.
 sendTransaction cmd = do
   cenv <- view genClientEnv
   liftIO $ runExceptT $ do
     rkeys <-
       ExceptT $
-      runClientM (send pactServerApiClient (SubmitBatch [cmd])) cenv
-    ExceptT $
-      runClientM
-        (poll pactServerApiClient (Poll (_rkRequestKeys rkeys)))
-        cenv
+      runClientM (send (SubmitBatch [cmd])) cenv
+    return rkeys
+    -- And then we poll.
+    -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) cenv
 
 loop :: TransactionGenerator (PrimState IO) ()
 loop = do
   transaction <- generateTransaction
-  pollResponse <- sendTransaction transaction
-  liftIO $ print pollResponse
+  -- pollResponse <- sendTransaction transaction -- this is not yet ready
+  requestKeys <- sendTransaction transaction
+  -- liftIO $ print pollResponse -- this is not yet ready
+  liftIO $ print requestKeys
   count <- use gsCounter
   liftIO $ putStrLn $ "Transaction count: " ++ show count
   gsCounter += 1
@@ -212,12 +220,13 @@ mkGeneratorConfig config = GeneratorConfig <$> pure def <*> pure mempty <*> go
   where
     pfx = if _isChainweb config then chainwebPfx else ""
     pfxUrl = _serverRootPath config ++ T.unpack pfx
-    go = do mgr <- newManager defaultManagerSettings
+    go = do mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+            mgr <- newManager mgrSettings
             url <- parseBaseUrl pfxUrl
-            return $ mkClientEnv mgr url
-    chainwebPfx = T.concat [ "/chainweb/0.0/testnet00/chain/"
+            return $! mkClientEnv mgr url
+    chainwebPfx = T.concat [
+                            "/chainweb/0.0/testnet00/chain/"
                            , chainIdToText $ _nodeChainId config
-                           , "/pact"
                            ]
 
 mainInfo :: ProgramInfo TransactionConfig
@@ -226,12 +235,6 @@ mainInfo =
     "Chainweb-TransactionGenerator"
     transactionConfigParser
     defaultTransactionConfig
-
-_testPort :: String
-_testPort = "1789"
-
-_serverPath :: String
-_serverPath = "https://localhost:" ++ _testPort
 
 --------------------------------------------------
 -- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
@@ -245,31 +248,32 @@ _serverPath = "https://localhost:" ++ _testPort
 
 type ContractLoader = [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: [ContractLoader] -> IO ()
-loadContracts contractLoaders = do
-  -- mgr <- newManager defaultManagerSettings
-  mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
-  -- mgr <- newManager tlsManagerSettings
-  mgr <- newManager mgrSettings
-  url <- parseBaseUrl _serverPath
-  let clientEnv = mkClientEnv mgr url
+loadContracts :: [ContractLoader] -> TransactionConfig -> IO ()
+loadContracts contractLoaders config = do
+  gencfg <- mkGeneratorConfig config
   ts <- testSomeKeyPairs
   contracts <- traverse ($ ts) contractLoaders
-  pollresponse <- runExceptT $ do
-     rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch contracts)) clientEnv
-     ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv
-  print pollresponse
+  -- pollresponse <- runExceptT $ do -- this is not yet ready
+  rkeys <- runExceptT $ do
+     rkeys <- ExceptT $ runClientM (send (SubmitBatch contracts)) (_genClientEnv gencfg)
+     return rkeys
+     -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv --this is not yet ready
+  -- print pollresponse -- this is not yet ready
+  putStrLn "loadContracts: are we here"
+  print rkeys
 
 sendTransactions :: TransactionConfig -> IO ()
 sendTransactions config = do
   putStrLn "Transactions are being generated"
   gencfg <- mkGeneratorConfig config
   (keysets, accounts) <- unzip <$> createAccounts
-  _pollresponse <-
+  _rkeys <-
       runExceptT $ do
-          rkeys <- ExceptT $ runClientM (send pactServerApiClient (SubmitBatch accounts)) (_genClientEnv gencfg)
-          ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
-  print _pollresponse
+          rkeys <- ExceptT $ runClientM (send (SubmitBatch accounts)) (_genClientEnv gencfg)
+          return rkeys
+          -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg) -- this is not yet ready
+  -- print _pollresponse -- this is not ready
+  print _rkeys
   withSystemRandom . asGenIO $ \gen ->
     evalStateT
       (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
@@ -281,7 +285,7 @@ main =
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
       DeployContracts contracts ->
-        loadContracts (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders))
+        loadContracts (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders)) config
         where
           go xs ys = if null xs then ys else xs
       Run -> sendTransactions config
@@ -301,10 +305,19 @@ createLoader contractName = \_kp -> do
 
 defaultContractLoaders :: [ContractLoader]
 defaultContractLoaders = take numContracts $ [helloWorldContractLoader, simplePaymentsContractLoader, cryptoCritterContractLoader]
+-- add this back in later
+-- , commercialPaperContractLoader
 
 -- We are just going to work with some contracts at this point in time.
 numContracts :: Int
 numContracts = 2
 
--- add this back in later
--- , commercialPaperContractLoader
+api :: Proxy PactApi_
+api = Proxy
+
+send :: SubmitBatch -> ClientM NoContent
+poll :: Poll -> ClientM PollResponses
+listen :: ListenerRequest -> ClientM ApiResult
+local :: Command Text -> ClientM (CommandSuccess Value)
+
+send :<|> poll :<|> listen :<|> local = client api
