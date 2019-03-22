@@ -4,12 +4,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
--- Maintainer: Mark Nichols <mark@kadena.io>
+-- Maintainers: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
 -- Pact service for Chainweb
@@ -30,17 +30,17 @@ module Chainweb.Pact.PactService
     ) where
 
 
-import GHC.Stack
-
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception hiding (try)
-import Control.Lens ((.=), (^.), ix, view)
+import Control.Lens ((.=), (^.), view, lazy)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
+
+import Crypto.Hash.Algorithms
 
 import qualified Data.Aeson as A
 import Data.Bifunctor (first)
@@ -49,7 +49,6 @@ import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
-import Data.Maybe (isJust, catMaybes)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
@@ -69,7 +68,6 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P
-import qualified Pact.Types.Term as P
 
 -- internal modules
 
@@ -88,8 +86,8 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.SPV.VerifyProof (verifyTransactionProof)
+import Chainweb.SPV
+import Chainweb.SPV.VerifyProof
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -136,7 +134,7 @@ initPactService ver cid chainwebLogger reqQ memPoolAccess cutMV =
     initPactService' ver cid chainwebLogger memPoolAccess spv $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
   where
-    spv = pactSPVSupport cid cutMV
+    spv = pactSPVSupport cutMV
 
 initPactService'
     :: Logger logger
@@ -181,14 +179,44 @@ initPactService' ver (ChainId cid) chainwebLogger mpa spv act = do
 
 
 pactSPVSupport
-    :: HasCallStack
-    => ChainId -> MVar (CutDb cas) -> P.SPVSupport
-pactSPVSupport cid mv = P.SPVSupport $ \s o -> case s of
-    "TXOUT" -> undefined -- TODO: handle txOut
-    _ -> pure . Left $ "spvSupport: unsupported SPV prefix"
+    ::MVar (CutDb cas) -> P.SPVSupport
+pactSPVSupport mv = P.SPVSupport $ \s o -> do
+    cdb <- readMVar mv
+    t <- go s o cdb
+    pure . Right . P._tObject . P._csData $ t
+  where
+    -- Process the transaction verification for a given
+    -- mode
+    go s o cdb = case s of
+      "TXOUT" -> do
+        t <- outputProofOf o
+        (TransactionOutput u) <- verifyTransactionOutputProof cdb t
+        psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+      "TXIN" -> do
+        t <- inputProofOf o
+        (Transaction u) <- verifyTransactionProof cdb t
+        psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+      _ -> internalError' "spvSupport: Unsupport SPV mode"
 
+    -- serialize pact object and produce an
+    -- spv proof (either in or outgoing)
+    outputProofOf o = psDecode @(TransactionOutputProof SHA512t_256)
+      . A.toJSON
+      $ P.TObject o def
 
+    inputProofOf o = psDecode @(TransactionProof SHA512t_256)
+      . A.toJSON
+      $ P.TObject o def
 
+    psDecode :: (A.FromJSON a) => A.Value -> IO a
+    psDecode a = case A.fromJSON a of
+      A.Error s -> internalError' s
+      A.Success x -> pure x
+
+    psDecode' :: (A.FromJSON a) => ByteString -> IO a
+    psDecode' b = case A.decode (b ^. lazy) of
+      Nothing -> internalError' "spvSupport: Unable to decode tx output"
+      Just x -> pure x
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
