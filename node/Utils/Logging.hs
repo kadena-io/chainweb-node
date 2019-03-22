@@ -486,7 +486,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
     processor queue = do
         (n, msg) <- atomically $ do
             h <- readTBQueue queue
-            go 1000 (indexAction h) 1
+            go (1000 :: Int) (indexAction h) (1 :: Int)
         errorLogFun Info $ "send " <> sshow n <> " messages"
 
         void $ HTTP.httpLbs (putBulgLog msg) mgr
