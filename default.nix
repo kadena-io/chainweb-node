@@ -50,6 +50,7 @@ in
         };
 
         chainweb = overrideCabal super.chainweb (drv: {
+          doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runTests;
         });
