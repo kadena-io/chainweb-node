@@ -129,6 +129,8 @@ import Data.LogMessage
 
 import P2P.Node
 
+import qualified PkgInfo as Pkg
+
 import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
@@ -477,7 +479,6 @@ withElasticsearchBackend mgr esServer ixName inner = do
     withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
-
   where
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
@@ -487,6 +488,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
             h <- readTBQueue queue
             go (1000 :: Int) (indexAction h) (1 :: Int)
         errorLogFun Info $ "send " <> sshow n <> " messages"
+
         void $ HTTP.httpLbs (putBulgLog msg) mgr
       where
         go 0 !b !c = return (c, b)
@@ -528,7 +530,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
     indexAction a
         = fromEncoding indexActionHeader
         <> BB.char7 '\n'
-        <> e (JsonLogMessage a)
+        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
         <> BB.char7 '\n'
 
     indexActionHeader :: Encoding
@@ -536,6 +538,18 @@ withElasticsearchBackend mgr esServer ixName inner = do
         $ pair "index" $ pairs
             $ ("_index" .= (ixName :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
+
+-- -------------------------------------------------------------------------- --
+-- Encode Package Info into Log mesage scopes
+
+pkgInfoScopes =
+    [ ("revision", Pkg.revision)
+    , ("branch", Pkg.branch)
+    , ("compiler", Pkg.compiler)
+    , ("optimisation", Pkg.optimisation)
+    , ("architecture", Pkg.arch)
+    , ("package", Pkg.package)
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages

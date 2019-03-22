@@ -27,6 +27,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
+    , _newMiner :: MinerInfo
     , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
 

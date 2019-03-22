@@ -16,17 +16,16 @@
 module Chainweb.Pact.PactService
     ( pactDbConfig
     , execNewBlock
+    , execNewGenesisBlock
     , execTransactions
     , execValidateBlock
     , initPactService, initPactService'
     , mkPureState
     , mkSQLiteState
-    , pactFilesDir
     , serviceRequests
     , toCommandConfig
     , testnet00CreateCoinContract
     , toHashedLogTxOutput
-    , toNewBlockResults
     , initialPayloadState
     ) where
 
@@ -40,7 +39,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
@@ -68,7 +67,8 @@ import qualified Pact.Types.SQLite as P
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.BlockHash
+import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -170,12 +170,13 @@ testnet00CreateCoinContract :: ChainId -> PactT ()
 testnet00CreateCoinContract cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsMiner
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader Testnet00 cid
-    txs <- execValidateBlock genesisHeader inputPayloadData
-    case toValidateBlockResults txs genesisHeader of
+    txs <- execValidateBlock True genesisHeader inputPayloadData
+    case validateHashes txs genesisHeader of
       Left e -> throwM e
       Right _ -> return ()
 
@@ -190,18 +191,19 @@ serviceRequests memPoolAccess reqQ = go
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- try $ execNewBlock False memPoolAccess _newBlockHeader
+                txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
                 case txs of
                   Left (SomeException e) ->
                     liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
-                  Right r -> liftIO $ putMVar _newResultVar $ Right $ toNewBlockResults r
+                  Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock _valBlockHeader _valPayloadData
+                txs <- try $ execValidateBlock False _valBlockHeader _valPayloadData
                 case txs of
                   Left (SomeException e) ->
                     liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
-                  Right r -> liftIO $ putMVar _valResultVar $ toValidateBlockResults r _valBlockHeader
+                  Right r ->
+                    liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
@@ -224,99 +226,108 @@ toOutputBytes flOut =
         outBytes = A.encode hashedLogOut
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
-toNewBlockResults :: Transactions -> PayloadWithOutputs
-toNewBlockResults ts =
-    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
-        newSeq = second toOutputBytes <$> oldSeq
-        bPayload = newBlockPayload newSeq
-    in PayloadWithOutputs
-        { _payloadWithOutputsTransactions = newSeq
-        , _payloadWithOutputsPayloadHash =  _blockPayloadPayloadHash bPayload
-        , _payloadWithOutputsTransactionsHash =  _blockPayloadTransactionsHash bPayload
-        , _payloadWithOutputsOutputsHash =  _blockPayloadOutputsHash bPayload
-        }
-
-toValidateBlockResults :: Transactions -> BlockHeader -> Either PactException PayloadWithOutputs
-toValidateBlockResults ts bHeader =
+toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
+toPayloadWithOutputs mi ts =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
         trans = fst <$> oldSeq
         transOuts = toOutputBytes . snd <$> oldSeq
 
-        blockTrans = snd $ newBlockTransactions trans
+        miner = MinerData $ encodeToByteString mi
+        blockTrans = snd $ newBlockTransactions miner trans
         blockOuts = snd $ newBlockOutputs transOuts
 
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
-        plWithOuts = payloadWithOutputs plData transOuts
+     in payloadWithOutputs plData transOuts
 
-        newHash = _payloadWithOutputsPayloadHash plWithOuts
+validateHashes :: PayloadWithOutputs -> BlockHeader -> Either PactException PayloadWithOutputs
+validateHashes pwo bHeader =
+    let newHash = _payloadWithOutputsPayloadHash pwo
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
-        then Right plWithOuts
+        then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
--- | Note: The BlockHeader param here is the header of the parent of the new block
-execNewBlock :: Bool -> MemPoolAccess -> BlockHeader -> PactT Transactions
-execNewBlock runGenesis memPoolAccess header = do
-    cpEnv <- ask
-    -- TODO: miner data needs to be added to BlockHeader...
-    let miner = defaultMiner
-        bHeight = _blockHeight header
+restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactT ()
+restoreCheckpointer maybeBB = do
+  checkPointer <- asks _cpeCheckpointer
+  cpData <- liftIO $! case maybeBB of
+    Nothing -> restoreInitial checkPointer
+    Just (bHeight,bHash) -> restore checkPointer bHeight bHash
+  case cpData of
+    Left s -> closeDbAndFail s
+    Right t -> updateState $! t
+
+closeDbAndFail :: String -> PactT a
+closeDbAndFail err = gets closePactDb >> internalError' err
+
+discardCheckpointer :: PactT ()
+discardCheckpointer = finalizeCheckpointer $ \checkPointer s -> discard checkPointer s
+
+finalizeCheckpointer :: (Checkpointer -> PactDbState -> IO (Either String ())) -> PactT ()
+finalizeCheckpointer finalize = do
+  checkPointer <- asks _cpeCheckpointer
+  closeStatus <- get >>= \s -> liftIO $! finalize checkPointer s
+  either closeDbAndFail return closeStatus
+
+
+
+-- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
+execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactT PayloadWithOutputs
+execNewBlock memPoolAccess header miner = do
+
+    let bHeight = _blockHeight header
         bHash = _blockHash header
-        checkPointer = _cpeCheckpointer cpEnv
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
-    cpData <- liftIO $! if runGenesis
-      then restoreInitial checkPointer
-      else restore checkPointer bHeight bHash
 
-    updateOrCloseDb cpData
+    restoreCheckpointer $ Just (bHeight, bHash)
 
-    (results, updatedState) <- execTransactions runGenesis miner newTrans
-    put updatedState
-    closeStatus <- liftIO $! discard checkPointer bHeight bHash updatedState
-    either internalError' (\_ -> pure results) closeStatus
+    results <- execTransactions False miner newTrans
 
+    discardCheckpointer
+
+    return $! toPayloadWithOutputs miner results
+
+
+
+-- | only for use in generating genesis blocks in tools
+execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactT PayloadWithOutputs
+execNewGenesisBlock miner newTrans = do
+
+    restoreCheckpointer Nothing
+
+    results <- execTransactions True miner newTrans
+
+    discardCheckpointer
+
+    return $! toPayloadWithOutputs miner results
 
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-execValidateBlock :: BlockHeader -> PayloadData -> PactT Transactions
-execValidateBlock currHeader plData = do
-    cpEnv <- ask
+execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactT PayloadWithOutputs
+execValidateBlock loadingGenesis currHeader plData = do
+
+    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
     -- TODO: miner data needs to be added to BlockHeader...
-    let miner = defaultMiner
-        bHeight = _blockHeight currHeader
+    let bHeight = _blockHeight currHeader
         bParent = _blockParent currHeader
         bHash = _blockHash currHeader
-        checkPointer = _cpeCheckpointer cpEnv
         isGenesisBlock = isGenesisBlockHeader currHeader
+
     trans <- liftIO $ transactionsFromPayload plData
-    cpData <- liftIO $! if isGenesisBlock
-      then restoreInitial checkPointer
-      else restore checkPointer (pred bHeight) bParent
 
-    updateOrCloseDb cpData
+    restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
-    (results, updatedState) <- execTransactions isGenesisBlock miner trans
-    put updatedState
-    dbState <- liftIO $! save checkPointer bHeight bHash updatedState
-    either dbClosedErr (const (pure results)) dbState
-  where
-    dbClosedErr :: String -> PactT Transactions
-    dbClosedErr s = do
-      -- TODO: fix - If this error message does not appear, the database has been closed.
-      when (s == "SQLiteCheckpointer.save': Save key not found exception") $
-        get >>= liftIO . closePactDb
-      internalError' s
+    results <- execTransactions isGenesisBlock miner trans
 
--- | In the case of failure when restoring from the checkpointer,
--- close db on failure, or update db state
-updateOrCloseDb :: Either String PactDbState -> PactT ()
-updateOrCloseDb = \case
-  Left s -> gets closePactDb >> fail s
-  Right t -> updateState $! t
+    finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
+
+    return $! toPayloadWithOutputs miner results
+
+
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
 toCommandConfig PactDbConfig {..} = P.CommandConfig
@@ -332,7 +343,7 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just $ P.SQLiteConfig f xs
 mkSqliteConfig _ _ = Nothing
 
-execTransactions :: Bool -> MinerInfo -> Vector ChainwebTransaction -> PactT (Transactions, PactDbState)
+execTransactions :: Bool -> MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
 execTransactions isGenesis miner ctxs = do
     currentState <- get
     let dbEnvPersist' = _pdbsDbEnv $! currentState
@@ -350,7 +361,8 @@ execTransactions isGenesis miner ctxs = do
           }
         cmdBSToTx = toTransactionBytes . fmap payloadBytes
         paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
-    return (Transactions paired, updatedState)
+    put updatedState
+    return (Transactions paired)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
@@ -399,10 +411,6 @@ updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do
     pdbsDbEnv .= _pdbsDbEnv
     pdbsState .= _pdbsState
-
--- TODO: get from config
-pactFilesDir :: String
-pactFilesDir = "test/config/"
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
