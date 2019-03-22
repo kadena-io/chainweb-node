@@ -36,7 +36,7 @@ import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception hiding (try)
-import Control.Lens ((.=), (^.), ix)
+import Control.Lens ((.=), (^.), ix, view)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -283,7 +283,7 @@ validateHashes pwo bHeader =
 
 restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactServiceM ()
 restoreCheckpointer maybeBB = do
-  checkPointer <- asks (_cpeCheckpointer . _psCheckpointEnv)
+  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   cpData <- liftIO $! case maybeBB of
     Nothing -> restoreInitial checkPointer
     Just (bHeight,bHash) -> restore checkPointer bHeight bHash
@@ -299,7 +299,7 @@ discardCheckpointer = finalizeCheckpointer $ \checkPointer s -> discard checkPoi
 
 finalizeCheckpointer :: (Checkpointer -> PactDbState -> IO (Either String ())) -> PactServiceM ()
 finalizeCheckpointer finalize = do
-  checkPointer <- asks (_cpeCheckpointer . _psCheckpointEnv)
+  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   closeStatus <- get >>= \s -> liftIO $! finalize checkPointer s
   either closeDbAndFail return closeStatus
 
