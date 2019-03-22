@@ -183,11 +183,9 @@ initPactService' ver (ChainId cid) chainwebLogger mpa spv act = do
 pactSPVSupport
     :: HasCallStack
     => ChainId -> MVar (CutDb cas) -> P.SPVSupport
-pactSPVSupport cid mv = P.SPVSupport go
-  where
-    go s o = case s of
-      "TXOUT" -> undefined -- TODO: handle txOut
-      _ -> pure . Left $ "spvSupport: unsupported SPV prefix"
+pactSPVSupport cid mv = P.SPVSupport $ \s o -> case s of
+    "TXOUT" -> undefined -- TODO: handle txOut
+    _ -> pure . Left $ "spvSupport: unsupported SPV prefix"
 
 
 

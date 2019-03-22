@@ -92,13 +92,15 @@ applyCmd
 applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cmd = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
-        cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv pubData
         requestKey = cmdToRequestKey cmd
-        modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
         supply = gasSupplyOf cmd
 
-        -- bump the txId for the buyGas transaction
-        buyGasEM = bumpExecMode startEM
+    let pd = pubData & pdPublicMeta .~ publicMetaOf cmd
+    let cmdEnv = CommandEnv entityM startEM pactDbEnv cmdState logger gasEnv pd
+        modifiedEnv = set ceGasEnv freeGasEnv cmdEnv
+
+    -- bump the txId for the buyGas transaction
+    let buyGasEM = bumpExecMode startEM
         buyGasEnv = set ceMode buyGasEM modifiedEnv
 
     buyGasResultE <- tryAny $! buyGas buyGasEnv cmd minerInfo supply
@@ -499,6 +501,9 @@ buildExecParsedCode value code = maybe (go Null) go value
 mkGasEnvOf :: Command (Payload PublicMeta c) -> GasModel -> GasEnv
 mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel
 {-# INLINABLE mkGasEnvOf #-}
+
+publicMetaOf :: Command(Payload PublicMeta c) -> PublicMeta
+publicMetaOf = _pMeta . _cmdPayload
 
 gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
 gasSupplyOf cmd =
