@@ -21,7 +21,7 @@
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
-, ChainId
+, ChainId(..)
 , HasChainId(..)
 , checkChainId
 , chainIdToText
@@ -242,4 +242,3 @@ testChainId = ChainId
 
 instance Arbitrary ChainId where
     arbitrary = testChainId <$> arbitrary
-

@@ -89,7 +89,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.SPV.CreateProof (createTransactionProof)
+import Chainweb.SPV.VerifyProof (verifyTransactionProof)
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -133,7 +133,7 @@ initPactService
     -> MVar (CutDb cas)
     -> IO ()
 initPactService ver cid chainwebLogger reqQ memPoolAccess cutMV =
-    initPactService' ver chainwebLogger memPoolAccess spv $
+    initPactService' ver cid chainwebLogger memPoolAccess spv $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
   where
     spv = pactSPVSupport cid cutMV
@@ -141,12 +141,13 @@ initPactService ver cid chainwebLogger reqQ memPoolAccess cutMV =
 initPactService'
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> MemPoolAccess
     -> P.SPVSupport
     -> PactServiceM a
     -> IO a
-initPactService' ver chainwebLogger mpa spv act = do
+initPactService' ver (ChainId cid) chainwebLogger mpa spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -173,29 +174,21 @@ initPactService' ver chainwebLogger mpa spv act = do
             internalError' s
         Right _ -> return ()
 
-    let pse = PactServiceEnv mpa checkpointEnv spv def
+    let pd = P.PublicData def cid def def
+    let pse = PactServiceEnv mpa checkpointEnv spv pd
 
     evalStateT (runReaderT act pse) theState
 
 
 pactSPVSupport
     :: HasCallStack
-    => ChainId
-    -> MVar (CutDb cas)
-    -> P.SPVSupport
+    => ChainId -> MVar (CutDb cas) -> P.SPVSupport
 pactSPVSupport cid mv = P.SPVSupport go
   where
-    go s ks =
-      case s of
-        "TXIN" -> txIn ks
-        "TXOUT" -> txOut ks
-        _ -> internalError' "unsupported SPV operation - use TXIN or TXOUT"
+    go s o = case s of
+      "TXOUT" -> undefined -- TODO: handle txOut
+      _ -> pure . Left $ "spvSupport: unsupported SPV prefix"
 
-    -- create spv transaction proofs for a given object
-    txIn ks = undefined
-    txOut ks = undefined
-
-    unpeelI (P.TLiteral (P.LInteger l) _) = l
 
 
 
