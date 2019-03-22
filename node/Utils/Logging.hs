@@ -492,7 +492,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
         go 0 !b !c = return (c, b)
         go i !b !c = tryReadTBQueue queue >>= \case
             Nothing -> return (c, b)
-            Just x -> go i (b <> indexAction x) (succ c)
+            Just x -> go i (b <> indexAction x) (pred c)
 
 
     putIndex = HTTP.defaultRequest
