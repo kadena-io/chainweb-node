@@ -30,11 +30,14 @@ module Chainweb.Pact.PactService
     , initialPayloadState
     ) where
 
+
+import GHC.Stack
+
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception hiding (try)
-import Control.Lens ((.=), (^.))
+import Control.Lens ((.=), (^.), ix)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -47,6 +50,7 @@ import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import Data.Maybe (isJust, catMaybes)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
@@ -66,10 +70,11 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SQLite as P
+import qualified Pact.Types.Term as P
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -83,6 +88,8 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.SPV.CreateProof (createTransactionProof)
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -171,8 +178,26 @@ initPactService' ver chainwebLogger mpa spv act = do
     evalStateT (runReaderT act pse) theState
 
 
-pactSPVSupport :: ChainId -> MVar (CutDb cas) -> P.SPVSupport
-pactSPVSupport _cid _cdb = P.SPVSupport $ \_ _ -> undefined
+pactSPVSupport
+    :: HasCallStack
+    => ChainId
+    -> MVar (CutDb cas)
+    -> P.SPVSupport
+pactSPVSupport cid mv = P.SPVSupport go
+  where
+    go s ks =
+      case s of
+        "TXIN" -> txIn ks
+        "TXOUT" -> txOut ks
+        _ -> internalError' "unsupported SPV operation - use TXIN or TXOUT"
+
+    -- create spv transaction proofs for a given object
+    txIn ks = undefined
+    txOut ks = undefined
+
+    unpeelI (P.TLiteral (P.LInteger l) _) = l
+
+
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
