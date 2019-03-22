@@ -62,7 +62,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -568,8 +568,8 @@ p2pCreateNode cv nid peer logfun db mgr session = do
 
 p2pStartNode :: P2pConfiguration -> P2pNode -> IO ()
 p2pStartNode conf node = concurrently_
-    (forever $ awaitSessions node)
-    (forever $ newSession conf node)
+    (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
+    (runForever (logg node) "P2P.Node.newSessions" $ newSession conf node)
 
 p2pStopNode :: P2P.Node.P2pNode -> IO ()
 p2pStopNode node = do
