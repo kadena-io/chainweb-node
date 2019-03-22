@@ -476,10 +476,9 @@ testnet00BootstrapPeerInfo = map f testnetBootstrapHosts
 --
 testnetBootstrapHosts :: [Hostname]
 testnetBootstrapHosts = map unsafeHostnameFromText
-    [ "us1.chainweb.com"
-    , "us2.chainweb.com"
-    , "eu1.chainweb.com"
-    , "eu2.chainweb.com"
+    [ "us1.tn1.chainweb.com"
+    , "eu1.tn1.chainweb.com"
+    , "ap1.tn1.chainweb.com"
     ]
 
 -- -------------------------------------------------------------------------- --
