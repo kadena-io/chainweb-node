@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -44,10 +46,12 @@ module Utils.Logging.Config
 , pBackendConfig_
 
 -- * Logging Config
+, ClusterId
 , LogConfig(..)
 , logConfigLogger
 , logConfigBackend
 , logConfigTelemetryBackend
+, logConfigClusterId
 , defaultLogConfig
 , validateLogConfig
 , pLogConfig
@@ -227,8 +231,6 @@ pBackendConfig = pBackendConfig_ ""
 -- | A version of 'pLoggerBackendConfig' that takes a prefix for the
 -- command line option.
 --
--- @since 0.2
---
 pBackendConfig_
     :: T.Text
         -- ^ prefix for this and all subordinate command line options.
@@ -241,10 +243,25 @@ pBackendConfig_ prefix = id
 -- -------------------------------------------------------------------------- --
 -- Logging System Configuration
 
+-- | An user provided label that is used to tag log messages from nodes.
+--
+-- It intended purpose is to allow users to defines arbitrary groups of nodes
+-- and tag the respective log messages.
+--
+newtype ClusterId = ClusterId T.Text
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (IsString, ToJSON, FromJSON)
+    deriving anyclass (NFData)
+
+instance HasTextRepresentation ClusterId where
+    toText (ClusterId t) = t
+    fromText = return . ClusterId
+
 data LogConfig = LogConfig
     { _logConfigLogger :: !LoggerConfig
     , _logConfigBackend :: !BackendConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
+    , _logConfigClusterId :: !(Maybe ClusterId)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -255,6 +272,7 @@ defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
+    , _logConfigClusterId = Nothing
     }
 
 validateLogConfig :: ConfigValidation LogConfig []
@@ -268,6 +286,7 @@ instance ToJSON LogConfig where
         [ "logger" .= _logConfigLogger o
         , "backend" .= _logConfigBackend o
         , "telemetryBackend" .= _logConfigTelemetryBackend o
+        , "clusterId" .= _logConfigClusterId o
         ]
 
 instance FromJSON (LogConfig -> LogConfig) where
@@ -275,14 +294,13 @@ instance FromJSON (LogConfig -> LogConfig) where
         <$< logConfigLogger %.: "logger" % o
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
+        <*< logConfigClusterId ..: "clusterId" % o
 
 pLogConfig :: MParser LogConfig
 pLogConfig = pLogConfig_ ""
 
 -- | A version of 'pLogConfig' that takes a prefix for the command
 -- line option.
---
--- @since 0.2
 --
 pLogConfig_
     :: T.Text
@@ -293,4 +311,7 @@ pLogConfig_ prefix = id
     <*< logConfigBackend %:: pBackendConfig_ prefix
     <*< logConfigTelemetryBackend %::
         pEnableConfig "telemetry-logger" (pBackendConfig_ $ "telemetry-" <> prefix)
+    <*< logConfigClusterId .:: fmap Just % textOption
+        % long "cluster-id"
+        <> help "a label that is added to all log messages from this node"
 
