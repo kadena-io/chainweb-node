@@ -23,12 +23,12 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
-type ApiV1API =
-         "send" :> ReqBody '[JSON] SubmitBatch :> Post '[JSON] NoContent
-    :<|> "poll" :> ReqBody '[JSON] Poll :> Post '[JSON] PollResponses
-    :<|> "listen" :> ReqBody '[JSON] ListenerRequest :> Post '[JSON] ApiResult
-    :<|> "local" :> ReqBody '[JSON] (Command Text)
-                 :> Post '[JSON] (CommandSuccess Value)
+type ApiV1API = SendApi :<|> PollApi :<|> ListenApi :<|> LocalApi
+
+type SendApi = "send" :> ReqBody '[JSON] SubmitBatch :> Post '[JSON] NoContent
+type PollApi = "poll" :> ReqBody '[JSON] Poll :> Post '[JSON] PollResponses
+type ListenApi = "listen" :> ReqBody '[JSON] ListenerRequest :> Post '[JSON] ApiResult
+type LocalApi = "local" :> ReqBody '[JSON] (Command Text) :> Post '[JSON] (CommandSuccess Value)
 
 type PactApi_ = "pact" :> ApiV1API
 
