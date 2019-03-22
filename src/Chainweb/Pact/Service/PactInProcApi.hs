@@ -52,8 +52,8 @@ withPactService
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger memPool _mv action
-    = withPactService' ver cid logger (pactMemPoolAccess memPool) action
+withPactService ver cid logger memPool mv action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool) mv action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
@@ -63,11 +63,12 @@ withPactService'
     -> ChainId
     -> logger
     -> MemPoolAccess
+    -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess action = do
+withPactService' ver cid logger memPoolAccess mv action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess 3)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess mv)
     link a
     initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ

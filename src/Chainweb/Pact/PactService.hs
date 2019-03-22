@@ -71,6 +71,7 @@ import qualified Pact.Types.SQLite as P
 
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader)
 import Chainweb.ChainId
+import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
@@ -115,8 +116,6 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
 
-type SPVService = Int
-
 initPactService
     :: Logger logger
     => ChainwebVersion
@@ -124,21 +123,23 @@ initPactService
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
-    -> SPVService
+    -> MVar (CutDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess spv =
-  initPactService' ver chainwebLogger memPoolAccess spv $
-    initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ memPoolAccess cutMV =
+    initPactService' ver chainwebLogger memPoolAccess spv $
+      initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
+  where
+    spv = pactSPVSupport cid cutMV
 
 initPactService'
     :: Logger logger
     => ChainwebVersion
     -> logger
     -> MemPoolAccess
-    -> SPVService
+    -> P.SPVSupport
     -> PactServiceM a
     -> IO a
-initPactService' ver chainwebLogger mpa spvService act = do
+initPactService' ver chainwebLogger mpa spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -165,16 +166,13 @@ initPactService' ver chainwebLogger mpa spvService act = do
             internalError' s
         Right _ -> return ()
 
-
-    let spv = pactSPVSupport spvService
-        pd = def
-
-    let pse = PactServiceEnv mpa checkpointEnv spv pd
+    let pse = PactServiceEnv mpa checkpointEnv spv def
 
     evalStateT (runReaderT act pse) theState
 
-pactSPVSupport :: SPVService -> P.SPVSupport
-pactSPVSupport _spv = P.SPVSupport $ \_ _ -> undefined
+
+pactSPVSupport :: ChainId -> MVar (CutDb cas) -> P.SPVSupport
+pactSPVSupport _cid _cdb = P.SPVSupport $ \_ _ -> undefined
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()

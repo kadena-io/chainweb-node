@@ -39,7 +39,6 @@ import Pact.Types.Runtime
 -- internal chainweb modules
 
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Types (MinerId, MinerKeys)
 
 
 tests :: TestTree
