@@ -91,7 +91,7 @@ execTests :: PactT [TestTree]
 execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
-    (results, _dbState) <- execTransactions False defaultMiner trans
+    results <- execTransactions False defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses testResponses

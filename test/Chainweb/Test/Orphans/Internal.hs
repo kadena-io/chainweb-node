@@ -144,11 +144,11 @@ instance Arbitrary BlockTransactionsHash where
 instance Arbitrary BlockOutputsHash where
     arbitrary = BlockOutputsHash <$> arbitrary
 
+instance Arbitrary MinerData where
+    arbitrary = MinerData <$> arbitraryBytesSized
+
 instance Arbitrary BlockTransactions where
-    arbitrary = fromLog
-        <$> newMerkleLog
-        <$> MerkleLogBody
-        <$> arbitrary
+    arbitrary = snd <$> (newBlockTransactions <$> arbitrary <*> arbitrary)
 
 instance Arbitrary BlockOutputs where
     arbitrary = fromLog
@@ -162,3 +162,5 @@ instance Arbitrary BlockPayload where
 instance Arbitrary PayloadData where
     arbitrary = newPayloadData <$> arbitrary <*> arbitrary
 
+instance Arbitrary PayloadWithOutputs where
+    arbitrary = newPayloadWithOutputs <$> arbitrary <*> arbitrary

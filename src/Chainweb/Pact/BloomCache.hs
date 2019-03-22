@@ -217,7 +217,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
         hkey = (hgt, hc)
         insBloom = do
             let payloadHash = _blockPayloadHash blockHeader
-            (PayloadWithOutputs txsBs _ _ _) <- MaybeT $ casLookup pdb payloadHash
+            (PayloadWithOutputs txsBs _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
             hashes <- mapM (fmap _cmdHash . fromTx) txsBs
             let ~bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
             return $! HashMap.insert hkey bloom mp
@@ -230,4 +230,3 @@ bloomFalsePositiveRate = 0.08
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
-

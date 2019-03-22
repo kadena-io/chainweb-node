@@ -78,5 +78,5 @@ save' lock height hash p@PactDbState {..} = do
          case _pdepEnv of
            P.DbEnv {..} -> closeDb _db
 
-discard' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-discard' _ _ _ _ = return (Right ())
+discard' :: MVar Store -> PactDbState -> IO (Either String ())
+discard' _ _ = return (Right ())

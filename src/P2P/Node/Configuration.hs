@@ -159,7 +159,7 @@ pP2pConfiguration networkId = id
         % prefixLong net "p2p-peer-database-filepath"
         <> suffixHelp net "file where the peer database is stored"
     <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
-        % prefixLong net "ignore-boostrap-nodes"
+        % prefixLong net "ignore-bootstrap-nodes"
         <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
   where
     net = T.unpack . networkIdToText <$> networkId
@@ -169,4 +169,3 @@ pP2pConfiguration networkId = id
         <> suffixHelp net
             "peer info that is added to the list of known peers. This option can be used multiple times."
         <> metavar "[<PEERID>@]<HOSTADDRESS>"
-

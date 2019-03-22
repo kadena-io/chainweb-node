@@ -18,7 +18,6 @@ executable ea
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Wredundant-constraints
-    default-extensions: NoImplicitPrelude
     hs-source-dirs: ./
     main-is: Ea.hs
     build-depends:

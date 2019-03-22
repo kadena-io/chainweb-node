@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -40,12 +41,12 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisTime)
-import Chainweb.ChainId (ChainId, testChainId)
-import Chainweb.Graph (singletonChainGraph)
+import Chainweb.BlockHeader.Genesis (genesisTime)
+import Chainweb.ChainId (testChainId)
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Types
 import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Utils (sshow)
@@ -158,13 +159,10 @@ genPayloadModule v txFiles = do
             f@ProcFail{} -> fail (show f)
             ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
 
-    let mempool _ _ = return $ V.fromList cwTxs
-        logger = genericLogger Warn TIO.putStrLn
-        cid = testChainId 0
-        header = toyGenesis cid
+    let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- fmap toNewBlockResults $ initPactService' Testnet00 logger $
-        execNewBlock True mempool header
+    payloadWO <- initPactService' Testnet00 logger $
+        execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
         modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
@@ -172,11 +170,6 @@ genPayloadModule v txFiles = do
 
     TIO.writeFile (T.unpack fileName) modl
 
-toyVersion :: ChainwebVersion
-toyVersion = Test singletonChainGraph
-
-toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader toyVersion cid
 
 startModule :: ChainwebVersion -> [Text]
 startModule v =

@@ -89,6 +89,5 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

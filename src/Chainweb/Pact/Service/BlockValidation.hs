@@ -22,16 +22,17 @@ import Control.Concurrent.STM.TQueue
 import Chainweb.BlockHeader
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
-newBlock bHeader reqQ = do
-    resultVar <- newEmptyMVar
+newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
+newBlock mi bHeader reqQ = do
+    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
-          , _newResultVar = resultVar
-          }
+          , _newMiner = mi
+          , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
 
@@ -41,11 +42,10 @@ validateBlock
     -> TQueue RequestMsg
     -> IO (MVar (Either PactException PayloadWithOutputs))
 validateBlock bHeader plData reqQ = do
-    resultVar <- newEmptyMVar
+    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar
-          , _valPayloadData = plData
-          }
+          , _valPayloadData = plData }
     addRequest reqQ msg
     return resultVar
