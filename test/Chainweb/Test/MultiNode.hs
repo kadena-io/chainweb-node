@@ -160,7 +160,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configTransactionIndex . enableConfigEnabled) True
         -- enable transaction index
 
--- | Set the boostrap node port of a 'ChainwebConfiguration'
+-- | Set the bootstrap node port of a 'ChainwebConfiguration'
 --
 setBootstrapPeerInfo
     :: PeerInfo
