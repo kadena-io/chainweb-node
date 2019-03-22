@@ -56,7 +56,7 @@ pactApiTest = do
 
         -- newBlock test
         let genesisHeader = genesisBlockHeader Testnet00 cid
-        respVar0 <- newBlock genesisHeader reqQ
+        respVar0 <- newBlock noMiner genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response
         plwo <- case mvr of
           Left e -> assertFailure (show e)
@@ -76,6 +76,7 @@ pactApiTest = do
               (headers ! 1) { _blockPayloadHash = matchingPlHash, _blockParent = _blockHash genesisHeader }
         respVar0b <- validateBlock toValidateHeader plData reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
+
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
 
         return $ tt0 : [tt0b]
@@ -86,7 +87,7 @@ pactEmptyBlockTest = do
         cid = testChainId 0
     withPactService' Testnet00 cid logger testEmptyMemPool $ \reqQ -> do
         let genesisHeader = genesisBlockHeader Testnet00 cid
-        respVar0 <- newBlock genesisHeader reqQ
+        respVar0 <- newBlock noMiner genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response
         plwo <- case mvr of
           Left e -> assertFailure (show e)
@@ -98,14 +99,16 @@ checkNewResponse :: FilePath -> PayloadWithOutputs -> IO TestTree
 checkNewResponse filePrefix plwo = checkPayloadWithOutputs filePrefix "newBlock" plwo
 
 checkValidateResponse :: FilePath -> Either PactException PayloadWithOutputs -> IO TestTree
-checkValidateResponse _filePrefix (Left s) = assertFailure $ show s
+checkValidateResponse filePrefix (Left s) = assertFailure $ filePrefix ++ ": " ++ show s
 checkValidateResponse filePrefix (Right plwo) =
     checkPayloadWithOutputs filePrefix "validateBlock" plwo
 
 checkPayloadWithOutputs :: FilePath -> String -> PayloadWithOutputs-> IO TestTree
 checkPayloadWithOutputs filePrefix groupName plwo = do
-    ttTrans <- checkTransactions filePrefix (fst <$> _payloadWithOutputsTransactions plwo)
-    ttTransOut <- checkTransOut filePrefix (snd <$> _payloadWithOutputsTransactions plwo)
+    ttTrans <- checkTransactions filePrefix
+               (fst <$> _mtTransactions (_payloadWithOutputsTransactions plwo))
+    ttTransOut <- checkTransOut filePrefix
+                  (snd <$> _mtTransactions (_payloadWithOutputsTransactions plwo))
     ttBlockPlHash <- checkBlockPayloadHash filePrefix (_payloadWithOutputsPayloadHash plwo)
     ttBlockTransHash <- checkBlockTransHash filePrefix (_payloadWithOutputsTransactionsHash plwo)
     ttBlockOutsHash <- checkBlockOutsHash filePrefix (_payloadWithOutputsOutputsHash plwo)

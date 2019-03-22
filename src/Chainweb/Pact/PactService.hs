@@ -26,7 +26,6 @@ module Chainweb.Pact.PactService
     , toCommandConfig
     , testnet00CreateCoinContract
     , toHashedLogTxOutput
-    , toNewBlockResults
     , initialPayloadState
     ) where
 
@@ -40,7 +39,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
@@ -175,8 +174,8 @@ testnet00CreateCoinContract cid = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader Testnet00 cid
-    txs <- execValidateBlock genesisHeader inputPayloadData
-    case toValidateBlockResults txs genesisHeader of
+    txs <- execValidateBlock True genesisHeader inputPayloadData
+    case validateHashes txs genesisHeader of
       Left e -> throwM e
       Right _ -> return ()
 
@@ -195,14 +194,15 @@ serviceRequests memPoolAccess reqQ = go
                 case txs of
                   Left (SomeException e) ->
                     liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
-                  Right r -> liftIO $ putMVar _newResultVar $ Right $ toNewBlockResults r
+                  Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock _valBlockHeader _valPayloadData
+                txs <- try $ execValidateBlock False _valBlockHeader _valPayloadData
                 case txs of
                   Left (SomeException e) ->
                     liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
-                  Right r -> liftIO $ putMVar _valResultVar $ toValidateBlockResults r _valBlockHeader
+                  Right r ->
+                    liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
@@ -214,6 +214,10 @@ toHashedLogTxOutput FullLogTxOutput{..} =
         , _hlTxLogHash = hashed
         }
 
+toTransactionBytes :: P.Command ByteString -> Transaction
+toTransactionBytes cwTrans =
+    let plBytes = toStrict $ A.encode cwTrans
+    in Transaction { _transactionBytes = plBytes }
 
 toOutputBytes :: FullLogTxOutput -> TransactionOutput
 toOutputBytes flOut =
@@ -221,35 +225,25 @@ toOutputBytes flOut =
         outBytes = A.encode hashedLogOut
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
-toNewBlockResults :: Transactions -> PayloadWithOutputs
-toNewBlockResults ts =
-    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
-        newSeq = second toOutputBytes <$> oldSeq
-        bPayload = newBlockPayload newSeq
-    in PayloadWithOutputs
-        { _payloadWithOutputsTransactions = newSeq
-        , _payloadWithOutputsPayloadHash =  _blockPayloadPayloadHash bPayload
-        , _payloadWithOutputsTransactionsHash =  _blockPayloadTransactionsHash bPayload
-        , _payloadWithOutputsOutputsHash =  _blockPayloadOutputsHash bPayload
-        }
-
-toValidateBlockResults :: Transactions -> BlockHeader -> Either PactException PayloadWithOutputs
-toValidateBlockResults ts bHeader =
+toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
+toPayloadWithOutputs mi ts =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
         trans = fst <$> oldSeq
         transOuts = toOutputBytes . snd <$> oldSeq
 
-        blockTrans = snd $ newBlockTransactions trans
+        blockTrans = snd $ newBlockTransactions $ MinedTransactions mi trans
         blockOuts = snd $ newBlockOutputs transOuts
 
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
-        plWithOuts = payloadWithOutputs plData transOuts
+     in payloadWithOutputs plData transOuts
 
-        newHash = _payloadWithOutputsPayloadHash plWithOuts
+validateHashes :: PayloadWithOutputs -> BlockHeader -> Either PactException PayloadWithOutputs
+validateHashes pwo bHeader =
+    let newHash = _payloadWithOutputsPayloadHash pwo
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
-        then Right plWithOuts
+        then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
@@ -278,7 +272,7 @@ finalizeCheckpointer finalize = do
 
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
-execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactT Transactions
+execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactT PayloadWithOutputs
 execNewBlock memPoolAccess header miner = do
 
     let bHeight = _blockHeight header
@@ -292,12 +286,12 @@ execNewBlock memPoolAccess header miner = do
 
     discardCheckpointer
 
-    return results
+    return $! toPayloadWithOutputs miner results
 
 
 
 -- | only for use in generating genesis blocks in tools
-execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
+execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactT PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
 
     restoreCheckpointer Nothing
@@ -306,16 +300,16 @@ execNewGenesisBlock miner newTrans = do
 
     discardCheckpointer
 
-    return results
+    return $! toPayloadWithOutputs miner results
 
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-execValidateBlock :: BlockHeader -> PayloadData -> PactT Transactions
-execValidateBlock currHeader plData = do
+execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactT PayloadWithOutputs
+execValidateBlock loadingGenesis currHeader plData = do
 
     -- TODO: miner data needs to be added to BlockHeader...
-    let miner = defaultMiner
+    let miner = _mtMinerInfo $ _payloadDataTransactions plData
         bHeight = _blockHeight currHeader
         bParent = _blockParent currHeader
         bHash = _blockHash currHeader
@@ -323,13 +317,14 @@ execValidateBlock currHeader plData = do
 
     trans <- liftIO $ transactionsFromPayload plData
 
-    restoreCheckpointer $ Just (pred bHeight, bParent)
+    restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
     results <- execTransactions isGenesisBlock miner trans
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
-    return results
+    return $! toPayloadWithOutputs (_mtMinerInfo $ _payloadDataTransactions plData) results
+
 
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig

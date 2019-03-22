@@ -66,6 +66,7 @@ module Chainweb.Payload
 , MinedTransactions(..)
 , mtMinerInfo
 , mtTransactions
+, noMiner
 
 , BlockOutputsLog
 , newBlockOutputLog
@@ -83,11 +84,13 @@ module Chainweb.Payload
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs(..)
 , payloadWithOutputs
+, newPayloadWithOutputs
+, payloadWithOutputsToBlockObjects
 ) where
 
 import Control.DeepSeq
 import Control.Monad.Catch
-import Control.Lens (over,makeLenses)
+import Control.Lens (over,makeLenses,set)
 
 import Crypto.Hash.Algorithms
 
@@ -97,11 +100,11 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy (toStrict)
+import Data.Default (def)
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Sequence as S
 import qualified Data.Text as T
-import qualified Data.Vector as V
 import Data.Void
 
 import GHC.Generics
@@ -115,7 +118,7 @@ import Chainweb.Utils
 
 import Data.CAS
 
-import Pact.Types.Term (KeySet,Name,ModuleName,NamespaceName)
+import Pact.Types.Term (KeySet(..),Name(..),ModuleName,NamespaceName)
 import Pact.Types.Util (lensyToJSON,lensyParseJSON)
 
 -- -------------------------------------------------------------------------- --
@@ -350,14 +353,19 @@ data MinerInfo = MinerInfo
   , _minerKeys :: MinerKeys
   } deriving (Show,Eq,Generic,NFData)
 
+noMiner :: MinerInfo
+noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
+
 -- Trying to keep these small
 instance ToJSON MinerInfo where
   toJSON MinerInfo{..} =
-    toJSON [ toJSON _minerAccount, toJSON _minerKeys ]
+    object [ "m" .= _minerAccount
+           , "ks" .= _ksKeys _minerKeys
+           , "kp" .= _ksPredFun _minerKeys ]
 instance FromJSON MinerInfo where
-  parseJSON = withArray "MinerInfo" $ \a -> case V.toList a of
-    [ m, k ] -> MinerInfo <$> parseJSON m <*> parseJSON k
-    _ -> fail "expected list [ minerAccount, minerKeyset ]"
+  parseJSON = withObject "MinerInfo" $ \o ->
+    MinerInfo <$> o .: "m" <*> (KeySet <$> o .: "ks" <*> o .: "kp")
+
 
 instance IsMerkleLogEntry ChainwebHashTag MinerInfo where
     type Tag MinerInfo = 'MinerInfoTag
@@ -580,11 +588,12 @@ blockPayload txs outs
         :+: emptyBody
 
 newBlockPayload
-    :: S.Seq (Transaction, TransactionOutput)
+    :: MinerInfo
+    -> S.Seq (Transaction, TransactionOutput)
     -> BlockPayload
-newBlockPayload s = blockPayload txs outs
+newBlockPayload mi s = blockPayload txs outs
   where
-    (_, txs) = undefined -- newBlockTransactions (fst <$> s)
+    (_, txs) = newBlockTransactions (MinedTransactions mi (fst <$> s))
     (_, outs) = newBlockOutputs (snd <$> s)
 
 -- -------------------------------------------------------------------------- --
@@ -638,7 +647,7 @@ data PayloadWithOutputs = PayloadWithOutputs
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
     , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
     , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
-    }
+    } deriving (Show)
 
 instance IsCasValue PayloadWithOutputs where
     type CasKeyType PayloadWithOutputs = BlockPayloadHash
@@ -654,6 +663,20 @@ payloadWithOutputs d outputs = PayloadWithOutputs
     , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
     }
 
+newPayloadWithOutputs
+    :: MinerInfo -> S.Seq (Transaction, TransactionOutput)
+    -> PayloadWithOutputs
+newPayloadWithOutputs mi s = PayloadWithOutputs
+    { _payloadWithOutputsTransactions = MinedTransactions mi s
+    , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash p
+    , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash p
+    , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash p
+    }
+  where
+    p = newBlockPayload mi s
+
+
+
 instance ToJSON PayloadWithOutputs where
   toJSON o = object
     [ "transactions" .= _payloadWithOutputsTransactions o
@@ -668,3 +691,10 @@ instance FromJSON PayloadWithOutputs where
         <*> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
+
+payloadWithOutputsToBlockObjects :: PayloadWithOutputs -> (BlockTransactions, BlockOutputs)
+payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
+  (BlockTransactions _payloadWithOutputsTransactionsHash minedIns
+  ,BlockOutputs _payloadWithOutputsOutputsHash outs)
+  where (ins,outs) = S.unzip $ _mtTransactions _payloadWithOutputsTransactions
+        minedIns = set mtTransactions ins _payloadWithOutputsTransactions

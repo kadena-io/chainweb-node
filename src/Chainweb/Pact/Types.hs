@@ -123,7 +123,7 @@ instance ToJSON HashedLogTxOutput where
 defaultMiner :: MinerInfo
 defaultMiner = MinerInfo "miner" $ KeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-  (Name "miner-keyset" def)
+  (Name "keys-all" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath

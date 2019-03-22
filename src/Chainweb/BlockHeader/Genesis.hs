@@ -46,7 +46,6 @@ import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
-import qualified Data.Sequence as Seq
 
 -- internal modules
 
@@ -111,33 +110,24 @@ genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v@Test{} c =
-    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v@TestWithTime{} c =
-    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v@TestWithPow{} c =
-    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash v@Simulation{} c =
-    _blockPayloadPayloadHash $ uncurry blockPayload $ genesisBlockPayload v c
-genesisBlockPayloadHash Testnet00 _ = _payloadWithOutputsPayloadHash payloadBlock
+genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
 
-genesisBlockPayload :: ChainwebVersion -> ChainId -> (BlockTransactions, BlockOutputs)
+-- TODO when Payload DB is finally loading genesis post-sync and post-pact,
+-- the genesis block payload should be PayloadData, and PayloadWithOutputs
+-- should have the TransactionTree and OutputTree to avoid recreating those
+-- in PayloadStore.
+genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TestWithTime{} _ = emptyPayload
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ = (txs, outs)
-  where
-    (txSeq, outSeq) = Seq.unzip $ _payloadWithOutputsTransactions payloadBlock
-    (_, txs) = newBlockTransactions txSeq
-    (_, outs) = newBlockOutputs outSeq
+genesisBlockPayload Testnet00 _ = payloadBlock
 
-emptyPayload :: (BlockTransactions, BlockOutputs)
-emptyPayload = (txs, outs)
-  where
-    (_, outs) = newBlockOutputs mempty
-    (_, txs) = newBlockTransactions mempty
+emptyPayload :: PayloadWithOutputs
+emptyPayload = PayloadWithOutputs ts h i o
+  where (BlockPayload h i o) = newBlockPayload noMiner mempty
+        ts = MinedTransactions noMiner mempty
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'

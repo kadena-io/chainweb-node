@@ -217,8 +217,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds_ $ _chainGraph v
   where
     initForChain cid = do
-        let (txs, outs) = genesisBlockPayload v cid
-        addNewPayload db $ S.zip (_blockTransactions txs) (_blockOutputs outs)
+        addNewPayload db $ genesisBlockPayload v cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
@@ -248,12 +247,13 @@ addPayload db txs txTree outs outTree = do
 addNewPayload
     :: PayloadCas cas
     => PayloadDb cas
-    -> S.Seq (Transaction, TransactionOutput)
+    -> PayloadWithOutputs
     -> IO ()
 addNewPayload db s = addPayload db txs txTree outs outTree
   where
-    (txTree, txs) = newBlockTransactions (fst <$> s)
-    (outTree, outs) = newBlockOutputs (snd <$> s)
+    (bts,bos) = payloadWithOutputsToBlockObjects s
+    (txTree, txs) = newBlockTransactions (_blockTransactions bts)
+    (outTree, outs) = newBlockOutputs (_blockOutputs bos)
 
 -- -------------------------------------------------------------------------- --
 -- IsCas instance for PayloadDb
@@ -265,7 +265,7 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 --
 instance PayloadCas cas => IsCas (PayloadDb cas) where
     type CasValueType (PayloadDb cas) = PayloadWithOutputs
-    casInsert db = addNewPayload db . _payloadWithOutputsTransactions
+    casInsert = addNewPayload
     {-# INLINE casInsert #-}
 
     casLookup db k = runMaybeT $ do
@@ -281,9 +281,8 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
         return $ PayloadWithOutputs
-            { _payloadWithOutputsTransactions = S.zip
-                (_blockTransactions txs)
-                (_blockOutputs outs)
+            { _payloadWithOutputsTransactions =
+                over mtTransactions (`S.zip` _blockOutputs outs) (_blockTransactions txs)
             , _payloadWithOutputsPayloadHash = k
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash
