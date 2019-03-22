@@ -36,6 +36,7 @@ module Chainweb.Pact.Types
   , pdbspPactDbState
     -- * defaults
   , defaultMiner
+  , noMiner
     -- * module exports
   , module Chainweb.Pact.Backend.Types
   ) where
@@ -47,6 +48,7 @@ import Control.Monad.Trans.State
 import Data.Aeson as A
 import Data.Decimal (Decimal)
 import Data.Default (def)
+import Data.Text (Text)
 import Data.Vector (Vector)
 
 -- internal pact modules
@@ -116,6 +118,30 @@ instance ToJSON HashedLogTxOutput where
         , "hlTxLogs" .= _hlTxLogHash o]
     {-# INLINE toJSON #-}
 
+
+
+type MinerKeys = KeySet
+type MinerId = Text
+
+
+data MinerInfo = MinerInfo
+  { _minerAccount :: MinerId
+  , _minerKeys :: MinerKeys
+  } deriving (Show,Eq)
+
+
+instance ToJSON MinerInfo where
+  toJSON MinerInfo{..} =
+    object [ "m" .= _minerAccount
+           , "ks" .= _ksKeys _minerKeys
+           , "kp" .= _ksPredFun _minerKeys ]
+instance FromJSON MinerInfo where
+  parseJSON = withObject "MinerInfo" $ \o ->
+    MinerInfo <$> o .: "m" <*> (KeySet <$> o .: "ks" <*> o .: "kp")
+
+
+noMiner :: MinerInfo
+noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
 
 
 -- Keyset taken from cp examples in Pact

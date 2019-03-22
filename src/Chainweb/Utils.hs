@@ -94,6 +94,7 @@ module Chainweb.Utils
 
 -- ** JSON
 , encodeToText
+, encodeToByteString
 , decodeOrThrow
 , decodeStrictOrThrow
 , decodeFileStrictOrThrow
@@ -461,6 +462,10 @@ encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText
 {-# INLINE encodeToText #-}
+
+-- | Strict aeson encode.
+encodeToByteString :: ToJSON a => a -> B.ByteString
+encodeToByteString = BL.toStrict . encode
 
 decodeStrictOrThrow :: MonadThrow m => FromJSON a => B.ByteString -> m a
 decodeStrictOrThrow = fromEitherM

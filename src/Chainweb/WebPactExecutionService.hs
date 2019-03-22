@@ -14,6 +14,7 @@ import qualified Data.HashMap.Strict as HM
 import Chainweb.BlockHeader
 import Chainweb.Payload
 import Chainweb.ChainId
+import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Service.PactInProcApi
 

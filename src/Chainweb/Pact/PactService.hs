@@ -170,6 +170,7 @@ testnet00CreateCoinContract :: ChainId -> PactT ()
 testnet00CreateCoinContract cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsMiner
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
@@ -231,7 +232,8 @@ toPayloadWithOutputs mi ts =
         trans = fst <$> oldSeq
         transOuts = toOutputBytes . snd <$> oldSeq
 
-        blockTrans = snd $ newBlockTransactions $ MinedTransactions mi trans
+        miner = MinerData $ encodeToByteString mi
+        blockTrans = snd $ newBlockTransactions miner trans
         blockOuts = snd $ newBlockOutputs transOuts
 
         blockPL = blockPayload blockTrans blockOuts
@@ -308,9 +310,9 @@ execNewGenesisBlock miner newTrans = do
 execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactT PayloadWithOutputs
 execValidateBlock loadingGenesis currHeader plData = do
 
+    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
     -- TODO: miner data needs to be added to BlockHeader...
-    let miner = _mtMinerInfo $ _payloadDataTransactions plData
-        bHeight = _blockHeight currHeader
+    let bHeight = _blockHeight currHeader
         bParent = _blockParent currHeader
         bHash = _blockHash currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
@@ -323,7 +325,7 @@ execValidateBlock loadingGenesis currHeader plData = do
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
-    return $! toPayloadWithOutputs (_mtMinerInfo $ _payloadDataTransactions plData) results
+    return $! toPayloadWithOutputs miner results
 
 
 

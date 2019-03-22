@@ -68,6 +68,7 @@ pactApiTest = do
         let matchingPlHash = _payloadWithOutputsPayloadHash plwo
         let plData = PayloadData
               { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
+              , _payloadDataMiner = _payloadWithOutputsMiner plwo
               , _payloadDataPayloadHash = matchingPlHash
               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
@@ -106,9 +107,9 @@ checkValidateResponse filePrefix (Right plwo) =
 checkPayloadWithOutputs :: FilePath -> String -> PayloadWithOutputs-> IO TestTree
 checkPayloadWithOutputs filePrefix groupName plwo = do
     ttTrans <- checkTransactions filePrefix
-               (fst <$> _mtTransactions (_payloadWithOutputsTransactions plwo))
+               (fst <$> _payloadWithOutputsTransactions plwo)
     ttTransOut <- checkTransOut filePrefix
-                  (snd <$> _mtTransactions (_payloadWithOutputsTransactions plwo))
+                  (snd <$> _payloadWithOutputsTransactions plwo)
     ttBlockPlHash <- checkBlockPayloadHash filePrefix (_payloadWithOutputsPayloadHash plwo)
     ttBlockTransHash <- checkBlockTransHash filePrefix (_payloadWithOutputsTransactionsHash plwo)
     ttBlockOutsHash <- checkBlockOutsHash filePrefix (_payloadWithOutputsOutputsHash plwo)

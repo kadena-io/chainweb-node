@@ -249,7 +249,7 @@ randomTransaction cutDb = do
     return
         ( bh
         , txIx
-        , Seq.index (_mtTransactions $ _blockTransactions btxs) txIx
+        , Seq.index (_blockTransactions btxs) txIx
         , Seq.index (_blockOutputs outs) txIx
         )
   where
@@ -263,7 +263,7 @@ fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
-              $ payloadWithOutputs d $ getFakeOutput <$> _mtTransactions (_payloadDataTransactions d)
+              $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_h -> error "Unimplemented"
   }
   where

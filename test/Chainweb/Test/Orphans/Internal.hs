@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -20,8 +19,6 @@ module Chainweb.Test.Orphans.Internal
 import Control.Applicative
 
 import qualified Data.ByteString as B
-import Data.Default
-import qualified Data.Text.Encoding as T
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
@@ -40,8 +37,6 @@ import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Utils
 import Chainweb.Version
-
-import Pact.Types.Term
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -149,23 +144,11 @@ instance Arbitrary BlockTransactionsHash where
 instance Arbitrary BlockOutputsHash where
     arbitrary = BlockOutputsHash <$> arbitrary
 
-instance Arbitrary Name where
-  arbitrary = Name <$> pure "test" <*> pure def
-
-instance Arbitrary PublicKey where
-  arbitrary = PublicKey . T.encodeUtf8 <$> arbitrary
-
-instance Arbitrary KeySet where
-  arbitrary = KeySet <$> arbitrary <*> arbitrary
-
-instance Arbitrary MinerInfo where
-  arbitrary = MinerInfo <$> arbitrary <*> arbitrary
-
-instance Arbitrary n => Arbitrary (MinedTransactions n) where
-  arbitrary = MinedTransactions <$> arbitrary <*> arbitrary
+instance Arbitrary MinerData where
+    arbitrary = MinerData <$> arbitraryBytesSized
 
 instance Arbitrary BlockTransactions where
-    arbitrary = snd <$> newBlockTransactions <$> arbitrary
+    arbitrary = snd <$> (newBlockTransactions <$> arbitrary <*> arbitrary)
 
 instance Arbitrary BlockOutputs where
     arbitrary = fromLog

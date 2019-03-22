@@ -164,7 +164,7 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
 
         -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-        let payload = newPayloadWithOutputs noMiner $ S.fromList
+        let payload = newPayloadWithOutputs (MinerData "miner") $ S.fromList
                 [ (Transaction "testTransaction", TransactionOutput "testOutput")
                 ]
         testMineWithPayload @cas nonce target ct payload nid cid c >>= \case

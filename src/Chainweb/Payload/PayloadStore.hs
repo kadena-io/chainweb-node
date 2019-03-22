@@ -252,7 +252,7 @@ addNewPayload
 addNewPayload db s = addPayload db txs txTree outs outTree
   where
     (bts,bos) = payloadWithOutputsToBlockObjects s
-    (txTree, txs) = newBlockTransactions (_blockTransactions bts)
+    (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
     (outTree, outs) = newBlockOutputs (_blockOutputs bos)
 
 -- -------------------------------------------------------------------------- --
@@ -281,8 +281,8 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
         return $ PayloadWithOutputs
-            { _payloadWithOutputsTransactions =
-                over mtTransactions (`S.zip` _blockOutputs outs) (_blockTransactions txs)
+            { _payloadWithOutputsTransactions = S.zip (_blockTransactions txs) (_blockOutputs outs)
+            , _payloadWithOutputsMiner = _blockMinerData txs
             , _payloadWithOutputsPayloadHash = k
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash

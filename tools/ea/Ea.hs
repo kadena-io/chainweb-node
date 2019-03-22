@@ -46,7 +46,7 @@ import Chainweb.ChainId (testChainId)
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
-import Chainweb.Payload
+import Chainweb.Pact.Types
 import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Utils (sshow)
