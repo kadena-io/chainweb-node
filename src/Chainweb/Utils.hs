@@ -6,9 +6,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -130,11 +132,16 @@ module Chainweb.Utils
 , textReader
 , textOption
 
+-- * Configuration to Enable/Disable Components
+
 , EnableConfig(..)
 , enableConfigConfig
 , enableConfigEnabled
 , defaultEnableConfig
 , pEnableConfig
+
+-- * Configuration Exception
+, ConfigurationException(..)
 
 -- * Streaming
 , streamToHashSet
@@ -690,6 +697,16 @@ pEnableConfig compName pConfig = id
         % long compName
         <> help ("whether " <> compName <> " is enabled or disabled")
     <*< enableConfigConfig %:: pConfig
+
+-- -------------------------------------------------------------------------- --
+-- Configuration Validation
+
+newtype ConfigurationException = ConfigurationException T.Text
+    deriving (Show, Eq, Generic)
+    deriving newtype (IsString)
+    deriving anyclass (NFData)
+
+instance Exception ConfigurationException
 
 -- -------------------------------------------------------------------------- --
 -- Streaming Utilities
