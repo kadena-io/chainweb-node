@@ -21,6 +21,7 @@ import Control.Applicative
 
 import qualified Data.ByteString as B
 import Data.Default
+import qualified Data.Text.Encoding as T
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
@@ -152,7 +153,7 @@ instance Arbitrary Name where
   arbitrary = Name <$> pure "test" <*> pure def
 
 instance Arbitrary PublicKey where
-  arbitrary = PublicKey <$> arbitrary
+  arbitrary = PublicKey . T.encodeUtf8 <$> arbitrary
 
 instance Arbitrary KeySet where
   arbitrary = KeySet <$> arbitrary <*> arbitrary
