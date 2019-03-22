@@ -39,9 +39,11 @@ import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.BlockHeader.Genesis
 
 
-
 tests :: IO TestTree
-tests = testGroup "Pact in-proc API tests" <$> pactApiTest
+tests = do
+  tt0 <- pactApiTest
+  tt1 <- pactEmptyBlockTest
+  return $ testGroup "PactExecutionTest" (tt0 ++ [tt1])
 
 pactApiTest :: IO [TestTree]
 pactApiTest = do
@@ -50,7 +52,7 @@ pactApiTest = do
 
     -- Init for tests
     withPactService' Testnet00 cid logger testMemPoolAccess $ \reqQ -> do
-        let headers = V.fromList $ getBlockHeaders 4
+        let headers = V.fromList $ getBlockHeaders 2
 
         -- newBlock test
         let genesisHeader = genesisBlockHeader Testnet00 cid
@@ -70,12 +72,27 @@ pactApiTest = do
               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
               }
-        let toValidateHeader = (headers ! 1) { _blockPayloadHash = matchingPlHash, _blockParent = _blockHash genesisHeader }
+        let toValidateHeader =
+              (headers ! 1) { _blockPayloadHash = matchingPlHash, _blockParent = _blockHash genesisHeader }
         respVar0b <- validateBlock toValidateHeader plData reqQ
         rsp0b <- takeMVar respVar0b -- wait for response
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
 
         return $ tt0 : [tt0b]
+
+pactEmptyBlockTest :: IO TestTree
+pactEmptyBlockTest = do
+    let logger = genericLogger Warn T.putStrLn
+        cid = testChainId 0
+    withPactService' Testnet00 cid logger testEmptyMemPool $ \reqQ -> do
+        let genesisHeader = genesisBlockHeader Testnet00 cid
+        respVar0 <- newBlock genesisHeader reqQ
+        mvr <- takeMVar respVar0 -- wait for response
+        plwo <- case mvr of
+          Left e -> assertFailure (show e)
+          Right r -> return r
+        tt0 <- checkNewResponse "new-empty-expected-0" plwo
+        return tt0
 
 checkNewResponse :: FilePath -> PayloadWithOutputs -> IO TestTree
 checkNewResponse filePrefix plwo = checkPayloadWithOutputs filePrefix "newBlock" plwo
@@ -146,7 +163,7 @@ getBlockHeaders n = do
     gbh0 : after0s
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess _ _bHash = do
+testMemPoolAccess _bHeight _bHash = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     let cmdStrs = V.fromList
           [ moduleStr
@@ -154,6 +171,9 @@ testMemPoolAccess _ _bHash = do
           , "(test1.create-global-accounts)"
           , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
     mkPactTestTransactions cmdStrs
+
+testEmptyMemPool :: MemPoolAccess
+testEmptyMemPool _bHeight _bHash = mkPactTestTransactions V.empty
 
 cmdBlocks :: Vector (Vector String)
 cmdBlocks =  V.fromList [ V.fromList
