@@ -114,7 +114,6 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
-import qualified Data.Sequence as Seq
 import Data.Tuple.Strict (T2(..))
 
 import GHC.Generics (Generic)
@@ -583,15 +582,16 @@ testMineWithPayload
     => Nonce
     -> HashTarget
     -> Time Int64
-    -> BlockPayloadHash
-    -> Seq.Seq (Transaction, TransactionOutput)
+    -> PayloadWithOutputs
     -> NodeId
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayload n target t payloadHash payload nid i c =
+testMineWithPayload n target t payload nid i c =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
         p <$ addNewPayload (given @(PayloadDb cas)) payload <* insertWebBlockHeaderDb h
+  where
+    payloadHash = _payloadWithOutputsPayloadHash payload
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
