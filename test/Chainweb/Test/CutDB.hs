@@ -187,10 +187,12 @@ mine cutDb c = do
     let target = _blockTarget parent
 
     -- generate transactions
-    payload <- generate arbitrary
+    payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
+    miner <- generate arbitrary
 
     -- compute payloadHash
-    let payloadHash = _payloadWithOutputsPayloadHash payload
+    let outputs = newPayloadWithOutputs miner payload
+        payloadHash = _payloadWithOutputsPayloadHash outputs
 
     -- mine new block
     t <- getCurrentTimeIntegral
@@ -198,7 +200,7 @@ mine cutDb c = do
         Left _ -> mine cutDb c
         Right (T2 _ c') -> do
             -- add payload to db
-            addNewPayload payloadDb payload
+            addNewPayload payloadDb outputs
 
             -- add cut to db
             addCutHashes cutDb (cutToCutHashes Nothing c')
