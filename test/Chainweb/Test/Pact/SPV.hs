@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 module Chainweb.Test.Pact.SPV
 ( tests
 ) where
@@ -16,10 +17,11 @@ import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import NeatInterpolation (text)
 import Numeric.Natural
 
 import Control.Concurrent.MVar
-import Control.Lens
+import Control.Lens hiding (.=)
 
 import Data.Aeson
 import Data.Default (def)
@@ -49,6 +51,7 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.SPV.RestAPI.Client
 import Chainweb.SPV.VerifyProof
@@ -100,6 +103,7 @@ targetChain c srcBlock = do
 
     distance x = len $ shortestPath (_chainId srcBlock) x graph
 
+
 -- -------------------------------------------------------------------------- --
 -- Pact Service setup
 
@@ -119,7 +123,7 @@ withPactSetup cdb f = do
 
     let pse = PactServiceEnv mpa cpe spv def
 
-    f pse st
+    init >> f pse st
   where
     initConf c l g = case _ccSqlite c of
       Nothing -> do
@@ -133,14 +137,49 @@ withPactSetup cdb f = do
         st <- mkSQLiteState e c
         pure (cpe,st)
 
+    init = initialPayloadState Testnet00 (testChainId 0)
+
+buildSpvCmd :: Transaction -> IO Text
+buildSpvCmd tx = buildExecParsedCode spvData
+    [text| (create-coin (read-msg 'proof)) |]
+  where
+    spvData = Just $ object
+      [ "proof" .= encodeToText tx
+      ]
+
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
 
 spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
 spvIntegrationTest v step = do
-  step "setup pact service and spv support"
-  withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
-    withPactSetup cutDb $ \pse st -> undefined
+    step "setup pact service and spv support"
+    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+      withPactSetup cutDb $  \pse st -> do
+        step "pick random transaction"
+        (h, txIx, tx, _) <- randomTransaction cutDb
+
+        step "pick a reachable target chain"
+        curCut <- _cut cutDb
+        trgChain <- targetChain curCut h
+
+        step "create inclusion proof for transaction"
+        proof <- createTransactionProof
+          cutDb
+              -- cutdb
+          trgChain
+              -- target chain
+          (_chainId h)
+              -- source chain id
+          (_blockHeight h)
+              -- source block height
+          txIx
+              -- transaction index
+
+        step "build spv creation command from tx"
+        cmd <- buildSpvCmd proof
+
+        step "execute cmd in modified environment"
+        undefined
 
 spvIntegrationWithDelay :: ChainwebVersion -> Step -> IO ()
 spvIntegrationWithDelay = undefined
