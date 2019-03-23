@@ -21,6 +21,7 @@ module Chainweb.Pact.TransactionExec
 , applyExec
 , applyExec'
 , applyContinuation
+, applyContinuation'
   -- * coin contract api
 , buyGas
 , coinbase
@@ -30,7 +31,6 @@ module Chainweb.Pact.TransactionExec
 , mkCoinbaseCmd
   -- * code parsing utils
 , buildExecParsedCode
-, initCapabilities
   -- * helpers
 , bumpExecMode
 ) where
@@ -478,7 +478,7 @@ mkBuyGasCmd minerId minerKeys sender total =
 
 mkCoinbaseCmd :: MinerId -> MinerKeys -> Decimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd minerId minerKeys reward = buildExecParsedCode coinbaseData
-    [text| (coin.coinbase '$minerId (read-keyset 'minerKeys) (read-decimal 'reward)) |]
+    [text| (coin.coinbase '$minerId (read-keyset 'miner-keyset) (read-decimal 'reward)) |]
   where
     coinbaseData = Just $ object [ "miner-keyset" .= minerKeys, "reward" .= reward ]
 {-# INLINABLE mkCoinbaseCmd #-}

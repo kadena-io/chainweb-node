@@ -64,7 +64,7 @@
       _P_keys:
       - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
     balance:
-      _P_decm: 4
+      _P_decm: 4204
       _P_decp: 2
   key: miner
   table: USER_coin_coin-table

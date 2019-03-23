@@ -95,7 +95,7 @@ execTests = do
     results <- execTransactions False defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
-    liftIO $ checkResponses testResponses
+    liftIO $ checkResponses (checkCoinbase (_transactionCoinbase results):testResponses)
 
 getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
@@ -103,6 +103,9 @@ getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
 checkResponses :: [TestResponse] -> IO [TestTree]
 checkResponses responses = traverse (\resp -> _trEval (_trRequest resp ) resp) responses
+
+checkCoinbase :: FullLogTxOutput -> TestResponse
+checkCoinbase cbOut = TestResponse testCoinbase cbOut
 
 checkSuccessOnly :: TestResponse -> Assertion
 checkSuccessOnly resp =
@@ -222,3 +225,9 @@ testReq5 = TestRequest
     { _trCmd = Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
     , _trEval = fileCompareTxLogs "transfer-accounts-expected.txt"
     , _trDisplayStr = "Transfers from one account to another" }
+
+testCoinbase :: TestRequest
+testCoinbase = TestRequest
+    { _trCmd = Code "not evaluated"
+    , _trEval = fileCompareTxLogs "coinbase-expected.txt"
+    , _trDisplayStr = "Coinbase output test" }

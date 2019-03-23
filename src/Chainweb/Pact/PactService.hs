@@ -346,7 +346,7 @@ execTransactions isGenesis miner ctxs = do
 
     let prevTxId = _pdbsTxId currentState
 
-    (coinOut, coinEM) <- runCoinbase dbEnv' mvCmdState (P.Transactional prevTxId) miner
+    (coinOut, coinEM) <- runCoinbase isGenesis dbEnv' mvCmdState (P.Transactional prevTxId) miner
     (txOuts, newMode) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs coinEM miner
 
     newTxId <- case newMode of
@@ -369,13 +369,19 @@ execTransactions isGenesis miner ctxs = do
     return (Transactions paired coinOut)
 
 runCoinbase
-    :: Env'
+    :: Bool
+    -> Env'
     -> MVar P.CommandState
     -> P.ExecutionMode
     -> MinerInfo
     -> PactT (FullLogTxOutput, P.ExecutionMode)
-runCoinbase env' cmdState em MinerInfo{..} = return (noCoinbase, em)
-
+runCoinbase True _ _ em _ = return (noCoinbase,em)
+runCoinbase False (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
+  logger <- reader _cpeLogger
+  let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
+  ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward
+  liftIO $ print result
+  pure $! (FullLogTxOutput (P._crResult result) txLogs, P._ceMode outEnv)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
