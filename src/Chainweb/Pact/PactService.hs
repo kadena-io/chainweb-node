@@ -34,7 +34,7 @@ import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception hiding (try)
-import Control.Lens ((.=), (^.), view, lazy)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -73,7 +73,7 @@ import qualified Pact.Types.SQLite as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
-import Chainweb.ChainId (unsafeIsoChainId)
+import Chainweb.ChainId (ChainId,unsafeIsoChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)

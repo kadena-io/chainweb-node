@@ -252,5 +252,5 @@ instance Arbitrary ChainId where
 -- unsafe to do so. 'ChainId's should only come from the graph, and should
 -- not be manipulable. We only use use this function when absolutely necessary.
 --
-unsafeIsoChainId :: Iso' ChainId Word32
-unsafeIsoChainId = iso (\(ChainId t) -> t) ChainId
+unsafeIsoChainId :: Iso' Word32 ChainId
+unsafeIsoChainId = iso ChainId (\(ChainId t) -> t)
