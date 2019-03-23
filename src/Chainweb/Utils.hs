@@ -6,9 +6,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -94,6 +96,7 @@ module Chainweb.Utils
 
 -- ** JSON
 , encodeToText
+, encodeToByteString
 , decodeOrThrow
 , decodeStrictOrThrow
 , decodeFileStrictOrThrow
@@ -129,11 +132,16 @@ module Chainweb.Utils
 , textReader
 , textOption
 
+-- * Configuration to Enable/Disable Components
+
 , EnableConfig(..)
 , enableConfigConfig
 , enableConfigEnabled
 , defaultEnableConfig
 , pEnableConfig
+
+-- * Configuration Exception
+, ConfigurationException(..)
 
 -- * Streaming
 , streamToHashSet
@@ -464,6 +472,10 @@ encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText
 {-# INLINE encodeToText #-}
 
+-- | Strict aeson encode.
+encodeToByteString :: ToJSON a => a -> B.ByteString
+encodeToByteString = BL.toStrict . encode
+
 decodeStrictOrThrow :: MonadThrow m => FromJSON a => B.ByteString -> m a
 decodeStrictOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
@@ -685,6 +697,16 @@ pEnableConfig compName pConfig = id
         % long compName
         <> help ("whether " <> compName <> " is enabled or disabled")
     <*< enableConfigConfig %:: pConfig
+
+-- -------------------------------------------------------------------------- --
+-- Configuration Validation
+
+newtype ConfigurationException = ConfigurationException T.Text
+    deriving (Show, Eq, Generic)
+    deriving newtype (IsString)
+    deriving anyclass (NFData)
+
+instance Exception ConfigurationException
 
 -- -------------------------------------------------------------------------- --
 -- Streaming Utilities

@@ -90,11 +90,12 @@ initWebService reqQ action = do
     (_port, socket) <- Warp.openFreePort
     withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
-newBlock :: BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
-newBlock bHeader reqQ = do
+newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
+newBlock mi bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
+          , _newMiner = mi
           , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar

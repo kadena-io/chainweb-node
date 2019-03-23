@@ -181,9 +181,10 @@ node conf logger = do
 
 withNodeLogger
     :: LogConfig
+    -> ChainwebVersion
     -> (L.Logger SomeLogMessage -> IO ())
     -> IO ()
-withNodeLogger logConfig f = runManaged $ do
+withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
@@ -211,7 +212,10 @@ withNodeLogger logConfig f = runManaged $ do
             , logHandler counterBackend
             ] baseBackend
 
-    liftIO $ f logger
+    liftIO $ f
+        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig)
+        $ addLabel ("chainwebVersion", sshow v)
+        $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
 
@@ -236,5 +240,7 @@ mainInfo = programInfo
     (defaultChainwebNodeConfiguration Testnet00)
 
 main :: IO ()
-main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf ->
-    withNodeLogger (_nodeConfigLog conf) $ node (_nodeConfigChainweb conf)
+main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+    let v = _configChainwebVersion $ _nodeConfigChainweb conf
+    withNodeLogger (_nodeConfigLog conf) v $ node (_nodeConfigChainweb conf)
+

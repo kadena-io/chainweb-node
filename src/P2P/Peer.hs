@@ -59,6 +59,7 @@ module P2P.Peer
 , peerCertificateChain
 , peerKey
 , unsafeCreatePeer
+, getPeerCertificate
 
 -- * Bootstrap Peer Infos
 , bootstrapPeerInfos
@@ -79,6 +80,7 @@ import Data.Hashable
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -260,12 +262,24 @@ data PeerConfig = PeerConfig
         -- ^ The X509 certificate chain of the peer. If this is Nothing a new ephemeral
         -- certificate is generated on startup and discarded on exit.
 
+    , _peerConfigCertificateChainFile :: !(Maybe FilePath)
+        -- ^ A file with the X509 certificate chain of the peer. If this is
+        -- Nothing a new ephemeral certificate is generated on startup and
+        -- discarded on exit.
+        --
+        -- If '_peerConfigCertificateChain' is not 'Nothing' it has precedence.
+
     , _peerConfigKey :: !(Maybe X509KeyPem)
         -- ^ The key for the X509 certificate. If no certificate is provided the
         -- key is ignored. It is an error if a certificate is provided but no key.
         --
-        -- TODO: should we support/require that both are stored in the same PEM
-        -- file?
+
+    , _peerConfigKeyFile :: !(Maybe FilePath)
+        -- ^ A file with key for the X509 certificate. If no certificate is
+        -- provided the key is ignored. It is an error if a certificate is
+        -- provided but no key.
+        --
+        -- If '_peerConfigKey' is not 'Nothing' it has precedence.
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -288,7 +302,9 @@ defaultPeerConfig = PeerConfig
     { _peerConfigAddr = HostAddress localhost 0
     , _peerConfigInterface = fromString "*"
     , _peerConfigCertificateChain = Nothing
+    , _peerConfigCertificateChainFile = Nothing
     , _peerConfigKey = Nothing
+    , _peerConfigKeyFile = Nothing
     }
 
 instance ToJSON PeerConfig where
@@ -296,7 +312,9 @@ instance ToJSON PeerConfig where
         [ "hostaddress" .= _peerConfigAddr o
         , "interface" .= hostPreferenceToText (_peerConfigInterface o)
         , "certificateChain" .= _peerConfigCertificateChain o
+        , "certificateChainFile" .= _peerConfigCertificateChainFile o
         , "key" .= _peerConfigKey o
+        , "keyFile" .= _peerConfigKeyFile o
         ]
 
 instance FromJSON PeerConfig where
@@ -304,14 +322,18 @@ instance FromJSON PeerConfig where
         <$> o .: "hostaddress"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
         <*> o .: "certificateChain"
+        <*> o .: "certificateChainFile"
         <*> o .: "key"
+        <*> o .: "keyFile"
 
 instance FromJSON (PeerConfig -> PeerConfig) where
     parseJSON = withObject "PeerConfig" $ \o -> id
         <$< peerConfigAddr %.: "hostaddress" % o
         <*< setProperty peerConfigInterface "interface" (parseJsonFromText "interface") o
         <*< peerConfigCertificateChain ..: "certificateChain" % o
+        <*< peerConfigCertificateChain ..: "certificateChainFile" % o
         <*< peerConfigKey ..: "key" % o
+        <*< peerConfigKey ..: "keyFile" % o
 
 pPeerConfig :: Maybe String -> MParser PeerConfig
 pPeerConfig service = id
@@ -320,7 +342,13 @@ pPeerConfig service = id
         % prefixLong service "interface"
         <> suffixHelp service "interface that the Rest API binds to (see HostPreference documentation for details)"
     <*< peerConfigCertificateChain .:: fmap Just % pX509CertChainPem service
+    <*< peerConfigCertificateChainFile .:: fmap Just % fileOption
+        % prefixLong service "certificate-chain-file"
+        <> suffixHelp service "file with the PEM encoded certificate chain. A textually provided certificate chain has precedence over a file."
     <*< peerConfigKey .:: fmap Just % pX509KeyPem service
+    <*< peerConfigKeyFile .:: fmap Just % fileOption
+        % prefixLong service "certificate-key-file"
+        <> suffixHelp service "file with the PEM encoded certificate key. A textually provided certificate key has precedence over a file."
 {-# INLINE pPeerConfig #-}
 
 -- -------------------------------------------------------------------------- --
@@ -339,15 +367,35 @@ data Peer = Peer
 
 makeLenses ''Peer
 
-unsafeCreatePeer :: HasCallStack => PeerConfig -> IO Peer
-unsafeCreatePeer conf = do
-    (fp, certs, key) <- case (_peerConfigCertificateChain conf, _peerConfigKey conf) of
+getPeerCertificate
+    :: PeerConfig
+    -> IO (Fingerprint, X509CertChainPem, X509KeyPem)
+getPeerCertificate conf = do
+    maybeChain <- case _peerConfigCertificateChain conf of
+        Nothing -> do
+            bytes <- traverse T.readFile $ _peerConfigCertificateChainFile conf
+            traverse x509CertChainPemFromText bytes
+        x -> return x
+
+    maybeKey <- case _peerConfigKey conf of
+        Nothing -> do
+            bytes <- traverse T.readFile $ _peerConfigKeyFile conf
+            traverse x509KeyPemFromText bytes
+        x -> return x
+
+    case (maybeChain, maybeKey) of
         (Nothing, _) -> do
             (fp, c, k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
             return (fp, X509CertChainPem c [], k)
         (Just c@(X509CertChainPem a _), Just k) ->
             return (unsafeFingerprintPem a, c, k)
-        _ -> error "missing certificate key in peer config"
+        _ -> throwM $ ConfigurationException "missing certificate key in peer config"
+  where
+    dn = name . B8.unpack . hostnameBytes . _hostAddressHost . _peerConfigAddr $ conf
+
+unsafeCreatePeer :: PeerConfig -> IO Peer
+unsafeCreatePeer conf = do
+    (fp, certs, key) <- getPeerCertificate conf
     return $ Peer
         { _peerInfo = PeerInfo
             { _peerId = Just $ peerIdFromFingerprint fp
@@ -357,8 +405,6 @@ unsafeCreatePeer conf = do
         , _peerCertificateChain = certs
         , _peerKey = key
         }
-  where
-    dn = name . B8.unpack . hostnameBytes . _hostAddressHost . _peerConfigAddr $ conf
 
 instance ToJSON Peer where
     toJSON p = object
@@ -430,10 +476,9 @@ testnet00BootstrapPeerInfo = map f testnetBootstrapHosts
 --
 testnetBootstrapHosts :: [Hostname]
 testnetBootstrapHosts = map unsafeHostnameFromText
-    [ "us1.chainweb.com"
-    , "us2.chainweb.com"
-    , "eu1.chainweb.com"
-    , "eu2.chainweb.com"
+    [ "us1.tn1.chainweb.com"
+    , "eu1.tn1.chainweb.com"
+    , "ap1.tn1.chainweb.com"
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -450,7 +495,9 @@ instance Arbitrary PeerConfig where
             <$> arbitrary
             <*> oneof (return <$> ["0.0.0.0", "127.0.0.1", "::1", "*", "*4", "!4", "*6", "!6"])
             <*> return c
+            <*> pure Nothing
             <*> return k
+            <*> pure Nothing
       where
         certRsa = X509CertPem $ B8.intercalate "\n"
             [ "-----BEGIN CERTIFICATE-----"
