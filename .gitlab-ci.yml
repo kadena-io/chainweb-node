@@ -75,6 +75,7 @@ nightly-nix:
     - schedules
   script:
     - echo This is a nightly build!
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-build docker.nix
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - result/ghc/chainweb/bin/slow-tests

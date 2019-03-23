@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -7,6 +8,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
+-- TODO KeySet NFData in Pact
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: Chainweb.Payload
@@ -53,6 +57,8 @@ module Chainweb.Payload
 , newBlockTransactions
 , transactionLog
 
+, MinerData(..)
+
 , BlockOutputsLog
 , newBlockOutputLog
 , newBlockOutputs
@@ -69,6 +75,8 @@ module Chainweb.Payload
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs(..)
 , payloadWithOutputs
+, newPayloadWithOutputs
+, payloadWithOutputsToBlockObjects
 ) where
 
 import Control.DeepSeq
@@ -312,8 +320,52 @@ instance HasMerkleLog ChainwebHashTag BlockPayload where
       where
         (txHash :+: outHash :+: _) = _merkleLogEntries l
 
+
+-- -------------------------------------------------------------------------- --
+-- Miner data as an opaque Pact-specific bytestring
+
+newtype MinerData = MinerData { _minerData :: B.ByteString }
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (BA.ByteArrayAccess, Hashable)
+
+instance Show MinerData where
+    show = T.unpack . encodeToText
+    {-# INLINE show #-}
+
+instance ToJSON MinerData where
+    toJSON = toJSON . encodeB64UrlNoPaddingText . _minerData
+    {-# INLINE toJSON #-}
+
+instance FromJSON MinerData where
+    parseJSON = parseJsonFromText "MinerData"
+    {-# INLINE parseJSON #-}
+
+instance IsMerkleLogEntry ChainwebHashTag MinerData where
+    type Tag MinerData = 'MinerDataTag
+    toMerkleNode = InputNode . _minerData
+    fromMerkleNode (InputNode bytes) = Right $ MinerData bytes
+    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
+
+minerDataToText :: MinerData -> T.Text
+minerDataToText = encodeB64UrlNoPaddingText . _minerData
+{-# INLINE minerDataToText #-}
+
+minerDataFromText :: MonadThrow m => T.Text -> m MinerData
+minerDataFromText t = either (throwM . TextFormatException . sshow) return
+    $ MinerData <$> decodeB64UrlNoPaddingText t
+{-# INLINE minerDataFromText #-}
+
+instance HasTextRepresentation MinerData where
+    toText = minerDataToText
+    {-# INLINE toText #-}
+    fromText = minerDataFromText
+    {-# INLINE fromText #-}
+
 -- -------------------------------------------------------------------------- --
 -- Block Transactions
+
+
 
 -- | The block transactions
 --
@@ -324,6 +376,9 @@ data BlockTransactions = BlockTransactions
 
     , _blockTransactions :: !(S.Seq Transaction)
         -- ^ Ordered list of all transactions of the block.
+
+    , _blockMinerData :: !MinerData
+        -- ^ Miner data for rewards
     }
     deriving (Show)
 
@@ -332,20 +387,21 @@ instance IsCasValue BlockTransactions where
     casKey = _blockTransactionsHash
 
 instance HasMerkleLog ChainwebHashTag BlockTransactions where
-    type MerkleLogHeader BlockTransactions = '[]
+    type MerkleLogHeader BlockTransactions = '[MinerData]
     type MerkleLogBody BlockTransactions = Transaction
 
     toLog a = merkleLog root entries
       where
         BlockTransactionsHash (MerkleLogHash root) = _blockTransactionsHash a
-        entries = MerkleLogBody (_blockTransactions a)
+        entries = _blockMinerData a :+: MerkleLogBody (_blockTransactions a)
 
     fromLog l = BlockTransactions
         { _blockTransactionsHash = BlockTransactionsHash $ MerkleLogHash $ _merkleLogRoot l
         , _blockTransactions = txs
+        , _blockMinerData = mi
         }
       where
-        MerkleLogBody txs = _merkleLogEntries l
+        (mi :+: MerkleLogBody txs) = _merkleLogEntries l
 
 type BlockTransactionsLog = MkLogType ChainwebHashTag BlockTransactions
 
@@ -436,15 +492,16 @@ instance IsCasValue OutputTree where
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newTransactionLog :: S.Seq Transaction -> BlockTransactionsLog
-newTransactionLog = newMerkleLog . MerkleLogBody
+newTransactionLog :: MinerData -> S.Seq Transaction -> BlockTransactionsLog
+newTransactionLog md txs =
+  newMerkleLog $ md :+: MerkleLogBody txs
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockTransactions :: S.Seq Transaction -> (TransactionTree, BlockTransactions)
-newBlockTransactions txs = (tree, blockTxs)
+newBlockTransactions :: MinerData -> S.Seq Transaction -> (TransactionTree, BlockTransactions)
+newBlockTransactions mi txs = (tree, blockTxs)
   where
-    mlog = newTransactionLog txs
+    mlog = newTransactionLog mi txs
     blockTxs = fromLog mlog
     tree = TransactionTree
         { _transactionTreeHash = _blockTransactionsHash blockTxs
@@ -514,11 +571,12 @@ blockPayload txs outs
         :+: emptyBody
 
 newBlockPayload
-    :: S.Seq (Transaction, TransactionOutput)
+    :: MinerData
+    -> S.Seq (Transaction, TransactionOutput)
     -> BlockPayload
-newBlockPayload s = blockPayload txs outs
+newBlockPayload mi s = blockPayload txs outs
   where
-    (_, txs) = newBlockTransactions (fst <$> s)
+    (_, txs) = newBlockTransactions mi (fst <$> s)
     (_, outs) = newBlockOutputs (snd <$> s)
 
 -- -------------------------------------------------------------------------- --
@@ -526,6 +584,7 @@ newBlockPayload s = blockPayload txs outs
 
 data PayloadData = PayloadData
     { _payloadDataTransactions :: !(S.Seq Transaction)
+    , _payloadDataMiner :: !MinerData
     , _payloadDataPayloadHash :: !BlockPayloadHash
     , _payloadDataTransactionsHash :: !BlockTransactionsHash
     , _payloadDataOutputsHash :: !BlockOutputsHash
@@ -536,6 +595,7 @@ data PayloadData = PayloadData
 instance ToJSON PayloadData where
     toJSON o = object
         [ "transactions" .= _payloadDataTransactions o
+        , "minerData" .= _payloadDataMiner o
         , "payloadHash" .= _payloadDataPayloadHash o
         , "transactionsHash" .= _payloadDataTransactionsHash o
         , "outputsHash" .= _payloadDataOutputsHash o
@@ -544,6 +604,7 @@ instance ToJSON PayloadData where
 instance FromJSON PayloadData where
     parseJSON = withObject "PayloadData" $ \o -> PayloadData
         <$> o .: "transactions"
+        <*> o .: "minerData"
         <*> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
@@ -556,6 +617,7 @@ instance IsCasValue PayloadData where
 payloadData :: BlockTransactions -> BlockPayload -> PayloadData
 payloadData txs payload = PayloadData
     { _payloadDataTransactions = _blockTransactions txs
+    , _payloadDataMiner = _blockMinerData txs
     , _payloadDataPayloadHash = _blockPayloadPayloadHash payload
     , _payloadDataTransactionsHash = _blockPayloadTransactionsHash payload
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
@@ -569,10 +631,11 @@ newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
 
 data PayloadWithOutputs = PayloadWithOutputs
     { _payloadWithOutputsTransactions :: !(S.Seq (Transaction, TransactionOutput))
+    , _payloadWithOutputsMiner :: !MinerData
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
     , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
     , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
-    }
+    } deriving (Show)
 
 instance IsCasValue PayloadWithOutputs where
     type CasKeyType PayloadWithOutputs = BlockPayloadHash
@@ -582,14 +645,31 @@ instance IsCasValue PayloadWithOutputs where
 payloadWithOutputs :: PayloadData -> S.Seq TransactionOutput -> PayloadWithOutputs
 payloadWithOutputs d outputs = PayloadWithOutputs
     { _payloadWithOutputsTransactions = S.zip (_payloadDataTransactions d) outputs
+    , _payloadWithOutputsMiner = _payloadDataMiner d
     , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
     , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
     , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
     }
 
+newPayloadWithOutputs
+    :: MinerData -> S.Seq (Transaction, TransactionOutput)
+    -> PayloadWithOutputs
+newPayloadWithOutputs mi s = PayloadWithOutputs
+    { _payloadWithOutputsTransactions = s
+    , _payloadWithOutputsMiner = mi
+    , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash p
+    , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash p
+    , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash p
+    }
+  where
+    p = newBlockPayload mi s
+
+
+
 instance ToJSON PayloadWithOutputs where
   toJSON o = object
     [ "transactions" .= _payloadWithOutputsTransactions o
+    , "minerData" .= _payloadWithOutputsMiner o
     , "payloadHash" .= _payloadWithOutputsPayloadHash o
     , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
     , "outputsHash" .= _payloadWithOutputsOutputsHash o
@@ -598,6 +678,13 @@ instance ToJSON PayloadWithOutputs where
 instance FromJSON PayloadWithOutputs where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
         <$> o .: "transactions"
+        <*> o .: "minerData"
         <*> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
+
+payloadWithOutputsToBlockObjects :: PayloadWithOutputs -> (BlockTransactions, BlockOutputs)
+payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
+  (BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
+  ,BlockOutputs _payloadWithOutputsOutputsHash outs)
+  where (ins,outs) = S.unzip $ _payloadWithOutputsTransactions

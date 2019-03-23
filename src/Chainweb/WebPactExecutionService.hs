@@ -14,12 +14,13 @@ import qualified Data.HashMap.Strict as HM
 import Chainweb.BlockHeader
 import Chainweb.Payload
 import Chainweb.ChainId
+import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Service.PactInProcApi
 
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-  , _pactNewBlock :: BlockHeader -> IO PayloadWithOutputs
+  , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
   }
 
 newtype WebPactExecutionService = WebPactExecutionService
@@ -30,7 +31,7 @@ newtype WebPactExecutionService = WebPactExecutionService
 mkWebPactExecutionService :: HM.HashMap ChainId PactExecutionService -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
-  , _pactNewBlock = \h -> withChainService h $ \p -> _pactNewBlock p h
+  , _pactNewBlock = \m h -> withChainService h $ \p -> _pactNewBlock p m h
   }
   where withChainService h act = case HM.lookup (_chainId h) hm of
           Just p -> act p
@@ -44,8 +45,8 @@ mkPactExecutionService q = PactExecutionService
       case r of
         Right pdo -> return pdo
         Left e -> throwM e
-  , _pactNewBlock = \h -> do
-      mv <- newBlock h q
+  , _pactNewBlock = \m h -> do
+      mv <- newBlock m h q
       r <- takeMVar mv
       case r of
         Right pdo -> return pdo

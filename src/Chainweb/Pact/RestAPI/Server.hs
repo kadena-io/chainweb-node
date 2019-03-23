@@ -121,15 +121,15 @@ somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 
-sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler NoContent
-sendHandler mempool (SubmitBatch cmds) = Handler $ do
-  case traverse validateCommand cmds of
-    Just enriched -> do
-      liftIO $ mempoolInsert mempool $! V.fromList enriched
-      return NoContent
-    Nothing ->
-      throwError $ err400 { errBody = "Validation failed." }
-
+sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler RequestKeys
+sendHandler mempool (SubmitBatch cmds) =
+    Handler $
+    case traverse validateCommand cmds of
+      Just enriched -> do
+        liftIO $ mempoolInsert mempool $! V.fromList enriched
+        return $! RequestKeys $ map cmdToRequestKey enriched
+      Nothing ->
+        throwError $ err400 { errBody = "Validation failed." }
 
 pollHandler
     :: PayloadCas cas
@@ -279,13 +279,16 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
-        (PayloadWithOutputs txsBs _ _ _) <- MaybeT $ casLookup pdb payloadHash
+        (PayloadWithOutputs txsBs _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         txs <- mapM fromTx txsBs
 
         case find matchingHash txs of
             (Just (_cmd, (TransactionOutput output))) -> do
                 -- TODO: ApiResult has untyped fields and none of us is 100%
                 -- sure what should go in here
+
+                -- TODO: we have the outputs! there is no need for this. SLP TODO
+
                 val <- MaybeT $ return $ decodeStrict output
                 return $! ApiResult val Nothing Nothing    -- TODO: what should be here for metadata?
 

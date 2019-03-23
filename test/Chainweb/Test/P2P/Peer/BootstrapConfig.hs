@@ -48,7 +48,9 @@ testBootstrapPeerConfig v =
         { _peerConfigAddr = _peerAddr $ head (bootstrapPeerInfos v)
         , _peerConfigInterface = "127.0.0.1"
         , _peerConfigCertificateChain = Just $ X509CertChainPem (bootstrapCertificate v) []
+        , _peerConfigCertificateChainFile = Nothing
         , _peerConfigKey = Just $ bootstrapKey v
+        , _peerConfigKeyFile = Nothing
         }
     ]
 

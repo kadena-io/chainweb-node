@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -90,14 +91,19 @@ import Configuration.Utils hiding (Error)
 
 import Control.Concurrent.Async
 import Control.Concurrent.Chan
+import Control.Concurrent.STM.TBQueue
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.STM
 import Control.Monad.Trans.Control
 
+import Data.Aeson.Encoding hiding (int)
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 
 import GHC.Generics
 
@@ -112,6 +118,7 @@ import System.IO
 import qualified System.Logger as L
 import System.Logger.Backend.ColorOption
 import qualified System.Logger.Internal as L
+import System.LogLevel
 
 -- internal modules
 
@@ -121,6 +128,8 @@ import Chainweb.Utils
 import Data.LogMessage
 
 import P2P.Node
+
+import qualified PkgInfo as Pkg
 
 import Utils.Logging.Config
 
@@ -448,6 +457,12 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- that allows the message (or the failure message) to be passed to another
 -- handler.
 --
+-- TODO: Currently we allocate one pipeline for each index. Instead we may
+-- use a separate function @withElasticSearchServer@ that provides the queue
+-- and pass to each invocation of 'withElasticsearchBackend'.
+--
+-- TODO: move all of this to another module.
+--
 withElasticsearchBackend
     :: ToJSON a
     => HTTP.Manager
@@ -457,19 +472,37 @@ withElasticsearchBackend
     -> IO b
 withElasticsearchBackend mgr esServer ixName inner = do
     void $ HTTP.httpLbs putIndex mgr
-        -- FIXME Do we need failure handling? This is fire and forget
-        -- which may be fine for many applications.
-    inner $ \a -> void $ HTTP.httpLbs (putLog a) mgr
-        -- FIXME failure handling?
-        -- FIXME implement batching
+        -- FIXME Do we need failure handling? If this fails the exeption
+        -- is propagated to the main applcation
+
+    queue <- newTBQueueIO 2000
+    withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
+        inner $ \a -> atomically (writeTBQueue queue a)
 
   where
+    errorLogFun Error msg = T.hPutStrLn stderr msg
+    errorLogFun _ _ = return ()
+
+    processor queue = do
+        (n, msg) <- atomically $ do
+            h <- readTBQueue queue
+            go (1000 :: Int) (indexAction h) (1 :: Int)
+        errorLogFun Info $ "send " <> sshow n <> " messages"
+
+        void $ HTTP.httpLbs (putBulgLog msg) mgr
+      where
+        go 0 !b !c = return (c, b)
+        go i !b !c = tryReadTBQueue queue >>= \case
+            Nothing -> return (c, b)
+            Just x -> go i (b <> indexAction x) (pred c)
+
+
     putIndex = HTTP.defaultRequest
         { HTTP.method = "PUT"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
         , HTTP.path = T.encodeUtf8 ixName
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
@@ -478,10 +511,45 @@ withElasticsearchBackend mgr esServer ixName inner = do
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
         , HTTP.path = T.encodeUtf8 ixName <> "/_doc"
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 1000000
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
         }
+
+    putBulgLog a = HTTP.defaultRequest
+        { HTTP.method = "POST"
+        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
+        , HTTP.port = int (_hostAddressPort esServer)
+        , HTTP.path = "/_bulk"
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+        , HTTP.requestHeaders = [("content-type", "application/x-ndjson")]
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
+        }
+
+    e = fromEncoding . toEncoding
+    indexAction a
+        = fromEncoding indexActionHeader
+        <> BB.char7 '\n'
+        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
+        <> BB.char7 '\n'
+
+    indexActionHeader :: Encoding
+    indexActionHeader = pairs
+        $ pair "index" $ pairs
+            $ ("_index" .= (ixName :: T.Text))
+            <> ("_type" .= ("_doc" :: T.Text))
+
+-- -------------------------------------------------------------------------- --
+-- Encode Package Info into Log mesage scopes
+
+pkgInfoScopes =
+    [ ("revision", Pkg.revision)
+    , ("branch", Pkg.branch)
+    , ("compiler", Pkg.compiler)
+    , ("optimisation", Pkg.optimisation)
+    , ("architecture", Pkg.arch)
+    , ("package", Pkg.package)
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages

@@ -36,6 +36,7 @@ module Chainweb.Pact.Types
   , pdbspPactDbState
     -- * defaults
   , defaultMiner
+  , noMiner
     -- * module exports
   , module Chainweb.Pact.Backend.Types
   ) where
@@ -60,9 +61,9 @@ import Pact.Types.Util (Hash(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Payload
 import Chainweb.Pact.Backend.Types
 import Chainweb.Transaction
-import Chainweb.Payload (Transaction)
 
 newtype Transactions = Transactions
     { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
@@ -118,20 +119,37 @@ instance ToJSON HashedLogTxOutput where
     {-# INLINE toJSON #-}
 
 
+
 type MinerKeys = KeySet
 type MinerId = Text
+
 
 data MinerInfo = MinerInfo
   { _minerAccount :: MinerId
   , _minerKeys :: MinerKeys
-  }
+  } deriving (Show,Eq)
+
+
+instance ToJSON MinerInfo where
+  toJSON MinerInfo{..} =
+    object [ "m" .= _minerAccount
+           , "ks" .= _ksKeys _minerKeys
+           , "kp" .= _ksPredFun _minerKeys ]
+instance FromJSON MinerInfo where
+  parseJSON = withObject "MinerInfo" $ \o ->
+    MinerInfo <$> o .: "m" <*> (KeySet <$> o .: "ks" <*> o .: "kp")
+
+
+noMiner :: MinerInfo
+noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
+
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
 defaultMiner :: MinerInfo
 defaultMiner = MinerInfo "miner" $ KeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-  (Name "miner-keyset" def)
+  (Name "keys-all" def)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: Maybe FilePath
