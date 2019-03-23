@@ -18,6 +18,7 @@ import Test.Tasty.HUnit
 
 import Numeric.Natural
 
+import Control.Concurrent.MVar
 import Control.Lens
 
 import Data.Aeson
@@ -102,18 +103,23 @@ targetChain c srcBlock = do
 -- -------------------------------------------------------------------------- --
 -- Pact Service setup
 
-pactSetup :: IO (PactServiceEnv, PactDbState)
-pactSetup = do
+
+withPactSetup :: CutDb cas -> (PactServiceEnv -> PactDbState -> IO a) -> IO a
+withPactSetup cdb f = do
     let l = newLogger alwaysLog (LogName "pact-spv")
         conf = toCommandConfig $ pactDbConfig (Test petersonChainGraph)
         genv = GasEnv 0 0.0 (constGasModel 0)
 
+    mv <- newMVar cdb
     (cpe, st) <- initConf conf l genv
     void $ saveInitial (cpe ^. cpeCheckpointer) st
 
-    let pse = PactServiceEnv (\_ _ -> pure V.empty) cpe noSPVSupport def
+    let mpa = \_ _ -> pure V.empty
+        spv = pactSpvSupport mv
 
-    pure (pse,st)
+    let pse = PactServiceEnv mpa cpe spv def
+
+    f pse st
   where
     initConf c l g = case _ccSqlite c of
       Nothing -> do
@@ -131,7 +137,10 @@ pactSetup = do
 -- SPV Tests
 
 spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
-spvIntegrationTest = undefined
+spvIntegrationTest v step = do
+  step "setup pact service and spv support"
+  withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withPactSetup cutDb $ \pse st -> undefined
 
 spvIntegrationWithDelay :: ChainwebVersion -> Step -> IO ()
 spvIntegrationWithDelay = undefined

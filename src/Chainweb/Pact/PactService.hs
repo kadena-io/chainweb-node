@@ -27,6 +27,7 @@ module Chainweb.Pact.PactService
     , testnet00CreateCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
+    , pactSpvSupport
     ) where
 
 
@@ -134,7 +135,7 @@ initPactService ver cid chainwebLogger reqQ memPoolAccess cutMV =
     initPactService' ver cid chainwebLogger memPoolAccess spv $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
   where
-    spv = pactSPVSupport cutMV
+    spv = pactSpvSupport cutMV
 
 initPactService'
     :: Logger logger
@@ -178,9 +179,9 @@ initPactService' ver (ChainId cid) chainwebLogger mpa spv act = do
     evalStateT (runReaderT act pse) theState
 
 
-pactSPVSupport
+pactSpvSupport
     :: MVar (CutDb cas) -> P.SPVSupport
-pactSPVSupport mv = P.SPVSupport $ \s o -> do
+pactSpvSupport mv = P.SPVSupport $ \s o -> do
     cdb <- readMVar mv
     case s of
       "TXOUT" -> do
