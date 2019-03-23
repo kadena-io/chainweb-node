@@ -349,6 +349,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
@@ -390,6 +391,7 @@ test-suite chainweb-tests
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.2
+        , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6

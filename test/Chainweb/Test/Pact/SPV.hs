@@ -1,4 +1,5 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Test.Pact.SPV
 ( tests
 ) where
@@ -21,23 +22,25 @@ import NeatInterpolation (text)
 import Numeric.Natural
 
 import Control.Concurrent.MVar
-import Control.Lens hiding (.=)
+import Control.Lens hiding ((.=))
+import Control.Monad.Reader (ReaderT, runReaderT)
+import Control.Monad.State (StateT, runStateT)
 
 import Data.Aeson
 import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
-import Data.Reflection hiding (int)
 import qualified Data.Vector as V
 
 -- internal pact modules
 
 import Pact.Gas
 import Pact.Interpreter
+import Pact.Types.Command
 import Pact.Types.Gas
 import Pact.Types.Logger
-import Pact.Types.Runtime
 import Pact.Types.Server
+import Pact.Types.RPC
 
 -- internal chainweb modules
 
@@ -46,21 +49,17 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
+import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
-import Chainweb.SPV.RestAPI.Client
 import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB
-import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
-
-import Data.CAS.HashMap hiding (toList)
 
 
 tests :: TestTree
@@ -102,6 +101,9 @@ targetChain c srcBlock = do
 
     distance x = len $ shortestPath (_chainId srcBlock) x graph
 
+runRST :: Monad m => ReaderT r (StateT s m) a -> r -> s -> m a
+runRST action pse st = fmap fst $
+  runStateT (runReaderT action pse) st
 
 -- -------------------------------------------------------------------------- --
 -- Pact Service setup
@@ -122,7 +124,7 @@ withPactSetup cdb f = do
 
     let pse = PactServiceEnv mpa cpe spv def
 
-    init >> f pse st
+    initCC pse st >> f pse st
   where
     initConf c l g = case _ccSqlite c of
       Nothing -> do
@@ -136,9 +138,10 @@ withPactSetup cdb f = do
         st <- mkSQLiteState e c
         pure (cpe,st)
 
-    init = initialPayloadState Testnet00 (testChainId 0)
+    initCC = runRST $
+      initialPayloadState Testnet00 (testChainId 0)
 
-buildSpvCmd :: Transaction -> IO Text
+buildSpvCmd :: Transaction -> IO (ExecMsg ParsedCode)
 buildSpvCmd tx = buildExecParsedCode spvData
     [text| (create-coin (read-msg 'proof)) |]
   where
@@ -174,8 +177,11 @@ spvIntegrationTest v step = do
           txIx
               -- transaction index
 
+        step "verify transaction proof"
+        t <- verifyTransactionProof cutDb proof
+
         step "build spv creation command from tx"
-        cmd <- buildSpvCmd proof
+        cmd <- buildSpvCmd t
 
         step "execute cmd in modified environment"
         undefined
