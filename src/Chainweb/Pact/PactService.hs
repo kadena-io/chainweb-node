@@ -333,20 +333,29 @@ mkSqliteConfig :: Maybe FilePath -> [P.Pragma] -> Maybe P.SQLiteConfig
 mkSqliteConfig (Just f) xs = Just $ P.SQLiteConfig f xs
 mkSqliteConfig _ _ = Nothing
 
+
+
 execTransactions :: Bool -> MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
 execTransactions isGenesis miner ctxs = do
+
     currentState <- get
+
     let dbEnvPersist' = _pdbsDbEnv $! currentState
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
+
     let prevTxId = _pdbsTxId currentState
-    (txOuts, newMode) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs (P.Transactional prevTxId) miner
+
+    (coinOut, coinEM) <- runCoinbase dbEnv' mvCmdState (P.Transactional prevTxId) miner
+    (txOuts, newMode) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs coinEM miner
+
     newTxId <- case newMode of
       P.Transactional t -> return t
       P.Local -> internalError' "Local mode returned from pact exec"
 
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
+
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
@@ -354,8 +363,19 @@ execTransactions isGenesis miner ctxs = do
           }
         cmdBSToTx = toTransactionBytes . fmap payloadBytes
         paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
+
     put updatedState
-    return (Transactions paired Nothing)
+
+    return (Transactions paired coinOut)
+
+runCoinbase
+    :: Env'
+    -> MVar P.CommandState
+    -> P.ExecutionMode
+    -> MinerInfo
+    -> PactT (FullLogTxOutput, P.ExecutionMode)
+runCoinbase env' cmdState em MinerInfo{..} = return (noCoinbase, em)
+
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds

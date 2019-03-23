@@ -75,7 +75,7 @@ import Chainweb.Utils
 
 data Transactions = Transactions
     { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
-    , _transactionCoinbase :: Maybe FullLogTxOutput
+    , _transactionCoinbase :: FullLogTxOutput
     } deriving (Eq,Show)
 
 
