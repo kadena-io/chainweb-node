@@ -395,6 +395,7 @@ newSession conf node = do
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer node newPeerInfo >>= \case
         False -> do
+            logg node Warn $ "Failed to connect new peer " <> showInfo newPeerInfo
             threadDelay =<< R.randomRIO (400000, 500000)
                 -- FIXME there are better ways to prevent the node from spinning
                 -- if no suitable (non-failing node) is available.
