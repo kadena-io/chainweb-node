@@ -230,6 +230,6 @@ testReq5 = TestRequest
 testReq6 :: TestRequest
 testReq6 = TestRequest
     { _trCmd = Code "(delete-coin \"Acct1\" 1 \"Acct2\" (read-keyset 'test-admin-keyset) 1.0)"
-    , _trEval = return . testCase "delete-coin" . checkSuccessOnlyy
+    , _trEval = return . testCase "delete-coin" . checkSuccessOnly
     , _trDisplayStr = "Creates SPV receipt for cross-chain transfer"
     }
