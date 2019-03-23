@@ -25,7 +25,7 @@ import Chainweb.Version
 
 type ApiV1API = SendApi :<|> PollApi :<|> ListenApi :<|> LocalApi
 
-type SendApi = "send" :> ReqBody '[JSON] SubmitBatch :> Post '[JSON] NoContent
+type SendApi = "send" :> ReqBody '[JSON] SubmitBatch :> Post '[JSON] RequestKeys
 type PollApi = "poll" :> ReqBody '[JSON] Poll :> Post '[JSON] PollResponses
 type ListenApi = "listen" :> ReqBody '[JSON] ListenerRequest :> Post '[JSON] ApiResult
 type LocalApi = "local" :> ReqBody '[JSON] (Command Text) :> Post '[JSON] (CommandSuccess Value)
