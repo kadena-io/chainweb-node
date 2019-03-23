@@ -380,7 +380,6 @@ runCoinbase False (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
   logger <- reader _cpeLogger
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
   ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward
-  liftIO $ print result
   pure $! (FullLogTxOutput (P._crResult result) txLogs, P._ceMode outEnv)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
