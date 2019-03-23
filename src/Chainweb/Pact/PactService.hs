@@ -73,7 +73,7 @@ import qualified Pact.Types.SQLite as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
-import Chainweb.ChainId (ChainId,unsafeIsoChainId)
+import Chainweb.ChainId (ChainId(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -145,7 +145,7 @@ initPactService'
     -> P.SPVSupport
     -> PactServiceM a
     -> IO a
-initPactService' ver cid chainwebLogger mpa spv act = do
+initPactService' ver (ChainId cid) chainwebLogger mpa spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName "PactService"
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -172,7 +172,7 @@ initPactService' ver cid chainwebLogger mpa spv act = do
             internalError' s
         Right _ -> return ()
 
-    let pd = P.PublicData def (cid ^. from unsafeIsoChainId) def def
+    let pd = P.PublicData def cid def def
     let pse = PactServiceEnv mpa checkpointEnv spv pd
 
     evalStateT (runReaderT act pse) theState

@@ -21,7 +21,7 @@
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
-, ChainId
+, ChainId(..)
 , HasChainId(..)
 , checkChainId
 , chainIdToText
@@ -46,9 +46,6 @@ module Chainweb.ChainId
 
 -- * Testing
 , testChainId
-
--- * Getters
-, unsafeIsoChainId
 ) where
 
 import Control.DeepSeq
@@ -244,13 +241,3 @@ testChainId = ChainId
 
 instance Arbitrary ChainId where
     arbitrary = testChainId <$> arbitrary
-
--- -------------------------------------------------------------------------- --
--- Optics
-
--- | Generally, 'ChainId' does not export its constructor because it is often
--- unsafe to do so. 'ChainId's should only come from the graph, and should
--- not be manipulable. We only use use this function when absolutely necessary.
---
-unsafeIsoChainId :: Iso' Word32 ChainId
-unsafeIsoChainId = iso ChainId (\(ChainId t) -> t)
