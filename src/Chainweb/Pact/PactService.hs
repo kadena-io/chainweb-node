@@ -182,22 +182,19 @@ pactSPVSupport
     ::MVar (CutDb cas) -> P.SPVSupport
 pactSPVSupport mv = P.SPVSupport $ \s o -> do
     cdb <- readMVar mv
-    t <- go s o cdb
-    pure . Right . P._tObject . P._csData $ t
-  where
-    -- Process the transaction verification for a given
-    -- mode
-    go s o cdb = case s of
+    case s of
       "TXOUT" -> do
         t <- outputProofOf o
         (TransactionOutput u) <- verifyTransactionOutputProof cdb t
-        psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+        pure . Right . P._tObject . P._csData $ v
       "TXIN" -> do
         t <- inputProofOf o
         (Transaction u) <- verifyTransactionProof cdb t
-        psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-      _ -> internalError' "spvSupport: Unsupport SPV mode"
-
+        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+        pure . Right . P._tObject . P._csData $ v
+      _ -> pure (Left "spvSupport: Unsupport SPV mode")
+  where
     -- serialize pact object and produce an
     -- spv proof (either in or outgoing)
     outputProofOf o = psDecode @(TransactionOutputProof SHA512t_256)
