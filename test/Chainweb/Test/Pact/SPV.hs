@@ -66,7 +66,6 @@ import Data.CAS.HashMap hiding (toList)
 tests :: TestTree
 tests = testGroup "SPV-Pact Integration Tests"
   [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest version)
-  , testCaseStepsN "SPV Roundtrip with delay" 10 (spvIntegrationWithDelay version)
   ]
   where
     version = Test petersonChainGraph
@@ -180,6 +179,3 @@ spvIntegrationTest v step = do
 
         step "execute cmd in modified environment"
         undefined
-
-spvIntegrationWithDelay :: ChainwebVersion -> Step -> IO ()
-spvIntegrationWithDelay = undefined

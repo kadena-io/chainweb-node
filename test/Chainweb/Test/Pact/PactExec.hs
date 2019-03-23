@@ -226,3 +226,10 @@ testReq5 = TestRequest
     { _trCmd = Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
     , _trEval = fileCompareTxLogs "transfer-accounts-expected.txt"
     , _trDisplayStr = "Transfers from one account to another" }
+
+testReq6 :: TestRequest
+testReq6 = TestRequest
+    { _trCmd = Code "(delete-coin \"Acct1\" 1 \"Acct2\" (read-keyset 'test-admin-keyset) 1.0)"
+    , _trEval = return . testCase "delete-coin" . checkSuccessOnlyy
+    , _trDisplayStr = "Creates SPV receipt for cross-chain transfer"
+    }
