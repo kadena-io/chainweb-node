@@ -26,6 +26,7 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Yaml as Y
 
 import System.FilePath
 import System.IO.Extra
@@ -142,7 +143,7 @@ fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
 fileCompareTxLogs fp resp =
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
     where
-        ioBs = return $ toS $ show <$> take 1 . _flTxLogs $ _trOutput resp
+        ioBs = return $ toS $ Y.encode <$> _flTxLogs $ _trOutput resp
 
 ----------------------------------------------------------------------------------------------------
 -- Pact test datatypes

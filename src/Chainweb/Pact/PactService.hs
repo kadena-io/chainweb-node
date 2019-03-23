@@ -410,12 +410,11 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
-    ((result, txLogs), newEM) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger Nothing dbEnv cmdState execMode cmd
-        else applyCmd logger Nothing miner dbEnv
-             cmdState gasModel execMode cmd
+    ((result, txLogs), outEnv) <- liftIO $! if isGenesis
+        then applyGenesisCmd logger dbEnv cmdState execMode cmd
+        else applyCmd logger dbEnv cmdState execMode miner gasModel cmd
 
-    pure $! (FullLogTxOutput (P._crResult result) txLogs, newEM)
+    pure $! (FullLogTxOutput (P._crResult result) txLogs, P._ceMode outEnv)
 
 updateState :: PactDbState  -> PactT ()
 updateState PactDbState {..} = do
