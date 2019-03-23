@@ -120,15 +120,15 @@ somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 
-sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler NoContent
-sendHandler mempool (SubmitBatch cmds) = Handler $ do
-  case traverse validateCommand cmds of
-    Just enriched -> do
-      liftIO $ mempoolInsert mempool $! V.fromList enriched
-      return NoContent
-    Nothing ->
-      throwError $ err400 { errBody = "Validation failed." }
-
+sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler RequestKeys
+sendHandler mempool (SubmitBatch cmds) =
+    Handler $
+    case traverse validateCommand cmds of
+      Just enriched -> do
+        liftIO $ mempoolInsert mempool $! V.fromList enriched
+        return $! RequestKeys $ map cmdToRequestKey enriched
+      Nothing ->
+        throwError $ err400 { errBody = "Validation failed." }
 
 pollHandler
     :: PayloadCas cas
