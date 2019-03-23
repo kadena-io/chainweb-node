@@ -20,6 +20,8 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 import Chainweb.Payload
 
+import Pact.Types.Command
+
 data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
@@ -55,6 +57,6 @@ data ValidateBlockReq = ValidateBlockReq
     }
 
 data LocalReq = LocalReq
-    { _localRequest :: BlockHeader
-    , _localResultVar :: MVar (Either PactException Transactions)
+    { _localRequest :: Command Text
+    , _localResultVar :: MVar (Either PactException FullLogTxOutput)
     }

@@ -41,7 +41,6 @@ import Control.Monad.State
 import qualified Data.Aeson as A
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (toStrict)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -50,7 +49,6 @@ import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import System.LogLevel
 
@@ -59,7 +57,6 @@ import System.LogLevel
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
@@ -206,18 +203,10 @@ serviceRequests memPoolAccess reqQ = go
                     liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
 
-toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
-toHashedLogTxOutput FullLogTxOutput{..} =
-    let e = A.encode _flTxLogs
-        hashed = P.hash $ toS e
-    in HashedLogTxOutput
-        { _hlCommandResult = _flCommandResult
-        , _hlTxLogHash = hashed
-        }
 
 toTransactionBytes :: P.Command ByteString -> Transaction
 toTransactionBytes cwTrans =
-    let plBytes = toStrict $ A.encode cwTrans
+    let plBytes = encodeToByteString cwTrans
     in Transaction { _transactionBytes = plBytes }
 
 toOutputBytes :: FullLogTxOutput -> TransactionOutput
@@ -232,13 +221,14 @@ toPayloadWithOutputs mi ts =
         trans = fst <$> oldSeq
         transOuts = toOutputBytes . snd <$> oldSeq
 
-        miner = MinerData $ encodeToByteString mi
+        miner = toMinerData mi
+        cb = toCoinbaseOutput noCoinbase
         blockTrans = snd $ newBlockTransactions miner trans
-        blockOuts = snd $ newBlockOutputs transOuts
+        blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
-     in payloadWithOutputs plData transOuts
+     in payloadWithOutputs plData cb transOuts
 
 validateHashes :: PayloadWithOutputs -> BlockHeader -> Either PactException PayloadWithOutputs
 validateHashes pwo bHeader =
@@ -350,19 +340,22 @@ execTransactions isGenesis miner ctxs = do
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
     let prevTxId = _pdbsTxId currentState
-    (txOuts, newTxId) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs (fromIntegral prevTxId) miner
+    (txOuts, newMode) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs (P.Transactional prevTxId) miner
+    newTxId <- case newMode of
+      P.Transactional t -> return t
+      P.Local -> internalError' "Local mode returned from pact exec"
 
     newCmdState <- liftIO $! readMVar mvCmdState
     newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
     let updatedState = PactDbState
           { _pdbsDbEnv = newEnvPersist'
           , _pdbsState = newCmdState
-          , _pdbsTxId = P.TxId newTxId
+          , _pdbsTxId = newTxId
           }
         cmdBSToTx = toTransactionBytes . fmap payloadBytes
         paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
     put updatedState
-    return (Transactions paired)
+    return (Transactions paired Nothing)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
@@ -370,15 +363,12 @@ applyPactCmds
     -> Env'
     -> MVar P.CommandState
     -> Vector (P.Command PayloadWithText)
-    -> Word64
+    -> P.ExecutionMode
     -> MinerInfo
-    -> PactT (Vector FullLogTxOutput, Word64)
-applyPactCmds isGenesis env' cmdState cmds prevTxId miner = do
-    (outs, newEM) <- V.foldM f (V.empty, P.Transactional (P.TxId prevTxId)) cmds
-    newTxId <- case newEM of
-          P.Transactional (P.TxId txId) -> return txId
-          _other -> internalError "Transactional ExecutionMode expected"
-    return (outs, newTxId)
+    -> PactT (Vector FullLogTxOutput, P.ExecutionMode)
+applyPactCmds isGenesis env' cmdState cmds initMode miner = do
+    (outs, newMode) <- V.foldM f (V.empty, initMode) cmds
+    return (outs, newMode)
   where
       f (outs, prevEM) cmd = do
           (txOut, newEM) <- applyPactCmd isGenesis env' cmdState cmd prevEM miner
