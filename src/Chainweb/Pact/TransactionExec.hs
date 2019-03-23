@@ -87,9 +87,10 @@ applyCmd
     -> GasModel
     -> PublicData
     -> ExecutionMode
+    -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cmd = do
+applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM spv cmd = do
 
     let gasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
@@ -103,7 +104,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cm
     let buyGasEM = bumpExecMode startEM
         buyGasEnv = set ceMode buyGasEM modifiedEnv
 
-    buyGasResultE <- tryAny $! buyGas buyGasEnv cmd minerInfo supply
+    buyGasResultE <- tryAny $! buyGas buyGasEnv cmd spv minerInfo supply
 
     case buyGasResultE of
       Left e1 -> do
@@ -122,7 +123,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cm
         let payloadEM = bumpExecMode buyGasEM
         let payloadEnv = set ceMode payloadEM cmdEnv
 
-        cmdResultE <- tryAny $! runPayload payloadEnv def cmd []
+        cmdResultE <- tryAny $! runPayload payloadEnv def cmd spv []
 
         case cmdResultE of
           Left e2 -> do
@@ -134,7 +135,7 @@ applyCmd logger entityM minerInfo pactDbEnv cmdState gasModel pubData startEM cm
             -- bump the txId for the redeem gas transaction
             let redeemGasEM = bumpExecMode payloadEM
             let redeemGasEnv = set ceMode redeemGasEM buyGasEnv
-            redeemResultE <- tryAny $! redeemGas redeemGasEnv cmd cmdResult pactId supply
+            redeemResultE <- tryAny $! redeemGas redeemGasEnv cmd spv cmdResult pactId supply
 
             case redeemResultE of
               Left e3 -> do
@@ -152,9 +153,10 @@ applyGenesisCmd
     -> MVar CommandState
     -> ExecutionMode
     -> PublicData
+    -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), ExecutionMode)
-applyGenesisCmd logger entityM dbEnv cmdState execMode pubData cmd = do
+applyGenesisCmd logger entityM dbEnv cmdState execMode pubData spv cmd = do
     -- cmd env with permissive gas model
     let cmdEnv =
           CommandEnv entityM execMode dbEnv cmdState logger freeGasEnv pubData
@@ -167,7 +169,7 @@ applyGenesisCmd logger entityM dbEnv cmdState execMode pubData cmd = do
         payloadEM = bumpExecMode execMode
         payloadEnv = set ceMode payloadEM cmdEnv
 
-    resultE <- tryAny $! runPayload payloadEnv initState cmd []
+    resultE <- tryAny $! runPayload payloadEnv initState cmd spv []
     case resultE of
       Left e -> do
         logErrorRequestKey logger requestKey e
@@ -203,13 +205,14 @@ runPayload
     :: CommandEnv p
     -> EvalState
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> [TxLog Value] -- log state
     -> IO (CommandResult, [TxLog Value])
-runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
+runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload of
     Exec pm ->
-      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash txLogs
+      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash spv txLogs
     Continuation ym ->
-      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash txLogs
+      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash spv txLogs
 
 applyExec
     :: CommandEnv p
@@ -218,10 +221,11 @@ applyExec
     -> ExecMsg ParsedCode
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyExec env@CommandEnv{..} initState rk em senderSigs hash prevLogs = do
-    EvalResult{..} <- applyExec' env initState em senderSigs hash
+applyExec env@CommandEnv{..} initState rk em senderSigs hash spv prevLogs = do
+    EvalResult{..} <- applyExec' env initState em senderSigs hash spv
     return (jsonResult _ceMode rk _erGas $
             CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
@@ -233,14 +237,15 @@ applyExec'
     -> ExecMsg ParsedCode
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> IO EvalResult
-applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash = do
+applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash spv = do
     when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
     (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
                   (MsgData sigs execData Nothing hash) refStore _ceGasEnv
-                  permissiveNamespacePolicy noSPVSupport _cePublicData
+                  permissiveNamespacePolicy spv _cePublicData
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
     newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
     let newPacts = case newCmdPact of
@@ -266,10 +271,11 @@ applyContinuation
     -> ContMsg
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash prevLogs = do
-  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash
+applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash spv prevLogs = do
+  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash spv
   pure $! (jsonResult _ceMode rk _erGas $
            CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
@@ -279,8 +285,9 @@ applyContinuation'
     -> ContMsg
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> IO EvalResult
-applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash =
+applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash spv =
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
@@ -315,7 +322,7 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
                                 _csRefStore
                                 _ceGasEnv
                                 permissiveNamespacePolicy
-                                noSPVSupport
+                                spv
                                 _cePublicData
                     res <- tryAny $ evalContinuationState initState evalEnv _peContinuation
           -- Update pact's state
@@ -374,15 +381,16 @@ continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} newPactExec@PactE
 buyGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> MinerInfo
     -> GasSupply
     -> IO (Either Text PactId)
-buyGas env cmd (MinerInfo minerId minerKeys) (GasSupply supply) = do
+buyGas env cmd spv (MinerInfo minerId minerKeys) (GasSupply supply) = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = initCapabilities ["FUND_TX"]
 
     buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
-    result <- applyExec' env initState buyGasCmd (_cmdSigs cmd) (_cmdHash cmd)
+    result <- applyExec' env initState buyGasCmd (_cmdSigs cmd) (_cmdHash cmd) spv
     pure $! case _erExec result of
       Nothing ->
         Left "buyGas: Internal error - empty continuation"
@@ -396,17 +404,18 @@ buyGas env cmd (MinerInfo minerId minerKeys) (GasSupply supply) = do
 redeemGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> CommandResult -- ^ result from the user command payload
     -> PactId        -- ^ result of the buy-gas continuation
     -> GasSupply     -- ^ the total calculated supply of gas (as Decimal)
     -> IO (CommandResult, [TxLog Value])
-redeemGas env cmd cmdResult pactId (GasSupply supply) = do
+redeemGas env cmd spv cmdResult pactId (GasSupply supply) = do
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities ["FUND_TX"]
 
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
-      (_cmdSigs cmd) (_cmdHash cmd) []
+      (_cmdSigs cmd) (_cmdHash cmd) spv []
   where
     redeemGasCmd fee total pid = ContMsg pid 1 False $ object
       [ "fee" .= feeOf total fee
@@ -422,15 +431,16 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) = do
 coinbase
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> MinerInfo -- ^ Account to associate reward
     -> Decimal   -- ^ Reward amount
     -> IO (CommandResult, [TxLog Value])
-coinbase env cmd (MinerInfo minerId minerKeys) reward = do
+coinbase env cmd spv (MinerInfo minerId minerKeys) reward = do
     let requestKey = cmdToRequestKey cmd
         initState = initCapabilities ["COINBASE", "TRANSFER"]
 
     coinbaseCmd <- mkCoinbaseCmd minerId minerKeys reward
-    applyExec env initState requestKey coinbaseCmd (_cmdSigs cmd) (_cmdHash cmd) []
+    applyExec env initState requestKey coinbaseCmd (_cmdSigs cmd) (_cmdHash cmd) spv []
 
 ------------------------------------------------------------------------------
 -- Command Builders

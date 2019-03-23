@@ -453,13 +453,14 @@ applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     let logger   = psEnv ^. psCheckpointEnv . cpeLogger
         gasModel = psEnv ^. psCheckpointEnv . cpeGasEnv . P.geGasModel
         pubData  = psEnv ^. psPublicData
+        spv      = psEnv ^. psSpvSupport
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
     ((result, txLogs), newEM) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger Nothing dbEnv cmdState execMode pubData cmd
+        then applyGenesisCmd logger Nothing dbEnv cmdState execMode pubData spv cmd
         else applyCmd logger Nothing miner dbEnv
-             cmdState gasModel pubData execMode cmd
+             cmdState gasModel pubData execMode spv cmd
 
     pure $! (FullLogTxOutput (P._crResult result) txLogs, newEM)
 
