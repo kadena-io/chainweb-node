@@ -187,13 +187,13 @@ pactSPVSupport mv = P.SPVSupport $ \s o -> do
         t <- outputProofOf o
         (TransactionOutput u) <- verifyTransactionOutputProof cdb t
         v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure . Right . P._tObject . P._csData $ v
+        pure $! Right . P._tObject . P._csData $ v
       "TXIN" -> do
         t <- inputProofOf o
         (Transaction u) <- verifyTransactionProof cdb t
         v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure . Right . P._tObject . P._csData $ v
-      _ -> pure (Left "spvSupport: Unsupport SPV mode")
+        pure $! Right . P._tObject . P._csData $ v
+      _ -> pure $! Left "spvSupport: Unsupport SPV mode"
   where
     -- serialize pact object and produce an
     -- spv proof (either in or outgoing)
@@ -331,15 +331,16 @@ finalizeCheckpointer finalize = do
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
 execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactServiceM PayloadWithOutputs
 execNewBlock memPoolAccess header miner = do
-
-    let bHeight = _blockHeight header
+    let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
 
     restoreCheckpointer $ Just (bHeight, bHash)
 
+    -- locally run 'execTransactions' with updated blockheight data
     results <- execTransactions False miner newTrans
+      & locally (psPublicData . P.pdBlockHeight) (const bh)
 
     discardCheckpointer
 
@@ -366,7 +367,7 @@ execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactServiceM PayloadW
 execValidateBlock loadingGenesis currHeader plData = do
     miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
     -- TODO: miner data needs to be added to BlockHeader...
-    let bHeight = _blockHeight currHeader
+    let bHeight@(BlockHeight bh) = _blockHeight currHeader
         bParent = _blockParent currHeader
         bHash = _blockHash currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
@@ -376,6 +377,7 @@ execValidateBlock loadingGenesis currHeader plData = do
     restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
     results <- execTransactions isGenesisBlock miner trans
+      & locally (psPublicData . P.pdBlockHeight) (const bh)
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
@@ -448,9 +450,9 @@ applyPactCmd
     -> PactServiceM (FullLogTxOutput, P.ExecutionMode)
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     psEnv <- ask
-    let logger = psEnv ^. psCheckpointEnv . cpeLogger
+    let logger   = psEnv ^. psCheckpointEnv . cpeLogger
         gasModel = psEnv ^. psCheckpointEnv . cpeGasEnv . P.geGasModel
-        pubData = psEnv ^. psPublicData
+        pubData  = psEnv ^. psPublicData
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
