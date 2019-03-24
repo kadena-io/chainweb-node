@@ -52,7 +52,9 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
-import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0 (payloadBlock)
+import Chainweb.BlockHeader.Genesis.Testwithtime4075880449
+import qualified Chainweb.BlockHeader.Genesis.Testwithtime4075880449Payload as TWT (payloadBlock)
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -97,15 +99,17 @@ genesisBlockTarget = maxTarget
 --
 genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
-genesisTime TestWithTime{} = BlockCreationTime epoche
+-- TODO fix timespan
+genesisTime Testwithtime4075880449 = BlockCreationTime . Time $ TimeSpan 1551207336601039
 genesisTime TestWithPow{} = BlockCreationTime epoche
 genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
+genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
-genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
+genesisMiner Testwithtime4075880449 p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
 genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
@@ -121,11 +125,11 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = emptyPayload
+genesisBlockPayload TestWithTime{} _ = TWT.payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ = payloadBlock
+genesisBlockPayload Testnet00 _ = TN0.payloadBlock
 
 emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
