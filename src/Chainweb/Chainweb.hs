@@ -413,10 +413,14 @@ runChainweb cw = do
         let clients :: [IO ()]
             clients = concat
                 [ miner
-                -- FIXME: should we start mining with some delay, so
-                -- that the block header base is up to date?
+                    -- FIXME: should we start mining with some delay, so
+                    -- that the block header base is up to date?
                 , cutNetworks mgr (_chainwebCutResources cw)
-                , map (runChainSyncClient mgr) chainVals
+
+                -- , map (runChainSyncClient mgr) chainVals
+                    -- TODO: reenable once full payload and adjacent parent validation
+                    -- is implemented for ChainSyncClient
+
                 , map (runMempoolSyncClient mgr) chainVals
                 ]
 
