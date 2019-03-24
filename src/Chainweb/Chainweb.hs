@@ -416,7 +416,7 @@ runChainweb cw = do
                 -- FIXME: should we start mining with some delay, so
                 -- that the block header base is up to date?
                 , cutNetworks mgr (_chainwebCutResources cw)
-                -- , map (runChainSyncClient mgr) chainVals
+                , map (runChainSyncClient mgr) chainVals
                 , map (runMempoolSyncClient mgr) chainVals
                 ]
 
