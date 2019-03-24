@@ -110,8 +110,11 @@ withPeerResources
     -> IO a
 withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
     peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
-    let logger' = addLabel ("host", peerHostText (_peerInfo peer)) $
-                  addLabel ("peerId", peerIdText (_peerInfo peer))logger
+    let pinf = _peerInfo peer
+    let logger' = addLabel ("host", toText $ view peerInfoHostname pinf) $
+                  addLabel ("port", toText $ view peerInfoPort pinf) $
+                  addLabel ("peerId", maybe "" shortPeerId $ _peerId pinf)
+                  logger
         mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
         let certChain = _peerCertificateChain peer
