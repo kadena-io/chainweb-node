@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -44,6 +45,7 @@ import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
@@ -117,17 +119,19 @@ initPactService
     -> MemPoolAccess
     -> IO ()
 initPactService ver cid chainwebLogger reqQ memPoolAccess =
-  initPactService' ver chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
+  initPactService' ver cid chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
 
 initPactService'
     :: Logger logger
     => ChainwebVersion
+    -> ChainId
     -> logger
     -> PactT a
     -> IO a
-initPactService' ver chainwebLogger act = do
+initPactService' ver cid chainwebLogger act = do
     let loggers = pactLoggers chainwebLogger
-    let logger = P.newLogger loggers $ P.LogName "PactService"
+    let logger = P.newLogger loggers $ P.LogName
+                 ("PactService" <> T.unpack (chainIdToText cid))
     let cmdConfig = toCommandConfig $ pactDbConfig ver
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
@@ -158,7 +162,7 @@ initPactService' ver chainwebLogger act = do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState TestWithTime{} _ = return ()
+initialPayloadState TestWithTime{} cid = testnet00CreateCoinContract cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
@@ -180,7 +184,9 @@ testnet00CreateCoinContract cid = do
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
-serviceRequests memPoolAccess reqQ = go
+serviceRequests memPoolAccess reqQ = do
+  logInfo "Starting service"
+  go
   where
     go = do
         msg <- liftIO $ getNextRequest reqQ
@@ -190,14 +196,16 @@ serviceRequests memPoolAccess reqQ = go
             NewBlockMsg NewBlockReq {..} -> do
                 txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
                 case txs of
-                  Left (SomeException e) ->
+                  Left (SomeException e) -> do
+                    logError (show e)
                     liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
                   Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 txs <- try $ execValidateBlock False _valBlockHeader _valPayloadData
                 case txs of
-                  Left (SomeException e) ->
+                  Left (SomeException e) -> do
+                    logError (show e)
                     liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
                   Right r ->
                     liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
@@ -222,7 +230,7 @@ toPayloadWithOutputs mi ts =
         transOuts = toOutputBytes . snd <$> oldSeq
 
         miner = toMinerData mi
-        cb = toCoinbaseOutput noCoinbase
+        cb = CoinbaseOutput $ encodeToByteString $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         blockOuts = snd $ newBlockOutputs cb transOuts
 
@@ -274,7 +282,7 @@ execNewBlock memPoolAccess header miner = do
 
     restoreCheckpointer $ Just (bHeight, bHash)
 
-    results <- execTransactions False miner newTrans
+    results <- execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer
 
@@ -288,11 +296,23 @@ execNewGenesisBlock miner newTrans = do
 
     restoreCheckpointer Nothing
 
-    results <- execTransactions True miner newTrans
+    results <- execTransactions Nothing miner newTrans
 
     discardCheckpointer
 
     return $! toPayloadWithOutputs miner results
+
+
+
+logg :: String -> String -> PactT ()
+logg level msg = reader _cpeLogger >>= \l -> liftIO $ P.logLog l level msg
+
+logInfo :: String -> PactT ()
+logInfo = logg "INFO"
+
+logError :: String -> PactT ()
+logError = logg "ERROR"
+
 
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
@@ -307,11 +327,15 @@ execValidateBlock loadingGenesis currHeader plData = do
         bHash = _blockHash currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
 
+    unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
+      ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++
+      ", payloadHash=" ++ show (_blockPayloadHash currHeader)
+
     trans <- liftIO $ transactionsFromPayload plData
 
     restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
-    results <- execTransactions isGenesisBlock miner trans
+    results <- execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
@@ -335,18 +359,20 @@ mkSqliteConfig _ _ = Nothing
 
 
 
-execTransactions :: Bool -> MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
-execTransactions isGenesis miner ctxs = do
+execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
+execTransactions nonGenesisParentHash miner ctxs = do
 
     currentState <- get
 
-    let dbEnvPersist' = _pdbsDbEnv $! currentState
+    let isGenesis = isNothing nonGenesisParentHash
+        dbEnvPersist' = _pdbsDbEnv $! currentState
+
     dbEnv' <- liftIO $ toEnv' dbEnvPersist'
     mvCmdState <- liftIO $! newMVar (_pdbsState currentState)
 
     let prevTxId = _pdbsTxId currentState
 
-    (coinOut, coinEM) <- runCoinbase isGenesis dbEnv' mvCmdState (P.Transactional prevTxId) miner
+    (coinOut, coinEM) <- runCoinbase nonGenesisParentHash dbEnv' mvCmdState (P.Transactional prevTxId) miner
     (txOuts, newMode) <- applyPactCmds isGenesis dbEnv' mvCmdState ctxs coinEM miner
 
     newTxId <- case newMode of
@@ -369,18 +395,19 @@ execTransactions isGenesis miner ctxs = do
     return (Transactions paired coinOut)
 
 runCoinbase
-    :: Bool
+    :: Maybe BlockHash
     -> Env'
     -> MVar P.CommandState
     -> P.ExecutionMode
     -> MinerInfo
     -> PactT (FullLogTxOutput, P.ExecutionMode)
-runCoinbase True _ _ em _ = return (noCoinbase,em)
-runCoinbase False (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
+runCoinbase Nothing _ _ em _ = return (noCoinbase,em)
+runCoinbase (Just parentHash) (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
   logger <- reader _cpeLogger
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
   ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward
-  pure $! (FullLogTxOutput (P._crResult result) txLogs, P._ceMode outEnv)
+  let output = A.object [ "result" A..= P._crResult result, "parentHash" A..= parentHash]
+  pure $! (FullLogTxOutput output txLogs, P._ceMode outEnv)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
