@@ -165,33 +165,24 @@ initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
 
 testnet00CreateCoinContract :: ChainId -> PactT ()
-testnet00CreateCoinContract cid = do
-    let PayloadWithOutputs{..} = payloadBlock
-        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
-                           _payloadWithOutputsMiner
-                           _payloadWithOutputsPayloadHash
-                           _payloadWithOutputsTransactionsHash
-                           _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader Testnet00 cid
-    txs <- execValidateBlock True genesisHeader inputPayloadData
-    case validateHashes txs genesisHeader of
-      Left e -> throwM e
-      Right _ -> return ()
+testnet00CreateCoinContract cid = createCoinContract Testnet00 cid
 
 testWithTimeCreateCoinContract :: ChainId -> PactT ()
-testWithTimeCreateCoinContract cid = do
+testWithTimeCreateCoinContract cid = createCoinContract (TestWithTime petersonChainGraph) cid
+
+createCoinContract :: ChainwebVersion -> ChainId -> PactT ()
+createCoinContract cwv cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
                            _payloadWithOutputsMiner
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader (TestWithTime petersonChainGraph) cid
+        genesisHeader = genesisBlockHeader cwv cid
     txs <- execValidateBlock True genesisHeader inputPayloadData
     case validateHashes txs genesisHeader of
       Left e -> throwM e
       Right _ -> return ()
-
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
