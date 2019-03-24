@@ -55,7 +55,7 @@ restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
             Just dbstate -> return (Right dbstate)
-            Nothing -> return $ Left "InMemoryCheckpointer.restore':Restore not found exception"
+            Nothing -> return $ Left $ "InMemoryCheckpointer.restore':Restore not found exception. Height: " <> show height
 
 restoreInitial' :: MVar Store -> IO (Either String PactDbState)
 restoreInitial' lock = do

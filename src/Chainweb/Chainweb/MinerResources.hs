@@ -31,7 +31,6 @@ import Chainweb.NodeId
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB
 
 import Data.LogMessage
 
@@ -42,8 +41,6 @@ data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResNodeId :: !NodeId
     , _minerResCutDb :: !(CutDb cas)
-    , _minerResWebBlockHeaderDb :: !WebBlockHeaderDb
-    , _minerResWebPayloadDb :: !(PayloadDb cas)
     , _minerResConfig :: !MinerConfig
     }
 
@@ -52,18 +49,14 @@ withMinerResources
     -> EnableConfig MinerConfig
     -> NodeId
     -> CutDb cas
-    -> WebBlockHeaderDb
-    -> PayloadDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger (EnableConfig enabled conf) nid cutDb webDb payloadDb inner
+withMinerResources logger (EnableConfig enabled conf) nid cutDb inner
     | not enabled = inner Nothing
     | otherwise = inner . Just $ MinerResources
         { _minerResLogger = logger
         , _minerResNodeId = nid
         , _minerResCutDb = cutDb
-        , _minerResWebBlockHeaderDb = webDb
-        , _minerResWebPayloadDb = payloadDb
         , _minerResConfig = conf
         }
 
@@ -78,8 +71,6 @@ runMiner v m = (chooseMiner v)
     (_minerResConfig m)
     (_minerResNodeId m)
     (_minerResCutDb m)
-    (_minerResWebBlockHeaderDb m)
-    (_minerResWebPayloadDb m)
   where
     chooseMiner
         :: PayloadCas cas
@@ -88,8 +79,6 @@ runMiner v m = (chooseMiner v)
         -> MinerConfig
         -> NodeId
         -> CutDb cas
-        -> WebBlockHeaderDb
-        -> PayloadDb cas
         -> IO ()
     chooseMiner Test{} = testMiner
     chooseMiner TestWithTime{} = testMiner

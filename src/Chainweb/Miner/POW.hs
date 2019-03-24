@@ -19,7 +19,7 @@
 
 module Chainweb.Miner.POW ( powMiner ) where
 
-import Control.Lens (ix, (^?), (^?!))
+import Control.Lens (ix, (^?), (^?!), view)
 
 import qualified Data.HashMap.Strict as HM
 import Data.Reflection (Given, give)
@@ -44,10 +44,12 @@ import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
 
@@ -73,14 +75,16 @@ powMiner
     -> MinerConfig
     -> NodeId
     -> CutDb cas
-    -> WebBlockHeaderDb
-    -> PayloadDb cas
     -> IO ()
-powMiner logFun _ nid cutDb wcdb payloadDb = do
+powMiner logFun conf nid cutDb = do
     logg Info "Started Proof-of-Work Miner"
     gen <- MWC.createSystemRandom
     give wcdb $ give payloadDb $ go gen 1 HM.empty
   where
+    wcdb = view cutDbWebBlockHeaderDb cutDb
+    payloadDb = view cutDbPayloadCas cutDb
+    payloadStore = view cutDbPayloadStore cutDb
+
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
@@ -158,15 +162,23 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
         --
         T2 target adjustments' <- getTarget cid p adjustments
 
+        -- Loops (i.e. "mines") if a non-matching nonce was generated.
+        --
+
+        let mokPact = False
+        let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
+        payload <- case mokPact of
+            False -> _pactNewBlock pact (_configMinerInfo conf) p
+            True -> return
+                $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
+                $ S.fromList
+                    [ (Transaction "testTransaction", TransactionOutput "testOutput")
+                    ]
+
         -- The new block's creation time.
         --
         ct <- getCurrentTimeIntegral
 
-        -- Loops (i.e. "mines") if a non-matching nonce was generated.
-        --
-        let payload = newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase") $ S.fromList
-                [ (Transaction "testTransaction", TransactionOutput "testOutput")
-                ]
         testMineWithPayload @cas nonce target ct payload nid cid c >>= \case
             Left BadNonce -> do
                 -- atomicModifyIORef' counter (\n -> (succ n, ()))
