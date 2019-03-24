@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.Testwithtime4075880449Payload ( payloadBlock ) where
+module Chainweb.BlockHeader.Genesis.TestWithTimePayload ( payloadBlock ) where
 
 import Data.Text.Encoding (encodeUtf8)
 import Data.Yaml (decodeThrow)

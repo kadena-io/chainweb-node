@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.Testwithtime4075880449 where
+module Chainweb.BlockHeader.Genesis.TestWithTime where
 
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
@@ -18,8 +18,8 @@ import Chainweb.Utils (fromJuste)
 unsafeFromYamlText :: HasCallStack => Text -> BlockHeader
 unsafeFromYamlText = _objectEncoded . fromJuste . decodeThrow . encodeUtf8
 
-testWithTime4075880449C0 :: BlockHeader
-testWithTime4075880449C0 = unsafeFromYamlText
+testWithTimeC0 :: BlockHeader
+testWithTimeC0 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: vcGojcKzFrL2XoLTqeeuaW9L51FKW7TAnP3P91ynflY
@@ -33,14 +33,14 @@ adjacents:
   '5': USxIU-tTC3SWlrJ55uH3reuS79rBgHTATRL2hy6FOIM
   '3': HyIjrUvdVNgGnEmLIb5GcmLL9FPNH6bZgMn5Wy3oJGU
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C1 :: BlockHeader
-testWithTime4075880449C1 = unsafeFromYamlText
+testWithTimeC1 :: BlockHeader
+testWithTimeC1 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: d1SHpdUukMpB7dSt49wLtg_GWjS9SDAyTmXFvtaLyjA
@@ -54,14 +54,14 @@ adjacents:
   '3': HyIjrUvdVNgGnEmLIb5GcmLL9FPNH6bZgMn5Wy3oJGU
   '6': sYXTKQv1uyHaSEtlMQrYOj2UBItQO4Gl186ZgNn1ycg
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C2 :: BlockHeader
-testWithTime4075880449C2 = unsafeFromYamlText
+testWithTimeC2 :: BlockHeader
+testWithTimeC2 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: gBsyZ77q3jY7CXFQO5xMNmw7Rwb9FijEZrcCcZSSjfs
@@ -75,14 +75,14 @@ adjacents:
   '0': vcGojcKzFrL2XoLTqeeuaW9L51FKW7TAnP3P91ynflY
   '4': zZr9dbuEpQMBrCcjty6XtntHVTlnkVx5JoWkmYyxdOw
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C3 :: BlockHeader
-testWithTime4075880449C3 = unsafeFromYamlText
+testWithTimeC3 :: BlockHeader
+testWithTimeC3 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: HyIjrUvdVNgGnEmLIb5GcmLL9FPNH6bZgMn5Wy3oJGU
@@ -96,14 +96,14 @@ adjacents:
   '1': d1SHpdUukMpB7dSt49wLtg_GWjS9SDAyTmXFvtaLyjA
   '8': Jx48S3xC03G1G5B1q9h9-xvf6Me1R_izB7NIYJkxFgg
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C4 :: BlockHeader
-testWithTime4075880449C4 = unsafeFromYamlText
+testWithTimeC4 :: BlockHeader
+testWithTimeC4 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: zZr9dbuEpQMBrCcjty6XtntHVTlnkVx5JoWkmYyxdOw
@@ -117,14 +117,14 @@ adjacents:
   '2': gBsyZ77q3jY7CXFQO5xMNmw7Rwb9FijEZrcCcZSSjfs
   '9': RNTIXcOY22fQHZSmXTETwZhJ5eNZoGrPb0tla9J4P9E
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C5 :: BlockHeader
-testWithTime4075880449C5 = unsafeFromYamlText
+testWithTimeC5 :: BlockHeader
+testWithTimeC5 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: USxIU-tTC3SWlrJ55uH3reuS79rBgHTATRL2hy6FOIM
@@ -138,14 +138,14 @@ adjacents:
   '6': sYXTKQv1uyHaSEtlMQrYOj2UBItQO4Gl186ZgNn1ycg
   '9': RNTIXcOY22fQHZSmXTETwZhJ5eNZoGrPb0tla9J4P9E
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C6 :: BlockHeader
-testWithTime4075880449C6 = unsafeFromYamlText
+testWithTimeC6 :: BlockHeader
+testWithTimeC6 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: sYXTKQv1uyHaSEtlMQrYOj2UBItQO4Gl186ZgNn1ycg
@@ -159,14 +159,14 @@ adjacents:
   '1': d1SHpdUukMpB7dSt49wLtg_GWjS9SDAyTmXFvtaLyjA
   '5': USxIU-tTC3SWlrJ55uH3reuS79rBgHTATRL2hy6FOIM
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C7 :: BlockHeader
-testWithTime4075880449C7 = unsafeFromYamlText
+testWithTimeC7 :: BlockHeader
+testWithTimeC7 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: NeZZVRhQXOogzr7ONVys6M9d1uIJ8Ywbuic95aI6sVw
@@ -180,14 +180,14 @@ adjacents:
   '8': Jx48S3xC03G1G5B1q9h9-xvf6Me1R_izB7NIYJkxFgg
   '6': sYXTKQv1uyHaSEtlMQrYOj2UBItQO4Gl186ZgNn1ycg
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C8 :: BlockHeader
-testWithTime4075880449C8 = unsafeFromYamlText
+testWithTimeC8 :: BlockHeader
+testWithTimeC8 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: Jx48S3xC03G1G5B1q9h9-xvf6Me1R_izB7NIYJkxFgg
@@ -201,14 +201,14 @@ adjacents:
   '3': HyIjrUvdVNgGnEmLIb5GcmLL9FPNH6bZgMn5Wy3oJGU
   '9': RNTIXcOY22fQHZSmXTETwZhJ5eNZoGrPb0tla9J4P9E
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
     |]
 
-testWithTime4075880449C9 :: BlockHeader
-testWithTime4075880449C9 = unsafeFromYamlText
+testWithTimeC9 :: BlockHeader
+testWithTimeC9 = unsafeFromYamlText
     [text|
 creationTime: 0
 parent: RNTIXcOY22fQHZSmXTETwZhJ5eNZoGrPb0tla9J4P9E
@@ -222,7 +222,7 @@ adjacents:
   '5': USxIU-tTC3SWlrJ55uH3reuS79rBgHTATRL2hy6FOIM
   '8': Jx48S3xC03G1G5B1q9h9-xvf6Me1R_izB7NIYJkxFgg
 payloadHash: unQUCXJHx-53pjkgGGsUfu9ftn0NY54sHOZR5TPJ7ao
-chainwebVersion: testWithTime4075880449
+chainwebVersion: testWithTime
 target: __________________________________________8
 nonce: '0'
 
