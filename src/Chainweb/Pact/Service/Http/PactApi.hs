@@ -28,17 +28,20 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 
+import Data.Text (Text)
+
 import Network.Socket (Socket, close)
 import Network.Wai
 import qualified Network.Wai.Handler.Warp as Warp
 
 import Servant
 
-import Chainweb.BlockHeader
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Service.Http.Types
 import Chainweb.Pact.Types
+
+import Pact.Types.Command
 
 -- | Servant definition for Pact Execution as a service
 pactServer :: ServerT PactAPI PactAppM
@@ -70,12 +73,10 @@ pactServiceApp :: LocalEnv -> Application
 pactServiceApp env = serve pactAPI $ hoistServer pactAPI (toHandler env) pactServer
 
 -- | Handler for "local" requests
---   TODO: Request type will probably be Command (Payload PublicMeta ParsedCode)
---   Response type will likely change as well
-localReq :: BlockHeader -> PactAppM (Either PactException Transactions)
+localReq :: Command Text -> PactAppM (Either PactException FullLogTxOutput)
 localReq bHeader = do
     reqQ <- view rieReqQ
-    respVar <- liftIO $ (newEmptyMVar :: IO (MVar (Either PactException Transactions)))
+    respVar <- liftIO $ newEmptyMVar
     let msg = LocalMsg LocalReq
           { _localRequest = bHeader
           , _localResultVar = respVar}
