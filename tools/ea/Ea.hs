@@ -98,7 +98,11 @@ defGrants :: FilePath
 defGrants = "pact/genesis/testnet00/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
-moduleName = T.toTitle . chainwebVersionToText
+moduleName Testnet00 = "Testnet00"
+moduleName Test{} = "Test"
+moduleName TestWithTime{} = "TestWithTime"
+moduleName TestWithPow{} = "TestWithPow"
+moduleName Simulation{} = "Simulation"
 
 --------------------
 -- Header Generation
