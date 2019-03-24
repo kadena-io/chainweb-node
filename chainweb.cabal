@@ -87,6 +87,8 @@ library
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Testnet00
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
+        , Chainweb.BlockHeader.Genesis.TestWithTime
+        , Chainweb.BlockHeader.Genesis.TestWithTimePayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
