@@ -62,6 +62,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.Environment
 import System.LogLevel
 import System.Timeout
 
@@ -241,6 +242,11 @@ runNodes
         -- ^ directory where the chaindbs are persisted
     -> IO ()
 runNodes loglevel write stateVar v n chainDbDir = do
+
+    -- DISABLE USAGE OF PACT
+    -- (pact service still runs but block payloads aren't validated)
+    setEnv "CHAINWEB_DISABLE_PACT" "1"
+
     bootstrapPortVar <- newEmptyMVar
         -- this is a hack for testing: normally bootstrap node peer infos are
         -- hardcoded. To avoid conflicts in concurrent test runs we extract an
