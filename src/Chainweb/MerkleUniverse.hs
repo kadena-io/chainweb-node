@@ -51,6 +51,7 @@ data ChainwebHashTag
     | BlockTransactionsHashTag
     | BlockOutputsHashTag
     | MinerDataTag
+    | CoinbaseOutputTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -73,6 +74,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockTransactionsHashTag = 0x0015
     type MerkleTagVal ChainwebHashTag 'BlockOutputsHashTag = 0x0016
     type MerkleTagVal ChainwebHashTag 'MinerDataTag = 0x0017
+    type MerkleTagVal ChainwebHashTag 'CoinbaseOutputTag = 0x0018
 
 instance IsMerkleLogEntry ChainwebHashTag Void where
     type Tag Void = 'VoidTag

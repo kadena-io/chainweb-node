@@ -23,6 +23,7 @@ module P2P.Peer
 -- * Peer Id
   PeerId(..)
 , peerIdToText
+, shortPeerId
 , peerIdFromText
 , unsafePeerIdFromText
 , pPeerId
@@ -50,6 +51,8 @@ module P2P.Peer
 , _peerConfigHost
 , peerConfigHost
 , pPeerConfig
+, peerInfoHostname
+, peerInfoPort
 , shortPeerInfo
 
 -- * Peer
@@ -113,6 +116,9 @@ instance Arbitrary PeerId where
 peerIdToText :: PeerId -> T.Text
 peerIdToText (PeerId b) = encodeB64UrlNoPaddingText b
 {-# INLINE peerIdToText #-}
+
+shortPeerId :: PeerId -> T.Text
+shortPeerId = T.take 6 . toText
 
 peerIdFromText :: MonadThrow m => T.Text -> m PeerId
 peerIdFromText t = do
@@ -206,10 +212,15 @@ peerInfoFromText = parseM $ PeerInfo <$> parsePeerId <*> parseAddr
     parsePeerId = Just <$> parseText (A.takeTill (== '@') <* "@") <|> pure Nothing
     parseAddr = parseText A.takeText
 
+peerInfoPort :: Lens' PeerInfo Port
+peerInfoPort = peerAddr . hostAddressPort
+
+peerInfoHostname :: Lens' PeerInfo Hostname
+peerInfoHostname = peerAddr . hostAddressHost
+
 shortPeerInfo :: PeerInfo -> T.Text
-shortPeerInfo pinf = toText (_peerAddr pinf) <> "#" <> maybe "" showPid (_peerId pinf)
-  where
-    showPid = T.take 6 . toText
+shortPeerInfo pinf =
+    toText (_peerAddr pinf) <> "#" <> maybe "" shortPeerId (_peerId pinf)
 
 instance HasTextRepresentation PeerInfo where
     toText = peerInfoToText

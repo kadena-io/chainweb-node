@@ -20,6 +20,8 @@ module Chainweb.Pact.Types
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
+  , toMinerData, fromMinerData
+  , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
   , PactServiceEnv(..)
     -- * types
@@ -40,11 +42,14 @@ module Chainweb.Pact.Types
     -- * defaults
   , defaultMiner
   , noMiner
+  , noCoinbase
     -- * module exports
   , module Chainweb.Pact.Backend.Types
+  , toHashedLogTxOutput
   ) where
 
 import Control.Lens hiding ((.=))
+import Control.Monad.Catch
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
@@ -57,10 +62,12 @@ import Data.Vector (Vector)
 -- internal pact modules
 
 import Pact.Types.ChainMeta (PublicData(..))
+import Pact.Types.Command (CommandSuccess(..))
 import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Runtime (SPVSupport(..))
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), tStr, Term)
 import Pact.Types.Util (Hash(..))
+import Pact.Types.Hash (hash)
 
 -- internal chainweb modules
 
@@ -69,25 +76,13 @@ import Chainweb.BlockHeader
 import Chainweb.Payload
 import Chainweb.Pact.Backend.Types
 import Chainweb.Transaction
+import Chainweb.Utils
 
-newtype Transactions = Transactions
+data Transactions = Transactions
     { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
-    } deriving (Eq)
+    , _transactionCoinbase :: FullLogTxOutput
+    } deriving (Eq,Show)
 
-instance ToJSON Transactions where
-    toJSON o = object
-        ["transactionPairs" .= _transactionPairs o]
-    {-# INLINE toJSON #-}
-
-instance FromJSON Transactions where
-    parseJSON = withObject "Transactions" $ \o -> Transactions
-        <$> o .: "transactionPairs"
-    {-# INLINE parseJSON #-}
-
-instance Show Transactions where
-    show ts =
-        let f x acc = "\ntrans: " ++ show (fst x) ++ "\n out: " ++ show (snd x) ++ acc
-        in foldr f "" (_transactionPairs ts)
 
 data FullLogTxOutput = FullLogTxOutput
     { _flCommandResult :: A.Value
@@ -124,6 +119,16 @@ instance ToJSON HashedLogTxOutput where
     {-# INLINE toJSON #-}
 
 
+toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
+toHashedLogTxOutput FullLogTxOutput{..} =
+    let hashed = hash $ encodeToByteString _flTxLogs
+    in HashedLogTxOutput
+        { _hlCommandResult = _flCommandResult
+        , _hlTxLogHash = hashed
+        }
+
+
+
 type MinerKeys = KeySet
 type MinerId = Text
 
@@ -145,6 +150,22 @@ instance FromJSON MinerInfo where
 
 noMiner :: MinerInfo
 noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
+
+noCoinbase :: FullLogTxOutput
+noCoinbase = FullLogTxOutput (toJSON $ CommandSuccess (tStr "NO_COINBASE" :: Term Name)) []
+
+toMinerData :: MinerInfo -> MinerData
+toMinerData = MinerData . encodeToByteString
+
+fromMinerData :: MonadThrow m => MinerData -> m MinerInfo
+fromMinerData = decodeStrictOrThrow . _minerData
+
+toCoinbaseOutput :: FullLogTxOutput -> CoinbaseOutput
+toCoinbaseOutput = CoinbaseOutput . encodeToByteString . toHashedLogTxOutput
+
+fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m  HashedLogTxOutput
+fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
+
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
