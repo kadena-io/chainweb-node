@@ -224,6 +224,7 @@ powMiner logFun conf nid cutDb = do
             Nothing -> pure $! T2 (_blockTarget bh) adjustments
             Just db -> do
                 t <- hashTarget db bh
+                logg Info $! "new difficulty adjustment" <> sshow t
                 pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
 
     blockDb :: ChainId -> Maybe BlockHeaderDb
