@@ -1,15 +1,16 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DataKinds			#-}
+{-# LANGUAGE DeriveFunctor		#-}
+{-# LANGUAGE DeriveGeneric		#-}
+{-# LANGUAGE DerivingStrategies		#-}
+{-# LANGUAGE FlexibleInstances		#-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NamedFieldPuns		#-}
+{-# LANGUAGE OverloadedStrings		#-}
+{-# LANGUAGE QuasiQuotes		#-}
+{-# LANGUAGE RankNTypes			#-}
+{-# LANGUAGE ScopedTypeVariables	#-}
+{-# LANGUAGE TemplateHaskell		#-}
+{-# LANGUAGE TypeOperators		#-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -45,7 +46,6 @@ import Network.X509.SelfSigned hiding (name)
 
 import GHC.Generics
 
-
 import Servant
 import Servant.Client
 
@@ -76,30 +76,51 @@ instance FromJSON TransactionCommand
 
 instance ToJSON TransactionCommand
 
+newtype ChainwebPort = ChainwebPort { _chainwebPort :: Int}
+  deriving (Eq, Generic)
+  deriving newtype Show
+
+instance FromJSON ChainwebPort
+
+instance ToJSON ChainwebPort
+
 data TransactionConfig = TransactionConfig
   { _scriptCommand :: TransactionCommand
   , _nodeChainId :: !ChainId
-  , _serverRootPath :: String
+  , _serverRootPrefix :: String
   , _isChainweb :: Bool
+  , _chainwebNodePort :: !ChainwebPort
+  , _timingMean :: !Double
+  , _timingVariance :: !Double
   } deriving (Generic)
+
+-- We'll just assume that the timing delays are gaussian distributed for now.
+-- This can be easily altered if desired.
 
 makeLenses ''TransactionConfig
 
 instance ToJSON TransactionConfig where
   toJSON o =
+
     object
       [ "scriptCommand" .= _scriptCommand o
       , "nodeChainId" .= _nodeChainId o
-      , "serverRootPath" .= _serverRootPath o
+      , "serverRootPrefix" .= _serverRootPrefix o
       , "isChainweb" .= _isChainweb o
+      , "chainwebNodePort" .= _chainwebNodePort o
+      , "timingMean" .= _timingMean o
+      , "timingVariance" .= _timingVariance o
       ]
 
 instance FromJSON (TransactionConfig -> TransactionConfig) where
   parseJSON = withObject "TransactionConfig" $ \o -> id
     <$< scriptCommand ..: "scriptCommand" % o
     <*< nodeChainId ..: "nodeChainId" % o
-    <*< serverRootPath ..: "serverRootPath" % o
+    <*< serverRootPrefix ..: "serverRootPrefix" % o
     <*< isChainweb ..: "isChainweb" % o
+    <*< chainwebNodePort ..: "chainwebNodePort" % o
+    <*< timingMean ..: "timingMean" % o
+    <*< timingVariance ..: "timingVariance" % o
 
 data GeneratorState s = GeneratorState
   { _gsGen :: Gen s
@@ -111,10 +132,13 @@ makeLenses ''GeneratorState
 defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
-    { _scriptCommand  = DeployContracts []
-    , _nodeChainId    = testChainId 0
-    , _serverRootPath = "https://127.0.0.1:" ++ show (1789 :: Int)
-    , _isChainweb     = True
+    { _scriptCommand	= DeployContracts []
+    , _nodeChainId	= testChainId 0
+    , _serverRootPrefix = "https://us1.chainweb.com"
+    , _isChainweb	= True
+    , _chainwebNodePort = ChainwebPort 443
+    , _timingMean	= fromIntegral (mean def)
+    , _timingVariance	= fromIntegral (var def)
     }
 
 transactionConfigParser :: MParser TransactionConfig
@@ -126,9 +150,9 @@ transactionConfigParser = id
       % long "node-chain-id"
       <> short 'i'
       <> help "The specific chain that will receive generated \"fake\" transactions."
-  <*< serverRootPath .:: option auto
+  <*< serverRootPrefix .:: option auto
       % long "server-root"
-      <> help "Server root URL"
+      <> help "Server root URL prefix"
   <*< isChainweb .:: option auto
       % long "is-chainweb"
       <> short 'w'
@@ -191,25 +215,22 @@ newtype TransactionGenerator s a = TransactionGenerator
   } deriving (Functor, Applicative, Monad, MonadIO, MonadState (GeneratorState s), MonadReader GeneratorConfig)
 
 
--- sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
-sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError NoContent) -- NoContent should be changed back to RequestKeys.
+sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
 sendTransaction cmd = do
   cenv <- view genClientEnv
   liftIO $ runExceptT $ do
     rkeys <-
       ExceptT $
       runClientM (send (SubmitBatch [cmd])) cenv
-    return rkeys
-    -- And then we poll.
-    -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) cenv
+    ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) cenv
 
 loop :: TransactionGenerator (PrimState IO) ()
 loop = do
   transaction <- generateTransaction
-  -- pollResponse <- sendTransaction transaction -- this is not yet ready
-  requestKeys <- sendTransaction transaction
-  -- liftIO $ print pollResponse -- this is not yet ready
-  liftIO $ print requestKeys
+  pollResponse <- sendTransaction transaction -- this is not yet ready
+  -- requestKeys <- sendTransaction transaction
+  liftIO $ print pollResponse
+  -- liftIO $ print requestKeys
   count <- use gsCounter
   liftIO $ putStrLn $ "Transaction count: " ++ show count
   gsCounter += 1
@@ -219,7 +240,7 @@ mkGeneratorConfig :: TransactionConfig -> IO GeneratorConfig
 mkGeneratorConfig config = GeneratorConfig <$> pure def <*> pure mempty <*> go
   where
     pfx = if _isChainweb config then chainwebPfx else ""
-    pfxUrl = _serverRootPath config ++ T.unpack pfx
+    pfxUrl = _serverRootPrefix config ++ ":" ++ show (_chainwebNodePort config) ++ T.unpack pfx
     go = do mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
             mgr <- newManager mgrSettings
             url <- parseBaseUrl pfxUrl
@@ -253,27 +274,21 @@ loadContracts contractLoaders config = do
   gencfg <- mkGeneratorConfig config
   ts <- testSomeKeyPairs
   contracts <- traverse ($ ts) contractLoaders
-  -- pollresponse <- runExceptT $ do -- this is not yet ready
-  rkeys <- runExceptT $ do
+  pollresponse <- runExceptT $ do
      rkeys <- ExceptT $ runClientM (send (SubmitBatch contracts)) (_genClientEnv gencfg)
-     return rkeys
-     -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) clientEnv --this is not yet ready
-  -- print pollresponse -- this is not yet ready
-  putStrLn "loadContracts: are we here"
-  print rkeys
+     pollresponse <- ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
+     return pollresponse
+  liftIO $ print pollresponse
 
 sendTransactions :: TransactionConfig -> IO ()
 sendTransactions config = do
   putStrLn "Transactions are being generated"
   gencfg <- mkGeneratorConfig config
   (keysets, accounts) <- unzip <$> createAccounts
-  _rkeys <-
-      runExceptT $ do
-          rkeys <- ExceptT $ runClientM (send (SubmitBatch accounts)) (_genClientEnv gencfg)
-          return rkeys
-          -- ExceptT $ runClientM (poll pactServerApiClient (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg) -- this is not yet ready
-  -- print _pollresponse -- this is not ready
-  print _rkeys
+  pollresponse <- runExceptT $ do
+     rkeys <- ExceptT $ runClientM (send (SubmitBatch accounts)) (_genClientEnv gencfg)
+     ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
+  print pollresponse
   withSystemRandom . asGenIO $ \gen ->
     evalStateT
       (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
@@ -315,7 +330,7 @@ numContracts = 2
 api :: Proxy PactApi_
 api = Proxy
 
-send :: SubmitBatch -> ClientM NoContent
+send :: SubmitBatch -> ClientM RequestKeys
 poll :: Poll -> ClientM PollResponses
 listen :: ListenerRequest -> ClientM ApiResult
 local :: Command Text -> ClientM (CommandSuccess Value)

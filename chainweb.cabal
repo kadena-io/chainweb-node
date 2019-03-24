@@ -695,5 +695,5 @@ executable transaction-generator
         , servant >= 0.14.1
         , servant-client >= 0.14
         , servant-client-core >= 0.14
-        -- , servant-server >= 0.14.1
+        , servant-server >= 0.14.1
         , text >= 1.2
