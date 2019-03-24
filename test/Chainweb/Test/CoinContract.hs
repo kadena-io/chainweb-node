@@ -49,7 +49,6 @@ tests = testGroup "Coin Contract Unit Tests"
     , testCase "Coinbase" coinbase'
     , testCase "Build Exec with Data" buildExecWithData
     , testCase "Build Exec without Data" buildExecWithoutData
-    , testCase "Initialize Eval State with Capabilities" initCapabilities'
     ]
   , testGroup "Pact Code Unit Tests"
     [ testCase "Coin Contract Repl Tests" ccReplTests
@@ -69,17 +68,6 @@ buildExecWithData = void $ buildExecParsedCode
 buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
-initCapabilities' :: Assertion
-initCapabilities' = initCaps @?= evalCaps
-  where
-    -- set the capabilities to be some initial list of caps
-    es = initCapabilities initCaps
-    -- extract the caps from the capgranted list
-    evalCaps = extractName =<< es ^. evalCapabilities . capGranted
-    -- extract names from the caps
-    extractName = \case
-      (UserCapability _ (DefName t) _) -> pure t
-      _ -> fail "the impossible has finally happened"
 
 ccReplTests :: Assertion
 ccReplTests = do

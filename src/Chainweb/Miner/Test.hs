@@ -164,7 +164,7 @@ testMiner logFun conf nid cutDb wcdb payloadDb = do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        let payload = newPayloadWithOutputs (MinerData "miner") $ S.fromList
+        let payload = newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase") $ S.fromList
                 [ (Transaction "testTransaction", TransactionOutput "testOutput")
                 ]
         testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c >>= \case
