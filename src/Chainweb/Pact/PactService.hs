@@ -67,6 +67,7 @@ import qualified Pact.Types.SQLite as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
@@ -158,7 +159,7 @@ initPactService' ver chainwebLogger act = do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState TestWithTime{} _ = return ()
+initialPayloadState TestWithTime{} cid = testWithTimeCreateCoinContract cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
@@ -172,6 +173,20 @@ testnet00CreateCoinContract cid = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader Testnet00 cid
+    txs <- execValidateBlock True genesisHeader inputPayloadData
+    case validateHashes txs genesisHeader of
+      Left e -> throwM e
+      Right _ -> return ()
+
+testWithTimeCreateCoinContract :: ChainId -> PactT ()
+testWithTimeCreateCoinContract cid = do
+    let PayloadWithOutputs{..} = payloadBlock
+        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsMiner
+                           _payloadWithOutputsPayloadHash
+                           _payloadWithOutputsTransactionsHash
+                           _payloadWithOutputsOutputsHash
+        genesisHeader = genesisBlockHeader (TestWithTime petersonChainGraph) cid
     txs <- execValidateBlock True genesisHeader inputPayloadData
     case validateHashes txs genesisHeader of
       Left e -> throwM e

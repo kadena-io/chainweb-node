@@ -52,6 +52,7 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
+import Chainweb.BlockHeader.Genesis.TestWithTime
 import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0 (payloadBlock)
 import qualified Chainweb.BlockHeader.Genesis.TestWithTimePayload as TWT (payloadBlock)
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
@@ -151,6 +152,10 @@ genesisBlockHeader Testnet00 p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
+genesisBlockHeader (TestWithTime _chainGraph) p =
+    case HM.lookup (_chainId p) testWithTimeGeneses of
+        Nothing -> error $ "TestWithTime: No genesis block exists for " <> show (_chainId p)
+        Just gb -> gb
 genesisBlockHeader v p =
     genesisBlockHeader' v p (genesisTime v) (Nonce 0)
 
@@ -212,3 +217,22 @@ testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
          , testnet00C8
          , testnet00C9 ]
 {-# NOINLINE testnet00Geneses #-}
+
+-- -------------------------------------------------------------------------- --
+-- TestWithTime
+
+-- | Ten Genesis Blocks for `TestWithTime`.
+testWithTimeGeneses :: HM.HashMap ChainId BlockHeader
+testWithTimeGeneses = HM.fromList $ map (_chainId &&& id) bs
+  where
+    bs = [ testWithTimeC0
+         , testWithTimeC1
+         , testWithTimeC2
+         , testWithTimeC3
+         , testWithTimeC4
+         , testWithTimeC5
+         , testWithTimeC6
+         , testWithTimeC7
+         , testWithTimeC8
+         , testWithTimeC9 ]
+{-# NOINLINE testWithTimeGeneses #-}
