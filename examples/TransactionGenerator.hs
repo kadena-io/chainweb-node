@@ -1,16 +1,11 @@
-{-# LANGUAGE DataKinds			#-}
 {-# LANGUAGE DeriveFunctor		#-}
 {-# LANGUAGE DeriveGeneric		#-}
 {-# LANGUAGE DerivingStrategies		#-}
 {-# LANGUAGE FlexibleInstances		#-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NamedFieldPuns		#-}
 {-# LANGUAGE OverloadedStrings		#-}
-{-# LANGUAGE QuasiQuotes		#-}
 {-# LANGUAGE RankNTypes			#-}
-{-# LANGUAGE ScopedTypeVariables	#-}
-{-# LANGUAGE TemplateHaskell		#-}
-{-# LANGUAGE TypeOperators		#-}
+{-# LANGUAGE TemplateHaskell            #-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -46,7 +41,6 @@ import Network.X509.SelfSigned hiding (name)
 
 import GHC.Generics
 
-import Servant
 import Servant.Client
 
 import System.Random
@@ -84,18 +78,28 @@ instance FromJSON ChainwebPort
 
 instance ToJSON ChainwebPort
 
+data TimingDistribution
+  = Gaussian { mean :: Int
+             , var :: Int }
+  | Uniform { low :: Int
+            , high :: Int }
+  deriving (Eq, Show, Generic)
+
+instance Default TimingDistribution where
+  def = Gaussian 1000000 (div 1000000 16)
+
+instance FromJSON TimingDistribution
+
+instance ToJSON TimingDistribution
+
 data TransactionConfig = TransactionConfig
   { _scriptCommand :: TransactionCommand
   , _nodeChainId :: !ChainId
   , _serverRootPrefix :: String
   , _isChainweb :: Bool
   , _chainwebNodePort :: !ChainwebPort
-  , _timingMean :: !Double
-  , _timingVariance :: !Double
+  , _timingDistribution :: !TimingDistribution
   } deriving (Generic)
-
--- We'll just assume that the timing delays are gaussian distributed for now.
--- This can be easily altered if desired.
 
 makeLenses ''TransactionConfig
 
@@ -108,8 +112,7 @@ instance ToJSON TransactionConfig where
       , "serverRootPrefix" .= _serverRootPrefix o
       , "isChainweb" .= _isChainweb o
       , "chainwebNodePort" .= _chainwebNodePort o
-      , "timingMean" .= _timingMean o
-      , "timingVariance" .= _timingVariance o
+      , "timingDistribution" .= _timingDistribution o
       ]
 
 instance FromJSON (TransactionConfig -> TransactionConfig) where
@@ -119,8 +122,7 @@ instance FromJSON (TransactionConfig -> TransactionConfig) where
     <*< serverRootPrefix ..: "serverRootPrefix" % o
     <*< isChainweb ..: "isChainweb" % o
     <*< chainwebNodePort ..: "chainwebNodePort" % o
-    <*< timingMean ..: "timingMean" % o
-    <*< timingVariance ..: "timingVariance" % o
+    <*< timingDistribution ..: "timingDistribution" % o
 
 data GeneratorState s = GeneratorState
   { _gsGen :: Gen s
@@ -132,13 +134,12 @@ makeLenses ''GeneratorState
 defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
-    { _scriptCommand	= DeployContracts []
-    , _nodeChainId	= testChainId 0
-    , _serverRootPrefix = "https://us1.chainweb.com"
-    , _isChainweb	= True
-    , _chainwebNodePort = ChainwebPort 443
-    , _timingMean	= fromIntegral (mean def)
-    , _timingVariance	= fromIntegral (var def)
+    { _scriptCommand      = DeployContracts []
+    , _nodeChainId        = testChainId 0
+    , _serverRootPrefix   = "https://us1.chainweb.com"
+    , _isChainweb         = True
+    , _chainwebNodePort   = ChainwebPort 443
+    , _timingDistribution = def
     }
 
 transactionConfigParser :: MParser TransactionConfig
@@ -157,16 +158,6 @@ transactionConfigParser = id
       % long "is-chainweb"
       <> short 'w'
       <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
-
-data TimingDistribution
-  = Gaussian { mean :: Int
-             , var :: Int }
-  | Uniform { low :: Int
-            , high :: Int }
-  deriving (Eq, Show)
-
-instance Default TimingDistribution where
-  def = Gaussian 1000000 (div 1000000 16)
 
 data GeneratorConfig = GeneratorConfig
   { _timingdist :: TimingDistribution
@@ -327,12 +318,12 @@ defaultContractLoaders = take numContracts $ [helloWorldContractLoader, simplePa
 numContracts :: Int
 numContracts = 2
 
-api :: Proxy PactApi_
-api = Proxy
-
 send :: SubmitBatch -> ClientM RequestKeys
 poll :: Poll -> ClientM PollResponses
 listen :: ListenerRequest -> ClientM ApiResult
 local :: Command Text -> ClientM (CommandSuccess Value)
 
-send :<|> poll :<|> listen :<|> local = client api
+send   = client (Proxy :: Proxy SendApi)
+poll   = client (Proxy :: Proxy PollApi)
+listen = client (Proxy :: Proxy ListenApi)
+local  = client (Proxy :: Proxy LocalApi)
