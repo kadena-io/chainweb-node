@@ -114,9 +114,10 @@ type LogFunction = forall a . LogMessage a => LogLevel -> a -> IO ()
 --
 type LogFunctionText = LogLevel -> T.Text -> IO ()
 
--- | 'LogFunction' type specialized to 'T.Text'
+-- | 'LogFunction' type specialized to JSON
 --
-type LogFunctionJson a = LogLevel -> a -> IO ()
+type LogFunctionJson a =
+  (Typeable a, NFData a, ToJSON a) => LogLevel -> a -> IO ()
 
 -- | A newtype wrapper that allows to store a 'LogFunction' without running into
 -- impredicative types.
