@@ -496,9 +496,9 @@ applyPactCmd
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     psEnv <- ask
     let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
-        gasModel = psEnv ^. psCheckpointEnv . cpeGasEnv . P.geGasModel
-        pd       = psEnv ^. psPublicData
-        spv      = psEnv ^. psSpvSupport
+        gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv . cpeGasEnv $ psEnv
+        pd       = _psPublicData psEnv
+        spv      = _psSpvSupport psEnv
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
