@@ -26,7 +26,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withDB)
 import Chainweb.TreeDB
@@ -55,7 +55,7 @@ withDb :: BlockHeader -> (BlockHeaderDb -> IO Bool) -> IO Bool
 withDb h f = initBlockHeaderDb (Configuration h) >>= \db -> f db <* closeBlockHeaderDb db
 
 chainId0 :: ChainId
-chainId0 = testChainId 0
+chainId0 = unsafeChainId 0
 
 insertItems :: Assertion
 insertItems = withDB chainId0 $ \g db -> insertN 10 g db

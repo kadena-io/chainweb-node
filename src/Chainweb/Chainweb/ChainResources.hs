@@ -34,6 +34,7 @@ module Chainweb.Chainweb.ChainResources
 
 import Configuration.Utils hiding (Lens', (<.>))
 
+import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -55,6 +56,7 @@ import System.Path
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
+import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
@@ -112,11 +114,12 @@ withChainResources
     -> (Maybe FilePath)
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
+    -> MVar (CutDb cas)
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logger mempoolCfg inner =
+withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool $ \requestQ -> do
+    withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $

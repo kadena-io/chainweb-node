@@ -21,14 +21,13 @@
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
-, ChainId
+, ChainId(..)
 , HasChainId(..)
 , checkChainId
 , chainIdToText
 , chainIdFromText
 
 -- * Serialization
-
 , encodeChainId
 , decodeChainId
 , decodeChainIdChecked
@@ -46,7 +45,8 @@ module Chainweb.ChainId
 , type SChainId
 
 -- * Testing
-, testChainId
+, unsafeChainId
+, unsafeGetChainId
 ) where
 
 import Control.DeepSeq
@@ -236,10 +236,12 @@ instance SingKind ChainIdT where
 -- | Generally, the 'ChainId' is determined by the genesis block of a chain for
 -- a given 'Chainweb.Version'. This constructor is only for testing.
 --
-testChainId :: Word32 -> ChainId
-testChainId = ChainId
-{-# INLINE testChainId #-}
+unsafeChainId :: Word32 -> ChainId
+unsafeChainId = ChainId
+{-# INLINE unsafeChainId #-}
+
+unsafeGetChainId :: ChainId -> Word32
+unsafeGetChainId (ChainId cid) = cid
 
 instance Arbitrary ChainId where
-    arbitrary = testChainId <$> arbitrary
-
+    arbitrary = unsafeChainId <$> arbitrary

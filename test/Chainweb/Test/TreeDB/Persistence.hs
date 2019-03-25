@@ -28,7 +28,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.Utils (insertN, withDB)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Persist (fileEntries, persist)
@@ -36,7 +36,7 @@ import Chainweb.TreeDB.Persist (fileEntries, persist)
 ---
 
 chainId0 :: ChainId
-chainId0 = testChainId 0
+chainId0 = unsafeChainId 0
 
 tests :: TestTree
 tests = testGroup "Persistence"

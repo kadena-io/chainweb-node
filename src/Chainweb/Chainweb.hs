@@ -86,6 +86,7 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.Async
+import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -296,17 +297,18 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logger peer payloadDb inner = do
     initializePayloadDb v payloadDb
-    go mempty (toList cids)
+    cutMV <- newEmptyMVar
+    go mempty (toList cids) cutMV
   where
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go cs (cid : t) =
-        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig $ \c ->
-            go (HM.insert cid c cs) t
+    go cs (cid : t) mv =
+        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig mv $ \c ->
+            go (HM.insert cid c cs) t mv
 
     -- Initialize global resources
-    go cs [] = do
+    go cs [] mv = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -315,6 +317,10 @@ withChainwebInternal conf logger peer payloadDb inner = do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
+
+            -- update the cutdb mvar used by pact service with cutdb
+            void $! putMVar mv mCutDb
+
             withPactData cs cuts $ \pactData ->
                 withMinerResources mLogger mConf cwnid mCutDb $ \m ->
                 inner Chainweb
