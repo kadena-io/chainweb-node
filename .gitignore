@@ -1,3 +1,4 @@
+*.pem
 .dir-locals.el
 dist
 dist-*
