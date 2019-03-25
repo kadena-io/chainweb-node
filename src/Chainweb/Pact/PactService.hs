@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -25,7 +24,7 @@ module Chainweb.Pact.PactService
     , mkSQLiteState
     , serviceRequests
     , toCommandConfig
-    , testnet00CreateCoinContract
+    , createCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
     ) where
@@ -40,6 +39,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.Aeson as A
+import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Default (def)
@@ -67,7 +67,8 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
+import Chainweb.BlockHeader
+    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -162,25 +163,22 @@ initPactService' ver cid chainwebLogger act = do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState TestWithTime{} cid = testnet00CreateCoinContract cid
+initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
-initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
+initialPayloadState v@Testnet00 cid = createCoinContract v cid
 
-testnet00CreateCoinContract :: ChainId -> PactT ()
-testnet00CreateCoinContract cid = do
+createCoinContract :: ChainwebVersion -> ChainId -> PactT ()
+createCoinContract v cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
                            _payloadWithOutputsMiner
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader Testnet00 cid
+        genesisHeader = genesisBlockHeader v cid
     txs <- execValidateBlock True genesisHeader inputPayloadData
-    case validateHashes txs genesisHeader of
-      Left e -> throwM e
-      Right _ -> return ()
-
+    bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()

@@ -591,10 +591,11 @@ testMineWithPayload
     -> PactExecutionService
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMineWithPayload n target t payload nid i c pact =
-    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> p
-        <$ addNewPayload (given @(PayloadDb cas)) payload
-        <* validatePayload h payload
-        <* insertWebBlockHeaderDb h
+    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> do
+        validatePayload h payload
+        addNewPayload (given @(PayloadDb cas)) payload
+        insertWebBlockHeaderDb h
+        return p
   where
     payloadHash = _payloadWithOutputsPayloadHash payload
 
