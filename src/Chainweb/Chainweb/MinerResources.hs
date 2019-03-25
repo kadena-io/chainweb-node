@@ -84,5 +84,4 @@ runMiner v m = (chooseMiner v)
     chooseMiner TestWithTime{} = testMiner
     chooseMiner TestWithPow{} = powMiner
     chooseMiner PactWithTime{} = testMiner
-    chooseMiner Simulation{} = testMiner
     chooseMiner Testnet00 = powMiner

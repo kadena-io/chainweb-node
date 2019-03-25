@@ -449,8 +449,6 @@ bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PactWithTime{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Simulation{} = error
-    $ "bootstrap peer info isn't defined for chainweb version Simulation"
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo

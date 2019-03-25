@@ -50,6 +50,7 @@ arbitraryBytesSized = sized $ \s -> choose (0, s) >>= arbitraryBytes
 -- -------------------------------------------------------------------------- --
 -- Basics
 
+-- FIXME: This does not detect when new ChainwebVersions are added!
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ Test singletonChainGraph
@@ -58,8 +59,8 @@ instance Arbitrary ChainwebVersion where
         , TestWithTime petersonChainGraph
         , TestWithPow singletonChainGraph
         , TestWithPow petersonChainGraph
-        , Simulation singletonChainGraph
-        , Simulation petersonChainGraph
+        , PactWithTime singletonChainGraph
+        , PactWithTime petersonChainGraph
         , Testnet00
         ]
 

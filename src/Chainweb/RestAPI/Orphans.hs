@@ -249,10 +249,10 @@ instance ToParamSchema ChainwebVersion where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
         & enum_ ?~ (toJSON <$>
-            [ Simulation petersonChainGraph
-            , Test petersonChainGraph
+            [ Test petersonChainGraph
             , TestWithTime petersonChainGraph
             , TestWithPow petersonChainGraph
+            , PactWithTime petersonChainGraph
             , Testnet00
             ])
 
