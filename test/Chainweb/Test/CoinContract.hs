@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,10 +11,7 @@
 --
 -- Test the 'Coin Contract' pact code
 --
-module Chainweb.Test.CoinContract
-( tests
-) where
-
+module Chainweb.Test.CoinContract ( tests ) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -27,8 +25,6 @@ import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.Text
 import Data.Word
-
-import Control.Lens ((^.))
 
 -- internal pact modules
 
@@ -102,8 +98,8 @@ minerKeys0 = keyset0
 gasLimit0 :: Decimal
 gasLimit0 = fromIntegral @Word64 @Decimal 1
 
-initCaps :: [Text]
-initCaps = ["CAP1", "CAP2"]
+-- initCaps :: [Text]
+-- initCaps = ["CAP1", "CAP2"]
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"

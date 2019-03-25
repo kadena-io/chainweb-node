@@ -22,7 +22,7 @@
 module Chainweb.Miner.Test ( testMiner ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Lens ((^?!), view)
+import Control.Lens (view, (^?!))
 
 import Data.Reflection (give)
 import qualified Data.Sequence as S
@@ -106,11 +106,10 @@ testMiner
     -> NodeId
     -> CutDb cas
     -> IO ()
-testMiner logFun conf nid cutDb
-    = runForever logFun "Test Miner" $ do
-        gen <- MWC.createSystemRandom
-        ver <- getVer
-        go gen ver 1
+testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
+    gen <- MWC.createSystemRandom
+    ver <- getVer
+    go gen ver 1
   where
     wcdb = view cutDbWebBlockHeaderDb cutDb
     payloadDb = view cutDbPayloadCas cutDb
