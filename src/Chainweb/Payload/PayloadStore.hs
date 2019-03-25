@@ -253,7 +253,7 @@ addNewPayload db s = addPayload db txs txTree outs outTree
   where
     (bts,bos) = payloadWithOutputsToBlockObjects s
     (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
-    (outTree, outs) = newBlockOutputs (_blockOutputs bos)
+    (outTree, outs) = newBlockOutputs (_blockCoinbaseOutput bos) (_blockOutputs bos)
 
 -- -------------------------------------------------------------------------- --
 -- IsCas instance for PayloadDb
@@ -283,6 +283,7 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
         return $ PayloadWithOutputs
             { _payloadWithOutputsTransactions = S.zip (_blockTransactions txs) (_blockOutputs outs)
             , _payloadWithOutputsMiner = _blockMinerData txs
+            , _payloadWithOutputsCoinbase = _blockCoinbaseOutput outs
             , _payloadWithOutputsPayloadHash = k
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash

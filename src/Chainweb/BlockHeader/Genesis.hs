@@ -60,11 +60,11 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
-import Chainweb.Pact.Types (noMiner)
+import Chainweb.Pact.Types (noCoinbase, noMiner, toCoinbaseOutput)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
-import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
 
@@ -121,16 +121,17 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = emptyPayload
+genesisBlockPayload TestWithTime{} _ = payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
 genesisBlockPayload Testnet00 _ = payloadBlock
 
 emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner h i o
-  where (BlockPayload h i o) = newBlockPayload miner mempty
+emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+  where (BlockPayload h i o) = newBlockPayload miner coinbase mempty
         miner = MinerData $ encodeToByteString noMiner
+        coinbase = toCoinbaseOutput noCoinbase
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -138,7 +139,7 @@ emptyPayload = PayloadWithOutputs mempty miner h i o
 -- 'ChainId' into the genesis block hash.
 --
 -- We assume that there is always only a single 'ChainwebVersion' in
--- scope and identify chains only by there internal 'ChainId'.
+-- scope and identify chains only by their internal 'ChainId'.
 --
 -- For production Chainwebs, this function dispatches to hard-coded blocks.
 -- Otherwise, the blocks are deterministically generated.

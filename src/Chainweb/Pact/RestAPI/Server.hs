@@ -32,6 +32,7 @@ import Data.Aeson
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.ByteString.Lazy.Char8 as BSL8
 import Data.List (find)
 import Data.Maybe (catMaybes)
 import Data.Singletons
@@ -125,11 +126,11 @@ sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler Requ
 sendHandler mempool (SubmitBatch cmds) =
     Handler $
     case traverse validateCommand cmds of
-      Just enriched -> do
+      Right enriched -> do
         liftIO $ mempoolInsert mempool $! V.fromList enriched
         return $! RequestKeys $ map cmdToRequestKey enriched
-      Nothing ->
-        throwError $ err400 { errBody = "Validation failed." }
+      Left err ->
+        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
 pollHandler
     :: PayloadCas cas
@@ -279,18 +280,18 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
-        (PayloadWithOutputs txsBs _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
+        (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         txs <- mapM fromTx txsBs
 
         case find matchingHash txs of
             (Just (_cmd, (TransactionOutput output))) -> do
-                -- TODO: ApiResult has untyped fields and none of us is 100%
-                -- sure what should go in here
 
-                -- TODO: we have the outputs! there is no need for this. SLP TODO
+                -- this will be a HashedTxLogOutput containing a Value of
+                -- of `CommandSuccess` or `CommandFailure`.
+                -- The metadata could be used to track request time, chain metadata etc.
 
                 val <- MaybeT $ return $ decodeStrict output
-                return $! ApiResult val Nothing Nothing    -- TODO: what should be here for metadata?
+                return $! ApiResult val Nothing Nothing
 
             Nothing -> lookupParent blockHeader
 
@@ -312,12 +313,12 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
 
-validateCommand :: Command Text -> Maybe (Command PayloadWithText)
+validateCommand :: Command Text -> Either String (Command PayloadWithText)
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> Just $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
-  ProcFail{} -> Nothing
+  ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+  ProcFail err -> Left $ err
 
 
 unimplemented :: Handler a

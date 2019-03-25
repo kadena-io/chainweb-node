@@ -62,6 +62,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.Environment
 import System.LogLevel
 import System.Timeout
 
@@ -241,6 +242,13 @@ runNodes
         -- ^ directory where the chaindbs are persisted
     -> IO ()
 runNodes loglevel write stateVar v n chainDbDir = do
+
+    -- NOTE: pact is enabled until we have a good way to disable it globally in
+    -- "Chainweb.Chainweb".
+    --
+    -- TODO: disable pact for these tests
+    --
+
     bootstrapPortVar <- newEmptyMVar
         -- this is a hack for testing: normally bootstrap node peer infos are
         -- hardcoded. To avoid conflicts in concurrent test runs we extract an

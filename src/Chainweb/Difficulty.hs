@@ -333,8 +333,8 @@ window TestWithTime{} = Nothing
 -- 5 blocks, should take 50 seconds.
 window TestWithPow{} = Just $ WindowWidth 5
 window Simulation{} = Nothing
--- 2,880 blocks, should take 24 hours given a 30 second BlockRate.
-window Testnet00 = Just $ WindowWidth 2880
+-- 120 blocks, should take 1 hour given a 30 second BlockRate.
+window Testnet00 = Just $ WindowWidth 120
 
 -- | The maximum number of bits that a single application of `adjust` can apply
 -- to some `HashTarget`. As mentioned in `adjust`, this value should be above

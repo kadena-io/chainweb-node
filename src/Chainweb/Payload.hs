@@ -58,6 +58,7 @@ module Chainweb.Payload
 , transactionLog
 
 , MinerData(..)
+, CoinbaseOutput(..)
 
 , BlockOutputsLog
 , newBlockOutputLog
@@ -410,6 +411,48 @@ type BlockTransactionsLog = MkLogType ChainwebHashTag BlockTransactions
 -- -------------------------------------------------------------------------- --
 
 -- -------------------------------------------------------------------------- --
+-- Coinbase transaction output
+
+newtype CoinbaseOutput = CoinbaseOutput { _coinbaseOutput :: B.ByteString }
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (BA.ByteArrayAccess, Hashable)
+
+instance Show CoinbaseOutput where
+    show = T.unpack . encodeToText
+    {-# INLINE show #-}
+
+instance ToJSON CoinbaseOutput where
+    toJSON = toJSON . encodeB64UrlNoPaddingText . _coinbaseOutput
+    {-# INLINE toJSON #-}
+
+instance FromJSON CoinbaseOutput where
+    parseJSON = parseJsonFromText "CoinbaseOutput"
+    {-# INLINE parseJSON #-}
+
+instance IsMerkleLogEntry ChainwebHashTag CoinbaseOutput where
+    type Tag CoinbaseOutput = 'CoinbaseOutputTag
+    toMerkleNode = InputNode . _coinbaseOutput
+    fromMerkleNode (InputNode bytes) = Right $ CoinbaseOutput bytes
+    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
+
+coinbaseOutputToText :: CoinbaseOutput -> T.Text
+coinbaseOutputToText = encodeB64UrlNoPaddingText . _coinbaseOutput
+{-# INLINE coinbaseOutputToText #-}
+
+coinbaseOutputFromText :: MonadThrow m => T.Text -> m CoinbaseOutput
+coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
+    $ CoinbaseOutput <$> decodeB64UrlNoPaddingText t
+{-# INLINE coinbaseOutputFromText #-}
+
+instance HasTextRepresentation CoinbaseOutput where
+    toText = coinbaseOutputToText
+    {-# INLINE toText #-}
+    fromText = coinbaseOutputFromText
+    {-# INLINE fromText #-}
+
+
+-- -------------------------------------------------------------------------- --
 -- Block Outputs
 
 -- | All outputs of the transactions of a block.
@@ -425,6 +468,9 @@ data BlockOutputs = BlockOutputs
     , _blockOutputs :: !(S.Seq TransactionOutput)
         -- ^ Output of all transactions of a block in the order of the
         -- transactions in the block.
+
+    , _blockCoinbaseOutput :: !CoinbaseOutput
+        -- ^ Output of coinbase transaction.
     }
     deriving (Show)
 
@@ -433,20 +479,21 @@ instance IsCasValue BlockOutputs where
     casKey = _blockOutputsHash
 
 instance HasMerkleLog ChainwebHashTag BlockOutputs where
-    type MerkleLogHeader BlockOutputs = '[]
+    type MerkleLogHeader BlockOutputs = '[CoinbaseOutput]
     type MerkleLogBody BlockOutputs = TransactionOutput
 
     toLog a = merkleLog root entries
       where
         BlockOutputsHash (MerkleLogHash root) = _blockOutputsHash a
-        entries = MerkleLogBody (_blockOutputs a)
+        entries = _blockCoinbaseOutput a :+: MerkleLogBody (_blockOutputs a)
 
     fromLog l = BlockOutputs
         { _blockOutputsHash = BlockOutputsHash $ MerkleLogHash $ _merkleLogRoot l
         , _blockOutputs = outs
+        , _blockCoinbaseOutput = co
         }
       where
-        MerkleLogBody outs = _merkleLogEntries l
+        (co :+: MerkleLogBody outs) = _merkleLogEntries l
 
 type BlockOutputsLog = MkLogType ChainwebHashTag BlockOutputs
 
@@ -528,15 +575,15 @@ transactionLog txs tree
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputLog :: S.Seq TransactionOutput -> BlockOutputsLog
-newBlockOutputLog = newMerkleLog . MerkleLogBody
+newBlockOutputLog :: CoinbaseOutput -> S.Seq TransactionOutput -> BlockOutputsLog
+newBlockOutputLog co tos = newMerkleLog $ co :+: MerkleLogBody tos
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputs :: S.Seq TransactionOutput -> (OutputTree, BlockOutputs)
-newBlockOutputs outs = (tree, blkOuts)
+newBlockOutputs :: CoinbaseOutput -> S.Seq TransactionOutput -> (OutputTree, BlockOutputs)
+newBlockOutputs co outs = (tree, blkOuts)
   where
-    mlog = newBlockOutputLog outs
+    mlog = newBlockOutputLog co outs
     blkOuts = fromLog mlog
     tree = OutputTree
         { _outputTreeHash = _blockOutputsHash blkOuts
@@ -572,12 +619,13 @@ blockPayload txs outs
 
 newBlockPayload
     :: MinerData
+    -> CoinbaseOutput
     -> S.Seq (Transaction, TransactionOutput)
     -> BlockPayload
-newBlockPayload mi s = blockPayload txs outs
+newBlockPayload mi co s = blockPayload txs outs
   where
     (_, txs) = newBlockTransactions mi (fst <$> s)
-    (_, outs) = newBlockOutputs (snd <$> s)
+    (_, outs) = newBlockOutputs co (snd <$> s)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Data
@@ -632,6 +680,7 @@ newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
 data PayloadWithOutputs = PayloadWithOutputs
     { _payloadWithOutputsTransactions :: !(S.Seq (Transaction, TransactionOutput))
     , _payloadWithOutputsMiner :: !MinerData
+    , _payloadWithOutputsCoinbase :: !CoinbaseOutput
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
     , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
     , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
@@ -642,49 +691,60 @@ instance IsCasValue PayloadWithOutputs where
     casKey = _payloadWithOutputsPayloadHash
     {-# INLINE casKey #-}
 
-payloadWithOutputs :: PayloadData -> S.Seq TransactionOutput -> PayloadWithOutputs
-payloadWithOutputs d outputs = PayloadWithOutputs
+payloadWithOutputs
+    :: PayloadData
+    -> CoinbaseOutput
+    -> S.Seq TransactionOutput
+    -> PayloadWithOutputs
+payloadWithOutputs d co outputs = PayloadWithOutputs
     { _payloadWithOutputsTransactions = S.zip (_payloadDataTransactions d) outputs
     , _payloadWithOutputsMiner = _payloadDataMiner d
+    , _payloadWithOutputsCoinbase = co
     , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
     , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
     , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
     }
 
 newPayloadWithOutputs
-    :: MinerData -> S.Seq (Transaction, TransactionOutput)
+    :: MinerData
+    -> CoinbaseOutput
+    -> S.Seq (Transaction, TransactionOutput)
     -> PayloadWithOutputs
-newPayloadWithOutputs mi s = PayloadWithOutputs
+newPayloadWithOutputs mi co s = PayloadWithOutputs
     { _payloadWithOutputsTransactions = s
     , _payloadWithOutputsMiner = mi
+    , _payloadWithOutputsCoinbase = co
     , _payloadWithOutputsPayloadHash = _blockPayloadPayloadHash p
     , _payloadWithOutputsTransactionsHash = _blockPayloadTransactionsHash p
     , _payloadWithOutputsOutputsHash = _blockPayloadOutputsHash p
     }
   where
-    p = newBlockPayload mi s
-
-
+    p = newBlockPayload mi co s
 
 instance ToJSON PayloadWithOutputs where
-  toJSON o = object
-    [ "transactions" .= _payloadWithOutputsTransactions o
-    , "minerData" .= _payloadWithOutputsMiner o
-    , "payloadHash" .= _payloadWithOutputsPayloadHash o
-    , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
-    , "outputsHash" .= _payloadWithOutputsOutputsHash o
-    ]
+    toJSON o = object
+        [ "transactions" .= _payloadWithOutputsTransactions o
+        , "minerData" .= _payloadWithOutputsMiner o
+        , "coinbase" .= _payloadWithOutputsCoinbase o
+        , "payloadHash" .= _payloadWithOutputsPayloadHash o
+        , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
+        , "outputsHash" .= _payloadWithOutputsOutputsHash o
+        ]
 
 instance FromJSON PayloadWithOutputs where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
         <$> o .: "transactions"
         <*> o .: "minerData"
+        <*> o .: "coinbase"
         <*> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
 payloadWithOutputsToBlockObjects :: PayloadWithOutputs -> (BlockTransactions, BlockOutputs)
 payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
-  (BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
-  ,BlockOutputs _payloadWithOutputsOutputsHash outs)
-  where (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+    ( BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
+    , BlockOutputs _payloadWithOutputsOutputsHash outs _payloadWithOutputsCoinbase
+    )
+  where
+    (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+

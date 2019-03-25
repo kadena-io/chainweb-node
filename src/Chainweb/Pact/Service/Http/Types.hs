@@ -23,14 +23,17 @@ import Control.Concurrent.STM.TQueue
 import Control.Lens
 import Control.Monad.Trans.Reader
 
+import Data.Text (Text)
+
 import Servant
 
-import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 
+import Pact.Types.Command
+
 -- TODO: Input, possibly output type will change for use with 'local' command
-type PactAPI = "local" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] (Either PactException Transactions)
+type PactAPI = "local" :> ReqBody '[JSON] (Command Text) :> Post '[JSON] (Either PactException FullLogTxOutput)
 
 data LocalEnv = LocalEnv {_rieReqQ :: (TQueue RequestMsg)}
 

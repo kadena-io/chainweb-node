@@ -48,6 +48,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.NodeId
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
@@ -189,9 +190,10 @@ mine cutDb c = do
     -- generate transactions
     payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
     miner <- generate arbitrary
+    coinbase <- generate arbitrary
 
     -- compute payloadHash
-    let outputs = newPayloadWithOutputs miner payload
+    let outputs = newPayloadWithOutputs miner coinbase payload
         payloadHash = _payloadWithOutputsPayloadHash outputs
 
     -- mine new block
@@ -265,8 +267,9 @@ fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
-              $ payloadWithOutputs d $ getFakeOutput <$> _payloadDataTransactions d
+              $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_h -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
+    coinbase = toCoinbaseOutput noCoinbase

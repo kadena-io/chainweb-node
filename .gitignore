@@ -34,3 +34,5 @@ log
 report.html
 .hlint.yaml
 *.svg
+*.png
+*.graphml

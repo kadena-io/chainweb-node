@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,10 +11,7 @@
 --
 -- Test the 'Coin Contract' pact code
 --
-module Chainweb.Test.CoinContract
-( tests
-) where
-
+module Chainweb.Test.CoinContract ( tests ) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -27,8 +25,6 @@ import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.Text
 import Data.Word
-
-import Control.Lens ((^.))
 
 -- internal pact modules
 
@@ -49,7 +45,6 @@ tests = testGroup "Coin Contract Unit Tests"
     , testCase "Coinbase" coinbase'
     , testCase "Build Exec with Data" buildExecWithData
     , testCase "Build Exec without Data" buildExecWithoutData
-    , testCase "Initialize Eval State with Capabilities" initCapabilities'
     ]
   , testGroup "Pact Code Unit Tests"
     [ testCase "Coin Contract Repl Tests" ccReplTests
@@ -69,17 +64,6 @@ buildExecWithData = void $ buildExecParsedCode
 buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
-initCapabilities' :: Assertion
-initCapabilities' = initCaps @?= evalCaps
-  where
-    -- set the capabilities to be some initial list of caps
-    es = initCapabilities initCaps
-    -- extract the caps from the capgranted list
-    evalCaps = extractName =<< es ^. evalCapabilities . capGranted
-    -- extract names from the caps
-    extractName = \case
-      (UserCapability _ (DefName t) _) -> pure t
-      _ -> fail "the impossible has finally happened"
 
 ccReplTests :: Assertion
 ccReplTests = do
@@ -114,8 +98,8 @@ minerKeys0 = keyset0
 gasLimit0 :: Decimal
 gasLimit0 = fromIntegral @Word64 @Decimal 1
 
-initCaps :: [Text]
-initCaps = ["CAP1", "CAP2"]
+-- initCaps :: [Text]
+-- initCaps = ["CAP1", "CAP2"]
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"
