@@ -301,13 +301,11 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
             -- query parent (recursively)
             $ queryHeader (_blockParent <$> chainValue header)
 
-            -- query payload
-            : Concurrently
-                (void (getBlockPayload payloadStore priority maybeOrigin header))
-
             -- query adjacent parents (recursively)
             : (queryHeader <$> adjParents header)
 
+        -- query payload
+        void (getBlockPayload payloadStore priority maybeOrigin header)
 
         -- validate block header
 

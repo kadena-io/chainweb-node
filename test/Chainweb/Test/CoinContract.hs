@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,10 +11,7 @@
 --
 -- Test the 'Coin Contract' pact code
 --
-module Chainweb.Test.CoinContract
-( tests
-) where
-
+module Chainweb.Test.CoinContract ( tests ) where
 
 import Test.Tasty
 import Test.Tasty.HUnit

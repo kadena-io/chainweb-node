@@ -696,5 +696,7 @@ executable transaction-generator
         , pact >= 2.6
         , primitive >= 0.6
         , random >= 1.1
+        , servant >= 0.14.1
         , servant-client >= 0.14
+        , servant-client-core >= 0.14
         , text >= 1.2

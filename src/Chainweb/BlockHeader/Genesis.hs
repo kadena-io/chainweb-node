@@ -60,11 +60,11 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
-import Chainweb.Pact.Types (noMiner,toCoinbaseOutput,noCoinbase)
+import Chainweb.Pact.Types (noCoinbase, noMiner, toCoinbaseOutput)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
-import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
 
 ---
 
@@ -139,17 +139,13 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 -- 'ChainId' into the genesis block hash.
 --
 -- We assume that there is always only a single 'ChainwebVersion' in
--- scope and identify chains only by there internal 'ChainId'.
+-- scope and identify chains only by their internal 'ChainId'.
 --
 -- For production Chainwebs, this function dispatches to hard-coded blocks.
 -- Otherwise, the blocks are deterministically generated.
 --
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader Testnet00 p =
-    case HM.lookup (_chainId p) testnet00Geneses of
-        Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
-        Just gb -> gb
-genesisBlockHeader TestWithTime{} p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb

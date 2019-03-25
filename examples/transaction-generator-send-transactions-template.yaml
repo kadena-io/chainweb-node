@@ -8,5 +8,5 @@ timingDistribution:
   tag: Gaussian
   var: 31250
 scriptCommand:
-  tag: DeployContracts
+  tag: Run
   contents: []

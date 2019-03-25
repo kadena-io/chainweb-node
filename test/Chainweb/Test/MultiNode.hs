@@ -243,9 +243,11 @@ runNodes
     -> IO ()
 runNodes loglevel write stateVar v n chainDbDir = do
 
-    -- DISABLE USAGE OF PACT
-    -- (pact service still runs but block payloads aren't validated)
-    setEnv "CHAINWEB_DISABLE_PACT" "1"
+    -- NOTE: pact is enabled until we have a good way to disable it globally in
+    -- "Chainweb.Chainweb".
+    --
+    -- TODO: disable pact for these tests
+    --
 
     bootstrapPortVar <- newEmptyMVar
         -- this is a hack for testing: normally bootstrap node peer infos are
