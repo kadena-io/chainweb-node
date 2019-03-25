@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -177,41 +178,50 @@ powMiner logFun conf nid cutDb = do
 
         -- The new block's creation time.
         --
-        ct <- getCurrentTimeIntegral
 
-        testMineWithPayload @cas nonce target ct payload nid cid c >>= \case
-            Left BadNonce -> do
-                -- atomicModifyIORef' counter (\n -> (succ n, ()))
-                mine (succ nonce) adjustments'
-            Left BadAdjacents ->
-                mine nonce adjustments'
-            Right (T2 newBh newCut) -> do
+        let loop n = do
+                ct <- getCurrentTimeIntegral
+                testMineWithPayload @cas nonce target ct payload nid cid c >>= \case
+                    Left BadNonce -> do
+                        -- atomicModifyIORef' counter (\n -> (succ n, ()))
+                        c' <- _cut cutDb
 
-                -- DEBUGGING --
-                -- Uncomment the following for a live view of mining
-                -- results on Chain 0. You will have to uncomment a
-                -- number of surrounding helper values and readd some
-                -- imports.
+                        -- this comparision is still a bit expensive but fine for now. We
+                        -- should let cutdb notify us. Or use a serial number or similar.
+                        if c' /= c
+                            then mine (succ n) adjustments'
+                            else loop (succ n)
 
-                -- total <- readIORef counter
+                    Left BadAdjacents -> mine nonce adjustments'
 
-                -- let targetBits :: String
-                --     targetBits = printf "%0256b" $ htInteger target
+                    Right (T2 newBh newCut) -> do
 
-                -- when (cid == testChainId 0) $ do
-                --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
-                --         (_nodeIdId nid)
-                --         total
-                --         (take 30 targetBits)
-                --         (drop 226 targetBits)
-                --         (pheight newBh)
-                --         (pweight newBh)
-                --         (take 8 . drop 5 . show $ _blockHash p)
-                --         (take 8 . drop 5 . show $ _blockHash newBh)
-                --         (int (time newBh - time p) / 1000000 :: Float)
-                --     hFlush stdout
+                        -- DEBUGGING --
+                        -- Uncomment the following for a live view of mining
+                        -- results on Chain 0. You will have to uncomment a
+                        -- number of surrounding helper values and readd some
+                        -- imports.
 
-                pure $! T3 newBh newCut adjustments'
+                        -- total <- readIORef counter
+
+                        -- let targetBits :: String
+                        --     targetBits = printf "%0256b" $ htInteger target
+
+                        -- when (cid == testChainId 0) $ do
+                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
+                        --         (_nodeIdId nid)
+                        --         total
+                        --         (take 30 targetBits)
+                        --         (drop 226 targetBits)
+                        --         (pheight newBh)
+                        --         (pweight newBh)
+                        --         (take 8 . drop 5 . show $ _blockHash p)
+                        --         (take 8 . drop 5 . show $ _blockHash newBh)
+                        --         (int (time newBh - time p) / 1000000 :: Float)
+                        --     hFlush stdout
+
+                        pure $! T3 newBh newCut adjustments'
+        loop nonce
 
     getTarget
         :: ChainId
