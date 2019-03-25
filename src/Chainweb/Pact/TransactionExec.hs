@@ -141,6 +141,7 @@ applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel pd spv cmd = do
             case redeemResultE of
 
               Left e3 ->
+
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
                   "tx failure for request key while redeeming gas"
 
