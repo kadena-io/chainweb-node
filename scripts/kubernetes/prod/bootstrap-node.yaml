@@ -1,0 +1,64 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: {{ dnsPrefix }}-chainweb
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ dnsPrefix }}-chainweb
+    spec:
+      containers:
+      - name: {{ dnsPrefix }}-chainweb
+        resources:
+          requests:
+            memory: "14Gi"
+            cpu: "400m"
+        image: kadena/chainweb-bootstrap-node:testnet00-party
+        command:
+          [
+            "/bin/chainweb-node",
+            "--config-file=/tmp/config/bootstrap-node.config",
+            "--config-file=/tmp/cert/fullchain.config",
+            "--config-file=/tmp/key/privkey.config",
+            "--log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
+            "--telemetry-log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
+            --disable-transaction-index
+          ]
+        ports:
+          - containerPort: 1789
+        volumeMounts:
+          - name: config-vol
+            mountPath: "/tmp/config"
+            readOnly: true
+          - name: cert-vol
+            mountPath: "/tmp/cert"
+            readOnly: true
+          - name: key-vol
+            mountPath: "/tmp/key"
+            readOnly: true
+      volumes:
+      - name: config-vol
+        secret:
+          secretName: config
+      - name: cert-vol
+        secret:
+          secretName: cert
+      - name: key-vol
+        secret:
+          secretName: key
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ dnsPrefix }}-chainweb
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ dnsPrefix }}.chainweb.com
+spec:
+  type: LoadBalancer
+  selector:
+    app: {{ dnsPrefix }}-chainweb
+  ports:
+    - port: 443
+      targetPort: 1789

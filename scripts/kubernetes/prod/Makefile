@@ -1,8 +1,10 @@
 
 # For demo
-SECTIONS = us1 us2 eu1 eu2
+#SECTIONS = us1
 
-#SECTIONS = us1 us2 eu1
+#SECTIONS = us1 eu1 eu2
+
+SECTIONS = us2
 
 us1_REGION = us-east-1
 us2_REGION = us-west-2
@@ -38,7 +40,7 @@ delete-clusters: $(DELETE_CLUSTERS)
 	test -n "$($*_REGION)" # $$($*_REGION)
 	kops toolbox template --template cluster_template.yaml \
 	--set kopsStateStore=s3://$($*_REGION)-kops-state-store \
-	--set masterSize=t3.medium \
+	--set masterSize=t3.large \
 	--set nodeSize=t3.xlarge \
 	--set nodesMinCount=2 \
 	--set nodesMaxCount=2 \
@@ -60,7 +62,7 @@ delete-clusters: $(DELETE_CLUSTERS)
 .PHONY: %-ready
 %-ready:
 	kops validate cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
-	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store
+	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-kops-state-store --yes
 
 
 .PHONY: %-shutdown
@@ -85,24 +87,25 @@ deploys: check-clusters $(SEND_DEPLOYS)
 cleanup-deploys: $(CLEANUP_DEPLOYS)
 check-deploys: $(CHECK_DEPLOYS)
 
-
-%.$(EXTERNAL_DNS_ZONE)-cert.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
-	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/fullchain.pem  $@
-
-
-%.$(EXTERNAL_DNS_ZONE)-privkey.pem: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
-	cp ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/privkey.pem  $@
+.PHONY: %.$(EXTERNAL_DNS_ZONE)-configs
+%.$(EXTERNAL_DNS_ZONE)-configs: ~/letsencrypt/config/live/%.$(EXTERNAL_DNS_ZONE)/
+	python ../get_certificate_configs.py ~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/fullchain.pem \
+	~/letsencrypt/config/live/$*.$(EXTERNAL_DNS_ZONE)/privkey.pem
+	kubectl --context=$*.$(KOPS_DNS_ZONE) create secret generic config --from-file=./bootstrap-node.config
+	kubectl --context=$*.$(KOPS_DNS_ZONE) create secret generic cert --from-file=./fullchain.config
+	kubectl --context=$*.$(KOPS_DNS_ZONE) create secret generic key --from-file=./privkey.config.config
 
 %_external_dns.yaml: external_dns_template.yaml
 	kops toolbox template --template external_dns_template.yaml \
 	--set subDomain=$* \
 	--output $@
 
-DEPLOY_DEPS := ../bootstrap_deploy.py  ./bootstrap-node.config
+DEPLOY_DEPS := ../bootstrap_deploy.py  ./bootstrap-node.config ../get_certificate_configs.py
 
 .PHONY: %-deploy
-%-deploy: $(DEPLOY_DEPS)  %_external_dns.yaml  %.$(EXTERNAL_DNS_ZONE)-cert.pem   %.$(EXTERNAL_DNS_ZONE)-privkey.pem
+%-deploy: $(DEPLOY_DEPS)  %_external_dns.yaml  %.$(EXTERNAL_DNS_ZONE)-configs
 	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_external_dns.yaml
+	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*
 	python ../bootstrap_deploy.py create \
 	--context=$*.$(KOPS_DNS_ZONE) \
 	--subDomain=$* \
@@ -114,8 +117,16 @@ DEPLOY_DEPS := ../bootstrap_deploy.py  ./bootstrap-node.config
 
 
 .PHONY: %-cleanup
-%-cleanup: %-ready ../bootstrap_deploy.py
-	python ../bootstrap_deploy.py delete --context=$*.$(KOPS_DNS_ZONE)
+%-cleanup0: %-ready
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete secret config
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete secret key
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete secret cert
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete service $*-chainweb
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete deployment $*-chainweb
+
+%-cleanup: %-ready
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete service/us2-chainweb
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete deployment/us2-chainweb
 
 .PHONY: %-status
 %-status:

@@ -1,6 +1,6 @@
 
 # For demo
-SECTIONS = us1 us2 eu1 as1
+SECTIONS = us1 us2 eu1 as1 as2
 
 #SECTIONS = us1 us2 eu1
 
@@ -8,6 +8,7 @@ us1_REGION = us-east-1
 us2_REGION = us-west-2
 eu1_REGION = eu-central-1
 as1_REGION = ap-southeast-2
+as2_REGION = ap-northeast-1
 
 # ------------------ VARIABLES: DON'T CHANGE --------------
 
@@ -37,10 +38,10 @@ delete-clusters: $(DELETE_CLUSTERS)
 	test -n "$($*_REGION)" # $$($*_REGION)
 	kops toolbox template --template cluster_template.yaml \
 	--set kopsStateStore=s3://$($*_REGION)-miner-kops-state-store \
-	--set masterSize=t3.medium \
+	--set masterSize=t3.large \
 	--set nodeSize=t3.xlarge \
-	--set nodesMinCount=2 \
-	--set nodesMaxCount=2 \
+	--set nodesMinCount=3 \
+	--set nodesMaxCount=3 \
 	--set clusterPrefix=$* \
 	--set dnsZone=$(KOPS_DNS_ZONE) \
 	--set awsRegion=$($*_REGION) \
@@ -58,8 +59,8 @@ delete-clusters: $(DELETE_CLUSTERS)
 
 .PHONY: %-ready
 %-ready:
+	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-miner-kops-state-store --yes
 	kops validate cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-miner-kops-state-store
-	kops rolling-update cluster --name $*.$(KOPS_DNS_ZONE) --state=s3://$($*_REGION)-miner-kops-state-store
 
 
 .PHONY: %-shutdown
@@ -97,17 +98,25 @@ check-deploys: $(CHECK_DEPLOYS)
 	--set name=$*-miner2 \
 	--output $@
 
+%_miner3.yaml: miner_template.yaml
+	kops toolbox template --template miner_template.yaml \
+	--set image=$(IMAGE) \
+	--set name=$*-miner3 \
+	--output $@
+
 
 .PHONY: %-deploy
-%-deploy: %_miner1.yaml %_miner2.yaml
+%-deploy: %_miner1.yaml %_miner2.yaml %_miner3.yaml
 	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_miner1.yaml
 	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_miner2.yaml
+	kubectl --context=$*.$(KOPS_DNS_ZONE) apply -f $*_miner3.yaml
 
 
 .PHONY: %-cleanup
 %-cleanup: %-ready
 	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete pod/$*-miner1 service/$*-miner1
 	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete pod/$*-miner2 service/$*-miner2
+	@kubectl --context=$*.$(KOPS_DNS_ZONE) delete pod/$*-miner3 service/$*-miner3
 
 .PHONY: %-status
 %-status:

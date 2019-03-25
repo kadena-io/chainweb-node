@@ -1,0 +1,61 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: us2-chainweb
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: us2-chainweb
+    spec:
+      containers:
+      - name: us2-chainweb
+        resources:
+          requests:
+            memory: "14Gi"
+            cpu: "400m"
+        image: kadena/chainweb-base:lars42
+        command:
+          [
+            "/bin/chainweb-node",
+            "--config-file=/tmp/config/bootstrap-node.config",
+            "--certificate-chain-file=/tmp/cert/fullchain.pem",
+            "--certificate-key-file=/tmp/key/privkey.pem"
+          ]
+        ports:
+          - containerPort: 1789
+        volumeMounts:
+          - name: config-vol
+            mountPath: "/tmp/config"
+            readOnly: true
+          - name: cert-vol
+            mountPath: "/tmp/cert"
+            readOnly: true
+          - name: key-vol
+            mountPath: "/tmp/key"
+            readOnly: true
+      volumes:
+      - name: config-vol
+        secret:
+          secretName: config
+      - name: cert-vol
+        secret:
+          secretName: cert
+      - name: key-vol
+        secret:
+          secretName: key
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: us2-chainweb
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: us3.tn1.chainweb.com
+spec:
+  type: LoadBalancer
+  selector:
+    app: us2-chainweb
+  ports:
+    - port: 443
+      targetPort: 1789

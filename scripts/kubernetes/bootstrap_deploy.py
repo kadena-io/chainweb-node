@@ -176,6 +176,7 @@ def create_pod_template_with_pvc(args):
     pull_policy = "Never" if args.local else "Always"
     command = [
         "/bin/chainweb-node", "--config-file=/tmp/node.config",
+        "--p2p-max-session-count=4",
         "--telemetry-log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
         "--log-handle=es:search-tnlogs-eb57oi7cimmanlguprazntbqva.us-east-1.es.amazonaws.com:80",
         "--disable-transaction-index"
