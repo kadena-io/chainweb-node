@@ -90,7 +90,7 @@ pactTestSetup = do
 
 pactExecTests :: PactTestSetup -> IO [TestTree]
 pactExecTests (PactTestSetup env st) =
-    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (accursedUnutterableChainId 0) >> execTests) env) st
+    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (unsafeChainId 0) >> execTests) env) st
 
 execTests :: PactServiceM [TestTree]
 execTests = do

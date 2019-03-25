@@ -42,7 +42,7 @@ import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 -- internal chainweb modules
 
 import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.ChainId (ChainId, accursedUnutterableChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Transaction
 
@@ -69,7 +69,7 @@ genesis :: BlockHeader
 genesis = toyGenesis chainId0
 
 chainId0 :: ChainId
-chainId0 = accursedUnutterableChainId 0
+chainId0 = unsafeChainId 0
 
 ------------------------------------------------------------------------------
 -- helper logic

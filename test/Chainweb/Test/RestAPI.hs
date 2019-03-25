@@ -226,7 +226,7 @@ putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
     $ \h0 -> headerPutClient (_chainwebVersion h0) (_chainId h0)
         . head
         . testBlockHeadersWithNonce (Nonce 2)
-        $ genesisBlockHeader (Test petersonChainGraph) (accursedUnutterableChainId 1)
+        $ genesisBlockHeader (Test petersonChainGraph) (unsafeChainId 1)
 
 putMissingParent :: IO TestClientEnv_ -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->

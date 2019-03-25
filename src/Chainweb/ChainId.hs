@@ -45,8 +45,8 @@ module Chainweb.ChainId
 , type SChainId
 
 -- * Testing
-, accursedUnutterableChainId
-, accursedUnutterableGetChainId
+, unsafeChainId
+, unsafeGetChainId
 ) where
 
 import Control.DeepSeq
@@ -236,12 +236,12 @@ instance SingKind ChainIdT where
 -- | Generally, the 'ChainId' is determined by the genesis block of a chain for
 -- a given 'Chainweb.Version'. This constructor is only for testing.
 --
-accursedUnutterableChainId :: Word32 -> ChainId
-accursedUnutterableChainId = ChainId
-{-# INLINE accursedUnutterableChainId #-}
+unsafeChainId :: Word32 -> ChainId
+unsafeChainId = ChainId
+{-# INLINE unsafeChainId #-}
 
-accursedUnutterableGetChainId :: ChainId -> Word32
-accursedUnutterableGetChainId (ChainId cid) = cid
+unsafeGetChainId :: ChainId -> Word32
+unsafeGetChainId (ChainId cid) = cid
 
 instance Arbitrary ChainId where
-    arbitrary = accursedUnutterableChainId <$> arbitrary
+    arbitrary = unsafeChainId <$> arbitrary

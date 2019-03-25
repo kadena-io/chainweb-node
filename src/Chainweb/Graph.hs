@@ -304,10 +304,10 @@ checkAdjacentChainIds g cid expectedAdj = do
 -- Some Graphs
 
 singletonChainGraph :: ChainGraph
-singletonChainGraph = toChainGraph (accursedUnutterableChainId . int) singleton
+singletonChainGraph = toChainGraph (unsafeChainId . int) singleton
 
 pairChainGraph :: ChainGraph
-pairChainGraph = toChainGraph (accursedUnutterableChainId . int) pair
+pairChainGraph = toChainGraph (unsafeChainId . int) pair
 
 petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph (accursedUnutterableChainId . int) petersonGraph
+petersonChainGraph = toChainGraph (unsafeChainId . int) petersonGraph

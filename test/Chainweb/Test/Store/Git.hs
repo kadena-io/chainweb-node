@@ -23,7 +23,7 @@ import Chainweb.Utils (withTempDir)
 ---
 
 chainId0 :: ChainId
-chainId0 = accursedUnutterableChainId 0
+chainId0 = unsafeChainId 0
 
 genesis :: BlockHeader
 genesis = toyGenesis chainId0

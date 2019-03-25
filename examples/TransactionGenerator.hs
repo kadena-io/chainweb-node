@@ -135,7 +135,7 @@ defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand      = DeployContracts []
-    , _nodeChainId        = accursedUnutterableChainId 0
+    , _nodeChainId        = unsafeChainId 0
     , _serverRootPrefix   = "https://us1.chainweb.com"
     , _isChainweb         = True
     , _chainwebNodePort   = ChainwebPort 443

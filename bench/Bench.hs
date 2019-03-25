@@ -22,7 +22,7 @@ import System.IO (hFlush, stdout)
 
 import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.ChainId (ChainId, accursedUnutterableChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal (leaves', lockGitStore)
@@ -122,4 +122,4 @@ toyGenesis :: ChainId -> BlockHeader
 toyGenesis cid = genesisBlockHeader (Test singletonChainGraph) cid
 
 chainId0 :: ChainId
-chainId0 = accursedUnutterableChainId 0
+chainId0 = unsafeChainId 0
