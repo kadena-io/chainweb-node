@@ -43,7 +43,7 @@ N=$1 && shift
 LOG_DIR=$1 && shift
 
 # Disable Pact until pact integration passes all tests
-export CHAINWEB_DISABLE_PACT=${CHAINWEB_DISABLE_PACT:-1}
+export CHAINWEB_DISABLE_PACT=${CHAINWEB_DISABLE_PACT:-0}
 [ "$CHAINWEB_DISABLE_PACT" -ne "0" ] && echo "pact is disabled"
 
 # ############################################################################ #
