@@ -52,7 +52,7 @@ import Data.DiGraph
 -- Main
 
 exampleChainId :: ChainId
-exampleChainId = testChainId 0
+exampleChainId = accursedUnutterableChainId 0
 
 graph :: ChainGraph
 graph = toChainGraph (const exampleChainId) singleton

@@ -137,7 +137,7 @@ withPactSetup cdb f = do
         pure (cpe,st)
 
     initCC = runRST $
-      initialPayloadState Testnet00 (testChainId 0)
+      initialPayloadState Testnet00 (accursedUnutterableChainId 0)
 
 createCoinCmd :: Transaction -> IO (ExecMsg ParsedCode)
 createCoinCmd tx = buildExecParsedCode spvData
