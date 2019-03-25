@@ -222,7 +222,7 @@ testMiner logFun conf nid cutDb = do
         -- POW is not used.
         --
         result <- give payloadDb $ give wcdb
-            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c
+            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
 
         case result of
             Left BadNonce -> do
@@ -232,4 +232,3 @@ testMiner logFun conf nid cutDb = do
                 logg Info "retry test mining because adajencent dependencies are missing"
                 mine gen nonce
             Right (T2 _ newCut) -> pure newCut
-
