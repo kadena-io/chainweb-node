@@ -2,6 +2,7 @@
 , rpSha ? "1ijxfwl36b9b2j4p9j3bv8vf7qfi570m1c5fjyvyac0gy0vi5g8j"
 , system ? builtins.currentSystem
 , runTests ? true
+, runCoverage ? false
 }:
 
 let rp = builtins.fetchTarball {
@@ -52,7 +53,7 @@ in
         chainweb = overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
-          doCoverage = runTests;
+          doCoverage = runCoverage;
         });
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 

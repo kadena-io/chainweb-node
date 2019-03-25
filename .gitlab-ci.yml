@@ -21,6 +21,12 @@ nix-macos:
   script:
     - nix-build
     - nix-build -A ghc.chainweb.doc
+
+#    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
+#    "--arg runCoverage true" to nix-build, but that means that the
+#    chainweb-node binary will also be built with coverage turned on which is
+#    probably not what we want.
+
 #    - scripts/collectArtifacts.sh
 #  artifacts:
 #    paths:
@@ -39,6 +45,12 @@ nix-linux:
   script:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
+
+#    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
+#    "--arg runCoverage true" to nix-build, but that means that the
+#    chainweb-node binary will also be built with coverage turned on which is
+#    probably not what we want.
+
 #    - scripts/collectArtifacts.sh
 #  artifacts:
 #    paths:
@@ -77,5 +89,7 @@ nightly-nix:
     - echo This is a nightly build!
     - nix-build docker.nix
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+
+    # It probably makes sense to run coverage nightly
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true
     - result/ghc/chainweb/bin/slow-tests
