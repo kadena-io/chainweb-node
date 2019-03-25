@@ -496,7 +496,7 @@ applyPactCmd
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     psEnv <- ask
     let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
-        gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv . cpeGasEnv $ psEnv
+        gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
         pd       = _psPublicData psEnv
         spv      = _psSpvSupport psEnv
 
