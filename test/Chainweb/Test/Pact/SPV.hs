@@ -141,8 +141,8 @@ withPactSetup cdb f = do
     initCC = runRST $
       initialPayloadState Testnet00 (testChainId 0)
 
-buildSpvCmd :: Transaction -> IO (ExecMsg ParsedCode)
-buildSpvCmd tx = buildExecParsedCode spvData
+createCoinCmd :: Transaction -> IO (ExecMsg ParsedCode)
+createCoinCmd tx = buildExecParsedCode spvData
     [text| (create-coin (read-msg 'proof)) |]
   where
     spvData = Just $ object
@@ -158,7 +158,7 @@ spvIntegrationTest v step = do
     withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
       withPactSetup cutDb $  \pse st -> do
         step "pick random transaction"
-        (h, txIx, tx, _) <- randomTransaction cutDb
+        (h, txIx, _, _) <- randomTransaction cutDb
 
         step "pick a reachable target chain"
         curCut <- _cut cutDb
@@ -181,7 +181,7 @@ spvIntegrationTest v step = do
         t <- verifyTransactionProof cutDb proof
 
         step "build spv creation command from tx"
-        cmd <- buildSpvCmd t
+        cmd <- createCoinCmd t
 
-        step "execute cmd in modified environment"
+        step "execute spv command"
         undefined
