@@ -149,10 +149,6 @@ genesisBlockHeader Testnet00 p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
-genesisBlockHeader TestWithTime{} p =
-    case HM.lookup (_chainId p) testnet00Geneses of
-        Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
-        Just gb -> gb
 genesisBlockHeader v p =
     genesisBlockHeader' v p (genesisTime v) (Nonce 0)
 

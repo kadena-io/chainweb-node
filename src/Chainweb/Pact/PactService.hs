@@ -162,7 +162,7 @@ initPactService' ver cid chainwebLogger act = do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState TestWithTime{} cid = testnet00CreateCoinContract cid
+initialPayloadState v@TestWithTime{} cid = testWithTimeCreateCoinContract v cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
@@ -176,6 +176,20 @@ testnet00CreateCoinContract cid = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader Testnet00 cid
+    txs <- execValidateBlock True genesisHeader inputPayloadData
+    case validateHashes txs genesisHeader of
+      Left e -> throwM e
+      Right _ -> return ()
+
+testWithTimeCreateCoinContract :: ChainwebVersion -> ChainId -> PactT ()
+testWithTimeCreateCoinContract v cid = do
+    let PayloadWithOutputs{..} = payloadBlock
+        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                           _payloadWithOutputsMiner
+                           _payloadWithOutputsPayloadHash
+                           _payloadWithOutputsTransactionsHash
+                           _payloadWithOutputsOutputsHash
+        genesisHeader = genesisBlockHeader v cid
     txs <- execValidateBlock True genesisHeader inputPayloadData
     case validateHashes txs genesisHeader of
       Left e -> throwM e
