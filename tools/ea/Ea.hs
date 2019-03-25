@@ -98,11 +98,7 @@ defGrants :: FilePath
 defGrants = "pact/genesis/testnet00/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
-moduleName Testnet00 = "Testnet00"
-moduleName Test{} = "Test"
-moduleName TestWithTime{} = "TestWithTime"
-moduleName TestWithPow{} = "TestWithPow"
-moduleName Simulation{} = "Simulation"
+moduleName = T.toTitle . chainwebVersionToText
 
 --------------------
 -- Header Generation
@@ -165,7 +161,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 logger $
+    payloadWO <- initPactService' Testnet00 (testChainId 0) logger $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

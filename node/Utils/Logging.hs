@@ -542,6 +542,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
 -- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
 
+pkgInfoScopes :: [(T.Text, T.Text)]
 pkgInfoScopes =
     [ ("revision", Pkg.revision)
     , ("branch", Pkg.branch)

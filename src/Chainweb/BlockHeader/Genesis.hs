@@ -52,9 +52,7 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
-import Chainweb.BlockHeader.Genesis.TestWithTime
-import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0 (payloadBlock)
-import qualified Chainweb.BlockHeader.Genesis.TestWithTimePayload as TWT (payloadBlock)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -99,8 +97,7 @@ genesisBlockTarget = maxTarget
 --
 genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
--- TODO fix timespan
-genesisTime TestWithTime{} = BlockCreationTime . Time $ TimeSpan 1551207336601039
+genesisTime TestWithTime{} = BlockCreationTime epoche
 genesisTime TestWithPow{} = BlockCreationTime epoche
 genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
@@ -124,11 +121,11 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = TWT.payloadBlock
+genesisBlockPayload TestWithTime{} _ = payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ = TN0.payloadBlock
+genesisBlockPayload Testnet00 _ = payloadBlock
 
 emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
@@ -152,9 +149,9 @@ genesisBlockHeader Testnet00 p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
-genesisBlockHeader (TestWithTime _chainGraph) p =
-    case HM.lookup (_chainId p) testWithTimeGeneses of
-        Nothing -> error $ "TestWithTime: No genesis block exists for " <> show (_chainId p)
+genesisBlockHeader TestWithTime{} p =
+    case HM.lookup (_chainId p) testnet00Geneses of
+        Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
 genesisBlockHeader v p =
     genesisBlockHeader' v p (genesisTime v) (Nonce 0)
@@ -217,22 +214,3 @@ testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
          , testnet00C8
          , testnet00C9 ]
 {-# NOINLINE testnet00Geneses #-}
-
--- -------------------------------------------------------------------------- --
--- TestWithTime
-
--- | Ten Genesis Blocks for `TestWithTime`.
-testWithTimeGeneses :: HM.HashMap ChainId BlockHeader
-testWithTimeGeneses = HM.fromList $ map (_chainId &&& id) bs
-  where
-    bs = [ testWithTimeC0
-         , testWithTimeC1
-         , testWithTimeC2
-         , testWithTimeC3
-         , testWithTimeC4
-         , testWithTimeC5
-         , testWithTimeC6
-         , testWithTimeC7
-         , testWithTimeC8
-         , testWithTimeC9 ]
-{-# NOINLINE testWithTimeGeneses #-}

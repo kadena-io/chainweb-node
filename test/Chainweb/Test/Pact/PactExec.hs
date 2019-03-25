@@ -51,6 +51,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.ChainId
+import Chainweb.BlockHash
 
 tests :: IO TestTree
 tests = do
@@ -92,7 +93,7 @@ execTests :: PactT [TestTree]
 execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
-    results <- execTransactions False defaultMiner trans
+    results <- execTransactions (Just $ nullBlockHash) defaultMiner trans
     let outputs = snd <$> _transactionPairs results
     let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
     liftIO $ checkResponses (checkCoinbase (_transactionCoinbase results):testResponses)

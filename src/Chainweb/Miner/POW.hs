@@ -178,10 +178,9 @@ powMiner logFun conf nid cutDb = do
 
         -- The new block's creation time.
         --
-
         let loop n = do
                 ct <- getCurrentTimeIntegral
-                testMineWithPayload @cas nonce target ct payload nid cid c >>= \case
+                testMineWithPayload @cas nonce target ct payload nid cid c pact >>= \case
                     Left BadNonce -> do
                         -- atomicModifyIORef' counter (\n -> (succ n, ()))
                         c' <- _cut cutDb
