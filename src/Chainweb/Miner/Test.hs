@@ -56,7 +56,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage
+import Data.LogMessage (LogFunction, JsonLog(..))
 
 -- -------------------------------------------------------------------------- --
 -- TESTING: Disable Pact
@@ -151,9 +151,10 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         -- Mine a new block
         --
-        c' <- mine gen nonce0
+        T2 newBh c' <- mine gen nonce0
 
         logg Info $! "created new block" <> sshow i
+        logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
@@ -166,16 +167,12 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
             Just (BlockRate n) -> int n
             Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
-    -- | Assemble the new block.
-    --
-    -- For real POW mining we don't want to do this to early. However, we don't
-    -- want to spent too much time on it neither, so we can't do it on each
-    -- attempt. Instead we want to do it on a regular schedule.
-    --
-    -- Here we are guarenteed to succeed on our first attempt, so we do it after
-    -- waiting, just before computing the POW hash.
-    --
-    mine :: MWC.GenIO -> Word64 -> IO Cut
+    mine
+        :: Given WebBlockHeaderDb
+        => Given (PayloadDb cas)
+        => MWC.GenIO
+        -> Word64
+        -> IO (T2 BlockHeader Cut)
     mine gen !nonce = do
 
         -- Get the current longest cut.
@@ -218,14 +215,10 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        result <- give payloadDb $ give wcdb
-            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
-
-        case result of
-            Left BadNonce -> do
-                logg Info "retry test mining because nonce doesn't meet target"
-                mine gen (succ nonce)
-            Left BadAdjacents -> do
-                logg Info "retry test mining because adajencent dependencies are missing"
-                mine gen nonce
-            Right (T2 _ newCut) -> pure newCut
+        let payload = newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase") $ S.fromList
+                [ (Transaction "testTransaction", TransactionOutput "testOutput")
+                ]
+        testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c >>= \case
+            Left BadNonce -> mine gen (succ nonce)
+            Left BadAdjacents -> mine gen nonce
+            Right newResult -> pure newResult
