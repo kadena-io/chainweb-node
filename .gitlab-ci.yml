@@ -1,19 +1,23 @@
 # This is small check to confirm that the shell's limits for opening file
 # descriptors is sufficiently high. This is relevant for our property tests, in
 # which some tests rapidly create and destroy HTTP servers.
-ulimit-linux:
-  tags:
-    - linux
-  script:
-    - ulimit -Hn
-    - ulimit -Sn
-
-ulimit-macos:
-  tags:
-    - macos
-  script:
-    - ulimit -Hn
-    - ulimit -Sn
+#
+# 2019-03-24 DB: Disabling for now since we know CI has sufficient ulimits and
+# this is now slowing down the build meaningfully.
+#
+# ulimit-linux:
+#   tags:
+#     - linux
+#   script:
+#     - ulimit -Hn
+#     - ulimit -Sn
+#
+# ulimit-macos:
+#   tags:
+#     - macos
+#   script:
+#     - ulimit -Hn
+#     - ulimit -Sn
 
 nix-macos:
   tags:
