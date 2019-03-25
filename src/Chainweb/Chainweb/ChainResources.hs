@@ -40,6 +40,7 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.IORef
 import qualified Data.Text as T
 
 import Prelude hiding (log)
@@ -219,23 +220,24 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
-mempoolSyncP2pSession chain logg0 env = go
+mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
   where
-    go = flip catches [ Handler asyncHandler , Handler errorHandler ] $ do
+    go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"
-             Mempool.syncMempools pool peerMempool
-             logg Debug "mempool sync session succeeded"
-             return False
+             Mempool.syncMempools' logg pool peerMempool (writeIORef ref True)
+             logg Debug "mempool sync session finished"
+             readIORef ref
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
-    asyncHandler (_ :: SomeAsyncException) = do
+    asyncHandler ref (_ :: SomeAsyncException) = do
         logg Debug "mempool sync session cancelled"
-        return False
+        -- We return True (ok) iff the mempool successfully finished initial sync.
+        readIORef ref
 
     errorHandler (e :: SomeException) = do
-        logg Debug ("mempool sync session failed: " <> sshow e)
+        logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
 
     peerMempool = MPC.toMempool v cid txcfg gaslimit env
