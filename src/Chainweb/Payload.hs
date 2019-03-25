@@ -691,7 +691,11 @@ instance IsCasValue PayloadWithOutputs where
     casKey = _payloadWithOutputsPayloadHash
     {-# INLINE casKey #-}
 
-payloadWithOutputs :: PayloadData -> CoinbaseOutput -> S.Seq TransactionOutput -> PayloadWithOutputs
+payloadWithOutputs
+    :: PayloadData
+    -> CoinbaseOutput
+    -> S.Seq TransactionOutput
+    -> PayloadWithOutputs
 payloadWithOutputs d co outputs = PayloadWithOutputs
     { _payloadWithOutputsTransactions = S.zip (_payloadDataTransactions d) outputs
     , _payloadWithOutputsMiner = _payloadDataMiner d
@@ -702,7 +706,9 @@ payloadWithOutputs d co outputs = PayloadWithOutputs
     }
 
 newPayloadWithOutputs
-    :: MinerData -> CoinbaseOutput -> S.Seq (Transaction, TransactionOutput)
+    :: MinerData
+    -> CoinbaseOutput
+    -> S.Seq (Transaction, TransactionOutput)
     -> PayloadWithOutputs
 newPayloadWithOutputs mi co s = PayloadWithOutputs
     { _payloadWithOutputsTransactions = s
@@ -715,17 +721,15 @@ newPayloadWithOutputs mi co s = PayloadWithOutputs
   where
     p = newBlockPayload mi co s
 
-
-
 instance ToJSON PayloadWithOutputs where
-  toJSON o = object
-    [ "transactions" .= _payloadWithOutputsTransactions o
-    , "minerData" .= _payloadWithOutputsMiner o
-    , "coinbase" .= _payloadWithOutputsCoinbase o
-    , "payloadHash" .= _payloadWithOutputsPayloadHash o
-    , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
-    , "outputsHash" .= _payloadWithOutputsOutputsHash o
-    ]
+    toJSON o = object
+        [ "transactions" .= _payloadWithOutputsTransactions o
+        , "minerData" .= _payloadWithOutputsMiner o
+        , "coinbase" .= _payloadWithOutputsCoinbase o
+        , "payloadHash" .= _payloadWithOutputsPayloadHash o
+        , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
+        , "outputsHash" .= _payloadWithOutputsOutputsHash o
+        ]
 
 instance FromJSON PayloadWithOutputs where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
@@ -738,6 +742,9 @@ instance FromJSON PayloadWithOutputs where
 
 payloadWithOutputsToBlockObjects :: PayloadWithOutputs -> (BlockTransactions, BlockOutputs)
 payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
-  (BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
-  ,BlockOutputs _payloadWithOutputsOutputsHash outs _payloadWithOutputsCoinbase)
-  where (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+    ( BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
+    , BlockOutputs _payloadWithOutputsOutputsHash outs _payloadWithOutputsCoinbase
+    )
+  where
+    (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+

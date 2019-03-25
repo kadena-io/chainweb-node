@@ -30,7 +30,6 @@ import Data.Aeson
 import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -119,10 +118,9 @@ withPactSetup cdb f = do
     (cpe, st) <- initConf conf l genv
     void $ saveInitial (cpe ^. cpeCheckpointer) st
 
-    let mpa = \_ _ -> pure V.empty
-        spv = pactSpvSupport mv
+    let spv = pactSpvSupport mv
 
-    let pse = PactServiceEnv mpa cpe spv def
+    let pse = PactServiceEnv Nothing cpe spv def
 
     initCC pse st >> f pse st
   where
@@ -156,7 +154,7 @@ spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
 spvIntegrationTest v step = do
     step "setup pact service and spv support"
     withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
-      withPactSetup cutDb $  \pse st -> do
+      withPactSetup cutDb $  \_pse _st -> do
         step "pick random transaction"
         (h, txIx, _, _) <- randomTransaction cutDb
 
@@ -181,7 +179,7 @@ spvIntegrationTest v step = do
         t <- verifyTransactionProof cutDb proof
 
         step "build spv creation command from tx"
-        cmd <- createCoinCmd t
+        _cmd <- createCoinCmd t
 
         step "execute spv command"
         undefined

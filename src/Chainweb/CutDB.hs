@@ -38,7 +38,9 @@ module Chainweb.CutDB
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
+, cutDbWebBlockHeaderStore
 , cutDbPayloadCas
+, cutDbPayloadStore
 , member
 , cut
 , _cut
@@ -159,10 +161,16 @@ instance HasChainwebVersion (CutDb cas) where
 cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
 cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
 
+cutDbPayloadStore :: Getter (CutDb cas) (WebBlockPayloadStore cas)
+cutDbPayloadStore = to _cutDbPayloadStore
+
 -- We export the 'WebBlockHeaderDb' read-only
 --
 cutDbWebBlockHeaderDb :: Getter (CutDb cas) WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
+
+cutDbWebBlockHeaderStore :: Getter (CutDb cas) WebBlockHeaderStore
+cutDbWebBlockHeaderStore = to _cutDbHeaderStore
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --

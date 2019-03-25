@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -148,6 +149,7 @@ import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Numeric.AffineSpace
 
@@ -586,13 +588,26 @@ testMineWithPayload
     -> NodeId
     -> cid
     -> Cut
+    -> PactExecutionService
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayload n target t payload nid i c =
-    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
-        p <$ addNewPayload (given @(PayloadDb cas)) payload <* insertWebBlockHeaderDb h
+testMineWithPayload n target t payload nid i c pact =
+    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> p
+        <$ addNewPayload (given @(PayloadDb cas)) payload
+        <* validatePayload h payload
+        <* insertWebBlockHeaderDb h
   where
     payloadHash = _payloadWithOutputsPayloadHash payload
 
+    validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
+    validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
+
+    toPayloadData PayloadWithOutputs{..} = PayloadData
+              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions
+              , _payloadDataMiner = _payloadWithOutputsMiner
+              , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash
+              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash
+              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash
+              }
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
 --

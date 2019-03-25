@@ -182,7 +182,7 @@ data PactDbStatePersist = PactDbStatePersist
 newtype GasSupply = GasSupply { _gasSupply :: Decimal }
 
 data PactServiceEnv = PactServiceEnv
-  { _psMempoolAccess :: MemPoolAccess
+  { _psMempoolAccess :: Maybe MemPoolAccess
   , _psCheckpointEnv :: CheckpointEnv
   , _psSpvSupport :: SPVSupport
   , _psPublicData :: PublicData

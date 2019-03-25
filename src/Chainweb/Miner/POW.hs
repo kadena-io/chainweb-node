@@ -19,7 +19,7 @@
 
 module Chainweb.Miner.POW ( powMiner ) where
 
-import Control.Lens (ix, (^?), (^?!))
+import Control.Lens (ix, (^?), (^?!), view)
 
 import qualified Data.HashMap.Strict as HM
 import Data.Reflection (Given, give)
@@ -44,10 +44,12 @@ import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
 
@@ -73,14 +75,16 @@ powMiner
     -> MinerConfig
     -> NodeId
     -> CutDb cas
-    -> WebBlockHeaderDb
-    -> PayloadDb cas
     -> IO ()
-powMiner logFun _ nid cutDb wcdb payloadDb = do
+powMiner logFun conf nid cutDb = do
     logg Info "Started Proof-of-Work Miner"
     gen <- MWC.createSystemRandom
     give wcdb $ give payloadDb $ go gen 1 HM.empty
   where
+    wcdb = view cutDbWebBlockHeaderDb cutDb
+    payloadDb = view cutDbPayloadCas cutDb
+    payloadStore = view cutDbPayloadStore cutDb
+
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
@@ -158,48 +162,64 @@ powMiner logFun _ nid cutDb wcdb payloadDb = do
         --
         T2 target adjustments' <- getTarget cid p adjustments
 
-        -- The new block's creation time.
-        --
-        ct <- getCurrentTimeIntegral
-
         -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-        let payload = newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase") $ S.fromList
-                [ (Transaction "testTransaction", TransactionOutput "testOutput")
-                ]
-        testMineWithPayload @cas nonce target ct payload nid cid c >>= \case
-            Left BadNonce -> do
-                -- atomicModifyIORef' counter (\n -> (succ n, ()))
-                mine (succ nonce) adjustments'
-            Left BadAdjacents ->
-                mine nonce adjustments'
-            Right (T2 newBh newCut) -> do
 
-                -- DEBUGGING --
-                -- Uncomment the following for a live view of mining
-                -- results on Chain 0. You will have to uncomment a
-                -- number of surrounding helper values and readd some
-                -- imports.
+        let mokPact = False
+        let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
+        payload <- case mokPact of
+            False -> _pactNewBlock pact (_configMinerInfo conf) p
+            True -> return
+                $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
+                $ S.fromList
+                    [ (Transaction "testTransaction", TransactionOutput "testOutput")
+                    ]
 
-                -- total <- readIORef counter
+        -- The new block's creation time.
+        --
+        let loop n = do
+                ct <- getCurrentTimeIntegral
+                testMineWithPayload @cas nonce target ct payload nid cid c pact >>= \case
+                    Left BadNonce -> do
+                        -- atomicModifyIORef' counter (\n -> (succ n, ()))
+                        c' <- _cut cutDb
 
-                -- let targetBits :: String
-                --     targetBits = printf "%0256b" $ htInteger target
+                        -- this comparision is still a bit expensive but fine for now. We
+                        -- should let cutdb notify us. Or use a serial number or similar.
+                        if c' /= c
+                            then mine (succ n) adjustments'
+                            else loop (succ n)
 
-                -- when (cid == testChainId 0) $ do
-                --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
-                --         (_nodeIdId nid)
-                --         total
-                --         (take 30 targetBits)
-                --         (drop 226 targetBits)
-                --         (pheight newBh)
-                --         (pweight newBh)
-                --         (take 8 . drop 5 . show $ _blockHash p)
-                --         (take 8 . drop 5 . show $ _blockHash newBh)
-                --         (int (time newBh - time p) / 1000000 :: Float)
-                --     hFlush stdout
+                    Left BadAdjacents -> mine nonce adjustments'
 
-                pure $! T3 newBh newCut adjustments'
+                    Right (T2 newBh newCut) -> do
+
+                        -- DEBUGGING --
+                        -- Uncomment the following for a live view of mining
+                        -- results on Chain 0. You will have to uncomment a
+                        -- number of surrounding helper values and readd some
+                        -- imports.
+
+                        -- total <- readIORef counter
+
+                        -- let targetBits :: String
+                        --     targetBits = printf "%0256b" $ htInteger target
+
+                        -- when (cid == testChainId 0) $ do
+                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
+                        --         (_nodeIdId nid)
+                        --         total
+                        --         (take 30 targetBits)
+                        --         (drop 226 targetBits)
+                        --         (pheight newBh)
+                        --         (pweight newBh)
+                        --         (take 8 . drop 5 . show $ _blockHash p)
+                        --         (take 8 . drop 5 . show $ _blockHash newBh)
+                        --         (int (time newBh - time p) / 1000000 :: Float)
+                        --     hFlush stdout
+
+                        pure $! T3 newBh newCut adjustments'
+        loop nonce
 
     getTarget
         :: ChainId

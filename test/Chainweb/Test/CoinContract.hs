@@ -28,8 +28,6 @@ import Data.Functor (void)
 import Data.Text
 import Data.Word
 
-import Control.Lens ((^.))
-
 -- internal pact modules
 
 import Pact.Repl
@@ -100,9 +98,6 @@ minerKeys0 = keyset0
 
 gasLimit0 :: Decimal
 gasLimit0 = fromIntegral @Word64 @Decimal 1
-
-initCaps :: [Text]
-initCaps = ["CAP1", "CAP2"]
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"
