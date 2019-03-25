@@ -103,6 +103,7 @@ pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig PactWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
@@ -217,8 +218,9 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
+initialPayloadState TestWithTime{} _ = return ()
 initialPayloadState TestWithPow{} _ = return ()
+initialPayloadState v@PactWithTime{} cid = createCoinContract v cid
 initialPayloadState Simulation{} _ = return ()
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 

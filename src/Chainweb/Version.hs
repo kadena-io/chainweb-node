@@ -92,8 +92,9 @@ import Data.Singletons
 --
 data ChainwebVersion
     = Test ChainGraph
-        -- ^ Test instance with
+        -- ^ Test instance with:
         --
+        --   * /No/ Pact evaluation,
         --   * configurable graph,
         --   * genesis block time is epoch,
         --   * target is maxBound,
@@ -103,21 +104,34 @@ data ChainwebVersion
         --
 
     | TestWithTime ChainGraph
-        -- ^ Test instance with
+        -- ^ Test instance with:
         --
+        --   * /No/ Pact evaluation,
         --   * configurable graph,
-        --   * genesis block time current time
+        --   * genesis block time current time,
         --   * target is maxBound,
-        --   * nonce is constant
+        --   * nonce is constant,
         --   * creationTime of BlockHeaders is actual time, and
         --   * POW is simulated by poison process thread delay.
         --
 
     | TestWithPow ChainGraph
-        -- ^ Test instance with
+        -- ^ Test instance with:
         --
+        --   * /No/ Pact evaluation,
         --   * configurable graph,
-        --   * genesis block time current time
+        --   * genesis block time current time,
+        --   * target is maxBound,
+        --   * nonce is constant, and
+        --   * creationTime of BlockHeaders is actual time.
+        --
+
+    | PactWithTime ChainGraph
+        -- ^ Test instance with:
+        --
+        --   * Pact evaluation,
+        --   * configurable graph,
+        --   * genesis block time current time,
         --   * target is maxBound,
         --   * nonce is constant, and
         --   * creationTime of BlockHeaders is actual time.
@@ -125,6 +139,14 @@ data ChainwebVersion
 
     | Simulation ChainGraph
     | Testnet00
+        -- ^ Production instance with:
+        --
+        --   * Pact evaluation,
+        --   * fixed graph,
+        --   * fixed genesis block time,
+        --   * target is based on `Chainweb.Difficulty.prereduction`,
+        --   * nonce varies with hash attempts, and
+        --   * creationTime of BlockHeaders is actual time.
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -140,7 +162,8 @@ chainwebVersionId :: ChainwebVersion -> Word32
 chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
 chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
 chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
-chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000003
+chainwebVersionId v@PactWithTime{} = toTestChainwebVersion v 0x80000003
+chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000004
 chainwebVersionId Testnet00 = 0x00000001
 {-# INLINABLE chainwebVersionId #-}
 
@@ -183,6 +206,7 @@ chainwebVersionToText Testnet00 = "testnet00"
 chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
+chainwebVersionToText v@PactWithTime{} = "pactWithTime-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@Simulation{} = "simulation-" <> sshow (chainwebVersionId v)
 {-# INLINABLE chainwebVersionToText #-}
 
@@ -286,6 +310,7 @@ chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TestWithTime g) = g
 chainwebVersionGraph (TestWithPow g) = g
+chainwebVersionGraph (PactWithTime g) = g
 chainwebVersionGraph (Simulation g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 

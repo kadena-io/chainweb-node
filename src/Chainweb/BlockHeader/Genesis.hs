@@ -52,7 +52,7 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
-import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -99,6 +99,7 @@ genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
 genesisTime TestWithTime{} = BlockCreationTime epoche
 genesisTime TestWithPow{} = BlockCreationTime epoche
+genesisTime PactWithTime{} = BlockCreationTime epoche
 genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
@@ -107,6 +108,7 @@ genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
+genesisMiner PactWithTime{} p = ChainNodeId (_chainId p) 0
 genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
 -- In other words, 0 is a meaningless hard-coding.
@@ -121,11 +123,13 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = payloadBlock
+genesisBlockPayload TestWithTime{} _ = emptyPayload
 genesisBlockPayload TestWithPow{} _ = emptyPayload
+-- This requires a real Payload for Pact tests to be meaningful.
+genesisBlockPayload PactWithTime{} _ = TN0.payloadBlock
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ = payloadBlock
+genesisBlockPayload Testnet00 _ = TN0.payloadBlock
 
 emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
