@@ -121,7 +121,7 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = emptyPayload
+genesisBlockPayload TestWithTime{} _ = payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Simulation{} _ =
     error "genesisBlockPayload isn't yet defined for Simulation"
@@ -146,6 +146,10 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 --
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader Testnet00 p =
+    case HM.lookup (_chainId p) testnet00Geneses of
+        Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
+        Just gb -> gb
+genesisBlockHeader TestWithTime{} p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
