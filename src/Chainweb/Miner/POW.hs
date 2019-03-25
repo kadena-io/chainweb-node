@@ -76,8 +76,7 @@ powMiner
     -> NodeId
     -> CutDb cas
     -> IO ()
-powMiner logFun conf nid cutDb = do
-    logg Info "Started Proof-of-Work Miner"
+powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
     gen <- MWC.createSystemRandom
     give wcdb $ give payloadDb $ go gen 1 HM.empty
   where
