@@ -106,13 +106,11 @@ testMiner
     -> NodeId
     -> CutDb cas
     -> IO ()
-testMiner logFun conf nid cutDb = do
-    logg Info "Started Test Miner"
-    gen <- MWC.createSystemRandom
-
-    ver <- getVer
-
-    go gen ver 1
+testMiner logFun conf nid cutDb
+    = runForever logFun "Test Miner" $ do
+        gen <- MWC.createSystemRandom
+        ver <- getVer
+        go gen ver 1
   where
     wcdb = view cutDbWebBlockHeaderDb cutDb
     payloadDb = view cutDbPayloadCas cutDb
