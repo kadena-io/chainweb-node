@@ -642,16 +642,14 @@ tryAllSynchronous = trySynchronous
 {-# INLINE tryAllSynchronous #-}
 
 runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
-runForever logfun name a = do
+runForever logfun name a = mask $ \umask -> do
     logfun Info $ "start " <> name
-    go
+    let go = do
+            forever (umask a) `catchAllSynchronous` \e ->
+                logfun Error $ name <> " failed: " <> sshow e
+            go
+    void go
     logfun Info $ name <> " stopped"
-  where
-    go :: IO ()
-    go = forever a `catchAllSynchronous` \e -> do
-        logfun Error $ name <> " failed: " <> sshow e
-        go
-
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
