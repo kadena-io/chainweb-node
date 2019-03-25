@@ -72,7 +72,7 @@ import qualified Pact.Types.SQLite as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
-import Chainweb.ChainId (ChainId(..))
+import Chainweb.ChainId (ChainId, accursedUnutterableGetChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -143,7 +143,7 @@ initPactService'
     -> P.SPVSupport
     -> PactServiceM a
     -> IO a
-initPactService' ver (ChainId cid) chainwebLogger spv act = do
+initPactService' ver cid chainwebLogger spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let cmdConfig = toCommandConfig $ pactDbConfig ver
@@ -170,8 +170,8 @@ initPactService' ver (ChainId cid) chainwebLogger spv act = do
             internalError' s
         Right _ -> return ()
 
-    let pd = P.PublicData def cid def def
-    let pse = PactServiceEnv Nothing checkpointEnv spv pd
+    let !pd = P.PublicData def (accursedUnutterableGetChainId cid) def def
+    let !pse = PactServiceEnv Nothing checkpointEnv spv pd
 
     evalStateT (runReaderT act pse) theState
 
@@ -185,13 +185,13 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
         t <- outputProofOf o
         (TransactionOutput u) <- verifyTransactionOutputProof cdb t
         v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right . P._tObject . P._csData $ v
+        pure $! Right $! P._tObject . P._csData $ v
       "TXIN" -> do
         t <- inputProofOf o
         (Transaction u) <- verifyTransactionProof cdb t
         v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
         pure $! Right . P._tObject . P._csData $ v
-      _ -> pure $! Left "spvSupport: Unsupport SPV mode"
+      _ -> pure $! Left "spvSupport: Unsupported SPV mode"
   where
     -- serialize pact object and produce an
     -- spv proof (either in or outgoing)
@@ -241,7 +241,7 @@ serviceRequests memPoolAccess reqQ = do
     go
   where
     go = do
-        msg <- liftIO $! getNextRequest reqQ
+        msg <- liftIO $ getNextRequest reqQ
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> error "Local requests not implemented yet"
@@ -334,8 +334,8 @@ execNewBlock memPoolAccess header miner = do
     restoreCheckpointer $ Just (bHeight, bHash)
 
     -- locally run 'execTransactions' with updated blockheight data
-    results <- execTransactions (Just bHash) miner newTrans
-      & locally (psPublicData . P.pdBlockHeight) (const bh)
+    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+      execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer
 
@@ -388,8 +388,8 @@ execValidateBlock loadingGenesis currHeader plData = do
 
     restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
-    results <- execTransactions (if isGenesisBlock then Nothing else (Just bParent)) miner trans
-      & locally (psPublicData . P.pdBlockHeight) (const bh)
+    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+      execTransactions (if isGenesisBlock then Nothing else (Just bParent)) miner trans
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
@@ -458,8 +458,8 @@ runCoinbase (Just parentHash) (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
-      pd = psEnv ^. psPublicData
-      logger = psEnv ^. psCheckpointEnv . cpeLogger
+      pd = _psPublicData psEnv
+      logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
   ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward pd
 
@@ -495,7 +495,7 @@ applyPactCmd
     -> PactServiceM (FullLogTxOutput, P.ExecutionMode)
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
     psEnv <- ask
-    let logger   = psEnv ^. psCheckpointEnv . cpeLogger
+    let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         gasModel = psEnv ^. psCheckpointEnv . cpeGasEnv . P.geGasModel
         pd       = psEnv ^. psPublicData
         spv      = psEnv ^. psSpvSupport

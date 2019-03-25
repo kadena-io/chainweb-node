@@ -24,7 +24,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader (BlockHeader(..), Nonce(..))
 import Chainweb.BlockHeader.Genesis
-import Chainweb.ChainId (testChainId)
+import Chainweb.ChainId (accursedUnutterableChainId)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -50,4 +50,4 @@ allBlocksParse = map _blockHeight testnet00Chains @?= replicate 10 0
 regeneration :: ChainwebVersion -> [BlockHeader] -> Assertion
 regeneration v bs = zipWithM_ (\cid chain -> mine cid @?= chain) [0..] bs
   where
-    mine c = mineGenesis v (testChainId c) (genesisTime v) (Nonce 0)
+    mine c = mineGenesis v (accursedUnutterableChainId c) (genesisTime v) (Nonce 0)

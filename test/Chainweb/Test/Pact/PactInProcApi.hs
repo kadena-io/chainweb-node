@@ -49,7 +49,7 @@ tests = do
 pactApiTest :: IO [TestTree]
 pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = testChainId 0
+        cid = accursedUnutterableChainId 0
 
     mv <- newEmptyMVar
     -- Init for tests
@@ -87,7 +87,7 @@ pactApiTest = do
 pactEmptyBlockTest :: IO TestTree
 pactEmptyBlockTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = testChainId 0
+        cid = accursedUnutterableChainId 0
 
     mv <- newEmptyMVar
 

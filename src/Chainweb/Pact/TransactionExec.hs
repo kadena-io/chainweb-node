@@ -33,7 +33,6 @@ module Chainweb.Pact.TransactionExec
 , buildExecParsedCode
   -- * helpers
 , bumpExecMode
-, locally
 ) where
 
 import Control.Concurrent
@@ -41,7 +40,6 @@ import Control.Exception.Safe (SomeException(..), throwM, tryAny)
 import Control.Lens hiding ((.=))
 import Control.Monad (join, void, when, unless)
 import Control.Monad.Catch (Exception(..))
-import Control.Monad.Reader as Reader
 
 import Data.Aeson
 import Data.Decimal (Decimal)
@@ -100,42 +98,54 @@ applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel pd spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
-        pd' = pd & pdPublicMeta .~ publicMetaOf cmd
+        pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
         supply = gasSupplyOf cmd
 
     let buyGasEnv = CommandEnv Nothing (bumpExecMode startEM) pactDbEnv cmdState logger freeGasEnv pd'
 
     buyGasResultE <- tryAny $! buyGas buyGasEnv cmd spv minerInfo supply
+
     case buyGasResultE of
+
       Left e1 ->
         jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0)
           "tx failure for requestKey when buying gas"
+
       Right buyGasResult -> do
+
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
         (pactId,buyGasLogs) <- either internalError pure buyGasResult
         logDebugRequestKey logger requestKey "successful gas buy for request key"
 
-        let payloadEnv = incrementExecMode buyGasEnv
-              & set ceGasEnv userGasEnv
-              & set cePublicData pd'
+        let payloadEnv = set ceGasEnv userGasEnv
+              $ set cePublicData pd'
+              $ incrementExecMode buyGasEnv
 
         cmdResultE <- tryAny $! runPayload payloadEnv def cmd spv buyGasLogs
+
         case cmdResultE of
+
           Left e2 ->
+
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0)
               "tx failure for request key when running cmd"
+
           Right (cmdResult, cmdLogs) -> do
+
             logDebugRequestKey logger requestKey "success for requestKey"
 
             let redeemGasEnv = set ceGasEnv freeGasEnv $ incrementExecMode payloadEnv
-
             redeemResultE <- tryAny $! redeemGas redeemGasEnv cmd cmdResult pactId supply spv cmdLogs
+
             case redeemResultE of
+
               Left e3 ->
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
                   "tx failure for request key while redeeming gas"
+
               Right (_, redeemLogs) -> do
+
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
                 pure ((cmdResult, cmdLogs <> redeemLogs), redeemGasEnv)
 
@@ -152,7 +162,7 @@ applyGenesisCmd
 applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd = do
     -- cmd env with permissive gas model
 
-    let pd' = pd & pdPublicMeta .~ publicMetaOf cmd
+    let pd' = set pdPublicMeta (publicMetaOf cmd) pd
     let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd'
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
@@ -178,6 +188,7 @@ applyCoinbase
     -> PublicData
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
 applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
+
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd
         coinbaseReq = RequestKey $ PactHash.hash "COINBASE"
@@ -185,9 +196,11 @@ applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
     resultE <- tryAny $ coinbase cmdEnv minerInfo reward coinbaseReq
 
     case resultE of
+
       Left e ->
         jsonErrorResult cmdEnv coinbaseReq e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
+
       Right result -> do
         logDebugRequestKey logger coinbaseReq $
           "successful coinbase for miner " ++ show minerInfo ++ " of " ++ show reward
@@ -360,7 +373,7 @@ rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
     -- if step doesn't have a rollback function, no error thrown.
     -- Therefore, pact will be deleted from state.
     let newState = CommandState _csRefStore $ Map.delete _cmPactId _csPacts
-    void $! logLog _ceLogger "DEBUG" $
+    logLog _ceLogger "DEBUG" $
       "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
     void $! swapMVar _ceState newState
 
@@ -557,12 +570,6 @@ logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
 bumpExecMode :: ExecutionMode -> ExecutionMode
 bumpExecMode (Transactional (TxId txId)) = Transactional (TxId (succ txId))
 bumpExecMode otherMode = otherMode
-
--- | Like 'local' for reader environments, but modifies the
--- target of a lens possibly deep in the environment
---
-locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
-locally l f = Reader.local (over l f)
 
 incrementExecMode :: CommandEnv a -> CommandEnv a
 incrementExecMode = over ceMode bumpExecMode

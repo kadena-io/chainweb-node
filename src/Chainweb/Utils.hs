@@ -155,7 +155,8 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
-
+-- * optics
+, locally
 ) where
 
 import Configuration.Utils hiding (Error)
@@ -167,7 +168,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
-import Control.Monad.Trans
+import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
@@ -793,3 +794,12 @@ withTempDir tag f = bracket create delete f
 
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
+
+-- -------------------------------------------------------------------------- --
+-- Optics
+
+-- | Like 'local' for reader environments, but modifies the
+-- target of a lens possibly deep in the environment
+--
+locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
+locally l f = Reader.local (over l f)
