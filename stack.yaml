@@ -2,8 +2,6 @@ resolver: lts-12.26
 
 packages:
   - .
-  - tools/chain2gexf/
-  - tools/ea/
 
 extra-deps:
   - aeson-1.4.2.0
