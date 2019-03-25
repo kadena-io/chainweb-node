@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -25,6 +26,7 @@ module Chainweb.Mempool.Mempool
   , chainwebTestHashMeta
   , noopMempool
   , syncMempools
+  , syncMempools'
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (myThreadId)
@@ -46,8 +48,10 @@ import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Decimal (Decimal)
 import Data.Decimal (DecimalRaw(..))
-import Data.Foldable (traverse_)
+import Data.Foldable (foldl', traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
@@ -59,6 +63,8 @@ import Data.Word (Word64)
 import Foreign.StablePtr
 import GHC.Generics
 import Pact.Types.Gas (GasPrice(..))
+import Prelude hiding (log)
+import System.LogLevel
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
@@ -66,7 +72,8 @@ import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText)
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
+import Data.LogMessage (LogFunctionText)
 
 
 ------------------------------------------------------------------------------
@@ -174,6 +181,7 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
 data SyncState = SyncState {
     _syncCount :: {-# UNPACK #-} !Int64
   , _syncMissing :: ![Vector TransactionHash]
+  , _syncPresent :: !(HashSet TransactionHash)
   , _syncTooMany :: !Bool
   }
 
@@ -184,17 +192,20 @@ data SyncState = SyncState {
 --    1. begin subscription with remote's mempool
 --    2. get the list of pending transaction hashes from remote.
 --    3. lookup any hashes that are missing, and insert them into local
---    4. block forever, waiting to be killed (subscription will still be active.)
+--    4. push any hashes remote is missing
+--    5. block forever, waiting to be killed (subscription will still be active.)
 --
 -- Blocks until killed, or until the underlying mempool connection throws an
 -- exception.
 
-syncMempools
+syncMempools'
     :: Show t
-    => MempoolBackend t     -- ^ local mempool
+    => LogFunctionText
+    -> MempoolBackend t     -- ^ local mempool
     -> MempoolBackend t     -- ^ remote mempool
+    -> IO ()                -- ^ on initial sync complete
     -> IO ()
-syncMempools localMempool remoteMempool =
+syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
     bracket startSubscription cleanupSubscription sync
 
   where
@@ -223,19 +234,19 @@ syncMempools localMempool remoteMempool =
                      -- single peer in a session.
 
     syncChunk missing hashes = do
+        (SyncState cnt chunks presentAtRemote tooMany) <- readIORef missing
         res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
         let !newMissing = V.map snd $ V.filter (not . fst) res
         let !newMissingCnt = V.length newMissing
-        when (newMissingCnt > 0) $ do
-            (SyncState cnt chunks tooMany) <- readIORef missing
-            when (not tooMany) $ do
-                let !newCnt = cnt + fromIntegral newMissingCnt
-                let !tooMany' = (newCnt >= maxCnt)
+        when (not tooMany) $ do
+            let !presentAtRemote' = V.foldl' (flip HashSet.insert) presentAtRemote hashes
+            let !newCnt = cnt + fromIntegral newMissingCnt
+            let !tooMany' = (newCnt >= maxCnt)
 
-                writeIORef missing $!
-                    if tooMany'
-                        then SyncState cnt chunks True
-                        else SyncState newCnt (newMissing : chunks) False
+            writeIORef missing $!
+                if tooMany'
+                    then SyncState cnt chunks presentAtRemote True
+                    else SyncState newCnt (newMissing : chunks) presentAtRemote' False
 
     fromPending (Pending t) = t
     fromPending _ = error "impossible"
@@ -248,19 +259,69 @@ syncMempools localMempool remoteMempool =
         let !newTxs = V.map fromPending $ V.filter isPending res
         mempoolInsert localMempool newTxs
 
-    sync _ = do
-        missing <- newIORef $ SyncState 0 [] False
+    log :: Text -> IO ()
+    log = log0 Info             -- TODO: some of these messages should be
+                                -- "debug" but we're ok with overlogging for
+                                -- now.
+
+    sync _ = flip finally (log "sync finished") $ do
+        log "subscription started, getting pending hashes from remote"
+        missing <- newIORef $! SyncState 0 [] HashSet.empty False
         mempoolGetPendingTransactions remoteMempool $ syncChunk missing
-        (SyncState _ missingChunks tooMany) <- readIORef missing
+        (SyncState _ missingChunks presentHashes tooMany) <- readIORef missing
+
+        log "subscription started, getting pending hashes from remote"
+        let numMissingFromLocal = foldl' (+) 0 (map V.length missingChunks)
+        let numPresentAtRemote = HashSet.size presentHashes
+
+        log $ T.concat [
+            sshow (numMissingFromLocal + numPresentAtRemote)
+          , " hashes at remote ("
+          , sshow numMissingFromLocal
+          , " need to be fetched)"
+          ]
 
         -- Go fetch missing transactions from remote
         traverse_ fetchMissing missingChunks
+
+        -- Push our missing txs to remote.
+        numPushed <- push presentHashes
+        log $ T.concat [
+            "pushed "
+          , sshow numPushed
+          , " new transactions to remote."
+          ]
+
         -- We're done syncing. If we cut off the sync session because of too
         -- many remote txs, we are free to go now, but otherwise we'll block
         -- indefinitely waiting for the p2p session to kill us (and slurping
         -- from the remote subscription queue).
+        onInitialSyncComplete
+        log "initial sync complete, sleeping"
         unless tooMany $ atomically retry
 
+    push presentHashes = do
+        ref <- newIORef 0
+        mempoolGetPendingTransactions localMempool $ \chunk -> do
+            let chunk' = V.filter (not . flip HashSet.member presentHashes) chunk
+            when (not $ V.null chunk') $ do
+                sendChunk chunk'
+                modifyIORef' ref (+ V.length chunk')
+        readIORef ref
+
+    sendChunk chunk = do
+        v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
+        when (not $ V.null v) $ mempoolInsert remoteMempool v
+
+
+syncMempools
+    :: Show t
+    => LogFunctionText
+    -> MempoolBackend t     -- ^ local mempool
+    -> MempoolBackend t     -- ^ remote mempool
+    -> IO ()
+syncMempools log localMempool remoteMempool =
+    syncMempools' log localMempool remoteMempool (return ())
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

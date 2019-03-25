@@ -97,6 +97,7 @@ import Data.List (sortBy)
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
 
 import Prelude hiding (log)
@@ -407,6 +408,10 @@ runChainweb cw = do
         --
         let mgr = view chainwebManager cw
             miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+            -- run mempool sync without manager timeout; servant default is ok
+            -- for non-streaming endpoints and mempool does its own timeout
+            -- bookkeeping for the streaming endpoints
+            mempoolMgr = mgr { HTTP.mResponseTimeout = HTTP.responseTimeoutNone }
 
         -- 2. Run Clients
         --
@@ -419,7 +424,7 @@ runChainweb cw = do
                 -- , map (runChainSyncClient mgr) chainVals
                     -- TODO: reenable once full payload and adjacent parent validation
                     -- is implemented for ChainSyncClient
-                , map (runMempoolSyncClient mgr) chainVals
+                , map (runMempoolSyncClient mempoolMgr) chainVals
                 ]
 
         mapConcurrently_ id clients
