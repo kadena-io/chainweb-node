@@ -171,9 +171,12 @@ applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd = do
 
     resultE <- tryAny $! runPayload cmdEnv initState cmd spv []
     case resultE of
+
       Left e ->
+
         jsonErrorResult cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
+
       Right result -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
         pure $! (result, cmdEnv)
