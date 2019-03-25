@@ -237,7 +237,11 @@ getBlockPayload s priority maybeOrigin h
         runClientM (payloadClient v cid k) originEnv >>= \case
             Right x -> do
                 logfun Debug $ "task " <> sshow k <> ": received from origin"
-                Just <$> validateTxs x
+                !r <- validateTxs x `catch` \(e :: SomeException) -> do
+                    logfun Warn $ "task " <> sshow k <> ": pact validation failed with :" <> sshow e
+                    throwM e
+                logfun Debug $ "task " <> sshow k <> ": pact validation succeeded"
+                return $ Just r
             Left (e :: ClientError) -> do
                 logfun Debug $ "task " <> sshow k <> " failed to receive from origin: " <> sshow e
                 return Nothing
@@ -250,7 +254,11 @@ getBlockPayload s priority maybeOrigin h
         runClientM (payloadClient v cid k) env >>= \case
             Right x -> do
                 logg @T.Text Debug $ "task " <> sshow k <> ": received remote block payload"
-                validateTxs x
+                !r <- validateTxs x `catch` \(e :: SomeException) -> do
+                    logfun Warn $ "task " <> sshow k <> ": pact validation failed with :" <> sshow e
+                    throwM e
+                logfun Debug $ "task " <> sshow k <> ": pact validation succeeded"
+                return r
             Left (e :: ClientError) -> do
                 logg @T.Text Debug $ "task " <> sshow k <> " failed: " <> sshow e
                 throwM e
