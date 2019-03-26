@@ -222,6 +222,8 @@ initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState v@PactWithTime{} cid = createCoinContract v cid
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 
+-- FIXME: Actually might be incorrect. It probably shouldn't be pulling
+-- `payloadBlock` like this.
 createCoinContract :: ChainwebVersion -> ChainId -> PactServiceM ()
 createCoinContract v cid = do
     let PayloadWithOutputs{..} = payloadBlock

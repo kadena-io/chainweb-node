@@ -32,8 +32,6 @@ import Data.Word (Word64)
 
 import Numeric.Natural (Natural)
 
-import System.Environment
-import System.IO.Unsafe
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -57,17 +55,6 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage
-
--- -------------------------------------------------------------------------- --
--- TESTING: Disable Pact
-
-mockPact :: Bool
-mockPact = unsafePerformIO $ do
-    lookupEnv "CHAINWEB_DISABLE_PACT" >>= \case
-        Nothing -> return False
-        Just "0" -> return False
-        _ -> return True
-{-# NOINLINE mockPact #-}
 
 -- -------------------------------------------------------------------------- --
 -- Test Miner
@@ -151,7 +138,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         -- Mine a new block
         --
-        T2 newBh c' <- mine gen nonce0
+        T2 newBh c' <- mine gen ver nonce0
 
         logg Info $! "created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
@@ -176,9 +163,8 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
     -- Here we are guarenteed to succeed on our first attempt, so we do it after
     -- waiting, just before computing the POW hash.
     --
-    mine :: MWC.GenIO -> Word64 -> IO (T2 BlockHeader Cut)
-    mine gen !nonce = do
-
+    mine :: MWC.GenIO -> ChainwebVersion -> Word64 -> IO (T2 BlockHeader Cut)
+    mine gen ver !nonce = do
         -- Get the current longest cut.
         --
         c <- _cut cutDb
@@ -201,9 +187,9 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- Get the PayloadHash
         --
         let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
-        payload <- case mockPact of
-            False -> _pactNewBlock pact (_configMinerInfo conf) p
-            True -> return
+        payload <- case ver of
+            PactWithTime{} -> _pactNewBlock pact (_configMinerInfo conf) p
+            _ -> return
                 $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
                 $ S.fromList
                     [ (Transaction "testTransaction", TransactionOutput "testOutput")
@@ -224,9 +210,10 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         case result of
             Left BadNonce -> do
-                logg Info "retry test mining because nonce doesn't meet target"
-                mine gen (succ nonce)
+                -- THIS SHOULD NEVER OCCUR
+                logg Error "retry test mining because nonce doesn't meet target"
+                mine gen ver (succ nonce)
             Left BadAdjacents -> do
                 logg Info "retry test mining because adajencent dependencies are missing"
-                mine gen nonce
+                mine gen ver nonce
             Right newResult -> pure newResult

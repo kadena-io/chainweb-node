@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -11,6 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
@@ -592,13 +592,21 @@ testMineWithPayload
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMineWithPayload n target t payload nid i c pact =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> do
-        validatePayload h payload
+        tryValidatePayload (_chainwebVersion h) h payload
         addNewPayload (given @(PayloadDb cas)) payload
         insertWebBlockHeaderDb h
         return p
   where
     payloadHash = _payloadWithOutputsPayloadHash payload
 
+    tryValidatePayload :: ChainwebVersion -> BlockHeader -> PayloadWithOutputs -> IO ()
+    tryValidatePayload Test{} _ _ = pure ()
+    tryValidatePayload TestWithTime{} _ _ = pure ()
+    tryValidatePayload TestWithPow{} _ _ = pure ()
+    tryValidatePayload PactWithTime{} h o = validatePayload h o
+    tryValidatePayload Testnet00 h o = validatePayload h o
+
+    -- TODO Why doesn't this return a real error type in the case of failure?
     validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
     validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
 

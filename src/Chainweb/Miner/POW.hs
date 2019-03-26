@@ -19,11 +19,10 @@
 
 module Chainweb.Miner.POW ( powMiner ) where
 
-import Control.Lens (ix, (^?), (^?!), view)
+import Control.Lens (ix, view, (^?), (^?!))
 
 import qualified Data.HashMap.Strict as HM
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 
@@ -42,7 +41,6 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId)
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (getCurrentTimeIntegral)
@@ -164,16 +162,8 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
 
         -- Loops (i.e. "mines") if a non-matching nonce was generated.
         --
-
-        let mokPact = False
         let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
-        payload <- case mokPact of
-            False -> _pactNewBlock pact (_configMinerInfo conf) p
-            True -> return
-                $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
-                $ S.fromList
-                    [ (Transaction "testTransaction", TransactionOutput "testOutput")
-                    ]
+        payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
         -- The new block's creation time.
         --
