@@ -34,13 +34,9 @@ module Chainweb.Logger
 , genericLogger
 ) where
 
-import Control.DeepSeq
 import Control.Lens
-
-import Data.Aeson hiding (Error)
 import qualified Data.Text as T
 import Data.Time
-import Data.Typeable
 
 import qualified System.Logger.Types as L
 
@@ -69,10 +65,7 @@ logFunctionText logger level = logFunction logger level . TextLog
 {-# INLINE logFunctionText #-}
 
 logFunctionJson
-    :: Typeable a
-    => NFData a
-    => ToJSON a
-    => Logger l
+    :: Logger l
     => l
     -> LogFunctionJson a
 logFunctionJson logger level = logFunction logger level . JsonLog

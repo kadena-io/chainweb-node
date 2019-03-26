@@ -83,6 +83,7 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
+, NewMinedBlock(..)
 
 , getAdjacentHash
 , computeBlockHash
@@ -597,6 +598,12 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
+
+
+newtype NewMinedBlock = NewMinedBlock (ObjectEncoded BlockHeader)
+  deriving (Show, Generic)
+  deriving newtype (Eq, ToJSON, NFData)
+
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

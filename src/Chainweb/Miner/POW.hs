@@ -51,7 +51,7 @@ import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage (LogFunction)
+import Data.LogMessage (LogFunction, JsonLog(..))
 
 -- DEBUGGING --
 -- import Chainweb.ChainId (testChainId)
@@ -105,6 +105,7 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         T3 newBh c' adjustments' <- mine nonce0 adjustments0
 
         logg Info $! "created new block" <> sshow i
+        logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
