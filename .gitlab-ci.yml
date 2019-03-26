@@ -32,10 +32,10 @@ nix-macos:
 #    probably not what we want.
 
     - scripts/collectArtifacts.sh
- artifacts:
-   paths:
-   - public/
-   expire_in: 1 week
+  artifacts:
+    paths:
+      - public/
+    expire_in: 1 week
 
 nix-shell-macos:
   tags:
@@ -56,10 +56,10 @@ nix-linux:
 #    probably not what we want.
 
     - scripts/collectArtifacts.sh
- artifacts:
-   paths:
-   - public/
-   expire_in: 1 week
+  artifacts:
+    paths:
+    - public/
+    expire_in: 1 week
 
 nix-shell-linux:
   tags:
