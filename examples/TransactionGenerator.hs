@@ -69,10 +69,6 @@ import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
 import Chainweb.Pact.RestAPI
 
-deriving instance Read Hash
-deriving instance Read RequestKey
-deriving instance Read RequestKeys
-
 data TransactionCommand = NoOp | DeployContracts [FilePath] | RunStandardContracts | RunSimpleExpressions | PollRequestKeys [ByteString]
   deriving (Show, Eq, Read, Generic)
 
@@ -392,8 +388,3 @@ listen :: ListenerRequest -> ClientM ApiResult
 local :: Command Text -> ClientM (CommandSuccess Value)
 
 send :<|> poll :<|> listen :<|> local = client (Proxy :: Proxy (PactApi_))
-
--- send   = client (Proxy :: Proxy SendApi)
--- poll   = client (Proxy :: Proxy PollApi)
--- listen = client (Proxy :: Proxy ListenApi)
--- local  = client (Proxy :: Proxy LocalApi)
