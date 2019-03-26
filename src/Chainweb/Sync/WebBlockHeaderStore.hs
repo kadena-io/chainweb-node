@@ -325,7 +325,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         -- validated the payload for this block header.
         --
         logg Debug $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
-        validatePayload header p `catch` \(e :: SomeException) -> do
+        validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
             logg Warn $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
             throwM e
         logg Debug $ "getBlockHeaderInternal pact validation succeeded"
@@ -351,8 +351,8 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         $ _webPactExecutionService
         $ _webBlockPayloadStorePact payloadStore
 
-    validatePayload :: BlockHeader -> PayloadData -> IO ()
-    validatePayload hdr p = do
+    validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
+    validateAndInsertPayload hdr p = do
         outs <- pact hdr p
         casInsert (_webBlockPayloadStoreCas payloadStore) outs
 
