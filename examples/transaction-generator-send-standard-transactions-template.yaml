@@ -1,0 +1,12 @@
+chainwebNodePort:
+  _chainwebPort: 443
+isChainweb: true
+nodeChainId: 0
+serverRootPrefix: https://us1.chainweb.com
+timingDistribution:
+  mean: 500000
+  tag: Gaussian
+  var: 31250
+scriptCommand:
+  tag: RunStandardContracts
+  contents: []
