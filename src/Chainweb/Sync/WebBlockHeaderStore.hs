@@ -40,7 +40,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 , newWebPayloadStore
 
 -- * Utils
-, memoCache
+, memoInsert
 , PactExecutionService(..)
 ) where
 
@@ -99,7 +99,7 @@ type ClientError = ServantError
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
 
-memoCache
+memoInsert
     :: IsCas a
     => Hashable (CasKeyType (CasValueType a))
     => a
@@ -107,7 +107,7 @@ memoCache
     -> CasKeyType (CasValueType a)
     -> (CasKeyType (CasValueType a) -> IO (CasValueType a))
     -> IO (CasValueType a)
-memoCache cas m k a = casLookup cas k >>= \case
+memoInsert cas m k a = casLookup cas k >>= \case
     Nothing -> memo m k $ \k' -> do
         -- there is the chance of a race here. At this time some task may just
         -- have finished updating the CAS with the key we are looking for. We
@@ -179,9 +179,9 @@ instance IsCas WebBlockHeaderCas where
 data WebBlockPayloadStore cas = WebBlockPayloadStore
     { _webBlockPayloadStoreCas :: !(PayloadDb cas)
         -- ^ Cas for storing complete payload data including outputs.
-    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadWithOutputs)
+    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadData)
         -- ^ Internal memo table for active tasks
-    , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadWithOutputs))
+    , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadData))
         -- ^ task queue for scheduling tasks with the task server
     , _webBlockPayloadStoreLogFunction :: !LogFunction
         -- ^ LogFunction
@@ -192,6 +192,13 @@ data WebBlockPayloadStore cas = WebBlockPayloadStore
         -- and computing outputs.
     }
 
+
+-- | Query a payload either from the local store, or the origin, or P2P network.
+--
+-- The payload is only queried and not inserted into the local store. We want to
+-- insert it only after it got validate by pact in order to avoid accumlation of
+-- garbage.
+--
 getBlockPayload
     :: PayloadCas cas
     => WebBlockPayloadStore cas
@@ -200,67 +207,62 @@ getBlockPayload
         -- ^ Peer from with the BlockPayloadHash originated, if available.
     -> BlockHeader
         -- ^ The BlockHeader for which the payload is requested
-    -> IO PayloadWithOutputs
-getBlockPayload s priority maybeOrigin h
-    = memoCache cas memoMap payloadHash $ \k -> do
-        payload <- pullOrigin k maybeOrigin >>= \case
-            Nothing -> do
-                t <- queryPayloadTask k
-                pQueueInsert queue t
-                awaitTask t
-            Just x -> return x
-        return payload
+    -> IO PayloadData
+getBlockPayload s priority maybeOrigin h = do
+    logfun Debug $ "getBlockPayload: " <> sshow h
+    casLookup cas payloadHash >>= \case
+        Just x -> return $ payloadWithOutputsToPayloadData x
+        Nothing -> memo memoMap payloadHash $ \k -> do
+            pullOrigin k maybeOrigin >>= \case
+                Nothing -> do
+                    t <- queryPayloadTask k
+                    pQueueInsert queue t
+                    awaitTask t
+                Just x -> return x
+
   where
     v = _chainwebVersion h
     payloadHash = _blockPayloadHash h
     cid = _chainId h
-    validateTxs = pact h
 
     mgr = _webBlockPayloadStoreMgr s
-    pact = _pactValidateBlock $ _webPactExecutionService $ _webBlockPayloadStorePact s
     cas = _webBlockPayloadStoreCas s
     memoMap = _webBlockPayloadStoreMemo s
     queue = _webBlockPayloadStoreQueue s
 
-    logfun :: LogLevel ->  T.Text -> IO ()
+    logfun :: LogLevel -> T.Text -> IO ()
     logfun = _webBlockPayloadStoreLogFunction s
+
+    taskMsg k msg = "payload task " <> sshow k <> " @ " <> sshow (_blockHash h) <> ": " <> msg
 
     -- | Try to pull a block payload from the given origin peer
     --
-    pullOrigin :: BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadWithOutputs)
+    pullOrigin :: BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
     pullOrigin k Nothing = do
-        logfun Debug $ "task " <> sshow k <> ": no origin"
+        logfun Debug $ taskMsg k "no origin"
         return Nothing
     pullOrigin k (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
-        logfun Debug $ "task " <> sshow k <> ": lookup origin"
+        logfun Debug $ taskMsg k "lookup origin"
         runClientM (payloadClient v cid k) originEnv >>= \case
             Right x -> do
-                logfun Debug $ "task " <> sshow k <> ": received from origin"
-                !r <- validateTxs x `catch` \(e :: SomeException) -> do
-                    logfun Warn $ "task " <> sshow k <> ": pact validation failed with :" <> sshow e
-                    throwM e
-                logfun Debug $ "task " <> sshow k <> ": pact validation succeeded"
-                return $ Just r
+                logfun Debug $ taskMsg k "received from origin"
+                return $ Just x
             Left (e :: ClientError) -> do
-                logfun Debug $ "task " <> sshow k <> " failed to receive from origin: " <> sshow e
+                logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
                 return Nothing
 
     -- | Query a block payload via the task queue
     --
-    queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadWithOutputs)
+    queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadData)
     queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
-        logg @T.Text Debug $ "task " <> sshow k <> ": query remote block payload"
+        logg @T.Text Debug $ taskMsg k "query remote block payload"
         runClientM (payloadClient v cid k) env >>= \case
             Right x -> do
-                logg @T.Text Debug $ "task " <> sshow k <> ": received remote block payload"
-                !r <- validateTxs x `catch` \(e :: SomeException) -> do
-                    logfun Warn $ "task " <> sshow k <> ": pact validation failed with :" <> sshow e
-                    throwM e
-                logfun Debug $ "task " <> sshow k <> ": pact validation succeeded"
-                return r
+                logg @T.Text Debug $ taskMsg k "received remote block payload"
+                return x
             Left (e :: ClientError) -> do
-                logg @T.Text Debug $ "task " <> sshow k <> " failed: " <> sshow e
+                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
                 throwM e
 
 -- -------------------------------------------------------------------------- --
@@ -279,8 +281,9 @@ getBlockHeaderInternal
     -> Maybe PeerInfo
     -> ChainValue BlockHash
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
-    = memoCache cas memoMap h $ \k -> do
+getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
+    logg Debug $ "getBlockHeaderInternal: " <> sshow h
+    memoInsert cas memoMap h $ \k -> do
 
         -- query BlockHeader via origin or query BlockHeader via task queue of
         -- P2P network
@@ -293,25 +296,45 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
                 return x
             Just x -> return x
 
-        let queryHeader = Concurrently
-                . void
-                . getBlockHeaderInternal headerStore payloadStore priority maybeOrigin
+        let queryPrerequesiteHeader p = Concurrently $ void $ do
+                logg Debug $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
+                getBlockHeaderInternal headerStore payloadStore priority maybeOrigin p
 
         runConcurrently $ mconcat
             -- query parent (recursively)
-            $ queryHeader (_blockParent <$> chainValue header)
+            $ queryPrerequesiteHeader (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            : (queryHeader <$> adjParents header)
+            : (queryPrerequesiteHeader <$> adjParents header)
 
+        -- TODO: do this concurrently
+        --
         -- query payload
-        void (getBlockPayload payloadStore priority maybeOrigin header)
+        logg Debug $ "getBlockHeaderInternal query payload for " <> sshow h
+        p <- getBlockPayload payloadStore priority maybeOrigin header
+        logg Debug $ "getBlockHeaderInternal got payload for " <> sshow h <> ": " <> sshow p
 
-        -- validate block header
+        -- Validate block header
+        --
+        -- Pact validation is done in the context of a particular header. Just
+        -- because the payload does already exist in the store doesn't mean that
+        -- validation succeeds in the context of a particluar block header.
+        --
+        -- If we reach this point in the code are are certain that the header
+        -- is't yet in the block header database and thus we still must
+        -- validated the payload for this block header.
+        --
+        logg Debug $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
+        validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
+            logg Warn $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
+            throwM e
+        logg Debug $ "getBlockHeaderInternal pact validation succeeded"
 
+        logg Debug $ "getBlockHeaderInternal return header " <> sshow h
         return $ chainValue header
 
   where
+
     mgr = _webBlockHeaderStoreMgr headerStore
     cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
     memoMap = _webBlockHeaderStoreMemo headerStore
@@ -321,29 +344,41 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h
     logfun :: LogFunction
     logfun = _webBlockHeaderStoreLogFunction headerStore
 
+    logg :: LogFunctionText
+    logg = logfun @T.Text
+
+    pact = _pactValidateBlock
+        $ _webPactExecutionService
+        $ _webBlockPayloadStorePact payloadStore
+
+    validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
+    validateAndInsertPayload hdr p = do
+        outs <- pact hdr p
+        casInsert (_webBlockPayloadStoreCas payloadStore) outs
+
     queryBlockHeaderTask ck@(ChainValue cid k)
-        = newTask (sshow ck) priority $ \logg env -> chainValue <$> do
-            logg @T.Text Debug $ "task " <> sshow ck <> ": query remote block header"
-            r <- TDB.lookupM (rDb v cid logfun env) k `catchAllSynchronous` \e -> do
-                logg @T.Text Debug $ "task " <> sshow ck <> " failed: " <> sshow e
+        = newTask (sshow ck) priority $ \l env -> chainValue <$> do
+            l @T.Text Debug $ "task " <> sshow ck <> ": query remote block header"
+            r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
+                l @T.Text Debug $ "task " <> sshow ck <> " failed: " <> sshow e
                 throwM e
-            logg @T.Text Debug $ "task " <> sshow ck <> ": received remote block header"
+            l @T.Text Debug $ "task " <> sshow ck <> ": received remote block header"
             return r
 
-    rDb :: ChainwebVersion -> ChainId -> LogFunction -> ClientEnv -> RemoteDb
-    rDb _ cid logg env = RemoteDb env (ALogFunction logg) v cid
+    rDb :: ChainwebVersion -> ChainId -> ClientEnv -> RemoteDb
+    rDb _ cid env = RemoteDb env (ALogFunction logfun) v cid
 
     adjParents = toList . imap ChainValue . _getBlockHashRecord . _blockAdjacentHashes
 
     pullOrigin :: ChainValue BlockHash -> Maybe PeerInfo -> IO (Maybe BlockHeader)
     pullOrigin ck Nothing = do
-        logfun @T.Text Debug $ "task " <> sshow ck <> ": no origin"
+        logg Debug $ "task " <> sshow ck <> ": no origin"
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
-        logfun @T.Text Debug $ "task " <> sshow ck <> ": lookup origin"
-        r <- TDB.lookup (rDb v cid logfun originEnv) k
-        logfun @T.Text Debug $ "task " <> sshow ck <> ": received from origin"
+        logg Debug $ "task " <> sshow ck <> ": lookup origin"
+        r <- TDB.lookup (rDb v cid originEnv) k
+        logg Debug $ "task " <> sshow ck <> ": received from origin"
         return r
 
 -- -------------------------------------------------------------------------- --
