@@ -32,9 +32,10 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
-    (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
+    (AsyncException(ThreadKilled), SomeException(..), bracket, bracketOnError,
     evaluate, finally, handle, mask_, throwIO)
 import Control.Monad (forever, join, void, (>=>))
+import Control.Monad.Catch (try,throwM)
 
 import Data.Foldable (foldl', foldlM, traverse_)
 import Data.HashMap.Strict (HashMap)
@@ -49,6 +50,7 @@ import Data.IORef
     writeIORef)
 import Data.Maybe (isJust)
 import Data.Ord (Down(..))
+import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -63,6 +65,7 @@ import System.Timeout (timeout)
 
 -- internal imports
 
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (fromJuste)
@@ -241,6 +244,7 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
+  , _inmemChainId :: {-# UNPACK #-} !ChainId
 }
 
 
@@ -341,7 +345,7 @@ reaperThread cfg dataLock restore = forever $ do
 
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
+toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _ _)
                                   lock broadcaster _) =
     MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
                    markConfirmed reintroduce getPending subscribe shutdown clear
@@ -433,12 +437,14 @@ insertInMem :: TxBroadcaster t  -- ^ transaction broadcaster
             -> InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
             -> Vector t  -- ^ new transactions
-            -> IO ()
+            -> IO (Either Text ())
 insertInMem broadcaster cfg lock txs = do
-    newTxs <- withMVarMasked lock $ \mdata ->
-                  ((V.map fst . V.filter ((==True) . snd)) <$>
-                   V.mapM (insOne mdata) txs)
-    broadcastTxs newTxs broadcaster
+    newTxsE <- try $ withMVarMasked lock $ \mdata ->
+                    ((V.map fst . V.filter ((==True) . snd)) <$>
+                     V.mapM (insOne mdata) txs)
+    case newTxsE of
+      Left (ValidationException err) -> return $ Left err
+      Right newTxs -> Right <$> broadcastTxs newTxs broadcaster
 
   where
     txcfg = _inmemTxCfg cfg
@@ -447,19 +453,21 @@ insertInMem broadcaster cfg lock txs = do
     maxSize = _inmemTxBlockSizeLimit cfg
     hasher = txHasher txcfg
 
-    sizeOK tx = getSize tx <= maxSize
+    sizeOK tx = (fromIntegral $ getSize tx) <= maxSize
     getPriority x = let r = txGasPrice txcfg x
                         s = txGasLimit txcfg x
-                    in toPriority r s
+                    in toPriority r (fromIntegral s)
     exists mdata txhash = do
         valMap <- readIORef $ _inmemValidated mdata
         confMap <- readIORef $ _inmemConfirmed mdata
         return $! (HashMap.member txhash valMap || HashSet.member txhash confMap)
     insOne mdata tx = do
         b <- exists mdata txhash
-        v <- validateTx tx
-        -- TODO: return error on unsuccessful validation?
-        if v && not b && sizeOK tx
+        validateTx (_inmemChainId cfg) tx >>= \ce -> case ce of
+          Left err -> throwM (ValidationException err)
+          Right c -> return c
+
+        if not b && sizeOK tx
           then do
             modifyIORef' (_inmemPending mdata) $
                PSQ.insert txhash (getPriority tx) tx
@@ -476,7 +484,7 @@ getBlockInMem :: InMemConfig t
               -> IO (Vector t)
 getBlockInMem cfg lock size0 = do
     psq <- readMVar lock >>= (readIORef . _inmemPending)
-    return $! V.unfoldr go (psq, size0)
+    return $! V.unfoldr go (psq, fromIntegral size0)
 
   where
     -- as the block is getting full, we'll skip ahead this many transactions to
@@ -573,7 +581,7 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     limit = txGasLimit txcfg
     getPriority x = let r = price x
                         s = limit x
-                    in toPriority r s
+                    in toPriority r (fromIntegral s)
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
         maybe (return Nothing) (reintroduceIt mdata txhash) m

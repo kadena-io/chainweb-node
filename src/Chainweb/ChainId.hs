@@ -26,6 +26,7 @@ module Chainweb.ChainId
 , checkChainId
 , chainIdToText
 , chainIdFromText
+, chainIdFromText'
 
 -- * Serialization
 , encodeChainId
@@ -163,6 +164,9 @@ chainIdToText (ChainId i) = sshow i
 chainIdFromText :: MonadThrow m => T.Text -> m ChainId
 chainIdFromText = fmap ChainId . treadM
 {-# INLINE chainIdFromText #-}
+
+chainIdFromText' :: T.Text -> Either T.Text ChainId
+chainIdFromText' = fmap ChainId . tread
 
 instance HasTextRepresentation ChainId where
     toText = chainIdToText

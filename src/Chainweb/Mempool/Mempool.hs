@@ -27,6 +27,7 @@ module Chainweb.Mempool.Mempool
   , noopMempool
   , syncMempools
   , syncMempools'
+  , ValidationException(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (myThreadId)
@@ -46,8 +47,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import Data.Decimal (Decimal)
-import Data.Decimal (DecimalRaw(..))
+import Data.Decimal (Decimal,DecimalRaw(..))
 import Data.Foldable (foldl', traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.HashSet (HashSet)
@@ -62,19 +62,23 @@ import qualified Data.Vector as V
 import Data.Word (Word64)
 import Foreign.StablePtr
 import GHC.Generics
-import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (log)
 import System.LogLevel
-
+------------------------------------------------------------------------------
+import Pact.Types.Gas (GasPrice(..),GasLimit(..))
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Data.LogMessage (LogFunctionText)
 
+
+newtype ValidationException = ValidationException Text deriving (Eq,Show)
+instance Exception ValidationException
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -99,9 +103,9 @@ data TransactionConfig t = TransactionConfig {
   , txGasPrice :: t -> GasPrice
 
     -- | getter for transaction gas limit.
-  , txGasLimit :: t -> Int64
+  , txGasLimit :: t -> GasLimit
   , txMetadata :: t -> TransactionMetadata
-  , txValidate :: t -> IO Bool
+  , txValidate :: ChainId -> t -> IO (Either Text ())
   }
 
 ------------------------------------------------------------------------------
@@ -119,7 +123,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: Vector t -> IO ()
+  , mempoolInsert :: Vector t -> IO (Either Text ())
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
@@ -162,11 +166,11 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
-                              noopMeta (const $ return True)
+                              noopMeta (\_ _ -> return $ Right ())
 
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ return ()
+    noopInsert = const $ return $ Right ()
     noopGetBlock = const $ return V.empty
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
@@ -311,7 +315,9 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
 
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool v
+        unless (V.null v) $ mempoolInsert remoteMempool v >>= \r -> case r of
+          Left err -> log $ "Mempool insert failed: " <> err
+          Right () -> return ()
 
 
 syncMempools
@@ -484,5 +490,3 @@ mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
     getPrice = GasPrice <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-
-
