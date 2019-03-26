@@ -377,6 +377,7 @@ test-suite chainweb-tests
         , bytes >= 0.15
         , bytestring >= 0.10
         , containers >= 0.5
+        , cryptonite >=0.25
         , data-default >=0.7
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4

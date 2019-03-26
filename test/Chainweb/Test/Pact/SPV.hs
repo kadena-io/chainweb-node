@@ -14,17 +14,19 @@ module Chainweb.Test.Pact.SPV
 -- SPV and Pact Service integration tests
 --
 
-import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import NeatInterpolation (text)
 import Numeric.Natural
 
+import Control.Arrow
 import Control.Concurrent.MVar
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.State (StateT, runStateT)
+
+import Crypto.Hash.Algorithms
 
 import Data.Aeson
 import Data.Default (def)
@@ -37,9 +39,11 @@ import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Command
 import Pact.Types.Gas
+import Pact.Types.Hash (hash)
 import Pact.Types.Logger
 import Pact.Types.Server
 import Pact.Types.RPC
+import Pact.Types.Runtime
 
 -- internal chainweb modules
 
@@ -53,9 +57,11 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.SPV.VerifyProof
+import Chainweb.SPV
 import Chainweb.Test.CutDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -63,7 +69,7 @@ import Chainweb.Version
 
 tests :: TestTree
 tests = testGroup "SPV-Pact Integration Tests"
-  [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest version)
+  [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest version 10)
   ]
   where
     version = Test petersonChainGraph
@@ -119,8 +125,8 @@ withPactSetup cdb f = do
     void $ saveInitial (cpe ^. cpeCheckpointer) st
 
     let spv = pactSpvSupport mv
-
     let pse = PactServiceEnv Nothing cpe spv def
+        cp  = cpe ^. cpeCheckpointer
 
     initCC pse st >> f pse st
   where
@@ -139,7 +145,7 @@ withPactSetup cdb f = do
     initCC = runRST $
       initialPayloadState Testnet00 (unsafeChainId 0)
 
-createCoinCmd :: Transaction -> IO (ExecMsg ParsedCode)
+createCoinCmd :: (TransactionOutputProof SHA512t_256) -> IO (ExecMsg ParsedCode)
 createCoinCmd tx = buildExecParsedCode spvData
     [text| (create-coin (read-msg 'proof)) |]
   where
@@ -147,39 +153,81 @@ createCoinCmd tx = buildExecParsedCode spvData
       [ "proof" .= encodeToText tx
       ]
 
+assertEitherSuccess :: Show l => String -> Either l r -> IO r
+assertEitherSuccess msg (Left l) = assertFailure (msg ++ ": " ++ show l)
+assertEitherSuccess _ (Right r) = return r
+
+incTxId mv = modifyMVar mv (return . (id &&& succ))
+
+runExec :: Logger -> (MVar CommandState, Env', MVar TxId) -> ExecMsg ParsedCode -> SPVSupport -> IO EvalResult
+runExec l (mcs, Env' pde, txMv) t spv = do
+    txId <- incTxId txMv
+    let cme = CommandEnv Nothing (Transactional txId) pde mcs l freeGasEnv def
+    applyExec' cme def t [] (hash "") spv
+
+unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
+unwrapState dbs = (,,)
+    <$> newMVar (_pdbsState dbs)
+    <*> toEnv'  (_pdbsDbEnv dbs)
+    <*> newMVar (_pdbsTxId dbs )
+
+wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
+wrapState (mcs,dbe',txidV) = PactDbState
+    <$> toEnvPersist' dbe'
+    <*> readMVar mcs
+    <*> readMVar txidV
+
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
 
-spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
-spvIntegrationTest v step = do
+spvIntegrationTest :: ChainwebVersion -> Int -> Step -> IO ()
+spvIntegrationTest v n step = do
     step "setup pact service and spv support"
     withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
-      withPactSetup cutDb $  \_pse _st -> do
-        step "pick random transaction"
-        (h, txIx, _, _) <- randomTransaction cutDb
+      withPactSetup cutDb $ \pse st ->
+        loop n cutDb pse st
 
-        step "pick a reachable target chain"
-        curCut <- _cut cutDb
-        trgChain <- targetChain curCut h
+  where
+    l = newLogger alwaysLog "spv-test"
 
-        step "create inclusion proof for transaction"
-        proof <- createTransactionProof
-          cutDb
-              -- cutdb
-          trgChain
-              -- target chain
-          (_chainId h)
-              -- source chain id
-          (_blockHeight h)
-              -- source block height
-          txIx
-              -- transaction index
+    loop 0 _ _ _ = pure ()
+    loop m cutDb pse st = do
+      step "pick random transaction"
+      (h, txIx, _, _) <- randomTransaction cutDb
 
-        step "verify transaction proof"
-        t <- verifyTransactionProof cutDb proof
+      step "pick a reachable target chain"
+      curCut <- _cut cutDb
+      trgChain <- targetChain curCut h
 
-        step "build spv creation command from tx"
-        _cmd <- createCoinCmd t
+      step "create inclusion proof for transaction"
+      proof <- createTransactionOutputProof
+        cutDb
+        -- cutdb
+        trgChain
+        -- target chain
+        (_chainId h)
+        -- source chain id
+        (_blockHeight h)
+        -- source block height
+        txIx
+        -- transaction index
 
-        step "execute spv command"
-        undefined
+      step "build spv creation command from tx output proof"
+      t <- createCoinCmd proof
+
+      step "execute spv command"
+
+      let cp = pse ^. psCheckpointEnv . cpeCheckpointer
+      st1 <- unwrapState
+        =<< assertEitherSuccess "restoreInitial (new block)"
+        =<< restoreInitial cp
+
+      let spv = pse ^. psSpvSupport
+
+      void $ runExec l st1 t spv
+
+      st' <- assertEitherSuccess "restoreInitial (validate)"
+        =<< discard cp
+        =<< wrapState st1
+
+      loop (m-1) cutDb pse st'
