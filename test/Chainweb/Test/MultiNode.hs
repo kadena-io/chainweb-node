@@ -62,7 +62,6 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
-import System.Environment
 import System.LogLevel
 import System.Timeout
 
