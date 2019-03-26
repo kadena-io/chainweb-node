@@ -15,6 +15,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..), parseExprs)
+import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Util (Hash(..))

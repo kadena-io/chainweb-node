@@ -12,7 +12,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB (BlockHeaderDb, copy)
-import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.Utils (insertN, withChainServer, withDB)
@@ -43,7 +43,7 @@ diam :: Depth
 diam = Depth 6
 
 cid :: ChainId
-cid = testChainId 0
+cid = unsafeChainId 0
 
 blockHeaderDbs :: [(ChainId, BlockHeaderDb)] -> ChainwebServerDbs MockTx () HashMapCas
 blockHeaderDbs chainDbs = emptyChainwebServerDbs

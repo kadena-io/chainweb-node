@@ -35,7 +35,6 @@ import Pact.Types.Runtime
 -- internal chainweb modules
 
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.Types (MinerId, MinerKeys)
 
 
 tests :: TestTree
@@ -75,7 +74,7 @@ ccReplTests = do
       for_ (_rlsTests lst) $ \tr ->
         maybe (pure ()) (uncurry failCC) $ trFailure tr
 
-    failCC i e = fail $ renderInfo (_faInfo i) <> ": " <> unpack e
+    failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
 ------------------------------------------------------------------------------
 -- Test Data
@@ -89,17 +88,14 @@ keyset0 = KeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
   (Name "default" def)
 
-minerId0 :: MinerId
+minerId0 :: Text
 minerId0 = "default miner"
 
-minerKeys0 :: MinerKeys
+minerKeys0 :: KeySet
 minerKeys0 = keyset0
 
 gasLimit0 :: Decimal
 gasLimit0 = fromIntegral @Word64 @Decimal 1
-
--- initCaps :: [Text]
--- initCaps = ["CAP1", "CAP2"]
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"

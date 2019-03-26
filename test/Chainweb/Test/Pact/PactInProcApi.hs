@@ -30,6 +30,7 @@ import Test.Tasty.Golden
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Logger
+import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -48,10 +49,11 @@ tests = do
 pactApiTest :: IO [TestTree]
 pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = testChainId 0
+        cid = unsafeChainId 0
 
+    mv <- newEmptyMVar
     -- Init for tests
-    withPactService' Testnet00 cid logger testMemPoolAccess $ \reqQ -> do
+    withPactService' Testnet00 cid logger testMemPoolAccess mv $ \reqQ -> do
         let headers = V.fromList $ getBlockHeaders 2
 
         -- newBlock test
@@ -85,8 +87,11 @@ pactApiTest = do
 pactEmptyBlockTest :: IO TestTree
 pactEmptyBlockTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = testChainId 0
-    withPactService' Testnet00 cid logger testEmptyMemPool $ \reqQ -> do
+        cid = unsafeChainId 0
+
+    mv <- newEmptyMVar
+
+    withPactService' Testnet00 cid logger testEmptyMemPool mv $ \reqQ -> do
         let genesisHeader = genesisBlockHeader Testnet00 cid
         respVar0 <- newBlock noMiner genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response

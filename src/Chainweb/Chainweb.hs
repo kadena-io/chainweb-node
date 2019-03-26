@@ -86,6 +86,7 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.Async
+import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -97,6 +98,7 @@ import Data.List (sortBy)
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
 
 import Prelude hiding (log)
@@ -295,17 +297,18 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logger peer payloadDb inner = do
     initializePayloadDb v payloadDb
-    go mempty (toList cids)
+    cutMV <- newEmptyMVar
+    go mempty (toList cids) cutMV
   where
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go cs (cid : t) =
-        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig $ \c ->
-            go (HM.insert cid c cs) t
+    go cs (cid : t) mv =
+        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig mv $ \c ->
+            go (HM.insert cid c cs) t mv
 
     -- Initialize global resources
-    go cs [] = do
+    go cs [] mv = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -314,6 +317,10 @@ withChainwebInternal conf logger peer payloadDb inner = do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
+
+            -- update the cutdb mvar used by pact service with cutdb
+            void $! putMVar mv mCutDb
+
             withPactData cs cuts $ \pactData ->
                 withMinerResources mLogger mConf cwnid mCutDb $ \m ->
                 inner Chainweb
@@ -407,6 +414,10 @@ runChainweb cw = do
         --
         let mgr = view chainwebManager cw
             miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+            -- run mempool sync without manager timeout; servant default is ok
+            -- for non-streaming endpoints and mempool does its own timeout
+            -- bookkeeping for the streaming endpoints
+            mempoolMgr = mgr { HTTP.mResponseTimeout = HTTP.responseTimeoutNone }
 
         -- 2. Run Clients
         --
@@ -419,7 +430,7 @@ runChainweb cw = do
                 -- , map (runChainSyncClient mgr) chainVals
                     -- TODO: reenable once full payload and adjacent parent validation
                     -- is implemented for ChainSyncClient
-                , map (runMempoolSyncClient mgr) chainVals
+                , map (runMempoolSyncClient mempoolMgr) chainVals
                 ]
 
         mapConcurrently_ id clients

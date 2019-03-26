@@ -42,7 +42,7 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisTime)
-import Chainweb.ChainId (testChainId)
+import Chainweb.ChainId (unsafeChainId)
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
@@ -55,6 +55,7 @@ import Chainweb.Version
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
+import Pact.Types.Runtime (noSPVSupport)
 
 ---
 
@@ -108,7 +109,7 @@ moduleName = T.toTitle . chainwebVersionToText
 headers :: ChainwebVersion -> Word16 -> BlockCreationTime -> [BlockHeader]
 headers v cs ct = take (fromIntegral cs) $ map f [0..]
   where
-    f cid = mineGenesis v (testChainId cid) ct (Nonce 0)
+    f cid = mineGenesis v (unsafeChainId cid) ct (Nonce 0)
 
 headerModule :: ChainwebVersion -> [BlockHeader] -> Text
 headerModule v hs = T.unlines $
@@ -161,7 +162,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 (testChainId 0) logger $
+    payloadWO <- initPactService' Testnet00 (unsafeChainId 0) logger noSPVSupport $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

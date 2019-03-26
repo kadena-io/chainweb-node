@@ -32,6 +32,7 @@ import qualified Data.Vector as V
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
@@ -41,7 +42,7 @@ import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 -- internal chainweb modules
 
 import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.ChainId (ChainId, testChainId)
+import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Transaction
 
@@ -68,7 +69,7 @@ genesis :: BlockHeader
 genesis = toyGenesis chainId0
 
 chainId0 :: ChainId
-chainId0 = testChainId 0
+chainId0 = unsafeChainId 0
 
 ------------------------------------------------------------------------------
 -- helper logic
@@ -95,7 +96,7 @@ mkPactTransaction
   -> String
   -> IO (Maybe ChainwebTransaction)
 mkPactTransaction keyPairs theData nonce theCode = do
-    let pubMeta = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001) (ParsedDecimal 0.0)
+    let pubMeta = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
     cmdBS <- mkCommand keyPairs pubMeta nonce $
         Exec (ExecMsg (pack theCode) theData)
     return $ case verifyCommand cmdBS of

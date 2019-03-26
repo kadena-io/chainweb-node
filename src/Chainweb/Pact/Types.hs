@@ -17,16 +17,15 @@ module Chainweb.Pact.Types
   ( FullLogTxOutput(..)
   , HashedLogTxOutput(..)
   , PactDbStatePersist(..)
-  , PactT
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
+  , PactServiceEnv(..)
     -- * types
-  , MinerKeys
-  , MinerId
+  , PactServiceM
     -- * optics
   , flCommandResult
   , flTxLogs
@@ -36,6 +35,10 @@ module Chainweb.Pact.Types
   , minerKeys
   , pdbspRestoreFile
   , pdbspPactDbState
+  , psMempoolAccess
+  , psCheckpointEnv
+  , psSpvSupport
+  , psPublicData
     -- * defaults
   , defaultMiner
   , noMiner
@@ -58,8 +61,10 @@ import Data.Vector (Vector)
 
 -- internal pact modules
 
+import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command (CommandSuccess(..))
 import Pact.Types.Persistence (TxLog(..))
+import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Term (KeySet(..), Name(..), tStr, Term)
 import Pact.Types.Util (Hash(..))
 import Pact.Types.Hash (hash)
@@ -127,7 +132,6 @@ toHashedLogTxOutput FullLogTxOutput{..} =
 type MinerKeys = KeySet
 type MinerId = Text
 
-
 data MinerInfo = MinerInfo
   { _minerAccount :: MinerId
   , _minerKeys :: MinerKeys
@@ -177,7 +181,14 @@ data PactDbStatePersist = PactDbStatePersist
 
 newtype GasSupply = GasSupply { _gasSupply :: Decimal }
 
-type PactT a = ReaderT CheckpointEnv (StateT PactDbState IO) a
+data PactServiceEnv = PactServiceEnv
+  { _psMempoolAccess :: Maybe MemPoolAccess
+  , _psCheckpointEnv :: CheckpointEnv
+  , _psSpvSupport :: SPVSupport
+  , _psPublicData :: PublicData
+  }
+
+type PactServiceM = ReaderT PactServiceEnv (StateT PactDbState IO)
 
 type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
@@ -185,3 +196,4 @@ makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
 makeLenses ''FullLogTxOutput
 makeLenses ''HashedLogTxOutput
+makeLenses ''PactServiceEnv

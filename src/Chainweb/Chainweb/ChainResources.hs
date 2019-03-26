@@ -34,11 +34,13 @@ module Chainweb.Chainweb.ChainResources
 
 import Configuration.Utils hiding (Lens', (<.>))
 
+import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.IORef
 import qualified Data.Text as T
 
 import Prelude hiding (log)
@@ -54,6 +56,7 @@ import System.Path
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
+import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
@@ -111,11 +114,12 @@ withChainResources
     -> (Maybe FilePath)
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
+    -> MVar (CutDb cas)
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logger mempoolCfg inner =
+withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool $ \requestQ -> do
+    withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
     withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
@@ -125,7 +129,7 @@ withChainResources v cid peer chainDbDir logger mempoolCfg inner =
                 , _chainResLogger = logger
                 , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
-                , _chainResPact = mkPactExecutionService requestQ
+                , _chainResPact = mkPactExecutionService mempool requestQ
                 }
 
 withPersistedDb
@@ -216,23 +220,24 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
-mempoolSyncP2pSession chain logg0 env = go
+mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
   where
-    go = flip catches [ Handler asyncHandler , Handler errorHandler ] $ do
+    go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"
-             Mempool.syncMempools pool peerMempool
-             logg Debug "mempool sync session succeeded"
-             return False
+             Mempool.syncMempools' logg pool peerMempool (writeIORef ref True)
+             logg Debug "mempool sync session finished"
+             readIORef ref
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
-    asyncHandler (_ :: SomeAsyncException) = do
+    asyncHandler ref (_ :: SomeAsyncException) = do
         logg Debug "mempool sync session cancelled"
-        return False
+        -- We return True (ok) iff the mempool successfully finished initial sync.
+        readIORef ref
 
     errorHandler (e :: SomeException) = do
-        logg Debug ("mempool sync session failed: " <> sshow e)
+        logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
 
     peerMempool = MPC.toMempool v cid txcfg gaslimit env
