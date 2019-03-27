@@ -49,7 +49,7 @@ import Chainweb.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage (LogFunction, JsonLog(..))
+import Data.LogMessage (JsonLog(..), LogFunction)
 
 -- DEBUGGING --
 -- import Chainweb.ChainId (testChainId)
@@ -169,7 +169,7 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         --
         let loop n = do
                 ct <- getCurrentTimeIntegral
-                testMineWithPayload @cas nonce target ct payload nid cid c pact >>= \case
+                mineWithPayload @cas nonce target ct payload nid cid c pact >>= \case
                     Left BadNonce -> do
                         -- atomicModifyIORef' counter (\n -> (succ n, ()))
                         c' <- _cut cutDb

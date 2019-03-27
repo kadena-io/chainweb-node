@@ -206,7 +206,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- POW is not used.
         --
         result <- give payloadDb $ give wcdb
-            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
+            $ mineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
 
         case result of
             Left BadNonce -> do

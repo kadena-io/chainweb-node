@@ -74,7 +74,7 @@ module Chainweb.Cut
 
 , MineFailure(..)
 , testMine
-, testMineWithPayload
+, mineWithPayload
 , createNewCut
 , randomChainId
 , arbitraryChainGraphChainId
@@ -575,7 +575,7 @@ testMine n target t payloadHash nid i c =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
-testMineWithPayload
+mineWithPayload
     :: forall cas cid
     . HasChainId cid
     => PayloadCas cas
@@ -590,7 +590,7 @@ testMineWithPayload
     -> Cut
     -> PactExecutionService
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayload n target t payload nid i c pact =
+mineWithPayload n target t payload nid i c pact =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> do
         tryValidatePayload (_chainwebVersion h) h payload
         addNewPayload (given @(PayloadDb cas)) payload
@@ -611,12 +611,13 @@ testMineWithPayload n target t payload nid i c pact =
     validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
 
     toPayloadData PayloadWithOutputs{..} = PayloadData
-              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions
-              , _payloadDataMiner = _payloadWithOutputsMiner
-              , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash
-              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash
-              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash
-              }
+        { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions
+        , _payloadDataMiner = _payloadWithOutputsMiner
+        , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash
+        , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash
+        , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash
+        }
+
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
 --
