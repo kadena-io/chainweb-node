@@ -29,7 +29,7 @@ main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
-    [ Chainweb.Test.MultiNode.test Warn (TestWithTime petersonChainGraph) 10 120 Nothing
+    [ Chainweb.Test.MultiNode.test Warn (TestWithTime petersonChainGraph) 10 300 Nothing
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
