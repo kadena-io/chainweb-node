@@ -16,76 +16,49 @@
 -- Unit test for Pact execution via the Http Pact interface (/send, etc.)(inprocess) API  in Chainweb
 module Chainweb.Test.Pact.RemotePactTest where
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.DeepSeq
+import Control.Concurrent.MVar.Strict
 import Control.Exception
-import Control.Lens (over, set, view)
-import Control.Monad
+import Control.Lens
 
-import Data.Aeson ((.=))
-import Data.Foldable
 import qualified Data.Aeson as A
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
+import qualified Data.ByteString as BS
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
+import Data.String.Conv (toS)
 import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Word
 
-import GHC.Generics
-
-import Network.HTTP.Client hiding (host, Proxy)
+import Network.HTTP.Client.TLS
 
 import Numeric.Natural
 
-import Safe
-
 import Servant.Client
 
-import qualified Streaming.Prelude as S
-
-import System.Environment
 import System.LogLevel
-import System.Timeout
+import System.Time.Extra
 
 import Test.Tasty.HUnit
 import Test.Tasty
-import Test.Tasty.Golden
+-- import Test.Tasty.Golden
 
 import Text.RawString.QQ(r)
 
 import Pact.Types.API
 import Pact.Types.Command
-import Pact.Types.Util
-
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.Chainweb
-import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Cut
-import Chainweb.CutDB
-import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Test.Utils
-import Chainweb.Time (Seconds)
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -105,27 +78,32 @@ local  = client (Proxy :: Proxy LocalApi)
 tests :: IO TestTree
 tests = do
     peerInfoVar <- newEmptyMVar
-    runTestNode Warn (TestWithTime petersonChainGraph) 10 Nothing peerInfoVar
+    runTestNode Warn (TestWithTime petersonChainGraph) Nothing peerInfoVar
     newPeerInfo <- readMVar peerInfoVar
-
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
 
-    tt0 <- pactRemoteTest thePort
+    putStrLn $ "Server listening on port: " ++ show thePort
+    putStrLn "Sleeping..."
+    sleep 10
+    putStrLn "Done sleeping, sending client request"
+
+    tt0 <- clientTest thePort
     return $ testGroup "PactRemoteTest" [tt0]
 
-pactRemoteTest :: Port -> IO TestTree
-pactRemoteTest thePort = do
-    let settings = defaultManagerSettings
-    mgr <- newManager settings
+clientTest :: Port -> IO TestTree
+clientTest thePort = do
+    mgr <- newTlsManager
     let env = mkClientEnv mgr (testUrl thePort)
-    let msb = A.decode escapedCmd :: Maybe SubmitBatch
+    putStrLn $ "URL: " ++ show (testUrl thePort)
+    let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
     case msb of
         Nothing -> return $ testCase "tbd" (assertFailure "decoding command string failed")
         Just sb -> do
+            putStrLn $ "About to call runCliemtM w/send -- sb: " ++ show sb
             result <- runClientM (send sb) env
             case result of
                 Left e -> assertFailure (show e)
-                Right (RequestKeys rks) -> return $ testCase "TBD" (assertBool "TBD" True)
+                Right (RequestKeys _rks) -> return $ testCase "TBD" (assertBool "TBD" True)
 
 testUrl :: Port -> BaseUrl
 testUrl thePort = BaseUrl
@@ -134,6 +112,7 @@ testUrl thePort = BaseUrl
     , baseUrlPort = fromIntegral thePort
     , baseUrlPath = "pact" }
 
+escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"0e89ee947053a74ce99a0cdb42f2028427c0b387a7913194e5e0960bbcb1f48a4df1fa23fff6c87de681eff79ce746c47db68f16bad175ad8b193c7845838ebc","sigs":[],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":1,\"chainId\":\"8\",\"gasPrice\":1,\"sender\":\"sender00\",\"fee\":0},\"nonce\":\"\\\"2019-03-25 02:16:13.831007 UTC\\\"\"}"}]}|]
 
 ----------------------------------------------------------------------------------------------------
@@ -142,27 +121,39 @@ escapedCmd = [r|{"cmds":[{"hash":"0e89ee947053a74ce99a0cdb42f2028427c0b387a79131
 runTestNode
     :: LogLevel
     -> ChainwebVersion
-    -> Seconds
     -> Maybe FilePath
     -> MVar PeerInfo
     -> IO ()
-runTestNode loglevel v seconds chainDbDir portMVar = do
-    void $ timeout (int seconds * 1000000)
-        $ return $ runNode loglevel v chainDbDir portMVar
-
-runNode
-    :: LogLevel
-    -> ChainwebVersion
-    -> (Maybe FilePath)
-    -> MVar PeerInfo
-    -> IO ()
-runNode loglevel v chainDbDir bootstrapPortVar = do
-    -- setEnv "CHAINWEB_DISABLE_PACT" "0"
+runTestNode loglevel v chainDbDir portMVar = do
     let baseConf = config v 1 (NodeId 0) chainDbDir
     let conf = bootstrapConfig baseConf
+    node loglevel portMVar conf
 
-    node loglevel bootstrapPortVar conf
+node
+    :: LogLevel
+    -> MVar PeerInfo
+    -> ChainwebConfiguration
+    -> IO ()
+node loglevel peerInfoVar conf = do
+    pdb <- emptyInMemoryPayloadDb
+    withChainweb conf logger pdb $ \cw -> do
 
+        -- If this is the bootstrap node we extract the port number and publish via an MVar.
+        if (nid == NodeId 0)
+            then do
+                let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                putStrLn $ "bootstrap info from config: " ++ show bootStrapInfo
+                putMVar peerInfoVar bootStrapInfo
+            else error "RemotePactTest.node -- nodeId 0 expected"
+
+        putStrLn "about to run cw..."
+        runChainweb cw `finally` do
+            logFunctionText logger Info "write sample data"
+            logFunctionText logger Info "shutdown node"
+  where
+    nid = _configNodeId conf
+    logger :: GenericLogger
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel (\t -> putStrLn (show t))
 
 host :: Hostname
 host = unsafeHostnameFromText "::1"
@@ -183,21 +174,10 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configNodeId nid
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
-        -- Only listen on the loopback device. On Mac OS X this prevents the
-        -- firewall dialog form poping up.
-
     & set (configP2p . p2pConfigKnownPeers) mempty
     & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
-        -- The bootstrap peer info is set later after the bootstrap nodes
-        -- has started and got its port assigned.
-
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
-        -- We make room for all test peers in peer db.
-
     & set (configP2p . p2pConfigMaxSessionCount) 4
-        -- We set this to a low number in order to keep the network sparse (or
-        -- at last no being a clique) and to also limit the number of port allocations
-
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set configChainDbDirPath chainDbDir
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
@@ -224,36 +204,3 @@ setBootstrapPeerInfo
     -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
-
-node
-    :: LogLevel
-    -> MVar PeerInfo
-    -> ChainwebConfiguration
-    -> IO ()
-node loglevel bootstrapPeerInfoVar conf = do
-    pdb <- emptyInMemoryPayloadDb
-    withChainweb conf logger pdb $ \cw -> do
-
-        -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == NodeId 0) $ putMVar bootstrapPeerInfoVar
-            $ view (chainwebPeer . peerResPeer . peerInfo) cw
-
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            logFunctionText logger Info "shutdown node"
-  where
-    nid = _configNodeId conf
-    logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel (\t -> putStrLn (show t))
-
-
-expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
-expectedBlockCount v seconds = round ebc
-  where
-    ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
-
-    br :: Natural
-    br = case blockRate v of
-        Just (BlockRate n) -> int n
-        Nothing -> error $ "expectedBlockCount: ChainwebVersion with no BlockRate given: " <> show v
