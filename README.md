@@ -4,6 +4,30 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 
 ## Building from Source
 
+Chainweb is a [Haskell](https://www.haskell.org/) project, and can be built in
+several ways.
+
+### Getting the Code
+
+#### Dependencies
+
+- `git`
+  - [Linux](https://git-scm.com/download/linux)
+  - Mac
+    - Homebrew: `brew install git`
+    - [Installer](https://git-scm.com/downloads)
+  - Windows
+    - Chocolatey: `choco install git`
+    - [Installer](https://git-scm.com/downloads)
+
+To fetch the code:
+
+```bash
+git clone https://github.com/kadena-io/chainweb-node.git
+```
+
+You have the code, now let's pick a build tool.
+
 ### Building with Nix
 
 #### Dependencies
@@ -11,11 +35,14 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 - `nix >= 2.2`
   - [Linux / Mac](https://nixos.org/nix/)
 
-The most reliable way to build Chainweb is to use the Nix package manager.
+Using Nix is a great option if you just want Chainweb built, and don't
+necessarily care about the Haskell toolchain. It will also pull prebuilt
+versions of all of Chainweb's dependencies, avoiding the need to compile them
+yourself.
 
 Once Nix is installed, if you notice that the `/etc/nix` directory does not yet
 exist, create it (as the `root` user). Then put the following lines in your
-`/etc/nix/nix.conf` file:
+`/etc/nix/nix.conf` file to connect to Kadena's cache:
 
 ```
 max-jobs = auto
@@ -24,14 +51,10 @@ substituters = http://nixcache.kadena.io https://pact.cachix.org https://nixcach
 trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= pact.cachix.org-1:cg1bsryGrHnQzqEp52NcHq4mBBL+R25XbR2Q/I/vQ8Y= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 ```
 
-This will allow you to connect to Kadena's Nix cache, and pull pre-built
-dependencies very quickly.
-
-Once you've done this, run the following:
+Once you've done this, run the following from the director you cloned Chainweb
+to:
 
 ```
-git clone https://github.com/kadena-io/chainweb-node.git
-cd chainweb-node
 nix-build
 ```
 
@@ -44,46 +67,71 @@ This path changes with every code update, so a more reliable way to run
 ./result/ghc/chainweb/bin/chainweb-node
 ```
 
-### Other Build Methods
+### Building with Stack
+
+#### Dependencies
+
+- `stack >= 1.9`
+  - Mac (Homebrew): `brew install haskell-stack`
+  - General [Linux / Mac / Windows](https://docs.haskellstack.org/en/stable/README/)
+
+(You may also need to install `zlib`, `openssl`, and `sqlite`.)
+
+Stack is a Haskell build tool that manages compiler and dependency versions for
+you. It's easy to install and use.
+
+To build a `chainweb-node` binary:
+
+```bash
+stack build
+```
+
+This will compile a runnable version of `chainweb-node`, which you can run via:
+
+```bash
+stack exec -- chainweb-node
+```
+
+Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
+you may need to add to your path. Then, you can call `chainweb-node` as-is.
+
+### Building with Cabal
 
 #### Dependencies
 
 - `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
   - [Linux / Mac](https://www.haskell.org/ghcup/)
   - [Windows](https://chocolatey.org/search?q=ghc) (via *chocolatey*)
-- (optional) `stack >= 1.9` (Alternate Haskell build-tool, which installs GHC for you)
-  - [Linux / Mac / Windows](https://docs.haskellstack.org/en/stable/README/)
 
-To build the various Chainweb components, run one of the following:
+(You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
-```
-# To build with cabal
-cabal install --enable-tests
+Cabal is the original build tool for Haskell. You will need a version of GHC
+installed on your machine to use it.
 
-# To build with stack
-stack install --test
-```
+To build a `chainweb-node` binary:
 
-This will build the Chainweb library, the `chainweb-node` executable, the main
-test suite, and a few extra example executables.
+```bash
+# Only necessary if you haven't done this recently.
+cabal new-update
 
-### Running the test suite
-
-There have been some reported issues with the test suite running out of file
-descriptors. This may cause test suite failures. If this happens, it can be
-fixed by raising ulimits as follows:
-
-On linux add the following line to `/etc/security/limits.conf`:
-
-```
-*               soft    nofile            1048576
+# Build the project.
+cabal new-build
 ```
 
-On Mac, follow [these instructions](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
+To install a runnable binary to `~/.cabal/bin/`:
 
-## Running a chainweb-node
+```bash
+cabal new-install
+```
 
-```sh
+## Running a `chainweb-node`
+
+This section assumes you've installed the `chainweb-node` binary somewhere
+sensible, or otherwise have a simple way to refer to it.
+
+To run a node:
+
+```bash
 chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config
 ```
 
@@ -91,13 +139,26 @@ This will run a local "bootstrap" node on your machine. Its runtime options - as
 well as a hard-coded SSL certificate - are found in
 `./scripts/test-bootstrap-node.config`. Further nodes can be ran with a simple:
 
-```sh
+```bash
 chainweb-node --node-id=NID
 ```
 
 `--interface=127.0.0.1` can be used to restrict availability of a node to the
 loopback network. The default `--port` value is 0, which causes the node to
 request a free port from the operating system.
+
+Alternatively, the directory `scripts` contains a shell script for starting a
+network of `chainweb-node`s and collecting the logs from all nodes:
+
+```bash
+# create directory for log files
+mkdir -p tmp/run-nodes-logs
+
+# the first argument is the path to the chainweb-node binary
+./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
+
+# stop all nodes with Ctrl-C
+```
 
 ### Details
 
@@ -133,11 +194,15 @@ able to participate in the global network.
 ## Configuring a chainweb-node
 
 Alternative or additional bootstrap nodes can be specified at startup, either on
-the command line or through a configuration file.
+the command line or through a configuration file:
 
-The available command line options are shown by running:
+```bash
+chainweb-node ... --known-peer-info=<some-ip-address>:<some-port>
+```
 
-```sh
+All available command line options are shown by running:
+
+```bash
 chainweb-node --help
 ```
 
@@ -148,29 +213,17 @@ arguments, `chainweb-node --print-config` shows the default configuration.
 Custom configurations can be created by generating a configuration file
 with the default configuration:
 
-```sh
+```bash
 chainweb-node --print-config > chainweb-node.config
 ```
 
 After editing the configuration file `chainweb-node.config` the custom
 configuration can be loaded with
 
-```sh
+```bash
 chainweb-node --config-file=chainweb-node.config
 ```
 
-The directory `scripts` contains a shell script for starting a network of
-chainweb-nodes and collecting the logs from all nodes:
-
-```sh
-# create directory for log files
-mkdir -p tmp/run-nodes-logs
-
-# the first argument is the path to the chainweb-node binary
-./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
-
-# stop all nodes with Ctrl-C
-```
 ## Component Structure
 
 The production components are:
