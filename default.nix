@@ -180,11 +180,12 @@ in
           sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
         }) {});
 
-        merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
-          url = "ssh://git@github.com/kadena-io/merkle-log.git";
+        merkle-log = dontCheck (self.callCabal2nix "merkle-log" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "merkle-log";
           rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
-          ref = "master";
-        }) {};
+          sha256 = "05132bqc6724a58kidrqs1xq68d1bmfqsdy7yk5j83ddinw7yvp1";
+        }) {});
 
         ######################################################################
         # Dependencies from pact
