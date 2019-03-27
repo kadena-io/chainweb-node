@@ -30,6 +30,7 @@ nix-macos:
     - macos
   script:
     - nix-build
+    - nix-shell --run "echo Done with shell test"
     - nix-build -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -43,19 +44,13 @@ nix-macos:
       - public/
     expire_in: 1 week
 
-nix-shell-macos:
-  stage: build
-  tags:
-    - macos
-  script:
-    - nix-shell --run "echo Done with shell test"
-
 nix-linux:
   stage: build
   tags:
     - linux
   script:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-shell --run "echo Done with shell test"
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -68,13 +63,6 @@ nix-linux:
     paths:
     - public/
     expire_in: 1 week
-
-nix-shell-linux:
-  stage: build
-  tags:
-    - linux
-  script:
-    - nix-shell --run "echo Done with shell test"
 
 # 2019 Feb 11 - This is bottlenecking CI quite severely.
 # stack:
