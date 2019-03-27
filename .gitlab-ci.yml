@@ -1,3 +1,8 @@
+stages:
+  - build
+  - test
+  - deploy
+
 # This is small check to confirm that the shell's limits for opening file
 # descriptors is sufficiently high. This is relevant for our property tests, in
 # which some tests rapidly create and destroy HTTP servers.
@@ -20,6 +25,7 @@
 #     - ulimit -Sn
 
 nix-macos:
+  stage: build
   tags:
     - macos
   script:
@@ -38,12 +44,14 @@ nix-macos:
     expire_in: 1 week
 
 nix-shell-macos:
+  stage: build
   tags:
     - macos
   script:
     - nix-shell --run "echo Done with shell test"
 
 nix-linux:
+  stage: build
   tags:
     - linux
   script:
@@ -62,6 +70,7 @@ nix-linux:
     expire_in: 1 week
 
 nix-shell-linux:
+  stage: build
   tags:
     - linux
   script:
@@ -73,6 +82,16 @@ nix-shell-linux:
 #     - macos
 #   script:
 #     - nix-shell --pure -p stack libiconv zlib ncurses gmp git perl darwin.security_tool --run "stack test --fast"
+
+slow-tests:
+  stage: test
+  only:
+    - master
+  tags:
+    - linux
+  script:
+    - echo This is a master slow test run.
+    - result/ghc/chainweb/bin/slow-tests
 
 pages:
   stage: deploy
