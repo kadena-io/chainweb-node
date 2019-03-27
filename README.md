@@ -7,10 +7,26 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 ### Building with Nix
 
 The most reliable way to build Chainweb is to use the
-[Nix](https://nixos.org/nix/) package manager. Once you've installed Nix, use
-the command `nix-build` from the repository root to build Chainweb. To do
-incremental builds, run `nix-shell` and then `cabal build` or `cabal new-build`
-inside the resulting shell.
+[Nix](https://nixos.org/nix/) package manager.
+
+Go to https://nixos.org/nix/, click the "Get Nix" link, and follow the instructions.
+
+After you have installed nix, if the /etc/nix directory does not exist, create it (as root).  Then put the following lines in your /etc/nix/nix.conf file:
+
+```
+max-jobs = auto
+cores = 0
+substituters = http://nixcache.kadena.io https://pact.cachix.org https://nixcache.reflex-frp.org https://cache.nixos.org/
+trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= pact.cachix.org-1:cg1bsryGrHnQzqEp52NcHq4mBBL+R25XbR2Q/I/vQ8Y= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+```
+
+Once you've done this, run the following:
+
+```
+git clone https://github.com/kadena-io/chainweb-node.git
+cd chainweb-node
+nix-build
+```
 
 ### Other Build Methods
 
