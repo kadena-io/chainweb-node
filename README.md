@@ -16,9 +16,6 @@ several ways.
   - Mac
     - Homebrew: `brew install git`
     - [Installer](https://git-scm.com/downloads)
-  - Windows
-    - Chocolatey: `choco install git`
-    - [Installer](https://git-scm.com/downloads)
 
 To fetch the code:
 
@@ -73,7 +70,7 @@ This path changes with every code update, so a more reliable way to run
 
 - `stack >= 1.9`
   - Mac (Homebrew): `brew install haskell-stack`
-  - General [Linux / Mac / Windows](https://docs.haskellstack.org/en/stable/README/)
+  - General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
 
 (You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
@@ -101,7 +98,6 @@ you may need to add to your path. Then, you can call `chainweb-node` as-is.
 
 - `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
   - [Linux / Mac](https://www.haskell.org/ghcup/)
-  - [Windows](https://chocolatey.org/search?q=ghc) (via *chocolatey*)
 
 (You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
