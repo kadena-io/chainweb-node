@@ -4,14 +4,42 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 
 ## Building from Source
 
+Chainweb is a [Haskell](https://www.haskell.org/) project, and can be built in
+several ways.
+
+### Getting the Code
+
+#### Dependencies
+
+- `git`
+  - [Linux](https://git-scm.com/download/linux)
+  - Mac
+    - Homebrew: `brew install git`
+    - [Installer](https://git-scm.com/downloads)
+
+To fetch the code:
+
+```bash
+git clone https://github.com/kadena-io/chainweb-node.git
+```
+
+You have the code, now let's pick a build tool.
+
 ### Building with Nix
 
-The most reliable way to build Chainweb is to use the
-[Nix](https://nixos.org/nix/) package manager.
+#### Dependencies
 
-Go to https://nixos.org/nix/, click the "Get Nix" link, and follow the instructions.
+- `nix >= 2.2`
+  - [Linux / Mac](https://nixos.org/nix/)
 
-After you have installed nix, if the /etc/nix directory does not exist, create it (as root).  Then put the following lines in your /etc/nix/nix.conf file:
+Using Nix is a great option if you just want Chainweb built, and don't
+necessarily care about the Haskell toolchain. It will also pull prebuilt
+versions of all of Chainweb's dependencies, avoiding the need to compile them
+yourself.
+
+Once Nix is installed, if you notice that the `/etc/nix` directory does not yet
+exist, create it (as the `root` user). Then put the following lines in your
+`/etc/nix/nix.conf` file to connect to Kadena's cache:
 
 ```
 max-jobs = auto
@@ -20,59 +48,121 @@ substituters = http://nixcache.kadena.io https://pact.cachix.org https://nixcach
 trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= pact.cachix.org-1:cg1bsryGrHnQzqEp52NcHq4mBBL+R25XbR2Q/I/vQ8Y= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 ```
 
-Once you've done this, run the following:
+Once you've done this, run the following from the director you cloned Chainweb
+to:
 
 ```
-git clone https://github.com/kadena-io/chainweb-node.git
-cd chainweb-node
 nix-build
 ```
 
-### Other Build Methods
+This will place a runnable `chainweb-node` binary at a path like
+`/nix/store/d2f1ybvrlxj02ikfbgmjgfyybqbxk2s6-chainweb/ghc/chainweb/bin/chainweb-node`.
+This path changes with every code update, so a more reliable way to run
+`chainweb-node` is to use the symlink created by Nix:
 
-Requirements:
-
-- Cabal >= 2.2
-- GHC >= 8.4
-- (optional) Stack >= 1.9
-
-To build the various Chainweb components, run one of the following:
-
-```
-# To build with cabal
-cabal install --enable-tests
-
-# To build with stack
-stack install --test
+```bash
+./result/ghc/chainweb/bin/chainweb-node
 ```
 
-This will build the Chainweb library, the `chainweb-node` executable, the main
-test suite, and a few extra example executables.
+### Building with Stack
 
-### Running the test suite
+#### Dependencies
 
-There have been some reported issues with the test suite running out of file
-descriptors. This may cause test suite failures. If this happens, it can be
-fixed by raising ulimits as follows:
+- `stack >= 1.9`
+  - Mac (Homebrew): `brew install haskell-stack`
+  - General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
 
-On linux add the following line to `/etc/security/limits.conf`:
+(You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
+Stack is a Haskell build tool that manages compiler and dependency versions for
+you. It's easy to install and use.
+
+To build a `chainweb-node` binary:
+
+```bash
+stack build
 ```
-*               soft    nofile            1048576
+
+This will compile a runnable version of `chainweb-node`, which you can run via:
+
+```bash
+stack exec -- chainweb-node
 ```
 
-On mac follow instructions [here](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
+Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
+you may need to add to your path. Then, you can call `chainweb-node` as-is.
 
-Create the file `/Library/LaunchDaemons/limit.maxfiles.plist`.
+### Building with Cabal
 
+#### Dependencies
 
-## Running a chainweb-node
+- `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
+  - [Linux / Mac](https://www.haskell.org/ghcup/)
+
+(You may also need to install `zlib`, `openssl`, and `sqlite`.)
+
+Cabal is the original build tool for Haskell. You will need a version of GHC
+installed on your machine to use it.
+
+To build a `chainweb-node` binary:
+
+```bash
+# Only necessary if you haven't done this recently.
+cabal new-update
+
+# Build the project.
+cabal new-build
+```
+
+To install a runnable binary to `~/.cabal/bin/`:
+
+```bash
+cabal new-install
+```
+
+## Running a `chainweb-node`
+
+This section assumes you've installed the `chainweb-node` binary somewhere
+sensible, or otherwise have a simple way to refer to it.
+
+To run a node:
+
+```bash
+chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config
+```
+
+This will run a local "bootstrap" node on your machine. Its runtime options - as
+well as a hard-coded SSL certificate - are found in
+`./scripts/test-bootstrap-node.config`. Further nodes can be ran with a simple:
+
+```bash
+chainweb-node --node-id=NID
+```
+
+`--interface=127.0.0.1` can be used to restrict availability of a node to the
+loopback network. The default `--port` value is 0, which causes the node to
+request a free port from the operating system.
+
+Alternatively, the directory `scripts` contains a shell script for starting a
+network of `chainweb-node`s and collecting the logs from all nodes:
+
+```bash
+# create directory for log files
+mkdir -p tmp/run-nodes-logs
+
+# the first argument is the path to the chainweb-node binary
+./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
+
+# stop all nodes with Ctrl-C
+```
+
+### Details
 
 A chainweb-node has two identifiers:
 
 *   The node-id is a permanent identifier that is used for the `miner`
     field in the header of newly mined blocks.
-    * In its current form it is a placeholder for an identity, e.g. a public
+    * In its current form, it is a placeholder for an identity, e.g. a public
       key, that in the future will be provided by the Pact layer.
     * If such an identity doesn't exist or isn't needed, the node-id may be
       removed completely or kept only for debugging purposes.
@@ -81,47 +171,34 @@ A chainweb-node has two identifiers:
 *   The peer-id is used to identify the node in the peer-to-peer network.
     * It is a fingerprint of an ephemeral X509 certificate that, if not provided
       in the configuration, is created automatically and can be dropped and
-    recreated at any time.
+      recreated at any time.
     * Since the peer-id is used in caches and for reputation management, nodes
       are incentivised to persist and reuse peer-ids.
     * When no peer-id is provided, a node generates a new peer-id on startup.
 
-Upon startup, a chainweb-node tries to connect to the P2P network. Each
-chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
-chainweb-node, this is a single node with host-name `localhost`, and port
-`1789`. The hard-coded certificate for the *Test* bootstrap node is defined in
-the bootstrap configuration file `scripts/test-bootstrap-node.config`.
+Upon startup, a `chainweb-node` tries to connect to the P2P network. Each
+`chainweb-node` knows about a hard-coded set of bootstrap nodes. For the *Test*
+node, this is a single node with host-name `localhost`, and port `1789`.
 
-In order for a chainweb-node to be useful, it must be able to connect to the
-bootstrap node. The *Test* bootstrap node can be started as follows:
+### A Word on Testnet Bootstrap Nodes
 
-```sh
-chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config`
-```
-
-(`--interface=127.0.0.1` can be used to restrict availability of a node to the
-loopback network.)
-
-When the default bootstrap node is available, additional Chainweb nodes can be
-started as
-
-```sh
-chainweb-node --node-id=NID
-```
-
-where `NID` must be replaced with a unique node id.
-
-The default `--port` value is 0, which causes the node to request a free port
-from the operating system.
+For our first iteration of Testnet, while we do have Bootstrap nodes running
+across the web, we haven't revealed these to the public. This is for our own
+testing purposes. Eventually these nodes will be revealed and everyone will be
+able to participate in the global network.
 
 ## Configuring a chainweb-node
 
 Alternative or additional bootstrap nodes can be specified at startup, either on
-the command line or through a configuration file.
+the command line or through a configuration file:
 
-The available command line options are shown by running
+```bash
+chainweb-node ... --known-peer-info=<some-ip-address>:<some-port>
+```
 
-```sh
+All available command line options are shown by running:
+
+```bash
 chainweb-node --help
 ```
 
@@ -132,221 +209,15 @@ arguments, `chainweb-node --print-config` shows the default configuration.
 Custom configurations can be created by generating a configuration file
 with the default configuration:
 
-```sh
+```bash
 chainweb-node --print-config > chainweb-node.config
 ```
 
 After editing the configuration file `chainweb-node.config` the custom
 configuration can be loaded with
 
-```sh
+```bash
 chainweb-node --config-file=chainweb-node.config
-```
-
-The directory `scripts` contains a shell script for starting a network of
-chainweb-nodes and collecting the logs from all nodes:
-
-```sh
-# create directory for log files
-mkdir -p tmp/run-nodes-logs
-
-# the first argument is the path to the chainweb-node binary
-./scripts/run-nodes.sh ./chainweb-node 20 ./tmp/run-nodes-logs
-
-# stop all nodes with Ctrl-C
-```
-
-## Chainweb Orchestration
-
-This section describes how to not only run a Chainweb node, but also how to deploy one.
-
-### Docker Images
-
-#### Dependencies
-
-- `nix >= 2.2`
-- `docker >= 1.18`
-
-The following docker images can be found on DockerHub:
-
-* [chainweb-base](https://hub.docker.com/r/kadena/chainweb-base): Base image containing
-    all of Chainweb's dependencies and executables.
-* [chainweb-bootstrap-node](https://hub.docker.com/r/kadena/chainweb-bootstrap-node):
-  Image that spins up a Chainweb bootstrap node. It expects the node's
-  configuration file to be present in `/tmp/test-bootstrap-node.config`.
-
-Linux users can also create these images locally using Nix:
-
-```sh
-# This outputs two tar files, one for the base image and one for the bootstrap
-# image. You need to be logged in to docker (`docker login`) to fetch the
-# Alpine image that these two new images are based on.
-
-$ nix-build docker.nix
-$ docker load --input result
-$ docker load --input result-2
-```
-
-As of at least 2019 March, it is not possible for MacOS users to build these.
-
-### Running Kubernetes
-
-#### Dependencies
-
-- `kubectl >= 1.13`
-  - [Mac / Windows / Ubuntu](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/kubectl/)
-- `minikube >= 0.35`
-  - [Mac / Windows](https://kubernetes.io/docs/tasks/tools/install-minikube/)
-  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/minikube/)
-- `python >= 3.7`
-- `kubernetes` Python Library
-  - [PyPI](https://pypi.org/project/kubernetes/)
-  - [Arch Linux<sup>AUR</sup>](https://aur.archlinux.org/packages/python-kubernetes/)
-
-#### Running Locally
-
-1. Ensure that the above dependencies are installed.
-2. Create a local Kubernetes cluster with Minikube: `minikube start**
-3. Load the Chainweb bootstrap node:
-
-##### Linux
-
-Used for running custom-built images. Otherwise, follow the MacOS instructions
-below to run an image from DockerHub.
-
-First, we must load our built images into *Minikube's* Docker context.
-
-```sh
-# Unnecessary if done above
-$ nix-build docker.nix
-
-# Temporarily inject Minikube-specific Docker settings in our environment.
-# You can close your terminal to reset these.
-$ eval `minikube docker-env`
-
-# Load the images into Minikube's Docker context.
-$ docker load --input result
-$ docker load --input result-2
-```
-
-Now we can run our images:
-
-```sh
-$ python scripts/kubernetes/bootstrap_deploy.py create --image=chainweb-bootstrap-node --local
-```
-
-Excluding the `--image` and `--local` flags will cause a default image to be
-pulled from Kadena's DockerHub repository.
-
-##### MacOS
-
-```sh
-$ python scripts/kubernetes/bootstrap_deploy.py create
-```
-
-Whichever approach we chose, if creation was successful, we'll see:
-
-```
-Running with:  Namespace(func=<function create_resources at 0x7fa30aa86840>, image='chainweb-bootstrap-node:test00', local=True)
-Creating cluster...
-Statefule Set created. status='{'collision_count': None,
- 'conditions': None,
- 'current_replicas': None,
- 'current_revision': None,
- 'observed_generation': None,
- 'ready_replicas': None,
- 'replicas': 0,
- 'update_revision': None,
- 'updated_replicas': None}'
-Done
-```
-
-4. The following commands can be used to confirm the status of the bootstrap node:
-
-```sh
-$ kubectl get pods
-
-NAME         READY   STATUS    RESTARTS   AGE
-chainweb-0   1/1     Running   0          12s
-```
-
-```sh
-$ kubectl get service
-
-NAME                TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)         AGE
-chainweb-0          LoadBalancer   10.105.226.234   <pending>     443:32085/TCP   6m
-chainweb-headless   ClusterIP      None             <none>        1789/TCP        6m
-kubernetes          ClusterIP      10.96.0.1        <none>        443/TCP         3h29m
-```
-
-```sh
-$ minikube service chainweb-0 --url
-
-http://192.168.99.100:32085
-```
-
-```sh
-$ curl https://192.168.99.100:32085/swagger.json -v -k
-
-# A wall of JSON output.
-```
-
-```sh
-$ watch -n 1 "kubectl logs chainweb-0 | tail -n 25"
-
-# An auto-updating feed of log messages. You should see blocks being mined.
-```
-
-5. To clean up these resources, run `python scripts/kubernetes/boostrap_deploy.py delete`.
-
-#### Running on AWS
-
-*Pending.*
-
-<!-- 3. For instructions on how to interact with Kubernetes, follow these -->
-<!--    [examples](http://kubernetesbyexample.com/). Note that they are using a -->
-<!--    Minishift local cluster instead of a Minikube one. -->
-
-<!-- [K8S cluster on AWS](https://medium.com/containermind/how-to-create-a-kubernetes-cluster-on-aws-in-few-minutes-89dda10354f4). -->
-
-<!-- NB: 03/06/2019 To run the cluster with your local docker images, follow the -->
-<!-- instructions -->
-<!-- [here](https://blogmilind.wordpress.com/2018/01/30/running-local-docker-images-in-kubernetes/). -->
-<!-- The script `scripts/dev_startup.sh` automates some of these steps already for -->
-<!-- minikube clusters. This method will not work for cloud-based clusters. -->
-
-#### Connecting to a Bootstrap Node
-
-The `chainweb-node` binary has a built-in list of official bootstrap nodes, but
-we can specify others on the command line. For a locally running bootstrap, we
-first confirm the IP and port:
-
-```sh
-$ minikube service chainweb-0 --url
-
-http://192.168.99.100:32742
-```
-
-Now we run a `chainweb-node` as usual, except that we add the `--peer-info`
-flag:
-
-```sh
-$ chainweb-node --node-id=<SOME-ID> --peer-info=9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ@192.168.99.100:32742
-
-# A wall of log messages.
-```
-
-`9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ` is the certificate fingerprint of
-the built-in test certificate. This may differ from your situation, but the true
-fingerprint can always be found in your `chainweb-node`'s log messages.
-
-Connecting to an official bootstrap node is even simpler:
-
-```sh
-$ chainweb-node --node-id=<SOME-ID> --peer-info=us1.chainweb.com:443
-
-# A wall of log messages.
 ```
 
 ## Component Structure
