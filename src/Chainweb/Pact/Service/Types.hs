@@ -10,6 +10,7 @@
 
 module Chainweb.Pact.Service.Types where
 
+import Data.Aeson (Value)
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 import Data.Aeson (FromJSON,ToJSON)
@@ -19,6 +20,7 @@ import GHC.Generics
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.Transaction
 
 import Pact.Types.Command
 
@@ -36,6 +38,7 @@ data NewBlockReq = NewBlockReq
 data PactException
   = BlockValidationFailure Text
   | PactInternalError Text
+  | NoBlockValidatedYet
   deriving (Eq,Show,Generic)
 
 instance ToJSON PactException
@@ -57,6 +60,6 @@ data ValidateBlockReq = ValidateBlockReq
     }
 
 data LocalReq = LocalReq
-    { _localRequest :: Command Text
-    , _localResultVar :: MVar (Either PactException FullLogTxOutput)
+    { _localRequest :: ChainwebTransaction
+    , _localResultVar :: MVar (Either SomeException (CommandSuccess Value))
     }

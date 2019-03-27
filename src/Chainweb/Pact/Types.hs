@@ -24,6 +24,7 @@ module Chainweb.Pact.Types
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
   , PactServiceEnv(..)
+  , PactServiceState(..)
     -- * types
   , PactServiceM
     -- * optics
@@ -39,6 +40,8 @@ module Chainweb.Pact.Types
   , psCheckpointEnv
   , psSpvSupport
   , psPublicData
+  , psStateDb
+  , psStateValidated
     -- * defaults
   , defaultMiner
   , noMiner
@@ -188,7 +191,12 @@ data PactServiceEnv = PactServiceEnv
   , _psPublicData :: PublicData
   }
 
-type PactServiceM = ReaderT PactServiceEnv (StateT PactDbState IO)
+data PactServiceState = PactServiceState
+  { _psStateDb :: PactDbState
+  , _psStateValidated :: Maybe BlockHeader
+  }
+
+type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
 
 type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
@@ -197,3 +205,4 @@ makeLenses ''PactDbStatePersist
 makeLenses ''FullLogTxOutput
 makeLenses ''HashedLogTxOutput
 makeLenses ''PactServiceEnv
+makeLenses ''PactServiceState

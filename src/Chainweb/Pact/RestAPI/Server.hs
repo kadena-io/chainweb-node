@@ -206,7 +206,9 @@ localHandler
     -> ChainResources logger
     -> Command Text
     -> Handler (CommandSuccess Value)
-localHandler _ _ _ _ = unimplemented
+localHandler _ _ cr cmd = do
+  let pact <- _chainResPact cr
+  undefined
 
 
 
@@ -313,7 +315,7 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
 
-validateCommand :: Command Text -> Either String (Command PayloadWithText)
+validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
