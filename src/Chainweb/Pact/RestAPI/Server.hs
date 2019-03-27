@@ -62,6 +62,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 ------------------------------------------------------------------------------
 type PactServerData logger cas =
@@ -207,8 +208,15 @@ localHandler
     -> Command Text
     -> Handler (CommandSuccess Value)
 localHandler _ _ cr cmd = do
-  let pact <- _chainResPact cr
-  undefined
+  cmd' <- case validateCommand cmd of
+    Right c -> return c
+    Left err ->
+      throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+  r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
+  case r of
+    Left err ->
+      throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
+    Right r' -> return r'
 
 
 
@@ -321,7 +329,3 @@ validateCommand cmdText = let
   in case verifyCommand cmdBS of
   ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err
-
-
-unimplemented :: Handler a
-unimplemented = throwError $ err501 { errBody = "unimplemented" }
