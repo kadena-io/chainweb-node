@@ -6,12 +6,16 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 
 ### Building with Nix
 
-The most reliable way to build Chainweb is to use the
-[Nix](https://nixos.org/nix/) package manager.
+#### Dependencies
 
-Go to https://nixos.org/nix/, click the "Get Nix" link, and follow the instructions.
+- `nix >= 2.2`
+  - [Linux / Mac](https://nixos.org/nix/)
 
-After you have installed nix, if the /etc/nix directory does not exist, create it (as root).  Then put the following lines in your /etc/nix/nix.conf file:
+The most reliable way to build Chainweb is to use the Nix package manager.
+
+Once Nix is installed, if you notice that the `/etc/nix` directory does not yet
+exist, create it (as the `root` user). Then put the following lines in your
+`/etc/nix/nix.conf` file:
 
 ```
 max-jobs = auto
@@ -19,6 +23,9 @@ cores = 0
 substituters = http://nixcache.kadena.io https://pact.cachix.org https://nixcache.reflex-frp.org https://cache.nixos.org/
 trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= pact.cachix.org-1:cg1bsryGrHnQzqEp52NcHq4mBBL+R25XbR2Q/I/vQ8Y= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 ```
+
+This will allow you to connect to Kadena's Nix cache, and pull pre-built
+dependencies very quickly.
 
 Once you've done this, run the following:
 
@@ -28,13 +35,24 @@ cd chainweb-node
 nix-build
 ```
 
+This will place a runnable `chainweb-node` binary at a path like
+`/nix/store/d2f1ybvrlxj02ikfbgmjgfyybqbxk2s6-chainweb/ghc/chainweb/bin/chainweb-node`.
+This path changes with every code update, so a more reliable way to run
+`chainweb-node` is to use the symlink created by Nix:
+
+```bash
+./result/ghc/chainweb/bin/chainweb-node
+```
+
 ### Other Build Methods
 
-Requirements:
+#### Dependencies
 
-- Cabal >= 2.2
-- GHC >= 8.4
-- (optional) Stack >= 1.9
+- `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
+  - [Linux / Mac](https://www.haskell.org/ghcup/)
+  - [Windows](https://chocolatey.org/search?q=ghc) (via *chocolatey*)
+- (optional) `stack >= 1.9` (Alternate Haskell build-tool, which installs GHC for you)
+  - [Linux / Mac / Windows](https://docs.haskellstack.org/en/stable/README/)
 
 To build the various Chainweb components, run one of the following:
 
@@ -61,18 +79,33 @@ On linux add the following line to `/etc/security/limits.conf`:
 *               soft    nofile            1048576
 ```
 
-On mac follow instructions [here](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
-
-Create the file `/Library/LaunchDaemons/limit.maxfiles.plist`.
-
+On Mac, follow [these instructions](https://unix.stackexchange.com/questions/108174/how-to-persistently-control-maximum-system-resource-consumption-on-mac).
 
 ## Running a chainweb-node
+
+```sh
+chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config
+```
+
+This will run a local "bootstrap" node on your machine. Its runtime options - as
+well as a hard-coded SSL certificate - are found in
+`./scripts/test-bootstrap-node.config`. Further nodes can be ran with a simple:
+
+```sh
+chainweb-node --node-id=NID
+```
+
+`--interface=127.0.0.1` can be used to restrict availability of a node to the
+loopback network. The default `--port` value is 0, which causes the node to
+request a free port from the operating system.
+
+### Details
 
 A chainweb-node has two identifiers:
 
 *   The node-id is a permanent identifier that is used for the `miner`
     field in the header of newly mined blocks.
-    * In its current form it is a placeholder for an identity, e.g. a public
+    * In its current form, it is a placeholder for an identity, e.g. a public
       key, that in the future will be provided by the Pact layer.
     * If such an identity doesn't exist or isn't needed, the node-id may be
       removed completely or kept only for debugging purposes.
@@ -81,45 +114,28 @@ A chainweb-node has two identifiers:
 *   The peer-id is used to identify the node in the peer-to-peer network.
     * It is a fingerprint of an ephemeral X509 certificate that, if not provided
       in the configuration, is created automatically and can be dropped and
-    recreated at any time.
+      recreated at any time.
     * Since the peer-id is used in caches and for reputation management, nodes
       are incentivised to persist and reuse peer-ids.
     * When no peer-id is provided, a node generates a new peer-id on startup.
 
-Upon startup, a chainweb-node tries to connect to the P2P network. Each
-chainweb-node knows about a hard-coded set of bootstrap nodes. For the *Test*
-chainweb-node, this is a single node with host-name `localhost`, and port
-`1789`. The hard-coded certificate for the *Test* bootstrap node is defined in
-the bootstrap configuration file `scripts/test-bootstrap-node.config`.
+Upon startup, a `chainweb-node` tries to connect to the P2P network. Each
+`chainweb-node` knows about a hard-coded set of bootstrap nodes. For the *Test*
+node, this is a single node with host-name `localhost`, and port `1789`.
 
-In order for a chainweb-node to be useful, it must be able to connect to the
-bootstrap node. The *Test* bootstrap node can be started as follows:
+### A Word on Testnet Bootstrap Nodes
 
-```sh
-chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config`
-```
-
-(`--interface=127.0.0.1` can be used to restrict availability of a node to the
-loopback network.)
-
-When the default bootstrap node is available, additional Chainweb nodes can be
-started as
-
-```sh
-chainweb-node --node-id=NID
-```
-
-where `NID` must be replaced with a unique node id.
-
-The default `--port` value is 0, which causes the node to request a free port
-from the operating system.
+For our first iteration of Testnet, while we do have Bootstrap nodes running
+across the web, we haven't revealed these to the public. This is for our own
+testing purposes. Eventually these nodes will be revealed and everyone will be
+able to participate in the global network.
 
 ## Configuring a chainweb-node
 
 Alternative or additional bootstrap nodes can be specified at startup, either on
 the command line or through a configuration file.
 
-The available command line options are shown by running
+The available command line options are shown by running:
 
 ```sh
 chainweb-node --help
@@ -151,14 +167,15 @@ chainweb-nodes and collecting the logs from all nodes:
 mkdir -p tmp/run-nodes-logs
 
 # the first argument is the path to the chainweb-node binary
-./scripts/run-nodes.sh ./chainweb-node 20 ./tmp/run-nodes-logs
+./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
 
 # stop all nodes with Ctrl-C
 ```
 
 ## Chainweb Orchestration
 
-This section describes how to not only run a Chainweb node, but also how to deploy one.
+This section describes how to not only run a Chainweb node, but also how to
+deploy one.
 
 ### Docker Images
 
