@@ -78,7 +78,8 @@ local  = client (Proxy :: Proxy LocalApi)
 tests :: IO TestTree
 tests = do
     peerInfoVar <- newEmptyMVar
-    runTestNode Warn (TestWithTime petersonChainGraph) Nothing peerInfoVar
+    let cwVersion = TestWithTime petersonChainGraph
+    runTestNode Warn cwVersion Nothing peerInfoVar
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
 
@@ -87,14 +88,15 @@ tests = do
     sleep 10
     putStrLn "Done sleeping, sending client request"
 
-    tt0 <- clientTest thePort
+    tt0 <- clientTest thePort cwVersion
     return $ testGroup "PactRemoteTest" [tt0]
 
-clientTest :: Port -> IO TestTree
-clientTest thePort = do
+clientTest :: Port -> ChainwebVersion -> IO TestTree
+clientTest thePort cwVersion = do
     mgr <- newTlsManager
-    let env = mkClientEnv mgr (testUrl thePort)
-    putStrLn $ "URL: " ++ show (testUrl thePort)
+    let url = testUrl thePort cwVersion "0.0" 8
+    putStrLn $ "URL: " ++ show url
+    let env = mkClientEnv mgr url
     let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
     case msb of
         Nothing -> return $ testCase "tbd" (assertFailure "decoding command string failed")
@@ -105,12 +107,17 @@ clientTest thePort = do
                 Left e -> assertFailure (show e)
                 Right (RequestKeys _rks) -> return $ testCase "TBD" (assertBool "TBD" True)
 
-testUrl :: Port -> BaseUrl
-testUrl thePort = BaseUrl
+testUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
+testUrl thePort v release chainNum = BaseUrl
     { baseUrlScheme = Https
     , baseUrlHost = "127.0.0.1"
     , baseUrlPort = fromIntegral thePort
-    , baseUrlPath = "pact" }
+    , baseUrlPath = "chainweb"
+                  ++ "/" ++ release ++ "/"
+                  ++ "/" ++ toS (chainwebVersionToText v) ++ "/"
+                  ++ "/chain/"
+                  ++ "/" ++ show chainNum ++ "/"
+                  ++ "/pact" }
 
 escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"0e89ee947053a74ce99a0cdb42f2028427c0b387a7913194e5e0960bbcb1f48a4df1fa23fff6c87de681eff79ce746c47db68f16bad175ad8b193c7845838ebc","sigs":[],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":1,\"chainId\":\"8\",\"gasPrice\":1,\"sender\":\"sender00\",\"fee\":0},\"nonce\":\"\\\"2019-03-25 02:16:13.831007 UTC\\\"\"}"}]}|]
