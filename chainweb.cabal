@@ -421,6 +421,7 @@ test-suite chainweb-tests
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
+        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
         , yaml
@@ -497,8 +498,8 @@ executable chainweb-node
         , streaming >= 0.2
         , text >= 1.2
         , wai-app-static >= 3.1
-        , wai-cors >= 0.2
         , wai-extra >= 3.0
+        , wai-cors >= 0.2
         , warp >= 3.2
         , yet-another-logger >= 0.3.1
 
@@ -591,6 +592,7 @@ executable slow-tests
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
+        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
 
