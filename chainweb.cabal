@@ -421,7 +421,6 @@ test-suite chainweb-tests
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
-        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
         , yaml
@@ -592,7 +591,6 @@ executable slow-tests
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
-        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
 
