@@ -407,6 +407,7 @@ runChainweb cw = do
 
     -- 1. start server
     --
+    -- _ <- error "beforrrre withAsyns"
     withAsync serve $ \server -> do
         logg Info "started server"
 
@@ -434,6 +435,10 @@ runChainweb cw = do
                 ]
 
         mapConcurrently_ id clients
+        -- _ <- error "Before wait server"
         wait server
+        _ <- error "After wait server"
+
+        putStrLn "abc"
   where
     logg = logFunctionText $ _chainwebLogger cw
