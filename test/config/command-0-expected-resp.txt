@@ -1,1 +1,1 @@
-{"hlTxLogs":"e15a8caac23994e7f1469a67b9debe54359c36c53c27b56014225f5b67573f039c024bd4f88f149b9ca9f67d19bfa9ebdd599cc5882069530315f47453fbe32b","hlCommandResult":{"status":"failure","error":"Command execution failed","detail":"(enforce-guard g): Failure: Tx Failed: Keyset failure (keys-all)"}}
+{"hlTxLogs":"0eaf24c04addc7c70485cdf82b5a0e31594b78074a1bb3193d8a135475f3464f8433faab894b323d22931028c154483c3209c6e4121b56bcd78ec0c9d34225f1","hlCommandResult":{"status":"success","data":3}}
