@@ -241,14 +241,17 @@ serviceRequests memPoolAccess reqQ = do
     go
   where
     go = do
+        logDebug $ "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
+        logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> do
-              r <- try $ execLocal _localRequest
-              case r of
-                Left e -> liftIO $ putMVar _localResultVar $ Left e
-                Right r' -> liftIO $ putMVar _localResultVar r'
+                r <- try $ execLocal _localRequest
+                case r of
+                  Left e -> liftIO $ putMVar _localResultVar $ Left e
+                  Right r' -> liftIO $ putMVar _localResultVar r'
+                go
             NewBlockMsg NewBlockReq {..} -> do
                 txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
                 case txs of
@@ -396,6 +399,9 @@ logInfo = logg "INFO"
 
 logError :: String -> PactServiceM ()
 logError = logg "ERROR"
+
+logDebug :: String -> PactServiceM ()
+logDebug = logg "DEBUG"
 
 
 
