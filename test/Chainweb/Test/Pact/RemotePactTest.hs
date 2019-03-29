@@ -1,7 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -173,7 +169,7 @@ checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
 checkResponse filePrefix rks (PollResponses theMap) = do
     let fp = filePrefix ++ "-expected-resp.txt"
 
-    let mays = foldr (\x acc -> HM.lookup x theMap : acc) [] (_rkRequestKeys rks)
+    let mays = map (\x -> HM.lookup x theMap) (_rkRequestKeys rks)
     let values = _arResult <$> catMaybes mays
     let bsResponse = return $ toS $ foldMap A.encode values
 
@@ -201,10 +197,10 @@ runTestNodes
     :: LogLevel
     -> ChainwebVersion
     -> Natural
-    -> (Maybe FilePath)
+    -> Maybe FilePath
     -> MVar PeerInfo
     -> IO ()
-runTestNodes loglevel v n chainDbDir portMVar = do
+runTestNodes loglevel v n chainDbDir portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500000 * int i)
         let baseConf = config v n (NodeId i) chainDbDir
@@ -232,7 +228,7 @@ node loglevel peerInfoVar conf = do
   where
     nid = _configNodeId conf
     logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel (\t -> putStrLn (show t))
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel print
 
 host :: Hostname
 host = unsafeHostnameFromText "::1"
@@ -244,7 +240,7 @@ config
     :: ChainwebVersion
     -> Natural
     -> NodeId
-    -> (Maybe FilePath)
+    -> Maybe FilePath
     -> ChainwebConfiguration
 config v n nid chainDbDir = defaultChainwebConfiguration v
     & set configNodeId nid
@@ -266,7 +262,7 @@ bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = head (bootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         & set peerConfigHost host
 
