@@ -226,10 +226,8 @@ node loglevel peerInfoVar conf = do
             putMVar peerInfoVar bootStrapInfo
 
         runChainweb cw `finally` do
-            _ <- error "Une"
             logFunctionText logger Info "write sample data"
             logFunctionText logger Info "shutdown node"
-        _ <- error "DUEY"
         return ()
   where
     nid = _configNodeId conf
