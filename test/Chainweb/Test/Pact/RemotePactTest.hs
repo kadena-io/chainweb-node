@@ -25,10 +25,11 @@ import Control.Monad
 
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
+import qualified Data.HashMap.Strict as HM
+import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
-import Data.Text (Text)
 
 import Network.HTTP.Client.TLS as HTTP
 import Network.Connection as HTTP
@@ -47,7 +48,6 @@ import Test.Tasty.Golden
 import Text.RawString.QQ(r)
 
 import Pact.Types.API
-import Pact.Types.Command
 
 -- internal modules
 
@@ -68,17 +68,11 @@ import Chainweb.Version
 import P2P.Node.Configuration
 import P2P.Peer
 
-send :: SubmitBatch -> ClientM RequestKeys
-send   = client (Proxy :: Proxy SendApi)
+apiSend :: SubmitBatch -> ClientM RequestKeys
+apiSend = client (Proxy :: Proxy SendApi)
 
-poll :: Poll -> ClientM PollResponses
-poll   = client (Proxy :: Proxy PollApi)
-
-listen :: ListenerRequest -> ClientM ApiResult
-listen = client (Proxy :: Proxy ListenApi)
-
-local :: Command Text -> ClientM (CommandSuccess A.Value)
-local  = client (Proxy :: Proxy LocalApi)
+apiPoll :: Poll -> ClientM PollResponses
+apiPoll = client (Proxy :: Proxy PollApi)
 
 nNodes :: Natural
 nNodes = 1
@@ -94,35 +88,46 @@ tests = do
 
     putStrLn $ "Server listening on port: " ++ show thePort ++ ". Sending client request..."
 
-    tt0 <- clientTest thePort cwVersion
-    return $ testGroup "PactRemoteTest" [tt0]
+    env <- getClientEnv thePort cwVersion
+    tts <- sendTest env
+    return $ testGroup "PactRemoteTest" tts
 
-clientTest :: Port -> ChainwebVersion -> IO TestTree
-clientTest thePort cwVersion = do
+sendTest :: ClientEnv -> IO [TestTree]
+sendTest env = do
+    let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
+    case msb of
+        Nothing -> assertFailure "decoding command string failed"
+        Just sb -> do
+            result <- sendWithRetry env sb
+            case result of
+                Left e -> assertFailure (show e)
+                Right rks -> do
+                    tt0 <- checkRequestKeys "command-0" rks
+                    response <- pollWithRetry env rks
+                    case response of
+                        Left e -> assertFailure (show e)
+                        Right rsp -> do
+                            tt1 <- checkResponse "command-0" rks rsp
+                            return (tt0 : [tt1])
+
+
+getClientEnv :: Port -> ChainwebVersion -> IO ClientEnv
+getClientEnv thePort cwVersion = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
     let url = testUrl thePort cwVersion "0.0" 8
     -- putStrLn $ "URL: " ++ showBaseUrl url
-    let env = mkClientEnv mgr url
-    let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
-    tt0 <- case msb of
-          Nothing -> assertFailure "decoding command string failed"
-          Just sb -> do
-              result <- sendWithRetry sb env
-              case result of
-                  Left e -> assertFailure (show e)
-                  Right rks -> checkRequestKeys "command-expected-0" rks
-    return tt0
+    return $ mkClientEnv mgr url
 
 maxSendRetries :: Int
 maxSendRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-sendWithRetry :: SubmitBatch -> ClientEnv -> IO (Either ServantError RequestKeys)
-sendWithRetry sb env = go maxSendRetries
+sendWithRetry :: ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
+sendWithRetry env sb = go maxSendRetries
   where
     go retries =  do
-        result <- runClientM (send sb) env
+        result <- runClientM (apiSend sb) env
         case result of
             Left _ ->
                 if retries == 0 then do
@@ -135,11 +140,44 @@ sendWithRetry sb env = go maxSendRetries
                 putStrLn $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
+maxPollRetries :: Int
+maxPollRetries = 30
+
+-- | To allow time for node to startup, retry a number of times
+pollWithRetry :: ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
+pollWithRetry env rks = do
+  sleep 5
+  go maxPollRetries
+    where
+      go retries = do
+          result <- runClientM (apiPoll (Poll (_rkRequestKeys rks))) env
+          case result of
+              Left _ ->
+                  if retries == 0 then do
+                      putStrLn $ "poll failing after " ++ show maxSendRetries ++ " retries"
+                      return result
+                  else do
+                      sleep 1
+                      go (retries - 1)
+              Right _ -> do
+                  putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
+                  return result
+
 checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
 checkRequestKeys filePrefix rks = do
-    let fp = filePrefix ++ "-rks.txt"
+    let fp = filePrefix ++ "-expected-rks.txt"
     let bsRks = return $ foldMap (toS . show ) (_rkRequestKeys rks)
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+
+checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
+checkResponse filePrefix rks (PollResponses theMap) = do
+    let fp = filePrefix ++ "-expected-resp.txt"
+
+    let mays = foldr (\x acc -> HM.lookup x theMap : acc) [] (_rkRequestKeys rks)
+    let values = _arResult <$> catMaybes mays
+    let bsResponse = return $ toS $ foldMap A.encode values
+
+    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
 
 testUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
 testUrl thePort v release chainNum = BaseUrl
@@ -240,3 +278,7 @@ setBootstrapPeerInfo
     -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
+
+-- for Stuart:
+runGhci :: IO ()
+runGhci = tests >>= defaultMain
