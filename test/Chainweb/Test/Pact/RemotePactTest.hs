@@ -106,7 +106,6 @@ sendTest env = do
                             tt1 <- checkResponse "command-0" rks rsp
                             return (tt0 : [tt1])
 
-
 getClientEnv :: Port -> ChainwebVersion -> IO ClientEnv
 getClientEnv thePort cwVersion = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
@@ -255,9 +254,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
     & set (configTransactionIndex . enableConfigEnabled) True
 
-bootstrapConfig
-    :: ChainwebConfiguration
-    -> ChainwebConfiguration
+bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
@@ -266,10 +263,7 @@ bootstrapConfig conf = conf
         & set peerConfigPort 0
         & set peerConfigHost host
 
-setBootstrapPeerInfo
-    :: PeerInfo
-    -> ChainwebConfiguration
-    -> ChainwebConfiguration
+setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
 
