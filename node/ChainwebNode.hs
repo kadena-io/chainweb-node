@@ -71,6 +71,7 @@ import Chainweb.Logger
 import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.BlockHeader (NewMinedBlock)
 
 import Data.CAS.HashMap
 import Data.LogMessage
@@ -203,6 +204,8 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
         teleLogConfig
+    newBlockBackend <- managed
+        $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -210,6 +213,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
+            , logHandler newBlockBackend
             ] baseBackend
 
     liftIO $ f

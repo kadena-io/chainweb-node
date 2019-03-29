@@ -78,6 +78,7 @@ module Chainweb.Payload
 , payloadWithOutputs
 , newPayloadWithOutputs
 , payloadWithOutputsToBlockObjects
+, payloadWithOutputsToPayloadData
 ) where
 
 import Control.DeepSeq
@@ -747,4 +748,13 @@ payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
     )
   where
     (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+
+payloadWithOutputsToPayloadData :: PayloadWithOutputs -> PayloadData
+payloadWithOutputsToPayloadData o = PayloadData
+    { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions o
+    , _payloadDataMiner = _payloadWithOutputsMiner o
+    , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash o
+    , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash o
+    , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash o
+    }
 

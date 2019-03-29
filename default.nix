@@ -159,6 +159,12 @@ in
 
         wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
 
+        wai-cors = dontCheck (callHackageDirect {
+          pkg = "wai-cors";
+          ver = "0.2.6";
+          sha256 = "0rgh2698h6xc6q462lbmdb637wz2kkbnkgbhv1h7a6p3zv097dg2";
+        });
+
         yet-another-logger = callHackageDirect {
           pkg = "yet-another-logger";
           ver = "0.3.1";
@@ -180,11 +186,12 @@ in
           sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
         }) {});
 
-        merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
-          url = "ssh://git@github.com/kadena-io/merkle-log.git";
+        merkle-log = dontCheck (self.callCabal2nix "merkle-log" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "merkle-log";
           rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
-          ref = "master";
-        }) {};
+          sha256 = "05132bqc6724a58kidrqs1xq68d1bmfqsdy7yk5j83ddinw7yvp1";
+        }) {});
 
         ######################################################################
         # Dependencies from pact
@@ -236,7 +243,7 @@ in
       };
     packages = {
       chainweb = gitignore.gitignoreSource
-        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-ork.md"] ./.;
+        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

@@ -151,9 +151,10 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         -- Mine a new block
         --
-        c' <- mine gen nonce0
+        T2 newBh c' <- mine gen nonce0
 
         logg Info $! "created new block" <> sshow i
+        logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
@@ -175,7 +176,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
     -- Here we are guarenteed to succeed on our first attempt, so we do it after
     -- waiting, just before computing the POW hash.
     --
-    mine :: MWC.GenIO -> Word64 -> IO Cut
+    mine :: MWC.GenIO -> Word64 -> IO (T2 BlockHeader Cut)
     mine gen !nonce = do
 
         -- Get the current longest cut.
@@ -228,4 +229,4 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
             Left BadAdjacents -> do
                 logg Info "retry test mining because adajencent dependencies are missing"
                 mine gen nonce
-            Right (T2 _ newCut) -> pure newCut
+            Right newResult -> pure newResult
