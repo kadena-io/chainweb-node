@@ -19,6 +19,7 @@ module Chainweb.Pact.RestAPI.Server
 , somePactServers
 ) where
 
+
 import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
@@ -311,7 +312,6 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict b
-
 
 validateCommand :: Command Text -> Either String (Command PayloadWithText)
 validateCommand cmdText = let

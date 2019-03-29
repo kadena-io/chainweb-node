@@ -81,3 +81,8 @@
 
 (coinbase 'k3 (read-keyset 'k3) 1.0)
 (expect "coinbase should create accounts and credit them some amount" 1.0 (account-balance 'k3))
+
+; SPV tests - note: proof creation will not work as we have no spv support as our default spv
+; handler in the environment at this point.
+(expect "spv proof creation should succeed" "" (let ((p (delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0))) ""))
+(expect-failure "spv proof creation should fail for insufficient funds" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 2.0))

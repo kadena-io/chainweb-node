@@ -23,7 +23,7 @@ import Pact.Types.Command (ExecutionMode(Transactional))
 import Pact.Types.Hash (hash)
 import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (peStep, TxId)
+import Pact.Types.Runtime (peStep, TxId, noSPVSupport)
 import Pact.Types.Server (CommandConfig(..), CommandEnv(..), CommandState)
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
@@ -103,16 +103,16 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
       runExec :: (MVar CommandState, Env',MVar TxId) -> Maybe Value -> Text -> IO EvalResult
       runExec (mcs, Env' pactDbEnv, txIdV) eData eCode = do
           txId <- incTxId txIdV
-          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
+          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv def
           execMsg <- buildExecParsedCode eData eCode
-          applyExec' cmdenv def execMsg [] (hash "")
+          applyExec' cmdenv def execMsg [] (hash "") noSPVSupport
 
       runCont :: (MVar CommandState, Env',MVar TxId) -> PactId -> Int -> IO EvalResult
       runCont (mcs, Env' pactDbEnv, txIdV) pactId step = do
           txId <- incTxId txIdV
           let contMsg = ContMsg pactId step False Null
-              cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv
-          applyContinuation' cmdenv def contMsg [] (hash "")
+              cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv def
+          applyContinuation' cmdenv def contMsg [] (hash "") noSPVSupport
 
       ksData :: Text -> Value
       ksData idx =

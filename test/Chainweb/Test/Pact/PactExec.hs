@@ -18,6 +18,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
 import Data.Aeson
+import Data.Default (def)
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -41,6 +42,7 @@ import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
 import Pact.Types.Logger
+import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
 import Chainweb.Graph (petersonChainGraph)
@@ -69,7 +71,7 @@ pactTestSetup = do
     let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
     let gasEnv = GasEnv (fromIntegral gasLimit) 0.0
                           (constGasModel (fromIntegral gasRate))
-    (checkpointEnv, theState) <-
+    (cpe, theState) <-
         case _ccSqlite cmdConfig of
             Nothing -> do
                 env <- mkPureEnv loggers
@@ -80,16 +82,17 @@ pactTestSetup = do
                 liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
                     (mkSQLiteState env cmdConfig)
 
-    void $! saveInitial (_cpeCheckpointer checkpointEnv) theState
+    void $! saveInitial (_cpeCheckpointer cpe) theState
+    let env = PactServiceEnv Nothing cpe P.noSPVSupport def
 
-    pure $ PactTestSetup checkpointEnv theState
+    pure $ PactTestSetup env theState
 
 
 pactExecTests :: PactTestSetup -> IO [TestTree]
 pactExecTests (PactTestSetup env st) =
-    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (testChainId 0) >> execTests) env) st
+    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (unsafeChainId 0) >> execTests) env) st
 
-execTests :: PactT [TestTree]
+execTests :: PactServiceM [TestTree]
 execTests = do
     cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
     trans <- liftIO $ mkPactTestTransactions cmdStrs
@@ -180,7 +183,7 @@ instance Show TestResponse where
            ++ "TxLogs: " ++ txLogsStr
 
 data PactTestSetup = PactTestSetup
-  { _checkpointEnv :: CheckpointEnv
+  { _pactServiceEnv :: PactServiceEnv
   , _pactDbState :: PactDbState
   }
 

@@ -1,16 +1,16 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: See LICENSE file
--- Maintainer: Mark Nichols <mark@kadena.io>
+-- Maintainers: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
 -- Pact service for Chainweb
@@ -25,21 +25,27 @@ module Chainweb.Pact.PactService
     , mkSQLiteState
     , serviceRequests
     , toCommandConfig
-    , testnet00CreateCoinContract
+    , createCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
+    , pactSpvSupport
     ) where
+
 
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Lens ((.=))
+import Control.Exception hiding (try)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
+import Crypto.Hash.Algorithms
+
 import qualified Data.Aeson as A
+import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Default (def)
@@ -67,8 +73,9 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..), isGenesisBlockHeader,BlockHeight(..))
-import Chainweb.ChainId
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.ChainId (ChainId, unsafeGetChainId)
+import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
@@ -80,13 +87,17 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
+import Chainweb.SPV
+import Chainweb.SPV.VerifyProof
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 -- genesis block (temporary)
+
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
@@ -110,6 +121,7 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", T.pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
+
 initPactService
     :: Logger logger
     => ChainwebVersion
@@ -117,21 +129,25 @@ initPactService
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
+    -> MVar (CutDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess =
-  initPactService' ver cid chainwebLogger (initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ)
+initPactService ver cid chainwebLogger reqQ memPoolAccess _cutMV =
+    initPactService' ver cid chainwebLogger spv $
+      initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
+  where
+    spv = P.noSPVSupport -- pactSpvSupport cutMV
 
 initPactService'
     :: Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> PactT a
+    -> P.SPVSupport
+    -> PactServiceM a
     -> IO a
-initPactService' ver cid chainwebLogger act = do
+initPactService' ver cid chainwebLogger spv act = do
     let loggers = pactLoggers chainwebLogger
-    let logger = P.newLogger loggers $ P.LogName
-                 ("PactService" <> T.unpack (chainIdToText cid))
+    let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let cmdConfig = toCommandConfig $ pactDbConfig ver
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     (checkpointEnv, theState) <-
@@ -156,37 +172,73 @@ initPactService' ver cid chainwebLogger act = do
             internalError' s
         Right _ -> return ()
 
-    evalStateT
-           (runReaderT act checkpointEnv)
-           theState
+    let !pd = P.PublicData def (unsafeGetChainId cid) def def
+    let !pse = PactServiceEnv Nothing checkpointEnv spv pd
 
-initialPayloadState :: ChainwebVersion -> ChainId -> PactT ()
+    evalStateT (runReaderT act pse) theState
+
+
+pactSpvSupport
+    :: MVar (CutDb cas) -> P.SPVSupport
+pactSpvSupport mv = P.SPVSupport $ \s o -> do
+    cdb <- readMVar mv
+    case s of
+      "TXOUT" -> do
+        t <- outputProofOf o
+        (TransactionOutput u) <- verifyTransactionOutputProof cdb t
+        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+        pure $! Right $! P._tObject . P._csData $ v
+      "TXIN" -> do
+        t <- inputProofOf o
+        (Transaction u) <- verifyTransactionProof cdb t
+        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
+        pure $! Right . P._tObject . P._csData $ v
+      _ -> pure $! Left "spvSupport: Unsupported SPV mode"
+  where
+    -- serialize pact object and produce an
+    -- spv proof (either in or outgoing)
+    outputProofOf o = psDecode @(TransactionOutputProof SHA512t_256)
+      . A.toJSON
+      $ P.TObject o def
+
+    inputProofOf o = psDecode @(TransactionProof SHA512t_256)
+      . A.toJSON
+      $ P.TObject o def
+
+    psDecode :: (A.FromJSON a) => A.Value -> IO a
+    psDecode a = case A.fromJSON a of
+      A.Error s -> internalError' s
+      A.Success x -> pure x
+
+    psDecode' :: (A.FromJSON a) => ByteString -> IO a
+    psDecode' b = case A.decode (b ^. lazy) of
+      Nothing -> internalError' "spvSupport: Unable to decode tx output"
+      Just x -> pure x
+
+initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState TestWithTime{} cid = testnet00CreateCoinContract cid
+initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState Simulation{} _ = return ()
-initialPayloadState Testnet00 cid = testnet00CreateCoinContract cid
+initialPayloadState v@Testnet00 cid = createCoinContract v cid
 
-testnet00CreateCoinContract :: ChainId -> PactT ()
-testnet00CreateCoinContract cid = do
+createCoinContract :: ChainwebVersion -> ChainId -> PactServiceM ()
+createCoinContract v cid = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
                            _payloadWithOutputsMiner
                            _payloadWithOutputsPayloadHash
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader Testnet00 cid
+        genesisHeader = genesisBlockHeader v cid
     txs <- execValidateBlock True genesisHeader inputPayloadData
-    case validateHashes txs genesisHeader of
-      Left e -> throwM e
-      Right _ -> return ()
-
+    bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
-serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactT ()
+serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = do
-  logInfo "Starting service"
-  go
+    logInfo "Starting service"
+    go
   where
     go = do
         msg <- liftIO $ getNextRequest reqQ
@@ -247,9 +299,9 @@ validateHashes pwo bHeader =
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++ " does not match the previously stored hash: " ++ show prevHash
 
-restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactT ()
+restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactServiceM ()
 restoreCheckpointer maybeBB = do
-  checkPointer <- asks _cpeCheckpointer
+  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   cpData <- liftIO $! case maybeBB of
     Nothing -> restoreInitial checkPointer
     Just (bHeight,bHash) -> restore checkPointer bHeight bHash
@@ -257,32 +309,33 @@ restoreCheckpointer maybeBB = do
     Left s -> closeDbAndFail s
     Right t -> updateState $! t
 
-closeDbAndFail :: String -> PactT a
+closeDbAndFail :: String -> PactServiceM a
 closeDbAndFail err = gets closePactDb >> internalError' err
 
-discardCheckpointer :: PactT ()
+discardCheckpointer :: PactServiceM ()
 discardCheckpointer = finalizeCheckpointer $ \checkPointer s -> discard checkPointer s
 
-finalizeCheckpointer :: (Checkpointer -> PactDbState -> IO (Either String ())) -> PactT ()
+finalizeCheckpointer :: (Checkpointer -> PactDbState -> IO (Either String ())) -> PactServiceM ()
 finalizeCheckpointer finalize = do
-  checkPointer <- asks _cpeCheckpointer
+  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   closeStatus <- get >>= \s -> liftIO $! finalize checkPointer s
   either closeDbAndFail return closeStatus
 
 
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
-execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactT PayloadWithOutputs
+execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactServiceM PayloadWithOutputs
 execNewBlock memPoolAccess header miner = do
-
-    let bHeight = _blockHeight header
+    let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
     newTrans <- liftIO $! memPoolAccess bHeight bHash
 
     restoreCheckpointer $ Just (bHeight, bHash)
 
-    results <- execTransactions (Just bHash) miner newTrans
+    -- locally run 'execTransactions' with updated blockheight data
+    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+      execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer
 
@@ -291,7 +344,7 @@ execNewBlock memPoolAccess header miner = do
 
 
 -- | only for use in generating genesis blocks in tools
-execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactT PayloadWithOutputs
+execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactServiceM PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
 
     restoreCheckpointer Nothing
@@ -304,25 +357,25 @@ execNewGenesisBlock miner newTrans = do
 
 
 
-logg :: String -> String -> PactT ()
-logg level msg = reader _cpeLogger >>= \l -> liftIO $ P.logLog l level msg
+logg :: String -> String -> PactServiceM ()
+logg level msg = view (psCheckpointEnv . cpeLogger)
+  >>= \l -> liftIO $ P.logLog l level msg
 
-logInfo :: String -> PactT ()
+logInfo :: String -> PactServiceM ()
 logInfo = logg "INFO"
 
-logError :: String -> PactT ()
+logError :: String -> PactServiceM ()
 logError = logg "ERROR"
 
 
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactT PayloadWithOutputs
+execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactServiceM PayloadWithOutputs
 execValidateBlock loadingGenesis currHeader plData = do
-
     miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
     -- TODO: miner data needs to be added to BlockHeader...
-    let bHeight = _blockHeight currHeader
+    let bHeight@(BlockHeight bh) = _blockHeight currHeader
         bParent = _blockParent currHeader
         bHash = _blockHash currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
@@ -335,12 +388,12 @@ execValidateBlock loadingGenesis currHeader plData = do
 
     restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
 
-    results <- execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans
+    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+      execTransactions (if isGenesisBlock then Nothing else (Just bParent)) miner trans
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
 
     return $! toPayloadWithOutputs miner results
-
 
 
 toCommandConfig :: PactDbConfig -> P.CommandConfig
@@ -358,8 +411,7 @@ mkSqliteConfig (Just f) xs = Just $ P.SQLiteConfig f xs
 mkSqliteConfig _ _ = Nothing
 
 
-
-execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction -> PactT Transactions
+execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction -> PactServiceM Transactions
 execTransactions nonGenesisParentHash miner ctxs = do
 
     currentState <- get
@@ -400,13 +452,19 @@ runCoinbase
     -> MVar P.CommandState
     -> P.ExecutionMode
     -> MinerInfo
-    -> PactT (FullLogTxOutput, P.ExecutionMode)
+    -> PactServiceM (FullLogTxOutput, P.ExecutionMode)
 runCoinbase Nothing _ _ em _ = return (noCoinbase,em)
 runCoinbase (Just parentHash) (Env' dbEnv) cmdState em mi@MinerInfo{..} = do
-  logger <- reader _cpeLogger
+  psEnv <- ask
+
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
-  ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward
+      pd = _psPublicData psEnv
+      logger = _cpeLogger . _psCheckpointEnv $ psEnv
+
+  ((result, txLogs), outEnv) <- liftIO $ applyCoinbase logger dbEnv cmdState em mi reward pd
+
   let output = A.object [ "result" A..= P._crResult result, "parentHash" A..= parentHash]
+
   pure $! (FullLogTxOutput output txLogs, P._ceMode outEnv)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
@@ -417,7 +475,7 @@ applyPactCmds
     -> Vector (P.Command PayloadWithText)
     -> P.ExecutionMode
     -> MinerInfo
-    -> PactT (Vector FullLogTxOutput, P.ExecutionMode)
+    -> PactServiceM (Vector FullLogTxOutput, P.ExecutionMode)
 applyPactCmds isGenesis env' cmdState cmds initMode miner = do
     (outs, newMode) <- V.foldM f (V.empty, initMode) cmds
     return (outs, newMode)
@@ -434,21 +492,23 @@ applyPactCmd
     -> P.Command PayloadWithText
     -> P.ExecutionMode
     -> MinerInfo
-    -> PactT (FullLogTxOutput, P.ExecutionMode)
+    -> PactServiceM (FullLogTxOutput, P.ExecutionMode)
 applyPactCmd isGenesis (Env' dbEnv) cmdState cmdIn execMode miner = do
-    cpEnv <- ask
-    let logger = _cpeLogger cpEnv
-        gasModel = P._geGasModel . _cpeGasEnv $ cpEnv
+    psEnv <- ask
+    let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
+        gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
+        pd       = _psPublicData psEnv
+        spv      = _psSpvSupport psEnv
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
     ((result, txLogs), outEnv) <- liftIO $! if isGenesis
-        then applyGenesisCmd logger dbEnv cmdState execMode cmd
-        else applyCmd logger dbEnv cmdState execMode miner gasModel cmd
+        then applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd
+        else applyCmd logger dbEnv cmdState execMode miner gasModel pd spv cmd
 
     pure $! (FullLogTxOutput (P._crResult result) txLogs, P._ceMode outEnv)
 
-updateState :: PactDbState  -> PactT ()
+updateState :: PactDbState  -> PactServiceM ()
 updateState PactDbState {..} = do
     pdbsDbEnv .= _pdbsDbEnv
     pdbsState .= _pdbsState
@@ -465,4 +525,3 @@ transactionsFromPayload plData = do
     return $ V.fromList theRights
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-----------------------------------------------------------------------------------------------------

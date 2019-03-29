@@ -111,7 +111,9 @@ propSync (txs, missing, later) localMempool =
                                                in (x', x'))
             when (c == 0) $ void act
 
-    syncThread remoteMempool = eatExceptions $ syncMempools localMempool remoteMempool
+    noLog = const $ const $ return ()
+    syncThread remoteMempool =
+        eatExceptions $ syncMempools noLog localMempool remoteMempool
 
     -- a thread that reads from a mempool subscription and calls a handler for
     -- each element that comes through the channel.

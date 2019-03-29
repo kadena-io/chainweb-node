@@ -2,6 +2,7 @@
 , rpSha ? "1ijxfwl36b9b2j4p9j3bv8vf7qfi570m1c5fjyvyac0gy0vi5g8j"
 , system ? builtins.currentSystem
 , runTests ? true
+, runCoverage ? false
 }:
 
 let rp = builtins.fetchTarball {
@@ -52,7 +53,7 @@ in
         chainweb = overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
-          doCoverage = runTests;
+          doCoverage = runCoverage;
         });
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
@@ -146,8 +147,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "caf1b25bcf02bb3c3ac2d83a561c608ef97356b1";
-          sha256 = "1g6vrsdkbw2ivqrd26sn5m6yk6j3is26j4f9ikxpna5wcnjlyc6v";
+          rev = "641542c16dfbd3806c4e646429e90027b1f3d07f";
+          sha256 = "00cpdmhqvhzfhx5cw70pxi0afpk2z6km0w7hr7y1a0nkvrcb06ci";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -157,6 +158,12 @@ in
         };
 
         wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
+
+        wai-cors = dontCheck (callHackageDirect {
+          pkg = "wai-cors";
+          ver = "0.2.6";
+          sha256 = "0rgh2698h6xc6q462lbmdb637wz2kkbnkgbhv1h7a6p3zv097dg2";
+        });
 
         yet-another-logger = callHackageDirect {
           pkg = "yet-another-logger";
@@ -179,11 +186,12 @@ in
           sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
         }) {});
 
-        merkle-log = self.callCabal2nix "merkle-log" (builtins.fetchGit {
-          url = "ssh://git@github.com/kadena-io/merkle-log.git";
+        merkle-log = dontCheck (self.callCabal2nix "merkle-log" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "merkle-log";
           rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
-          ref = "master";
-        }) {};
+          sha256 = "05132bqc6724a58kidrqs1xq68d1bmfqsdy7yk5j83ddinw7yvp1";
+        }) {});
 
         ######################################################################
         # Dependencies from pact
@@ -235,7 +243,7 @@ in
       };
     packages = {
       chainweb = gitignore.gitignoreSource
-        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-ork.md"] ./.;
+        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

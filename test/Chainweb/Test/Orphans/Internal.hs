@@ -65,7 +65,7 @@ instance Arbitrary ChainwebVersion where
 
 instance Arbitrary ChainNodeId where
     arbitrary = ChainNodeId
-      <$> pure (testChainId 0)
+      <$> pure (unsafeChainId 0)
       <*> arbitrary
 
 instance Arbitrary MerkleLogHash where
@@ -119,7 +119,7 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) (Nonce <$> chooseAny)
-            $ liftA2 (:+:) (pure (testChainId 0))
+            $ liftA2 (:+:) (pure (unsafeChainId 0))
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
             $ liftA2 (:+:) arbitrary

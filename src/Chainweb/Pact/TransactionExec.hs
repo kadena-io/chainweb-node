@@ -69,7 +69,7 @@ import qualified Pact.Types.Hash as PactHash
 
 -- internal Chainweb modules
 
-import Chainweb.Pact.Types (MinerId, MinerInfo(..), MinerKeys, GasSupply(..))
+import Chainweb.Pact.Types (MinerInfo(..), GasSupply(..))
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
@@ -90,21 +90,24 @@ applyCmd
     -> ExecutionMode
     -> MinerInfo
     -> GasModel
+    -> PublicData
+    -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel cmd = do
+applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel pd spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
-        buyGasEnv = CommandEnv Nothing (bumpExecMode startEM) pactDbEnv cmdState logger freeGasEnv
+        pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
         supply = gasSupplyOf cmd
 
-    buyGasResultE <- tryAny $ buyGas buyGasEnv cmd minerInfo supply
+    let buyGasEnv = CommandEnv Nothing (bumpExecMode startEM) pactDbEnv cmdState logger freeGasEnv pd'
+
+    buyGasResultE <- tryAny $! buyGas buyGasEnv cmd spv minerInfo supply
 
     case buyGasResultE of
 
       Left e1 ->
-
         jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0)
           "tx failure for requestKey when buying gas"
 
@@ -115,11 +118,11 @@ applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel cmd = do
         (pactId,buyGasLogs) <- either internalError pure buyGasResult
         logDebugRequestKey logger requestKey "successful gas buy for request key"
 
-        -- Note the use of 'def' here: we run the payload normally without inserting
-        -- initial state.
+        let payloadEnv = set ceGasEnv userGasEnv
+              $ set cePublicData pd'
+              $ incrementExecMode buyGasEnv
 
-        let payloadEnv = set ceGasEnv userGasEnv $ incrementExecMode buyGasEnv
-        cmdResultE <- tryAny $ runPayload payloadEnv def cmd buyGasLogs
+        cmdResultE <- tryAny $! runPayload payloadEnv def cmd spv buyGasLogs
 
         case cmdResultE of
 
@@ -133,7 +136,7 @@ applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel cmd = do
             logDebugRequestKey logger requestKey "success for requestKey"
 
             let redeemGasEnv = set ceGasEnv freeGasEnv $ incrementExecMode payloadEnv
-            redeemResultE <- tryAny $ redeemGas redeemGasEnv cmd cmdResult pactId supply cmdLogs
+            redeemResultE <- tryAny $! redeemGas redeemGasEnv cmd cmdResult pactId supply spv cmdLogs
 
             case redeemResultE of
 
@@ -153,22 +156,24 @@ applyGenesisCmd
     -> PactDbEnv p
     -> MVar CommandState
     -> ExecutionMode
+    -> PublicData
+    -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyGenesisCmd logger dbEnv cmdState execMode cmd = do
-
+applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd = do
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv
-        requestKey = cmdToRequestKey cmd
 
+    let pd' = set pdPublicMeta (publicMetaOf cmd) pd
+    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd'
+        requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
 
-    resultE <- tryAny $ runPayload cmdEnv initState cmd []
-
+    resultE <- tryAny $! runPayload cmdEnv initState cmd spv []
     case resultE of
 
       Left e ->
+
         jsonErrorResult cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
 
@@ -184,13 +189,13 @@ applyCoinbase
     -> ExecutionMode
     -> MinerInfo
     -> Decimal
+    -> PublicData
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyCoinbase logger dbEnv cmdState execMode minerInfo reward = do
+applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
 
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv
+    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd
         coinbaseReq = RequestKey $ PactHash.hash "COINBASE"
-
 
     resultE <- tryAny $ coinbase cmdEnv minerInfo reward coinbaseReq
 
@@ -233,13 +238,14 @@ runPayload
     :: CommandEnv p
     -> EvalState
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> [TxLog Value] -- log state
     -> IO (CommandResult, [TxLog Value])
-runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
+runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload of
     Exec pm ->
-      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash txLogs
+      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash spv txLogs
     Continuation ym ->
-      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash txLogs
+      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash spv txLogs
 
 applyExec
     :: CommandEnv p
@@ -248,28 +254,31 @@ applyExec
     -> ExecMsg ParsedCode
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyExec env@CommandEnv{..} initState rk em senderSigs hash prevLogs = do
-  EvalResult{..} <- applyExec' env initState em senderSigs hash
-  return (jsonResult _ceMode rk _erGas $
-          CommandSuccess (last _erOutput), prevLogs <> _erLogs)
+applyExec env@CommandEnv{..} initState rk em senderSigs hash spv prevLogs = do
+    EvalResult{..} <- applyExec' env initState em senderSigs hash spv
+    return (jsonResult _ceMode rk _erGas $
+            CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
 applyExec'
-    :: CommandEnv p
+    ::CommandEnv p
     -> EvalState
     -> ExecMsg ParsedCode
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> IO EvalResult
-applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash = do
+applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash spv = do
     when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
     (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv permissiveNamespacePolicy noSPVSupport
+                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv
+                  permissiveNamespacePolicy spv _cePublicData
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
     newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
     let newPacts = case newCmdPact of
@@ -295,10 +304,11 @@ applyContinuation
     -> ContMsg
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash prevLogs = do
-  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash
+applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash spv prevLogs = do
+  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash spv
   pure $! (jsonResult _ceMode rk _erGas $
            CommandSuccess (last _erOutput), prevLogs <> _erLogs)
 
@@ -308,8 +318,9 @@ applyContinuation'
     -> ContMsg
     -> [UserSig]
     -> Hash
+    -> SPVSupport
     -> IO EvalResult
-applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash =
+applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash spv =
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
@@ -344,7 +355,8 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
                                 _csRefStore
                                 _ceGasEnv
                                 permissiveNamespacePolicy
-                                noSPVSupport
+                                spv
+                                _cePublicData
                     res <- tryAny $ evalContinuationState initState evalEnv _peContinuation
           -- Update pact's state
                     case res of
@@ -366,7 +378,7 @@ rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
     -- Therefore, pact will be deleted from state.
     let newState = CommandState _csRefStore $ Map.delete _cmPactId _csPacts
     logLog _ceLogger "DEBUG" $
-        "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
+      "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
     void $! swapMVar _ceState newState
 
 continuationUpdate
@@ -396,18 +408,22 @@ continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} newPactExec@PactE
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
+--
+-- see: pact/coin-contract/coin.pact#fund-tx
+--
 buyGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
+    -> SPVSupport
     -> MinerInfo
     -> GasSupply
-    -> IO (Either Text (PactId,[TxLog Value]))
-buyGas env cmd (MinerInfo minerId minerKeys) (GasSupply supply) = do
+    -> IO (Either Text (PactId, [TxLog Value]))
+buyGas env cmd spv (MinerInfo minerId minerKeys) (GasSupply supply) = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = initCapabilities [magic_FUND_TX]
 
     buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
-    result <- applyExec' env initState buyGasCmd (_cmdSigs cmd) (_cmdHash cmd)
+    result <- applyExec' env initState buyGasCmd (_cmdSigs cmd) (_cmdHash cmd) spv
     pure $! case _erExec result of
       Nothing ->
         Left "buyGas: Internal error - empty continuation"
@@ -415,21 +431,25 @@ buyGas env cmd (MinerInfo minerId minerKeys) (GasSupply supply) = do
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
+--
+-- see: pact/coin-contract/coin.pact#fund-tx
+--
 redeemGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
     -> CommandResult -- ^ result from the user command payload
     -> PactId        -- ^ result of the buy-gas continuation
     -> GasSupply     -- ^ the total calculated supply of gas (as Decimal)
+    -> SPVSupport
     -> [TxLog Value]       -- ^ previous txlogs
     -> IO (CommandResult, [TxLog Value])
-redeemGas env cmd cmdResult pactId (GasSupply supply) prevLogs = do
+redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities [magic_FUND_TX]
 
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
-      (_cmdSigs cmd) (_cmdHash cmd) prevLogs
+      (_cmdSigs cmd) (_cmdHash cmd) spv prevLogs
   where
     redeemGasCmd fee total pid = ContMsg pid 1 False $ object
       [ "fee" .= feeOf total fee
@@ -440,7 +460,7 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) prevLogs = do
 -- | The miner reward function (i.e. 'coinbase'). Miners are rewarded
 -- on a per-block, rather than a per-transaction basis.
 --
--- See: 'pact/coin-contract/coin-contract.pact#coinbase'
+-- See: 'pact/coin-contract/coin.pact#coinbase'
 --
 coinbase
     :: CommandEnv p
@@ -450,25 +470,27 @@ coinbase
     -> IO (CommandResult, [TxLog Value])
 coinbase env (MinerInfo minerId minerKeys) reward rk@(RequestKey h) = do
     let initState = initCapabilities [magic_COINBASE]
+
     coinbaseCmd <- mkCoinbaseCmd minerId minerKeys reward
-    applyExec env initState rk coinbaseCmd [] h []
+    applyExec env initState rk coinbaseCmd [] h noSPVSupport []
 
 ------------------------------------------------------------------------------
 -- Command Builders
 ------------------------------------------------------------------------------
 
 -- | Build the 'coin-contract.buygas' command
+--
 mkBuyGasCmd
-    :: MinerId   -- ^ Id of the miner to fund
-    -> MinerKeys -- ^ Miner keyset
-    -> Text      -- ^ Address of the sender from the command
-    -> Decimal   -- ^ The gas limit total * price
+    :: Text    -- ^ Id of the miner to fund
+    -> KeySet  -- ^ Miner keyset
+    -> Text    -- ^ Address of the sender from the command
+    -> Decimal -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd minerId minerKeys sender total =
     buildExecParsedCode buyGasData
       [text|
         (coin.fund-tx '$sender '$minerId (read-keyset 'miner-keyset) (read-decimal 'total))
-      |]
+        |]
   where
     buyGasData = Just $ object
       [ "miner-keyset" .= minerKeys
@@ -476,11 +498,17 @@ mkBuyGasCmd minerId minerKeys sender total =
       ]
 {-# INLINABLE mkBuyGasCmd #-}
 
-mkCoinbaseCmd :: MinerId -> MinerKeys -> Decimal -> IO (ExecMsg ParsedCode)
-mkCoinbaseCmd minerId minerKeys reward = buildExecParsedCode coinbaseData
-    [text| (coin.coinbase '$minerId (read-keyset 'miner-keyset) (read-decimal 'reward)) |]
+mkCoinbaseCmd :: Text -> KeySet -> Decimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd minerId minerKeys reward =
+    buildExecParsedCode coinbaseData
+      [text|
+        (coin.coinbase '$minerId (read-keyset 'miner-keyset) (read-decimal 'reward))
+        |]
   where
-    coinbaseData = Just $ object [ "miner-keyset" .= minerKeys, "reward" .= reward ]
+    coinbaseData = Just $ object
+      [ "miner-keyset" .= minerKeys
+      , "reward" .= reward
+      ]
 {-# INLINABLE mkCoinbaseCmd #-}
 
 -- | Initialize a fresh eval state with magic capabilities.
@@ -492,10 +520,12 @@ initCapabilities cs = set (evalCapabilities . capGranted) cs def
 
 mkMagicCap :: Text -> Capability
 mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+{-# INLINABLE mkMagicCap #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into
 -- the 'ExecMsg'.
+--
 buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
@@ -509,9 +539,14 @@ buildExecParsedCode value code = maybe (go Null) go value
 -- Helpers
 ------------------------------------------------------------------------------
 
+-- | Create a gas environment from a verified command
+--
 mkGasEnvOf :: Command (Payload PublicMeta c) -> GasModel -> GasEnv
 mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel
 {-# INLINABLE mkGasEnvOf #-}
+
+publicMetaOf :: Command(Payload PublicMeta c) -> PublicMeta
+publicMetaOf = _pMeta . _cmdPayload
 
 gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
 gasSupplyOf cmd =
@@ -521,10 +556,12 @@ gasSupplyOf cmd =
 {-# INLINABLE gasSupplyOf #-}
 
 -- | Log request keys at DEBUG when successful
+--
 logDebugRequestKey :: Logger -> RequestKey -> String -> IO ()
 logDebugRequestKey l k reason = logLog l "DEBUG" $ reason <> ": " <> show k
 
 -- | Log request keys and error message at ERROR when failed
+--
 logErrorRequestKey
     :: Exception e
     => Logger -> RequestKey -> e -> String -> IO ()
@@ -532,7 +569,8 @@ logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
     <> ": " <> show k
     <> ": " <> show e
 
-
+-- | Bump the tx id for a given transaction
+--
 bumpExecMode :: ExecutionMode -> ExecutionMode
 bumpExecMode (Transactional (TxId txId)) = Transactional (TxId (succ txId))
 bumpExecMode otherMode = otherMode

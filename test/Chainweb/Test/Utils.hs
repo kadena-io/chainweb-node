@@ -217,7 +217,7 @@ tree v g = do
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = return $ genesisBlockHeader v (testChainId 0)
+genesis v = return $ genesisBlockHeader v (unsafeChainId 0)
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h

@@ -16,7 +16,15 @@
 --
 -- Generate legal genesis blocks, as well as their payloads.
 --
--- Eru Ilúvatar spoke "Eä", creating the heavens and the earth.
+-- > In the beginning Eru, the One, who in the Elvish tongue is named Ilúvatar,
+-- > made the Ainur of his thought; and they made a great Music before him. In
+-- > this Music the World was begun; for Ilúvatar made visible the song of the
+-- > Ainur, and they beheld it as a light in the darkness. And many among them
+-- > became enamoured of its beauty, and of its history which they saw beginning
+-- > and unfolding as in a vision. Therefore Ilúvatar gave to their vision Being,
+-- > and set it amid the Void, and the Secret Fire was sent to burn at the heart
+-- > of the World; and it was called Eä.  -- The Silmarillion - Ainulindalë
+--
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
 module Main ( main ) where
@@ -42,7 +50,7 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisTime)
-import Chainweb.ChainId (testChainId)
+import Chainweb.ChainId (unsafeChainId)
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
@@ -55,6 +63,7 @@ import Chainweb.Version
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
+import Pact.Types.Runtime (noSPVSupport)
 
 ---
 
@@ -108,7 +117,7 @@ moduleName = T.toTitle . chainwebVersionToText
 headers :: ChainwebVersion -> Word16 -> BlockCreationTime -> [BlockHeader]
 headers v cs ct = take (fromIntegral cs) $ map f [0..]
   where
-    f cid = mineGenesis v (testChainId cid) ct (Nonce 0)
+    f cid = mineGenesis v (unsafeChainId cid) ct (Nonce 0)
 
 headerModule :: ChainwebVersion -> [BlockHeader] -> Text
 headerModule v hs = T.unlines $
@@ -161,7 +170,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 (testChainId 0) logger $
+    payloadWO <- initPactService' Testnet00 (unsafeChainId 0) logger noSPVSupport $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
