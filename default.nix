@@ -81,6 +81,12 @@ in
           sha256 = "1lww53vn38pin1kw87bambqjd7f4bsw1b5ix77zclvg4gj257pm1";
         };
 
+        wai-middleware-throttle = callHackageDirect {
+          pkg = "wai-middleware-throttle";
+          ver = "0.3.0.0";
+          sha256 = "01ay49qwa5g0x00khzn2kxw58bzmafs5n32bz4g4lf14mw7dway7";
+        };
+
         strict-tuple = callHackageDirect {
           pkg = "strict-tuple";
           ver = "0.1.2";

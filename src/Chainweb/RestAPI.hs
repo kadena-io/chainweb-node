@@ -66,6 +66,7 @@ import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 
 import Network.Socket
+import Network.Wai (Middleware)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
 import Network.Wai.Metrics
@@ -262,9 +263,10 @@ serveChainwebSocketTls
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs
-    = runTLSSocket tlsSettings settings sock app
+serveChainwebSocketTls settings certChain key sock v dbs m
+    = runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings = tlsServerChainSettings certChain key
     app = chainwebApplication v dbs
@@ -282,11 +284,12 @@ serveChainwebSocketTlsEkg
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Middleware
     -> IO ()
-serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs = do
+serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs m = do
     store <- serverMetricStore <$> forkServer "127.0.0.1" (int ekgPort)
     waiMetrics <- registerWaiMetrics store
-    runTLSSocket tlsSettings settings sock $ (metrics waiMetrics) app
+    runTLSSocket tlsSettings settings sock $ (metrics waiMetrics) $ m app
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
     app = chainwebApplication v dbs
