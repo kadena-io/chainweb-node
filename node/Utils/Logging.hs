@@ -112,6 +112,7 @@ import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
+import Network.Wai (Middleware)
 import Network.Wai.UrlMap
 
 import System.IO
@@ -567,7 +568,7 @@ withJsonEventSourceBackend port inner = do
     c <- newChan
     snd <$> concurrently (serve c) (inner $ backend c)
   where
-    serve c = W.run port $ simpleCors $ eventSourceAppChan c
+    serve c = W.run port $ loggingCors $ eventSourceAppChan c
     backend c = writeChan c
         . ServerEvent Nothing Nothing
         . pure
@@ -602,9 +603,14 @@ withJsonEventSourceAppBackend port staticDir inner = do
     app c = mapUrls
         $ mount "frontendapp" (staticApp $ defaultWebAppSettings staticDir)
         <|> mount "frontend" (staticApp $ defaultFileServerSettings staticDir)
-        <|> mount "events" (simpleCors $ eventSourceAppChan c)
-        -- <|> mountRoot (simpleCors $ eventSourceAppChan c)
+        <|> mount "events" (loggingCors $ eventSourceAppChan c)
+        -- <|> mountRoot (loggingCors $ eventSourceAppChan c)
 
+-- Simple cors with actualy simpleHeaders which includes content-type.
+loggingCors :: Middleware
+loggingCors = cors $ const $ Just $ simpleCorsResourcePolicy
+  { corsRequestHeaders = simpleHeaders
+  }
 -- -------------------------------------------------------------------------- --
 -- Out-Of-The-Box Logger
 

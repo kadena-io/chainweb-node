@@ -79,6 +79,7 @@ slow-tests:
     - linux
   script:
     - echo This is a master slow test run.
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - result/ghc/chainweb/bin/slow-tests
 
 pages:

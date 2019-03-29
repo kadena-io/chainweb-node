@@ -159,6 +159,12 @@ in
 
         wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
 
+        wai-cors = dontCheck (callHackageDirect {
+          pkg = "wai-cors";
+          ver = "0.2.6";
+          sha256 = "0rgh2698h6xc6q462lbmdb637wz2kkbnkgbhv1h7a6p3zv097dg2";
+        });
+
         yet-another-logger = callHackageDirect {
           pkg = "yet-another-logger";
           ver = "0.3.1";
