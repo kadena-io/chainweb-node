@@ -21,13 +21,16 @@ module Chainweb.Test.Pact.Utils
 , mkPactTransaction
 ) where
 
-import Data.Aeson (Value, object, (.=))
+import Control.Monad.Catch
+
+import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import Data.Maybe
+import qualified Data.ByteString.Char8 as BS
 import Data.Text (Text, pack)
+import Data.Text.Encoding
+import Data.Time.Clock
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -36,6 +39,7 @@ import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
+import Pact.Types.API
 import Pact.Types.Util (toB16Text)
 import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
@@ -45,6 +49,7 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Transaction
+import Chainweb.Utils
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -55,6 +60,7 @@ testKeyPairs = do
 testPactFilesDir :: String
 testPactFilesDir = "test/config/"
 
+-- | note this is "sender00"'s key
 someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 someED25519Pair =
     ( PubBS $ getByteString
@@ -86,19 +92,30 @@ mkPactTestTransactions cmdStrs = do
     kps <- testKeyPairs
     let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
     -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
-    vMaybes <- traverse (mkPactTransaction kps theData "1") cmdStrs
-    return $ V.map fromJust (V.filter isJust vMaybes)
+    traverse (mkPactTransaction kps theData "1") cmdStrs
 
 mkPactTransaction
   :: [SomeKeyPair]
   -> Value
   -> Text
   -> String
-  -> IO (Maybe ChainwebTransaction)
+  -> IO ChainwebTransaction
 mkPactTransaction keyPairs theData nonce theCode = do
     let pubMeta = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
     cmdBS <- mkCommand keyPairs pubMeta nonce $
         Exec (ExecMsg (pack theCode) theData)
-    return $ case verifyCommand cmdBS of
-        ProcSucc cmd -> Just $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
-        ProcFail{} -> Nothing
+    case verifyCommand cmdBS of
+        ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+        ProcFail err -> throwM . userError $ err
+
+
+-- | testKeyPairs >>= _mkPactTransaction' Null "(+ 1 2")
+_mkPactTransaction'
+  :: Value
+  -> String
+  -> [SomeKeyPair]
+  -> IO ()
+_mkPactTransaction' theData theCode kps = do
+  nonce <- pack . show <$> getCurrentTime
+  t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
+  BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
