@@ -16,7 +16,15 @@
 --
 -- Generate legal genesis blocks, as well as their payloads.
 --
--- Eru Ilúvatar spoke "Eä", creating the heavens and the earth.
+-- > In the beginning Eru, the One, who in the Elvish tongue is named Ilúvatar,
+-- > made the Ainur of his thought; and they made a great Music before him. In
+-- > this Music the World was begun; for Ilúvatar made visible the song of the
+-- > Ainur, and they beheld it as a light in the darkness. And many among them
+-- > became enamoured of its beauty, and of its history which they saw beginning
+-- > and unfolding as in a vision. Therefore Ilúvatar gave to their vision Being,
+-- > and set it amid the Void, and the Secret Fire was sent to burn at the heart
+-- > of the World; and it was called Eä.  -- The Silmarillion - Ainulindalë
+--
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
 module Main ( main ) where
