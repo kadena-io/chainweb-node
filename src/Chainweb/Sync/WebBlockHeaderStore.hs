@@ -273,6 +273,10 @@ getBlockPayload s priority maybeOrigin h = do
 -- computations are memoized and shared. The results are stored in the provided
 -- CAS storage.
 --
+-- NOTE: This fetches all prerequesites of a block recursively. It works best
+-- for relatively shallow queries. For synchronizing longer/deeper forks an
+-- iterative algorithm is preferable.
+--
 getBlockHeaderInternal
     :: PayloadCas payloadCas
     => WebBlockHeaderStore
@@ -288,21 +292,21 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         -- query BlockHeader via origin or query BlockHeader via task queue of
         -- P2P network
         --
-        header <- pullOrigin k maybeOrigin >>= \case
+        (maybeOrigin', header) <- pullOrigin k maybeOrigin >>= \case
             Nothing -> do
                 t <- queryBlockHeaderTask k
                 pQueueInsert queue t
                 ChainValue _ x <- awaitTask t
-                return x
-            Just x -> return x
+                return (Nothing, x)
+            Just x -> return (maybeOrigin, x)
 
         let queryPrerequesiteHeader p = Concurrently $ void $ do
                 logg Debug $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
-                getBlockHeaderInternal headerStore payloadStore priority maybeOrigin p
+                getBlockHeaderInternal headerStore payloadStore priority maybeOrigin' p
 
         p <- runConcurrently
             -- query payload
-            $ Concurrently (getBlockPayload payloadStore priority maybeOrigin header)
+            $ Concurrently (getBlockPayload payloadStore priority maybeOrigin' header)
 
             -- query parent (recursively)
             <* queryPrerequesiteHeader (_blockParent <$> chainValue header)
