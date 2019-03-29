@@ -67,10 +67,16 @@ getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-syncSession :: ChainwebVersion -> PeerInfo -> CutDb cas -> P2pSession
-syncSession v p db logg env = do
+syncSession
+    :: ChainwebVersion
+    -> Bool
+        -- ^ Whether to include the local peer as origin in outgoing cuts.
+    -> PeerInfo
+    -> CutDb cas
+    -> P2pSession
+syncSession v useOrigin p db logg env = do
     race_
-        (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
+        (S.mapM_ send $ S.map (cutToCutHashes origin) $ cutStream db)
         (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
             -- Usually we rely on blocks being pushed to us, but every 3
             -- seconds we pull.
@@ -92,4 +98,6 @@ syncSession v p db logg env = do
         c <- getCut cenv
         logg @T.Text Debug $ "got cut " <> sshow c
         addCutHashes db c
+
+    origin = if useOrigin then Just p else Nothing
 

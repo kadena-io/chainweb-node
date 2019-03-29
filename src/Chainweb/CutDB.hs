@@ -33,6 +33,7 @@ module Chainweb.CutDB
 , cutDbConfigBufferSize
 , cutDbConfigLogLevel
 , cutDbConfigTelemetryLevel
+, cutDbConfigUseOrigin
 , defaultCutDbConfig
 
 -- * CutDb
@@ -120,6 +121,7 @@ data CutDbConfig = CutDbConfig
     , _cutDbConfigBufferSize :: !Natural
     , _cutDbConfigLogLevel :: !LogLevel
     , _cutDbConfigTelemetryLevel :: !LogLevel
+    , _cutDbConfigUseOrigin :: !Bool
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -134,6 +136,7 @@ defaultCutDbConfig v = CutDbConfig
         -- It shouldn't be too big.
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
+    , _cutDbConfigUseOrigin = True
     }
 
 -- -------------------------------------------------------------------------- --
