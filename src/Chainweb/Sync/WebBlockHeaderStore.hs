@@ -300,19 +300,17 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
                 logg Debug $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
                 getBlockHeaderInternal headerStore payloadStore priority maybeOrigin p
 
-        runConcurrently $ mconcat
+        p <- runConcurrently
+            -- query payload
+            $ Concurrently (getBlockPayload payloadStore priority maybeOrigin header)
+
             -- query parent (recursively)
-            $ queryPrerequesiteHeader (_blockParent <$> chainValue header)
+            <* queryPrerequesiteHeader (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            : (queryPrerequesiteHeader <$> adjParents header)
+            <* mconcat (queryPrerequesiteHeader <$> adjParents header)
 
-        -- TODO: do this concurrently
-        --
-        -- query payload
-        logg Debug $ "getBlockHeaderInternal query payload for " <> sshow h
-        p <- getBlockPayload payloadStore priority maybeOrigin header
-        logg Debug $ "getBlockHeaderInternal got payload for " <> sshow h <> ": " <> sshow p
+        logg Debug $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 
         -- Validate block header
         --
