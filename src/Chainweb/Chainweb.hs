@@ -163,6 +163,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configP2p :: !P2pConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
+    , _configIncludeOrigin :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -184,6 +185,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configP2p = defaultP2pConfiguration
     , _configChainDbDirPath = Nothing
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
+    , _configIncludeOrigin = True
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -194,6 +196,7 @@ instance ToJSON ChainwebConfiguration where
         , "p2p" .= _configP2p o
         , "chainDbDirPath" .= _configChainDbDirPath o
         , "transactionIndex" .= _configTransactionIndex o
+        , "includeOrigin" .= _configIncludeOrigin o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -204,6 +207,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configP2p %.: "p2p" % o
         <*< configChainDbDirPath ..: "chainDbDirPath" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
+        <*< configIncludeOrigin ..: "includeOrigin" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -222,6 +226,9 @@ pChainwebConfiguration = id
         <> help "directory where chain databases are persisted"
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
+    <*< configIncludeOrigin .:: enableDisableFlag
+        % long "include-origin"
+        <> help "whether to include the local peer as origin when publishing cut hashes"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -355,6 +362,7 @@ withChainwebInternal conf logger peer payloadDb inner = do
     cutConfig = (defaultCutDbConfig v)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
+        , _cutDbConfigUseOrigin = _configIncludeOrigin conf
         }
 
 -- | Starts server and runs all network clients
