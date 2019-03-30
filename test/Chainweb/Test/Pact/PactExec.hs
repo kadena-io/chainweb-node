@@ -15,7 +15,7 @@ module Chainweb.Test.Pact.PactExec where
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State
+import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Default (def)

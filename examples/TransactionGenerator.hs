@@ -28,7 +28,7 @@ import Control.Lens hiding ((.=), op)
 import Control.Monad.Except
 import Control.Monad.Primitive
 import Control.Monad.Reader hiding (local)
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 import Data.ByteString (ByteString)
 import Data.Default (Default(..), def)

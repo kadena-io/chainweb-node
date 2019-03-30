@@ -24,7 +24,7 @@ import Numeric.Natural
 import Control.Concurrent.MVar
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader (ReaderT, runReaderT)
-import Control.Monad.State (StateT, runStateT)
+import Control.Monad.State.Strict (StateT, runStateT)
 
 import Data.Aeson
 import Data.Default (def)
