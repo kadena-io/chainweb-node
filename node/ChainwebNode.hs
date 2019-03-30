@@ -62,6 +62,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader (NewMinedBlock)
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
@@ -69,9 +70,9 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
+import Chainweb.Utils.RequestLog
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
-import Chainweb.BlockHeader (NewMinedBlock)
 
 import Data.CAS.HashMap
 import Data.LogMessage
@@ -206,6 +207,8 @@ withNodeLogger logConfig v f = runManaged $ do
         teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+    requestLogBackend <- managed
+        $ mkTelemetryLogger @RequestLog mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -214,6 +217,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler rtsBackend
             , logHandler counterBackend
             , logHandler newBlockBackend
+            , logHandler requestLogBackend
             ] baseBackend
 
     liftIO $ f

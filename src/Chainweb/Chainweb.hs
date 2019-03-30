@@ -101,6 +101,7 @@ import GHC.Generics hiding (from)
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
+import Network.Wai
 import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
@@ -131,6 +132,7 @@ import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -442,9 +444,13 @@ runChainweb cw = do
                 , _chainwebServerPactDbs = pactDbsToServe
                 }
 
+        -- HTTP Request Logger
+        httpLog :: Middleware
+        httpLog = requestLogger $ setComponent "http" (_chainwebLogger cw)
+
     -- 1. start server
     --
-    withAsync (serve $ throttle $ _chainwebThrottler cw) $ \server -> do
+    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \server -> do
         logg Info "started server"
 
         -- Configure Clients
@@ -474,3 +480,4 @@ runChainweb cw = do
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
+

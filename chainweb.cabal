@@ -157,6 +157,7 @@ library
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
+        , Chainweb.Utils.RequestLog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -250,6 +251,7 @@ library
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
+        , http-types >= 0.12
         , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
