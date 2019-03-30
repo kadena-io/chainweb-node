@@ -40,7 +40,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 import Crypto.Hash.Algorithms
 

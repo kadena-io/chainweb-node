@@ -53,8 +53,8 @@ module Chainweb.Pact.Types
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 
 import Data.Aeson as A
 import Data.Decimal (Decimal)
