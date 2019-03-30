@@ -25,9 +25,13 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 
+import Pact.Types.Command
+import Data.Aeson (Value)
+
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
   , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
+  , _pactLocal :: ChainwebTransaction -> IO (Either SomeException (CommandSuccess Value))
   }
 
 newtype WebPactExecutionService = WebPactExecutionService
@@ -39,6 +43,7 @@ mkWebPactExecutionService :: HM.HashMap ChainId PactExecutionService -> WebPactE
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
   , _pactNewBlock = \m h -> withChainService h $ \p -> _pactNewBlock p m h
+  , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
   }
   where withChainService h act = case HM.lookup (_chainId h) hm of
           Just p -> act p
@@ -58,6 +63,9 @@ mkPactExecutionService mempool q = PactExecutionService
       case r of
         Right pdo -> return pdo
         Left e -> throwM e
+  , _pactLocal = \ct -> do
+      mv <- local ct q
+      takeMVar mv
   }
 
 -- TODO: to support mempool transaction reintroduction we need to hook into
@@ -74,4 +82,3 @@ markAllConfirmed mempool payload = mempoolMarkConfirmed mempool txHashes
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
     !txHashes = V.fromList $ map (txHasher txcfg) decodedTxs
-

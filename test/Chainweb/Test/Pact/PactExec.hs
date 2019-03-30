@@ -15,7 +15,7 @@ module Chainweb.Test.Pact.PactExec where
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State
+import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Default (def)
@@ -89,8 +89,9 @@ pactTestSetup = do
 
 
 pactExecTests :: PactTestSetup -> IO [TestTree]
-pactExecTests (PactTestSetup env st) =
-    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (unsafeChainId 0) >> execTests) env) st
+pactExecTests (PactTestSetup env st) = do
+    let pss = PactServiceState st Nothing
+    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (unsafeChainId 0) >> execTests) env) pss
 
 execTests :: PactServiceM [TestTree]
 execTests = do

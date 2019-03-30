@@ -507,7 +507,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    putLog a = HTTP.defaultRequest
+    _putLog a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
@@ -642,4 +642,3 @@ withExampleLogger port config staticDir f = do
                     baseBackend
                         -- The type system enforces that backend is a base logger.
             L.withLogger (_logConfigLogger config) loggerBackend f
-

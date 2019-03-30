@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
@@ -10,6 +11,7 @@
 
 module Chainweb.Pact.Service.Types where
 
+import Data.Aeson (Value)
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 import Data.Aeson (FromJSON,ToJSON)
@@ -19,23 +21,15 @@ import GHC.Generics
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.Transaction
 
 import Pact.Types.Command
 
-data RequestMsg = NewBlockMsg NewBlockReq
-                | ValidateBlockMsg ValidateBlockReq
-                | LocalMsg LocalReq
-                | CloseMsg
-
-data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: BlockHeader
-    , _newMiner :: MinerInfo
-    , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
-    }
 
 data PactException
   = BlockValidationFailure Text
   | PactInternalError Text
+  | NoBlockValidatedYet
   deriving (Eq,Show,Generic)
 
 instance ToJSON PactException
@@ -50,13 +44,28 @@ internalError = throwM . PactInternalError
 internalError' :: MonadThrow m => String -> m a
 internalError' = internalError . pack
 
+data RequestMsg = NewBlockMsg NewBlockReq
+                | ValidateBlockMsg ValidateBlockReq
+                | LocalMsg LocalReq
+                | CloseMsg
+                deriving (Show)
+
+data NewBlockReq = NewBlockReq
+    { _newBlockHeader :: BlockHeader
+    , _newMiner :: MinerInfo
+    , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
+    }
+instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valPayloadData :: PayloadData
     , _valResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
+instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
 
 data LocalReq = LocalReq
-    { _localRequest :: Command Text
-    , _localResultVar :: MVar (Either PactException FullLogTxOutput)
+    { _localRequest :: ChainwebTransaction
+    , _localResultVar :: MVar (Either SomeException (CommandSuccess Value))
     }
+instance Show LocalReq where show LocalReq{..} = show (_localRequest)
