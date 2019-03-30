@@ -380,6 +380,7 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , exceptions
         , extra >= 1.6
         , filepath >= 1.4
         , extra >= 1.6
@@ -414,6 +415,7 @@ test-suite chainweb-tests
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , text >=1.2
+        , time
         , these >= 0.7
         , transformers >= 0.5
         , unordered-containers >= 0.2
