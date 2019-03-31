@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
@@ -62,7 +63,7 @@ type AdjacencySets = HM.HashMap Int (HS.HashSet Int)
 -- set is a prefix of the natural numbers.
 --
 fromAdjacencySets :: AdjacencySets -> DenseAdjMatrix
-fromAdjacencySets g = makeArray Seq (n :. n) go
+fromAdjacencySets g = makeArray Seq (Sz (n :. n)) go
   where
     n = HM.size g
     go (i :. j)
@@ -119,7 +120,7 @@ distance (ShortestPathMatrix m) src trg
 diameter :: ShortestPathMatrix -> Maybe Double
 diameter (ShortestPathMatrix m)
     | M.isEmpty m = Just 0
-    | otherwise = toDistance $ M.maximum $ M.map fst m
+    | otherwise = toDistance $ maximum' $ M.map fst m
 
 -- -------------------------------------------------------------------------- --
 -- Internal
@@ -153,10 +154,10 @@ floydWarshallInternal
     -> Array U Ix2 (Double,Int)
 floydWarshallInternal a = foldl' go a [0..n-1]
   where
-    (n :. _) = size a
+    Sz (n :. _) = size a
 
     go :: Array U Ix2 (Double, Int) -> Int -> Array U Ix2 (Double,Int)
-    go c k = makeArray Seq (n :. n) $ \(x :. y) ->
+    go c k = makeArray Seq (Sz (n :. n)) $ \(x :. y) ->
         let
             !xy = fst $! c M.! (x :. y)
             !xk = fst $! c M.! (x :. k)
@@ -189,10 +190,10 @@ floydWarshall_
     -> Array U Ix2 Double
 floydWarshall_ a = foldl' go a [0..n-1]
   where
-    (n :. _) = size a
+    Sz (n :. _) = size a
 
     go :: Array U Ix2 Double -> Int -> Array U Ix2 Double
-    go c k = makeArray Seq (n :. n) $ \(x :. y) ->
+    go c k = makeArray Seq (Sz (n :. n)) $ \(x :. y) ->
         let
             !xy = c M.! (x :. y)
             !xk = c M.! (x :. k)
@@ -207,5 +208,5 @@ shortestPaths_ = floydWarshall_ . computeAs U . distMatrix_
 diameter_ :: Array U Ix2 Int -> Maybe Natural
 diameter_ g
     | M.isEmpty g = Just 0
-    | otherwise = let x = round $ M.maximum $ shortestPaths_ g
+    | otherwise = let x = round $ maximum' $ shortestPaths_ g
         in if x == round (1/0 :: Double) then Nothing else Just x

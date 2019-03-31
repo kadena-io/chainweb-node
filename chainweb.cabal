@@ -256,7 +256,7 @@ library
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , memory >= 0.14
         , memory >=0.14
         , merkle-log
@@ -396,7 +396,7 @@ test-suite chainweb-tests
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3
@@ -570,7 +570,7 @@ executable slow-tests
         , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
