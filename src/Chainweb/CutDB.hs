@@ -274,10 +274,16 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
+    & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
+    & S.chain (\_ -> logFun @T.Text Info "fetch all prerequesites for cut")
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
+    & S.chain (either
+        (\_ -> logFun @T.Text Warn "failed to get prerequesites for some blocks at")
+        (\_ -> logFun @T.Text Info "got all prerequesites of cut")
+        )
     & S.concat
         -- ignore left values for now
     & S.scanM
