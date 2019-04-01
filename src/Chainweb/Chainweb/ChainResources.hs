@@ -129,7 +129,7 @@ withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
                 , _chainResLogger = logger
                 , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
-                , _chainResPact = mkPactExecutionService requestQ
+                , _chainResPact = mkPactExecutionService mempool requestQ
                 }
 
 withPersistedDb

@@ -1,0 +1,1 @@
+{"status":"success","data":{"amount":"-1.00","data":{"transfer-to":"Acct2"},"balance":"999999.00","account":"Acct1"}}

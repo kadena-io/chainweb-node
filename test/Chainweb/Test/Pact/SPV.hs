@@ -24,7 +24,7 @@ import Control.Arrow
 import Control.Concurrent.MVar
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader (ReaderT, runReaderT)
-import Control.Monad.State (StateT, runStateT)
+import Control.Monad.State.Strict (StateT, runStateT)
 
 import Crypto.Hash.Algorithms
 
@@ -125,10 +125,12 @@ withPactSetup cdb f = do
     void $ saveInitial (cpe ^. cpeCheckpointer) st
 
     let spv = pactSpvSupport mv
+
     let pse = PactServiceEnv Nothing cpe spv def
         cp  = cpe ^. cpeCheckpointer
+        pss = PactServiceState st Nothing
 
-    initCC pse st >> f pse st
+    initCC pse pss >> f pse st
   where
     initConf c l g = case _ccSqlite c of
       Nothing -> do
