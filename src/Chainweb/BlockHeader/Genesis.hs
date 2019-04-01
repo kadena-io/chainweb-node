@@ -168,11 +168,11 @@ genesisBlockHeader' v p ct n = fromLog mlog
     cid = _chainId p
 
     mlog = newMerkleLog
-        $ genesisParentBlockHash v cid
+        $ n
+        :+: ct
+        :+: genesisParentBlockHash v cid
         :+: genesisBlockTarget v
         :+: genesisBlockPayloadHash v cid
-        :+: ct
-        :+: n
         :+: cid
         :+: BlockWeight 0
         :+: BlockHeight 0

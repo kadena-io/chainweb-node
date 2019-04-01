@@ -24,7 +24,7 @@ testnet00C0 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: hkY3tAJOaRSSTG5DUYBEMRjNlZr2jEyA_8d0_NJ76ow
 height: 0
-hash: 86-gNRmyen20Pc3Hc2IFyo5tOW4mWvzAMQzcuH-k750
+hash: T-p0FSTdBMXgtWvQL97Qsm0FSfoekHRR8P4fCjZMBeI
 miner: 0/0
 chainId: 0
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -35,7 +35,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '23401'
+nonce: '1447'
 
     |]
 
@@ -45,7 +45,7 @@ testnet00C1 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: gSDXx0M9qJg03BU2zi1jDGo0n8lHhcojup27cl5bVtM
 height: 0
-hash: R2YxoXFnW0JPqZl6GZV8d8xjFp6fCU3Ayx7MhrtSGbs
+hash: dxKK2GuI6e7cICx7WgY0SSKdUwf_Qx9IbvOZzeLLDqI
 miner: 0/1
 chainId: 1
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -56,7 +56,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '4605'
+nonce: '29991'
 
     |]
 
@@ -66,7 +66,7 @@ testnet00C2 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: zBD6jyT5Irr5QIcNoDw48_aN8TcPI7-HgHJBYm_ra18
 height: 0
-hash: 0KU7BNWMNOI25nJ6PrDqEAmKfxHKPtRSi6FbYZ2Ygu8
+hash: ajUrrDXhQoTv4flOog_LEb3Po7oGEGy0c1VO6rODUQY
 miner: 0/2
 chainId: 2
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -77,7 +77,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '13593'
+nonce: '4962'
 
     |]
 
@@ -87,7 +87,7 @@ testnet00C3 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: iliOelarez9K7DNE1Je8V_TczJAgJh4dB9Pm3WgKbMQ
 height: 0
-hash: kpgBxNwBsBHPEKKHNUJR90uRT5zbW5SrYXKW8381Qg8
+hash: BkkryjPC_qJA5d9Dickn7Bt_-SfHwAusqoyIbL5GwmE
 miner: 0/3
 chainId: 3
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -98,7 +98,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '32593'
+nonce: '20241'
 
     |]
 
@@ -108,7 +108,7 @@ testnet00C4 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: E8g1sAZD7xvIRLiqF-TmQ6YwIh1lUxmIpSzaJb9F8WM
 height: 0
-hash: i8H0pGxbLsxpeATXdXS5Yb_dcMCZpmiLs5ao0quHdPo
+hash: Xy1L_X1MzN-C3XpjPiAUE2feLCJ0Edi7RcvKr3SyGck
 miner: 0/4
 chainId: 4
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -119,7 +119,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '12533'
+nonce: '8505'
 
     |]
 
@@ -129,7 +129,7 @@ testnet00C5 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: jRBryPOLRqBKjceQXsRuLp6Q9mMqrZmCW3vQ3XgDtts
 height: 0
-hash: P0iuUahzFtXPNiqqxkzF6KxeOGSlibFpihYhRofnjFo
+hash: aWh5jhUDGXUKgB8nOpqylhc4zUCeTmYhvHkfO3nVOEo
 miner: 0/5
 chainId: 5
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -140,7 +140,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '31308'
+nonce: '2962'
 
     |]
 
@@ -150,7 +150,7 @@ testnet00C6 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: xSXQP0riuw-DDRLz-BEdw7Vn7C8c8ICwlQK_DwhE18Q
 height: 0
-hash: y6aIqPnlM4ljcet5wafzuESXqJVK8E3S13g5Bl95DR0
+hash: 3VCFHz5FXd8qS9n7iYNt8-H5zxTCPhONfdTTBWrjrYg
 miner: 0/6
 chainId: 6
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -161,7 +161,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '21354'
+nonce: '21254'
 
     |]
 
@@ -171,7 +171,7 @@ testnet00C7 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: wHYmEOiBrC3l7ZaZdrr2Nr1ClvsA6WdS3Tps20HfvjY
 height: 0
-hash: r9v1Yg-bwC2mpUMWMNrpJbWXqBHLRayq_RnQiPxeYU8
+hash: X3FRC6wclwTrDJgOlycak7BG8HUjdTpSPn6ganWgrxo
 miner: 0/7
 chainId: 7
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -182,7 +182,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '9727'
+nonce: '12191'
 
     |]
 
@@ -192,7 +192,7 @@ testnet00C8 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: -acx5PNzURsOtqhJKm08Zf9FchU7FDs64cKVqA5Vm0A
 height: 0
-hash: vgeqnMZwhDTwloeOENcCXGBB5GqZ772EzLr_JBjwTfk
+hash: NwFNh-b6NBUv-DY4iY70kTlgTtQr8v6mJa6QboAEJRQ
 miner: 0/8
 chainId: 8
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -203,7 +203,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '12875'
+nonce: '14988'
 
     |]
 
@@ -213,7 +213,7 @@ testnet00C9 = unsafeFromYamlText
 creationTime: 1551207336601038
 parent: CY9Uo83VT4g_RJar_lLItK_MpWvl4e4yHsY1i2KXuBk
 height: 0
-hash: vMv3IS037sPYNKvQwE_3NcajxCIUlHaI-YLwE8B4LWw
+hash: AiiD_XZl_ALvpOAa7EGutvIUb7tdzMD6pUCcRN1xTVs
 miner: 0/9
 chainId: 9
 weight: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -224,7 +224,7 @@ adjacents:
 payloadHash: sETlp5mHHrLenYrLZhGZ4_dq9FiH608uBuq9fEQrp6k
 chainwebVersion: testnet00
 target: ________________________________________AwA
-nonce: '14423'
+nonce: '35'
 
     |]
 

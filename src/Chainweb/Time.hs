@@ -29,6 +29,7 @@ module Chainweb.Time
 -- * TimeSpan
   TimeSpan(..)
 , encodeTimeSpan
+, encodeTimeSpanToWord64
 , decodeTimeSpan
 , castTimeSpan
 , maybeCastTimeSpan
@@ -42,6 +43,7 @@ module Chainweb.Time
 , minTime
 , maxTime
 , encodeTime
+, encodeTimeToWord64
 , decodeTime
 , castTime
 , maybeCastTime
@@ -69,6 +71,7 @@ import Control.DeepSeq
 import Control.Monad.Catch
 
 import Data.Aeson (FromJSON, ToJSON)
+import qualified Data.Memory.Endian as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
@@ -77,6 +80,7 @@ import Data.Int
 import Data.Kind
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX
+import Data.Word
 
 import GHC.Generics
 
@@ -108,6 +112,10 @@ newtype TimeSpan :: Type -> Type where
 encodeTimeSpan :: MonadPut m => TimeSpan Int64 -> m ()
 encodeTimeSpan (TimeSpan a) = putWord64le $ unsigned a
 {-# INLINE encodeTimeSpan #-}
+
+encodeTimeSpanToWord64 :: TimeSpan Int64 -> Word64
+encodeTimeSpanToWord64 (TimeSpan a) = BA.unLE . BA.toLE $ unsigned a
+{-# INLINE encodeTimeSpanToWord64 #-}
 
 decodeTimeSpan :: MonadGet m => m (TimeSpan Int64)
 decodeTimeSpan = TimeSpan . signed <$> getWord64le
@@ -170,6 +178,10 @@ getCurrentTimeIntegral = do
 encodeTime :: MonadPut m => Time Int64 -> m ()
 encodeTime (Time a) = encodeTimeSpan a
 {-# INLINE encodeTime #-}
+
+encodeTimeToWord64 :: Time Int64 -> Word64
+encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
+{-# INLINE encodeTimeToWord64 #-}
 
 decodeTime :: MonadGet m => m (Time Int64)
 decodeTime  = Time <$> decodeTimeSpan

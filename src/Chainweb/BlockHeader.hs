@@ -53,6 +53,7 @@ module Chainweb.BlockHeader
 -- * Nonce
 , Nonce(..)
 , encodeNonce
+, encodeNonceToWord64
 , decodeNonce
 
 -- * BlockCreationTime
@@ -79,7 +80,9 @@ module Chainweb.BlockHeader
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
 , encodeBlockHeader
+, encodeBlockHeaderWithoutHash
 , decodeBlockHeader
+, decodeBlockHeaderWithoutHash
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
@@ -120,6 +123,7 @@ import qualified Data.HashSet as HS
 import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
+import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
@@ -225,6 +229,9 @@ instance IsMerkleLogEntry ChainwebHashTag Nonce where
 encodeNonce :: MonadPut m => Nonce -> m ()
 encodeNonce (Nonce n) = putWord64le n
 
+encodeNonceToWord64 :: Nonce -> Word64
+encodeNonceToWord64 (Nonce n) = BA.unLE $ BA.toLE n
+
 decodeNonce :: MonadGet m => m Nonce
 decodeNonce = Nonce <$> getWord64le
 
@@ -266,18 +273,12 @@ decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 -- blocks without recalculating the aggregated value from the genesis block
 -- onward.
 --
+-- The POW hash is not include, since it can be derived from the Nonce and the
+-- other fields of the 'BlockHeader'.
+--
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockParent :: {-# UNPACK #-} !BlockHash
-            -- ^ authoritative
-
-        , _blockAdjacentHashes :: !BlockHashRecord
-            -- ^ authoritative
-
-        , _blockTarget :: {-# UNPACK #-} !HashTarget
-            -- ^ authoritative
-
-        , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
+        { _blockNonce :: {-# UNPACK #-} !Nonce
             -- ^ authoritative
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
@@ -312,7 +313,16 @@ data BlockHeader :: Type where
             -- this strategy doesn't give an advantage to an attacker that would
             -- increase the success probability for an attack.
 
-        , _blockNonce :: {-# UNPACK #-} !Nonce
+        , _blockParent :: {-# UNPACK #-} !BlockHash
+            -- ^ authoritative
+
+        , _blockAdjacentHashes :: !BlockHashRecord
+            -- ^ authoritative
+
+        , _blockTarget :: {-# UNPACK #-} !HashTarget
+            -- ^ authoritative
+
+        , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
             -- ^ authoritative
 
         , _blockChainId :: {-# UNPACK #-} !ChainId
@@ -386,11 +396,11 @@ instance Serialize BlockHeader where
 
 instance HasMerkleLog ChainwebHashTag BlockHeader where
     type MerkleLogHeader BlockHeader =
-        '[ BlockHash
+        '[ Nonce
+        , BlockCreationTime
+        , BlockHash
         , HashTarget
         , BlockPayloadHash
-        , BlockCreationTime
-        , Nonce
         , ChainId
         , BlockWeight
         , BlockHeight
@@ -402,11 +412,12 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
     toLog bh = merkleLog root entries
       where
         BlockHash (MerkleLogHash root) = _blockHash bh
-        entries = _blockParent bh
+        entries
+            = _blockNonce bh
+            :+: _blockCreationTime bh
+            :+: _blockParent bh
             :+: _blockTarget bh
             :+: _blockPayloadHash bh
-            :+: _blockCreationTime bh
-            :+: _blockNonce bh
             :+: _blockChainId bh
             :+: _blockWeight bh
             :+: _blockHeight bh
@@ -415,12 +426,12 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: MerkleLogBody (blockHashRecordToSequence $ _blockAdjacentHashes bh)
 
     fromLog l = BlockHeader
-            { _blockHash = BlockHash (MerkleLogHash $ _merkleLogRoot l)
+            { _blockNonce = nonce
+            , _blockCreationTime = time
+            , _blockHash = BlockHash (MerkleLogHash $ _merkleLogRoot l)
             , _blockParent = parentHash
             , _blockTarget = target
             , _blockPayloadHash = payload
-            , _blockCreationTime = time
-            , _blockNonce = nonce
             , _blockChainId = cid
             , _blockWeight = weight
             , _blockHeight = height
@@ -429,11 +440,11 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockAdjacentHashes = blockHashRecordFromSequence cwv cid adjParents
             }
       where
-        ( parentHash
+        ( nonce
+            :+: time
+            :+: parentHash
             :+: target
             :+: payload
-            :+: time
-            :+: nonce
             :+: cid
             :+: weight
             :+: height
@@ -442,22 +453,29 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
 
-encodeBlockHeader
+encodeBlockHeaderWithoutHash
     :: MonadPut m
     => BlockHeader
     -> m ()
-encodeBlockHeader b = do
+encodeBlockHeaderWithoutHash b = do
+    encodeNonce (_blockNonce b)
+    encodeBlockCreationTime (_blockCreationTime b)
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
     encodeHashTarget (_blockTarget b)
     encodeBlockPayloadHash (_blockPayloadHash b)
-    encodeBlockCreationTime (_blockCreationTime b)
-    encodeNonce (_blockNonce b)
     encodeChainId (_blockChainId b)
     encodeBlockWeight (_blockWeight b)
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeChainNodeId (_blockMiner b)
+
+encodeBlockHeader
+    :: MonadPut m
+    => BlockHeader
+    -> m ()
+encodeBlockHeader b = do
+    encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
 
 -- | Decode and check that
@@ -493,16 +511,48 @@ decodeBlockHeaderCheckedChainId p = do
 
 -- | Decode a BlockHeader and trust the result
 --
+decodeBlockHeaderWithoutHash
+    :: MonadGet m
+    => m BlockHeader
+decodeBlockHeaderWithoutHash = do
+    a0 <- decodeNonce
+    a1 <- decodeBlockCreationTime
+    a2 <- decodeBlockHash -- parent hash
+    a3 <- decodeBlockHashRecord
+    a4 <- decodeHashTarget
+    a5 <- decodeBlockPayloadHash
+    a6 <- decodeChainId
+    a7 <- decodeBlockWeight
+    a8 <- decodeBlockHeight
+    a9 <- decodeChainwebVersion
+    a10 <- decodeChainNodeId
+    return
+        $ fromLog
+        $ newMerkleLog
+        $ a0
+        :+: a1
+        :+: a2
+        :+: a4
+        :+: a5
+        :+: a6
+        :+: a7
+        :+: a8
+        :+: a9
+        :+: a10
+        :+: MerkleLogBody (blockHashRecordToSequence a3)
+
+-- | Decode a BlockHeader and trust the result
+--
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeader = BlockHeader
-    <$> decodeBlockHash
+    <$> decodeNonce
+    <*> decodeBlockCreationTime
+    <*> decodeBlockHash -- parent hash
     <*> decodeBlockHashRecord
     <*> decodeHashTarget
     <*> decodeBlockPayloadHash
-    <*> decodeBlockCreationTime
-    <*> decodeNonce
     <*> decodeChainId
     <*> decodeBlockWeight
     <*> decodeBlockHeight
@@ -546,7 +596,8 @@ isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 -- the value of '_blockTarget' (interpreted as 'BlockHashNat').
 --
 _blockPow :: BlockHeader -> PowHash
-_blockPow h = powHash (_blockChainwebVersion h) $ runPutS $ encodeBlockHeader h
+_blockPow h = powHash (_blockChainwebVersion h)
+    $ runPutS $ encodeBlockHeaderWithoutHash h
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
@@ -565,12 +616,12 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
 
 instance ToJSON (ObjectEncoded BlockHeader) where
     toJSON (ObjectEncoded b) = object
-        [ "parent" .= _blockParent b
+        [ "nonce" .= _blockNonce b
+        , "creationTime" .= _blockCreationTime b
+        , "parent" .= _blockParent b
         , "adjacents" .= _blockAdjacentHashes b
         , "target" .= _blockTarget b
         , "payloadHash" .= _blockPayloadHash b
-        , "creationTime" .= _blockCreationTime b
-        , "nonce" .= _blockNonce b
         , "chainId" .= _chainId b
         , "weight" .= _blockWeight b
         , "height" .= _blockHeight b
@@ -581,12 +632,12 @@ instance ToJSON (ObjectEncoded BlockHeader) where
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
-    <$> o .: "parent"
+    <$> o .: "nonce"
+    <*> o .: "creationTime"
+    <*> o .: "parent"
     <*> o .: "adjacents"
     <*> o .: "target"
     <*> o .: "payloadHash"
-    <*> o .: "creationTime"
-    <*> o .: "nonce"
     <*> o .: "chainId"
     <*> o .: "weight"
     <*> o .: "height"
@@ -603,7 +654,6 @@ instance FromJSON (ObjectEncoded BlockHeader) where
 newtype NewMinedBlock = NewMinedBlock (ObjectEncoded BlockHeader)
   deriving (Show, Generic)
   deriving newtype (Eq, ToJSON, NFData)
-
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader
@@ -661,11 +711,11 @@ testBlockHeader'
         -- ^ parent block header
     -> BlockHeader
 testBlockHeader' miner adj pay nonce target t b = fromLog $ newMerkleLog
-    $ _blockHash b
+    $ nonce
+    :+: BlockCreationTime t
+    :+: _blockHash b
     :+: target
     :+: pay
-    :+: BlockCreationTime t
-    :+: nonce
     :+: cid
     :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
     :+: _blockHeight b + 1
