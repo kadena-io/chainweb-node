@@ -38,6 +38,7 @@ import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.BlockHeader.Genesis
+import Chainweb.Transaction
 
 
 tests :: IO TestTree
@@ -82,7 +83,12 @@ pactApiTest = do
 
         tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
 
-        return $ tt0 : [tt0b]
+        locVar0c <- testLocal >>= \t -> local t reqQ
+        tt0c <- takeMVar locVar0c >>= \r -> case r of
+          Left e -> assertFailure $ "local failed: " ++ show e
+          Right r' -> return $ goldenVsString "local" (testPactFilesDir ++ "local-expected.txt") (return $ A.encode r')
+
+        return [tt0, tt0b, tt0c]
 
 pactEmptyBlockTest :: IO TestTree
 pactEmptyBlockTest = do
@@ -183,6 +189,9 @@ testMemPoolAccess _bHeight _bHash = do
 
 testEmptyMemPool :: MemPoolAccess
 testEmptyMemPool _bHeight _bHash = mkPactTestTransactions V.empty
+
+testLocal :: IO ChainwebTransaction
+testLocal = head . V.toList <$> mkPactTestTransactions (V.fromList ["(test1.read-account \"Acct1\")"])
 
 cmdBlocks :: Vector (Vector String)
 cmdBlocks =  V.fromList [ V.fromList

@@ -71,6 +71,7 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
 import Network.Wai.Metrics
 import Network.Wai.Middleware.Cors
+import Network.Wai (Middleware)
 
 import Servant.API
 import Servant.Server
@@ -216,7 +217,13 @@ chainwebApplication
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Application
-chainwebApplication v = simpleCors . someServerApplication . someChainwebServer v
+chainwebApplication v = chainwebCors . someServerApplication . someChainwebServer v
+
+-- Simple cors with actualy simpleHeaders which includes content-type.
+chainwebCors :: Middleware
+chainwebCors = cors $ const $ Just $ simpleCorsResourcePolicy
+  { corsRequestHeaders = simpleHeaders
+  }
 
 serveChainwebOnPort
     :: Show t

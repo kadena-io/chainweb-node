@@ -112,6 +112,7 @@ import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
+import Network.Wai (Middleware)
 import Network.Wai.UrlMap
 
 import System.IO
@@ -506,7 +507,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    putLog a = HTTP.defaultRequest
+    _putLog a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
@@ -567,7 +568,7 @@ withJsonEventSourceBackend port inner = do
     c <- newChan
     snd <$> concurrently (serve c) (inner $ backend c)
   where
-    serve c = W.run port $ simpleCors $ eventSourceAppChan c
+    serve c = W.run port $ loggingCors $ eventSourceAppChan c
     backend c = writeChan c
         . ServerEvent Nothing Nothing
         . pure
@@ -602,9 +603,14 @@ withJsonEventSourceAppBackend port staticDir inner = do
     app c = mapUrls
         $ mount "frontendapp" (staticApp $ defaultWebAppSettings staticDir)
         <|> mount "frontend" (staticApp $ defaultFileServerSettings staticDir)
-        <|> mount "events" (simpleCors $ eventSourceAppChan c)
-        -- <|> mountRoot (simpleCors $ eventSourceAppChan c)
+        <|> mount "events" (loggingCors $ eventSourceAppChan c)
+        -- <|> mountRoot (loggingCors $ eventSourceAppChan c)
 
+-- Simple cors with actualy simpleHeaders which includes content-type.
+loggingCors :: Middleware
+loggingCors = cors $ const $ Just $ simpleCorsResourcePolicy
+  { corsRequestHeaders = simpleHeaders
+  }
 -- -------------------------------------------------------------------------- --
 -- Out-Of-The-Box Logger
 
@@ -636,4 +642,3 @@ withExampleLogger port config staticDir f = do
                     baseBackend
                         -- The type system enforces that backend is a base logger.
             L.withLogger (_logConfigLogger config) loggerBackend f
-
