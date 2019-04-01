@@ -122,13 +122,14 @@ withPactSetup cdb f = do
 
     mv <- newMVar cdb
     (cpe, st) <- initConf conf l genv
-    void $ saveInitial (cpe ^. cpeCheckpointer) st
+
+    let cp  = cpe ^. cpeCheckpointer
+    void $ saveInitial cp st
 
     let spv = pactSpvSupport mv
+        pss = PactServiceState st Nothing
 
     let pse = PactServiceEnv Nothing cpe spv def
-        cp  = cpe ^. cpeCheckpointer
-        pss = PactServiceState st Nothing
 
     initCC pse pss >> f pse st
   where
@@ -144,8 +145,7 @@ withPactSetup cdb f = do
         st <- mkSQLiteState e c
         pure (cpe,st)
 
-    initCC = runRST $
-      initialPayloadState Testnet00 (unsafeChainId 0)
+    initCC = runRST $ initialPayloadState Testnet00 (unsafeChainId 0)
 
 createCoinCmd :: (TransactionOutputProof SHA512t_256) -> IO (ExecMsg ParsedCode)
 createCoinCmd tx = buildExecParsedCode spvData
@@ -154,30 +154,6 @@ createCoinCmd tx = buildExecParsedCode spvData
     spvData = Just $ object
       [ "proof" .= encodeToText tx
       ]
-
-assertEitherSuccess :: Show l => String -> Either l r -> IO r
-assertEitherSuccess msg (Left l) = assertFailure (msg ++ ": " ++ show l)
-assertEitherSuccess _ (Right r) = return r
-
-incTxId mv = modifyMVar mv (return . (id &&& succ))
-
-runExec :: Logger -> (MVar CommandState, Env', MVar TxId) -> ExecMsg ParsedCode -> SPVSupport -> IO EvalResult
-runExec l (mcs, Env' pde, txMv) t spv = do
-    txId <- incTxId txMv
-    let cme = CommandEnv Nothing (Transactional txId) pde mcs l freeGasEnv def
-    applyExec' cme def t [] (hash "") spv
-
-unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
-unwrapState dbs = (,,)
-    <$> newMVar (_pdbsState dbs)
-    <*> toEnv'  (_pdbsDbEnv dbs)
-    <*> newMVar (_pdbsTxId dbs )
-
-wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
-wrapState (mcs,dbe',txidV) = PactDbState
-    <$> toEnvPersist' dbe'
-    <*> readMVar mcs
-    <*> readMVar txidV
 
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
