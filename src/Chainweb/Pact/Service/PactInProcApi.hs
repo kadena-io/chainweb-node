@@ -28,14 +28,11 @@ import Control.Monad.STM
 
 import Data.Int
 
-import qualified Network.Wai.Handler.Warp as Warp
-
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Pact.PactService as PS
-import Chainweb.Pact.Service.Http.PactApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -70,7 +67,6 @@ withPactService' ver cid logger memPoolAccess mv action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
     a <- async (PS.initPactService ver cid logger reqQ memPoolAccess mv)
     link a
-    initWebService reqQ (return ()) -- web service for 'local' requests not yet implemented
     r <- action reqQ
     closeQueue reqQ
     return r
@@ -83,11 +79,6 @@ pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
 pactMemPoolAccess mempool _height _hash =
     -- TODO: log request with height hash
     mempoolGetBlock mempool maxBlockSize
-
-initWebService :: TQueue RequestMsg -> IO a -> IO a
-initWebService reqQ action = do
-    (_port, socket) <- Warp.openFreePort
-    withPactServiceApp (Left socket) "127.0.0.1" reqQ action
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

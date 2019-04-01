@@ -202,8 +202,6 @@ library
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.Service.BlockValidation
-        , Chainweb.Pact.Service.Http.PactApi
-        , Chainweb.Pact.Service.Http.Types
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
@@ -382,6 +380,7 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , exceptions
         , extra >= 1.6
         , filepath >= 1.4
         , extra >= 1.6
@@ -416,12 +415,12 @@ test-suite chainweb-tests
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , text >=1.2
+        , time
         , these >= 0.7
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
-        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
         , yaml
@@ -497,6 +496,7 @@ executable chainweb-node
         , stm
         , streaming >= 0.2
         , text >= 1.2
+        , wai >= 3.2
         , wai-app-static >= 3.1
         , wai-extra >= 3.0
         , wai-cors >= 0.2
@@ -592,7 +592,6 @@ executable slow-tests
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
-        , wai-cors >= 0.2
         , warp >= 3.2
         , warp-tls >= 3.2
 

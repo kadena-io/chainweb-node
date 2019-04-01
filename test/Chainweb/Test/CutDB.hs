@@ -269,6 +269,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_h -> error "Unimplemented"
+  , _pactLocal = \_t -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
