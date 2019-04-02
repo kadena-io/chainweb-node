@@ -24,7 +24,9 @@ extra-deps:
   - sbv-8.1
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
   - tasty-1.2
+  - token-bucket-0.1.0.1@sha256:ef80a31e7f4f794e3686eb405a49afc663535dd3a11c012a002a7bacce897da6
   - vector-algorithms-0.8.0.1@sha256:94ef7560517dfd133157e0532ccf3c039477a8eef4b270fe59b52a036fc1f0a1
+  - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yet-another-logger-0.3.1
 
   - git: git@github.com:kadena-io/merkle-log.git
