@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 -- |
@@ -15,25 +16,40 @@ module Chainweb.Test.Pact.RemotePactTest where
 import Control.Concurrent hiding (readMVar, putMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
+import Control.Concurrent.STM
+import qualified Control.Concurrent.STM.TBMChan as TBMChan
+import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Identity
 
 import qualified Data.Aeson as A
+import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
+import Data.Int
+import Data.IORef
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import qualified Data.Vector as V
 
 import Network.HTTP.Client.TLS as HTTP
 import Network.Connection as HTTP
 
 import Numeric.Natural
 
+import Prelude hiding (lookup)
+
+import Servant.API
 import Servant.Client
+
 import System.FilePath
+import qualified System.IO.Streams as Streams
+import System.IO.Unsafe
 import System.LogLevel
 import System.Time.Extra
 
@@ -44,14 +60,19 @@ import Test.Tasty.Golden
 import Text.RawString.QQ(r)
 
 import Pact.Types.API
+import Pact.Types.Command
+import Pact.Types.Util
 
 -- internal modules
 
+import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.Mempool.Mempool
+import Chainweb.Mempool.RestAPI
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
@@ -64,14 +85,18 @@ import Chainweb.Version
 import P2P.Node.Configuration
 import P2P.Peer
 
+
 apiSend :: SubmitBatch -> ClientM RequestKeys
 apiSend = client (Proxy :: Proxy SendApi)
+
 
 apiPoll :: Poll -> ClientM PollResponses
 apiPoll = client (Proxy :: Proxy PollApi)
 
+
 nNodes :: Natural
 nNodes = 1
+
 
 tests :: IO TestTree
 tests = do
@@ -81,14 +106,17 @@ tests = do
     link theAsync
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
-
-
     env <- getClientEnv thePort cwVersion
-    tts <- sendTest env
-    return $ testGroup "PactRemoteTest" tts
 
-sendTest :: ClientEnv -> IO [TestTree]
-sendTest env = do
+    (tt0, rks) <- testSend env
+    tt1 <- testPoll env rks
+    tt2 <- testMPValidated env rks
+
+    return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
+
+
+testSend :: ClientEnv -> IO (TestTree, RequestKeys)
+testSend env = do
     let msb = decodeStrictOrThrow $ toS escapedCmd
     case msb of
         Nothing -> assertFailure "decoding command string failed"
@@ -98,12 +126,35 @@ sendTest env = do
                 Left e -> assertFailure (show e)
                 Right rks -> do
                     tt0 <- checkRequestKeys "command-0" rks
-                    response <- pollWithRetry env rks
-                    case response of
-                        Left e -> assertFailure (show e)
-                        Right rsp -> do
-                            tt1 <- checkResponse "command-0" rks rsp
-                            return (tt0 : [tt1])
+                    return (tt0, rks)
+
+
+testPoll :: ClientEnv -> RequestKeys -> IO TestTree
+testPoll env rks = do
+    response <- pollWithRetry env rks
+    case response of
+        Left e -> assertFailure (show e)
+        Right rsp -> do
+            tt1 <- checkResponse "command-0" rks rsp
+            return tt1
+
+
+testMPValidated :: ClientEnv -> RequestKeys -> IO TestTree
+testMPValidated env rks = do
+    let txHashes = (unHash . unRequestKey) <$> _rkRequestKeys rks
+
+    -- mpLookupWithRetry :: ClientEnv -> [TransactionHash] -> IO (Either ServantError [LookupResult t])
+    response <- mpLookupWithRetry env txHashes
+    case response of
+        Left e -> assertFailure (show e)
+        Right rsp -> do
+            tt <- checkValidated
+            return tt1
+
+
+checkValidated :: [LookupResult t] -> IO TestTree
+checkValidated _luResults = undefined
+
 
 getClientEnv :: Port -> ChainwebVersion -> IO ClientEnv
 getClientEnv thePort cwVersion = do
@@ -112,8 +163,10 @@ getClientEnv thePort cwVersion = do
     let url = testUrl thePort cwVersion "0.0" 8
     return $ mkClientEnv mgr url
 
+
 maxSendRetries :: Int
 maxSendRetries = 30
+
 
 -- | To allow time for node to startup, retry a number of times
 sendWithRetry :: ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
@@ -133,8 +186,10 @@ sendWithRetry env sb = go maxSendRetries
                 putStrLn $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
+
 maxPollRetries :: Int
 maxPollRetries = 30
+
 
 -- | To allow time for node to startup, retry a number of times
 pollWithRetry :: ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
@@ -156,11 +211,36 @@ pollWithRetry env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
+
+maxMemPoolRetries :: Int
+maxMemPoolRetries = 30
+
+
+mpLookupWithRetry :: ClientEnv -> [TransactionHash] -> IO (Either ServantError [LookupResult t])
+mpLookupWithRetry env txs = do
+  go maxMemPoolRetries
+    where
+      go retries = do
+          result <- runClientM (lookupClient_ txs) env
+          case result of
+              Left _ ->
+                  if retries == 0 then do
+                      putStrLn $ "Mempool lookup request failing after " ++ show maxSendRetries ++ " retries"
+                      return result
+                  else do
+                      sleep 1
+                      go (retries - 1)
+              Right _ -> do
+                  putStrLn $ "Mempool lookup succeeded after " ++ show (maxMemPoolRetries - retries) ++ " retries"
+                  return result
+
+
 checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
 checkRequestKeys filePrefix rks = do
     let fp = filePrefix ++ "-expected-rks.txt"
     let bsRks = return $ foldMap (toS . show ) (_rkRequestKeys rks)
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+
 
 checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
 checkResponse filePrefix rks (PollResponses theMap) = do
@@ -171,6 +251,7 @@ checkResponse filePrefix rks (PollResponses theMap) = do
     let bsResponse = return $ toS $ foldMap A.encode values
 
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
+
 
 testUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
 testUrl thePort v release chainNum = BaseUrl
@@ -183,6 +264,7 @@ testUrl thePort v release chainNum = BaseUrl
                   ++ "chain/"
                   ++ show chainNum ++ "/"
                   ++ "pact" }
+
 
 escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
@@ -208,6 +290,7 @@ runTestNodes loglevel v n chainDbDir portMVar =
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
         node loglevel portMVar conf
 
+
 node :: LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
 node loglevel peerInfoVar conf = do
     pdb <- emptyInMemoryPayloadDb
@@ -227,11 +310,14 @@ node loglevel peerInfoVar conf = do
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel print
 
+
 host :: Hostname
 host = unsafeHostnameFromText "::1"
 
+
 interface :: HostPreference
 interface = "::1"
+
 
 config
     :: ChainwebVersion
@@ -252,6 +338,7 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
     & set (configTransactionIndex . enableConfigEnabled) True
 
+
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
@@ -261,9 +348,11 @@ bootstrapConfig conf = conf
         & set peerConfigPort 0
         & set peerConfigHost host
 
+
 setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
+
 
 -- for Stuart:
 runGhci :: IO ()
