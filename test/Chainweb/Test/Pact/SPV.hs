@@ -18,6 +18,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
+import NeatInterpolation (text)
 import Numeric.Natural
 
 import Control.Concurrent.MVar
@@ -41,6 +42,7 @@ import Pact.Gas
 import Pact.Interpreter
 import Pact.Parse
 import Pact.Types.Command
+import Pact.Types.Crypto
 import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Server
@@ -120,11 +122,10 @@ withPactSetup cdb f = do
         conf = toCommandConfig $ pactDbConfig (Test petersonChainGraph)
         genv = GasEnv 0 0.0 (constGasModel 0)
 
-    mv <- newMVar cdb
     (cpe, st) <- initConf conf l genv
+    void $ saveInitial (_cpeCheckpointer cpe) st
 
-    let cp  = cpe ^. cpeCheckpointer
-    void $ saveInitial cp st
+    mv <- newMVar cdb
 
     let spv = pactSpvSupport mv
         pss = PactServiceState st Nothing
@@ -147,24 +148,48 @@ withPactSetup cdb f = do
 
     initCC = runRST $ initialPayloadState Testnet00 (unsafeChainId 0)
 
-createCoinCmd :: (TransactionOutputProof SHA512t_256) -> IO ChainwebTransaction
-createCoinCmd tx = mkPactTx "(coin.create-coin (read-msg 'proof))"
+createCoinCmd
+    :: [SomeKeyPair]
+    -> (TransactionOutputProof SHA512t_256)
+    -> IO ChainwebTransaction
+createCoinCmd ks tx = mkPactTx ccData
+    [text| (coin.create-coin (read-msg 'proof)) |]
   where
-    mkPactTx :: Text -> IO ChainwebTransaction
-    mkPactTx t = do
-      ks <- testKeyPairs
+    ccData = Just $ object
+      [ "proof" .= encodeToText tx
+      , "test-admin-keyset" .= fmap formatB16PubKey ks
+      ]
 
-      let pm = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
-          d = object
-            [ "proof" .= encodeToText tx
-            , "test-admin-keyset" .= fmap formatB16PubKey ks
-            ]
+deleteCoinCmd
+    :: [SomeKeyPair]
+    -> ChainId
+    -> IO ChainwebTransaction
+deleteCoinCmd ks cid = mkPactTx dcData
+    [text|
+      (coin.delete-coin $sender00 $cid' $sender01 (read-keyset 'test-admin-keyset) 1.0)
+      |]
+  where
+    sender00 = "sender00"
+    sender01 = "sender01"
 
-      c <- mkCommand ks pm "1" $ Exec (ExecMsg t d)
-      case verifyCommand c of
-        ProcSucc c' -> return $
-          fmap (\bs -> PayloadWithText bs (c' ^. cmdPayload)) c
-        ProcFail e -> throwM . userError $ e
+    cid' = pack . show $ cid
+
+    dcData = Just $ object
+      [ "test-admin-keyset" .= fmap formatB16PubKey ks
+      ]
+
+mkPactTx :: Maybe Value -> Text -> IO ChainwebTransaction
+mkPactTx v t = do
+    ks <- testKeyPairs
+
+    let pm = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+        d = maybe Null id v
+
+    c <- mkCommand ks pm "1" $ Exec (ExecMsg t d)
+    case verifyCommand c of
+      ProcSucc c' -> return $
+        fmap (\bs -> PayloadWithText bs (c' ^. cmdPayload)) c
+      ProcFail e -> throwM . userError $ e
 
 
 -- -------------------------------------------------------------------------- --
@@ -177,7 +202,7 @@ spvIntegrationTest v step = do
       step "setup pact service and spv support"
       withPactSetup cutDb $ \pse st -> do
         step "pick random transaction"
-        (h, txIx, _, _) <- randomTransaction cutDb
+        (h, outIx, _, _) <- randomTransaction cutDb
 
         step "pick a reachable target chain"
         curCut <- _cut cutDb
@@ -197,11 +222,12 @@ spvIntegrationTest v step = do
           -- source chain id
           bhe
           -- source block height
-          txIx
+          outIx
           -- transaction index
 
         step "build spv creation command from tx output proof"
-        t <- createCoinCmd proof
+        ks <- testKeyPairs
+        t <- createCoinCmd ks proof
 
         step "execute spv command"
 
