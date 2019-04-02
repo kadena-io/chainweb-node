@@ -82,7 +82,6 @@ tests = do
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
 
-    putStrLn $ "Server listening on port: " ++ show thePort ++ ". Sending client request..."
 
     env <- getClientEnv thePort cwVersion
     tts <- sendTest env
@@ -90,7 +89,6 @@ tests = do
 
 sendTest :: ClientEnv -> IO [TestTree]
 sendTest env = do
-    -- let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
     let msb = decodeStrictOrThrow $ toS escapedCmd
     case msb of
         Nothing -> assertFailure "decoding command string failed"
@@ -112,7 +110,6 @@ getClientEnv thePort cwVersion = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
     let url = testUrl thePort cwVersion "0.0" 8
-    -- putStrLn $ "URL: " ++ showBaseUrl url
     return $ mkClientEnv mgr url
 
 maxSendRetries :: Int
