@@ -34,6 +34,7 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -65,10 +66,12 @@ pactTestSuite :: IO ScheduledTest
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
     pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
+    pactRemoteApiTests <- Chainweb.Test.Pact.RemotePactTest.tests
     pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
         , Chainweb.Test.Pact.Checkpointer.tests
         , pactInProcApiTests
+        , pactRemoteApiTests
         ]
 
 suite :: [ScheduledTest]
