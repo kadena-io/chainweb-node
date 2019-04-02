@@ -50,11 +50,11 @@ in
           sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
         };
 
-        chainweb = overrideCabal super.chainweb (drv: {
+        chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
-        });
+        }));
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
         x509 = callHackageDirect {

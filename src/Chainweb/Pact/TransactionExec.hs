@@ -18,6 +18,7 @@ module Chainweb.Pact.TransactionExec
   applyCmd
 , applyGenesisCmd
 , applyCoinbase
+, applyLocal
 , applyExec
 , applyExec'
 , applyContinuation
@@ -211,6 +212,29 @@ applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
         pure $! (result, cmdEnv)
 
 
+applyLocal
+    :: Logger
+    -> PactDbEnv p
+    -> MVar CommandState
+    -> PublicData
+    -> SPVSupport
+    -> Command (Payload PublicMeta ParsedCode)
+    -> IO (Either SomeException (CommandSuccess (Term Name)))
+applyLocal logger dbEnv cmdState pd spv cmd@Command{..} = do
+
+  -- cmd env with permissive gas model
+  let pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
+      cmdEnv = CommandEnv Nothing Local dbEnv cmdState logger freeGasEnv pd'
+
+  exec <- case _pPayload _cmdPayload of
+    Exec pm -> return pm
+    _ -> throwCmdEx "local continuations not supported"
+
+  r <- tryAny $! applyExec' cmdEnv def exec _cmdSigs _cmdHash spv
+
+  traverse mkSuccess r
+
+
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
     :: CommandEnv a
@@ -247,6 +271,13 @@ runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload o
     Continuation ym ->
       applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash spv txLogs
 
+
+mkSuccess :: EvalResult -> IO (CommandSuccess (Term Name))
+mkSuccess er = case _erOutput er of
+  [] -> throwCmdEx "unexpected empty results"
+  outs -> return $ CommandSuccess $ last $ outs
+
+
 applyExec
     :: CommandEnv p
     -> EvalState
@@ -258,9 +289,9 @@ applyExec
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
 applyExec env@CommandEnv{..} initState rk em senderSigs hash spv prevLogs = do
-    EvalResult{..} <- applyExec' env initState em senderSigs hash spv
-    return (jsonResult _ceMode rk _erGas $
-            CommandSuccess (last _erOutput), prevLogs <> _erLogs)
+    er@EvalResult{..} <- applyExec' env initState em senderSigs hash spv
+    mkSuccess er >>= \s ->
+      return (jsonResult _ceMode rk _erGas s, prevLogs <> _erLogs)
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -280,13 +311,14 @@ applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs has
                   (MsgData sigs execData Nothing hash) refStore _ceGasEnv
                   permissiveNamespacePolicy spv _cePublicData
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
-    newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
-    let newPacts = case newCmdPact of
-          Nothing -> pacts
-          Just cmdPact -> Map.insert (_pePactId cmdPact) cmdPact pacts
-    void $! swapMVar _ceState $ CommandState _erRefStore newPacts
-    for_ newCmdPact $ \PactExec{..} ->
-      logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show (_pePactId,_peStep,_peYield,_peExecuted)
+    unless (_ceMode == Local) $ do
+      newCmdPact <- join <$> mapM (handlePactExec _erInput) _erExec
+      let newPacts = case newCmdPact of
+            Nothing -> pacts
+            Just cmdPact -> Map.insert (_pePactId cmdPact) cmdPact pacts
+      void $! swapMVar _ceState $ CommandState _erRefStore newPacts
+      for_ newCmdPact $ \PactExec{..} ->
+        logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++ show (_pePactId,_peStep,_peYield,_peExecuted)
     return er
 
 handlePactExec :: Either PactContinuation [Term Name] -> PactExec -> IO (Maybe PactExec)
@@ -308,9 +340,9 @@ applyContinuation
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
 applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash spv prevLogs = do
-  EvalResult{..} <- applyContinuation' env initState msg senderSigs hash spv
-  pure $! (jsonResult _ceMode rk _erGas $
-           CommandSuccess (last _erOutput), prevLogs <> _erLogs)
+  er@EvalResult{..} <- applyContinuation' env initState msg senderSigs hash spv
+  mkSuccess er >>= \s ->
+    pure $! (jsonResult _ceMode rk _erGas s, prevLogs <> _erLogs)
 
 applyContinuation'
     :: CommandEnv p

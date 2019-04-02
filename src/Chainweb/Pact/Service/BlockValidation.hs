@@ -13,6 +13,7 @@
 module Chainweb.Pact.Service.BlockValidation
 ( validateBlock
 , newBlock
+, local
 ) where
 
 
@@ -24,6 +25,10 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Pact.Types.Command
+import Data.Aeson (Value)
+import Control.Exception
+import Chainweb.Transaction
 
 
 newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
@@ -47,5 +52,14 @@ validateBlock bHeader plData reqQ = do
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar
           , _valPayloadData = plData }
+    addRequest reqQ msg
+    return resultVar
+
+local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either SomeException (CommandSuccess Value)))
+local ct reqQ = do
+    resultVar <- newEmptyMVar
+    let msg = LocalMsg LocalReq
+          { _localRequest = ct
+          , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar

@@ -24,7 +24,7 @@ import Numeric.Natural
 import Control.Concurrent.MVar
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader (ReaderT, runReaderT)
-import Control.Monad.State (StateT, runStateT)
+import Control.Monad.State.Strict (StateT, runStateT)
 
 import Data.Aeson
 import Data.Default (def)
@@ -121,8 +121,9 @@ withPactSetup cdb f = do
     let spv = pactSpvSupport mv
 
     let pse = PactServiceEnv Nothing cpe spv def
+        pss = PactServiceState st Nothing
 
-    initCC pse st >> f pse st
+    initCC pse pss >> f pse st
   where
     initConf c l g = case _ccSqlite c of
       Nothing -> do
