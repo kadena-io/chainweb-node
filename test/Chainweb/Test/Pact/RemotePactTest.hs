@@ -90,7 +90,8 @@ tests = do
 
 sendTest :: ClientEnv -> IO [TestTree]
 sendTest env = do
-    let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
+    -- let msb = A.decode $ toS escapedCmd :: Maybe SubmitBatch
+    let msb = decodeStrictOrThrow $ toS escapedCmd
     case msb of
         Nothing -> assertFailure "decoding command string failed"
         Just sb -> do
@@ -141,7 +142,7 @@ maxPollRetries = 30
 -- | To allow time for node to startup, retry a number of times
 pollWithRetry :: ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
 pollWithRetry env rks = do
-  sleep 5
+  sleep 3
   go maxPollRetries
     where
       go retries = do
