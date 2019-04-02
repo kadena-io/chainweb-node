@@ -49,7 +49,6 @@ import Pact.Types.Runtime
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -70,7 +69,7 @@ import Chainweb.Version
 
 tests :: TestTree
 tests = testGroup "SPV-Pact Integration Tests"
-  [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest version)
+  [ testCaseStepsN "SPV Roundtrip" 1 (spvIntegrationTest version)
   ]
   where
     version = Test petersonChainGraph
@@ -173,8 +172,9 @@ createCoinCmd tx = mkPactTx "(coin.create-coin (read-msg 'proof))"
 
 spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
 spvIntegrationTest v step = do
-    step "setup pact service and spv support"
-    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    step "setup cutdb"
+    withTestCutDb v 0 (\_ _ -> return ()) $ \cutDb -> do
+      step "setup pact service and spv support"
       withPactSetup cutDb $ \pse st -> do
         step "pick random transaction"
         (h, txIx, _, _) <- randomTransaction cutDb
@@ -183,15 +183,19 @@ spvIntegrationTest v step = do
         curCut <- _cut cutDb
         trgChain <- targetChain curCut h
 
+        let cid = _chainId h
+            bhe = _blockHeight h
+            bha = _blockHash h
+
         step "create inclusion proof for transaction"
         proof <- createTransactionOutputProof
           cutDb
           -- cutdb
           trgChain
           -- target chain
-          (_chainId h)
+          cid
           -- source chain id
-          (_blockHeight h)
+          bhe
           -- source block height
           txIx
           -- transaction index
@@ -200,7 +204,12 @@ spvIntegrationTest v step = do
         t <- createCoinCmd proof
 
         step "execute spv command"
-        let u = V.singleton t
-        let ex = execTransactions (Just nullBlockHash) defaultMiner u
 
-        void $! runRST ex pse st
+        let pse' = pse
+              & set (psPublicData . pdChainId) (unsafeGetChainId cid)
+              & set (psPublicData . pdBlockHeight) (int bhe)
+
+        let u = V.singleton t
+        let ex = execTransactions (Just bha) defaultMiner u
+
+        void $! runRST ex pse' st

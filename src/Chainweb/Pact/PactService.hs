@@ -192,7 +192,7 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
         t <- inputProofOf o
         (Transaction u) <- verifyTransactionProof cdb t
         v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right . P._tObject . P._csData $ v
+        pure $! Right $! P._tObject . P._csData $ v
       _ -> pure $! Left "spvSupport: Unsupported SPV mode"
   where
     -- serialize pact object and produce an
