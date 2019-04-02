@@ -71,7 +71,6 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
 import Network.Wai.Metrics
 import Network.Wai.Middleware.Cors
-import Network.Wai (Middleware)
 
 import Servant.API
 import Servant.Server
@@ -300,4 +299,3 @@ serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs m = do
   where
     tlsSettings = tlsServerSettings certBytes keyBytes
     app = chainwebApplication v dbs
-

@@ -341,8 +341,8 @@ withChainwebInternal conf logger peer payloadDb inner = do
             -- initialize throttler
             throttler <- initThrottler (defaultThrottleSettings $ TimeSpec 4 0)
                 { throttleSettingsRate = int $ _configThrottleRate conf
-                , throttleSettingsPeriod = 1 / micro
-                , throttleSettingsBurst = int $ 3 * _configThrottleRate conf
+                , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
+                , throttleSettingsBurst = int $ _configThrottleRate conf
                 , throttleSettingsIsThrottled = const True
                 -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
                 --     [ "cut"
