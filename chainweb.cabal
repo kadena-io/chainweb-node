@@ -230,6 +230,7 @@ library
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , cereal >= 0.5
+        , clock >= 0.7
         , configuration-tools >= 0.4
         , connection >=0.2
         , containers >= 0.5
@@ -306,6 +307,7 @@ library
         , vector >= 0.12
         , vector-algorithms >= 0.8
         , wai-middleware-metrics >= 0.2.4
+        , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2
         , witherable >= 0.2
