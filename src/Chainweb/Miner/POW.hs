@@ -44,7 +44,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Proxy
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word
@@ -196,14 +195,7 @@ mineCut logfun conf nid cutDb !c !nonce !adjustments = do
         Just adjParents -> do
 
             -- get payload
-            let mokPact = False
-            payload <- case mokPact of
-                False -> _pactNewBlock pact (_configMinerInfo conf) p
-                True -> return
-                    $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
-                    $ S.fromList
-                        [ (Transaction "testTransaction", TransactionOutput "testOutput")
-                        ]
+            payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
             -- get target
             --
@@ -224,7 +216,7 @@ mineCut logfun conf nid cutDb !c !nonce !adjustments = do
 
             -- create cut with new block
             --
-            -- This is expecte to succeed, since the cut invariants should
+            -- This is expected to succeed, since the cut invariants should
             -- hold by construction
             --
             !c' <- monotonicCutExtension c newHeader
