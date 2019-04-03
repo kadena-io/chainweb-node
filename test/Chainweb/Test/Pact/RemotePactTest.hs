@@ -76,13 +76,6 @@ import Chainweb.Version
 
 import P2P.Node.Configuration
 import P2P.Peer
-{-
-apiSend :: SubmitBatch -> ClientM RequestKeys
-apiSend = client (Proxy :: Proxy SendApi)
-
-apiPoll :: Poll -> ClientM PollResponses
-apiPoll = client (Proxy :: Proxy PollApi)
--}
 
 nNodes :: Natural
 nNodes = 1
@@ -96,32 +89,17 @@ tests = do
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
 
-    --------------------------------------------------
     let cmds = apiCmds cwVersion chainId0
     let cwBaseUrl = getCwBaseUrl thePort
-    sendEnv <- getClientEnv cwBaseUrl
-    (tt0, rks) <- testSend cmds sendEnv
-    --------------------------------------------------
-    -- let sendUrl = testSendUrl thePort cwVersion "0.0" 8
-    -- putStrLn $ "testSendUrl: " ++ showBaseUrl sendUrl
-    -- sendEnv <- getClientEnv sendUrl
-    -- (tt0, rks) <- testSend sendEnv
-    --------------------------------------------------
+    cwEnv <- getClientEnv cwBaseUrl
+    (tt0, rks) <- testSend cmds cwEnv
 
-    -- tt1 <- testPoll sendEnv rks
-    tt1 <- testPoll cmds sendEnv rks
+    tt1 <- testPoll cmds cwEnv rks
 
-
-    {-
-    let mempoolUrl = testMempoolUrl thePort cwVersion "0.0" 8
-    putStrLn $ "testMempoolUrl: " ++ showBaseUrl mempoolUrl
-    mempoolEnv <- getClientEnv mempoolUrl
-    tt2 <- testMPValidated mempoolEnv cwVersion rks
+    let valCmd = MempoolLookupApiCmd (lookupClient cwVersion chainId0)
+    tt2 <- testMPValidated valCmd cwEnv rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
-    -}
-    return $ testGroup "PactRemoteTest" $ tt0 : [tt1]
-
 
 testSend :: PactTestApiCmds -> ClientEnv -> IO (TestTree, RequestKeys)
 testSend cmds env = do
@@ -145,20 +123,29 @@ testPoll cmds env rks = do
             tt1 <- checkResponse "command-0" rks rsp
             return tt1
 
-testMPValidated :: ClientEnv -> ChainwebVersion -> RequestKeys -> IO TestTree
-testMPValidated env cwVersion rks = do
+testMPValidated
+    :: MempoolLookupApiCmd
+    -> ClientEnv
+    -> RequestKeys
+    -> IO TestTree
+testMPValidated cmd env rks = do
     let txHashes = (TransactionHash . unHash . unRequestKey) <$> _rkRequestKeys rks
 
-    response <- mpLookupWithRetry env cwVersion txHashes :: IO (Either ServantError [LookupResult ChainwebTransaction])
-      --  -> IO (Either ServantError [LookupResult t])
+    response <- mpLookupWithRetry cmd env txHashes
     case response of
         Left e -> assertFailure (show e)
         Right rsp -> do
             tt <- checkValidated rsp
             return tt
 
-checkValidated :: [LookupResult t] -> IO TestTree
-checkValidated _luResults = undefined
+checkValidated :: [LookupResult ChainwebTransaction] -> IO TestTree
+checkValidated luResults = do
+    return $ testCase "validatedMempoolTransactions" $
+        assertBool "At least one transaction was not validated" $ all f luResults
+  where
+    f (Validated _) = True
+    f Confirmed     = True
+    f _             = False
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -215,15 +202,15 @@ maxMemPoolRetries :: Int
 maxMemPoolRetries = 30
 
 mpLookupWithRetry
-    :: ClientEnv
-    -> ChainwebVersion
+    :: MempoolLookupApiCmd
+    -> ClientEnv
     -> [TransactionHash]
     -> IO (Either ServantError [LookupResult ChainwebTransaction])
-mpLookupWithRetry env cwVersion txs = do
+mpLookupWithRetry cmd env txs = do
   go maxMemPoolRetries
     where
       go retries = do
-          result <- runClientM (lookupClient cwVersion chainId0 txs) env
+          result <- runClientM ((lookupApiCmd cmd) txs) env
           case result of
               Left _ ->
                   if retries == 0 then do
@@ -245,7 +232,6 @@ checkRequestKeys filePrefix rks = do
 checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
 checkResponse filePrefix rks (PollResponses theMap) = do
     let fp = filePrefix ++ "-expected-resp.txt"
-
     let mays = map (\x -> HM.lookup x theMap) (_rkRequestKeys rks)
     let values = _arResult <$> catMaybes mays
     let bsResponse = return $ toS $ foldMap A.encode values
@@ -258,28 +244,6 @@ getCwBaseUrl thePort = BaseUrl
     , baseUrlHost = "127.0.0.1"
     , baseUrlPort = fromIntegral thePort
     , baseUrlPath = "" }
-
-{-
-testSendUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
-testSendUrl thePort v release chainNum =
-    testUrl thePort v release chainNum "pact"
-
-testMempoolUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
-testMempoolUrl thePort v release chainNum =
-    testUrl thePort v release chainNum "mempool/lookup"
-
-testUrl :: Port -> ChainwebVersion -> String -> Int -> String -> BaseUrl
-testUrl thePort v release chainNum pathSuffix = BaseUrl
-    { baseUrlScheme = Https
-    , baseUrlHost = "127.0.0.1"
-    , baseUrlPort = fromIntegral thePort
-    , baseUrlPath = "chainweb/"
-                  ++ release ++ "/"
-                  ++ toS (chainwebVersionToText v) ++ "/"
-                  ++ "chain/"
-                  ++ show chainNum ++ "/"
-                  ++ pathSuffix }
--}
 
 escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
@@ -305,6 +269,10 @@ apiCmds cwVersion theChainId =
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
     , pollApiCmd :: Poll -> ClientM PollResponses }
+
+newtype MempoolLookupApiCmd = MempoolLookupApiCmd
+    { lookupApiCmd :: ([TransactionHash] -> ClientM [LookupResult ChainwebTransaction]) }
+
 ----------------------------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 ----------------------------------------------------------------------------------------------------
