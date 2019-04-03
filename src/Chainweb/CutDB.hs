@@ -78,7 +78,6 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
-import Data.Reflection hiding (int)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (to)
@@ -296,8 +295,7 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     & S.concat
         -- ignore left values for now
     & S.scanM
-        (\a b -> give (_webBlockHeaderStoreCas headerStore)
-            $ joinIntoHeavier_ (_cutMap a) b
+        (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
         )
         (readTVarIO cutVar)
         (\c -> do
