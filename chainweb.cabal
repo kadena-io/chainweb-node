@@ -412,6 +412,7 @@ test-suite chainweb-tests
         , resourcet >= 1.2
         , safe >= 0.3
         , scientific >= 0.3
+        , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
         , string-conv >= 0.1

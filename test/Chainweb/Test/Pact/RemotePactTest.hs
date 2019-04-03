@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 -- |
@@ -16,26 +17,19 @@ module Chainweb.Test.Pact.RemotePactTest where
 import Control.Concurrent hiding (readMVar, putMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM
-import qualified Control.Concurrent.STM.TBMChan as TBMChan
-import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Identity
 
 import qualified Data.Aeson as A
-import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import Data.Int
-import Data.IORef
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
-import qualified Data.Vector as V
+import Data.Text (Text)
 
 import Network.HTTP.Client.TLS as HTTP
 import Network.Connection as HTTP
@@ -48,8 +42,6 @@ import Servant.API
 import Servant.Client
 
 import System.FilePath
-import qualified System.IO.Streams as Streams
-import System.IO.Unsafe
 import System.LogLevel
 import System.Time.Extra
 
@@ -65,14 +57,14 @@ import Pact.Types.Util
 
 -- internal modules
 
-import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI
+import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
@@ -84,19 +76,16 @@ import Chainweb.Version
 
 import P2P.Node.Configuration
 import P2P.Peer
-
-
+{-
 apiSend :: SubmitBatch -> ClientM RequestKeys
 apiSend = client (Proxy :: Proxy SendApi)
 
-
 apiPoll :: Poll -> ClientM PollResponses
 apiPoll = client (Proxy :: Proxy PollApi)
-
+-}
 
 nNodes :: Natural
 nNodes = 1
-
 
 tests :: IO TestTree
 tests = do
@@ -106,74 +95,87 @@ tests = do
     link theAsync
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
-    env <- getClientEnv thePort cwVersion
 
-    (tt0, rks) <- testSend env
-    tt1 <- testPoll env rks
-    tt2 <- testMPValidated env rks
+    --------------------------------------------------
+    let cmds = apiCmds cwVersion chainId0
+    let cwBaseUrl = getCwBaseUrl thePort
+    sendEnv <- getClientEnv cwBaseUrl
+    (tt0, rks) <- testSend cmds sendEnv
+    --------------------------------------------------
+    -- let sendUrl = testSendUrl thePort cwVersion "0.0" 8
+    -- putStrLn $ "testSendUrl: " ++ showBaseUrl sendUrl
+    -- sendEnv <- getClientEnv sendUrl
+    -- (tt0, rks) <- testSend sendEnv
+    --------------------------------------------------
+
+    -- tt1 <- testPoll sendEnv rks
+    tt1 <- testPoll cmds sendEnv rks
+
+
+    {-
+    let mempoolUrl = testMempoolUrl thePort cwVersion "0.0" 8
+    putStrLn $ "testMempoolUrl: " ++ showBaseUrl mempoolUrl
+    mempoolEnv <- getClientEnv mempoolUrl
+    tt2 <- testMPValidated mempoolEnv cwVersion rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
+    -}
+    return $ testGroup "PactRemoteTest" $ tt0 : [tt1]
 
 
-testSend :: ClientEnv -> IO (TestTree, RequestKeys)
-testSend env = do
+testSend :: PactTestApiCmds -> ClientEnv -> IO (TestTree, RequestKeys)
+testSend cmds env = do
     let msb = decodeStrictOrThrow $ toS escapedCmd
     case msb of
         Nothing -> assertFailure "decoding command string failed"
         Just sb -> do
-            result <- sendWithRetry env sb
+            result <- sendWithRetry cmds env sb
             case result of
                 Left e -> assertFailure (show e)
                 Right rks -> do
                     tt0 <- checkRequestKeys "command-0" rks
                     return (tt0, rks)
 
-
-testPoll :: ClientEnv -> RequestKeys -> IO TestTree
-testPoll env rks = do
-    response <- pollWithRetry env rks
+testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO TestTree
+testPoll cmds env rks = do
+    response <- pollWithRetry cmds env rks
     case response of
         Left e -> assertFailure (show e)
         Right rsp -> do
             tt1 <- checkResponse "command-0" rks rsp
             return tt1
 
+testMPValidated :: ClientEnv -> ChainwebVersion -> RequestKeys -> IO TestTree
+testMPValidated env cwVersion rks = do
+    let txHashes = (TransactionHash . unHash . unRequestKey) <$> _rkRequestKeys rks
 
-testMPValidated :: ClientEnv -> RequestKeys -> IO TestTree
-testMPValidated env rks = do
-    let txHashes = (unHash . unRequestKey) <$> _rkRequestKeys rks
-
-    -- mpLookupWithRetry :: ClientEnv -> [TransactionHash] -> IO (Either ServantError [LookupResult t])
-    response <- mpLookupWithRetry env txHashes
+    response <- mpLookupWithRetry env cwVersion txHashes :: IO (Either ServantError [LookupResult ChainwebTransaction])
+      --  -> IO (Either ServantError [LookupResult t])
     case response of
         Left e -> assertFailure (show e)
         Right rsp -> do
-            tt <- checkValidated
-            return tt1
-
+            tt <- checkValidated rsp
+            return tt
 
 checkValidated :: [LookupResult t] -> IO TestTree
 checkValidated _luResults = undefined
 
-
-getClientEnv :: Port -> ChainwebVersion -> IO ClientEnv
-getClientEnv thePort cwVersion = do
+getClientEnv :: BaseUrl -> IO ClientEnv
+getClientEnv url = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
-    let url = testUrl thePort cwVersion "0.0" 8
     return $ mkClientEnv mgr url
-
 
 maxSendRetries :: Int
 maxSendRetries = 30
 
-
 -- | To allow time for node to startup, retry a number of times
-sendWithRetry :: ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
-sendWithRetry env sb = go maxSendRetries
+sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
+sendWithRetry cmds env sb = go maxSendRetries
   where
     go retries =  do
-        result <- runClientM (apiSend sb) env
+        -- result <- runClientM (apiSend sb) env
+        result <- runClientM ((sendApiCmd cmds) sb) env
         case result of
             Left _ ->
                 if retries == 0 then do
@@ -186,19 +188,17 @@ sendWithRetry env sb = go maxSendRetries
                 putStrLn $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
-
 maxPollRetries :: Int
 maxPollRetries = 30
 
-
 -- | To allow time for node to startup, retry a number of times
-pollWithRetry :: ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
-pollWithRetry env rks = do
+pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
+pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries
     where
       go retries = do
-          result <- runClientM (apiPoll (Poll (_rkRequestKeys rks))) env
+          result <- runClientM ((pollApiCmd cmds) (Poll (_rkRequestKeys rks))) env
           case result of
               Left _ ->
                   if retries == 0 then do
@@ -211,17 +211,19 @@ pollWithRetry env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
-
 maxMemPoolRetries :: Int
 maxMemPoolRetries = 30
 
-
-mpLookupWithRetry :: ClientEnv -> [TransactionHash] -> IO (Either ServantError [LookupResult t])
-mpLookupWithRetry env txs = do
+mpLookupWithRetry
+    :: ClientEnv
+    -> ChainwebVersion
+    -> [TransactionHash]
+    -> IO (Either ServantError [LookupResult ChainwebTransaction])
+mpLookupWithRetry env cwVersion txs = do
   go maxMemPoolRetries
     where
       go retries = do
-          result <- runClientM (lookupClient_ txs) env
+          result <- runClientM (lookupClient cwVersion chainId0 txs) env
           case result of
               Left _ ->
                   if retries == 0 then do
@@ -234,13 +236,11 @@ mpLookupWithRetry env txs = do
                   putStrLn $ "Mempool lookup succeeded after " ++ show (maxMemPoolRetries - retries) ++ " retries"
                   return result
 
-
 checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
 checkRequestKeys filePrefix rks = do
     let fp = filePrefix ++ "-expected-rks.txt"
     let bsRks = return $ foldMap (toS . show ) (_rkRequestKeys rks)
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
-
 
 checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
 checkResponse filePrefix rks (PollResponses theMap) = do
@@ -252,9 +252,24 @@ checkResponse filePrefix rks (PollResponses theMap) = do
 
     return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
 
+getCwBaseUrl :: Port -> BaseUrl
+getCwBaseUrl thePort = BaseUrl
+    { baseUrlScheme = Https
+    , baseUrlHost = "127.0.0.1"
+    , baseUrlPort = fromIntegral thePort
+    , baseUrlPath = "" }
 
-testUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
-testUrl thePort v release chainNum = BaseUrl
+{-
+testSendUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
+testSendUrl thePort v release chainNum =
+    testUrl thePort v release chainNum "pact"
+
+testMempoolUrl :: Port -> ChainwebVersion -> String -> Int -> BaseUrl
+testMempoolUrl thePort v release chainNum =
+    testUrl thePort v release chainNum "mempool/lookup"
+
+testUrl :: Port -> ChainwebVersion -> String -> Int -> String -> BaseUrl
+testUrl thePort v release chainNum pathSuffix = BaseUrl
     { baseUrlScheme = Https
     , baseUrlHost = "127.0.0.1"
     , baseUrlPort = fromIntegral thePort
@@ -263,12 +278,33 @@ testUrl thePort v release chainNum = BaseUrl
                   ++ toS (chainwebVersionToText v) ++ "/"
                   ++ "chain/"
                   ++ show chainNum ++ "/"
-                  ++ "pact" }
-
+                  ++ pathSuffix }
+-}
 
 escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
 
+type PactClientApi
+       = (SubmitBatch -> ClientM RequestKeys)
+    :<|> ((Poll -> ClientM PollResponses)
+    :<|> ((ListenerRequest -> ClientM ApiResult)
+    :<|> (Command Text -> ClientM (CommandSuccess A.Value))))
+
+generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
+generatePactApi version chainid =
+     case someChainwebVersionVal version of
+        SomeChainwebVersionT (_ :: Proxy cv) ->
+          case someChainIdVal chainid of
+            SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (PactApi cv cid))
+
+apiCmds :: ChainwebVersion -> ChainId -> PactTestApiCmds
+apiCmds cwVersion theChainId =
+    let sendCmd :<|> pollCmd :<|> _ :<|> _ = generatePactApi cwVersion theChainId
+    in PactTestApiCmds sendCmd pollCmd
+
+data PactTestApiCmds = PactTestApiCmds
+    { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
+    , pollApiCmd :: Poll -> ClientM PollResponses }
 ----------------------------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 ----------------------------------------------------------------------------------------------------
@@ -290,7 +326,6 @@ runTestNodes loglevel v n chainDbDir portMVar =
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
         node loglevel portMVar conf
 
-
 node :: LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
 node loglevel peerInfoVar conf = do
     pdb <- emptyInMemoryPayloadDb
@@ -310,14 +345,11 @@ node loglevel peerInfoVar conf = do
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel print
 
-
 host :: Hostname
 host = unsafeHostnameFromText "::1"
 
-
 interface :: HostPreference
 interface = "::1"
-
 
 config
     :: ChainwebVersion
@@ -338,7 +370,6 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
     & set (configTransactionIndex . enableConfigEnabled) True
 
-
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
@@ -348,11 +379,9 @@ bootstrapConfig conf = conf
         & set peerConfigPort 0
         & set peerConfigHost host
 
-
 setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
-
 
 -- for Stuart:
 runGhci :: IO ()
