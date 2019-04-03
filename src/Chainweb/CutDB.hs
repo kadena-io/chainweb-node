@@ -300,8 +300,7 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
         (readTVarIO cutVar)
         (\c -> do
             atomically (writeTVar cutVar c)
-            s <- pQueueSize queue
-            logFun @T.Text Info ("write new cut")
+            logFun @T.Text Info "write new cut"
         )
     & S.effects
   where
