@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -19,7 +20,7 @@
 --
 module Chainweb.Utils.RequestLog
 (
--- * RequestLog
+-- * Request Logging Middleware
   RequestLog(..)
 , requestLogVersion
 , requestLogMethod
@@ -29,9 +30,14 @@ module Chainweb.Utils.RequestLog
 , requestLogQueryString
 , requestLogBodyLength
 , requestLogUserAgent
-
--- * Request Logging Middleware
 , requestLogger
+
+-- * Request-Response Logging Middleware
+, RequestResponseLog(..)
+, requestResponseLogRequest
+, requestResponseLogStatus
+, requestResponseLogDurationMicro
+, requestResponseLogger
 ) where
 
 import Control.DeepSeq
@@ -48,6 +54,7 @@ import Network.Wai
 
 import Numeric.Natural
 
+import System.Clock
 import System.LogLevel
 
 -- internal modules
@@ -73,6 +80,9 @@ data RequestLog = RequestLog
 
 makeLenses ''RequestLog
 
+-- | INVARIANT: this result of this function must not retain pointers to
+-- the original request data that came over the wire.
+--
 logRequest :: Request -> RequestLog
 logRequest req = RequestLog
     { _requestLogVersion = sshow $ httpVersion req
@@ -88,7 +98,42 @@ logRequest req = RequestLog
     }
 
 requestLogger :: Logger l => l -> Middleware
-requestLogger logger app req res = do
+requestLogger logger app req respond = do
     logFunctionJson logger Info $ logRequest req
-    app req res
+    app req respond
+
+-- -------------------------------------------------------------------------- --
+-- Request-Response Logger
+
+data RequestResponseLog = RequestResponseLog
+    { _requestResponseLogRequest :: !RequestLog
+    , _requestResponseLogStatus :: !T.Text
+    , _requestResponseLogDurationMicro :: !Int
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData, ToJSON)
+
+makeLenses ''RequestResponseLog
+
+logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
+logRequestResponse reqLog res d = RequestResponseLog
+    { _requestResponseLogRequest = reqLog
+    , _requestResponseLogStatus = sshow $ responseStatus res
+    , _requestResponseLogDurationMicro = d
+    }
+
+-- | NOTE: this middleware should only be used for APIs that don't stream. Otherwise
+-- the logg may be delayed for indefinite time.
+--
+requestResponseLogger :: Logger l => l -> Middleware
+requestResponseLogger logger app req respond = do
+    let !reqLog = logRequest req
+    reqTime <- getTime Monotonic
+    app req $ \res -> do
+        r <- respond res
+        resTime <- getTime Monotonic
+        logFunctionJson logger Info
+            $ logRequestResponse reqLog res
+            $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
+        return r
 

@@ -446,7 +446,7 @@ runChainweb cw = do
 
         -- HTTP Request Logger
         httpLog :: Middleware
-        httpLog = requestLogger $ setComponent "http" (_chainwebLogger cw)
+        httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
 
     -- 1. start server
     --

@@ -272,10 +272,8 @@ library
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
-        , raw-strings-qq >= 1.0
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safe >= 0.3
         , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.14

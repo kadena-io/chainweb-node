@@ -208,7 +208,7 @@ withNodeLogger logConfig v f = runManaged $ do
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
-        $ mkTelemetryLogger @RequestLog mgr teleLogConfig
+        $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
