@@ -53,6 +53,7 @@ module Chainweb.CutDB
 , startCutDb
 , stopCutDb
 , cutDbQueueSize
+, hasJoinedConsensus
 
 -- * Some CutDb
 , CutDbT(..)
@@ -70,6 +71,7 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
+import Data.Bool (bool)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -146,6 +148,7 @@ defaultCutDbConfig v = CutDbConfig
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
+    , _cutNetworkCutHeight :: !(TVar (Maybe BlockHeight))
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -242,11 +245,13 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
     queue <- newEmptyPQueue
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
+    networkHeight <- newTVarIO Nothing
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar networkHeight
     logfun @T.Text Info "CutDB started"
     return $ CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
+        , _cutNetworkCutHeight = networkHeight
         , _cutDbAsync = cutAsync
         , _cutDbLogFunction = logfun
         , _cutDbHeaderStore = headerStore
@@ -254,14 +259,14 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         }
   where
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = do
-        processCuts logfun headerStore payloadStore queue cutVar `catches`
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar (Maybe BlockHeight) -> IO ()
+    processor queue cutVar networkHeight = do
+        processCuts logfun headerStore payloadStore queue cutVar networkHeight `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
             , Handler $ \(e :: SomeException) ->
                 logfun @T.Text Error $ "CutDB failed: " <> sshow e
             ]
-        processor queue cutVar
+        processor queue cutVar networkHeight
 
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
@@ -280,12 +285,14 @@ processCuts
     -> WebBlockPayloadStore cas
     -> PQueue (Down CutHashes)
     -> TVar Cut
+    -> TVar (Maybe BlockHeight)
     -> IO ()
-processCuts logFun headerStore payloadStore queue cutVar = queueToStream
+processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
     & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
+    & S.chain updateNetworkHeight
     & S.chain (\_ -> logFun @T.Text Info "fetch all prerequesites for cut")
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
     & S.chain (either
@@ -304,31 +311,41 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
         )
     & S.effects
   where
+    -- | Broadcast the newest estimated `BlockHeight` of the network to other
+    -- components of this node.
+    --
+    updateNetworkHeight :: CutHashes -> IO ()
+    updateNetworkHeight = atomically . writeTVar networkHeight . Just . cutHashesHeight
+
     graph = _chainGraph headerStore
 
     threshold :: Int
     threshold = int $ 2 * diameter graph * order graph
 
+    queueToStream :: S.Stream (Of CutHashes) IO ()
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
 
+    isVeryOld :: CutHashes -> IO Bool
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar
-        let r = int (_cutHashesHeight x) <= (int h - threshold)
+        let !r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ logFun @T.Text Debug "skip very old cut"
         return r
 
+    isOld :: CutHashes -> IO Bool
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
+        let !r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
         when r $ logFun @T.Text Debug "skip old cut"
         return r
 
+    isCurrent :: CutHashes -> IO Bool
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = _cutHashes curHashes == _cutHashes x
+        let !r = _cutHashes curHashes == _cutHashes x
         when r $ logFun @T.Text Debug "skip current cut"
         return r
 
@@ -376,6 +393,32 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $ Left cv
                 e -> throwM e
+
+-- | Has the given `CutDb` sync'd with remote peers enough, such that we're
+-- confident that activating mining / mempool on this node wouldn't create
+-- wasted work? The threshold of "closeness" is determined from the `ChainGraph`
+-- implied by the given `ChainwebVersion`. In essence, if our current Cut is...:
+--
+--   * below the threshold: Stop mining.
+--   * above the threshold: We have joined the pack of honest miners, and can mine.
+--   * even higher than the network: We are either a "superior" fork, or we are in
+--     initial network conditions where there is no real consensus yet. In this
+--     case, we keep mining.
+--
+hasJoinedConsensus :: ChainwebVersion -> CutDb cas -> IO Bool
+hasJoinedConsensus v cutdb = readTVarIO (_cutNetworkCutHeight cutdb) >>= \case
+    Nothing -> pure False
+    Just nh -> do
+        currentHeight <- _cutHeight <$> _cut cutdb
+        let !thresh = int $ catchupThreshold v
+            !mini = bool (nh - thresh) 0 $ thresh > nh
+        pure $ currentHeight > mini
+
+-- | The distance from the true Cut within which the current node could be
+-- considered "caught up".
+--
+catchupThreshold :: ChainwebVersion -> Natural
+catchupThreshold = (2 *) . diameter . _chainGraph
 
 -- -------------------------------------------------------------------------- --
 -- Some CutDB

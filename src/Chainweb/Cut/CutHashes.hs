@@ -19,10 +19,14 @@ module Chainweb.Cut.CutHashes
 -- * CutHashes
   CutHashes(..)
 , cutToCutHashes
+, cutHashesHeight
+-- * Optics
+, cutHashes
 ) where
 
 import Control.Arrow
 import Control.DeepSeq
+import Control.Lens (Lens', each, view, _1)
 
 import Data.Aeson
 import Data.Function
@@ -54,6 +58,10 @@ data CutHashes = CutHashes
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (Hashable, NFData)
+
+cutHashes :: Lens' CutHashes (HM.HashMap ChainId (BlockHeight, BlockHash))
+cutHashes f ch = (\hs' -> ch { _cutHashes = hs' }) <$> f (_cutHashes ch)
+{-# INLINE cutHashes #-}
 
 instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashes)
@@ -93,3 +101,7 @@ cutToCutHashes p c = CutHashes
     , _cutHashesChainwebVersion = _chainwebVersion c
     }
 
+-- | The "Cut Height" represented by the given `CutHashes`.
+--
+cutHashesHeight :: CutHashes -> BlockHeight
+cutHashesHeight = view (cutHashes . each . _1)

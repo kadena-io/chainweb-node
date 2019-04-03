@@ -480,4 +480,3 @@ runChainweb cw = do
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
-
