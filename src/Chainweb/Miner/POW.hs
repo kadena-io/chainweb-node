@@ -28,7 +28,6 @@ module Chainweb.Miner.POW
 
 import Control.Concurrent.Async
 import Control.Lens
-import Control.Lens (ix, (^?), (^?!), view)
 import Control.Monad
 import Control.Monad.STM
 
@@ -81,7 +80,7 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage (LogFunction, JsonLog(..))
+import Data.LogMessage (JsonLog(..), LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -106,13 +105,12 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
 
-    go
-        :: Given WebBlockHeaderDb
-        => Given (PayloadDb cas)
-        => MWC.GenIO
-        -> Int
-        -> Adjustments
-        -> IO ()
+    go :: Given WebBlockHeaderDb
+       => Given (PayloadDb cas)
+       => MWC.GenIO
+       -> Int
+       -> Adjustments
+       -> IO ()
     go gen !i !adjustments0 = do
 
         -- Mine a new Cut

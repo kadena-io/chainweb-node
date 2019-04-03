@@ -53,15 +53,10 @@ data CutClientEnv = CutClientEnv
 runClientThrowM :: ClientM a -> ClientEnv -> IO a
 runClientThrowM req = fromEitherM <=< runClientM req
 
-putCut
-    :: CutClientEnv
-    -> CutHashes
-    -> IO ()
+putCut :: CutClientEnv -> CutHashes -> IO ()
 putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
 
-getCut
-    :: CutClientEnv
-    -> IO CutHashes
+getCut :: CutClientEnv -> IO CutHashes
 getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
 
 -- -------------------------------------------------------------------------- --
@@ -100,4 +95,3 @@ syncSession v useOrigin p db logg env = do
         addCutHashes db c
 
     origin = if useOrigin then Just p else Nothing
-

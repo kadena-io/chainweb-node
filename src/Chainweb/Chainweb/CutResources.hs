@@ -143,8 +143,8 @@ runCutNetworkCutSync
     => HTTP.Manager
     -> CutResources logger cas
     -> IO ()
-runCutNetworkCutSync mgr c
-    = mkCutNetworkSync mgr c "cut sync" $ _cutResCutSync c
+runCutNetworkCutSync mgr c =
+    mkCutNetworkSync mgr c "cut sync" $ _cutResCutSync c
 
 -- | P2P Network for Block Headers
 --
@@ -153,8 +153,8 @@ runCutNetworkHeaderSync
     => HTTP.Manager
     -> CutResources logger cas
     -> IO ()
-runCutNetworkHeaderSync mgr c
-    = mkCutNetworkSync mgr c "block header sync" $ _cutResHeaderSync c
+runCutNetworkHeaderSync mgr c =
+    mkCutNetworkSync mgr c "block header sync" $ _cutResHeaderSync c
 
 -- | P2P Network for Block Payloads
 --
@@ -163,8 +163,8 @@ runCutNetworkPayloadSync
     => HTTP.Manager
     -> CutResources logger cas
     -> IO ()
-runCutNetworkPayloadSync mgr c
-    = mkCutNetworkSync mgr c "block payload sync" $ _cutResPayloadSync c
+runCutNetworkPayloadSync mgr c =
+    mkCutNetworkSync mgr c "block payload sync" $ _cutResPayloadSync c
 
 -- | P2P Network for Block Payloads
 --
