@@ -98,9 +98,11 @@ module Chainweb.BlockHeader
 -- * Genesis BlockHeader
 , isGenesisBlockHeader
 
+-- * Create a new BlockHeader
+, newBlockHeader
+
 -- * Testing
 , testBlockHeader
-, testBlockHeader'
 , testBlockHeaders
 , testBlockHeadersWithNonce
 , testBlockPayload
@@ -678,6 +680,41 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
         ]
 
 -- -------------------------------------------------------------------------- --
+-- Create new BlockHeader
+
+newBlockHeader
+    :: ChainNodeId
+        -- ^ Miner
+    -> BlockHashRecord
+        -- ^ Adjacent parent hashes
+    -> BlockPayloadHash
+        -- ^ payload hash
+    -> Nonce
+        -- ^ Randomness to affect the block hash
+    -> HashTarget
+        -- ^ New target for POW-mining
+    -> Time Int64
+        -- ^ Creation time of the block
+    -> BlockHeader
+        -- ^ parent block header
+    -> BlockHeader
+newBlockHeader miner adj pay nonce target t b = fromLog $ newMerkleLog
+    $ nonce
+    :+: BlockCreationTime t
+    :+: _blockHash b
+    :+: target
+    :+: pay
+    :+: cid
+    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
+    :+: _blockHeight b + 1
+    :+: v
+    :+: miner
+    :+: MerkleLogBody (blockHashRecordToSequence adj)
+  where
+    cid = _chainId b
+    v = _blockChainwebVersion b
+
+-- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
 
 instance TreeDbEntry BlockHeader where
@@ -694,38 +731,6 @@ instance TreeDbEntry BlockHeader where
 testBlockPayload :: BlockHeader -> BlockPayloadHash
 testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
 
-testBlockHeader'
-    :: ChainNodeId
-        -- ^ Miner
-    -> BlockHashRecord
-        -- ^ Adjacent parent hashes
-    -> BlockPayloadHash
-        -- ^ payload hash
-    -> Nonce
-        -- ^ Randomness to affect the block hash
-    -> HashTarget
-        -- ^ New target for POW-mining
-    -> Time Int64
-        -- ^ Creation time of the block
-    -> BlockHeader
-        -- ^ parent block header
-    -> BlockHeader
-testBlockHeader' miner adj pay nonce target t b = fromLog $ newMerkleLog
-    $ nonce
-    :+: BlockCreationTime t
-    :+: _blockHash b
-    :+: target
-    :+: pay
-    :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
-    :+: _blockHeight b + 1
-    :+: v
-    :+: miner
-    :+: MerkleLogBody (blockHashRecordToSequence adj)
-  where
-    cid = _chainId b
-    v = _blockChainwebVersion b
-
 testBlockHeader
     :: ChainNodeId
         -- ^ Miner
@@ -739,7 +744,7 @@ testBlockHeader
         -- ^ parent block header
     -> BlockHeader
 testBlockHeader miner adj nonce target b
-    = testBlockHeader' miner adj (testBlockPayload b) nonce target (add second t) b
+    = newBlockHeader miner adj (testBlockPayload b) nonce target (add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 

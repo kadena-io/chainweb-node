@@ -187,7 +187,7 @@ createNewCut n target t pay nid i c = do
     p = c ^?! ixg cid
 
     newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = testBlockHeader' (nodeIdFromNodeId nid cid) as pay n target t p
+    newHeader as = newBlockHeader (nodeIdFromNodeId nid cid) as pay n target t p
 
     -- | Try to get all adjacent hashes dependencies.
     --

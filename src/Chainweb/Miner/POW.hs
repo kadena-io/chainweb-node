@@ -203,7 +203,7 @@ mineCut logfun conf nid cutDb !c !nonce !adjustments = do
 
             -- Assemble block without Nonce and Timestamp
             --
-            let candidateHeader = testBlockHeader'
+            let candidateHeader = newBlockHeader
                     (nodeIdFromNodeId nid cid)
                     adjParents
                     (_payloadWithOutputsPayloadHash payload)
