@@ -176,16 +176,6 @@ instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-instance Semigroup BlockHeight where
-    BlockHeight a <> BlockHeight b = BlockHeight $ a + b
-    {-# INLINE (<>) #-}
-
-instance Monoid BlockHeight where
-    mempty = 0
-
-    mappend = (<>)
-    {-# INLINE mappend #-}
-
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
