@@ -47,13 +47,13 @@ module Chainweb.CutDB
 , _cut
 , _cutStm
 , cutStm
+, consensusCut
 , cutStream
 , addCutHashes
 , withCutDb
 , startCutDb
 , stopCutDb
 , cutDbQueueSize
-, hasJoinedConsensus
 
 -- * Some CutDb
 , CutDbT(..)
@@ -394,25 +394,36 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
                     return $ Left cv
                 e -> throwM e
 
--- | Has the given `CutDb` sync'd with remote peers enough, such that we're
--- confident that activating mining / mempool on this node wouldn't create
--- wasted work? The threshold of "closeness" is determined from the `ChainGraph`
--- implied by the given `ChainwebVersion`. In essence, if our current Cut is...:
+-- | Yield a `Cut` only when it is determined that `CutDb` has sync'd with
+-- remote peers enough. "Enough" is a measure of "closeness" determined from the
+-- `ChainGraph` implied by the given `ChainwebVersion`. In essence, if our
+-- current Cut is...:
 --
---   * below the threshold: Stop mining.
---   * above the threshold: We have joined the pack of honest miners, and can mine.
+--   * below the threshold: Spin via STM (this has the affect of pausing POW mining).
+--   * above the threshold: Yield the `Cut`.
 --   * even higher than the network: We are either a "superior" fork, or we are in
 --     initial network conditions where there is no real consensus yet. In this
---     case, we keep mining.
+--     case, we yield a `Cut`.
 --
-hasJoinedConsensus :: ChainwebVersion -> CutDb cas -> IO Bool
-hasJoinedConsensus v cutdb = readTVarIO (_cutNetworkCutHeight cutdb) >>= \case
-    Nothing -> pure False
-    Just nh -> do
-        currentHeight <- _cutHeight <$> _cut cutdb
-        let !thresh = int $ catchupThreshold v
-            !mini = bool (nh - thresh) 0 $ thresh > nh
-        pure $ currentHeight > mini
+consensusCut :: CutDb cas -> IO Cut
+consensusCut cutdb = atomically $ do
+    cur <- _cutStm cutdb
+    readTVar (_cutNetworkCutHeight cutdb) >>= \case
+        Nothing -> pure cur
+        Just nh -> do
+            let !currentHeight = _cutHeight cur
+                !thresh = int . catchupThreshold $ _chainwebVersion cutdb
+                !mini = bool (nh - thresh) 0 $ thresh > nh
+            when (currentHeight < mini) retry
+            pure cur
+
+-- consensusCut cutdb = readTVarIO (_cutNetworkCutHeight cutdb) >>= \case
+--     Nothing -> pure False
+--     Just nh -> do
+--         currentHeight <- _cutHeight <$> _cut cutdb
+--         let !thresh = int . catchupThreshold $ _chainwebVersion cutdb
+--             !mini = bool (nh - thresh) 0 $ thresh > nh
+--         pure $ currentHeight > mini
 
 -- | The distance from the true Cut within which the current node could be
 -- considered "caught up".

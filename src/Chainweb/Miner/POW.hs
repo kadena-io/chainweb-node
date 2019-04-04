@@ -113,13 +113,17 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
        -> IO ()
     go gen !i !adjustments0 = do
 
-        -- Mine a new Cut
+        -- Mine a new Cut. This call blocks via STM until a reasonably recent
+        -- `Cut` is provided by this node or the network.
         --
-        c <- _cut cutDb
+        c <- consensusCut cutDb
+
         T3 newBh c' adjustments' <- do
-            let go2 !x = race (awaitNextCut cutDb x) (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
-                    Left c' -> go2 c'
-                    Right !r -> return r
+            let go2 !x =
+                  race (awaitNextCut cutDb x)
+                       (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
+                           Left c' -> go2 c'
+                           Right !r -> return r
             go2 c
 
         logg Info $! "created new block" <> sshow i
@@ -130,8 +134,8 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         addCutHashes cutDb (cutToCutHashes Nothing c')
 
         let !wh = case window $ _blockChainwebVersion newBh of
-              Just (WindowWidth w) -> BlockHeight (int w)
-              Nothing -> error "POW miner used with non-POW chainweb!"
+                    Just (WindowWidth w) -> BlockHeight (int w)
+                    Nothing -> error "POW miner used with non-POW chainweb!"
             !limit | _blockHeight newBh < wh = 0
                    | otherwise = _blockHeight newBh - wh
 
@@ -369,4 +373,3 @@ mine _ h nonce = do
     injectNonce :: Nonce -> Ptr Word8 -> IO ()
     injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
     {-# INLINE injectNonce #-}
-
