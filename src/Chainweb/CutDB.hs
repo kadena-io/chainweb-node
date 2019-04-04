@@ -150,7 +150,7 @@ defaultCutDbConfig v = CutDbConfig
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
-    , _cutNetworkCutHeight :: !(TMVar BlockHeight)
+    , _cutApproxNetworkHeight :: !(TMVar BlockHeight)
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -253,7 +253,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
     return $ CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
-        , _cutNetworkCutHeight = networkHeight
+        , _cutApproxNetworkHeight = networkHeight
         , _cutDbAsync = cutAsync
         , _cutDbLogFunction = logfun
         , _cutDbHeaderStore = headerStore
@@ -410,7 +410,7 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 consensusCut :: CutDb cas -> IO Cut
 consensusCut cutdb = atomically $ do
     cur <- _cutStm cutdb
-    tryReadTMVar (_cutNetworkCutHeight cutdb) >>= \case
+    tryReadTMVar (_cutApproxNetworkHeight cutdb) >>= \case
         Nothing -> pure cur
         Just nh -> do
             let !currentHeight = _cutHeight cur
