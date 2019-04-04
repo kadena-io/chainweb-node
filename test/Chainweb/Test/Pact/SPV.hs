@@ -1,5 +1,12 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE QuasiQuotes #-}
 module Chainweb.Test.Pact.SPV
 ( tests
 ) where
@@ -33,7 +40,8 @@ import Data.Aeson
 import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
-import Data.Text
+import Data.String.Conv
+import Data.Text hiding (head)
 import qualified Data.Vector as V
 
 -- internal pact modules
@@ -51,6 +59,7 @@ import Pact.Types.Runtime
 
 -- internal chainweb modules
 
+import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -60,6 +69,7 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.SPV
 import Chainweb.Test.CutDB
@@ -67,6 +77,10 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.CAS
+import Data.CAS.HashMap (HashMapCas)
+import Data.LogMessage
 
 
 tests :: TestTree
@@ -86,31 +100,18 @@ testCaseStepsN name n t = testGroup name $ fmap steps [1..n]
   where
     steps i = testCaseSteps ("Run test number " <> sshow i) t
 
--- Find a reachable target chain
---
-targetChain :: Cut -> BlockHeader -> IO ChainId
-targetChain c srcBlock = do
-    cids <- generate (shuffle $ toList $ chainIds_ graph)
-    go cids
-  where
-    graph = _chainGraph c
-
-    go [] = error
-        $ "SPV proof test failed to find a reachable target chain. This is a bug in the test code"
-        <> ". source block: " <> sshow srcBlock
-        <> ". current cut: " <> sshow c
-    go (h:t) = if isReachable h then return h else go t
-
-    chainHeight trgChain = _blockHeight (c ^?! ixg trgChain)
-
-    isReachable trgChain
-        = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
-
-    distance x = len $ shortestPath (_chainId srcBlock) x graph
-
 runRST :: Monad m => ReaderT r (StateT s m) a -> r -> s -> m a
 runRST action pse st = fmap fst $
   runStateT (runReaderT action pse) st
+
+runRST' :: Monad m => r -> s -> ReaderT r (StateT s m) a -> m a
+runRST' r s k = runRST k r s
+
+toOutputBytes :: FullLogTxOutput -> TransactionOutput
+toOutputBytes = TransactionOutput . toS . encode . toHashedLogTxOutput
+
+txPairs :: Getter Transactions (V.Vector (Transaction, FullLogTxOutput))
+txPairs = to _transactionPairs
 
 -- -------------------------------------------------------------------------- --
 -- Pact Service setup
@@ -188,9 +189,8 @@ mkPactTx v t = do
     c <- mkCommand ks pm "1" $ Exec (ExecMsg t d)
     case verifyCommand c of
       ProcSucc c' -> return $
-        fmap (\bs -> PayloadWithText bs (c' ^. cmdPayload)) c
+        fmap (\bs -> PayloadWithText bs (_cmdPayload c')) c
       ProcFail e -> throwM . userError $ e
-
 
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
@@ -201,41 +201,23 @@ spvIntegrationTest v step = do
     withTestCutDb v 0 (\_ _ -> return ()) $ \cutDb -> do
       step "setup pact service and spv support"
       withPactSetup cutDb $ \pse st -> do
-        step "pick random transaction"
-        (h, outIx, _, _) <- randomTransaction cutDb
 
-        step "pick a reachable target chain"
-        curCut <- _cut cutDb
-        trgChain <- targetChain curCut h
+        step "build delete-coin command from test credentials"
+        let cid = ChainId 0
 
-        let cid = _chainId h
-            bhe = _blockHeight h
-            bha = _blockHash h
-
-        step "create inclusion proof for transaction"
-        proof <- createTransactionOutputProof
-          cutDb
-          -- cutdb
-          trgChain
-          -- target chain
-          cid
-          -- source chain id
-          bhe
-          -- source block height
-          outIx
-          -- transaction index
-
-        step "build spv creation command from tx output proof"
         ks <- testKeyPairs
-        t <- createCoinCmd ks proof
+        t <- deleteCoinCmd ks cid
 
-        step "execute spv command"
+        step "execute delete-coin command, generating pre-spv pact proof"
+        void $! runRST' pse st $
+          execTransactions (Just nullBlockHash) defaultMiner (V.singleton t)
 
-        let pse' = pse
-              & set (psPublicData . pdChainId) (unsafeGetChainId cid)
-              & set (psPublicData . pdBlockHeight) (int bhe)
+        step "create chainweb spv proof from pre-spv pact proof"
+        -- we only have 1 tx in list of returns, so this is fine
+        -- let v = toOutputBytes $ u ^?! txPairs . traverse . _2
+        p <- createTransactionOutputProof cutDb cid cid (BlockHeight 0) 1
 
-        let u = V.singleton t
-        let ex = execTransactions (Just bha) defaultMiner u
-
-        void $! runRST ex pse' st
+        step "build create-coin command from test creds and spv proof"
+        w <- createCoinCmd ks p
+        void $! runRST' pse st $
+          execTransactions (Just nullBlockHash) defaultMiner (V.singleton w)

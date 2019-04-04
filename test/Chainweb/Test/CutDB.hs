@@ -274,3 +274,12 @@ fakePact = WebPactExecutionService $ PactExecutionService
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = toCoinbaseOutput noCoinbase
+
+-- | test pact exec service
+--
+testPact :: WebPactExecutionService
+testPact = WebPactExecutionService $ PactExecutionService
+  { _pactValidateBlock = \_ d -> undefined
+  , _pactNewBlock = \_h -> error "unimplemented"
+  , _pactLocal = \_t -> error "unimplemented"
+  }

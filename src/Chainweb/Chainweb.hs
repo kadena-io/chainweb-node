@@ -438,7 +438,7 @@ runChainweb cw = do
                 -- , map (runChainSyncClient mgr) chainVals
                     -- TODO: reenable once full payload and adjacent parent validation
                     -- is implemented for ChainSyncClient
-                , map (runMempoolSyncClient mempoolMgr) chainVals
+                , map (runMempoolSyncClient mempoolMgr) chainVals 
                 ]
 
         mapConcurrently_ id clients
