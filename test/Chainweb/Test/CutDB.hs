@@ -46,6 +46,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
+import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.NodeId
 import Chainweb.Pact.Types

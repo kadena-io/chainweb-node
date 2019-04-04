@@ -101,6 +101,7 @@ library
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.Test
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -157,6 +158,7 @@ library
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
+        , Chainweb.Utils.RequestLog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -250,11 +252,12 @@ library
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
+        , http-types >= 0.12
         , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , memory >= 0.14
         , memory >=0.14
         , merkle-log
@@ -270,10 +273,8 @@ library
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
-        , raw-strings-qq >= 1.0
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safe >= 0.3
         , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.14
@@ -396,7 +397,7 @@ test-suite chainweb-tests
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3
@@ -571,7 +572,7 @@ executable slow-tests
         , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6

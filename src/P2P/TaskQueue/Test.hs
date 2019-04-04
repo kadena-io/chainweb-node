@@ -20,6 +20,7 @@ module P2P.TaskQueue.Test
 , properties
 ) where
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
@@ -47,7 +48,7 @@ newtype TestRunnerException = TestRunnerException Int
 instance Exception TestRunnerException
 
 testRunner :: AttemptsCount -> PQueue (Task Int a) -> IO ()
-testRunner limit q = forM_ [0..] $ session limit q (\_ _ -> return ())
+testRunner limit q = forM_ [0..] $ session limit q (\_ _ -> yield)
     -- session limit q (\_ m -> T.putStrLn $ logText m)
 
 -- -------------------------------------------------------------------------- --
@@ -63,15 +64,27 @@ test1 n = do
         results <- traverse awaitTask tasks
         return $ results == [0..n]
 
-test2 :: (Positive Int) -> IO Bool
-test2 (Positive n_) = do
+test2a :: (Positive Int) -> IO Bool
+test2a (Positive n_) = do
     tasks <- forM [0..n] $ \i ->
         newTask (TaskId $ sshow i) (Priority (n - i)) $ \_ -> return @_ @Int
     q <- newEmptyPQueue
     withAsync (testRunner 3 q) $ \_ -> do
         traverse_ (pQueueInsert q) tasks
         results <- traverse awaitTask tasks
-        return $ results /= [0..n] && L.sort results == [0..n]
+        return $ results /= [0..n]
+  where
+    n = n_ + 10
+
+test2b :: (Positive Int) -> IO Bool
+test2b (Positive n_) = do
+    tasks <- forM [0..n] $ \i ->
+        newTask (TaskId $ sshow i) (Priority (n - i)) $ \_ -> return @_ @Int
+    q <- newEmptyPQueue
+    withAsync (testRunner 3 q) $ \_ -> do
+        traverse_ (pQueueInsert q) tasks
+        results <- traverse awaitTask tasks
+        return $ L.sort results == [0..n]
   where
     n = n_ + 10
 
@@ -115,7 +128,8 @@ test5 (Positive n) (Positive m) (Positive a)
 properties :: [(String, Property)]
 properties =
     [ ("TaskQueue.Test.test1", property $ monadicIO . run . test1)
-    , ("TaskQueue.Test.test2", property $ monadicIO . run . test2)
+    , ("TaskQueue.Test.test2a", property $ monadicIO . run . test2a)
+    , ("TaskQueue.Test.test2b", property $ monadicIO . run . test2b)
     , ("TaskQueue.Test.test3", property $ monadicIO . run . test3)
     , ("TaskQueue.Test.test4", property $ monadicIO . run . test4)
     , ("TaskQueue.Test.test5", property $ \a b -> monadicIO . run . test5 a b)
