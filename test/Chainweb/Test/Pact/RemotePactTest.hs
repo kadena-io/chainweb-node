@@ -30,6 +30,8 @@ import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import Network.HTTP.Client.TLS as HTTP
 import Network.Connection as HTTP
@@ -95,9 +97,9 @@ tests = do
     (tt0, rks) <- testSend cmds cwEnv
 
     tt1 <- testPoll cmds cwEnv rks
-
-    let valCmd = MempoolLookupApiCmd (lookupClient cwVersion chainId0)
-    tt2 <- testMPValidated valCmd cwEnv rks
+    let tConfig = mempoolTxConfig noopMempool
+    let mPool = toMempool cwVersion chainId0 tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
+    tt2 <- testMPValidated mPool rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
 
@@ -122,22 +124,20 @@ testPoll cmds env rks = do
         Right rsp -> checkResponse "command-0" rks rsp
 
 testMPValidated
-    :: MempoolLookupApiCmd
-    -> ClientEnv
+    :: MempoolBackend ChainwebTransaction
     -> RequestKeys
     -> IO TestTree
-testMPValidated cmd env rks = do
-    let txHashes = TransactionHash . unHash . unRequestKey <$> _rkRequestKeys rks
+testMPValidated mPool rks = do
+    let txHashes = V.fromList $ TransactionHash . unHash . unRequestKey <$> _rkRequestKeys rks
+    responses <- mempoolLookup mPool txHashes
+    checkValidated responses
 
-    response <- mpLookupWithRetry cmd env txHashes
-    case response of
-        Left e -> assertFailure (show e)
-        Right rsp ->checkValidated rsp
-
-checkValidated :: [LookupResult ChainwebTransaction] -> IO TestTree
-checkValidated luResults =
-    return $ testCase "validatedMempoolTransactions" $
-        assertBool "At least one transaction was not validated" $ all f luResults
+checkValidated :: Vector (LookupResult ChainwebTransaction) -> IO TestTree
+checkValidated results = do
+    when (null results)
+        $ assertFailure "No results returned from mempool's lookupTransaction"
+    return $ testCase "allTransactionsValidated" $
+        assertBool "At least one transaction was not validated" $ V.all f results
   where
     f (Validated _) = True
     f Confirmed     = True
@@ -157,7 +157,6 @@ sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either Serva
 sendWithRetry cmds env sb = go maxSendRetries
   where
     go retries =  do
-        -- result <- runClientM (apiSend sb) env
         result <- runClientM (sendApiCmd cmds sb) env
         case result of
             Left _ ->
@@ -196,28 +195,6 @@ pollWithRetry cmds env rks = do
 
 maxMemPoolRetries :: Int
 maxMemPoolRetries = 30
-
-mpLookupWithRetry
-    :: MempoolLookupApiCmd
-    -> ClientEnv
-    -> [TransactionHash]
-    -> IO (Either ServantError [LookupResult ChainwebTransaction])
-mpLookupWithRetry cmd env txs = do
-  go maxMemPoolRetries
-    where
-      go retries = do
-          result <- runClientM (lookupApiCmd cmd txs) env
-          case result of
-              Left _ ->
-                  if retries == 0 then do
-                      putStrLn $ "Mempool lookup request failing after " ++ show maxSendRetries ++ " retries"
-                      return result
-                  else do
-                      sleep 1
-                      go (retries - 1)
-              Right _ -> do
-                  putStrLn $ "Mempool lookup succeeded after " ++ show (maxMemPoolRetries - retries) ++ " retries"
-                  return result
 
 checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
 checkRequestKeys filePrefix rks = do
@@ -265,9 +242,6 @@ apiCmds cwVersion theChainId =
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
     , pollApiCmd :: Poll -> ClientM PollResponses }
-
-newtype MempoolLookupApiCmd = MempoolLookupApiCmd
-    { lookupApiCmd :: [TransactionHash] -> ClientM [LookupResult ChainwebTransaction] }
 
 ----------------------------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
