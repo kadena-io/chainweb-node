@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -63,6 +64,7 @@ module Chainweb.CutDB
 
 import Control.Applicative
 import Control.Concurrent.Async
+import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar
 import Control.Exception
 import Control.Lens hiding ((:>))
@@ -148,7 +150,7 @@ defaultCutDbConfig v = CutDbConfig
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
-    , _cutNetworkCutHeight :: !(TVar (Maybe BlockHeight))
+    , _cutNetworkCutHeight :: !(TMVar BlockHeight)
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -245,7 +247,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
     queue <- newEmptyPQueue
-    networkHeight <- newTVarIO Nothing
+    networkHeight <- newEmptyTMVarIO
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar networkHeight
     logfun @T.Text Info "CutDB started"
     return $ CutDb
@@ -259,7 +261,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         }
   where
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar (Maybe BlockHeight) -> IO ()
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> TMVar BlockHeight -> IO ()
     processor queue cutVar networkHeight = do
         processCuts logfun headerStore payloadStore queue cutVar networkHeight `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
@@ -285,7 +287,7 @@ processCuts
     -> WebBlockPayloadStore cas
     -> PQueue (Down CutHashes)
     -> TVar Cut
-    -> TVar (Maybe BlockHeight)
+    -> TMVar BlockHeight
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
     & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
@@ -315,7 +317,7 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
     -- components of this node.
     --
     updateNetworkHeight :: CutHashes -> IO ()
-    updateNetworkHeight = atomically . writeTVar networkHeight . Just . cutHashesHeight
+    updateNetworkHeight = void . atomically . swapTMVar networkHeight . _cutHashesHeight
 
     graph = _chainGraph headerStore
 
@@ -408,7 +410,7 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 consensusCut :: CutDb cas -> IO Cut
 consensusCut cutdb = atomically $ do
     cur <- _cutStm cutdb
-    readTVar (_cutNetworkCutHeight cutdb) >>= \case
+    tryReadTMVar (_cutNetworkCutHeight cutdb) >>= \case
         Nothing -> pure cur
         Just nh -> do
             let !currentHeight = _cutHeight cur
