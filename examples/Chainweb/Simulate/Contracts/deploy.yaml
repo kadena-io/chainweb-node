@@ -1,0 +1,9 @@
+nodeChainId: 1
+scriptCommand:
+  tag: DeployContracts
+  contents: []
+  # TODO: This will be updated soon.
+    # - /home/emmanuel/work/chainweb/examples/Chainweb/Simulate/Contracts/accounts.pact
+    # - /home/emmanuel/work/chainweb/examples/Chainweb/Simulate/Contracts/cp.pact
+    # - /home/emmanuel/work/chainweb/examples/Chainweb/Simulate/Contracts/orders.pact
+nodePort: 8080

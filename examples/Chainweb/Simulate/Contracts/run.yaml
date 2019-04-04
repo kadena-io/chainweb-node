@@ -1,0 +1,4 @@
+nodeChainId: 1
+scriptCommand:
+  tag: Run
+nodePort: 8080
