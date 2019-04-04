@@ -59,7 +59,7 @@ main = do
   pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
   let allTests = testGroup "Chainweb Tests"
         . schedule Sequential
-        pactSuite : suite
+        $ pactSuite : suite
   defaultMain allTests
 
 pactTestSuite :: IO ScheduledTest

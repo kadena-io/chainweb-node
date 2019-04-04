@@ -119,9 +119,7 @@ testPoll cmds env rks = do
     response <- pollWithRetry cmds env rks
     case response of
         Left e -> assertFailure (show e)
-        Right rsp -> do
-            tt1 <- checkResponse "command-0" rks rsp
-            return tt1
+        Right rsp -> checkResponse "command-0" rks rsp
 
 testMPValidated
     :: MempoolLookupApiCmd
@@ -129,17 +127,15 @@ testMPValidated
     -> RequestKeys
     -> IO TestTree
 testMPValidated cmd env rks = do
-    let txHashes = (TransactionHash . unHash . unRequestKey) <$> _rkRequestKeys rks
+    let txHashes = TransactionHash . unHash . unRequestKey <$> _rkRequestKeys rks
 
     response <- mpLookupWithRetry cmd env txHashes
     case response of
         Left e -> assertFailure (show e)
-        Right rsp -> do
-            tt <- checkValidated rsp
-            return tt
+        Right rsp ->checkValidated rsp
 
 checkValidated :: [LookupResult ChainwebTransaction] -> IO TestTree
-checkValidated luResults = do
+checkValidated luResults =
     return $ testCase "validatedMempoolTransactions" $
         assertBool "At least one transaction was not validated" $ all f luResults
   where
@@ -162,7 +158,7 @@ sendWithRetry cmds env sb = go maxSendRetries
   where
     go retries =  do
         -- result <- runClientM (apiSend sb) env
-        result <- runClientM ((sendApiCmd cmds) sb) env
+        result <- runClientM (sendApiCmd cmds sb) env
         case result of
             Left _ ->
                 if retries == 0 then do
@@ -185,7 +181,7 @@ pollWithRetry cmds env rks = do
   go maxPollRetries
     where
       go retries = do
-          result <- runClientM ((pollApiCmd cmds) (Poll (_rkRequestKeys rks))) env
+          result <- runClientM (pollApiCmd cmds (Poll (_rkRequestKeys rks))) env
           case result of
               Left _ ->
                   if retries == 0 then do
@@ -210,7 +206,7 @@ mpLookupWithRetry cmd env txs = do
   go maxMemPoolRetries
     where
       go retries = do
-          result <- runClientM ((lookupApiCmd cmd) txs) env
+          result <- runClientM (lookupApiCmd cmd txs) env
           case result of
               Left _ ->
                   if retries == 0 then do
@@ -232,7 +228,7 @@ checkRequestKeys filePrefix rks = do
 checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
 checkResponse filePrefix rks (PollResponses theMap) = do
     let fp = filePrefix ++ "-expected-resp.txt"
-    let mays = map (\x -> HM.lookup x theMap) (_rkRequestKeys rks)
+    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
     let values = _arResult <$> catMaybes mays
     let bsResponse = return $ toS $ foldMap A.encode values
 
@@ -271,7 +267,7 @@ data PactTestApiCmds = PactTestApiCmds
     , pollApiCmd :: Poll -> ClientM PollResponses }
 
 newtype MempoolLookupApiCmd = MempoolLookupApiCmd
-    { lookupApiCmd :: ([TransactionHash] -> ClientM [LookupResult ChainwebTransaction]) }
+    { lookupApiCmd :: [TransactionHash] -> ClientM [LookupResult ChainwebTransaction] }
 
 ----------------------------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
