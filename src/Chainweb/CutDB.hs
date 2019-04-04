@@ -150,7 +150,7 @@ defaultCutDbConfig v = CutDbConfig
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
-    , _cutApproxNetworkHeight :: !(TMVar BlockHeight)
+    , _cutApproxNetworkHeight :: !(TVar (Maybe BlockHeight))
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -247,7 +247,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
     queue <- newEmptyPQueue
-    networkHeight <- newEmptyTMVarIO
+    networkHeight <- newTVarIO Nothing
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar networkHeight
     logfun @T.Text Info "CutDB started"
     return $ CutDb
@@ -261,7 +261,7 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         }
   where
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> TMVar BlockHeight -> IO ()
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar (Maybe BlockHeight) -> IO ()
     processor queue cutVar networkHeight = do
         processCuts logfun headerStore payloadStore queue cutVar networkHeight `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
@@ -287,7 +287,7 @@ processCuts
     -> WebBlockPayloadStore cas
     -> PQueue (Down CutHashes)
     -> TVar Cut
-    -> TMVar BlockHeight
+    -> TVar (Maybe BlockHeight)
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
     & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
@@ -317,7 +317,7 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
     -- components of this node.
     --
     updateNetworkHeight :: CutHashes -> IO ()
-    updateNetworkHeight = void . atomically . swapTMVar networkHeight . _cutHashesHeight
+    updateNetworkHeight = atomically . writeTVar networkHeight . Just .  _cutHashesHeight
 
     graph = _chainGraph headerStore
 
@@ -410,7 +410,7 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 consensusCut :: CutDb cas -> IO Cut
 consensusCut cutdb = atomically $ do
     cur <- _cutStm cutdb
-    tryReadTMVar (_cutApproxNetworkHeight cutdb) >>= \case
+    readTVar (_cutApproxNetworkHeight cutdb) >>= \case
         Nothing -> pure cur
         Just nh -> do
             let !currentHeight = _cutHeight cur
@@ -418,14 +418,6 @@ consensusCut cutdb = atomically $ do
                 !mini = bool (nh - thresh) 0 $ thresh > nh
             when (currentHeight < mini) retry
             pure cur
-
--- consensusCut cutdb = readTVarIO (_cutNetworkCutHeight cutdb) >>= \case
---     Nothing -> pure False
---     Just nh -> do
---         currentHeight <- _cutHeight <$> _cut cutdb
---         let !thresh = int . catchupThreshold $ _chainwebVersion cutdb
---             !mini = bool (nh - thresh) 0 $ thresh > nh
---         pure $ currentHeight > mini
 
 -- | The distance from the true Cut within which the current node could be
 -- considered "caught up".
