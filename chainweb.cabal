@@ -270,6 +270,7 @@ library
         , paths >= 0.2
         , pem >=0.2
         , psqueues >= 0.2.7.0
+        , raw-strings-qq >= 1.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -413,6 +414,7 @@ test-suite chainweb-tests
         , resourcet >= 1.2
         , safe >= 0.3
         , scientific >= 0.3
+        , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
         , string-conv >= 0.1
