@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
@@ -17,21 +18,45 @@
 -- A true Proof of Work miner.
 --
 
-module Chainweb.Miner.POW ( powMiner ) where
+module Chainweb.Miner.POW
+( powMiner
 
+-- * Internal
+, mineCut
+, mine
+) where
+
+import Control.Concurrent.Async
+import Control.Lens
 import Control.Lens (ix, (^?), (^?!), view)
+import Control.Monad
+import Control.Monad.STM
 
+import Crypto.Hash.Algorithms
+import Crypto.Hash.IO
+
+import qualified Data.ByteArray as BA
+import Data.Bytes.Put
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Unsafe as B
 import qualified Data.HashMap.Strict as HM
+import Data.Int
+import Data.Proxy
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Word
+
+import Foreign.Marshal.Alloc
+import Foreign.Ptr
+import Foreign.Storable
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -40,28 +65,23 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.NodeId
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.PowHash
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Time
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
+import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction, JsonLog(..))
-
--- DEBUGGING --
--- import Chainweb.ChainId (testChainId)
--- import Chainweb.Difficulty (PowHashNat(..), HashDifficulty(..))
--- import Chainweb.Time (Time(..), TimeSpan(..))
--- import Data.Generics.Wrapped (_Unwrapped)
--- import Data.IORef
--- import Data.Int (Int64)
--- import System.IO (hFlush, stdout)
--- import Text.Printf (printf)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -82,7 +102,6 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
   where
     wcdb = view cutDbWebBlockHeaderDb cutDb
     payloadDb = view cutDbPayloadCas cutDb
-    payloadStore = view cutDbPayloadStore cutDb
 
     logg :: LogLevel -> T.Text -> IO ()
     logg = logFun
@@ -96,13 +115,14 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -> IO ()
     go gen !i !adjustments0 = do
 
-        nonce0 <- Nonce <$> MWC.uniform gen
-
-        -- counter <- newIORef (1 :: Int)
-
-        -- Mine a new block
+        -- Mine a new Cut
         --
-        T3 newBh c' adjustments' <- mine nonce0 adjustments0
+        c <- _cut cutDb
+        T3 newBh c' adjustments' <- do
+            let go2 !x = race (awaitNextCut cutDb x) (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
+                    Left c' -> go2 c'
+                    Right !r -> return r
+            go2 c
 
         logg Info $! "created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
@@ -132,101 +152,108 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         --
         go gen (i + 1) (HM.filter (\(T2 h _) -> h > limit) adjustments')
 
-    -- | INVARIANT: A new cut, chain, and parent header is reselected after each
-    -- hash failure. This ensures that the Cut the miner is working on doesn't
-    -- grow stale, and cause forks. Without this condition (or a similar one),
-    -- the miners cause forks quite aggressively.
+awaitNextCut :: CutDb cas -> Cut -> IO Cut
+awaitNextCut cutDb c = atomically $ do
+    c' <- _cutStm cutDb
+    when (c' == c) retry
+    return c'
+
+mineCut
+    :: PayloadCas cas
+    => Given WebBlockHeaderDb
+    => Given (PayloadDb cas)
+    => LogFunction
+    -> MinerConfig
+    -> NodeId
+    -> CutDb cas
+    -> MWC.GenIO
+    -> Cut
+    -> Adjustments
+    -> IO (T3 BlockHeader Cut Adjustments)
+mineCut logfun conf nid cutDb gen !c !adjustments = do
+
+    -- Randomly pick a chain to mine on.
     --
-    mine
-        :: Given WebBlockHeaderDb
-        => Given (PayloadDb cas)
-        => Nonce
-        -> Adjustments
-        -> IO (T3 BlockHeader Cut Adjustments)
-    mine !nonce !adjustments = do
-        -- Get the current longest cut.
-        --
-        c <- _cut cutDb
+    cid <- randomChainId c
 
-        -- Randomly pick a chain to mine on.
-        --
-        cid <- randomChainId c
+    -- The parent block the mine on. Any given chain will always
+    -- contain at least a genesis block, so this otherwise naughty
+    -- `^?!` will always succeed.
+    --
+    let !p = c ^?! ixg cid
 
-        -- The parent block the mine on. Any given chain will always
-        -- contain at least a genesis block, so this otherwise naughty
-        -- `^?!` will always succeed.
-        --
-        let !p = c ^?! ixg cid
+    -- check if chain can be mined on (check adjacent parents)
+    --
+    case getAdjacentParents c p of
 
-        -- The hashing target to be lower than.
-        --
-        T2 target adjustments' <- getTarget cid p adjustments
+        Nothing -> mineCut logfun conf nid cutDb gen c adjustments
+            -- spin until a chain is found that isn't blocked
 
-        -- Loops (i.e. "mines") if a non-matching nonce was generated.
-        --
+        Just adjParents -> do
 
-        let mokPact = False
-        let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
-        payload <- case mokPact of
-            False -> _pactNewBlock pact (_configMinerInfo conf) p
-            True -> return
-                $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
-                $ S.fromList
-                    [ (Transaction "testTransaction", TransactionOutput "testOutput")
-                    ]
+            -- get payload
+            payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
-        -- The new block's creation time.
-        --
-        let loop n = do
-                ct <- getCurrentTimeIntegral
-                testMineWithPayload @cas nonce target ct payload nid cid c pact >>= \case
-                    Left BadNonce -> do
-                        -- atomicModifyIORef' counter (\n -> (succ n, ()))
-                        c' <- _cut cutDb
+            -- get target
+            --
+            T2 target adjustments' <- getTarget cid p adjustments
 
-                        -- this comparision is still a bit expensive but fine for now. We
-                        -- should let cutdb notify us. Or use a serial number or similar.
-                        if c' /= c
-                            then mine (succ n) adjustments'
-                            else loop (succ n)
+            -- Assemble block without Nonce and Timestamp
+            --
+            creationTime <- getCurrentTimeIntegral
+            nonce <- Nonce <$> MWC.uniform gen
+            let candidateHeader = newBlockHeader
+                    (nodeIdFromNodeId nid cid)
+                    adjParents
+                    (_payloadWithOutputsPayloadHash payload)
+                    nonce
+                    target
+                    creationTime
+                    p
 
-                    Left BadAdjacents -> mine nonce adjustments'
+            newHeader <- (usePowHash v mine) candidateHeader nonce
 
-                    Right (T2 newBh newCut) -> do
+            -- create cut with new block
+            --
+            -- This is expected to succeed, since the cut invariants should
+            -- hold by construction
+            --
+            !c' <- monotonicCutExtension c newHeader
 
-                        -- DEBUGGING --
-                        -- Uncomment the following for a live view of mining
-                        -- results on Chain 0. You will have to uncomment a
-                        -- number of surrounding helper values and readd some
-                        -- imports.
+            -- Validate payload
+            --
+            logg Info $! "validate block payload"
+            validatePayload newHeader payload
+            logg Info $! "add block payload to payload cas"
+            addNewPayload payloadDb payload
 
-                        -- total <- readIORef counter
+            logg Info $! "add block to payload db"
+            insertWebBlockHeaderDb newHeader
 
-                        -- let targetBits :: String
-                        --     targetBits = printf "%0256b" $ htInteger target
+            return $! T3 newHeader c' adjustments'
 
-                        -- when (cid == testChainId 0) $ do
-                        --     printf "\n--- NODE:%02d HASHES:%06x TARGET:%s...%s HEIGHT:%03x WEIGHT:%06x PARENT:%s NEW:%s TIME:%02.2f\n"
-                        --         (_nodeIdId nid)
-                        --         total
-                        --         (take 30 targetBits)
-                        --         (drop 226 targetBits)
-                        --         (pheight newBh)
-                        --         (pweight newBh)
-                        --         (take 8 . drop 5 . show $ _blockHash p)
-                        --         (take 8 . drop 5 . show $ _blockHash newBh)
-                        --         (int (time newBh - time p) / 1000000 :: Float)
-                        --     hFlush stdout
+  where
+    v = _chainwebVersion cutDb
+    wcdb = view cutDbWebBlockHeaderDb cutDb
+    payloadDb = view cutDbPayloadCas cutDb
+    payloadStore = view cutDbPayloadStore cutDb
+    pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
 
-                        pure $! T3 newBh newCut adjustments'
-        loop nonce
+    logg :: LogLevel -> T.Text -> IO ()
+    logg = logfun
+
+    blockDb :: ChainId -> Maybe BlockHeaderDb
+    blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
+
+    validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
+    validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
 
     getTarget
         :: ChainId
         -> BlockHeader
         -> Adjustments
         -> IO (T2 HashTarget Adjustments)
-    getTarget cid bh adjustments = case HM.lookup (_blockHash bh) adjustments of
+    getTarget cid bh as = case HM.lookup (_blockHash bh) as of
         Just (T2 _ t) -> pure $! T2 t adjustments
         Nothing -> case blockDb cid of
             Nothing -> pure $! T2 (_blockTarget bh) adjustments
@@ -234,18 +261,114 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
                 t <- hashTarget db bh
                 pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
 
-    blockDb :: ChainId -> Maybe BlockHeaderDb
-    blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
+    toPayloadData d = PayloadData
+              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
+              , _payloadDataMiner = _payloadWithOutputsMiner d
+              , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
+              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
+              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
+              }
 
-    -- htInteger :: HashTarget -> Integer
-    -- htInteger (HashTarget (PowHashNat w)) = fromIntegral w
+-- -------------------------------------------------------------------------- --
+--
 
-    -- pheight :: BlockHeader -> Word64
-    -- pheight bh = case _blockHeight bh of BlockHeight w -> w
+getAdjacentParents
+    :: (IxedGet s, IxValue s ~ BlockHeader, Index s ~ ChainId)
+    => s
+    -> BlockHeader
+    -> Maybe BlockHashRecord
+getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
+  where
+    -- | Try to get all adjacent hashes dependencies.
+    --
+    newAdjHashes :: Maybe (HM.HashMap ChainId BlockHash)
+    newAdjHashes = iforM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \xcid _ ->
+        c ^?! ixg xcid . to (tryAdj (_blockHeight p))
 
-    -- pweight :: BlockHeader -> Integer
-    -- pweight bh = case _blockWeight bh of
-    --     BlockWeight (HashDifficulty (PowHashNat w)) -> int w
+    tryAdj :: BlockHeight -> BlockHeader -> Maybe BlockHash
+    tryAdj h b
+        | _blockHeight b == h = Just $! _blockHash b
+        | _blockHeight b == h + 1 = Just $! _blockParent b
+        | otherwise = Nothing
 
-    -- time :: BlockHeader -> Int64
-    -- time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n
+-- -------------------------------------------------------------------------- --
+-- Inner Mining loop
+
+usePowHash :: ChainwebVersion -> (forall a . HashAlgorithm a => Proxy a -> f) -> f
+usePowHash Test{} f = f $ Proxy @SHA512t_256
+usePowHash TestWithTime{} f = f $ Proxy @SHA512t_256
+usePowHash TestWithPow{} f = f $ Proxy @SHA512t_256
+usePowHash Simulation{} f = f $ Proxy @SHA512t_256
+usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
+
+-- | This Miner makes low-level assumptions about the chainweb protocol. It may
+-- break if the protocol changes.
+--
+-- TODO: Check the chainweb version to make sure this function can handle the
+-- respective version.
+--
+mine
+    :: forall a
+    . HashAlgorithm a
+    => Proxy a
+    -> BlockHeader
+    -> Nonce
+    -> IO BlockHeader
+mine _ h nonce = do
+    !ctx <- hashMutableInit @a
+    bytes <- BA.copy initialBytes $ \buf -> do
+        allocaBytes (powSize :: Int) $ \pow -> do
+
+            -- inner mining loop
+            --
+            -- We do 100000 hashes before we update the creation time.
+            --
+            let go 100000 !n = do
+
+                    -- update the block creation time
+                    ct <- getCurrentTimeIntegral
+                    injectTime ct buf
+                    go 0 n
+
+                go !i !n = do
+
+                    -- Compute POW hash for the nonce
+                    injectNonce n buf
+                    hash ctx buf pow
+                    powByteString <- mkPowHash =<< B.unsafePackCStringLen (castPtr pow, powSize)
+
+                    -- check whether the nonce meets the target
+                    if checkTarget target powByteString
+                        then return ()
+                        else go (succ i) (succ n)
+
+            -- Start inner mining loop
+            go (0 :: Int) nonce
+
+    -- On success: deserialize and returnb the new BlockHeader
+    runGet decodeBlockHeaderWithoutHash bytes
+
+  where
+
+    !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
+    !bufSize = B.length initialBytes
+    !target = _blockTarget h
+    !powSize = int $ hashDigestSize @a undefined
+
+    --  Compute POW hash
+    hash :: MutableContext a -> Ptr Word8 -> Ptr Word8 -> IO ()
+    hash ctx buf pow = do
+        hashMutableReset ctx
+        BA.withByteArray ctx $ \ctxPtr -> do
+            hashInternalUpdate @a ctxPtr buf (int bufSize)
+            hashInternalFinalize ctxPtr (castPtr pow)
+    {-# INLINE hash #-}
+
+    injectTime :: Time Int64 -> Ptr Word8 -> IO ()
+    injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
+    {-# INLINE injectTime #-}
+
+    injectNonce :: Nonce -> Ptr Word8 -> IO ()
+    injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
+    {-# INLINE injectNonce #-}
+

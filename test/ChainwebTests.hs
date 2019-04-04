@@ -19,7 +19,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
-import qualified Chainweb.Cut (properties)
+import qualified Chainweb.Cut.Test (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
@@ -105,6 +105,6 @@ suite =
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        , testProperties "Chainweb.Cut" Chainweb.Cut.properties
+        , testProperties "Chainweb.Cut.Test" Chainweb.Cut.Test.properties
         ]
     ]
