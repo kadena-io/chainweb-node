@@ -10,6 +10,9 @@ function usage () {
     echo
     echo "If third argument starts with 'es:' it is used for logging to Elasticsearch."
     echo "NUMBER_OF_NODES must be between 1 and 100."
+    echo ""
+    echo "The loglevel can be set via the environment variable 'LOGLEVEL'. Default is 'info'."
+    echo ""
     echo "Stop nodes with Ctrl-C"
 }
 
@@ -24,13 +27,6 @@ function err () {
     usage 1>&2
 }
 
-function transaction-index-flags () {
-    if (( ! ${TRANSACTION_INDEX:-0} )); then
-        echo "disabling tx index" >/dev/stderr
-        echo "--disable-transaction-index"
-    fi
-}
-
 LOGLEVEL=${LOGLEVEL:-info}
 [ "$#" -ge 2 ] || { err "Missing arguments" ; exit -1 ; }
 
@@ -41,10 +37,6 @@ RUN=$1 && shift
 N=$1 && shift
 
 LOG_DIR=$1 && shift
-
-# Disable Pact until pact integration passes all tests
-export CHAINWEB_DISABLE_PACT=${CHAINWEB_DISABLE_PACT:-0}
-[ "$CHAINWEB_DISABLE_PACT" -ne "0" ] && echo "pact is disabled"
 
 # ############################################################################ #
 # some sanity checks
@@ -101,7 +93,6 @@ function run-node () {
             --log-level=$LOGLEVEL \
             --telemetry-log-handle="$TELEMETRY_LOG" \
             --log-handle="$APP_LOG" \
-            $(transaction-index-flags) \
             $CONFIG_FILE_ARG \
             +RTS -T &
 
@@ -115,7 +106,6 @@ function run-node () {
             --chainweb-version=testWithTime \
             --interface=127.0.0.1 \
             --log-level=$LOGLEVEL \
-            $(transaction-index-flags) \
             $PORT_ARG \
             $CONFIG_FILE_ARG \
             +RTS -T &
