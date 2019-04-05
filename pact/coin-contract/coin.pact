@@ -177,7 +177,6 @@
         (write coin-table account
           { "balance" : (+ balance amount)
           , "guard"   : retg
-          , "exists"  : true
           }))
       )
 
