@@ -7,6 +7,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -148,18 +149,22 @@ session limit q logFun env = mask $ \restore -> do
     task <- pQueueRemove q
 
     -- check if the result variable as already been filled
-    tryReadIVar (_taskResult task) >>= \case
-        Nothing -> do
-            logg task Debug "run task"
-            flip catchAllSynchronous (retry task) $ restore $ do
-                r <- _taskAction task logFun env
-                putResult (_taskResult task) $! Right r
-        Just Left{} -> do
-            logg task Debug "task already failed"
-            return False
-        Just Right{} -> do
-            logg task Debug "task already succeeded"
-            return True
+    let go = tryReadIVar (_taskResult task) >>= \case
+            Nothing -> do
+                logg task Debug "run task"
+                flip catchAllSynchronous (retry task) $ restore $ do
+                    r <- _taskAction task logFun env
+                    putResult (_taskResult task) $! Right r
+            Just Left{} -> do
+                logg task Debug "task already failed"
+                return False
+            Just Right{} -> do
+                logg task Debug "task already succeeded"
+                return True
+
+    go `catch` \(e :: SomeException) -> do
+        void $ retry task e
+        throwM e
 
   where
     -- reschedule a task or fail if maximum number of attempts has been reached.
