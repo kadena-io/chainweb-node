@@ -53,8 +53,6 @@ import P2P.Peer
 import P2P.Session
 import P2P.TaskQueue
 
-
-
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
@@ -109,20 +107,20 @@ withCutResources cutDbConfig peer logger webchain payloadDb mgr pact f = do
             , _cutResLogger = logger
             , _cutResCutSync = CutSyncResources
                 { _cutResSyncSession = C.syncSession v useOrigin (_peerInfo $ _peerResPeer peer) cutDb
-                , _cutResSyncLogger = setComponent "cut" syncLogger
+                , _cutResSyncLogger = addLabel ("sync", "cut") syncLogger
                 }
             , _cutResHeaderSync = CutSyncResources
                 { _cutResSyncSession = session 10 (_webBlockHeaderStoreQueue headerStore)
-                , _cutResSyncLogger = setComponent "header" syncLogger
+                , _cutResSyncLogger = addLabel ("sync", "header") syncLogger
                 }
             , _cutResPayloadSync = CutSyncResources
                 { _cutResSyncSession = session 10 (_webBlockPayloadStoreQueue payloadStore)
-                , _cutResSyncLogger = setComponent "payload" syncLogger
+                , _cutResSyncLogger = addLabel ("sync", "payload") syncLogger
                 }
             }
   where
     v = _chainwebVersion webchain
-    syncLogger = setComponent "sync" logger
+    syncLogger = addLabel ("sub-component", "sync") logger
     useOrigin = _cutDbConfigUseOrigin cutDbConfig
 
 -- | The networks that are used by the cut DB.

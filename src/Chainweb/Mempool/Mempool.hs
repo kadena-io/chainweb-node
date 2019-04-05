@@ -263,18 +263,20 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
     log = log0 Info             -- TODO: some of these messages should be
                                 -- "debug" but we're ok with overlogging for
                                 -- now.
+    deb :: Text -> IO ()
+    deb = log0 Debug
 
     sync _ = flip finally (log "sync finished") $ do
-        log "subscription started, getting pending hashes from remote"
+        deb "subscription started, getting pending hashes from remote"
         missing <- newIORef $! SyncState 0 [] HashSet.empty False
         mempoolGetPendingTransactions remoteMempool $ syncChunk missing
         (SyncState _ missingChunks presentHashes tooMany) <- readIORef missing
 
-        log "subscription started, getting pending hashes from remote"
+        deb "subscription started, getting pending hashes from remote"
         let numMissingFromLocal = foldl' (+) 0 (map V.length missingChunks)
         let numPresentAtRemote = HashSet.size presentHashes
 
-        log $ T.concat [
+        deb $ T.concat [
             sshow (numMissingFromLocal + numPresentAtRemote)
           , " hashes at remote ("
           , sshow numMissingFromLocal
@@ -286,7 +288,7 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
 
         -- Push our missing txs to remote.
         numPushed <- push presentHashes
-        log $ T.concat [
+        deb $ T.concat [
             "pushed "
           , sshow numPushed
           , " new transactions to remote."

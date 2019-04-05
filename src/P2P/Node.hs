@@ -131,6 +131,13 @@ emptyP2pNodeStats = P2pNodeStats
     , _p2pStatsActiveMax = 0
     }
 
+_p2pStatsSessionCount :: P2pNodeStats -> Natural
+_p2pStatsSessionCount s
+    = _p2pStatsSuccessCount s
+    + _p2pStatsFailureCount s
+    + _p2pStatsTimeoutCount s
+    + _p2pStatsExceptionCount s
+
 instance Arbitrary P2pNodeStats where
     arbitrary = P2pNodeStats
         <$> arbitrary <*> arbitrary <*> arbitrary
@@ -477,7 +484,8 @@ awaitSessions node = do
         updateKnownPeerCount node
         updateActiveCount node
         readTVar (_p2pNodeStats node)
-    loggFun node Info $ JsonLog stats
+    when (_p2pStatsSessionCount stats `mod` 250 == 0)
+        $ loggFun node Info $ JsonLog stats
 
   where
     peerDb = _p2pNodePeerDb node

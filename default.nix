@@ -50,11 +50,11 @@ in
           sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
         };
 
-        chainweb = overrideCabal super.chainweb (drv: {
+        chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
-        });
+        }));
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
 
         x509 = callHackageDirect {
@@ -75,10 +75,30 @@ in
           sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
         };
 
+        # --- massiv --- #
+        massiv = callHackageDirect {
+          pkg = "massiv";
+          ver = "0.3.0.0";
+          sha256 = "0yv5vq9v18jzs5mbg2qpyh18dbc54s143231b3d0bw9mawp81nsi";
+        };
+
+        scheduler = callHackageDirect {
+          pkg = "scheduler";
+          ver = "1.0.0";
+          sha256 = "0kmb7v5bl5rcn37bgz1ghrdpr22dbxkzmrd6h65jkhbvciz8hqlf";
+        };
+        # --- end massiv --- #
+
         fast-builder = callHackageDirect {
           pkg = "fast-builder";
           ver = "0.1.0.0";
           sha256 = "1lww53vn38pin1kw87bambqjd7f4bsw1b5ix77zclvg4gj257pm1";
+        };
+
+        wai-middleware-throttle = callHackageDirect {
+          pkg = "wai-middleware-throttle";
+          ver = "0.3.0.0";
+          sha256 = "01ay49qwa5g0x00khzn2kxw58bzmafs5n32bz4g4lf14mw7dway7";
         };
 
         strict-tuple = callHackageDirect {

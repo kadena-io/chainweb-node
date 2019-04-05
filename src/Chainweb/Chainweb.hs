@@ -70,6 +70,7 @@ module Chainweb.Chainweb
 , chainwebPeer
 , chainwebPayloadDb
 , chainwebPactData
+, chainwebThrottler
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -100,9 +101,14 @@ import GHC.Generics hiding (from)
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
+import Network.Wai
+import Network.Wai.Middleware.Throttle
+
+import Numeric.Natural
 
 import Prelude hiding (log)
 
+import System.Clock
 import System.LogLevel
 
 -- internal modules
@@ -126,6 +132,7 @@ import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -164,6 +171,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configChainDbDirPath :: !(Maybe FilePath)
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
+    , _configThrottleRate :: !Natural
     }
     deriving (Show, Eq, Generic)
 
@@ -186,6 +194,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configChainDbDirPath = Nothing
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
+    , _configThrottleRate = 1000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -197,6 +206,7 @@ instance ToJSON ChainwebConfiguration where
         , "chainDbDirPath" .= _configChainDbDirPath o
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
+        , "throttleRate" .= _configThrottleRate o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -208,6 +218,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configChainDbDirPath ..: "chainDbDirPath" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
+        <*< configThrottleRate ..: "throttleRate" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -229,6 +240,9 @@ pChainwebConfiguration = id
     <*< configIncludeOrigin .:: enableDisableFlag
         % long "include-origin"
         <> help "whether to include the local peer as origin when publishing cut hashes"
+    <*< configThrottleRate .:: option auto
+        % long "throttle-rate"
+        <> help "how many requests per second are accepted from another node before it is being throttled"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -244,6 +258,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
+    , _chainwebThrottler :: !(Throttle Address)
     }
 
 makeLenses ''Chainweb
@@ -325,6 +340,21 @@ withChainwebInternal conf logger peer payloadDb inner = do
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
 
+            -- initialize throttler
+            throttler <- initThrottler (defaultThrottleSettings $ TimeSpec 4 0)
+                { throttleSettingsRate = int $ _configThrottleRate conf
+                , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
+                , throttleSettingsBurst = int $ _configThrottleRate conf
+                , throttleSettingsIsThrottled = const True
+                -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
+                --     [ "cut"
+                --     , "header"
+                --     , "payload"
+                --     , "mempool"
+                --     , "peer"
+                --     ]
+                }
+
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar mv mCutDb
 
@@ -341,6 +371,7 @@ withChainwebInternal conf logger peer payloadDb inner = do
                     , _chainwebPayloadDb = payloadDb
                     , _chainwebManager = mgr
                     , _chainwebPactData = pactData
+                    , _chainwebThrottler = throttler
                     }
 
     withPactData cs cuts m
@@ -413,9 +444,13 @@ runChainweb cw = do
                 , _chainwebServerPactDbs = pactDbsToServe
                 }
 
+        -- HTTP Request Logger
+        httpLog :: Middleware
+        httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
+
     -- 1. start server
     --
-    withAsync serve $ \server -> do
+    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \server -> do
         logg Info "started server"
 
         -- Configure Clients
@@ -445,3 +480,4 @@ runChainweb cw = do
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
+

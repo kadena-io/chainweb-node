@@ -252,11 +252,11 @@ header h = do
     return
         . fromLog
         . newMerkleLog
-        $ _blockHash h
+        $ nonce
+            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+            :+: _blockHash h
             :+: target
             :+: testBlockPayload h
-            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
-            :+: nonce
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
             :+: succ (_blockHeight h)

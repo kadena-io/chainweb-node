@@ -73,6 +73,9 @@ module Chainweb.Graph
 , singletonChainGraph
 , pairChainGraph
 , petersonChainGraph
+
+-- * Random ChainId
+, randomChainId
 ) where
 
 import Control.Arrow
@@ -82,6 +85,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Bits
+import Data.Foldable
 import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -91,6 +95,8 @@ import Data.Reflection hiding (int)
 import GHC.Generics hiding (to)
 
 import Numeric.Natural
+
+import System.Random
 
 -- internal imports
 
@@ -311,3 +317,14 @@ pairChainGraph = toChainGraph (unsafeChainId . int) pair
 
 petersonChainGraph :: ChainGraph
 petersonChainGraph = toChainGraph (unsafeChainId . int) petersonGraph
+
+-- -------------------------------------------------------------------------- --
+-- Random ChainId
+
+-- | Uniformily get a random ChainId from the chain graph
+--
+randomChainId :: HasChainGraph g => g -> IO ChainId
+randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
+  where
+    cs = give (_chainGraph g) chainIds
+

@@ -17,14 +17,18 @@ extra-deps:
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
+  - massiv-0.3.0.0
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
   - sbv-8.1
+  - scheduler-1.0.0@sha256:7f5ddfff0d911b089014f0d7668fe7380c65d94630f204f943181e04815b14ed
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
   - tasty-1.2
+  - token-bucket-0.1.0.1@sha256:ef80a31e7f4f794e3686eb405a49afc663535dd3a11c012a002a7bacce897da6
   - vector-algorithms-0.8.0.1@sha256:94ef7560517dfd133157e0532ccf3c039477a8eef4b270fe59b52a036fc1f0a1
+  - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yet-another-logger-0.3.1
 
   - git: git@github.com:kadena-io/merkle-log.git

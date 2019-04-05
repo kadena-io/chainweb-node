@@ -101,6 +101,7 @@ library
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.Test
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -157,6 +158,7 @@ library
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
+        , Chainweb.Utils.RequestLog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -230,8 +232,8 @@ library
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , cereal >= 0.5
+        , clock >= 0.7
         , configuration-tools >= 0.4
-        , connection >= 0.2.8
         , connection >=0.2
         , containers >= 0.5
         , cryptonite >=0.25
@@ -250,11 +252,12 @@ library
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
+        , http-types >= 0.12
         , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , memory >= 0.14
         , memory >=0.14
         , merkle-log
@@ -267,6 +270,7 @@ library
         , paths >= 0.2
         , pem >=0.2
         , psqueues >= 0.2.7.0
+        , raw-strings-qq >= 1.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -276,6 +280,7 @@ library
         , safeio >= 0.0
         , servant >= 0.14
         , servant-client >= 0.14
+        , servant-client-core >= 0.14
         , servant-server >= 0.14
         , servant-swagger >= 1.1
         , shelly >= 1.7
@@ -304,6 +309,7 @@ library
         , vector >= 0.12
         , vector-algorithms >= 0.8
         , wai-middleware-metrics >= 0.2.4
+        , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2
         , witherable >= 0.2
@@ -348,6 +354,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
@@ -375,6 +382,7 @@ test-suite chainweb-tests
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , connection >=0.2
         , containers >= 0.5
         , cryptonite >=0.25
         , data-default >=0.7
@@ -391,24 +399,30 @@ test-suite chainweb-tests
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6
+        , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random-bytestring >= 0.1
+        , raw-strings-qq >= 1.0
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , safe >= 0.3
         , scientific >= 0.3
+        , servant >= 0.14
         , servant-client >= 0.14
+        , servant-client-core >= 0.14
         , string-conv >= 0.1
         , stm
         , stm-chans
         , streaming >= 0.2.2
+        , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
         , strict-tuple >= 0.1
         , tasty >= 1.0
@@ -560,7 +574,7 @@ executable slow-tests
         , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
-        , massiv >= 0.2
+        , massiv >= 0.3
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6

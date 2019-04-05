@@ -78,7 +78,6 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
-import Data.Reflection hiding (int)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (to)
@@ -131,9 +130,9 @@ defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
 defaultCutDbConfig v = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
-    , _cutDbConfigBufferSize = 20
-        -- FIXME this should probably depend on the diameter of the graph
-        -- It shouldn't be too big.
+    , _cutDbConfigBufferSize = 300
+        -- TODO this should probably depend on the diameter of the graph
+        -- It shouldn't be too big. Maybe something like @diameter * order^2@?
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
@@ -151,6 +150,7 @@ data CutDb cas = CutDb
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
     , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
+    , _cutDbQueueSize :: !Natural
     }
 
 instance HasChainGraph (CutDb cas) where
@@ -190,7 +190,7 @@ cut :: Getter (CutDb cas) (IO Cut)
 cut = to _cut
 
 addCutHashes :: CutDb cas -> CutHashes -> IO ()
-addCutHashes db = pQueueInsert (_cutDbQueue db) . Down
+addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
 
 -- | An 'STM' version of '_cut'.
 --
@@ -244,7 +244,15 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logfun @T.Text Info "CutDB started"
-    return $ CutDb cutVar queue cutAsync logfun headerStore payloadStore
+    return $ CutDb
+        { _cutDbCut = cutVar
+        , _cutDbQueue = queue
+        , _cutDbAsync = cutAsync
+        , _cutDbLogFunction = logfun
+        , _cutDbHeaderStore = headerStore
+        , _cutDbPayloadStore = payloadStore
+        , _cutDbQueueSize = _cutDbConfigBufferSize config
+        }
   where
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = do
@@ -274,25 +282,37 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
+    & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
+    & S.chain (\_ -> logFun @T.Text Info "fetch all prerequesites for cut")
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
+    & S.chain (either
+        (\_ -> logFun @T.Text Warn "failed to get prerequesites for some blocks at")
+        (\_ -> logFun @T.Text Info "got all prerequesites of cut")
+        )
     & S.concat
         -- ignore left values for now
     & S.scanM
-        (\a b -> give (_webBlockHeaderStoreCas headerStore) $ joinIntoHeavier_ (_cutMap a) b)
+        (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
+        )
         (readTVarIO cutVar)
-        (\c -> atomically (writeTVar cutVar c) >> logFun @T.Text Debug "write new cut")
+        (\c -> do
+            atomically (writeTVar cutVar c)
+            logFun @T.Text Info "write new cut"
+        )
     & S.effects
   where
     graph = _chainGraph headerStore
 
     threshold :: Int
-    threshold = int $ 2 * diameter graph* order graph
+    threshold = int $ 2 * diameter graph * order graph
 
-    queueToStream =
-        liftIO (pQueueRemove queue) >>= \(Down a) -> S.yield a >> queueToStream
+    queueToStream = do
+        Down a <- liftIO (pQueueRemove queue)
+        S.yield a
+        queueToStream
 
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar

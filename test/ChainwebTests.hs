@@ -19,7 +19,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
-import qualified Chainweb.Cut (properties)
+import qualified Chainweb.Cut.Test (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
@@ -34,7 +34,7 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
-import qualified Chainweb.Test.Pact.SPV
+import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -66,10 +66,11 @@ pactTestSuite :: IO ScheduledTest
 pactTestSuite = do
     pactTests <- Chainweb.Test.Pact.PactExec.tests
     pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
+    pactRemoteApiTests <- Chainweb.Test.Pact.RemotePactTest.tests
     pure $ testGroupSch "Chainweb-Pact Tests"
         [ pactTests
         , pactInProcApiTests
-        , Chainweb.Test.Pact.Checkpointer.tests
+        , pactRemoteApiTests
         , Chainweb.Test.Pact.SPV.tests
         ]
 
@@ -104,6 +105,6 @@ suite =
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        , testProperties "Chainweb.Cut" Chainweb.Cut.properties
+        , testProperties "Chainweb.Cut.Test" Chainweb.Cut.Test.properties
         ]
     ]
