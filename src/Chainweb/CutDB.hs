@@ -64,7 +64,6 @@ module Chainweb.CutDB
 
 import Control.Applicative
 import Control.Concurrent.Async
-import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar
 import Control.Exception
 import Control.Lens hiding ((:>))
@@ -290,16 +289,16 @@ processCuts
     -> TVar (Maybe BlockHeight)
     -> IO ()
 processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
-    & S.chain (\_ -> logFun @T.Text Info "start processing new cut")
+    & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain updateNetworkHeight
-    & S.chain (\_ -> logFun @T.Text Info "fetch all prerequesites for cut")
+    & S.chain (\c -> loggc Info c $ "fetch all prerequesites")
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
     & S.chain (either
-        (\_ -> logFun @T.Text Warn "failed to get prerequesites for some blocks at")
-        (\_ -> logFun @T.Text Info "got all prerequesites of cut")
+        (\c -> loggc Warn c "failed to get prerequesites for some blocks")
+        (\c -> loggc Info c "got all prerequesites")
         )
     & S.concat
         -- ignore left values for now
@@ -309,7 +308,7 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
         (readTVarIO cutVar)
         (\c -> do
             atomically (writeTVar cutVar c)
-            logFun @T.Text Info "write new cut"
+            loggc Info c "published cut"
         )
     & S.effects
   where
@@ -318,6 +317,9 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
     --
     updateNetworkHeight :: CutHashes -> IO ()
     updateNetworkHeight = atomically . writeTVar networkHeight . Just .  _cutHashesHeight
+
+    loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
+    loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
 
     graph = _chainGraph headerStore
 
@@ -334,21 +336,21 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar
         let !r = int (_cutHashesHeight x) <= (int h - threshold)
-        when r $ logFun @T.Text Debug "skip very old cut"
+        when r $ loggc Info x "skip very old cut"
         return r
 
     isOld :: CutHashes -> IO Bool
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let !r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
-        when r $ logFun @T.Text Debug "skip old cut"
+        when r $ loggc Info x "skip old cut"
         return r
 
     isCurrent :: CutHashes -> IO Bool
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let !r = _cutHashes curHashes == _cutHashes x
-        when r $ logFun @T.Text Debug "skip current cut"
+        when r $ loggc Info x "skip current cut"
         return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
