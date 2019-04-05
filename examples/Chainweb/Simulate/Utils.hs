@@ -1,11 +1,14 @@
 {-# LANGUAGE OverloadedStrings  #-}
 module Chainweb.Simulate.Utils where
 
+import Control.Monad.IO.Class
+
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
 import Data.Text (Text)
+import Data.Time.Clock
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
 import Pact.Types.Command (Command(..))
@@ -43,8 +46,16 @@ getByteString :: ByteString -> ByteString
 getByteString = fst . B16.decode
 
 initAdminKeysetContract :: [SomeKeyPair] -> IO (Command Text)
-initAdminKeysetContract adminKeyset = do
-  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+initAdminKeysetContract adminKeyset =
   mkExec theCode theData def adminKeyset Nothing
   where
     theCode = "(define-keyset 'admin-keyset (read-keyset \"admin-keyset\"))"
+    theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
+
+measureDiffTime :: MonadIO m => m a -> m (NominalDiffTime, a)
+measureDiffTime someaction = do
+  start <- liftIO getCurrentTime
+  result <- someaction
+  end <- liftIO getCurrentTime
+  return (diffUTCTime end start, result)
+

@@ -9,4 +9,4 @@ timingDistribution:
   var: 31250
 scriptCommand:
   tag: RunSimpleExpressions
-  contents: []
+  contents: true

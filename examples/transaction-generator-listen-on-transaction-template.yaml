@@ -1,0 +1,12 @@
+chainwebNodePort:
+  _chainwebPort: 443
+isChainweb: true
+nodeChainId: 0
+serverRootPrefix: https://3.18.168.175
+timingDistribution:
+  mean: 500000
+  tag: Gaussian
+  var: 31250
+scriptCommand:
+  tag: ListenerRequestKey
+  contents: 6912dce86146997ae159000e0b807e279881452d29ba18ee34c01ce4e989e048586a4336716765600f8e06bb1b385d50eb497522fa4dbabd41cd38c81da31a44

@@ -1,18 +1,23 @@
+{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE DataKinds		        #-}
 {-# LANGUAGE DeriveFunctor		#-}
 {-# LANGUAGE DeriveGeneric		#-}
 {-# LANGUAGE DerivingStrategies		#-}
 {-# LANGUAGE FlexibleInstances		#-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE OverloadedStrings		#-}
 {-# LANGUAGE RankNTypes			#-}
-{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
-{-# OPTIONS -fno-warn-orphans           #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeOperators              #-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
--- Maintainer: Emmanuel Denloye-Ito <emamnuel@kadena.io>
+-- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 --
 -- TODO
@@ -24,6 +29,7 @@ import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async hiding (poll)
 import Control.Lens hiding ((.=), op)
 import Control.Monad.Except
 import Control.Monad.Primitive
@@ -32,6 +38,7 @@ import Control.Monad.State.Strict
 
 import Data.ByteString (ByteString)
 import Data.Default (Default(..), def)
+import Data.Either
 import Data.Int
 import Data.Proxy
 import Data.Text (Text)
@@ -40,6 +47,7 @@ import qualified Data.Text as T
 import Fake (fake, generate)
 
 import Network.HTTP.Client hiding (Proxy)
+import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
 
 import GHC.Generics
@@ -61,6 +69,8 @@ import Pact.Types.Util (Hash(..))
 
 -- CHAINWEB
 import Chainweb.ChainId
+import Chainweb.Version
+import Chainweb.RestAPI.Utils
 -- THIS MODULE MAY BE USED LATER
 -- import Chainweb.Simulate.Contracts.CommercialPaper
 import Chainweb.Simulate.Contracts.CryptoCritters
@@ -69,7 +79,16 @@ import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
 import Chainweb.Pact.RestAPI
 
-data TransactionCommand = NoOp | DeployContracts [FilePath] | RunStandardContracts | RunSimpleExpressions | PollRequestKeys [ByteString]
+data TransactionCommand
+  = NoOp
+  | DeployContracts [FilePath] Bool -- a flag to measure how long it
+                                    -- takes to get a requestKey
+  | RunStandardContracts Bool -- a flag to measure how long it takes
+                              -- to get requestKey
+  | RunSimpleExpressions Bool -- a flag to measure how long it takes
+                              -- to get requestKey
+  | PollRequestKeys [ByteString] Bool
+  | ListenerRequestKey ByteString Bool
   deriving (Show, Eq, Read, Generic)
 
 instance FromJSON TransactionCommand
@@ -86,9 +105,9 @@ instance ToJSON ChainwebPort
 
 data TimingDistribution
   = Gaussian { mean :: Int
-             , var :: Int }
-  | Uniform { low :: Int
-            , high :: Int }
+             , var  :: Int }
+  | Uniform { low   :: Int
+            , high  :: Int }
   deriving (Eq, Show, Generic)
 
 instance Default TimingDistribution where
@@ -98,58 +117,75 @@ instance FromJSON TimingDistribution
 
 instance ToJSON TimingDistribution
 
-data TransactionConfig = TransactionConfig
-  { _scriptCommand :: TransactionCommand
-  , _nodeChainId :: !ChainId
-  , _serverRootPrefix :: String
-  , _isChainweb :: Bool
-  , _chainwebNodePort :: !ChainwebPort
+data ScriptMode = RunNodes | ActualTestNet deriving (Eq, Show, Generic)
+
+instance FromJSON ScriptMode
+
+instance ToJSON ScriptMode
+
+data ScriptConfig = ScriptConfig
+  { _scriptCommand      :: TransactionCommand
+  , _nodeChainId        :: !ChainId
+  , _serverRootPrefix   :: Text
+  , _isChainweb         :: Bool
+  , _chainwebNodePort   :: !ChainwebPort
+  , _schainwebVersion   :: Text
   , _timingDistribution :: !TimingDistribution
   } deriving (Generic)
 
-makeLenses ''TransactionConfig
+makeLenses ''ScriptConfig
 
-instance ToJSON TransactionConfig where
+instance ToJSON ScriptConfig where
   toJSON o =
-
     object
-      [ "scriptCommand" .= _scriptCommand o
-      , "nodeChainId" .= _nodeChainId o
-      , "serverRootPrefix" .= _serverRootPrefix o
-      , "isChainweb" .= _isChainweb o
-      , "chainwebNodePort" .= _chainwebNodePort o
+      [ "scriptCommand"      .= _scriptCommand o
+      , "nodeChainId"        .= _nodeChainId o
+      , "serverRootPrefix"   .= _serverRootPrefix o
+      , "isChainweb"         .= _isChainweb o
+      , "chainwebNodePort"   .= _chainwebNodePort o
+      , "chainwebVersion"    .= _schainwebVersion o
       , "timingDistribution" .= _timingDistribution o
       ]
 
-instance FromJSON (TransactionConfig -> TransactionConfig) where
-  parseJSON = withObject "TransactionConfig" $ \o -> id
-    <$< scriptCommand ..: "scriptCommand" % o
-    <*< nodeChainId ..: "nodeChainId" % o
-    <*< serverRootPrefix ..: "serverRootPrefix" % o
-    <*< isChainweb ..: "isChainweb" % o
-    <*< chainwebNodePort ..: "chainwebNodePort" % o
+instance FromJSON (ScriptConfig -> ScriptConfig) where
+  parseJSON = withObject "ScriptConfig" $ \o -> id
+    <$< scriptCommand      ..: "scriptCommand"      % o
+    <*< nodeChainId        ..: "nodeChainId"        % o
+    <*< serverRootPrefix   ..: "serverRootPrefix"   % o
+    <*< isChainweb         ..: "isChainweb"         % o
+    <*< chainwebNodePort   ..: "chainwebNodePort"   % o
+    <*< schainwebVersion   ..: "chainwebVersion"    % o
     <*< timingDistribution ..: "timingDistribution" % o
 
-data GeneratorState s = GeneratorState
-  { _gsGen :: Gen s
+data ServantRecord = ServantRecord
+  { apiSend   :: SubmitBatch     -> ClientM RequestKeys
+  , apiPoll   :: Poll            -> ClientM PollResponses
+  , apiListen :: ListenerRequest -> ClientM ApiResult
+  , apiLocal  :: Command Text    -> ClientM (CommandSuccess Value)
+  }
+
+
+data TransactionGeneratorState s = TransactionGeneratorState
+  { _gsGen     :: Gen s
   , _gsCounter :: Int64
   }
 
-makeLenses ''GeneratorState
+makeLenses ''TransactionGeneratorState
 
-defaultTransactionConfig :: TransactionConfig
-defaultTransactionConfig =
-  TransactionConfig
-    { _scriptCommand      = DeployContracts []
-    , _nodeChainId        = unsafeChainId 0
-    , _serverRootPrefix   = "https://us1.chainweb.com"
-    , _isChainweb         = True
-    , _chainwebNodePort   = ChainwebPort 443
-    , _timingDistribution = def
+defaultScriptConfig :: ScriptConfig
+defaultScriptConfig =
+  ScriptConfig
+    { _scriptCommand       = RunSimpleExpressions False
+    , _nodeChainId         = unsafeChainId 0
+    , _serverRootPrefix    = "127.0.0.1"
+    , _isChainweb          = True
+    , _chainwebNodePort    = ChainwebPort 1789
+    , _schainwebVersion    = "testWithTime"
+    , _timingDistribution  = def
     }
 
-transactionConfigParser :: MParser TransactionConfig
-transactionConfigParser = id
+scriptConfigParser :: MParser ScriptConfig
+scriptConfigParser = id
   <$< scriptCommand .:: option auto
       % long "script-command" <> short 'c'
       <> help "The specific command to run (DeployContracts|RunStandardContracts|RunSimpleExpressions)."
@@ -165,13 +201,14 @@ transactionConfigParser = id
       <> short 'w'
       <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
 
-data GeneratorConfig = GeneratorConfig
-  { _timingdist :: TimingDistribution
+data TransactionGeneratorConfig = TransactionGeneratorConfig
+  { _timingdist         :: TimingDistribution
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
-  , _genClientEnv :: ClientEnv
+  , _genClientEnv       :: ClientEnv
+   , _genServantRecord  :: ServantRecord
   }
 
-makeLenses ''GeneratorConfig
+makeLenses ''TransactionGeneratorConfig
 
 generateDelay :: TransactionGenerator (PrimState IO) Int
 generateDelay = do
@@ -188,16 +225,17 @@ generateSimpleTransaction = do
   stdgen <- liftIO newStdGen
   let (operandA, operandB, op) =
         flip evalState stdgen $ do
-            a <- state (randomR (-100, 100 :: Integer))
-            b <- state (randomR (-100, 100 :: Integer))
+            a <- state (randomR (1, 100 :: Integer))
+            b <- state (randomR (1, 100 :: Integer))
             ind <- state (randomR (0, 2 :: Int))
             let operation = "+-*" !! ind
             return (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
-  liftIO $ threadDelay delay
-  liftIO $ putStrLn ("The delay is " ++ show delay ++ " seconds.")
-  liftIO $ putStrLn $ "Sending expression " ++ theCode
-  liftIO $ mkExec theCode Null def [] Nothing
+  liftIO $ do
+    threadDelay delay
+    putStrLn ("The delay is " ++ show delay ++ " seconds.")
+    putStrLn $ "Sending expression " ++ theCode
+    mkExec theCode Null def [] Nothing
 
 generateTransaction :: TransactionGenerator (PrimState IO) (Command Text)
 generateTransaction = do
@@ -227,67 +265,75 @@ generateTransaction = do
   return sample
 
 newtype TransactionGenerator s a = TransactionGenerator
-  { runTransactionGenerator :: ReaderT GeneratorConfig (StateT (GeneratorState s) IO) a
-  } deriving (Functor, Applicative, Monad, MonadIO, MonadState (GeneratorState s), MonadReader GeneratorConfig)
+  { runTransactionGenerator :: ReaderT TransactionGeneratorConfig (StateT (TransactionGeneratorState s) IO) a
+  } deriving (Functor, Applicative, Monad, MonadIO, MonadState (TransactionGeneratorState s), MonadReader TransactionGeneratorConfig)
 
 
 sendTransaction :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
 sendTransaction cmd = do
   cenv <- view genClientEnv
+  send <-  asks (apiSend . _genServantRecord)
+  poll <-  asks (apiPoll . _genServantRecord)
   liftIO $ runExceptT $ do
-    rkeys <-
-      ExceptT $
-      runClientM (send (SubmitBatch [cmd])) cenv
+    rkeys <- ExceptT $ runClientM (send (SubmitBatch [cmd])) cenv
     ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) cenv
 
-
-sendTransactionGetRequest :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError RequestKeys)
-sendTransactionGetRequest cmd = do
+sendTransactionToListenOnRequest :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError RequestKeys)
+-- sendTransactionGetRequest :: Command Text -> TransactionGenerator (PrimState IO) (Either ServantError PollResponses)
+sendTransactionToListenOnRequest cmd = do
   cenv <- view genClientEnv
+  send <-  asks (apiSend . _genServantRecord)
   liftIO $ runClientM (send (SubmitBatch [cmd])) cenv
 
-loop :: TransactionGenerator (PrimState IO) ()
-loop = do
+loop :: Bool -> TransactionGenerator (PrimState IO) ()
+loop mtime = do
   transaction <- generateTransaction
-  pollResponse <- sendTransaction transaction -- this is not yet ready
-  -- requestKeys <- sendTransaction transaction
+  (timeTaken, pollResponse) <- measureDiffTime (sendTransaction transaction)
+  when mtime (liftIO (putStrLn $ "sending a transaction took: " <> show timeTaken))
   liftIO $ print pollResponse
-  -- liftIO $ print requestKeys
   count <- use gsCounter
   liftIO $ putStrLn $ "Transaction count: " ++ show count
   gsCounter += 1
-  loop
+  loop mtime
 
-simpleloop :: TransactionGenerator (PrimState IO) ()
-simpleloop = do
+simpleloop :: Bool -> TransactionGenerator (PrimState IO) ()
+simpleloop mtime = do
   transaction <- generateSimpleTransaction
-  requestKeys <- sendTransactionGetRequest transaction
+  (timeTaken, requestKeys) <- measureDiffTime (sendTransactionToListenOnRequest transaction)
+  when mtime (liftIO $ putStrLn $ "sending a simple expression took: " <> show timeTaken)
   liftIO $ print requestKeys
+  clientEnv <- view genClientEnv
+  gencfg <- ask
+  let unsafeHeadRequestKey (RequestKeys [requestkey]) = requestkey
+      listenerRequest = (ListenerRequest (unsafeHeadRequestKey (fromRight (error "just fail for now") requestKeys))) -- this is temporary
+  liftIO $ withAsync
+                (runClientM ((apiListen (_genServantRecord gencfg)) listenerRequest) clientEnv)
+                (wait >=> print)
   count <- use gsCounter
   liftIO $ putStrLn $ "Simple expression transaction count: " ++ show count
   gsCounter += 1
-  simpleloop
+  simpleloop mtime
 
-mkGeneratorConfig :: TransactionConfig -> IO GeneratorConfig
-mkGeneratorConfig config = GeneratorConfig <$> pure def <*> pure mempty <*> go
+mkTransactionGeneratorConfig :: ScriptConfig -> IO TransactionGeneratorConfig
+mkTransactionGeneratorConfig config = TransactionGeneratorConfig (_timingDistribution config)  mempty <$>  go <*> genApi
   where
-    pfx = if _isChainweb config then chainwebPfx else ""
-    pfxUrl = _serverRootPrefix config ++ ":" ++ show (_chainwebNodePort config) ++ T.unpack pfx
-    go = do mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
-            mgr <- newManager mgrSettings
-            url <- parseBaseUrl pfxUrl
-            return $! mkClientEnv mgr url
-    chainwebPfx = T.concat [
-                            "/chainweb/0.0/testnet00/chain/"
-                           , chainIdToText $ _nodeChainId config
-                           ]
+    genApi = do
+      chainwebversion <- chainwebVersionFromText (_schainwebVersion config)
+      let _send :<|> _poll :<|> _listen :<|> _local = generateApi chainwebversion (_nodeChainId config)
+      return $! ServantRecord _send _poll _listen _local
+    go = do
+       mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+       let timeout = responseTimeoutMicro (1000000 * 60 * 4)
+       mgr <- newTlsManagerWith (mgrSettings { managerResponseTimeout = timeout })
+       let url = BaseUrl Https (T.unpack (_serverRootPrefix config)) (_chainwebPort $ _chainwebNodePort config) ""
+       return $! mkClientEnv mgr url
 
-mainInfo :: ProgramInfo TransactionConfig
+mainInfo :: ProgramInfo ScriptConfig
 mainInfo =
   programInfo
     "Chainweb-TransactionGenerator"
-    transactionConfigParser
-    defaultTransactionConfig
+    scriptConfigParser
+    defaultScriptConfig
 
 --------------------------------------------------
 -- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
@@ -301,66 +347,105 @@ mainInfo =
 
 type ContractLoader = [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: [ContractLoader] -> TransactionConfig -> IO ()
-loadContracts contractLoaders config = do
-  gencfg <- mkGeneratorConfig config
-  ts <- testSomeKeyPairs
-  contracts <- traverse ($ ts) contractLoaders
-  pollresponse <- runExceptT $ do
-     rkeys <- ExceptT $ runClientM (send (SubmitBatch contracts)) (_genClientEnv gencfg)
-     pollresponse <- ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
-     return pollresponse
-  liftIO $ print pollresponse
+loadContracts :: Bool -> [ContractLoader] -> ScriptConfig -> IO ()
+loadContracts mtime contractLoaders config = do
+    (timeTaken, !_action) <- measureDiffTime go
+    when mtime (putStrLn $ "Loading supplied contracts took: " <> show timeTaken)
+  where
+    go = do
+     gencfg <- mkTransactionGeneratorConfig config
+     ts <- testSomeKeyPairs
+     contracts <- traverse ($ ts) contractLoaders
+     pollresponse <- runExceptT $ do
+        let send = apiSend . _genServantRecord $ gencfg
+            poll = apiPoll . _genServantRecord $ gencfg
+        rkeys <- ExceptT (runClientM (send (SubmitBatch contracts)) (_genClientEnv gencfg))
+        pollresponse <- ExceptT (runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg))
+        return pollresponse
+     liftIO $ print pollresponse
 
-sendTransactions :: TransactionConfig -> IO ()
-sendTransactions config = do
+sendTransactions :: Bool -> ScriptConfig -> IO ()
+sendTransactions mtime config = do
   putStrLn "Transactions are being generated"
-  gencfg <- mkGeneratorConfig config
+  gencfg <- mkTransactionGeneratorConfig config
   (keysets, accounts) <- unzip <$> createAccounts
   pollresponse <- runExceptT $ do
+     let send = apiSend . _genServantRecord $ gencfg
+         poll = apiPoll . _genServantRecord $ gencfg
      rkeys <- ExceptT $ runClientM (send (SubmitBatch accounts)) (_genClientEnv gencfg)
      ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
   print pollresponse
   withSystemRandom . asGenIO $ \gen ->
     evalStateT
-      (runReaderT (runTransactionGenerator loop) (set genAccountsKeysets (zip accountNames keysets) gencfg))
-      (GeneratorState gen 0)
+      (runReaderT (runTransactionGenerator (loop mtime)) (set genAccountsKeysets (zip accountNames keysets) gencfg))
+      (TransactionGeneratorState gen 0)
 
-sendSimpleExpressions :: TransactionConfig -> IO ()
-sendSimpleExpressions config = do
-  putStrLn "Simple transactions are being generated."
-  gencfg <- mkGeneratorConfig config
-  withSystemRandom . asGenIO $ \gen ->
-    evalStateT
-        (runReaderT (runTransactionGenerator simpleloop) gencfg)
-            (GeneratorState gen 0)
+sendSimpleExpressions :: Bool -> ScriptConfig -> IO ()
+sendSimpleExpressions mtime config = do
+    putStrLn "Simple transactions are being generated."
+    gencfg <- mkTransactionGeneratorConfig config
+    withSystemRandom . asGenIO $ \gen ->
+      evalStateT
+          (runReaderT (runTransactionGenerator (simpleloop mtime)) gencfg)
+              (TransactionGeneratorState gen 0)
 
-pollRequestKeys :: RequestKeys -> TransactionConfig -> IO ()
-pollRequestKeys rkeys@(RequestKeys [_]) config = do
-  putStrLn "Polling your requestKey"
-  gencfg <- mkGeneratorConfig config
-  void $ either
-    (const $ (putStrLn "Failure" >> exitWith (ExitFailure 1)))
-    (\(PollResponses a) -> if null a
-            then (putStrLn "Failure no result returned" >> exitWith (ExitFailure 1))
-            else print a >> exitSuccess)
-    =<< runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
-pollRequestKeys _ _ = error "Need exactly one request key"
+pollRequestKeys :: Bool -> RequestKeys -> ScriptConfig -> IO ()
+pollRequestKeys mtime rkeys@(RequestKeys [_]) config = do
+    (timeTaken, !_action) <- measureDiffTime go
+    when mtime (putStrLn $ "" <> show timeTaken)
+  where
+    go = do
+      putStrLn "Polling your requestKey"
+      gencfg <- mkTransactionGeneratorConfig config
+      let poll = apiPoll . _genServantRecord $ gencfg
+      response <- runClientM (poll (Poll (_rkRequestKeys rkeys))) (_genClientEnv gencfg)
+      case response of
+        Left _ -> do
+          putStrLn "Failure"
+          exitWith (ExitFailure 1)
+        Right (PollResponses a) -> if null a
+          then do
+            putStrLn "Failure no result returned"
+            exitWith (ExitFailure 1)
+          else do
+            print a
+            exitSuccess
+pollRequestKeys _ _ _ = error "Need exactly one request key"
+
+listenerRequestKey :: Bool -> ListenerRequest -> ScriptConfig -> IO ()
+listenerRequestKey mtime listenerRequest config = do
+    (timeTaken, response) <- measureDiffTime go
+    when mtime (putStrLn $ "" <> show timeTaken)
+    case response of
+        Left err -> do
+          print err
+          exitWith (ExitFailure 1)
+        Right r -> do
+          print (_arResult r)
+          exitSuccess
+  where
+    go = do
+      putStrLn "Listening..."
+      gencfg <- mkTransactionGeneratorConfig config
+      let listen = apiListen . _genServantRecord $ gencfg
+      runClientM (listen listenerRequest) (_genClientEnv gencfg)
 
 main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config ->
     case _scriptCommand config of
       NoOp -> putStrLn "NoOp: You probably don't want to be here."
-      DeployContracts contracts ->
-        loadContracts (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders)) config
+      DeployContracts contracts mtime ->
+        loadContracts mtime (initAdminKeysetContract : ((createLoader <$> contracts) `go` defaultContractLoaders)) config
         where
           go xs ys = if null xs then ys else xs
-      RunStandardContracts -> sendTransactions config
-      RunSimpleExpressions -> sendSimpleExpressions config
-      PollRequestKeys requestKeys -> pollRequestKeys (RequestKeys (map (RequestKey . Hash) requestKeys)) config
+      RunStandardContracts mtime -> sendTransactions mtime config
+      RunSimpleExpressions mtime -> sendSimpleExpressions mtime config
+      PollRequestKeys requestKeys mtime -> pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
+      ListenerRequestKey requestKey mtime -> listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
 
--- TOOD: This is here for when a user wishes to deploy their own
+
+-- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
 -- chain we'd like to send the contract to.
 
@@ -382,9 +467,27 @@ defaultContractLoaders = take numContracts $ [helloWorldContractLoader, simplePa
 numContracts :: Int
 numContracts = 2
 
-send :: SubmitBatch -> ClientM RequestKeys
-poll :: Poll -> ClientM PollResponses
-listen :: ListenerRequest -> ClientM ApiResult
-local :: Command Text -> ClientM (CommandSuccess Value)
+type TheApi
+   = (SubmitBatch -> ClientM RequestKeys)
+ :<|> ((Poll -> ClientM PollResponses)
+ :<|> ((ListenerRequest -> ClientM ApiResult)
+ :<|> (Command Text -> ClientM (CommandSuccess Value))))
 
-send :<|> poll :<|> listen :<|> local = client (Proxy :: Proxy (PactApi_))
+generateApi :: ChainwebVersion -> ChainId -> TheApi
+generateApi version chainid =
+     case someChainwebVersionVal version of
+        SomeChainwebVersionT (_ :: Proxy cv) ->
+          case someChainIdVal chainid of
+            SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (PactApi cv cid))
+
+---------------------------
+-- FOR DEBUGGING IN GHCI --
+---------------------------
+_genapi2 :: ChainwebVersion -> ChainId -> Text
+_genapi2 version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) ->
+          let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
+          in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
