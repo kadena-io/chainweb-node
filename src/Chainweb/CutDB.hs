@@ -320,19 +320,19 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
-        when r $ loggc Debug x "skip very old cut"
+        when r $ loggc Info x "skip very old cut"
         return r
 
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
-        when r $ loggc Debug x "skip old cut"
+        when r $ loggc Info x "skip old cut"
         return r
 
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = _cutHashes curHashes == _cutHashes x
-        when r $ loggc Debug x "skip current cut"
+        when r $ loggc Info x "skip current cut"
         return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
