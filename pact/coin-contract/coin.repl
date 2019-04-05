@@ -7,10 +7,11 @@
 
 (verify 'coin)
 
-(env-data { "k1" : ["keys1"], "k2": ["keys2"] })
-(env-keys ["keys1", "keys2"])
+(env-data { "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"] })
+(env-keys ["keys1", "keys2", "keys3"])
 (define-keyset 'k1 (read-keyset "k1"))
 (define-keyset 'k2 (read-keyset "k2"))
+(define-keyset 'k3 (read-keyset "k3"))
 
 (use coin)
 
@@ -32,6 +33,10 @@
 (expect "account balance reflects credit" 1.0 (account-balance 'k1))
 (debit 'k1 1.0)
 (expect "debiting funds now succeeds when there's enough funds" 0.0 (account-balance 'k1))
+;crediting non-existing accounts with guard should have supplied keys
+(credit 'k3 (read-keyset 'k3) 1.0)
+(expect "crediting funds to new account succeeds with correct balance" 1.0 (account-balance 'k3))
+(expect-failure "cannot update a keyset for an existing account with wrong keyset" (credit 'k3 (read-keyset 'k2) 1.0))
 
 ; fund-tx should require FUND_TX capability in scope, and all funds should succeed
 ; when available and reflect correct balances
@@ -80,7 +85,7 @@
 (env-keys ["keys1", "keys2", "keys3"])
 
 (coinbase 'k3 (read-keyset 'k3) 1.0)
-(expect "coinbase should create accounts and credit them some amount" 1.0 (account-balance 'k3))
+(expect "coinbase should create accounts and credit them some amount" 2.0 (account-balance 'k3))
 
 ; SPV tests - note: proof creation will not work as we have no spv support as our default spv
 ; handler in the environment at this point.

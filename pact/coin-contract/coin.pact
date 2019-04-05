@@ -13,6 +13,7 @@
   (defschema coin-schema
     balance:decimal
     guard:guard
+    exists:bool
     )
 
   (deftable coin-table:{coin-schema})
@@ -99,6 +100,7 @@
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
+      , "exists"  : true
       })
     )
 
@@ -171,14 +173,27 @@
 
     (require-capability (TRANSFER))
       (with-default-read coin-table account
-        { "balance" : 0.0 }
-        { "balance" := balance }
+        { "balance" : 0.0, "exists" : false }
+        { "balance" := balance, "exists" := exists }
 
-        (write coin-table account
-          { "balance" : (+ balance amount)
-          , "guard": guard
-          }
-          )))
+        (let
+          ; bind existing guard to 'retg', or user-supplied guard if not exists
+          ((retg
+            (if exists
+                (with-read coin-table account
+                  { "guard" := guard2 }
+                 guard2)
+              guard)))
+          ; we don't want to overwrite an existing guard with the user-supplied one
+          (enforce (= retg guard) "account guards do not match")
+
+          (write coin-table account
+            { "balance" : (+ balance amount)
+            , "guard"   : retg
+            , "exists"  : true
+            }))
+        )
+      )
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
     (with-capability (TRANSFER)
