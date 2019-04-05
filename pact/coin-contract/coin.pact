@@ -173,17 +173,12 @@
 
     (require-capability (TRANSFER))
       (with-default-read coin-table account
-        { "balance" : 0.0, "exists" : false }
-        { "balance" := balance, "exists" := exists }
+        { "balance" : 0.0, "exists" : false, "guard" : guard }
+        { "balance" := balance, "exists" := exists, "guard" := g }
 
         (let
           ; bind existing guard to 'retg', or user-supplied guard if not exists
-          ((retg
-            (if exists
-                (with-read coin-table account
-                  { "guard" := guard2 }
-                 guard2)
-              guard)))
+          ((retg (if exists g guard)))
           ; we don't want to overwrite an existing guard with the user-supplied one
           (enforce (= retg guard) "account guards do not match")
 
