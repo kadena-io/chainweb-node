@@ -28,8 +28,7 @@ module Main where
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async hiding (poll)
+import Control.Concurrent (threadDelay, forkIO)
 import Control.Lens hiding ((.=), op)
 import Control.Monad.Except
 import Control.Monad.Primitive
@@ -205,7 +204,7 @@ data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: TimingDistribution
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
   , _genClientEnv       :: ClientEnv
-   , _genServantRecord  :: ServantRecord
+  , _genServantRecord   :: ServantRecord
   }
 
 makeLenses ''TransactionGeneratorConfig
@@ -306,9 +305,14 @@ simpleloop mtime = do
   gencfg <- ask
   let unsafeHeadRequestKey (RequestKeys [requestkey]) = requestkey
       listenerRequest = (ListenerRequest (unsafeHeadRequestKey (fromRight (error "just fail for now") requestKeys))) -- this is temporary
-  liftIO $ withAsync
-                (runClientM ((apiListen (_genServantRecord gencfg)) listenerRequest) clientEnv)
-                (wait >=> print)
+  liftIO $ void $ forkIO $
+    do (time,response) <- measureDiffTime (runClientM ((apiListen (_genServantRecord gencfg)) listenerRequest) clientEnv)
+       putStrLn (replicate 80 '#')
+       putStrLn (replicate 80 '#')
+       putStrLn $ "It took " <> show time <> " seconds to get back the result."
+       print response
+       putStrLn (replicate 80 '#')
+       putStrLn (replicate 80 '#')
   count <- use gsCounter
   liftIO $ putStrLn $ "Simple expression transaction count: " ++ show count
   gsCounter += 1
