@@ -116,12 +116,6 @@ instance FromJSON TimingDistribution
 
 instance ToJSON TimingDistribution
 
-data ScriptMode = RunNodes | ActualTestNet deriving (Eq, Show, Generic)
-
-instance FromJSON ScriptMode
-
-instance ToJSON ScriptMode
-
 data ScriptConfig = ScriptConfig
   { _scriptCommand      :: TransactionCommand
   , _nodeChainId        :: !ChainId
@@ -256,7 +250,7 @@ generateTransaction = do
                   mkeyset = lookup fromAccount kacts <|> error errmsg
                in createSimplePaymentRequest paymentsRequest mkeyset
             _ -> createSimplePaymentRequest paymentsRequest Nothing
-      3 -> liftIO undefined
+      3 -> liftIO undefined -- To be filled in.
       _ -> fail "No contract here"
   delay <- generateDelay
   liftIO $ threadDelay delay
