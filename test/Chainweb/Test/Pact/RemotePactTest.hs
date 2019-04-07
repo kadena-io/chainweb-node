@@ -82,23 +82,28 @@ import P2P.Peer
 nNodes :: Natural
 nNodes = 1
 
+version :: ChainwebVersion
+version = TestWithTime petersonChainGraph
+
+cid :: ChainId
+cid = either (error . sshow) id $ mkChainId version (0 :: Int)
+
 tests :: IO TestTree
 tests = do
     peerInfoVar <- newEmptyMVar
-    let cwVersion = TestWithTime petersonChainGraph
-    theAsync <- async $ runTestNodes Warn cwVersion nNodes Nothing peerInfoVar
+    theAsync <- async $ runTestNodes Warn version nNodes Nothing peerInfoVar
     link theAsync
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
 
-    let cmds = apiCmds cwVersion chainId0
+    let cmds = apiCmds version cid
     let cwBaseUrl = getCwBaseUrl thePort
     cwEnv <- getClientEnv cwBaseUrl
     (tt0, rks) <- testSend cmds cwEnv
 
     tt1 <- testPoll cmds cwEnv rks
     let tConfig = mempoolTxConfig noopMempool
-    let mPool = toMempool cwVersion chainId0 tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
+    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
     tt2 <- testMPValidated mPool rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
@@ -228,8 +233,8 @@ type PactClientApi
     :<|> (Command Text -> ClientM (CommandSuccess A.Value))))
 
 generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
-generatePactApi version chainid =
-     case someChainwebVersionVal version of
+generatePactApi cwVersion chainid =
+     case someChainwebVersionVal cwVersion of
         SomeChainwebVersionT (_ :: Proxy cv) ->
           case someChainIdVal chainid of
             SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (PactApi cv cid))

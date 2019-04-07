@@ -50,7 +50,6 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisTime)
-import Chainweb.ChainId (unsafeChainId)
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
@@ -59,7 +58,7 @@ import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Utils (sshow)
 import Chainweb.Version
-    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionToText)
+    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionToText, chainIds, someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
@@ -71,8 +70,6 @@ data Env w
     = Headers
         { version :: w ::: Text
           <?> "The ChainwebVersion to use."
-        , chains :: w ::: Word16
-          <?> "The number of genesis blocks to  to produce a genesis for."
         , time :: w ::: Maybe Int64
           <?> "Genesis Block Time, in microseconds since the Epoch. Default is the Genesis Time of the given ChainwebVersion." }
     | Payload
@@ -86,10 +83,10 @@ instance ParseRecord (Env Wrapped)
 
 main :: IO ()
 main = unwrapRecord "ea" >>= \case
-    Headers v0 cs t -> do
+    Headers v0 t -> do
         v <- chainwebVersionFromText v0
         let crtm = maybe (genesisTime v) (BlockCreationTime . Time . TimeSpan) t
-            modl = headerModule v $ headers v cs crtm
+            modl = headerModule v $ headers v crtm
             file = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> ".hs"
         TIO.writeFile (T.unpack file) modl
         putStrLn $ "Generated Genesis BlockHeaders for " <> show v
@@ -113,11 +110,10 @@ moduleName = T.toTitle . chainwebVersionToText
 -- Header Generation
 --------------------
 
--- | Given a number of Genesis `BlockHeader`s to generate, do just that.
-headers :: ChainwebVersion -> Word16 -> BlockCreationTime -> [BlockHeader]
-headers v cs ct = take (fromIntegral cs) $ map f [0..]
+headers :: ChainwebVersion -> BlockCreationTime -> [BlockHeader]
+headers v ct = map f $ toList $ chainIds v
   where
-    f cid = mineGenesis v (unsafeChainId cid) ct (Nonce 0)
+    f cid = mineGenesis v cid ct (Nonce 0)
 
 headerModule :: ChainwebVersion -> [BlockHeader] -> Text
 headerModule v hs = T.unlines $
@@ -170,7 +166,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 (unsafeChainId 0) logger noSPVSupport $
+    payloadWO <- initPactService' Testnet00 (someChainId Testnet00) logger noSPVSupport $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

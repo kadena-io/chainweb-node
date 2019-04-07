@@ -166,7 +166,7 @@ lookupCutM
     -> m BlockHeader
 lookupCutM cid c = firstOf (ixg (_chainId cid)) c
     ??? ChainNotInChainGraphException
-        (Expected $ chainIds_ $ _chainGraph c)
+        (Expected $ chainIds c)
         (Actual (_chainId cid))
 
 _cutWeight :: Cut -> BlockWeight

@@ -384,8 +384,7 @@ withChainwebInternal conf logger peer payloadDb inner = do
         | otherwise = m []
 
     v = _configChainwebVersion conf
-    graph = _chainGraph v
-    cids = chainIds_ graph
+    cids = chainIds v
     cwnid = _configNodeId conf
     chainDbDir = _configChainDbDirPath conf
 

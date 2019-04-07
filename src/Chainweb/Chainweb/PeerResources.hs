@@ -55,7 +55,6 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Counter
-import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.RestAPI.NetworkID
@@ -152,7 +151,7 @@ startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
 startPeerDb_ v conf = startPeerDb nids conf
   where
     nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
-    cids = chainIds_ $ _chainGraph v
+    cids = chainIds v
 
 withPeerDb_ :: ChainwebVersion -> P2pConfiguration -> (PeerDb -> IO a) -> IO a
 withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)

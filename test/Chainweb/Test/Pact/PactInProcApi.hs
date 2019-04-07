@@ -36,10 +36,12 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Chainweb.BlockHeader.Genesis
 import Chainweb.Transaction
 
+testVersion :: ChainwebVersion
+testVersion = Testnet00
 
 tests :: IO TestTree
 tests = do
@@ -50,15 +52,15 @@ tests = do
 pactApiTest :: IO [TestTree]
 pactApiTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = unsafeChainId 0
+        cid = someChainId testVersion
 
     mv <- newEmptyMVar
     -- Init for tests
-    withPactService' Testnet00 cid logger testMemPoolAccess mv $ \reqQ -> do
-        let headers = V.fromList $ getBlockHeaders 2
+    withPactService' testVersion cid logger testMemPoolAccess mv $ \reqQ -> do
+        let headers = V.fromList $ getBlockHeaders cid 2
 
         -- newBlock test
-        let genesisHeader = genesisBlockHeader Testnet00 cid
+        let genesisHeader = genesisBlockHeader testVersion cid
         respVar0 <- newBlock noMiner genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response
         plwo <- case mvr of
@@ -93,12 +95,12 @@ pactApiTest = do
 pactEmptyBlockTest :: IO TestTree
 pactEmptyBlockTest = do
     let logger = genericLogger Warn T.putStrLn
-        cid = unsafeChainId 0
+        cid = someChainId testVersion
 
     mv <- newEmptyMVar
 
-    withPactService' Testnet00 cid logger testEmptyMemPool mv $ \reqQ -> do
-        let genesisHeader = genesisBlockHeader Testnet00 cid
+    withPactService' testVersion cid logger testEmptyMemPool mv $ \reqQ -> do
+        let genesisHeader = genesisBlockHeader testVersion cid
         respVar0 <- newBlock noMiner genesisHeader reqQ
         mvr <- takeMVar respVar0 -- wait for response
         plwo <- case mvr of
@@ -171,9 +173,9 @@ checkBlockTransactions filePrefix bTrans = do
 
     return $ testGroup "BlockTransactions" $ ttTrans : [ttTransHash]
 
-getBlockHeaders :: Int -> [BlockHeader]
-getBlockHeaders n = do
-    let gbh0 = genesis
+getBlockHeaders :: ChainId -> Int -> [BlockHeader]
+getBlockHeaders cid n = do
+    let gbh0 = genesisBlockHeader testVersion cid
     let after0s = take (n - 1) $ testBlockHeaders gbh0
     gbh0 : after0s
 

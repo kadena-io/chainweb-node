@@ -82,7 +82,7 @@ testCaseStepsN name n t = testGroup name $ fmap steps [1..n]
 --
 targetChain :: Cut -> BlockHeader -> IO ChainId
 targetChain c srcBlock = do
-    cids <- generate (shuffle $ toList $ chainIds_ graph)
+    cids <- generate (shuffle $ toList $ chainIds c)
     go cids
   where
     graph = _chainGraph c
@@ -138,7 +138,7 @@ withPactSetup cdb f = do
         pure (cpe,st)
 
     initCC = runRST $
-      initialPayloadState Testnet00 (unsafeChainId 0)
+      initialPayloadState Testnet00 $ someChainId Testnet00
 
 createCoinCmd :: Transaction -> IO (ExecMsg ParsedCode)
 createCoinCmd tx = buildExecParsedCode spvData

@@ -121,10 +121,9 @@ initWebBlockHeaderDb
     :: ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb v = WebBlockHeaderDb
-    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds_ g)
+    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds v)
     <*> pure v
   where
-    g = _chainGraph v
     conf cid = Configuration (genesisBlockHeader v cid)
 
 -- | FIXME: this needs some consistency checks

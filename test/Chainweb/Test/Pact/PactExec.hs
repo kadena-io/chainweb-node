@@ -45,15 +45,16 @@ import Pact.Types.Logger
 import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
-import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
-import Chainweb.Version (ChainwebVersion(..))
-import Chainweb.ChainId
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Chainweb.BlockHash
+
+testVersion :: ChainwebVersion
+testVersion = Testnet00
 
 tests :: IO TestTree
 tests = do
@@ -65,7 +66,7 @@ pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
     let loggers = alwaysLog
     let logger = newLogger loggers $ LogName "PactService"
-    let pactCfg = pactDbConfig (Test petersonChainGraph)
+    let pactCfg = pactDbConfig testVersion
     let cmdConfig = toCommandConfig pactCfg
     let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
@@ -91,7 +92,8 @@ pactTestSetup = do
 pactExecTests :: PactTestSetup -> IO [TestTree]
 pactExecTests (PactTestSetup env st) = do
     let pss = PactServiceState st Nothing
-    fst <$> runStateT (runReaderT (initialPayloadState Testnet00 (unsafeChainId 0) >> execTests) env) pss
+        cid = someChainId testVersion
+    fst <$> runStateT (runReaderT (initialPayloadState testVersion cid >> execTests) env) pss
 
 execTests :: PactServiceM [TestTree]
 execTests = do

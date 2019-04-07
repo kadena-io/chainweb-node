@@ -564,6 +564,7 @@ executable slow-tests
         , deepseq >= 1.4
         , directory >= 1.2
         , extra >= 1.6
+        , exceptions >= 0.8
         , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6

@@ -234,7 +234,7 @@ arbitraryCut v = T.sized $ \s -> do
   where
     genCut :: Cut -> T.Gen Cut
     genCut c = do
-        cids <- T.shuffle (toList $ chainIds_ $ _chainGraph v)
+        cids <- T.shuffle (toList $ chainIds v)
         S.each cids
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ x) -> x)
@@ -251,7 +251,7 @@ arbitraryCut v = T.sized $ \s -> do
     target = genesisBlockTarget v
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
-arbitraryChainGraphChainId = T.elements (toList chainIds)
+arbitraryChainGraphChainId = T.elements (toList $ graphChainIds given)
 
 instance Given ChainwebVersion => T.Arbitrary Cut where
     arbitrary = arbitraryCut given
@@ -272,8 +272,7 @@ arbitraryWebChainCut initialCut = do
         cids <- T.pick
             $ T.shuffle
             $ toList
-            $ chainIds_
-            $ _chainGraph @WebBlockHeaderDb given
+            $ chainIds initialCut
         S.each cids
             & S.mapMaybeM (mine c)
             & S.map (\(T2 _ c') -> c')
@@ -304,8 +303,7 @@ arbitraryWebChainCut_ initialCut = do
         cids <- TT.liftGen
             $ T.shuffle
             $ toList
-            $ chainIds_
-            $ _chainGraph @WebBlockHeaderDb given
+            $ chainIds initialCut
         S.each cids
             & S.mapMaybeM (fmap hush . mine c)
             & S.map (\(T2 _ c') -> c')

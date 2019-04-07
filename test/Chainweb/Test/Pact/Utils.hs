@@ -10,8 +10,6 @@
 module Chainweb.Test.Pact.Utils
 ( -- * test data
   someED25519Pair
-, genesis
-, chainId0
 , testPactFilesDir
 , testKeyPairs
   -- * helper functions
@@ -45,9 +43,6 @@ import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
 -- internal chainweb modules
 
-import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.ChainId (ChainId, unsafeChainId)
-import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Transaction
 import Chainweb.Utils
 
@@ -70,12 +65,6 @@ someED25519Pair =
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
     , ED25519
     )
-
-genesis :: BlockHeader
-genesis = toyGenesis chainId0
-
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0
 
 ------------------------------------------------------------------------------
 -- helper logic
