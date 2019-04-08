@@ -60,10 +60,13 @@ import System.Random.MWC (Gen, asGenIO, uniformR, withSystemRandom)
 import System.Random.MWC.Distributions (normal)
 
 -- PACT
-import Pact.ApiReq (mkExec)
+import Pact.ApiReq
+import Pact.Parse (ParsedInteger(..),ParsedDecimal(..))
 import Pact.Types.API
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..), CommandSuccess(..),RequestKey(..))
-import Pact.Types.Crypto (SomeKeyPair)
+import Pact.Types.Crypto
+import Pact.Types.Logger
 import Pact.Types.Util (Hash(..))
 
 -- CHAINWEB
@@ -95,7 +98,7 @@ instance FromJSON TransactionCommand
 instance ToJSON TransactionCommand
 
 newtype ChainwebPort = ChainwebPort { _chainwebPort :: Int}
-  deriving (Eq, Generic)
+  deriving (Eq, Read, Generic)
   deriving newtype Show
 
 instance FromJSON ChainwebPort
@@ -107,7 +110,7 @@ data TimingDistribution
              , var  :: Int }
   | Uniform { low   :: Int
             , high  :: Int }
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Show, Read, Generic)
 
 instance Default TimingDistribution where
   def = Gaussian 1000000 (div 1000000 16)
@@ -173,6 +176,7 @@ defaultScriptConfig =
     , _serverRootPrefix    = "127.0.0.1"
     , _isChainweb          = True
     , _chainwebNodePort    = ChainwebPort 1789
+    -- , _schainwebVersion    = "testnet00"
     , _schainwebVersion    = "testWithTime"
     , _timingDistribution  = def
     }
@@ -188,17 +192,31 @@ scriptConfigParser = id
       <> help "The specific chain that will receive generated \"fake\" transactions."
   <*< serverRootPrefix .:: option auto
       % long "server-root"
+      <> short 'r'
       <> help "Server root URL prefix"
   <*< isChainweb .:: option auto
       % long "is-chainweb"
       <> short 'w'
       <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
+  <*< chainwebNodePort .:: option auto
+      % long "port"
+      <> short 'p'
+      <> help "Port"
+  <*< schainwebVersion .:: option auto
+      % long "Chainweb Version"
+      <> short 'v'
+      <> help "Chainweb version"
+  <*< timingDistribution .:: option auto
+      % long "timing distribution"
+      <> short 't'
+      <> help "The specific distribution used to generate timing delays"
 
 data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: TimingDistribution
   , _genAccountsKeysets :: [(Account, [SomeKeyPair])]
   , _genClientEnv       :: ClientEnv
   , _genServantRecord   :: ServantRecord
+  , _genChainId         :: ChainId
   }
 
 makeLenses ''TransactionGeneratorConfig
@@ -224,11 +242,15 @@ generateSimpleTransaction = do
             let operation = "+-*" !! ind
             return (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
+  cid <- view genChainId
   liftIO $ do
     threadDelay delay
     putStrLn ("The delay is " ++ show delay ++ " seconds.")
     putStrLn $ "Sending expression " ++ theCode
-    mkExec theCode Null def [] Nothing
+    kps <- testSomeKeyPairs
+    let publicmeta = PublicMeta (chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+        theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+    mkExec theCode theData publicmeta kps Nothing
 
 generateTransaction :: TransactionGenerator (PrimState IO) (Command Text)
 generateTransaction = do
@@ -255,7 +277,7 @@ generateTransaction = do
   delay <- generateDelay
   liftIO $ threadDelay delay
   liftIO $ putStrLn ("The delay is " ++ show delay ++ " seconds.")
-  return sample
+  return $ sample
 
 newtype TransactionGenerator s a = TransactionGenerator
   { runTransactionGenerator :: ReaderT TransactionGeneratorConfig (StateT (TransactionGeneratorState s) IO) a
@@ -285,13 +307,14 @@ loop mtime = do
   when mtime (liftIO (putStrLn $ "sending a transaction took: " <> show timeTaken))
   liftIO $ print pollResponse
   count <- use gsCounter
-  liftIO $ putStrLn $ "Transaction count: " ++ show count
+  liftIO $ putStrLn $ "Transaction count: " <> show count
   gsCounter += 1
   loop mtime
 
 simpleloop :: Bool -> TransactionGenerator (PrimState IO) ()
 simpleloop mtime = do
   transaction <- generateSimpleTransaction
+  liftIO $ putStrLn $ "Dat transaction: " <> show (encode $ toJSON $ SubmitBatch [transaction])
   (timeTaken, requestKeys) <- measureDiffTime (sendTransactionToListenOnRequest transaction)
   when mtime (liftIO $ putStrLn $ "sending a simple expression took: " <> show timeTaken)
   liftIO $ print requestKeys
@@ -301,19 +324,19 @@ simpleloop mtime = do
       listenerRequest = (ListenerRequest (unsafeHeadRequestKey (fromRight (error "just fail for now") requestKeys))) -- this is temporary
   liftIO $ void $ forkIO $
     do (time,response) <- measureDiffTime (runClientM ((apiListen (_genServantRecord gencfg)) listenerRequest) clientEnv)
-       putStrLn (replicate 80 '#')
-       putStrLn (replicate 80 '#')
+       putStrLn (replicate 40 '#')
+       putStrLn (replicate 40 '#')
        putStrLn $ "It took " <> show time <> " seconds to get back the result."
-       print response
-       putStrLn (replicate 80 '#')
-       putStrLn (replicate 80 '#')
+       putStrLn $ "The associated request is " ++ show requestKeys ++ "\n" ++ show response
+       putStrLn (replicate 40 '#')
+       putStrLn (replicate 40 '#')
   count <- use gsCounter
   liftIO $ putStrLn $ "Simple expression transaction count: " ++ show count
   gsCounter += 1
   simpleloop mtime
 
 mkTransactionGeneratorConfig :: ScriptConfig -> IO TransactionGeneratorConfig
-mkTransactionGeneratorConfig config = TransactionGeneratorConfig (_timingDistribution config)  mempty <$>  go <*> genApi
+mkTransactionGeneratorConfig config = TransactionGeneratorConfig (_timingDistribution config)  mempty <$>  go <*> genApi <*> pure (_nodeChainId config)
   where
     genApi = do
       chainwebversion <- chainwebVersionFromText (_schainwebVersion config)

@@ -2,7 +2,8 @@ chainwebNodePort:
   _chainwebPort: 443
 isChainweb: true
 nodeChainId: 0
-serverRootPrefix: https://us1.chainweb.com
+serverRootPrefix: https://eu2.chainweb.com
+schainwebVersion: testnet00
 timingDistribution:
   mean: 500000
   tag: Gaussian
