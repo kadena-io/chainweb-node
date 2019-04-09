@@ -174,10 +174,9 @@ checkBlockTransactions filePrefix bTrans = do
     return $ testGroup "BlockTransactions" $ ttTrans : [ttTransHash]
 
 getBlockHeaders :: ChainId -> Int -> [BlockHeader]
-getBlockHeaders cid n = do
-    let gbh0 = genesisBlockHeader testVersion cid
-    let after0s = take (n - 1) $ testBlockHeaders gbh0
-    gbh0 : after0s
+getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+  where
+    gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess _bHeight _bHash = do
