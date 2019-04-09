@@ -380,11 +380,11 @@ mkChainId v i = cid
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
--- chain id.
+-- chain ids.
 --
 someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
 someChainId = head . toList . chainIds
-    -- 'head' is guaranteed to succeed because the empty graph isn't valid chain
+    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
     -- graph.
 {-# INLINE someChainId #-}
 

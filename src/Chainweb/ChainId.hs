@@ -89,7 +89,7 @@ instance Exception ChainIdException
 -- -------------------------------------------------------------------------- --
 -- ChainId
 
--- | ChainId /within the context a Chainweb instance/.
+-- | ChainId /within the context of a Chainweb instance/.
 --
 -- The set of valid ChainIds is determined by the 'ChainwebVersion'. In almost
 -- all use cases there should be a context that is an instance of
@@ -102,7 +102,7 @@ instance Exception ChainIdException
 --
 -- * To fold or traverse over all chain ids, use 'chainIds'.
 -- * To deserialize a chain id, use 'mkChainId'.
--- * For random chain id consider using 'randomChainId'.
+-- * For a random chain id consider using 'randomChainId'.
 -- * For some arbitrary but fixed chain id consider using 'someChainId'.
 --
 newtype ChainId :: Type where
@@ -237,7 +237,7 @@ instance SingKind ChainIdT where
 -- Testing
 
 -- | This function should be be rarely needed. Please consult the documentation
--- of 'ChainId' for alternative ways for obtain 'ChainId' values.
+-- of 'ChainId' for alternative ways to obtain 'ChainId' values.
 --
 unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
