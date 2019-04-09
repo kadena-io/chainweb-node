@@ -46,7 +46,7 @@ module Chainweb.ChainId
 
 -- * Testing
 , unsafeChainId
-, unsafeGetChainId
+, chainIdInt
 ) where
 
 import Control.DeepSeq
@@ -234,7 +234,7 @@ instance SingKind ChainIdT where
         SomeChainIdT p -> SomeSing (singByProxy p)
 
 -- -------------------------------------------------------------------------- --
--- Testing
+-- Misc
 
 -- | This function should be be rarely needed. Please consult the documentation
 -- of 'ChainId' for alternative ways to obtain 'ChainId' values.
@@ -243,8 +243,9 @@ unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
 {-# INLINE unsafeChainId #-}
 
-unsafeGetChainId :: ChainId -> Word32
-unsafeGetChainId (ChainId cid) = cid
+chainIdInt :: Integral i => ChainId -> i
+chainIdInt (ChainId cid) = int cid
+{-# INLINE chainIdInt #-}
 
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
