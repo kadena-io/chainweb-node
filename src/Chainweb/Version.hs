@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -51,6 +52,29 @@ module Chainweb.Version
 , someChainId
 , randomChainId
 
+-- * ChainId
+, module Chainweb.ChainId
+
+-- * Re-exports from Chainweb.ChainGraph
+
+-- ** Chain Graph
+, ChainGraph
+, HasChainGraph(..)
+, adjacentChainIds
+
+-- ** Graph Properties
+, order
+, diameter
+, degree
+, shortestPath
+
+-- ** Undirected Edges
+, AdjPair
+, _getAdjPair
+, pattern Adj
+, adjs
+, adjsOfVertex
+, checkAdjacentChainIds
 ) where
 
 import Control.Concurrent.STM.TVar
