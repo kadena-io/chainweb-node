@@ -8,11 +8,13 @@ module Chainweb.Mempool.Consensus
 ) where
 
 ------------------------------------------------------------------------------
-import Control.Concurrent.Async (Async)
+import Control.Concurrent.Async (Async, link, forConcurrently_)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Lens
+import Control.Monad
 import Control.Monad.Catch (throwM)
 import Data.CAS.HashMap
 import Data.Foldable
@@ -20,7 +22,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
-import Data.Traversable
 import qualified Data.Vector as V
 
 ------------------------------------------------------------------------------
@@ -30,7 +31,8 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Cut
-import Chainweb.CutDB
+import Chainweb.CutDB (CutDb)
+import qualified Chainweb.CutDB as CutDB
 import Chainweb.Mempool.Mempool
 import Chainweb.Transaction
 
@@ -49,14 +51,33 @@ initConsensusThread
     -> CutDb HashMapCas
     -> IO MempoolConsensus
 initConsensusThread chains cutDb = mask_ $ do
-    c <- _cut cutDb
-    tv <- newTVarIO c
-    -- t <- Async.asyncWithUnmask (thread tv)
-    t <- Async.async (thread tv)
-    return $! MempoolConsensus t tv
-  where
-    thread tv = undefined
+    c <- CutDB._cut cutDb
+    tv <- newTVarIO c -- 'output' TVar to communicate cut to miner, etc.
 
+    -- t <- Async.asyncWithUnmask (thread tv)
+    asyncThread <- Async.async ( mempoolConsensusSync tv chains cutDb )
+    link asyncThread
+    return $ MempoolConsensus {_mcAsync = asyncThread, _mcTVar = tv}
+
+mempoolConsensusSync :: TVar Cut -> [(ChainId, ChainResources logger)] -> CutDb HashMapCas -> IO ()
+mempoolConsensusSync cutTVar chains cutDb = do
+    currCut <- view CutDB.cut cutDb
+    go currCut
+  where
+    go lastCut = do
+      newCut <- waitForNewCut cutDb lastCut
+      let oldLeaf = undefined
+      let newLeaf = undefined
+      forConcurrently_ chains $ \(_, chainRes) -> do
+          updateMempoolForChain chainRes oldLeaf newLeaf
+      atomically $ writeTVar cutTVar newCut
+      go newCut
+
+waitForNewCut :: CutDb HashMapCas -> Cut -> IO Cut
+waitForNewCut cutDb lastCut = atomically $ do
+    !cut <- CutDB._cutStm $ cutDb
+    when (lastCut == cut) retry
+    return cut
 
 destroyConsensusThread :: MempoolConsensus -> IO ()
 destroyConsensusThread (MempoolConsensus c _) = Async.cancel c
@@ -66,9 +87,8 @@ withMempoolConsensus
     -> CutDb HashMapCas
     -> (MempoolConsensus -> IO a)
     -> IO a
-withMempoolConsensus cs cut m =
-    bracket (initConsensusThread cs cut) destroyConsensusThread m
-
+withMempoolConsensus cs cut action =
+    bracket (initConsensusThread cs cut) destroyConsensusThread action
 
 updateMempoolForChain
     :: ChainResources logger
@@ -126,16 +146,16 @@ walkOldAndNewCut ch !old !new !toReintroduce !toMarkValidated = do
     db <- readMVar (_chainDbVar bhDb)
     let toHeadersMap = _dbEntries db
 
-    let oldParHdr = parentHeader toHeadersMap (_blockParent old)
-    let newParHdr = parentHeader toHeadersMap (_blockParent new)
+    oldParHdr <-  parentHeader toHeadersMap (_blockParent old)
+    newParHdr <- parentHeader toHeadersMap (_blockParent new)
     let status = walk initWalkStatus oldParHdr newParHdr
     return (wsReintroduceTxs status, wsRevalidateMap status)
   where
     walk :: WalkStatus -> BlockHeader -> BlockHeader -> WalkStatus
     walk status oldPar newPar = undefined
 
-parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> BlockHeader
+parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> IO BlockHeader
 parentHeader toHeadersMap bh =
     case HM.lookup bh toHeadersMap of
-        Just (h, _) -> h
+        Just (h, _) ->return h
         Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
