@@ -56,6 +56,7 @@ in
           doCoverage = runCoverage;
         }));
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
+        rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
         x509 = callHackageDirect {
           pkg = "x509";

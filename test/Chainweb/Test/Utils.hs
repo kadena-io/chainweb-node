@@ -20,8 +20,14 @@
 --
 module Chainweb.Test.Utils
 (
+  testRocksDb
+
+-- * Intialize Test BlockHeader DB
+, testBlockHeaderDb
+, withTestBlockHeaderDb
+
 -- * BlockHeaderDb Generation
-  toyBlockHeaderDb
+, toyBlockHeaderDb
 , toyChainId
 , toyGenesis
 , genesisBlockHeaderForChain
@@ -89,6 +95,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.ByteString as B
 import Data.Coerce (coerce)
 import Data.Foldable
 import Data.List (sortOn)
@@ -106,6 +113,8 @@ import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
+
+import System.Random (randomIO)
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
@@ -138,12 +147,39 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
 
 import Numeric.AffineSpace
 
 import qualified P2P.Node.PeerDB as P2P
+
+-- -------------------------------------------------------------------------- --
+-- Intialize Test BlockHeader DB
+
+testBlockHeaderDb
+    :: RocksDb
+    -> BlockHeader
+    -> IO BlockHeaderDb
+testBlockHeaderDb rdb h = do
+    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
+    initBlockHeaderDb (Configuration h rdb')
+
+withTestBlockHeaderDb
+    :: RocksDb
+    -> BlockHeader
+    -> (BlockHeaderDb -> IO a)
+    -> IO a
+withTestBlockHeaderDb rdb h = bracket (testBlockHeaderDb rdb h) closeBlockHeaderDb
+
+testRocksDb
+    :: B.ByteString
+    -> RocksDb
+    -> IO RocksDb
+testRocksDb l = rocksDbNamespace (const prefix)
+  where
+    prefix = (<>) l . sshow <$> (randomIO @Word64)
 
 -- -------------------------------------------------------------------------- --
 -- Toy Values
@@ -164,8 +200,8 @@ toyGenesis cid = genesisBlockHeader toyVersion cid
 --
 -- Borrowed from TrivialSync.hs
 --
-toyBlockHeaderDb :: ChainId -> IO (BlockHeader, BlockHeaderDb)
-toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
+toyBlockHeaderDb :: RocksDb -> ChainId -> IO (BlockHeader, BlockHeaderDb)
+toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
   where
     g = toyGenesis cid
 
@@ -173,8 +209,9 @@ toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withToyDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
-withToyDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
+withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withToyDB db cid
+    = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
@@ -300,21 +337,20 @@ peterson = petersonChainGraph
 singleton :: ChainGraph
 singleton = singletonChainGraph
 
-testBlockHeaderDbs :: ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
-testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds v
+testBlockHeaderDbs :: RocksDb -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
+testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
   where
     toEntry c = do
-        d <- db c
+        d <- testBlockHeaderDb rdb (genesisBlockHeader v c)
         return $! (c, d)
-    db c = initBlockHeaderDb . Configuration $ genesisBlockHeader v c
 
 petersonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb)]
-petersonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test petersonChainGraph)
+    :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
+petersonGenesisBlockHeaderDbs rdb = testBlockHeaderDbs rdb (Test petersonChainGraph)
 
 singletonGenesisBlockHeaderDbs
-    :: IO [(ChainId, BlockHeaderDb)]
-singletonGenesisBlockHeaderDbs = testBlockHeaderDbs (Test singletonChainGraph)
+    :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
+singletonGenesisBlockHeaderDbs rdb = testBlockHeaderDbs rdb (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural

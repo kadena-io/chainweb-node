@@ -30,6 +30,7 @@ import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -59,8 +60,8 @@ import Pact.Types.Util
 
 -- internal modules
 
-import Chainweb.Chainweb
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -70,11 +71,13 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
-import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.CAS.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -88,10 +91,10 @@ version = TestWithTime petersonChainGraph
 cid :: ChainId
 cid = either (error . sshow) id $ mkChainId version (0 :: Int)
 
-tests :: IO TestTree
-tests = do
+tests :: RocksDb -> IO TestTree
+tests rdb = do
     peerInfoVar <- newEmptyMVar
-    theAsync <- async $ runTestNodes Warn version nNodes Nothing peerInfoVar
+    theAsync <- async $ runTestNodes rdb Warn version nNodes peerInfoVar
     link theAsync
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
@@ -252,27 +255,27 @@ data PactTestApiCmds = PactTestApiCmds
 -- test node(s), config, etc. for this test
 ----------------------------------------------------------------------------------------------------
 runTestNodes
-    :: LogLevel
+    :: RocksDb
+    -> LogLevel
     -> ChainwebVersion
     -> Natural
-    -> Maybe FilePath
     -> MVar PeerInfo
     -> IO ()
-runTestNodes loglevel v n chainDbDir portMVar =
+runTestNodes rdb loglevel v n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500000 * int i)
-        let baseConf = config v n (NodeId i) chainDbDir
+        let baseConf = config v n (NodeId i)
         conf <- if
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
-        node loglevel portMVar conf
+        node rdb loglevel portMVar conf
 
-node :: LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
-node loglevel peerInfoVar conf = do
-    pdb <- emptyInMemoryPayloadDb
-    withChainweb conf logger pdb $ \cw -> do
+node :: RocksDb -> LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
+node rdb loglevel peerInfoVar conf = do
+    rocksDb <- testRocksDb ("remotePactTest-" <> encodeUtf8 (toText nid)) rdb
+    withChainweb conf logger rocksDb $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
         when (nid == NodeId 0) $ do
@@ -298,9 +301,8 @@ config
     :: ChainwebVersion
     -> Natural
     -> NodeId
-    -> Maybe FilePath
     -> ChainwebConfiguration
-config v n nid chainDbDir = defaultChainwebConfiguration v
+config v n nid = defaultChainwebConfiguration v
     & set configNodeId nid
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
@@ -309,7 +311,6 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
-    & set configChainDbDirPath chainDbDir
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
     & set (configTransactionIndex . enableConfigEnabled) True
 
@@ -328,4 +329,5 @@ setBootstrapPeerInfo =
 
 -- for Stuart:
 runGhci :: IO ()
-runGhci = tests >>= defaultMain
+runGhci = withTempRocksDb "RemotePactTests" $ \rdb -> tests rdb >>= defaultMain
+

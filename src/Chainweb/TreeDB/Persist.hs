@@ -41,9 +41,12 @@ import Chainweb.TreeDB
 -- | Persist the contents of some `TreeDb` to disk.
 --
 persist :: (TreeDb db, Serialize (DbEntry db)) => Path Absolute -> db -> IO ()
-persist fp db = runResourceT $ do
-    let es = void $ entries db Nothing Nothing Nothing Nothing
-    BS.writeFile (toFilePath fp) . hoist lift . separated $ encoded es
+persist fp db = entries db Nothing Nothing Nothing Nothing $ \es ->
+    runResourceT
+        . BS.writeFile (toFilePath fp)
+        . hoist lift
+        . separated
+        $ encoded $ void es
 
 -- | Encode each `DbEntry` as a base64 `B.ByteString`.
 --

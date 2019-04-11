@@ -24,9 +24,6 @@ module Chainweb.Chainweb.ChainResources
 , chainResPact
 , withChainResources
 
--- * Chain Sync
-, runChainSyncClient
-
 -- * Mempool Sync
 , runMempoolSyncClient
 ) where
@@ -40,9 +37,13 @@ import Control.Monad.Catch
 import Data.IORef
 import qualified Data.Text as T
 
-import Prelude hiding (log)
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
+
+import Prelude hiding (log)
+
+import qualified Streaming.Prelude as S
 
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.LogLevel
@@ -50,6 +51,7 @@ import System.Path
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -61,12 +63,18 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
+import Chainweb.TreeDB
 import Chainweb.TreeDB.Persist
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+
+import Data.CAS
+import Data.CAS.RocksDB
 
 import P2P.Node
 import P2P.Session
@@ -102,28 +110,59 @@ instance HasChainId (ChainResources logger) where
 --
 withChainResources
     :: Logger logger
+    => PayloadCas cas
     => ChainwebVersion
     -> ChainId
+    -> RocksDb
     -> PeerResources logger
-    -> (Maybe FilePath)
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
+withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
-    withBlockHeaderDb v cid $ \cdb -> do
-        chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
-        withPersistedDb cid chainDbDirPath cdb $
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+        -- chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
+        -- withPersistedDb cid chainDbDirPath cdb $ do
+
+            -- replay pact (TODO: after pact supports a persisted db backen this
+            -- should required only in rare cases when the db is corrupted)
+            let pact = mkPactExecutionService mempool requestQ
+            replayPact logger pact cdb payloadDb
+
+            -- run inner
             inner $ ChainResources
                 { _chainResPeer = peer
                 , _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
                 , _chainResMempool = mempool
-                , _chainResPact = mkPactExecutionService mempool requestQ
+                , _chainResPact = pact
                 }
+
+replayPact
+    :: HasCallStack
+    => Logger logger
+    => PayloadCas cas
+    => logger
+    -> PactExecutionService
+    -> BlockHeaderDb
+    -> PayloadDb cas
+    -> IO ()
+replayPact logger pact cdb pdb = do
+    logg Info "start replaying pact transactions"
+    (l, _) <- entries cdb Nothing Nothing Nothing Nothing $ \s -> s
+        & S.drop 1
+        & S.mapM_ (\h -> payload h >>= _pactValidateBlock pact h)
+    logg Info $ "finished replaying " <> sshow l <> " pact transactions"
+  where
+    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
+        Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
+        Just p -> return $ payloadWithOutputsToPayloadData p
+
+    logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
 withPersistedDb
     :: ChainId

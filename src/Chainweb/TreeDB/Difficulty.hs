@@ -48,12 +48,13 @@ hashTarget db bh
     | isGenesisBlockHeader bh' = pure $! _blockTarget bh'
     | int (_blockHeight bh') `mod` ww /= 0 = pure $! _blockTarget bh'
     | otherwise = do
-        start <- branchEntries db Nothing Nothing minr maxr lower upper
-                 & P.map (^. isoBH)
-                 & P.take (int ww)
-                 & P.last_
-                 & fmap fromJuste  -- Thanks to the two guard conditions above,
-                                   -- this will (should) always succeed.
+        start <- branchEntries db Nothing Nothing minr maxr lower upper $ \s -> s
+            & P.map (^. isoBH)
+            & P.take (int ww)
+            & P.last_
+            & fmap fromJuste
+                -- Thanks to the two guard conditions above, this will (should)
+                -- always succeed.
 
         -- The time difference in microseconds between when the earliest and
         -- latest blocks in the window were mined.

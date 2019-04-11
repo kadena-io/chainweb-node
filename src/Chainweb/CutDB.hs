@@ -208,7 +208,7 @@ cutStm = to _cutStm
 
 member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
-    th <- maxHeader chainDb
+    th <- maxEntry chainDb
     lookup chainDb h >>= \case
         Nothing -> return False
         Just lh -> do

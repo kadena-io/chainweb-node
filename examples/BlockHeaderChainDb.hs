@@ -24,12 +24,11 @@ module Main
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens hiding (children)
-import Control.Monad
 
+import Data.CAS.RocksDB
 import qualified Data.Text as T
 
-import qualified Streaming.Prelude as S
-
+import System.IO.Temp
 import System.Logger hiding (logg)
 import System.Random
 
@@ -68,17 +67,18 @@ main = withHandleBackend (_logConfigBackend config)
     config = defaultLogConfig
         & logConfigLogger . loggerConfigThreshold .~ level
 
--- | Initializes a new chain database and spawns six miners and one observer.
+-- | Initializes a new chain database and spawns six miners
 --
 example :: Logger T.Text -> IO ()
-example logger = do
-    db <- DB.initBlockHeaderDb DB.Configuration
-        { DB._configRoot = genesisBlockHeader exampleVersion exampleChainId
-        }
-    withAsync (observer logger db) $ \o -> do
-        mapConcurrently_ (miner logger db) $ ChainNodeId exampleChainId <$> [0..5]
-        wait o
-    return ()
+example logger =
+    withSystemTempDirectory "chainweb-blockheaderexample" $ \rocksDbDir -> do
+        withRocksDb rocksDbDir $ \rocksdb -> do
+            db <- DB.initBlockHeaderDb DB.Configuration
+                { DB._configRoot = genesisBlockHeader exampleVersion exampleChainId
+                , DB._configRocksDb = rocksdb
+                }
+            mapConcurrently_ (miner logger db) $ ChainNodeId exampleChainId <$> [0..5]
+            return ()
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -93,7 +93,7 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
   where
     go logg i = do
         -- pick parent from random longest branch
-        p <- maxHeader db
+        p <- maxEntry db
 
         -- create entry
         let e = testBlockHeader mid as (Nonce 0) (_blockTarget p) p
@@ -109,39 +109,3 @@ miner logger db mid = withLoggerLabel ("miner", sshow mid) logger $ \logger' -> 
 
     as = BlockHashRecord mempty
 
--- -------------------------------------------------------------------------- --
--- Observer
-
--- | The observer subscribes to the stream of new entries in the database. It
--- also reads the number of branches and checks that the set of children is
--- empty for the heads of branches.
---
-observer :: Logger T.Text -> DB.BlockHeaderDb -> IO ()
-observer logger db = withLoggerLabel ("observer", "") logger $ \logger' -> do
-    let logg = loggerFunIO logger'
-    logg Info "Initialized Observer"
-    threadDelay $ 2 * 1000000
-
-    logg Info "Started observing entries"
-    S.mapM_ (go logg) $ allEntries db Nothing
-  where
-    go logg e = do
-        logg Info $ "observed new entry: " <> sshow e
-
-        bs <- leafEntries db Nothing Nothing Nothing Nothing
-            & S.mapM (checkBranch logg db)
-            & S.length_
-
-        logg Info $ "branch count: " <> sshow bs
-
--- -------------------------------------------------------------------------- --
--- Utils
-
-checkBranch
-    :: (LogLevel -> T.Text -> IO ())
-    -> DB.BlockHeaderDb
-    -> BlockHeader
-    -> IO ()
-checkBranch logg db h = do
-    S.length_ (DB.childrenKeys db (key h)) >>= \x -> unless (x == 0)
-        $ logg Error $ "branch " <> sshow (key h) <> " has children"
