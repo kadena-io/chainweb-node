@@ -1,6 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Chainweb.Mempool.Consensus
 ( MempoolConsensus
+, WalkStatus(..), wsReintroduceTxs, wsRevalidateMap, wsOldForkHashes, wsNewForkHashes
 , initConsensusThread
 , destroyConsensusThread
 , withMempoolConsensus
@@ -46,6 +50,36 @@ data MempoolConsensus = MempoolConsensus {
 mempoolCut :: MempoolConsensus -> TVar Cut
 mempoolCut = _mcTVar
 
+type TxHashes = HashSet TransactionHash
+type TxBlockHashes = HashSet BlockHash
+type ValMap = HashMap TransactionHash (ValidatedTransaction ChainwebTransaction)
+
+{-
+nullTxHashes :: TxHashes
+nullTxHashes = HS.empty
+
+nullValMap :: ValMap
+nullValMap = HM.empty
+-}
+
+data MempoolException
+    = MempoolConsensusException String
+
+instance Show MempoolException where
+    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
+
+instance Exception MempoolException
+
+type K = BlockHash
+type E = BlockHeader
+data WalkStatus = WalkStatus
+    { _wsReintroduceTxs :: TxHashes
+    , _wsRevalidateMap :: ValMap
+    , _wsOldForkHashes :: TxBlockHashes
+    , _wsNewForkHashes :: TxBlockHashes
+    }
+makeLenses ''WalkStatus
+
 initConsensusThread
     :: [(ChainId, ChainResources logger)]
     -> CutDb HashMapCas
@@ -64,11 +98,12 @@ mempoolConsensusSync cutTVar chains cutDb = do
     currCut <- view CutDB.cut cutDb
     go currCut
   where
+    go :: Cut -> IO ()
     go lastCut = do
       newCut <- waitForNewCut cutDb lastCut
-      let oldLeaf = undefined
-      let newLeaf = undefined
-      forConcurrently_ chains $ \(_, chainRes) -> do
+      forConcurrently_ chains $ \(chId, chainRes) -> do
+          oldLeaf <- lookupCutM chId lastCut
+          newLeaf <- lookupCutM chId newCut
           updateMempoolForChain chainRes oldLeaf newLeaf
       atomically $ writeTVar cutTVar newCut
       go newCut
@@ -76,7 +111,8 @@ mempoolConsensusSync cutTVar chains cutDb = do
 waitForNewCut :: CutDb HashMapCas -> Cut -> IO Cut
 waitForNewCut cutDb lastCut = atomically $ do
     !cut <- CutDB._cutStm $ cutDb
-    when (lastCut == cut) retry
+    when (lastCut == cut)
+        retry
     return cut
 
 destroyConsensusThread :: MempoolConsensus -> IO ()
@@ -90,6 +126,49 @@ withMempoolConsensus
 withMempoolConsensus cs cut action =
     bracket (initConsensusThread cs cut) destroyConsensusThread action
 
+-- TODO: marking txs as confirmed after confirmation depth
+
+parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> IO BlockHeader
+parentHeader toHeadersMap bh =
+    case HM.lookup bh toHeadersMap of
+        Just (h, _) ->return h
+        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
+
+initWalkStatus :: WalkStatus
+initWalkStatus = WalkStatus
+    { _wsReintroduceTxs = HS.empty
+    , _wsRevalidateMap = HM.empty
+    , _wsOldForkHashes = HS.empty
+    , _wsNewForkHashes = HS.empty }
+
+walkOldAndNewCut
+    :: ChainResources logger
+    -> BlockHeader
+    -> BlockHeader
+    -> IO (TxHashes, ValMap)
+walkOldAndNewCut ch !old !new = do
+    let bhDb = _chainResBlockHeaderDb ch
+    db <- readMVar (_chainDbVar bhDb)
+
+    let toHeadersMap = _dbEntries db
+    oldParHdr <-  parentHeader toHeadersMap (_blockParent old)
+    newParHdr <- parentHeader toHeadersMap (_blockParent new)
+    status <- walk db initWalkStatus oldParHdr newParHdr
+    return (_wsReintroduceTxs status, _wsRevalidateMap status)
+  where
+    walk :: Db -> WalkStatus -> BlockHeader -> BlockHeader -> IO WalkStatus
+    walk db status oldPar newPar = do
+        let status' = over wsNewForkHashes (HS.insert (_blockHash newPar)) status
+
+        let toHeadersMap = _dbEntries db
+        if (_blockHash oldPar) `HS.member` (_wsNewForkHashes status')
+            then return status' -- oldPar is the common parent header
+            else do
+                let status'' = over wsOldForkHashes (HS.insert (_blockHash oldPar)) status'
+                nextOldPar <- parentHeader toHeadersMap (_blockParent oldPar)
+                nextNewPar <- parentHeader toHeadersMap (_blockParent newPar)
+                walk db status'' nextOldPar nextNewPar
+
 updateMempoolForChain
     :: ChainResources logger
     -> BlockHeader              -- ^ old cut leaf
@@ -97,65 +176,8 @@ updateMempoolForChain
     -> IO ()
 updateMempoolForChain ch old new = do
     let memPool = _chainResMempool ch
-    (toReintroduce0, toValidate) <- walkOldAndNewCut ch old new HS.empty HM.empty
+    (toReintroduce0, toValidate) <- walkOldAndNewCut ch old new
     let toReintroduce = foldl' (flip HS.delete) toReintroduce0 $ HM.keys toValidate
     mempoolReintroduce memPool $! V.fromList $ HS.toList toReintroduce
     mempoolMarkValidated memPool $! V.fromList $ HM.elems toValidate
     return ()
-
--- TODO: marking txs as confirmed after confirmation depth
-
-type TxHashes = HashSet TransactionHash
-type TxBlockHashes = HashSet BlockHash
-type ValMap = HashMap TransactionHash (ValidatedTransaction ChainwebTransaction)
-
-data WalkStatus = WalkStatus
-    { wsReintroduceTxs :: TxHashes
-    , wsRevalidateMap :: ValMap
-    , wsOldForkHashes :: TxBlockHashes
-    , wsNewForkHashes :: TxBlockHashes
-    }
-
-initWalkStatus :: WalkStatus
-initWalkStatus = WalkStatus
-    { wsReintroduceTxs = HS.empty
-    , wsRevalidateMap = HM.empty
-    , wsOldForkHashes = HS.empty
-    , wsNewForkHashes = HS.empty }
-
-type K = BlockHash
-type E = BlockHeader
-
-data MempoolException
-    = MempoolConsensusException String
-
-instance Show MempoolException where
-    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
-
-instance Exception MempoolException
-
-walkOldAndNewCut
-    :: ChainResources logger
-    -> BlockHeader
-    -> BlockHeader
-    -> TxHashes
-    -> ValMap
-    -> IO (TxHashes, ValMap)
-walkOldAndNewCut ch !old !new !toReintroduce !toMarkValidated = do
-    let bhDb = _chainResBlockHeaderDb ch
-    db <- readMVar (_chainDbVar bhDb)
-    let toHeadersMap = _dbEntries db
-
-    oldParHdr <-  parentHeader toHeadersMap (_blockParent old)
-    newParHdr <- parentHeader toHeadersMap (_blockParent new)
-    let status = walk initWalkStatus oldParHdr newParHdr
-    return (wsReintroduceTxs status, wsRevalidateMap status)
-  where
-    walk :: WalkStatus -> BlockHeader -> BlockHeader -> WalkStatus
-    walk status oldPar newPar = undefined
-
-parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> IO BlockHeader
-parentHeader toHeadersMap bh =
-    case HM.lookup bh toHeadersMap of
-        Just (h, _) ->return h
-        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
