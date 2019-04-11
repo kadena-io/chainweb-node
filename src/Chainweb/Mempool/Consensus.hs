@@ -128,9 +128,17 @@ withMempoolConsensus cs cut action =
 
 -- TODO: marking txs as confirmed after confirmation depth
 
+{-
 parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> IO BlockHeader
 parentHeader toHeadersMap bh =
     case HM.lookup bh toHeadersMap of
+        Just (h, _) ->return h
+        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
+-}
+
+parentHeader :: HM.HashMap K (E, Int) -> BlockHeader -> IO BlockHeader
+parentHeader toHeadersMap header =
+    case HM.lookup (_blockParent header) toHeadersMap of
         Just (h, _) ->return h
         Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
 
@@ -141,32 +149,35 @@ initWalkStatus = WalkStatus
     , _wsOldForkHashes = HS.empty
     , _wsNewForkHashes = HS.empty }
 
+toHash :: BlockHeader -> BlockHash
+toHash bHeader = _blockHash bHeader
+
 walkOldAndNewCut
     :: ChainResources logger
     -> BlockHeader
     -> BlockHeader
     -> IO (TxHashes, ValMap)
-walkOldAndNewCut ch !old !new = do
+walkOldAndNewCut ch !oldParent !newParent = do
     let bhDb = _chainResBlockHeaderDb ch
     db <- readMVar (_chainDbVar bhDb)
 
     let toHeadersMap = _dbEntries db
-    oldParHdr <-  parentHeader toHeadersMap (_blockParent old)
-    newParHdr <- parentHeader toHeadersMap (_blockParent new)
+    oldParHdr <-  parentHeader toHeadersMap oldParent
+    newParHdr <- parentHeader toHeadersMap newParent
     status <- walk db initWalkStatus oldParHdr newParHdr
     return (_wsReintroduceTxs status, _wsRevalidateMap status)
   where
     walk :: Db -> WalkStatus -> BlockHeader -> BlockHeader -> IO WalkStatus
-    walk db status oldPar newPar = do
-        let status' = over wsNewForkHashes (HS.insert (_blockHash newPar)) status
+    walk db status old new = do
+        let status' = over wsNewForkHashes (HS.insert (toHash new)) status
 
         let toHeadersMap = _dbEntries db
-        if (_blockHash oldPar) `HS.member` (_wsNewForkHashes status')
+        if (toHash old) `HS.member` (_wsNewForkHashes status')
             then return status' -- oldPar is the common parent header
             else do
-                let status'' = over wsOldForkHashes (HS.insert (_blockHash oldPar)) status'
-                nextOldPar <- parentHeader toHeadersMap (_blockParent oldPar)
-                nextNewPar <- parentHeader toHeadersMap (_blockParent newPar)
+                let status'' = over wsOldForkHashes (HS.insert (toHash old)) status'
+                nextOldPar <- parentHeader toHeadersMap old
+                nextNewPar <- parentHeader toHeadersMap new
                 walk db status'' nextOldPar nextNewPar
 
 updateMempoolForChain
