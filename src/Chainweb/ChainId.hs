@@ -17,7 +17,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The defininitions in this module are also exported via "Chainweb.Version".
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
