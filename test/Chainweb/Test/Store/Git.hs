@@ -13,20 +13,16 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
-import Chainweb.ChainId
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal
 import Chainweb.Test.TreeDB
-import Chainweb.Test.Utils (toyGenesis)
+import Chainweb.Test.Utils (toyGenesis, toyChainId)
 import Chainweb.Utils (withTempDir)
 
 ---
 
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0
-
 genesis :: BlockHeader
-genesis = toyGenesis chainId0
+genesis = toyGenesis toyChainId
 
 chainLen :: Int
 chainLen = 100

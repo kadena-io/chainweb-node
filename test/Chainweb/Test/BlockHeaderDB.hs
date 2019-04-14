@@ -13,7 +13,6 @@ module Chainweb.Test.BlockHeaderDB
 ( tests
 ) where
 
-
 import Data.Semigroup (Min(..))
 
 import qualified Streaming.Prelude as S
@@ -23,19 +22,16 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
-import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withDB)
+import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId)
 import Chainweb.TreeDB
-
 
 tests :: TestTree
 tests = testGroup "Unit Tests"
     [ testGroup "Basic Interaction"
-      [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb chainId0 >>= closeBlockHeaderDb . snd
+      [ testCase "Initialization + Shutdown" $ toyBlockHeaderDb toyChainId >>= closeBlockHeaderDb . snd
       ]
     , testGroup "Insertion"
       [ testCase "10 Insertions" insertItems
@@ -54,20 +50,17 @@ tests = testGroup "Unit Tests"
 withDb :: BlockHeader -> (BlockHeaderDb -> IO Bool) -> IO Bool
 withDb h f = initBlockHeaderDb (Configuration h) >>= \db -> f db <* closeBlockHeaderDb db
 
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0
-
 insertItems :: Assertion
-insertItems = withDB chainId0 $ \g db -> insertN 10 g db
+insertItems = withToyDB toyChainId $ \g db -> insertN 10 g db
 
 correctHeight :: Assertion
-correctHeight = withDB chainId0 $ \g db -> do
+correctHeight = withToyDB toyChainId $ \g db -> do
     maxRank db >>= \r -> r @?= 0
     insertN 10 g db
     maxRank db >>= \r -> r @?= 10
 
 copyTest :: Assertion
-copyTest = withDB chainId0 $ \g db -> do
+copyTest = withToyDB toyChainId $ \g db -> do
     db' <- copy db
     maxRank db  >>= \r -> r @?= 0
     maxRank db' >>= \r -> r @?= 0
@@ -79,13 +72,13 @@ copyTest = withDB chainId0 $ \g db -> do
     maxRank db' >>= \r -> r @?= 10
 
 rankFiltering :: Assertion
-rankFiltering = withDB chainId0 $ \g db -> do
+rankFiltering = withToyDB toyChainId $ \g db -> do
     insertN 100 g db
     l <- S.length_ $ entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing
     l @?= 11
 
 children :: Assertion
-children = withDB chainId0 $ \g db -> do
+children = withToyDB toyChainId $ \g db -> do
     insertN 5 g db
     l <- S.length_ $ childrenKeys db (_blockHash g)
     l @?= 1

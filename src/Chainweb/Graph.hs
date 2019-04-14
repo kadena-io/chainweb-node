@@ -63,8 +63,7 @@ module Chainweb.Graph
 -- * Checks with a given chain graph
 
 , isWebChain
-, chainIds
-, chainIds_
+, graphChainIds
 , checkWebChainId
 , checkAdjacentChainIds
 
@@ -74,8 +73,6 @@ module Chainweb.Graph
 , pairChainGraph
 , petersonChainGraph
 
--- * Random ChainId
-, randomChainId
 ) where
 
 import Control.Arrow
@@ -85,18 +82,14 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Bits
-import Data.Foldable
 import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
-import Data.Reflection hiding (int)
 
 import GHC.Generics hiding (to)
 
 import Numeric.Natural
-
-import System.Random
 
 -- internal imports
 
@@ -264,13 +257,9 @@ instance HasChainGraph ChainGraph where
 -- -------------------------------------------------------------------------- --
 -- Checks with a given Graphs
 
-chainIds :: Given ChainGraph => HS.HashSet ChainId
-chainIds = vertices (_chainGraphGraph given)
-{-# INLINE chainIds #-}
-
-chainIds_ :: ChainGraph -> HS.HashSet ChainId
-chainIds_ = vertices . _chainGraphGraph
-{-# INLINE chainIds_ #-}
+graphChainIds :: ChainGraph -> HS.HashSet ChainId
+graphChainIds = vertices . _chainGraphGraph
+{-# INLINE graphChainIds #-}
 
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
 -- in @g@.
@@ -317,14 +306,4 @@ pairChainGraph = toChainGraph (unsafeChainId . int) pair
 
 petersonChainGraph :: ChainGraph
 petersonChainGraph = toChainGraph (unsafeChainId . int) petersonGraph
-
--- -------------------------------------------------------------------------- --
--- Random ChainId
-
--- | Uniformily get a random ChainId from the chain graph
---
-randomChainId :: HasChainGraph g => g -> IO ChainId
-randomChainId g = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
-  where
-    cs = give (_chainGraph g) chainIds
 

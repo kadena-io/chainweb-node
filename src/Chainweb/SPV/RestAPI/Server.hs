@@ -42,7 +42,6 @@ import Servant
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
@@ -155,5 +154,5 @@ someSpvServers
 someSpvServers v db = mconcat $ flip fmap cids $ \(FromSing (SChainId :: Sing c)) ->
     someSpvServer @_ @c (someCutDbVal v db)
   where
-    cids = toList . chainIds_ $ _chainGraph db
+    cids = toList $ chainIds db
 
