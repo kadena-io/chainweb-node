@@ -32,6 +32,7 @@ module Chainweb.Version
 , chainwebVersionFromText
 , chainwebVersionToText
 , chainwebVersionId
+, plainVersionFromText
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -207,6 +208,15 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersion
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+-- | Display the `ChainwebVersion` without any Chain Graph information.
+--
+plainVersionFromText :: ChainwebVersion -> T.Text
+plainVersionFromText Testnet00 = "testnet00"
+plainVersionFromText Test{} = "test"
+plainVersionFromText TestWithTime{} = "testWithTime"
+plainVersionFromText TestWithPow{} = "testWithPow"
+plainVersionFromText Simulation{} = "simulation"
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
 
@@ -418,4 +428,3 @@ randomChainId :: HasChainwebVersion v => v -> IO ChainId
 randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
     cs = chainIds v
-

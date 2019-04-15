@@ -9,8 +9,11 @@
 module Main ( main ) where
 
 import BasePrelude hiding (option, (%))
+import Chainweb.Graph (petersonChainGraph)
+import Chainweb.Version
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
+import Control.Error.Util (note)
 import qualified Data.Attoparsec.Text as A
 import qualified Data.Text as T
 import Formatting
@@ -23,6 +26,7 @@ import System.Directory (doesFileExist)
 data Env = Env
   { exe :: FilePath
   , nodes :: Word8
+  , version :: ChainwebVersion
   , logTarget :: Maybe Log
   , logLevel :: T.Text
   } deriving (Show)
@@ -30,7 +34,7 @@ data Env = Env
 data Log = Path T.Text | ES T.Text Word deriving (Show)
 
 pEnv :: Parser Env
-pEnv = Env <$> pExe <*> pNodes <*> optional pLogTarget <*> pLogLevel
+pEnv = Env <$> pExe <*> pNodes <*> pVersion <*> optional pLogTarget <*> pLogLevel
 
 pExe :: Parser FilePath
 pExe = strOption
@@ -41,6 +45,16 @@ pNodes :: Parser Word8
 pNodes = option auto
   (long "nodes" <> metavar "COUNT" <> value 10
    <> help "Number of Nodes to run (default: 10)")
+
+pVersion :: Parser ChainwebVersion
+pVersion = option cver
+  (long "version" <> metavar "VERSION"
+   <> value (TestWithTime petersonChainGraph)
+   <> help "Chainweb Version to run the Nodes with (default: testWithTime)")
+  where
+    cver :: ReadM ChainwebVersion
+    cver = eitherReader $ \s ->
+        note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
 
 pLogTarget :: Parser Log
 pLogTarget = option logPath
@@ -65,7 +79,7 @@ pLogLevel = strOption
    <> help "default: info")
 
 runNode :: Word8 -> Maybe T.Text -> Env -> IO ()
-runNode nid config (Env e n lt ll) = shelly $ run_ (fromText $ T.pack e) ops
+runNode nid config (Env e ns v lt ll) = shelly $ run_ (fromText $ T.pack e) ops
   where
     logging :: Log -> [T.Text]
     logging l@(ES _ _) =
@@ -84,8 +98,8 @@ runNode nid config (Env e n lt ll) = shelly $ run_ (fromText $ T.pack e) ops
     ops :: [T.Text]
     ops = [ "--hostname=127.0.0.1"
           , sformat ("--node-id=" % int) nid
-          , sformat ("--test-miners=" % int) n
-          , "--chainweb-version=testWithTime"
+          , sformat ("--test-miners=" % int) ns
+          , sformat ("--chainweb-version=" % stext) $ plainVersionFromText v
           , "--interface=127.0.0.1"
           , sformat ("--log-level=" % stext) ll ]
           <> maybe [] logging lt
@@ -99,7 +113,7 @@ logDir (Path p) = shelly $ mkdir_p (fromText p)
 
 main :: IO ()
 main = do
-  env@(Env e ns lt _) <- execParser opts
+  env@(Env e ns _ lt _) <- execParser opts
   print env
   traverse_ logDir lt
   whenM (doesFileExist e) $ do
