@@ -27,6 +27,7 @@ codex.tags
 result
 result-*
 .ghc.environment.*
+.ghci
 *~
 \#*
 .stylish-haskell.yaml
@@ -34,6 +35,7 @@ public
 log
 report.html
 .hlint.yaml
+hlint.hs
 *.svg
 *.png
 *.graphml

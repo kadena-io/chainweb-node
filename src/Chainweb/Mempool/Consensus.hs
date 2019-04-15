@@ -54,14 +54,6 @@ type TxHashes = HashSet TransactionHash
 type TxBlockHashes = HashSet BlockHash
 type ValMap = HashMap TransactionHash (ValidatedTransaction ChainwebTransaction)
 
-{-
-nullTxHashes :: TxHashes
-nullTxHashes = HS.empty
-
-nullValMap :: ValMap
-nullValMap = HM.empty
--}
-
 data MempoolException
     = MempoolConsensusException String
 
@@ -87,8 +79,6 @@ initConsensusThread
 initConsensusThread chains cutDb = mask_ $ do
     c <- CutDB._cut cutDb
     tv <- newTVarIO c -- 'output' TVar to communicate cut to miner, etc.
-
-    -- t <- Async.asyncWithUnmask (thread tv)
     asyncThread <- Async.async ( mempoolConsensusSync tv chains cutDb )
     link asyncThread
     return $ MempoolConsensus {_mcAsync = asyncThread, _mcTVar = tv}
@@ -128,14 +118,6 @@ withMempoolConsensus cs cut action =
 
 -- TODO: marking txs as confirmed after confirmation depth
 
-{-
-parentHeader :: HM.HashMap K (E, Int) -> BlockHash -> IO BlockHeader
-parentHeader toHeadersMap bh =
-    case HM.lookup bh toHeadersMap of
-        Just (h, _) ->return h
-        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
--}
-
 parentHeader :: HM.HashMap K (E, Int) -> BlockHeader -> IO BlockHeader
 parentHeader toHeadersMap header =
     case HM.lookup (_blockParent header) toHeadersMap of
@@ -152,43 +134,40 @@ initWalkStatus = WalkStatus
 toHash :: BlockHeader -> BlockHash
 toHash bHeader = _blockHash bHeader
 
+-- TODO: combine this with the functions (branchDiff, branchKeys, and/or forkEntry) in TreeDB.hs
 walkOldAndNewCut
     :: ChainResources logger
     -> BlockHeader
     -> BlockHeader
     -> IO (TxHashes, ValMap)
-walkOldAndNewCut ch !oldParent !newParent = do
+walkOldAndNewCut ch !oldLeaf !newLeaf = do
     let bhDb = _chainResBlockHeaderDb ch
     db <- readMVar (_chainDbVar bhDb)
-
-    let toHeadersMap = _dbEntries db
-    oldParHdr <-  parentHeader toHeadersMap oldParent
-    newParHdr <- parentHeader toHeadersMap newParent
-    status <- walk db initWalkStatus oldParHdr newParHdr
+    status <- walk db initWalkStatus oldLeaf newLeaf
     return (_wsReintroduceTxs status, _wsRevalidateMap status)
   where
     walk :: Db -> WalkStatus -> BlockHeader -> BlockHeader -> IO WalkStatus
-    walk db status old new = do
-        let status' = over wsNewForkHashes (HS.insert (toHash new)) status
-
+    walk db status oldForkHdr newForkHdr = do
+        let status' = over wsNewForkHashes (HS.insert (toHash newForkHdr)) status
         let toHeadersMap = _dbEntries db
-        if (toHash old) `HS.member` (_wsNewForkHashes status')
-            then return status' -- oldPar is the common parent header
+        if (toHash oldForkHdr) `HS.member` (_wsNewForkHashes status')
+            then return status' -- oldForkHdr is the common parent header for the two forks
             else do
-                let status'' = over wsOldForkHashes (HS.insert (toHash old)) status'
-                nextOldPar <- parentHeader toHeadersMap old
-                nextNewPar <- parentHeader toHeadersMap new
-                walk db status'' nextOldPar nextNewPar
+                let status'' = over wsOldForkHashes (HS.insert (toHash oldForkHdr)) status'
+                nextOld <- parentHeader toHeadersMap oldForkHdr
+                nextNew <- parentHeader toHeadersMap newForkHdr
+                walk db status'' nextOld nextNew
 
 updateMempoolForChain
     :: ChainResources logger
-    -> BlockHeader              -- ^ old cut leaf
-    -> BlockHeader              -- ^ new cut leaf
+    -> BlockHeader              -- old cut leaf
+    -> BlockHeader              -- new cut leaf
     -> IO ()
-updateMempoolForChain ch old new = do
-    let memPool = _chainResMempool ch
-    (toReintroduce0, toValidate) <- walkOldAndNewCut ch old new
+updateMempoolForChain ch oldLeaf newLeaf = do
+    (toReintroduce0, toValidate) <- walkOldAndNewCut ch oldLeaf newLeaf
     let toReintroduce = foldl' (flip HS.delete) toReintroduce0 $ HM.keys toValidate
+
+    let memPool = _chainResMempool ch
     mempoolReintroduce memPool $! V.fromList $ HS.toList toReintroduce
     mempoolMarkValidated memPool $! V.fromList $ HM.elems toValidate
     return ()
