@@ -1,46 +1,48 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE TemplateHaskell #-}
-
 module Chainweb.Mempool.Consensus
-( MempoolConsensus
-, WalkStatus(..), wsReintroduceTxs, wsRevalidateMap, wsOldForkHashes, wsNewForkHashes
-, initConsensusThread
-, destroyConsensusThread
-, withMempoolConsensus
-, mempoolCut
+( processFork
 ) where
 
 ------------------------------------------------------------------------------
-import Control.Concurrent.Async (Async, link, forConcurrently_)
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM
 import Control.Exception
-import Control.Lens
-import Control.Monad
 import Control.Monad.Catch (throwM)
-import Data.CAS.HashMap
-import Data.Foldable
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as HS
-import qualified Data.Vector as V
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
-import Chainweb.Cut
-import Chainweb.CutDB (CutDb)
-import qualified Chainweb.CutDB as CutDB
-import Chainweb.Mempool.Mempool
-import Chainweb.Transaction
 
 ------------------------------------------------------------------------------
+processFork :: BlockHash -> IO ()
+processFork _bHash = undefined
+
+data MempoolException
+    = MempoolConsensusException String
+
+instance Show MempoolException where
+    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
+
+instance Exception MempoolException
+
+type K = BlockHash
+type E = BlockHeader
+
+_parentHeader :: HM.HashMap K (E, Int) -> BlockHeader -> IO BlockHeader
+_parentHeader toHeadersMap header =
+    case HM.lookup (_blockParent header) toHeadersMap of
+        Just (h, _) ->return h
+        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
+
+_toHash :: BlockHeader -> BlockHash
+_toHash bHeader = _blockHash bHeader
+
+
+-- mempoolReintroduce memPool $! V.fromList $ HS.toList toReintroduce
+-- mempoolMarkValidated memPool $! V.fromList $ HM.elems toValidate
+
+
+
+
+{-
 data MempoolConsensus = MempoolConsensus {
     _mcAsync :: Async ()
   , _mcTVar :: TVar Cut         -- mempool consensus wrapper will republish
@@ -54,16 +56,6 @@ type TxHashes = HashSet TransactionHash
 type TxBlockHashes = HashSet BlockHash
 type ValMap = HashMap TransactionHash (ValidatedTransaction ChainwebTransaction)
 
-data MempoolException
-    = MempoolConsensusException String
-
-instance Show MempoolException where
-    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
-
-instance Exception MempoolException
-
-type K = BlockHash
-type E = BlockHeader
 data WalkStatus = WalkStatus
     { _wsReintroduceTxs :: TxHashes
     , _wsRevalidateMap :: ValMap
@@ -118,21 +110,12 @@ withMempoolConsensus cs cut action =
 
 -- TODO: marking txs as confirmed after confirmation depth
 
-parentHeader :: HM.HashMap K (E, Int) -> BlockHeader -> IO BlockHeader
-parentHeader toHeadersMap header =
-    case HM.lookup (_blockParent header) toHeadersMap of
-        Just (h, _) ->return h
-        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
-
 initWalkStatus :: WalkStatus
 initWalkStatus = WalkStatus
     { _wsReintroduceTxs = HS.empty
     , _wsRevalidateMap = HM.empty
     , _wsOldForkHashes = HS.empty
     , _wsNewForkHashes = HS.empty }
-
-toHash :: BlockHeader -> BlockHash
-toHash bHeader = _blockHash bHeader
 
 -- TODO: combine this with the functions (branchDiff, branchKeys, and/or forkEntry) in TreeDB.hs
 walkOldAndNewCut
@@ -171,3 +154,4 @@ updateMempoolForChain ch oldLeaf newLeaf = do
     mempoolReintroduce memPool $! V.fromList $ HS.toList toReintroduce
     mempoolMarkValidated memPool $! V.fromList $ HM.elems toValidate
     return ()
+-}

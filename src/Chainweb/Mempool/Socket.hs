@@ -30,7 +30,7 @@ import Control.Concurrent
     (MVar, ThreadId, forkIOWithUnmask, killThread, modifyMVarMasked,
     modifyMVarMasked_, modifyMVar_, myThreadId, newEmptyMVar, newMVar, putMVar,
     readMVar, takeMVar, withMVar)
-import Control.Concurrent.STM (STM, atomically)
+import Control.Concurrent.STM (STM, TVar, atomically, newTVar)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
@@ -708,10 +708,10 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
         debug $ "client: got response for command " ++ show c
         return v
 
-toBackend :: Show t => ClientConfig t -> ClientState t -> MempoolBackend t
-toBackend config (ClientState cChan _ _ _ _ _ _) =
+toBackend :: Show t => ClientConfig t -> ClientState t -> TVar (Maybe BlockHash) -> MempoolBackend t
+toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
     MempoolBackend txcfg blockSizeLimit pMember pLookup pInsert
-                   pGetBlock unsupported unsupported unsupported
+                   pGetBlock unsupported unsupported unsupported lastPar unsupported
                    pGetPending pSubscribe pShutdown pClear
   where
     txcfg = _ccTxCfg config
@@ -787,6 +787,7 @@ mkClient (inp, outp, cleanup) config = mask_ $ do
      smv <- newEmptyMVar
      q <- newMVar id
      cb <- newMVar (const $ return ())
+     lastPar <- atomically $ newTVar Nothing
 
      cleanupMv <- newEmptyMVar
      let !cs = ClientState cchan cmv schan smv q cb cleanupMv
@@ -798,7 +799,7 @@ mkClient (inp, outp, cleanup) config = mask_ $ do
      putMVar cmv ctid
      putMVar smv stid
      putMVar cleanupMv $ destroy cs done1 done2
-     return (cs, toBackend config cs)
+     return (cs, toBackend config cs lastPar)
 
   where
     txcfg = _ccTxCfg config

@@ -59,7 +59,7 @@ toMempool
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit env =
     MempoolBackend txcfg blocksizeLimit member lookup insert getBlock
-                   markValidated markConfirmed reintroduce getPending
+                   markValidated markConfirmed processForks reintroduce getPending
                    subscribe shutdown clear
   where
     go m = runClientM m env >>= either throwIO return
@@ -91,6 +91,7 @@ toMempool version chain txcfg blocksizeLimit env =
     unsupported = fail "unsupported"
     markValidated _ = unsupported
     markConfirmed _ = unsupported
+    processForks _ = unsupported
     reintroduce _ = unsupported
     clear = unsupported
 

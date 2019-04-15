@@ -131,6 +131,13 @@ data MempoolBackend t = MempoolBackend {
     -- | mark the given hashes as being past confirmation depth.
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
+    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
+  , mempoolProcessFork :: BlockHash -> IO ()
+
+    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
+    --   in the case of forks
+  , mempoolLastNewBlockParent :: TVar (Maybe BlockHash)
+
     -- | These transactions were on a losing fork. Reintroduce them.
   , mempoolReintroduce :: Vector TransactionHash -> IO ()
 
@@ -149,10 +156,12 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
-noopMempool :: MempoolBackend t
-noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
-                             noopMarkValidated noopMarkConfirmed noopReintroduce
-                             noopGetPending noopSubscribe noopShutdown noopClear
+noopMempool :: IO (MempoolBackend t)
+noopMempool = do
+    noopLastParent <- atomically $ newTVar Nothing
+    return $ MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
+                            noopMarkValidated noopMarkConfirmed noopProcessFork noopLastParent noopReintroduce
+                            noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
@@ -163,13 +172,13 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta (const $ return True)
-
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopGetBlock = const $ return V.empty
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
+    noopProcessFork = const $ return ()
     noopReintroduce = const $ return ()
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented
@@ -486,5 +495,3 @@ mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
     getPrice = GasPrice <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-
-

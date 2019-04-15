@@ -80,5 +80,6 @@ pactMemPoolAccess mempool _height _hash =
     -- TODO: log request with height hash
     mempoolGetBlock mempool maxBlockSize
 
+
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

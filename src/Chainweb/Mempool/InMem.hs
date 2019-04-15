@@ -28,7 +28,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
     takeMVar, withMVarMasked)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM (atomically, newTVar, TVar)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
@@ -64,6 +64,7 @@ import System.Timeout (timeout)
 -- internal imports
 
 import Chainweb.Mempool.Mempool
+import Chainweb.BlockHash
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (fromJuste)
 
@@ -250,6 +251,7 @@ data InMemoryMempool t = InMemoryMempool {
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
+  , _inmemLastNewBlockParent :: TVar (Maybe BlockHash)
   -- TODO: reap expired transactions
 }
 
@@ -271,8 +273,9 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 makeInMemPool :: InMemConfig t -> TxBroadcaster t -> IO (InMemoryMempool t)
 makeInMemPool cfg txB = mask_ $ do
     dataLock <- newData >>= newMVar
+    lastPar <- atomically $ newTVar Nothing
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid
+    return $! InMemoryMempool cfg dataLock txB tid lastPar
 
   where
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
@@ -299,8 +302,8 @@ makeSelfFinalizingInMemPool cfg =
         writeIORef ref mp
         return x
 
-    wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
+    wrapBackend txcfg bsl mp lastPar =
+        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13
       where
         f1 = withRef mp . flip mempoolMember
         f2 = withRef mp . flip mempoolLookup
@@ -308,11 +311,13 @@ makeSelfFinalizingInMemPool cfg =
         f4 = withRef mp . flip mempoolGetBlock
         f5 = withRef mp . flip mempoolMarkValidated
         f6 = withRef mp . flip mempoolMarkConfirmed
-        f7 = withRef mp . flip mempoolReintroduce
-        f8 = withRef mp . flip mempoolGetPendingTransactions
-        f9 = withRef mp mempoolSubscribe
-        f10 = withRef mp mempoolShutdown
-        f11 = withRef mp mempoolClear
+        f7 = withRef mp . flip mempoolProcessFork
+        f8 = withRef mp mempoolLastNewBlockParent
+        f9 = withRef mp . flip mempoolReintroduce
+        f10 = withRef mp . flip mempoolGetPendingTransactions
+        f11 = withRef mp mempoolSubscribe
+        f12 = withRef mp mempoolShutdown
+        f13 = withRef mp mempoolClear
 
 
 ------------------------------------------------------------------------------
@@ -342,9 +347,9 @@ reaperThread cfg dataLock restore = forever $ do
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
-                                  lock broadcaster _) =
+                                  lock broadcaster _ lastPar) =
     MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe shutdown clear
+                   markConfirmed processFork lastPar reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lock
     lookup = lookupInMem lock
@@ -352,6 +357,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     getBlock = getBlockInMem cfg lock
     markValidated = markValidatedInMem cfg lock
     markConfirmed = markConfirmedInMem lock
+    processFork = processForkInMem broadcaster cfg lock
     reintroduce = reintroduceInMem broadcaster cfg lock
     getPending = getPendingInMem cfg lock
     subscribe = subscribeInMem broadcaster
@@ -553,6 +559,13 @@ getPendingInMem cfg lock callback = do
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $ V.fromList $ dl []
 
+------------------------------------------------------------------------------
+processForkInMem :: TxBroadcaster t
+                 -> InMemConfig t
+                 -> MVar (InMemoryMempoolData t)
+                 -> BlockHash
+                 -> IO ()
+processForkInMem broadcaster cfg lock blockHash = undefined
 
 ------------------------------------------------------------------------------
 reintroduceInMem :: TxBroadcaster t
