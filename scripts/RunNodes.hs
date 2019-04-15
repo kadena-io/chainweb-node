@@ -90,7 +90,7 @@ runNode nid config (Env e n lt ll) = shelly $ run_ (fromText $ T.pack e) ops
           , sformat ("--log-level=" % stext) ll ]
           <> maybe [] logging lt
           <> maybe [] (\c -> [sformat ("--config-file=" % stext) c]) config
-          <> [ "+RTS -T" ]
+          <> [ "+RTS", "-T" ]
 
 -- | Prep a local log dir for output.
 logDir :: Log -> IO ()
