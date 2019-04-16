@@ -570,9 +570,6 @@ getPendingInMem cfg lock callback = do
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $ V.fromList $ dl []
 
-f :: String
-f = "abc"
-
 ------------------------------------------------------------------------------
 processForkInMem :: MVar (InMemoryMempoolData t)
                  -> BlockHash
