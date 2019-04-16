@@ -77,11 +77,10 @@ module Chainweb.Version
 , checkAdjacentChainIds
 ) where
 
-import Control.Concurrent.STM.TVar
+import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
-import Control.Monad.STM
 
 import Data.Aeson
 import Data.Bits
@@ -99,7 +98,6 @@ import GHC.Generics (Generic)
 import GHC.Stack
 import GHC.TypeLits
 
-import System.IO.Unsafe
 import System.Random
 
 -- internal modules
@@ -207,14 +205,10 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE fromMerkleNode #-}
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
-
--- production versions
-chainwebVersionToText Testnet00 = "testnet00"
-
--- test versions
 chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
+chainwebVersionToText Testnet00 = "testnet00"
 {-# INLINABLE chainwebVersionToText #-}
 
 -- | Read textual representation of a `ChainwebVersion`.
@@ -259,57 +253,29 @@ chainwebVersions = HM.fromList
   , ("testnet00", Testnet00)
   ]
 
+chainwebVersionIds :: HM.HashMap Word32 ChainwebVersion
+chainwebVersionIds =
+    HM.fromList . map (chainwebVersionId &&& id) $ HM.elems chainwebVersions
+
 -- -------------------------------------------------------------------------- --
 -- Test instances
 --
 -- The code in this section must not be called in production.
-
--- For all production instances of Chainweb, including test nets, the
--- 'ChainwebVersion' is a constant constructor that statically determines all
--- parameters of that version.
 --
--- For testing instances, however, we require the oppportunity to uses different
--- parameters. Defining a new static 'ChainwebVersion' value for each test
--- setting would create too much overhead and polute the code base. Instead we
--- parameterize the respective 'ChainwebVersion' constructors with for defining
--- the dynamically configurable parameters.
---
--- When deserializing a parameterized test 'ChainwebVersion' we need a way to
--- restore the dynamic parameters. For that hash those parameters (with 15bit
--- precision) and store the respective parameters in a global hash table. This
--- hashtable is used only for testing and must never be used by prodcution code.
---
-type TestChainwebVersionMap = HM.HashMap Word32 ChainwebVersion
-
--- | Global map for keeping track of Test Chainweb Versions with non-static
--- parameters.
---
-testChainwebVersionMap :: TVar TestChainwebVersionMap
-testChainwebVersionMap = unsafePerformIO $ newTVarIO mempty
-{-# NOINLINE testChainwebVersionMap #-}
 
 toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32 -> Word32
-toTestChainwebVersion Testnet00 _
-    = error "toTestChainwebVersion must not be called for a production isntances"
-toTestChainwebVersion v i = unsafePerformIO $ do
-    m <- readTVarIO testChainwebVersionMap
-    case HM.lookup h m of
-        Just _ -> return ()
-        Nothing -> atomically
-            $ modifyTVar' testChainwebVersionMap $ HM.insert h v
-    return h
-  where
-    h = i .|. (testChainwebVersionMask .&. int (hash v))
+toTestChainwebVersion Testnet00 _ =
+    error "toTestChainwebVersion must not be called for a production instance"
+toTestChainwebVersion v i = i .|. (testChainwebVersionMask .&. int (hash v))
 
 testChainwebVersionMask :: Word32
 testChainwebVersionMask = 0x7fff0000
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
-fromTestChainwebVersionId i = case HM.lookup i m of
-        Nothing -> error  "failed to lookup test chainweb version in testChainwebVersionMap"
+fromTestChainwebVersionId i =
+    case HM.lookup i chainwebVersionIds of
+        Nothing -> error "failed to lookup test chainweb version in testChainwebVersionMap"
         Just v -> v
-  where
-    m = unsafePerformIO $ readTVarIO testChainwebVersionMap
 
 -- -------------------------------------------------------------------------- --
 -- Basic Properties
