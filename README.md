@@ -143,18 +143,20 @@ chainweb-node --node-id=NID
 loopback network. The default `--port` value is 0, which causes the node to
 request a free port from the operating system.
 
-Alternatively, the directory `scripts` contains a shell script for starting a
-network of `chainweb-node`s and collecting the logs from all nodes:
+Alternatively, we provide an additional script - `run-nodes` - for starting a
+network of `chainweb-node`s and collecting the logs from each:
 
 ```bash
 # create directory for log files
 mkdir -p tmp/run-nodes-logs
 
 # the first argument is the path to the chainweb-node binary
-./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
+run-nodes --exe=path/to/chainweb-node --log-target=local:./tmp/run-nodes-logs
 
 # stop all nodes with Ctrl-C
 ```
+
+See `run-nodes --help` for a complete list of its options.
 
 ### Details
 
