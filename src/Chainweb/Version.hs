@@ -217,46 +217,47 @@ chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersi
 chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
 {-# INLINABLE chainwebVersionToText #-}
 
--- | Read textual representation of Chainweb Version
+-- | Read textual representation of a `ChainwebVersion`.
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
-
--- Production versions
---
-chainwebVersionFromText "testnet00" = return Testnet00
-
--- Well-known test version names.
---
--- These are only used for parsing textual representations. There is a very low
--- chance that a roundtrip test for the 'HasTextRepresentation' of
--- 'ChainwebVersion' will succeed due to these names.
---
-chainwebVersionFromText "test" = return $ Test petersonChainGraph
-chainwebVersionFromText "test-singleton" = return $ Test singletonChainGraph
-chainwebVersionFromText "test-peterson" = return $ Test petersonChainGraph
-
-chainwebVersionFromText "testWithTime" = return $ TestWithTime petersonChainGraph
-chainwebVersionFromText "testWithTime-singleton" = return $ TestWithTime singletonChainGraph
-chainwebVersionFromText "testWithTime-peterson" = return $ TestWithTime petersonChainGraph
-
-chainwebVersionFromText "testWithPow" = return $ TestWithPow petersonChainGraph
-chainwebVersionFromText "testWithPow-singleton" = return $ TestWithPow singletonChainGraph
-chainwebVersionFromText "testWithPow-peterson" = return $ TestWithPow petersonChainGraph
-
--- Generic test versions
---
-chainwebVersionFromText t = case T.breakOnEnd "-" t of
-    (_, i) -> case treadM i of
-        Left e -> throwM
-            $ TextFormatException $ "Unknown Chainweb version: \"" <> t <> "\": " <> sshow e
-        Right x -> return $ fromTestChainwebVersionId x
-{-# INLINABLE chainwebVersionFromText #-}
+chainwebVersionFromText t =
+    case HM.lookup t chainwebVersions of
+        Nothing -> throwM $ TextFormatException $ "Unknown Chainweb version: \"" <> t
+        Just v -> pure v
 
 instance HasTextRepresentation ChainwebVersion where
     toText = chainwebVersionToText
     {-# INLINE toText #-}
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
+
+chainwebVersions :: HM.HashMap T.Text ChainwebVersion
+chainwebVersions = HM.fromList
+  [
+  -- Test
+    ("test-singleton", Test singletonChainGraph)
+  , ("test-pair", Test pairChainGraph)
+  , ("test-triangle", Test triangleChainGraph)
+  , ("test-peterson", Test petersonChainGraph)
+  , ("test-twenty", Test twentyChainGraph)
+  , ("test-hoffman-singleton", Test hoffmanSingletonGraph)
+  -- TestWithTime
+  , ("testWithTime-singleton", TestWithTime singletonChainGraph)
+  , ("testWithTime-pair", TestWithTime pairChainGraph)
+  , ("testWithTime-triangle", TestWithTime triangleChainGraph)
+  , ("testWithTime-peterson", TestWithTime petersonChainGraph)
+  , ("testWithTime-twenty", TestWithTime twentyChainGraph)
+  , ("testWithTime-hoffman-singleton", TestWithTime hoffmanSingletonGraph)
+  -- TestWithPow
+  , ("testWithPow-singleton", TestWithPow singletonChainGraph)
+  , ("testWithPow-pair", TestWithPow pairChainGraph)
+  , ("testWithPow-triangle", TestWithPow triangleChainGraph)
+  , ("testWithPow-peterson", TestWithPow petersonChainGraph)
+  , ("testWithPow-twenty", TestWithPow twentyChainGraph)
+  , ("testWithPow-hoffman-singleton", TestWithPow hoffmanSingletonGraph)
+  -- Testnet00
+  , ("testnet00", Testnet00)
+  ]
 
 -- -------------------------------------------------------------------------- --
 -- Test instances
