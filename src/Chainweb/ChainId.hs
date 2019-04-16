@@ -17,7 +17,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The defininitions in this module are also exported via "Chainweb.Version".
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
@@ -46,7 +46,7 @@ module Chainweb.ChainId
 
 -- * Testing
 , unsafeChainId
-, unsafeGetChainId
+, chainIdInt
 ) where
 
 import Control.DeepSeq
@@ -89,18 +89,21 @@ instance Exception ChainIdException
 -- -------------------------------------------------------------------------- --
 -- ChainId
 
--- | ChainId /within a Chainweb/.
+-- | ChainId /within the context of a Chainweb instance/.
 --
--- Generally a block chain is /globally/ uniquely identified by its genesis hash.
--- This type only uniquely identifies the chain /locally/ within the context of
--- a chainweb.
+-- The set of valid ChainIds is determined by the 'ChainwebVersion'. In almost
+-- all use cases there should be a context that is an instance of
+-- 'HasChainwebVersion' can be used get the set of chain ids.
 --
--- However, the chainweb context is globally uniquely identified by the
--- 'ChainwebVersion', which in turn is determined by the identities of the
--- chains in the chainweb. Since the chainweb topology is statically represented
--- on the type level, while the Chainweb version is a runtime value, we break
--- the cycle by using the Chainweb version as globally unique identifier and
--- include the 'ChainwebVersion' and the 'ChainId' into the genesis hash.
+-- In the context of a particular chain the respective 'ChainId' can be obtained
+-- via instances of 'HasChainId'.
+--
+-- /How to create values of type 'ChainId'/
+--
+-- * To fold or traverse over all chain ids, use 'chainIds'.
+-- * To deserialize a chain id, use 'mkChainId'.
+-- * For a random chain id consider using 'randomChainId'.
+-- * For some arbitrary but fixed chain id consider using 'someChainId'.
 --
 newtype ChainId :: Type where
     ChainId :: Word32 -> ChainId
@@ -231,17 +234,19 @@ instance SingKind ChainIdT where
         SomeChainIdT p -> SomeSing (singByProxy p)
 
 -- -------------------------------------------------------------------------- --
--- Testing
+-- Misc
 
--- | Generally, the 'ChainId' is determined by the genesis block of a chain for
--- a given 'Chainweb.Version'. This constructor is only for testing.
+-- | This function should be be rarely needed. Please consult the documentation
+-- of 'ChainId' for alternative ways to obtain 'ChainId' values.
 --
 unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
 {-# INLINE unsafeChainId #-}
 
-unsafeGetChainId :: ChainId -> Word32
-unsafeGetChainId (ChainId cid) = cid
+chainIdInt :: Integral i => ChainId -> i
+chainIdInt (ChainId cid) = int cid
+{-# INLINE chainIdInt #-}
 
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
+

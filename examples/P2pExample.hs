@@ -83,7 +83,7 @@ defaultP2pExampleConfig = P2pExampleConfig
     , _maxPeerCount = 50
     , _sessionTimeoutSeconds = 20
     , _meanSessionSeconds = 10
-    , _exampleChainId = unsafeChainId 0
+    , _exampleChainId = someChainId version
     , _logConfig = defaultLogConfig
     }
 

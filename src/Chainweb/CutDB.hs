@@ -130,13 +130,13 @@ defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
 defaultCutDbConfig v = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
-    , _cutDbConfigBufferSize = 300
-        -- TODO this should probably depend on the diameter of the graph
-        -- It shouldn't be too big. Maybe something like @diameter * order^2@?
+    , _cutDbConfigBufferSize = (order g ^ 2) * diameter g
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
     }
+  where
+    g = _chainGraph v
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -240,7 +240,6 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
-    -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logfun @T.Text Info "CutDB started"

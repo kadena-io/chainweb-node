@@ -28,7 +28,6 @@ module Chainweb.Miner.POW
 
 import Control.Concurrent.Async
 import Control.Lens
-import Control.Lens (ix, (^?), (^?!), view)
 import Control.Monad
 import Control.Monad.STM
 
@@ -38,7 +37,6 @@ import Crypto.Hash.IO
 import qualified Data.ByteArray as BA
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Unsafe as B
 import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Proxy
@@ -56,8 +54,7 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHash (BlockHash)
+import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
@@ -65,23 +62,19 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
-import Chainweb.Graph
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.NodeId
-import Chainweb.NodeId (NodeId)
+import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.PowHash
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage (LogFunction, JsonLog(..))
+import Data.LogMessage (JsonLog(..), LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -211,7 +204,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
                     creationTime
                     p
 
-            newHeader <- (usePowHash v mine) candidateHeader nonce
+            newHeader <- usePowHash v mine candidateHeader nonce
 
             -- create cut with new block
             --
@@ -314,9 +307,9 @@ mine
     -> BlockHeader
     -> Nonce
     -> IO BlockHeader
-mine _ h nonce = do
+mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
     !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf -> do
+    bytes <- BA.copy initialBytes $ \buf ->
         allocaBytes (powSize :: Int) $ \pow -> do
 
             -- inner mining loop
@@ -335,12 +328,11 @@ mine _ h nonce = do
                     -- Compute POW hash for the nonce
                     injectNonce n buf
                     hash ctx buf pow
-                    powByteString <- mkPowHash =<< B.unsafePackCStringLen (castPtr pow, powSize)
 
                     -- check whether the nonce meets the target
-                    if checkTarget target powByteString
-                        then return ()
-                        else go (succ i) (succ n)
+                    fastCheckTarget trgPtr (castPtr pow) >>= \case
+                        True -> return ()
+                        False -> go (succ i) (succ n)
 
             -- Start inner mining loop
             go (0 :: Int) nonce
@@ -353,6 +345,7 @@ mine _ h nonce = do
     !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
     !bufSize = B.length initialBytes
     !target = _blockTarget h
+    !initialTargetBytes = runPutS $ encodeHashTarget target
     !powSize = int $ hashDigestSize @a undefined
 
     --  Compute POW hash
@@ -372,3 +365,28 @@ mine _ h nonce = do
     injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
     {-# INLINE injectNonce #-}
 
+    -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
+    -- in little endian encoding.
+    --
+    fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
+    fastCheckTarget !trgPtr !powPtr =
+        fastCheckTargetN 3 trgPtr powPtr >>= \case
+            LT -> return False
+            GT -> return True
+            EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
+                LT -> return False
+                GT -> return True
+                EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
+                    LT -> return False
+                    GT -> return True
+                    EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
+                        LT -> return False
+                        GT -> return True
+                        EQ -> return True
+    {-# INLINE fastCheckTarget #-}
+
+    fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
+    fastCheckTargetN n trgPtr powPtr = compare
+        <$> peekElemOff trgPtr n
+        <*> peekElemOff powPtr n
+    {-# INLINE fastCheckTargetN #-}

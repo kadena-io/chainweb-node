@@ -9,9 +9,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -44,7 +47,34 @@ module Chainweb.Version
 
 -- * HasChainwebVersion
 , HasChainwebVersion(..)
+, mkChainId
+, chainIds
+, someChainId
+, randomChainId
 
+-- * ChainId
+, module Chainweb.ChainId
+
+-- * Re-exports from Chainweb.ChainGraph
+
+-- ** Chain Graph
+, ChainGraph
+, HasChainGraph(..)
+, adjacentChainIds
+
+-- ** Graph Properties
+, order
+, diameter
+, degree
+, shortestPath
+
+-- ** Undirected Edges
+, AdjPair
+, _getAdjPair
+, pattern Adj
+, adjs
+, adjsOfVertex
+, checkAdjacentChainIds
 ) where
 
 import Control.Concurrent.STM.TVar
@@ -57,8 +87,10 @@ import Data.Aeson
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.Foldable
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Word
@@ -68,9 +100,11 @@ import GHC.Stack
 import GHC.TypeLits
 
 import System.IO.Unsafe
+import System.Random
 
 -- internal modules
 
+import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
@@ -350,3 +384,38 @@ class HasChainwebVersion a where
 instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
+
+chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
+chainIds = graphChainIds . _chainGraph . _chainwebVersion
+{-# INLINE chainIds #-}
+
+mkChainId
+    :: MonadThrow m
+    => HasChainwebVersion v
+    => Integral i
+    => v
+    -> i
+    -> m ChainId
+mkChainId v i = cid
+    <$ checkWebChainId (chainwebVersionGraph $ _chainwebVersion v) cid
+  where
+    cid = unsafeChainId (fromIntegral i)
+{-# INLINE mkChainId #-}
+
+-- | Sometimes, in particular for testing and examples, some fixed chain id is
+-- needed, but it doesn't matter which one. This function provides some valid
+-- chain ids.
+--
+someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
+someChainId = head . toList . chainIds
+    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
+    -- graph.
+{-# INLINE someChainId #-}
+
+-- | Uniformily get a random ChainId
+--
+randomChainId :: HasChainwebVersion v => v -> IO ChainId
+randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
+  where
+    cs = chainIds v
+

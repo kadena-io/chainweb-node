@@ -74,7 +74,7 @@ import qualified Pact.Types.SQLite as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
-import Chainweb.ChainId (ChainId, unsafeGetChainId)
+import Chainweb.ChainId (ChainId, chainIdInt)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -172,7 +172,7 @@ initPactService' ver cid chainwebLogger spv act = do
             internalError' s
         Right _ -> return ()
 
-    let !pd = P.PublicData def (unsafeGetChainId cid) def def
+    let !pd = P.PublicData def (chainIdInt cid) def def
     let !pse = PactServiceEnv Nothing checkpointEnv spv pd
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)

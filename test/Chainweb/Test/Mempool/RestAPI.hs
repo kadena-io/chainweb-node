@@ -4,7 +4,6 @@ module Chainweb.Test.Mempool.RestAPI (tests) where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Data.Foldable
 import qualified Data.Pool as Pool
 import qualified Network.HTTP.Client as HTTP
 import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
@@ -59,7 +58,7 @@ newTestServer inMemCfg = mask_ $ do
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     txcfg = InMem._inmemTxCfg inMemCfg
     host = "127.0.0.1"
-    chain = head $ toList $ chainIds_ singletonChainGraph
+    chain = someChainId version
     mkApp mp = chainwebApplication version (serverMempools [(chain, mp)])
     mkEnv port = do
         mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing

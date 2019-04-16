@@ -68,6 +68,7 @@ import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
 import Chainweb.Pact.RestAPI
+import Chainweb.Version
 
 data TransactionCommand = NoOp | DeployContracts [FilePath] | RunStandardContracts | RunSimpleExpressions | PollRequestKeys [ByteString]
   deriving (Show, Eq, Read, Generic)
@@ -141,7 +142,7 @@ defaultTransactionConfig :: TransactionConfig
 defaultTransactionConfig =
   TransactionConfig
     { _scriptCommand      = DeployContracts []
-    , _nodeChainId        = unsafeChainId 0
+    , _nodeChainId        = someChainId Testnet00
     , _serverRootPrefix   = "https://us1.chainweb.com"
     , _isChainweb         = True
     , _chainwebNodePort   = ChainwebPort 443

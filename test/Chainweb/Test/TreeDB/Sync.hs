@@ -12,10 +12,10 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.BlockHeaderDB (BlockHeaderDb, copy)
-import Chainweb.ChainId (ChainId, unsafeChainId)
+import Chainweb.ChainId (ChainId, _chainId)
 import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.RestAPI
-import Chainweb.Test.Utils (insertN, withChainServer, withDB)
+import Chainweb.Test.Utils (insertN, withChainServer, withToyDB, toyChainId)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.TreeDB.Sync
@@ -42,8 +42,8 @@ tests = testGroup "Single-Chain Sync"
 diam :: Depth
 diam = Depth 6
 
-cid :: ChainId
-cid = unsafeChainId 0
+withDB :: (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withDB = withToyDB toyChainId
 
 blockHeaderDbs :: [(ChainId, BlockHeaderDb)] -> ChainwebServerDbs MockTx () HashMapCas
 blockHeaderDbs chainDbs = emptyChainwebServerDbs
@@ -53,8 +53,8 @@ blockHeaderDbs chainDbs = emptyChainwebServerDbs
 -- | Syncing a length-1 chain to another length-1 chain should have no effect.
 --
 noopSingletonSync :: Assertion
-noopSingletonSync = withDB cid $ \g db -> do
-    withChainServer (blockHeaderDbs [(cid, db)]) $ \env -> do
+noopSingletonSync = withDB $ \g db -> do
+    withChainServer (blockHeaderDbs [(_chainId db, db)]) $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 0)
 
@@ -62,22 +62,22 @@ noopSingletonSync = withDB cid $ \g db -> do
 -- and finding none.
 --
 noopLongSync :: Assertion
-noopLongSync = withDB cid $ \g db -> do
+noopLongSync = withDB $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
-    withChainServer (blockHeaderDbs [(cid, peer)]) $ \env -> do
+    withChainServer (blockHeaderDbs [(_chainId db, peer)]) $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates a node that queries an /older/ node for updates.
 --
 noopNewerNode :: Assertion
-noopNewerNode = withDB cid $ \g peer -> do
+noopNewerNode = withDB $ \g peer -> do
     void $ insertN 10 g peer
     db <- copy peer
     h <- maxHeader db
     void $ insertN 90 h db
-    withChainServer (blockHeaderDbs [(cid, peer)]) $ \env -> do
+    withChainServer (blockHeaderDbs [(_chainId db, peer)]) $ \env -> do
         let remote = PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         linearSync diam db remote
         maxRank db >>= (@?= 100)
@@ -86,24 +86,24 @@ noopNewerNode = withDB cid $ \g peer -> do
 -- | Simulates a brand new node syncing everything from a peer.
 --
 newNode :: Assertion
-newNode = withDB cid $ \g db -> do
+newNode = withDB $ \g db -> do
     peer <- copy db
     void $ insertN 10 g peer
     maxRank db >>= (@?= 0)
-    withChainServer (blockHeaderDbs [(cid, peer)]) $ \env -> do
+    withChainServer (blockHeaderDbs [(_chainId db, peer)]) $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 10)
 
 -- | Simulates an older node that hasn't been sync'd in a while.
 --
 oldNode :: Assertion
-oldNode = withDB cid $ \g db -> do
+oldNode = withDB $ \g db -> do
     void $ insertN 10 g db
     peer <- copy db
     h <- maxHeader peer
     void $ insertN 90 h peer
     maxRank db >>= (@?= 10)
     maxRank peer >>= (@?= 100)
-    withChainServer (blockHeaderDbs [(cid, peer)]) $ \env -> do
+    withChainServer (blockHeaderDbs [(_chainId db, peer)]) $ \env -> do
         linearSync diam db . PeerTree $ RemoteDb env aNoLog (_blockChainwebVersion g) (_blockChainId g)
         maxRank db >>= (@?= 100)

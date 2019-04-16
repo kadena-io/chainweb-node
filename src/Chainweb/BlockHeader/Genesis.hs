@@ -64,7 +64,7 @@ import Chainweb.Pact.Types (noCoinbase, noMiner, toCoinbaseOutput)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), encodeChainwebVersion)
+import Chainweb.Version (ChainwebVersion(..), chainIds, encodeChainwebVersion)
 
 ---
 
@@ -188,9 +188,7 @@ genesisBlockHeaders
 genesisBlockHeaders v = HM.fromList
     . fmap (id &&& genesisBlockHeader v)
     . toList
-    . chainIds_
-    . _chainGraph
-    $ v
+    $ chainIds v
 
 -- -------------------------------------------------------------------------- --
 -- Testnet00
