@@ -35,6 +35,7 @@ module Chainweb.Chainweb.ChainResources
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.STM
 import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -53,6 +54,7 @@ import System.Path
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -222,11 +224,13 @@ runMempoolSyncClient mgr chain = bracket create destroy go
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
 mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
   where
-    go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
-             logg Debug "mempool sync session starting"
-             Mempool.syncMempools' logg pool peerMempool (writeIORef ref True)
-             logg Debug "mempool sync session finished"
-             readIORef ref
+    go ref =
+        flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
+            logg Debug "mempool sync session starting"
+            peerMp <-  peerMempool
+            Mempool.syncMempools' logg pool peerMp (writeIORef ref True)
+            logg Debug "mempool sync session finished"
+            readIORef ref
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
@@ -239,8 +243,10 @@ mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-
-    peerMempool = MPC.toMempool v cid txcfg gaslimit env
+    peerMempool = do
+        -- no sync needed / wanted for lastNewBlockParent attribute:
+        noLastPar <- atomically $ newTVar Nothing
+        return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool

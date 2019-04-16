@@ -293,31 +293,30 @@ makeSelfFinalizingInMemPool cfg =
         let back = toMempoolBackend mp
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back
-        return $! wrapBackend txcfg bsl (ref, wk)
-
-  where
-    withRef (ref, _wk) f = do
-        mp <- readIORef ref
-        x <- f (toMempoolBackend mp)
-        writeIORef ref mp
-        return x
-
-    wrapBackend txcfg bsl mp lastPar =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13
+        let lastPar = mempoolLastNewBlockParent back
+        return $! wrapBackend txcfg bsl (ref, wk) lastPar
       where
-        f1 = withRef mp . flip mempoolMember
-        f2 = withRef mp . flip mempoolLookup
-        f3 = withRef mp . flip mempoolInsert
-        f4 = withRef mp . flip mempoolGetBlock
-        f5 = withRef mp . flip mempoolMarkValidated
-        f6 = withRef mp . flip mempoolMarkConfirmed
-        f7 = withRef mp . flip mempoolProcessFork
-        f8 = withRef mp mempoolLastNewBlockParent
-        f9 = withRef mp . flip mempoolReintroduce
-        f10 = withRef mp . flip mempoolGetPendingTransactions
-        f11 = withRef mp mempoolSubscribe
-        f12 = withRef mp mempoolShutdown
-        f13 = withRef mp mempoolClear
+        withRef (ref, _wk) f = do
+            mp <- readIORef ref
+            x <- f (toMempoolBackend mp)
+            writeIORef ref mp
+            return x
+
+        wrapBackend txcfg bsl mp lastPar =
+            MempoolBackend txcfg bsl lastPar f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12
+          where
+            f1 = withRef mp . flip mempoolMember
+            f2 = withRef mp . flip mempoolLookup
+            f3 = withRef mp . flip mempoolInsert
+            f4 = withRef mp . flip mempoolGetBlock
+            f5 = withRef mp . flip mempoolMarkValidated
+            f6 = withRef mp . flip mempoolMarkConfirmed
+            f7 = withRef mp . flip mempoolProcessFork
+            f8 = withRef mp . flip mempoolReintroduce
+            f9 = withRef mp . flip mempoolGetPendingTransactions
+            f10 = withRef mp mempoolSubscribe
+            f11 = withRef mp mempoolShutdown
+            f12 = withRef mp mempoolClear
 
 
 ------------------------------------------------------------------------------
@@ -348,8 +347,8 @@ reaperThread cfg dataLock restore = forever $ do
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lock broadcaster _ lastPar) =
-    MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed processFork lastPar reintroduce getPending subscribe shutdown clear
+    MempoolBackend tcfg blockSizeLimit lastPar member lookup insert getBlock markValidated
+                   markConfirmed processFork reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lock
     lookup = lookupInMem lock
@@ -379,7 +378,7 @@ withInMemoryMempool cfg f = withTxBroadcaster $ \txB ->
 
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
+destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
 
 
 ------------------------------------------------------------------------------

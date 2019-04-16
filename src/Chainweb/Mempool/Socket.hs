@@ -710,8 +710,8 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
 
 toBackend :: Show t => ClientConfig t -> ClientState t -> TVar (Maybe BlockHash) -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
-    MempoolBackend txcfg blockSizeLimit pMember pLookup pInsert
-                   pGetBlock unsupported unsupported unsupported lastPar unsupported
+    MempoolBackend txcfg blockSizeLimit lastPar pMember pLookup pInsert
+                   pGetBlock unsupported unsupported unsupported unsupported
                    pGetPending pSubscribe pShutdown pClear
   where
     txcfg = _ccTxCfg config

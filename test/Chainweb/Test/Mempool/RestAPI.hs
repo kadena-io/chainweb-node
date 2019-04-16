@@ -43,7 +43,8 @@ newTestServer inMemCfg = mask_ $ do
     tid <- forkIOWithUnmask $ server inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit env
+    lastPar <- atomically $ newTVar Nothing
+    let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit lastPar env
     return $! TestServer remoteMp inmem tid
 
   where

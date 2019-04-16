@@ -42,6 +42,7 @@ import Servant.Client
 import qualified System.IO.Streams as Streams
 import System.IO.Unsafe
 ------------------------------------------------------------------------------
+import Chainweb.BlockHash
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -55,10 +56,11 @@ toMempool
     -> ChainId
     -> TransactionConfig t
     -> Int64
+    -> TVar (Maybe BlockHash)
     -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg blocksizeLimit env =
-    MempoolBackend txcfg blocksizeLimit member lookup insert getBlock
+toMempool version chain txcfg blocksizeLimit lastPar env =
+    MempoolBackend txcfg blocksizeLimit lastPar member lookup insert getBlock
                    markValidated markConfirmed processForks reintroduce getPending
                    subscribe shutdown clear
   where

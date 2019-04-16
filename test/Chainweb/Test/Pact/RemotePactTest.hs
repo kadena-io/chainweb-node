@@ -17,6 +17,7 @@ module Chainweb.Test.Pact.RemotePactTest where
 import Control.Concurrent hiding (readMVar, putMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Lens
 import Control.Monad
@@ -97,8 +98,11 @@ tests = do
     (tt0, rks) <- testSend cmds cwEnv
 
     tt1 <- testPoll cmds cwEnv rks
-    let tConfig = mempoolTxConfig noopMempool
-    let mPool = toMempool cwVersion chainId0 tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
+    lastPar <- atomically $ newTVar Nothing
+
+    noopMp <- noopMempool
+    let tConfig = mempoolTxConfig noopMp
+    let mPool = toMempool cwVersion chainId0 tConfig 10000 lastPar cwEnv-- :: MempoolBackend ChainwebTransaction
     tt2 <- testMPValidated mPool rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])

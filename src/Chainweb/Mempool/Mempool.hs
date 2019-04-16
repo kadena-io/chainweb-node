@@ -112,6 +112,10 @@ data MempoolBackend t = MempoolBackend {
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
 
+    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
+    --   in the case of forks
+  , mempoolLastNewBlockParent :: TVar (Maybe BlockHash)
+
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
 
@@ -134,10 +138,6 @@ data MempoolBackend t = MempoolBackend {
     -- | check for a fork, and re-introduce transactions from the losing branch if necessary
   , mempoolProcessFork :: BlockHash -> IO ()
 
-    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
-    --   in the case of forks
-  , mempoolLastNewBlockParent :: TVar (Maybe BlockHash)
-
     -- | These transactions were on a losing fork. Reintroduce them.
   , mempoolReintroduce :: Vector TransactionHash -> IO ()
 
@@ -159,8 +159,8 @@ data MempoolBackend t = MempoolBackend {
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
     noopLastParent <- atomically $ newTVar Nothing
-    return $ MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
-                            noopMarkValidated noopMarkConfirmed noopProcessFork noopLastParent noopReintroduce
+    return $ MempoolBackend txcfg 1000 noopLastParent noopMember noopLookup noopInsert noopGetBlock
+                            noopMarkValidated noopMarkConfirmed noopProcessFork noopReintroduce
                             noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
