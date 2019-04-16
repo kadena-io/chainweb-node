@@ -82,7 +82,7 @@ import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
 
-import Data.Aeson
+import Data.Aeson hiding (pairs)
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -92,6 +92,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Proxy
 import qualified Data.Text as T
+import Data.Tuple (swap)
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -205,10 +206,14 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE fromMerkleNode #-}
 
 chainwebVersionToText :: ChainwebVersion -> T.Text
-chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
-chainwebVersionToText Testnet00 = "testnet00"
+chainwebVersionToText v =
+    case HM.lookup v prettyVersions of
+        Just t -> t
+        Nothing -> case v of
+            Test{} -> "test"
+            TestWithTime{} -> "testWithTime"
+            TestWithPow{} -> "testWithPow"
+            Testnet00 -> "testnet00"
 {-# INLINABLE chainwebVersionToText #-}
 
 -- | Read textual representation of a `ChainwebVersion`.
@@ -216,8 +221,12 @@ chainwebVersionToText Testnet00 = "testnet00"
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
-        Nothing -> throwM $ TextFormatException $ "Unknown Chainweb version: \"" <> t
         Just v -> pure v
+        Nothing -> case t of
+            "test" -> pure $ Test petersonChainGraph
+            "testWithTime" -> pure $ TestWithTime petersonChainGraph
+            "testWithPow" -> pure $ TestWithPow petersonChainGraph
+            _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
 instance HasTextRepresentation ChainwebVersion where
     toText = chainwebVersionToText
@@ -226,32 +235,23 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE fromText #-}
 
 chainwebVersions :: HM.HashMap T.Text ChainwebVersion
-chainwebVersions = HM.fromList
-  [
-  -- Test
-    ("test-singleton", Test singletonChainGraph)
-  , ("test-pair", Test pairChainGraph)
-  , ("test-triangle", Test triangleChainGraph)
-  , ("test-peterson", Test petersonChainGraph)
-  , ("test-twenty", Test twentyChainGraph)
-  , ("test-hoffman-singleton", Test hoffmanSingletonGraph)
-  -- TestWithTime
-  , ("testWithTime-singleton", TestWithTime singletonChainGraph)
-  , ("testWithTime-pair", TestWithTime pairChainGraph)
-  , ("testWithTime-triangle", TestWithTime triangleChainGraph)
-  , ("testWithTime-peterson", TestWithTime petersonChainGraph)
-  , ("testWithTime-twenty", TestWithTime twentyChainGraph)
-  , ("testWithTime-hoffman-singleton", TestWithTime hoffmanSingletonGraph)
-  -- TestWithPow
-  , ("testWithPow-singleton", TestWithPow singletonChainGraph)
-  , ("testWithPow-pair", TestWithPow pairChainGraph)
-  , ("testWithPow-triangle", TestWithPow triangleChainGraph)
-  , ("testWithPow-peterson", TestWithPow petersonChainGraph)
-  , ("testWithPow-twenty", TestWithPow twentyChainGraph)
-  , ("testWithPow-hoffman-singleton", TestWithPow hoffmanSingletonGraph)
-  -- Testnet00
-  , ("testnet00", Testnet00)
-  ]
+chainwebVersions = HM.fromList $
+    f Test "test"
+    <> f TestWithTime "testWithTime"
+    <> f TestWithPow "testWithPow"
+    <> [ ("testnet00", Testnet00) ]
+  where
+    f v p = map (\(k, g) -> (p <> k, v g)) pairs
+    pairs = [ ("-singleton", singletonChainGraph)
+            , ("-pair", pairChainGraph)
+            , ("-triangle", triangleChainGraph)
+            , ("-peterson", petersonChainGraph)
+            , ("-twenty", twentyChainGraph)
+            , ("-hoffman-singleton", hoffmanSingletonGraph)
+            ]
+
+prettyVersions :: HM.HashMap ChainwebVersion T.Text
+prettyVersions = HM.fromList . map swap $ HM.toList chainwebVersions
 
 chainwebVersionIds :: HM.HashMap Word32 ChainwebVersion
 chainwebVersionIds =
