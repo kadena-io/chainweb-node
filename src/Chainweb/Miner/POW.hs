@@ -291,7 +291,6 @@ usePowHash :: ChainwebVersion -> (forall a . HashAlgorithm a => Proxy a -> f) ->
 usePowHash Test{} f = f $ Proxy @SHA512t_256
 usePowHash TestWithTime{} f = f $ Proxy @SHA512t_256
 usePowHash TestWithPow{} f = f $ Proxy @SHA512t_256
-usePowHash Simulation{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may

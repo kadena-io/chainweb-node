@@ -157,7 +157,6 @@ data ChainwebVersion
         --   * creationTime of BlockHeaders is actual time.
         --
 
-    | Simulation ChainGraph
     | Testnet00
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
@@ -174,7 +173,6 @@ chainwebVersionId :: ChainwebVersion -> Word32
 chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
 chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
 chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
-chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000003
 chainwebVersionId Testnet00 = 0x00000001
 {-# INLINABLE chainwebVersionId #-}
 
@@ -217,7 +215,6 @@ chainwebVersionToText Testnet00 = "testnet00"
 chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
 chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@Simulation{} = "simulation-" <> sshow (chainwebVersionId v)
 {-# INLINABLE chainwebVersionToText #-}
 
 -- | Read textual representation of Chainweb Version
@@ -320,7 +317,6 @@ chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TestWithTime g) = g
 chainwebVersionGraph (TestWithPow g) = g
-chainwebVersionGraph (Simulation g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 
 instance HasChainGraph ChainwebVersion where
@@ -418,4 +414,3 @@ randomChainId :: HasChainwebVersion v => v -> IO ChainId
 randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
     cs = chainIds v
-
