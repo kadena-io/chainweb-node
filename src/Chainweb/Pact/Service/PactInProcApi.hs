@@ -76,8 +76,10 @@ maxBlockSize :: Int64
 maxBlockSize = 10000
 
 pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
-pactMemPoolAccess mempool _height _hash =
+pactMemPoolAccess mempool _height hash =
     -- TODO: log request with height hash
+    txHashes = mempoolProcessFork hash
+    mempoolReintroduce txHashes
     mempoolGetBlock mempool maxBlockSize
 
 

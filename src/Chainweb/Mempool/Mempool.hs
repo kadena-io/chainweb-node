@@ -136,7 +136,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-  , mempoolProcessFork :: BlockHash -> IO ()
+  , mempoolProcessFork :: BlockHash -> IO (Vector TransactionHash)
 
     -- | These transactions were on a losing fork. Reintroduce them.
   , mempoolReintroduce :: Vector TransactionHash -> IO ()
@@ -178,7 +178,7 @@ noopMempool = do
     noopGetBlock = const $ return V.empty
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
-    noopProcessFork = const $ return ()
+    noopProcessFork = const $ return V.empty
     noopReintroduce = const $ return ()
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented

@@ -28,7 +28,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
     takeMVar, withMVarMasked)
-import Control.Concurrent.STM (atomically, newTVar, TVar)
+import Control.Concurrent.STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
@@ -63,6 +63,7 @@ import System.Timeout (timeout)
 
 -- internal imports
 
+import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.Mempool
 import Chainweb.BlockHash
 import qualified Chainweb.Time as Time
@@ -251,7 +252,7 @@ data InMemoryMempool t = InMemoryMempool {
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
-  , _inmemLastNewBlockParent :: TVar (Maybe BlockHash)
+  -- , _inmemLastNewBlockParent :: TVar (Maybe BlockHash)
   -- TODO: reap expired transactions
 }
 
@@ -266,31 +267,33 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- here.
   , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
   , _inmemConfirmed :: IORef (HashSet TransactionHash)
+  , _inmemLastNewBlockParent :: IORef (TVar (Maybe BlockHash))
 }
 
 
 ------------------------------------------------------------------------------
 makeInMemPool :: InMemConfig t -> TxBroadcaster t -> IO (InMemoryMempool t)
 makeInMemPool cfg txB = mask_ $ do
-    dataLock <- newData >>= newMVar
-    lastPar <- atomically $ newTVar Nothing
+    lastParent <- atomically $ newTVar Nothing
+    dataLock <- (newData lastParent) >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid lastPar
+    return $! InMemoryMempool cfg dataLock txB tid
 
   where
-    newData = InMemoryMempoolData <$> newIORef PSQ.empty
-                                  <*> newIORef HashMap.empty
-                                  <*> newIORef HashSet.empty
+    newData lastPar = InMemoryMempoolData <$> newIORef PSQ.empty
+                                          <*> newIORef HashMap.empty
+                                          <*> newIORef HashSet.empty
+                                          <*> newIORef lastPar
 
 
 ------------------------------------------------------------------------------
 makeSelfFinalizingInMemPool :: InMemConfig t -> IO (MempoolBackend t)
 makeSelfFinalizingInMemPool cfg =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
-        mp <- makeInMemPool cfg txb
-        ref <- newIORef mp
+        mpool <- makeInMemPool cfg txb
+        ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
-        let back = toMempoolBackend mp
+        back <- toMempoolBackend mpool
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back
         let lastPar = mempoolLastNewBlockParent back
@@ -298,7 +301,9 @@ makeSelfFinalizingInMemPool cfg =
       where
         withRef (ref, _wk) f = do
             mp <- readIORef ref
-            x <- f (toMempoolBackend mp)
+            mb <- toMempoolBackend mp
+            x <- f mb
+
             writeIORef ref mp
             return x
 
@@ -332,7 +337,7 @@ reaperThread cfg dataLock restore = forever $ do
     txcfg = _inmemTxCfg cfg
     expiryTime = txMetaExpiryTime . (txMetadata txcfg)
     interval = _inmemReaperIntervalMicros cfg
-    reap (InMemoryMempoolData pendingRef _ _) = do
+    reap (InMemoryMempoolData pendingRef _ _ _) = do
         now <- Time.getCurrentTimeIntegral
         modifyIORef' pendingRef $ reapPending now
 
@@ -344,24 +349,30 @@ reaperThread cfg dataLock restore = forever $ do
 
 
 ------------------------------------------------------------------------------
-toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
+toMempoolBackend :: InMemoryMempool t -> IO (MempoolBackend t)
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
-                                  lock broadcaster _ lastPar) =
-    MempoolBackend tcfg blockSizeLimit lastPar member lookup insert getBlock markValidated
-                   markConfirmed processFork reintroduce getPending subscribe shutdown clear
+                                  lockMVar
+                                  broadcaster _) = do
+    lock <- readMVar lockMVar
+    lastParentTVar <- readIORef $ _inmemLastNewBlockParent lock
+    lastParent <- atomically $ readTVar lastParentTVar
+
+    return $ MempoolBackend tcfg blockSizeLimit lastParentTVar member lookup insert getBlock
+        markValidated markConfirmed processFork reintroduce getPending subscribe shutdown clear
   where
-    member = memberInMem lock
-    lookup = lookupInMem lock
-    insert = insertInMem broadcaster cfg lock
-    getBlock = getBlockInMem cfg lock
-    markValidated = markValidatedInMem cfg lock
-    markConfirmed = markConfirmedInMem lock
-    processFork = processForkInMem broadcaster cfg lock
-    reintroduce = reintroduceInMem broadcaster cfg lock
-    getPending = getPendingInMem cfg lock
+    member = memberInMem lockMVar
+    lookup = lookupInMem lockMVar
+    insert = insertInMem broadcaster cfg lockMVar
+    getBlock = getBlockInMem cfg lockMVar
+    markValidated = markValidatedInMem cfg lockMVar
+    markConfirmed = markConfirmedInMem lockMVar
+    processFork = processForkInMem lockMVar
+    reintroduce = reintroduceInMem broadcaster cfg lockMVar
+    getPending = getPendingInMem cfg lockMVar
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
-    clear = clearInMem lock
+    clear = clearInMem lockMVar
+
 
 
 ------------------------------------------------------------------------------
@@ -369,16 +380,17 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
 withInMemoryMempool :: InMemConfig t
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg f = withTxBroadcaster $ \txB ->
-                            bracket (init txB) destroyInMemPool go
-  where
-    init = makeInMemPool cfg
-    go = f . toMempoolBackend
-
+withInMemoryMempool cfg f = do
+    withTxBroadcaster $ \txB -> do
+        let inMemIO = makeInMemPool cfg txB
+        let action = (\inMem -> do
+                back <- toMempoolBackend inMem
+                f back)
+        bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
+destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
 
 
 ------------------------------------------------------------------------------
@@ -558,13 +570,18 @@ getPendingInMem cfg lock callback = do
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $ V.fromList $ dl []
 
+f :: String
+f = "abc"
+
 ------------------------------------------------------------------------------
-processForkInMem :: TxBroadcaster t
-                 -> InMemConfig t
-                 -> MVar (InMemoryMempoolData t)
+processForkInMem :: MVar (InMemoryMempoolData t)
                  -> BlockHash
-                 -> IO ()
-processForkInMem broadcaster cfg lock blockHash = undefined
+                 -> IO (Vector TransactionHash)
+processForkInMem lock parentBlockHash = do
+    theData <- readMVar lock
+    lastHash <- atomically $ readTVar (_inmemLastNewBlockParent theData)
+    MPCon.processFork parentBlockHash lastHash
+
 
 ------------------------------------------------------------------------------
 reintroduceInMem :: TxBroadcaster t
