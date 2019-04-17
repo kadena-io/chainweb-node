@@ -63,9 +63,10 @@ import System.Timeout (timeout)
 
 -- internal imports
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeaderDB
 import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.Mempool
-import Chainweb.BlockHash
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (fromJuste)
 
@@ -252,7 +253,7 @@ data InMemoryMempool t = InMemoryMempool {
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
-  -- , _inmemLastNewBlockParent :: TVar (Maybe BlockHash)
+  , _inmemBlockHeaderDb :: BlockHeaderDb
   -- TODO: reap expired transactions
 }
 
@@ -378,6 +379,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
 withInMemoryMempool :: InMemConfig t
+                    -> BlockHeaderDb
                     -> (MempoolBackend t -> IO a)
                     -> IO a
 withInMemoryMempool cfg f = do

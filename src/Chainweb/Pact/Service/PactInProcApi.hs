@@ -75,13 +75,13 @@ withPactService' ver cid logger memPoolAccess mv action = do
 maxBlockSize :: Int64
 maxBlockSize = 10000
 
+-- i.e., :: MempoolBackend ChainwebTransaction -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
-pactMemPoolAccess mempool _height hash =
+pactMemPoolAccess mempool _height hash = do
     -- TODO: log request with height hash
-    txHashes = mempoolProcessFork hash
-    mempoolReintroduce txHashes
+    let txHashes = mempoolProcessFork mempool hash
+    mempoolReintroduce mempool txHashes
     mempoolGetBlock mempool maxBlockSize
-
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg
