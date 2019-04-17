@@ -79,7 +79,7 @@ maxBlockSize = 10000
 pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
 pactMemPoolAccess mempool _height hash = do
     -- TODO: log request with height hash
-    let txHashes = mempoolProcessFork mempool hash
+    txHashes <- mempoolProcessFork mempool hash
     mempoolReintroduce mempool txHashes
     mempoolGetBlock mempool maxBlockSize
 

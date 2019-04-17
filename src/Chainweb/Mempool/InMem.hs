@@ -273,12 +273,12 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 
 
 ------------------------------------------------------------------------------
-makeInMemPool :: InMemConfig t -> TxBroadcaster t -> IO (InMemoryMempool t)
-makeInMemPool cfg txB = mask_ $ do
+makeInMemPool :: InMemConfig t -> TxBroadcaster t -> BlockHeaderDb -> IO (InMemoryMempool t)
+makeInMemPool cfg txB blockHeaderDb = mask_ $ do
     lastParent <- atomically $ newTVar Nothing
     dataLock <- (newData lastParent) >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid
+    return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb
 
   where
     newData lastPar = InMemoryMempoolData <$> newIORef PSQ.empty
@@ -288,10 +288,10 @@ makeInMemPool cfg txB = mask_ $ do
 
 
 ------------------------------------------------------------------------------
-makeSelfFinalizingInMemPool :: InMemConfig t -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg =
+makeSelfFinalizingInMemPool :: InMemConfig t -> BlockHeaderDb -> IO (MempoolBackend t)
+makeSelfFinalizingInMemPool cfg blockHeaderDb =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
-        mpool <- makeInMemPool cfg txb
+        mpool <- makeInMemPool cfg txb blockHeaderDb
         ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
         back <- toMempoolBackend mpool
@@ -353,7 +353,7 @@ reaperThread cfg dataLock restore = forever $ do
 toMempoolBackend :: InMemoryMempool t -> IO (MempoolBackend t)
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lockMVar
-                                  broadcaster _) = do
+                                  broadcaster _ blockHeaderDb) = do
     lock <- readMVar lockMVar
     lastParentTVar <- readIORef $ _inmemLastNewBlockParent lock
     lastParent <- atomically $ readTVar lastParentTVar
@@ -382,9 +382,9 @@ withInMemoryMempool :: InMemConfig t
                     -> BlockHeaderDb
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg f = do
+withInMemoryMempool cfg blockHeaderDb f = do
     withTxBroadcaster $ \txB -> do
-        let inMemIO = makeInMemPool cfg txB
+        let inMemIO = makeInMemPool cfg txB blockHeaderDb
         let action = (\inMem -> do
                 back <- toMempoolBackend inMem
                 f back)
@@ -392,7 +392,7 @@ withInMemoryMempool cfg f = do
 
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
+destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
 
 
 ------------------------------------------------------------------------------
@@ -578,8 +578,9 @@ processForkInMem :: MVar (InMemoryMempoolData t)
                  -> IO (Vector TransactionHash)
 processForkInMem lock parentBlockHash = do
     theData <- readMVar lock
-    lastHash <- atomically $ readTVar (_inmemLastNewBlockParent theData)
-    MPCon.processFork parentBlockHash lastHash
+    lastHashTVar <- readIORef (_inmemLastNewBlockParent theData)
+    lastHash <- atomically $ readTVar lastHashTVar
+    MPCon.processFork blockHeaderDb parentBlockHash lastHash
 
 
 ------------------------------------------------------------------------------

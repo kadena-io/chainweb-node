@@ -30,6 +30,9 @@ processFork :: BlockHeaderDb -> BlockHeader -> BlockHeader -> IO (Vector Transac
 processFork db newHash lastHash = do
     let s = branchDiff db newHash lastHash
     oldBlocks <- collectOldBlocks s -- :: Vector BlockHeader
+
+    TODO: Remove from the set of transactions to reintroduce any that are also
+          part of one of the new blocks....
     foldM f V.empty oldBlocks
   where f :: Vector TransactionHash -> BlockHeader -> IO (Vector TransactionHash)
         f trans header = do
@@ -40,6 +43,7 @@ collectOldBlocks
     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
     -> IO (Vector BlockHeader)
 collectOldBlocks theStream = do
+    Todo: collect the new blocks also...
     go theStream V.empty
   where
     go stream blocks = do

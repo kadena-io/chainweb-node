@@ -76,6 +76,7 @@ markAllConfirmed
     -> PayloadWithOutputs
     -> IO ()
 markAllConfirmed mempool payload = mempoolMarkConfirmed mempool txHashes
+  TODO: change to mempoolMarkValidated....
   where
     txcfg = mempoolTxConfig mempool
     decodeTx = codecDecode $ txCodec txcfg

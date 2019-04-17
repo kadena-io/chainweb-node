@@ -148,6 +148,7 @@ data MempoolBackend t = MempoolBackend {
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
   , mempoolSubscribe :: IO (IORef (Subscription t))
+
   , mempoolShutdown :: IO ()
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
