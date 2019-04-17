@@ -19,6 +19,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.Graph
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -41,6 +43,7 @@ module Chainweb.Graph
 -- * Chain Graph
 
 , ChainGraph
+, chainGraphKnown
 , toChainGraph
 , validChainGraph
 , adjacentChainIds
@@ -67,8 +70,11 @@ module Chainweb.Graph
 , checkWebChainId
 , checkAdjacentChainIds
 
--- * Some Graphs
+-- * Specific, Known Graphs
 
+, KnownGraph(..)
+, knownGraph
+, graphCode
 , singletonChainGraph
 , pairChainGraph
 , triangleChainGraph
@@ -78,17 +84,18 @@ module Chainweb.Graph
 
 ) where
 
-import Control.Arrow
-import Control.DeepSeq
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
+import Control.Arrow ((&&&))
+import Control.DeepSeq (NFData(..))
+import Control.Lens (Getter, to, view)
+import Control.Monad (unless, void)
+import Control.Monad.Catch (Exception, MonadThrow(..))
 
-import Data.Bits
-import Data.Function
-import Data.Hashable
+import Data.Bits (xor)
+import Data.Function (on)
+import Data.Hashable (Hashable(..))
 import qualified Data.HashSet as HS
-import Data.Kind
+import Data.Kind (Type)
+import Data.Word (Word32)
 
 import GHC.Generics hiding (to)
 
@@ -96,7 +103,7 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.ChainId
+import Chainweb.ChainId (ChainId, HasChainId(..), unsafeChainId)
 import Chainweb.Utils
 
 import qualified Data.DiGraph as G
@@ -132,6 +139,7 @@ instance Exception ChainGraphException
 
 data ChainGraph = ChainGraph
     { _chainGraphGraph :: !(G.DiGraph ChainId)
+    , _chainGraphKnown :: !KnownGraph
     , _chainGraphShortestPathCache :: {- lazy -} G.ShortestPathCache ChainId
     , _chainGraphHash :: {- lazy -} Int
     }
@@ -150,14 +158,19 @@ instance Ord ChainGraph where
 instance Hashable ChainGraph where
     hashWithSalt s = xor s . _chainGraphHash
 
+chainGraphKnown :: Getter ChainGraph KnownGraph
+chainGraphKnown = to _chainGraphKnown
+{-# INLINE chainGraphKnown #-}
+
 -- | This function is unsafe, it throws an error if the graph isn't a valid
 -- chain graph. That's OK, since chaingraphs are hard-coded in the code and
 -- won't change dynamically, except for during testing.
 --
-toChainGraph :: (a -> ChainId) -> G.DiGraph a -> ChainGraph
-toChainGraph f g
+toChainGraph :: (a -> ChainId) -> KnownGraph -> G.DiGraph a -> ChainGraph
+toChainGraph f kg g
     | validChainGraph c = ChainGraph
         { _chainGraphGraph = c
+        , _chainGraphKnown = kg
         , _chainGraphShortestPathCache = G.shortestPathCache c
         , _chainGraphHash = hash c
         }
@@ -184,7 +197,7 @@ adjacentChainIds
     => ChainGraph
     -> p
     -> HS.HashSet ChainId
-adjacentChainIds (ChainGraph g _ _) cid = G.adjacents (_chainId cid) g
+adjacentChainIds (ChainGraph g _ _ _) cid = G.adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
@@ -300,20 +313,45 @@ checkAdjacentChainIds g cid expectedAdj = do
 -- -------------------------------------------------------------------------- --
 -- Some Graphs
 
+-- | Graphs which have known, specific, intended meaning for Chainweb.
+--
+data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingle
+    deriving (Generic)
+    deriving anyclass (NFData)
+
+knownGraph :: KnownGraph -> ChainGraph
+knownGraph Singleton = singletonChainGraph
+knownGraph Pair = pairChainGraph
+knownGraph Triangle = triangleChainGraph
+knownGraph Peterson = petersonChainGraph
+knownGraph Twenty = twentyChainGraph
+knownGraph HoffmanSingle = hoffmanSingletonGraph
+
+-- | Useful for the binary encoding of a `ChainGraph` within a
+-- `ChainwebVersion`.
+--
+graphCode :: KnownGraph -> Word32
+graphCode Singleton = 0x00010000
+graphCode Pair = 0x00020000
+graphCode Triangle = 0x00030000
+graphCode Peterson = 0x00040000
+graphCode Twenty = 0x00050000
+graphCode HoffmanSingle = 0x00060000
+
 singletonChainGraph :: ChainGraph
-singletonChainGraph = toChainGraph (unsafeChainId . int) G.singleton
+singletonChainGraph = toChainGraph (unsafeChainId . int) Singleton G.singleton
 
 pairChainGraph :: ChainGraph
-pairChainGraph = toChainGraph (unsafeChainId . int) G.pair
+pairChainGraph = toChainGraph (unsafeChainId . int) Pair G.pair
 
 triangleChainGraph :: ChainGraph
-triangleChainGraph = toChainGraph (unsafeChainId . int) G.triangle
+triangleChainGraph = toChainGraph (unsafeChainId . int) Triangle G.triangle
 
 petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph (unsafeChainId . int) G.petersonGraph
+petersonChainGraph = toChainGraph (unsafeChainId . int) Peterson G.petersonGraph
 
 twentyChainGraph :: ChainGraph
-twentyChainGraph = toChainGraph (unsafeChainId . int) G.twentyChainGraph
+twentyChainGraph = toChainGraph (unsafeChainId . int) Twenty G.twentyChainGraph
 
 hoffmanSingletonGraph :: ChainGraph
-hoffmanSingletonGraph = toChainGraph (unsafeChainId . int) G.hoffmanSingleton
+hoffmanSingletonGraph = toChainGraph (unsafeChainId . int) HoffmanSingle G.hoffmanSingleton

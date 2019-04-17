@@ -169,10 +169,8 @@ isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
 {-# INLINABLE isTestChainwebVersionId #-}
 
 chainwebVersionId :: ChainwebVersion -> Word32
-chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
 chainwebVersionId Testnet00 = 0x00000001
+chainwebVersionId v = toTestChainwebVersion v
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: MonadGet m => Word32 -> m ChainwebVersion
@@ -205,20 +203,15 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-chainwebVersionToText :: ChainwebVersion -> T.Text
-chainwebVersionToText v =
-    case HM.lookup v prettyVersions of
-        Just t -> t
-        Nothing -> case v of
-            Test{} -> "test"
-            TestWithTime{} -> "testWithTime"
-            TestWithPow{} -> "testWithPow"
-            Testnet00 -> "testnet00"
+chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
+chainwebVersionToText Testnet00 = "testnet00"
+chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
 -- | Read textual representation of a `ChainwebVersion`.
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
+chainwebVersionFromText "testnet00" = pure Testnet00
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
         Just v -> pure v
@@ -233,6 +226,9 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE toText #-}
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Value Maps
 
 chainwebVersions :: HM.HashMap T.Text ChainwebVersion
 chainwebVersions = HM.fromList $
@@ -263,13 +259,13 @@ chainwebVersionIds =
 -- The code in this section must not be called in production.
 --
 
-toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32 -> Word32
-toTestChainwebVersion Testnet00 _ =
-    error "toTestChainwebVersion must not be called for a production instance"
-toTestChainwebVersion v i = i .|. (testChainwebVersionMask .&. int (hash v))
-
-testChainwebVersionMask :: Word32
-testChainwebVersionMask = 0x7fff0000
+toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32
+toTestChainwebVersion v = f v .|. graphCode (view (chainGraph . chainGraphKnown) v)
+  where
+    f Test{} = 0x80000000
+    f TestWithTime{} = 0x80000001
+    f TestWithPow{} = 0x80000002
+    f _ = error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
