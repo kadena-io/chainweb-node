@@ -29,7 +29,9 @@ module Chainweb.TreeDB
 
 -- * Query Parameters
 , MinRank(..)
+, _getMinRank
 , MaxRank(..)
+, _getMaxRank
 , LowerBound(..)
 , UpperBound(..)
 , BranchBounds(..)
