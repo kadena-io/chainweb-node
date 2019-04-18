@@ -1,11 +1,9 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Main ( main ) where
@@ -16,7 +14,6 @@ import Chainweb.Version
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Error.Util (note)
-import qualified Data.Attoparsec.Text as A
 import qualified Data.Text as T
 import Formatting
 import Options.Applicative
@@ -25,20 +22,16 @@ import System.Directory (executable, getPermissions)
 
 ---
 
--- TODO Add config file option
 data Env = Env
   { exe :: FilePath
   , nodes :: Word8
   , version :: ChainwebVersion
-  , logTarget :: Maybe Log
-  , logLevel :: T.Text
   , config :: FilePath
+  , passthrough :: [T.Text]
   } deriving (Show)
 
-data Log = Path T.Text | ES T.Text Word deriving (Show)
-
 pEnv :: Parser Env
-pEnv = Env <$> pExe <*> pNodes <*> pVersion <*> optional pLogTarget <*> pLogLevel <*> pConfig
+pEnv = Env <$> pExe <*> pNodes <*> pVersion <*> pConfig <*> many pPassthrough
 
 pExe :: Parser FilePath
 pExe = strOption
@@ -60,79 +53,40 @@ pVersion = option cver
     cver = eitherReader $ \s ->
         note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
 
-pLogTarget :: Parser Log
-pLogTarget = option logPath
-  (long "log-target" <> metavar "local:PATH|es:ELASTICSEARCH_HOST:PORT"
-   <> help "Location to log to (default: STDOUT)")
-  where
-    logPath :: ReadM Log
-    logPath = eitherReader (A.parseOnly (esPath <|> plainPath) . T.pack)
-
-    esPath :: A.Parser Log
-    esPath = ES <$> host <*> port
-      where
-        host = A.string "es:" *> A.takeWhile1 (/= ':') <* A.char ':'
-        port = A.decimal
-
-    plainPath :: A.Parser Log
-    plainPath = Path <$> (A.string "local:" *> A.takeText)
-
-pLogLevel :: Parser T.Text
-pLogLevel = strOption
-  (long "log-level" <> metavar "debug|info|warn|error" <> value "info"
-   <> help "default: info")
-
 pConfig :: Parser FilePath
 pConfig = strOption
   (long "config" <> metavar "PATH" <> value "scripts/test-bootstrap-node.config"
    <> help "Path to Chainweb config YAML file")
 
+pPassthrough :: Parser T.Text
+pPassthrough = argument str
+  (metavar "CHAINWEB-FLAGS" <> help "Native flags that a chainweb-node accepts")
+
 runNode :: Word8 -> Maybe FilePath -> Env -> IO ()
-runNode nid mconf (Env e ns v lt ll _) = shelly $ run_ (fromText $ T.pack e) ops
+runNode nid mconf (Env e ns v _ ps) = shelly $ run_ (fromText $ T.pack e) ops
   where
-    logging :: Log -> [T.Text]
-    logging l@(ES _ _) =
-      [ sformat ("--telemetry-log-handle=" % stext) $ logText l
-      , sformat ("--log-handle=" % stext) $ logText l
-      ]
-    logging l@(Path _) =
-      [ sformat ("--telemetry-log-handle=" % stext % "/telemetry.node" % int % ".log") (logText l) nid
-      , sformat ("--log-handle=" % stext % "/node" % int % ".log") (logText l) nid
-      ]
-
-    logText :: Log -> T.Text
-    logText (ES h p) = sformat ("es:" % stext % ":" % int) h p
-    logText (Path p) = sformat ("file:" % stext) p
-
     ops :: [T.Text]
     ops = [ "--hostname=127.0.0.1"
           , sformat ("--node-id=" % int) nid
           , sformat ("--test-miners=" % int) ns
           , sformat ("--chainweb-version=" % stext) $ chainwebVersionToText v
-          , "--interface=127.0.0.1"
-          , sformat ("--log-level=" % stext) ll ]
-          <> maybe [] logging lt
+          , "--interface=127.0.0.1" ]
           <> maybe [] (\c -> [sformat ("--config-file=" % string) c]) mconf
+          <> ps
           <> [ "+RTS", "-T" ]
-
--- | Prep a local log dir for output.
-logDir :: Log -> IO ()
-logDir (ES _ _) = pure ()
-logDir (Path p) = shelly $ mkdir_p (fromText p)
 
 main :: IO ()
 main = do
-  env@(Env e ns v lt _ c) <- execParser opts
+  env@(Env e ns _ c _) <- execParser opts
   print env
-  traverse_ logDir lt
   canExec <- (executable <$> getPermissions e) `catch` (\(_ :: SomeException) -> pure False)
   if | not canExec -> error $ e <> " is not executable, or does not exist."
      | otherwise -> do
-         printf "Starting cluster for %d\n" $ chainwebVersionId v
+         putStrLn "Starting cluster..."
          -- Launch Bootstrap Node
          withAsync (runNode 0 (Just c) env) $ \boot -> do
            link boot
-           threadDelay 200000  -- 0.2 seconds
+           threadDelay 1000000  -- 1 second
            -- Launch Common Nodes
            mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
   where

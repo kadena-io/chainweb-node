@@ -147,14 +147,16 @@ Alternatively, we provide an additional script - `run-nodes` - for starting a
 network of `chainweb-node`s and collecting the logs from each:
 
 ```bash
-# create directory for log files
+# Create directory for log files.
 mkdir -p tmp/run-nodes-logs
 
-# the first argument is the path to the chainweb-node binary
-run-nodes --exe=path/to/chainweb-node --log-target=local:./tmp/run-nodes-logs
+# By default, run 10 nodes locally.
+run-nodes --exe=path/to/chainweb-node -- --telemetry-log-handle=file:./tmp/run-nodes-logs
 
-# stop all nodes with Ctrl-C
+# Stop all nodes with Ctrl-C
 ```
+
+Any option after `--` will be passed as-is to each `chainweb-node` instance.
 
 See `run-nodes --help` for a complete list of its options.
 
