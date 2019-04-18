@@ -32,16 +32,17 @@ data Env = Env
   , version :: ChainwebVersion
   , logTarget :: Maybe Log
   , logLevel :: T.Text
+  , config :: FilePath
   } deriving (Show)
 
 data Log = Path T.Text | ES T.Text Word deriving (Show)
 
 pEnv :: Parser Env
-pEnv = Env <$> pExe <*> pNodes <*> pVersion <*> optional pLogTarget <*> pLogLevel
+pEnv = Env <$> pExe <*> pNodes <*> pVersion <*> optional pLogTarget <*> pLogLevel <*> pConfig
 
 pExe :: Parser FilePath
 pExe = strOption
-  (long "exe" <> metavar "FILE"
+  (long "exe" <> metavar "PATH"
    <> help "Full path to a chainweb-node binary")
 
 pNodes :: Parser Word8
@@ -53,7 +54,7 @@ pVersion :: Parser ChainwebVersion
 pVersion = option cver
   (long "version" <> metavar "VERSION"
    <> value (TestWithTime petersonChainGraph)
-   <> help "Chainweb Version to run the Nodes with (default: testWithTime)")
+   <> help "Chainweb Version to run the Nodes with (default: testWithTime-peterson)")
   where
     cver :: ReadM ChainwebVersion
     cver = eitherReader $ \s ->
@@ -81,8 +82,13 @@ pLogLevel = strOption
   (long "log-level" <> metavar "debug|info|warn|error" <> value "info"
    <> help "default: info")
 
-runNode :: Word8 -> Maybe T.Text -> Env -> IO ()
-runNode nid config (Env e ns v lt ll) = shelly $ run_ (fromText $ T.pack e) ops
+pConfig :: Parser FilePath
+pConfig = strOption
+  (long "config" <> metavar "PATH" <> value "scripts/test-bootstrap-node.config"
+   <> help "Path to Chainweb config YAML file")
+
+runNode :: Word8 -> Maybe FilePath -> Env -> IO ()
+runNode nid mconf (Env e ns v lt ll _) = shelly $ run_ (fromText $ T.pack e) ops
   where
     logging :: Log -> [T.Text]
     logging l@(ES _ _) =
@@ -106,7 +112,7 @@ runNode nid config (Env e ns v lt ll) = shelly $ run_ (fromText $ T.pack e) ops
           , "--interface=127.0.0.1"
           , sformat ("--log-level=" % stext) ll ]
           <> maybe [] logging lt
-          <> maybe [] (\c -> [sformat ("--config-file=" % stext) c]) config
+          <> maybe [] (\c -> [sformat ("--config-file=" % string) c]) mconf
           <> [ "+RTS", "-T" ]
 
 -- | Prep a local log dir for output.
@@ -116,7 +122,7 @@ logDir (Path p) = shelly $ mkdir_p (fromText p)
 
 main :: IO ()
 main = do
-  env@(Env e ns v lt _) <- execParser opts
+  env@(Env e ns v lt _ c) <- execParser opts
   print env
   traverse_ logDir lt
   canExec <- (executable <$> getPermissions e) `catch` (\(_ :: SomeException) -> pure False)
@@ -124,7 +130,7 @@ main = do
      | otherwise -> do
          printf "Starting cluster for %d\n" $ chainwebVersionId v
          -- Launch Bootstrap Node
-         withAsync (runNode 0 (Just "scripts/test-bootstrap-node.config") env) $ \boot -> do
+         withAsync (runNode 0 (Just c) env) $ \boot -> do
            link boot
            threadDelay 200000  -- 0.2 seconds
            -- Launch Common Nodes
