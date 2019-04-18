@@ -55,7 +55,7 @@ pVersion = option cver
 
 pConfig :: Parser FilePath
 pConfig = strOption
-  (long "config" <> metavar "PATH" <> value "scripts/test-bootstrap-node.config"
+  (long "config" <> metavar "PATH" <> value "tools/run-nodes/test-bootstrap-node.config"
    <> help "Path to Chainweb config YAML file")
 
 pPassthrough :: Parser T.Text

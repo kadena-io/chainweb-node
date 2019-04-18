@@ -128,12 +128,12 @@ sensible, or otherwise have a simple way to refer to it.
 To run a node:
 
 ```bash
-chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config
+chainweb-node --node-id=0 --config-file=./tools/run-nodes/test-bootstrap-node.config
 ```
 
 This will run a local "bootstrap" node on your machine. Its runtime options - as
 well as a hard-coded SSL certificate - are found in
-`./scripts/test-bootstrap-node.config`. Further nodes can be ran with a simple:
+`./tools/run-nodes/test-bootstrap-node.config`. Further nodes can be ran with a simple:
 
 ```bash
 chainweb-node --node-id=NID
