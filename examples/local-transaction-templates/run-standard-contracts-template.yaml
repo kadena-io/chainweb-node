@@ -1,14 +1,13 @@
-chainwebNodePort:
-  _chainwebPort: 1789
 isChainweb: true
 nodeChainId: 0
-serverRootPrefix: 127.0.0.1
-chainwebVersion: testWithTime
-timingDistribution:
-  mean: 1000000
-  tag: Gaussian
-  var: 62500
+chainwebHostAddress:
+  hostname: 127.0.0.1
+  port: 1789
+chainwebVersion: testWithTime-4075880449
 scriptCommand:
   tag: RunStandardContracts
   contents:
-    _getOption: false
+  - mean: 1000000
+    tag: Gaussian
+    var: 62500
+  - measureTime: false
