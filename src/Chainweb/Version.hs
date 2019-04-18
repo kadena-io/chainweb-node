@@ -77,7 +77,6 @@ module Chainweb.Version
 , checkAdjacentChainIds
 ) where
 
-import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
@@ -164,21 +163,29 @@ instance Show ChainwebVersion where
     show = T.unpack . toText
     {-# INLINE show #-}
 
-isTestChainwebVersionId :: Word32 -> Bool
-isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
-{-# INLINABLE isTestChainwebVersionId #-}
-
+-- | This function and its dual `fromChainwebVersionId` are used to efficiently
+-- serialize a `ChainwebVersion` and its associated internal `ChainGraph` value.
+-- __This function must be injective (one-to-one)!__ The scheme is as follows:
+--
+--   * Production `ChainwebVersion`s start from @0x00000001@ and count upwards.
+--     Their value must be less than @0x8000000@, but this limit is unlikely to
+--     ever be reached.
+--
+--   * `ChainwebVersion`s for testing begin at @0x80000000@, as can be seen in
+--     `toTestChainwebVersion`. This value is combined (via `.|.`) with the
+--     "code" of their associated `ChainGraph` (as seen in `graphToCode`). Such
+--     codes start at @0x00010000@ and count upwards.
+--
 chainwebVersionId :: ChainwebVersion -> Word32
+chainwebVersionId v@Test{} = toTestChainwebVersion v
+chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v
+chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
-chainwebVersionId v = toTestChainwebVersion v
 {-# INLINABLE chainwebVersionId #-}
 
-fromChainwebVersionId :: MonadGet m => Word32 -> m ChainwebVersion
-fromChainwebVersionId i
-    | isTestChainwebVersionId i = return $ fromTestChainwebVersionId i
-    | otherwise = case i of
-        0x00000001 -> return Testnet00
-        _ -> fail $ "Unknown Chainweb version id: " ++ show i
+fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
+fromChainwebVersionId 0x00000001 = Testnet00
+fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
@@ -186,7 +193,7 @@ encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
 decodeChainwebVersion :: MonadGet m => m ChainwebVersion
-decodeChainwebVersion = getWord32le >>= fromChainwebVersionId
+decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 
 instance ToJSON ChainwebVersion where
@@ -249,29 +256,60 @@ chainwebVersions = HM.fromList $
 prettyVersions :: HM.HashMap ChainwebVersion T.Text
 prettyVersions = HM.fromList . map swap $ HM.toList chainwebVersions
 
-chainwebVersionIds :: HM.HashMap Word32 ChainwebVersion
-chainwebVersionIds =
-    HM.fromList . map (chainwebVersionId &&& id) $ HM.elems chainwebVersions
-
 -- -------------------------------------------------------------------------- --
 -- Test instances
 --
 -- The code in this section must not be called in production.
 --
 
+-- | See `chainwebVersionId` for a complete explanation of the values in this
+-- section below.
+--
 toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32
-toTestChainwebVersion v = f v .|. graphCode (view (chainGraph . chainGraphKnown) v)
-  where
-    f Test{} = 0x80000000
-    f TestWithTime{} = 0x80000001
-    f TestWithPow{} = 0x80000002
-    f _ = error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+toTestChainwebVersion v =
+    testVersionToCode v .|. graphToCode (view (chainGraph . chainGraphKnown) v)
+
+-- | For the binary encoding of a `ChainGraph` within a `ChainwebVersion`.
+--
+graphToCode :: KnownGraph -> Word32
+graphToCode Singleton = 0x00010000
+graphToCode Pair = 0x00020000
+graphToCode Triangle = 0x00030000
+graphToCode Peterson = 0x00040000
+graphToCode Twenty = 0x00050000
+graphToCode HoffmanSingle = 0x00060000
+
+codeToGraph :: HasCallStack => Word32 -> KnownGraph
+codeToGraph 0x00010000 = Singleton
+codeToGraph 0x00020000 = Pair
+codeToGraph 0x00030000 = Triangle
+codeToGraph 0x00040000 = Peterson
+codeToGraph 0x00050000 = Twenty
+codeToGraph 0x00060000 = HoffmanSingle
+codeToGraph _ = error "Unknown Graph Code"
+
+-- | Split a `Word32` representation of a `ChainwebVersion` / `ChainGraph` pair
+-- into its constituent pieces.
+--
+splitTestCode :: Word32 -> (Word32, Word32)
+splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
+
+codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
+codeToTestVersion 0x80000000 = Test
+codeToTestVersion 0x80000001 = TestWithTime
+codeToTestVersion 0x80000002 = TestWithPow
+codeToTestVersion _ = error "Unknown ChainwebVersion Code"
+
+testVersionToCode :: ChainwebVersion -> Word32
+testVersionToCode Test{} = 0x80000000
+testVersionToCode TestWithTime{} = 0x80000001
+testVersionToCode TestWithPow{} = 0x80000002
+testVersionToCode Testnet00 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
-    case HM.lookup i chainwebVersionIds of
-        Nothing -> error "failed to lookup test chainweb version in testChainwebVersionMap"
-        Just v -> v
+    uncurry ($) . bimap codeToTestVersion (knownGraph . codeToGraph) $ splitTestCode i
 
 -- -------------------------------------------------------------------------- --
 -- Basic Properties

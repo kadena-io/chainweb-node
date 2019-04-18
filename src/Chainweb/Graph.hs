@@ -74,7 +74,6 @@ module Chainweb.Graph
 
 , KnownGraph(..)
 , knownGraph
-, graphCode
 , singletonChainGraph
 , pairChainGraph
 , triangleChainGraph
@@ -95,7 +94,6 @@ import Data.Function (on)
 import Data.Hashable (Hashable(..))
 import qualified Data.HashSet as HS
 import Data.Kind (Type)
-import Data.Word (Word32)
 
 import GHC.Generics hiding (to)
 
@@ -326,17 +324,6 @@ knownGraph Triangle = triangleChainGraph
 knownGraph Peterson = petersonChainGraph
 knownGraph Twenty = twentyChainGraph
 knownGraph HoffmanSingle = hoffmanSingletonGraph
-
--- | Useful for the binary encoding of a `ChainGraph` within a
--- `ChainwebVersion`.
---
-graphCode :: KnownGraph -> Word32
-graphCode Singleton = 0x00010000
-graphCode Pair = 0x00020000
-graphCode Triangle = 0x00030000
-graphCode Peterson = 0x00040000
-graphCode Twenty = 0x00050000
-graphCode HoffmanSingle = 0x00060000
 
 singletonChainGraph :: ChainGraph
 singletonChainGraph = toChainGraph (unsafeChainId . int) Singleton G.singleton
