@@ -449,6 +449,7 @@ bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
+bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =

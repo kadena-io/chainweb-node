@@ -156,6 +156,7 @@ data ChainwebVersion
         --
 
     | Testnet00
+    | Testnet01
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -181,10 +182,12 @@ chainwebVersionId v@Test{} = toTestChainwebVersion v
 chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v
 chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
+chainwebVersionId Testnet01 = 0x00000002
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Testnet00
+fromChainwebVersionId 0x00000002 = Testnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
@@ -212,6 +215,7 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Testnet00 = "testnet00"
+chainwebVersionToText Testnet01 = "testnet01"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
@@ -219,6 +223,7 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "testnet00" = pure Testnet00
+chainwebVersionFromText "testnet01" = pure Testnet01
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
         Just v -> pure v
@@ -242,7 +247,7 @@ chainwebVersions = HM.fromList $
     f Test "test"
     <> f TestWithTime "testWithTime"
     <> f TestWithPow "testWithPow"
-    <> [ ("testnet00", Testnet00) ]
+    <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
     pairs = [ ("-singleton", singletonChainGraph)
@@ -306,6 +311,8 @@ testVersionToCode TestWithTime{} = 0x80000001
 testVersionToCode TestWithPow{} = 0x80000002
 testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+testVersionToCode Testnet01 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
@@ -319,6 +326,7 @@ chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TestWithTime g) = g
 chainwebVersionGraph (TestWithPow g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
+chainwebVersionGraph Testnet01 = twentyChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph
