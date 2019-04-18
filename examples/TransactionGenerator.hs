@@ -41,8 +41,7 @@ import Control.Monad.Trans.Control
 import Data.ByteString (ByteString)
 import Data.Char
 import Data.Default (Default(..), def)
-
-
+import Data.LogMessage
 import Data.Int
 import Data.Map (Map)
 import Data.Proxy
@@ -67,8 +66,7 @@ import Servant.API
 import Servant.Client
 
 import System.Exit
-import System.Logger
--- import System.LogLevel
+import System.Logger hiding (StdOut)
 import System.Random
 import System.Random.MWC (Gen, uniformR, createSystemRandom)
 import System.Random.MWC.Distributions (normal)
@@ -80,7 +78,6 @@ import Pact.Types.API
 import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..), CommandSuccess(..),RequestKey(..))
 import Pact.Types.Crypto
--- import Pact.Types.Logger
 import Pact.Types.Util (Hash(..))
 
 -- CHAINWEB
@@ -88,9 +85,11 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Version
 import Chainweb.RestAPI.Utils
--- THIS MODULE MAY BE USED LATER
 
+-- THIS MODULE MAY BE USED LATER
 -- import Chainweb.Simulate.Contracts.CommercialPaper
+import Utils.Logging
+import qualified Utils.Logging.Config as U
 import Chainweb.Utils
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
@@ -280,23 +279,13 @@ instance FromJSON TimingDistribution
 
 instance ToJSON TimingDistribution
 
-data LoggerType
-  = LogToConsole
-  | LogToFile FilePath
-  | LogToElasticSearch
-  deriving (Show, Read, Generic)
-
-instance ToJSON LoggerType
-
-instance FromJSON LoggerType
-
 data ScriptConfig = ScriptConfig
   { _scriptCommand       :: !TransactionCommand
   , _nodeChainId         :: !ChainId
   , _isChainweb          :: !Bool
   , _chainwebHostAddress :: !HostAddress
   , _nodeVersion         :: !ChainwebVersion
-  , _logging             :: !LoggerType
+  , _logHandleConfig     :: !U.HandleConfig
   } deriving (Generic)
 
 makeLenses ''ScriptConfig
@@ -318,7 +307,7 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
     <*< isChainweb          ..: "isChainweb"          % o
     <*< chainwebHostAddress ..: "chainwebHostAddress" % o
     <*< nodeVersion         ..: "chainwebVersion"     % o
-    <*< logging             ..: "logging"             % o
+    <*< logHandleConfig     ..: "logging"             % o
 
 data ServantRecord = ServantRecord
   { apiSend   :: SubmitBatch     -> ClientM RequestKeys
@@ -342,30 +331,36 @@ defaultScriptConfig =
       _scriptCommand       = RunSimpleExpressions def def
     , _nodeChainId         = unsafeChainId 0
     , _isChainweb          = True
-    , _chainwebHostAddress    = HostAddress (unsafeHostnameFromText "127.0.0.1") (unsafePortFromText "1789")
-    -- , _nodeVersion    = "testnet00"
-    , _nodeVersion    = fromJuste $ chainwebVersionFromText "testWithTime"
-    , _logging             = LogToConsole
+    , _chainwebHostAddress = HostAddress (unsafeHostnameFromText "127.0.0.1") (unsafePortFromText "1789")
+    -- , _nodeVersion      = "testnet00"
+    , _nodeVersion         = fromJuste $ chainwebVersionFromText "testWithTime"
+    , _logHandleConfig     = U.StdOut
     }
 
 scriptConfigParser :: MParser ScriptConfig
 scriptConfigParser = id
   <$< scriptCommand .:: textOption
-      % long "script-command" <> short 'c'
-      <> help "The specific command to run (deploy|run-standard|run-simple|poll|listen)."
+      % long "script-command"
+      <> short 'c'
+      <> metavar "COMMAND"
+      <> help "The specific command to run: see examples/transaction-generatar-help.txt for more detail."
   <*< nodeChainId .:: textOption
       % long "node-chain-id"
       <> short 'i'
+      <> metavar "INT"
       <> help "The specific chain that will receive generated \"fake\" transactions."
   <*< isChainweb .:: option auto
       % long "is-chainweb"
       <> short 'w'
+      <> metavar "BOOL"
       <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
   <*< chainwebHostAddress %:: pHostAddress Nothing
   <*< nodeVersion .:: textOption
       % long "chainweb-version"
       <> short 'v'
+      <> metavar "VERSION"
       <> help "Chainweb Version"
+  <*< logHandleConfig .:: U.pHandleConfig
 
 data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: Maybe TimingDistribution
@@ -386,7 +381,7 @@ generateDelay = do
     Just (Uniform ulow uhigh)  -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
     Nothing                    -> error "generateDelay: impossible"
 
-generateSimpleTransaction :: (MonadIO m, MonadLog Text m) => TransactionGenerator m (Command Text)
+generateSimpleTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TransactionGenerator m (Command Text)
 generateSimpleTransaction = do
   delay <- generateDelay
   stdgen <- liftIO newStdGen
@@ -400,14 +395,14 @@ generateSimpleTransaction = do
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
   cid <- view genChainId
   liftIO $ threadDelay delay
-  lift $ logg Info $ T.pack $ "The delay is" ++ show delay ++ " seconds."
-  lift $ logg Info $ T.pack $ "Sending expression " ++ theCode
+  lift $ logg Info $ toLogMessage $ T.pack $ "The delay is" ++ show delay ++ " seconds."
+  lift $ logg Info $ toLogMessage $ T.pack $ "Sending expression " ++ theCode
   kps <- liftIO testSomeKeyPairs
   let publicmeta = PublicMeta (chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
 
-generateTransaction :: (MonadIO m, MonadLog Text m) => TransactionGenerator m (Command Text)
+generateTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TransactionGenerator m (Command Text)
 generateTransaction = do
   cid <- view genChainId
   contractIndex <- liftIO $ randomRIO (0, numContracts)
@@ -442,7 +437,7 @@ generateTransaction = do
       _ -> error "No contract here"
   delay <- generateDelay
   liftIO $ threadDelay delay
-  lift $ logg Info (T.pack $ "The delay was " ++ show delay ++ " seconds.")
+  lift $ logg Info (toLogMessage $ T.pack $ "The delay was " ++ show delay ++ " seconds.")
   return sample
 
 newtype TransactionGenerator m a = TransactionGenerator
@@ -457,15 +452,6 @@ newtype TransactionGenerator m a = TransactionGenerator
 instance MonadTrans TransactionGenerator where
   lift = TransactionGenerator . lift . lift
 
--- sendTransaction :: (MonadIO m) => Command Text -> TransactionGenerator m (Either ServantError PollResponses)
--- sendTransaction cmd = do
---   cenv <- view genClientEnv
---   send <-  views genServantRecord apiSend
---   poll <-  views genServantRecord apiPoll
---   liftIO $ runExceptT $ do
---     rkeys <- ExceptT $ runClientM (send (SubmitBatch [cmd])) cenv
---     ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) cenv
-
 sendTransaction ::
      (MonadIO m)
   => Command Text
@@ -476,14 +462,14 @@ sendTransaction cmd = do
   liftIO $ runClientM (send (SubmitBatch [cmd])) cenv
 
 loop ::
-     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+     (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
   => MeasureTime
   -> TransactionGenerator m ()
 loop measure@(MeasureTime mtime) = do
   transaction <- generateTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
   when mtime $
-    lift $ withLabel ("component", "transaction-generator") $ logg Info ("sending a transaction took: " <> sshow timeTaken)
+    lift $ logg Info (toLogMessage $ (("sending a transaction took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
   gsCounter += 1
   liftIO $ putStrLn $ "Transaction count: " <> show count
@@ -491,14 +477,16 @@ loop measure@(MeasureTime mtime) = do
   loop measure
 
 forkedListens ::
-     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+     (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
   => Either ServantError RequestKeys
   -> TransactionGenerator m ()
 forkedListens requestKeys = do
+  ---------- BELOW ----------
   -- Is there a better way to write this?
+  ---------- BELOW ----------
   err <- mapM (mapM forkedListen) (mapM _rkRequestKeys requestKeys)
   case sequence err of
-    Left servantError -> lift $ logg Error (sshow servantError)
+    Left servantError -> lift $ logg Error (toLogMessage ((sshow servantError) :: Text))
     Right _ -> return ()
   where
     forkedListen requestKey = do
@@ -512,14 +500,14 @@ forkedListens requestKeys = do
         -- computation back into the TransactionGenerator transformer.
         _ <- lift $ liftBaseDiscard forkIO $ do
           (time,response) <- liftIO $ measureDiffTime (runClientM (listen listenerRequest) clientEnv)
-          withLabel ("component", "transaction-generator") $
-            logg Info $ "It took " <> sshow time <> " seconds to get back the result."
-          withLabel ("component", "transaction-generator") $
-            logg Info $ "The associated request is " <> sshow requestKey <> "\n" <> sshow response
+          -- withLabel ("component", "transaction-generator") $
+          logg Info $ toLogMessage (("It took " <> sshow time <> " seconds to get back the result.") :: Text)
+          -- withLabel ("component", "transaction-generator") $
+          logg Info $ toLogMessage $ (("The associated request is " <> sshow requestKey <> "\n" <> sshow response) :: Text)
         return ()
 
 simpleloop ::
-     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+     (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
   => MeasureTime
   -> TransactionGenerator m ()
 simpleloop measure@(MeasureTime mtime) = do
@@ -591,7 +579,7 @@ loadContracts (MeasureTime mtime) contractLoaders config = do
             ExceptT (runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv)
         liftIO $ withConsoleLogger Info $ logg Info (sshow pollresponse)
 
-sendTransactions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger Text) IO ()
+sendTransactions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger SomeLogMessage) IO ()
 sendTransactions measure config distribution = do
   gencfg <- liftIO $ mkTransactionGeneratorConfig (Just distribution) config
   flip runReaderT gencfg $ do
@@ -606,8 +594,8 @@ sendTransactions measure config distribution = do
       runExceptT $ do
         rkeys <- ExceptT $ runClientM (send (SubmitBatch (paymentAccounts ++ coinAccounts))) clientEnv
         ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv
-    lift $ logg Info (sshow pollresponse)
-    lift (logg Info "Transactions are being generated")
+    lift $ logg Info $ toLogMessage $ ((sshow pollresponse) :: Text)
+    lift (logg Info (toLogMessage ("Transactions are being generated" :: Text)))
     gen <- liftIO createSystemRandom
     lift $ evalStateT
           (runReaderT
@@ -619,9 +607,9 @@ sendTransactions measure config distribution = do
       where
         go name kpayment kcoin = (name, M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)])
 
-sendSimpleExpressions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger Text) IO ()
+sendSimpleExpressions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger SomeLogMessage) IO ()
 sendSimpleExpressions measure config distribution = do
-    logg Info "Transactions are being generated"
+    logg Info (toLogMessage ("Transactions are being generated" :: Text))
     gencfg <- lift $ mkTransactionGeneratorConfig (Just distribution) config
     gen <- liftIO createSystemRandom
     evalStateT
@@ -677,16 +665,28 @@ main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config ->
     if HS.member (_nodeChainId config) $ chainIds_ $ _chainGraph (_nodeVersion config)
-       then withConsoleLogger Info $
-             case _scriptCommand config of
-               DeployContracts contracts mtime -> if null contracts
-                   then liftIO $ loadContracts mtime (initAdminKeysetContract : defaultContractLoaders) config
-                   else liftIO $ loadContracts mtime (initAdminKeysetContract : fmap createLoader contracts) config
-               RunStandardContracts distribution mtime -> sendTransactions mtime config distribution
-               RunSimpleExpressions distribution mtime -> sendSimpleExpressions mtime config distribution
-               PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
-               ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
+       then startup config
        else error $ "This chain: " <> show (_nodeChainId config) <> " is invalid given this chainweb version: " <> show (_nodeVersion config)
+  where
+    startup config = do
+      let transHandle = config ^. logHandleConfig
+          defconfig =
+            U.defaultLogConfig
+            & U.logConfigBackend . U.backendConfigHandle .~ transHandle
+            & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transHandle
+      mgr <- newManager defaultManagerSettings
+      withBaseHandleBackend "transaction-generator" mgr (defconfig ^. U.logConfigBackend) $ \baseBackend -> do
+        let loggerBackend = logHandles [] baseBackend
+        withLogger (U._logConfigLogger defconfig) loggerBackend $
+          runLoggerT $
+            case _scriptCommand config of
+             DeployContracts contracts mtime -> liftIO $ if null contracts
+                  then loadContracts mtime (initAdminKeysetContract : defaultContractLoaders) config
+                  else loadContracts mtime (initAdminKeysetContract : fmap createLoader contracts) config
+             RunStandardContracts distribution mtime -> sendTransactions mtime config distribution
+             RunSimpleExpressions distribution mtime -> sendSimpleExpressions mtime config distribution
+             PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
+             ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
@@ -696,7 +696,7 @@ main =
 -- if it is given.
 createLoader :: ContractName -> ContractLoader
 createLoader (ContractName contractName) meta kp = do
-  theCode <- readFile contractName
+  theCode <- readFile (contractName <> ".pact")
   adminKeyset <- testSomeKeyPairs
   -- TODO: theData may change later
   let theData = object

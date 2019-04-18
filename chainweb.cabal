@@ -678,7 +678,7 @@ executable transaction-generator
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: examples
+    hs-source-dirs: examples node
     main-is: TransactionGenerator.hs
     other-modules:
         Chainweb.Simulate.Contracts.CoinContract
@@ -688,20 +688,26 @@ executable transaction-generator
         Chainweb.Simulate.Contracts.HelloWorld
         Chainweb.Simulate.Contracts.SimplePayments
         Chainweb.Simulate.Utils
+        PkgInfo
+        Utils.Logging
+        Utils.Logging.Config
     build-depends:
         --internal
           chainweb
 
         --external
         , aeson >= 1.4
+        , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.11
         , base16-bytestring >= 0.1
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
         , configuration-tools >= 0.4
         , containers >= 0.5
         , data-default >= 0.7
         , Decimal >= 0.4.2
+        , deepseq >= 1.4
         , exceptions >= 0.8
         , fake >= 0.1.1.1
         , http-client >= 0.5
@@ -718,9 +724,16 @@ executable transaction-generator
         , servant >= 0.14.1
         , servant-client >= 0.14
         , servant-client-core >= 0.14
+        , stm
+        , stm-chans
         , text >= 1.2
         , time >= 1.8
         , unordered-containers >= 0.2
+        , wai >= 3.2
+        , wai-app-static >= 3.1
+        , wai-extra >= 3.0
+        , wai-cors >= 0.2
+        , warp >= 3.2
         , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --
