@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -19,10 +21,11 @@ import qualified Data.Text as T
 import Formatting
 import Options.Applicative
 import Shelly hiding (FilePath)
-import System.Directory (doesFileExist)
+import System.Directory (executable, getPermissions)
 
 ---
 
+-- TODO Add config file option
 data Env = Env
   { exe :: FilePath
   , nodes :: Word8
@@ -75,7 +78,7 @@ pLogTarget = option logPath
 
 pLogLevel :: Parser T.Text
 pLogLevel = strOption
-  (long "log-level" <> metavar "info|warn|error|debug" <> value "info"
+  (long "log-level" <> metavar "debug|info|warn|error" <> value "info"
    <> help "default: info")
 
 runNode :: Word8 -> Maybe T.Text -> Env -> IO ()
@@ -99,7 +102,7 @@ runNode nid config (Env e ns v lt ll) = shelly $ run_ (fromText $ T.pack e) ops
     ops = [ "--hostname=127.0.0.1"
           , sformat ("--node-id=" % int) nid
           , sformat ("--test-miners=" % int) ns
-          , sformat ("--chainweb-version=" % stext) $ plainVersionFromText v
+          , sformat ("--chainweb-version=" % stext) $ chainwebVersionToText v
           , "--interface=127.0.0.1"
           , sformat ("--log-level=" % stext) ll ]
           <> maybe [] logging lt
@@ -113,16 +116,19 @@ logDir (Path p) = shelly $ mkdir_p (fromText p)
 
 main :: IO ()
 main = do
-  env@(Env e ns _ lt _) <- execParser opts
+  env@(Env e ns v lt _) <- execParser opts
   print env
   traverse_ logDir lt
-  whenM (doesFileExist e) $ do
-    -- Launch Bootstrap Node
-    boot <- async $ runNode 0 (Just "scripts/test-bootstrap-node.config") env
-    threadDelay 200000  -- 0.2 seconds
-    -- Launch Common Nodes
-    mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
-    void $ wait boot
+  canExec <- (executable <$> getPermissions e) `catch` (\(_ :: SomeException) -> pure False)
+  if | not canExec -> error $ e <> " is not executable, or does not exist."
+     | otherwise -> do
+         printf "Starting cluster for %d\n" $ chainwebVersionId v
+         -- Launch Bootstrap Node
+         boot <- async $ runNode 0 (Just "scripts/test-bootstrap-node.config") env
+         threadDelay 200000  -- 0.2 seconds
+         -- Launch Common Nodes
+         mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
+         void $ wait boot
   where
     opts = info (pEnv <**> helper)
         (fullDesc <> header "run-nodes - Run a local cluster of chainweb-node binaries")
