@@ -708,6 +708,7 @@ executable transaction-generator
         , http-client-tls >=0.3
         , lens >= 4.16
         , loglevel >= 0.1
+        , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
@@ -719,7 +720,7 @@ executable transaction-generator
         , servant-client-core >= 0.14
         , text >= 1.2
         , time >= 1.8
-        , transformers-base
+        , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --

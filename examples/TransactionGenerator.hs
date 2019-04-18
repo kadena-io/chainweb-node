@@ -13,6 +13,7 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeOperators              #-}
 
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -40,7 +41,7 @@ import Control.Monad.Trans.Control
 import Data.ByteString (ByteString)
 import Data.Char
 import Data.Default (Default(..), def)
-import Data.Either
+
 
 import Data.Int
 import Data.Map (Map)
@@ -49,6 +50,7 @@ import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.HashSet as HS
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -83,6 +85,7 @@ import Pact.Types.Util (Hash(..))
 
 -- CHAINWEB
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Version
 import Chainweb.RestAPI.Utils
 -- THIS MODULE MAY BE USED LATER
@@ -131,7 +134,7 @@ transactionCommandBytes t =
   case t of
     DeployContracts contracts (MeasureTime mtime) ->
       "deploy [" <>
-      (B8.intercalate "," ((B8.pack . getContractName) <$> contracts)) <>
+      B8.intercalate "," ((B8.pack . getContractName) <$> contracts) <>
       "] " <>
       (fromString . map toLower . show $ mtime)
     RunStandardContracts d (MeasureTime mtime) ->
@@ -399,7 +402,7 @@ generateSimpleTransaction = do
   liftIO $ threadDelay delay
   lift $ logg Info $ T.pack $ "The delay is" ++ show delay ++ " seconds."
   lift $ logg Info $ T.pack $ "Sending expression " ++ theCode
-  kps <- liftIO $ testSomeKeyPairs
+  kps <- liftIO testSomeKeyPairs
   let publicmeta = PublicMeta (chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
@@ -413,7 +416,7 @@ generateTransaction = do
       -- COIN CONTRACT
           of
       0 -> do
-        coinaccts <- views genAccountsKeysets (M.toList . fmap (^. (at (ContractName "coin"))))
+        coinaccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "coin")))
         liftIO $ do
           coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
           withConsoleLogger Info (logg Info (T.pack $ show coinContractRequest))
@@ -423,7 +426,7 @@ generateTransaction = do
           name <- generate fake
           helloRequest name
       2 -> do
-        paymentaccts <- views genAccountsKeysets (M.toList . fmap (^. (at (ContractName "payment"))))
+        paymentaccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "payment")))
         liftIO $ do
           paymentsRequest <- mkRandomSimplePaymentRequest paymentaccts >>= generate
           withConsoleLogger Info (logg Info $ T.pack $ show paymentsRequest)
@@ -454,56 +457,79 @@ newtype TransactionGenerator m a = TransactionGenerator
 instance MonadTrans TransactionGenerator where
   lift = TransactionGenerator . lift . lift
 
-sendTransaction :: (MonadIO m) => Command Text -> TransactionGenerator m (Either ServantError PollResponses)
-sendTransaction cmd = do
-  cenv <- view genClientEnv
-  send <-  views genServantRecord apiSend
-  poll <-  views genServantRecord apiPoll
-  liftIO $ runExceptT $ do
-    rkeys <- ExceptT $ runClientM (send (SubmitBatch [cmd])) cenv
-    ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) cenv
+-- sendTransaction :: (MonadIO m) => Command Text -> TransactionGenerator m (Either ServantError PollResponses)
+-- sendTransaction cmd = do
+--   cenv <- view genClientEnv
+--   send <-  views genServantRecord apiSend
+--   poll <-  views genServantRecord apiPoll
+--   liftIO $ runExceptT $ do
+--     rkeys <- ExceptT $ runClientM (send (SubmitBatch [cmd])) cenv
+--     ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) cenv
 
-sendTransactionToListenOnRequest :: (MonadIO m) => Command Text -> TransactionGenerator m (Either ServantError RequestKeys)
-sendTransactionToListenOnRequest cmd = do
+sendTransaction ::
+     (MonadIO m)
+  => Command Text
+  -> TransactionGenerator m (Either ServantError RequestKeys)
+sendTransaction cmd = do
   cenv <- view genClientEnv
   send <-  views genServantRecord apiSend
   liftIO $ runClientM (send (SubmitBatch [cmd])) cenv
 
-loop :: (MonadIO m, MonadLog Text m) => MeasureTime -> TransactionGenerator m ()
+loop ::
+     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+  => MeasureTime
+  -> TransactionGenerator m ()
 loop measure@(MeasureTime mtime) = do
   transaction <- generateTransaction
-  (timeTaken, pollResponse) <- measureDiffTime (sendTransaction transaction)
-  when mtime $ do
+  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
+  when mtime $
     lift $ withLabel ("component", "transaction-generator") $ logg Info ("sending a transaction took: " <> sshow timeTaken)
-    lift $ withLabel ("component", "transaction-generator") $ logg Info (sshow pollResponse)
   count <- use gsCounter
-  lift $ withLabel ("component", "transaction-generator") $ logg Info (T.pack $ "Transaction count: " <> show count)
   gsCounter += 1
+  liftIO $ putStrLn $ "Transaction count: " <> show count
+  forkedListens requestKeys
   loop measure
 
-simpleloop :: (MonadIO m, MonadLog Text m, MonadBaseControl IO m) => MeasureTime -> TransactionGenerator m ()
+forkedListens ::
+     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+  => Either ServantError RequestKeys
+  -> TransactionGenerator m ()
+forkedListens requestKeys = do
+  -- Is there a better way to write this?
+  err <- mapM (mapM forkedListen) (mapM _rkRequestKeys requestKeys)
+  case sequence err of
+    Left servantError -> lift $ logg Error (sshow servantError)
+    Right _ -> return ()
+  where
+    forkedListen requestKey = do
+        liftIO $ print requestKey
+        clientEnv <- view genClientEnv
+        listen <- views genServantRecord apiListen
+        let listenerRequest = ListenerRequest requestKey
+        -- LoggerCtxT has an instance  of MonadBaseControl
+        -- Also, there is a function from `monad-control` which enables you
+        -- to lift forkIO. The extra lift at the end is to get the entire
+        -- computation back into the TransactionGenerator transformer.
+        _ <- lift $ liftBaseDiscard forkIO $ do
+          (time,response) <- liftIO $ measureDiffTime (runClientM (listen listenerRequest) clientEnv)
+          withLabel ("component", "transaction-generator") $
+            logg Info $ "It took " <> sshow time <> " seconds to get back the result."
+          withLabel ("component", "transaction-generator") $
+            logg Info $ "The associated request is " <> sshow requestKey <> "\n" <> sshow response
+        return ()
+
+simpleloop ::
+     (MonadIO m, MonadLog Text m, MonadBaseControl IO m)
+  => MeasureTime
+  -> TransactionGenerator m ()
 simpleloop measure@(MeasureTime mtime) = do
   transaction <- generateSimpleTransaction
-  (timeTaken, requestKey) <- measureDiffTime (sendTransactionToListenOnRequest transaction)
+  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
   when mtime (liftIO $ putStrLn $ "sending a simple expression took: " <> show timeTaken)
-  liftIO $ print requestKey
-  clientEnv <- view genClientEnv
-  listen <- views genServantRecord apiListen
-  let unsafeHeadRequestKey (RequestKeys (requestkey:_)) = requestkey
-      unsafeHeadRequestKey _ =
-        error "TransactionGenerator.simpleloop.unsafeHeadRequestKey: no request keys"
-      listenerRequest = (ListenerRequest (unsafeHeadRequestKey (fromRight (error "just fail for now") requestKey))) -- this is temporary
-  -- LoggerCtxT has an instance  of MonadBaseControl
-  -- Also, there is a function from `monad-control` which enables you
-  -- to lift forkIO. The extra lift at the end is to get the entire
-  -- computation back into the TransactionGenerator transformer.
-  _ <- lift $ (liftBaseDiscard $ forkIO) $ do
-    (time,response) <- liftIO $ measureDiffTime (runClientM (listen listenerRequest) clientEnv)
-    logg Info $ "It took " <> sshow time <> " seconds to get back the result."
-    logg Info $ "The associated request is " <> sshow requestKey <> "\n" <> sshow response
   count <- use gsCounter
   liftIO $ putStrLn $ "Simple expression transaction count: " ++ show count
   gsCounter += 1
+  forkedListens requestKeys
   simpleloop measure
 
 mkTransactionGeneratorConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TransactionGeneratorConfig
@@ -582,7 +608,7 @@ sendTransactions measure config distribution = do
         ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv
     lift $ logg Info (sshow pollresponse)
     lift (logg Info "Transactions are being generated")
-    gen <- liftIO $ (createSystemRandom :: IO (Gen (PrimState IO)))
+    gen <- liftIO createSystemRandom
     lift $ evalStateT
           (runReaderT
              (runTransactionGenerator (loop measure))
@@ -591,13 +617,13 @@ sendTransactions measure config distribution = do
   where
     buildGenAccountsKeysets x y z =  M.fromList $ zipWith3 go x y z
       where
-        go name kpayment kcoin = (name, (M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)]))
+        go name kpayment kcoin = (name, M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)])
 
 sendSimpleExpressions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger Text) IO ()
 sendSimpleExpressions measure config distribution = do
     logg Info "Transactions are being generated"
     gencfg <- lift $ mkTransactionGeneratorConfig (Just distribution) config
-    gen <- liftIO $ createSystemRandom
+    gen <- liftIO createSystemRandom
     evalStateT
       (runReaderT (runTransactionGenerator (simpleloop measure)) gencfg)
       (TransactionGeneratorState gen 0)
@@ -650,16 +676,17 @@ listenerRequestKey (MeasureTime mtime) listenerRequest config = do
 main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config ->
-    withConsoleLogger Info $ do
-      case _scriptCommand config of
-        DeployContracts contracts mtime -> if null contracts
-            then liftIO $ loadContracts mtime (initAdminKeysetContract : defaultContractLoaders) config
-            else liftIO $ loadContracts mtime (initAdminKeysetContract : fmap createLoader contracts) config
-        RunStandardContracts distribution mtime -> sendTransactions mtime config distribution
-        RunSimpleExpressions distribution mtime -> sendSimpleExpressions mtime config distribution
-        PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
-        ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
-
+    if HS.member (_nodeChainId config) $ chainIds_ $ _chainGraph (_nodeVersion config)
+       then withConsoleLogger Info $
+             case _scriptCommand config of
+               DeployContracts contracts mtime -> if null contracts
+                   then liftIO $ loadContracts mtime (initAdminKeysetContract : defaultContractLoaders) config
+                   else liftIO $ loadContracts mtime (initAdminKeysetContract : fmap createLoader contracts) config
+               RunStandardContracts distribution mtime -> sendTransactions mtime config distribution
+               RunSimpleExpressions distribution mtime -> sendSimpleExpressions mtime config distribution
+               PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
+               ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
+       else error $ "This chain: " <> show (_nodeChainId config) <> " is invalid given this chainweb version: " <> show (_nodeVersion config)
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
@@ -668,14 +695,14 @@ main =
 -- TODO: This function should also incorporate a user's keyset as well
 -- if it is given.
 createLoader :: ContractName -> ContractLoader
-createLoader (ContractName contractName) = \meta kp -> do
-    theCode <- readFile contractName
-    adminKeyset <- testSomeKeyPairs
-    -- TODO: theData may change later
-    let theData = object
-                  ["admin-keyset" .= fmap formatB16PubKey adminKeyset
-                  , T.append (T.pack contractName) "-keyset" .= fmap formatB16PubKey kp]
-    mkExec theCode theData meta adminKeyset Nothing
+createLoader (ContractName contractName) meta kp = do
+  theCode <- readFile contractName
+  adminKeyset <- testSomeKeyPairs
+  -- TODO: theData may change later
+  let theData = object
+                ["admin-keyset" .= fmap formatB16PubKey adminKeyset
+                , T.append (T.pack contractName) "-keyset" .= fmap formatB16PubKey kp]
+  mkExec theCode theData meta adminKeyset Nothing
 
 defaultContractLoaders :: [ContractLoader]
 defaultContractLoaders = take numContracts
