@@ -99,7 +99,6 @@ genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
 genesisTime TestWithTime{} = BlockCreationTime epoche
 genesisTime TestWithPow{} = BlockCreationTime epoche
-genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
 
@@ -107,7 +106,6 @@ genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
-genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
 -- In other words, 0 is a meaningless hard-coding.
 genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
@@ -123,8 +121,6 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TestWithTime{} _ = payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
-genesisBlockPayload Simulation{} _ =
-    error "genesisBlockPayload isn't yet defined for Simulation"
 genesisBlockPayload Testnet00 _ = payloadBlock
 
 emptyPayload :: PayloadWithOutputs
