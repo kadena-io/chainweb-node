@@ -124,11 +124,11 @@ main = do
      | otherwise -> do
          printf "Starting cluster for %d\n" $ chainwebVersionId v
          -- Launch Bootstrap Node
-         boot <- async $ runNode 0 (Just "scripts/test-bootstrap-node.config") env
-         threadDelay 200000  -- 0.2 seconds
-         -- Launch Common Nodes
-         mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
-         void $ wait boot
+         withAsync (runNode 0 (Just "scripts/test-bootstrap-node.config") env) $ \boot -> do
+           link boot
+           threadDelay 200000  -- 0.2 seconds
+           -- Launch Common Nodes
+           mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
   where
     opts = info (pEnv <**> helper)
         (fullDesc <> header "run-nodes - Run a local cluster of chainweb-node binaries")
