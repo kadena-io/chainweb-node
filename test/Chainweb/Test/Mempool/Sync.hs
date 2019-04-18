@@ -21,16 +21,37 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeaderDB
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
+import Chainweb.Test.Utils (toyChainId)
 import Chainweb.Utils (Codec(..))
+import Chainweb.Version
 
-tests :: TestTree
-tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
+tests :: IO TestTree
+-- tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
+tests = do
+    -- withBlockHeaderDb :: ChainwebVersion -> ChainId -> (BlockHeaderDb -> IO b) -> IO b
+    withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+        let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
+
+        -- mempoolProperty
+            -- :: TestName
+            -- -> PropertyM IO a
+            -- -> (a -> MempoolBackend MockTx -> IO (Either String ()))
+            -- -> MempoolWithFunc ::: (MempoolBackend MockTx -> IO a) -> IO a)
+            -- -> TestTree
+        return $ mempoolProperty
+            "Mempool.syncMempools"
+            gen
+            (propSync blockHeaderDb)
+            withFunc
   where
-    withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg)
+    -- withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
+    gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
       let xss = Set.fromList xs
@@ -38,6 +59,10 @@ tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
       let zss = Set.fromList zs `Set.difference` (xss `Set.union` yss)
       pre (not (Set.null xss || Set.null yss || Set.null zss) && length ys < 10000 && length zs < 10000)
       return (xss, yss, zss)
+
+-- copied from Chainweb.Test.Utils
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
@@ -50,9 +75,13 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 
-propSync :: (Set MockTx, Set MockTx, Set MockTx) -> MempoolBackend MockTx -> IO (Either String ())
-propSync (txs, missing, later) localMempool =
-    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
+propSync
+    :: BlockHeaderDb
+    -> (Set MockTx, Set MockTx, Set MockTx)
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propSync blockHeaderDb (txs, missing, later) localMempool =
+    withInMemoryMempool testInMemCfg blockHeaderDb $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV

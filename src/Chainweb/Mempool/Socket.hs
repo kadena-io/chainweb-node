@@ -270,9 +270,14 @@ decodeTx txcfg = p <?> "decodeTx"
     p = (codecDecode codec <$> decodeFramed) >>= either fail return
     codec = txCodec txcfg
 
-
+{-
 encodeValidationInfo :: ValidationInfo -> Builder
 encodeValidationInfo (ValidationInfo h bhash) =
+    Builder.word64LE (fromIntegral h) <>
+    (encodeFramed $ runPutS $ encodeBlockHash bhash)
+-}
+encodeValidationInfo :: BlockHeight -> BlockHash -> Builder
+encodeValidationInfo h bhash =
     Builder.word64LE (fromIntegral h) <>
     (encodeFramed $ runPutS $ encodeBlockHash bhash)
 
@@ -280,11 +285,16 @@ encodeValidationInfo (ValidationInfo h bhash) =
 parseU64LE :: Parser Word64
 parseU64LE = Atto.take 8 >>= either fail return . runGetS getWord64le
 
-decodeValidationInfo :: Parser ValidationInfo
+-- decodeValidationInfo :: Parser ValidationInfo
+-- decodeValidationInfo = do
+--     !h <- parseU64LE
+--     !bhash <- decodeFramed >>= either fail return . runGetS decodeBlockHash
+--     return $! ValidationInfo (BlockHeight h) bhash
+decodeValidationInfo :: Parser (BlockHeight, BlockHash)
 decodeValidationInfo = do
     !h <- parseU64LE
     !bhash <- decodeFramed >>= either fail return . runGetS decodeBlockHash
-    return $! ValidationInfo (BlockHeight h) bhash
+    return $! (BlockHeight h, bhash)
 
 encodeLookupResult :: TransactionConfig t -> LookupResult t -> Builder
 encodeLookupResult txcfg = go
@@ -292,9 +302,14 @@ encodeLookupResult txcfg = go
     enc = encodeTx txcfg
     go (Pending t) = Builder.word8 0 <> enc t
     go Missing = Builder.word8 1
-    go (Validated (ValidatedTransaction forks t)) =
+    -- go (Validated (ValidatedTransaction forks t)) =
+    --     mconcat [ Builder.word8 2
+    --             , encodeVector encodeValidationInfo forks
+    --             , enc t ]
+    go (Validated (ValidatedTransaction bHeight bHash t)) =
         mconcat [ Builder.word8 2
-                , encodeVector encodeValidationInfo forks
+                -- , encodeVector (encodeValidationInfo bHeight bHash)
+                , encodeValidationInfo bHeight bHash
                 , enc t ]
     go Confirmed = Builder.word8 3
 
@@ -307,9 +322,11 @@ decodeLookupResult txcfg = Atto.choice [ pPending, pMissing, pValidated, pConfir
     pMissing = Atto.word8 1 >> pure Missing
     pValidated = do
         void $ Atto.word8 2
-        forks <- decodeVector decodeValidationInfo
+        -- forks <- decodeVector decodeValidationInfo
+        (bHeight, bHash) <- decodeValidationInfo
         t <- dec
-        return $! Validated (ValidatedTransaction forks t)
+        -- return $! Validated (ValidatedTransaction forks t)
+        return $! Validated (ValidatedTransaction bHeight bHash t)
     pConfirmed = Atto.word8 3 >> pure Confirmed
 
 
@@ -708,7 +725,7 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
         debug $ "client: got response for command " ++ show c
         return v
 
-toBackend :: Show t => ClientConfig t -> ClientState t -> TVar (Maybe BlockHash) -> MempoolBackend t
+toBackend :: Show t => ClientConfig t -> ClientState t -> TVar (Maybe BlockHeader) -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
     MempoolBackend txcfg blockSizeLimit lastPar pMember pLookup pInsert
                    pGetBlock unsupported unsupported unsupported unsupported

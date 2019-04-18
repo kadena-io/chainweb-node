@@ -64,6 +64,7 @@ import System.Timeout (timeout)
 -- internal imports
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.Mempool
@@ -268,7 +269,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- here.
   , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
   , _inmemConfirmed :: IORef (HashSet TransactionHash)
-  , _inmemLastNewBlockParent :: IORef (TVar (Maybe BlockHash))
+  , _inmemLastNewBlockParent :: IORef (TVar (Maybe BlockHeader))
 }
 
 
@@ -367,7 +368,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     getBlock = getBlockInMem cfg lockMVar
     markValidated = markValidatedInMem cfg lockMVar
     markConfirmed = markConfirmedInMem lockMVar
-    processFork = processForkInMem lockMVar
+    processFork = processForkInMem lockMVar blockHeaderDb
     reintroduce = reintroduceInMem broadcaster cfg lockMVar
     getPending = getPendingInMem cfg lockMVar
     subscribe = subscribeInMem broadcaster
@@ -574,13 +575,14 @@ getPendingInMem cfg lock callback = do
 
 ------------------------------------------------------------------------------
 processForkInMem :: MVar (InMemoryMempoolData t)
-                 -> BlockHash
+                 -> BlockHeaderDb
+                 -> BlockHeader
                  -> IO (Vector TransactionHash)
-processForkInMem lock parentBlockHash = do
+processForkInMem lock blockHeaderDb parentBlockHeader = do
     theData <- readMVar lock
-    lastHashTVar <- readIORef (_inmemLastNewBlockParent theData)
-    lastHash <- atomically $ readTVar lastHashTVar
-    MPCon.processFork blockHeaderDb parentBlockHash lastHash
+    lastHeaderTVar <- readIORef (_inmemLastNewBlockParent theData)
+    lastHeader <- atomically $ readTVar lastHeaderTVar
+    MPCon.processFork blockHeaderDb parentBlockHeader lastHeader
 
 
 ------------------------------------------------------------------------------
@@ -606,7 +608,7 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
         maybe (return Nothing) (reintroduceIt mdata txhash) m
-    reintroduceIt mdata txhash (ValidatedTransaction _ tx) = do
+    reintroduceIt mdata txhash (ValidatedTransaction _ _ tx) = do
         modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
         modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
         return $! Just tx

@@ -54,7 +54,6 @@ import System.Path
 
 -- internal modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -120,9 +119,9 @@ withChainResources
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
-    Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
+    withBlockHeaderDb v cid $ \cdb ->
+    Mempool.withInMemoryMempool mempoolCfg cdb $ \mempool -> do
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
-    withBlockHeaderDb v cid $ \cdb -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $
             inner $ ChainResources

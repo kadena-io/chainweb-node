@@ -15,7 +15,7 @@ module Chainweb.Mempool.Mempool
   , TransactionMetadata(..)
   , HashMeta(..)
   , Subscription(..)
-  , ValidationInfo(..)
+  -- , ValidationInfo(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
@@ -114,7 +114,7 @@ data MempoolBackend t = MempoolBackend {
 
     -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
     --   in the case of forks
-  , mempoolLastNewBlockParent :: TVar (Maybe BlockHash)
+  , mempoolLastNewBlockParent :: TVar (Maybe BlockHeader)
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -136,7 +136,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-  , mempoolProcessFork :: BlockHash -> IO (Vector TransactionHash)
+  , mempoolProcessFork :: BlockHeader -> IO (Vector TransactionHash)
 
     -- | These transactions were on a losing fork. Reintroduce them.
   , mempoolReintroduce :: Vector TransactionHash -> IO ()
@@ -393,6 +393,7 @@ data Subscription t = Subscription {
 
 
 ------------------------------------------------------------------------------
+{-
 data ValidationInfo = ValidationInfo {
     validatedHeight :: {-# UNPACK #-} !BlockHeight
   , validatedHash :: {-# UNPACK #-} !BlockHash
@@ -406,7 +407,15 @@ data ValidatedTransaction t = ValidatedTransaction {
   }
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
+-}
 
+data ValidatedTransaction t = ValidatedTransaction
+    { validatedHeight :: {-# UNPACK #-} !BlockHeight
+    , validatedHash :: {-# UNPACK #-} !BlockHash
+    , validatedTransaction :: t
+    }
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
 finalizeSubscriptionImmediately :: Subscription t -> IO ()

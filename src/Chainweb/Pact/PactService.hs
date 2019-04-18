@@ -336,7 +336,7 @@ execNewBlock memPoolAccess header miner = do
     let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
-    newTrans <- liftIO $! memPoolAccess bHeight bHash
+    newTrans <- liftIO $! memPoolAccess bHeight bHash header
 
     restoreCheckpointer $ Just (bHeight, bHash)
 

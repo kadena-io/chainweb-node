@@ -5,19 +5,30 @@ module Chainweb.Test.Mempool.InMem
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeaderDB
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
+import Chainweb.Test.Utils (toyChainId)
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
+import Chainweb.Version
 ------------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Chainweb.Mempool.InMem"
+tests :: IO TestTree
+-- tests = testGroup "Chainweb.Mempool.InMem"
+--             $ Chainweb.Test.Mempool.tests
+--             $ MempoolWithFunc
+--             $ InMem.withInMemoryMempool cfg blockHeaderDb
+tests = do
+    withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+        return $ testGroup "Chainweb.Mempool.InMem"
             $ Chainweb.Test.Mempool.tests
             $ MempoolWithFunc
-            $ InMem.withInMemoryMempool cfg
+            $ InMem.withInMemoryMempool cfg blockHeaderDb
+
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)
@@ -26,3 +37,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
+
+-- copied from Chainweb.Test.Utils
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph

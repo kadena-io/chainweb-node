@@ -43,6 +43,7 @@ import qualified System.IO.Streams as Streams
 import System.IO.Unsafe
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -56,7 +57,7 @@ toMempool
     -> ChainId
     -> TransactionConfig t
     -> Int64
-    -> TVar (Maybe BlockHash)
+    -> TVar (Maybe BlockHeader)
     -> ClientEnv
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit lastPar env =

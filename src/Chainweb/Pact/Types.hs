@@ -198,7 +198,7 @@ data PactServiceState = PactServiceState
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
 
-type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+type MemPoolAccess = BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

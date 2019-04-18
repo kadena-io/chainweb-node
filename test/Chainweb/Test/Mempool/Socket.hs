@@ -9,13 +9,17 @@ import Control.Exception
 import qualified Data.Pool as Pool
 import qualified Network.Socket as N
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeaderDB
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Socket as M
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
+import Chainweb.Test.Utils (toyChainId)
 import Chainweb.Utils (Codec(..))
+import Chainweb.Version
 ------------------------------------------------------------------------------
 
 data TestServer = TestServer {
@@ -24,6 +28,10 @@ data TestServer = TestServer {
   , _tsLocalMempool :: !(MempoolBackend MockTx)
   , _tsServerThread :: !ThreadId
 }
+
+-- copied from Chainweb.Test.Utils
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
 
 newTestServer :: InMemConfig MockTx -> IO TestServer
 newTestServer inmemCfg = mask_ $ do
@@ -37,9 +45,12 @@ newTestServer inmemCfg = mask_ $ do
     return $! TestServer cs remoteMp inmem tid
   where
     host = "127.0.0.1"
-    server inmemMv portMv restore = InMem.withInMemoryMempool inmemCfg $ \inmem -> do
-        putMVar inmemMv inmem
-        restore $ M.server inmem host N.aNY_PORT portMv
+    -- server inmemMv portMv restore = InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+    server inmemMv portMv restore =
+      withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+        InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+          putMVar inmemMv inmem
+          restore $ M.server inmem host N.aNY_PORT portMv
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer cs _ _ tid) =
