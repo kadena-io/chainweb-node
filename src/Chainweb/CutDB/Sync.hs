@@ -32,6 +32,8 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeight)
+import Chainweb.Cut (_cutHeight)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
@@ -61,8 +63,9 @@ putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
 
 getCut
     :: CutClientEnv
+    -> BlockHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) = runClientThrowM (cutGetClient v) env
+getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
@@ -78,7 +81,7 @@ syncSession v useOrigin p db logg env = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes origin) $ cutStream db)
         (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
-            -- Usually we rely on blocks being pushed to us, but every 3
+            -- Usually we rely on blocks being pushed to us, but every 2
             -- seconds we pull.
 
             -- FIXME make this configurable or dynamic
@@ -95,8 +98,9 @@ syncSession v useOrigin p db logg env = do
         logg @T.Text Debug $ "put cut " <> sshow c
 
     receive = do
-        c <- getCut cenv
-        logg @T.Text Debug $ "got cut " <> sshow c
+        h <- _cutHeight <$> _cut db
+        c <- getCut cenv (h + 1000)
+        logg @T.Text Info $ "receivecd cut " <> sshow c
         addCutHashes db c
 
     origin = if useOrigin then Just p else Nothing
