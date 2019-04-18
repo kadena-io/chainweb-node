@@ -140,6 +140,7 @@ powHash Test{} = cryptoHash @SHA512t_256
 powHash TestWithTime{} = cryptoHash @SHA512t_256
 powHash TestWithPow{} = cryptoHash @SHA512t_256
 powHash Testnet00 = cryptoHash @SHA512t_256
+powHash Testnet01 = cryptoHash @SHA512t_256
 
 cryptoHash :: forall a . HashAlgorithm a => B.ByteString -> PowHash
 cryptoHash = PowHash . SB.toShort . BA.convert . C.hash @_ @a
