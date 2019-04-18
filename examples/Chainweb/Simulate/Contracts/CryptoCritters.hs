@@ -7,7 +7,7 @@
 module Chainweb.Simulate.Contracts.CryptoCritters where
 
 import Data.Aeson
-import Data.Default
+-- import Data.Default
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -21,6 +21,7 @@ import System.Random (StdGen, randomR)
 
 -- pact
 import Pact.ApiReq (mkExec)
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
@@ -28,10 +29,10 @@ import Pact.Types.Crypto (SomeKeyPair)
 
 import Chainweb.Simulate.Utils
 
-cryptoCritterContractLoader :: [SomeKeyPair] -> IO (Command Text)
-cryptoCritterContractLoader adminKeyset = do
+cryptoCritterContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
+cryptoCritterContractLoader meta adminKeyset = do
   let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-  mkExec (T.unpack theCode) theData def adminKeyset Nothing
+  mkExec (T.unpack theCode) theData meta adminKeyset Nothing
   where
     theCode = [text|
 

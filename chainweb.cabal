@@ -681,7 +681,9 @@ executable transaction-generator
     hs-source-dirs: examples
     main-is: TransactionGenerator.hs
     other-modules:
+        Chainweb.Simulate.Contracts.CoinContract
         Chainweb.Simulate.Contracts.CommercialPaper
+        Chainweb.Simulate.Contracts.Common
         Chainweb.Simulate.Contracts.CryptoCritters
         Chainweb.Simulate.Contracts.HelloWorld
         Chainweb.Simulate.Contracts.SimplePayments
@@ -692,16 +694,20 @@ executable transaction-generator
 
         --external
         , aeson >= 1.4
+        , attoparsec >= 0.13
         , base >= 4.11
         , base16-bytestring >= 0.1
         , bytestring >= 0.10
         , configuration-tools >= 0.4
+        , containers >= 0.5
         , data-default >= 0.7
         , Decimal >= 0.4.2
+        , exceptions >= 0.8
         , fake >= 0.1.1.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , lens >= 4.16
+        , loglevel >= 0.1
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
@@ -713,6 +719,8 @@ executable transaction-generator
         , servant-client-core >= 0.14
         , text >= 1.2
         , time >= 1.8
+        , transformers-base
+        , yet-another-logger >= 0.3.1
 
 -- -------------------------------------------------------------------------- --
 -- Ea

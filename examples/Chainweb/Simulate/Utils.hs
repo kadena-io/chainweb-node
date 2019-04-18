@@ -6,11 +6,12 @@ import Control.Monad.IO.Class
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import Data.Default (def)
+-- import Data.Default (def)
 import Data.Text (Text)
 import Data.Time.Clock
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto
     (PPKScheme(..), PrivateKeyBS(..), PublicKeyBS(..), SomeKeyPair,
@@ -56,9 +57,9 @@ someED25519Pair =
 getByteString :: ByteString -> ByteString
 getByteString = fst . B16.decode
 
-initAdminKeysetContract :: [SomeKeyPair] -> IO (Command Text)
-initAdminKeysetContract adminKeyset =
-  mkExec theCode theData def adminKeyset Nothing
+initAdminKeysetContract :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
+initAdminKeysetContract meta adminKeyset =
+  mkExec theCode theData meta adminKeyset Nothing
   where
     theCode = "(define-keyset 'admin-keyset (read-keyset \"admin-keyset\"))"
     theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
