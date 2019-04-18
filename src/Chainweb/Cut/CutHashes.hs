@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -19,6 +20,11 @@ module Chainweb.Cut.CutHashes
 (
 -- * CutHashes
   CutHashes(..)
+, cutHashes
+, cutHashesChainwebVersion
+, cutOrigin
+, cutHashesWeight
+, cutHashesHeight
 , cutToCutHashes
 
 -- * Cut Id
@@ -36,7 +42,7 @@ module Chainweb.Cut.CutHashes
 
 import Control.Arrow
 import Control.DeepSeq
-import Control.Lens (Getter, to, view)
+import Control.Lens (Getter, to, view, makeLenses)
 import Control.Monad.Catch
 
 import qualified Crypto.Hash as C
@@ -88,6 +94,8 @@ data CutHashes = CutHashes
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (Hashable, NFData)
+
+makeLenses ''CutHashes
 
 instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashes)
