@@ -14,9 +14,11 @@
 module Data.CAS
 ( IsCasValue(..)
 , IsCas(..)
+, casMember
 ) where
 
 import Data.Kind
+import Data.Maybe
 
 -- | The casKey function must be morally injective:
 --
@@ -41,3 +43,8 @@ class IsCasValue (CasValueType a) => IsCas a where
     casLookup :: a -> CasKeyType (CasValueType a) -> IO (Maybe (CasValueType a))
     casInsert :: a -> CasValueType a -> IO ()
     casDelete :: a -> CasKeyType (CasValueType a) -> IO ()
+
+casMember :: IsCas a => a -> CasKeyType (CasValueType a) -> IO Bool
+casMember db = fmap isJust . casLookup db
+{-# INLINE casMember #-}
+
