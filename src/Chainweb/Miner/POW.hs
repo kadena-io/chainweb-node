@@ -292,6 +292,7 @@ usePowHash Test{} f = f $ Proxy @SHA512t_256
 usePowHash TestWithTime{} f = f $ Proxy @SHA512t_256
 usePowHash TestWithPow{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
+usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may
 -- break if the protocol changes.

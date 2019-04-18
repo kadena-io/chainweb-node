@@ -316,6 +316,8 @@ blockRate TestWithTime{} = Just $ BlockRate 4
 blockRate TestWithPow{} = Just $ BlockRate 10
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet00 = Just $ BlockRate 30
+-- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate Testnet01 = Just $ BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -333,6 +335,8 @@ window TestWithTime{} = Nothing
 window TestWithPow{} = Just $ WindowWidth 5
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet00 = Just $ WindowWidth 120
+-- 120 blocks, should take 1 hour given a 30 second BlockRate.
+window Testnet01 = Just $ WindowWidth 120
 
 -- | The maximum number of bits that a single application of `adjust` can apply
 -- to some `HashTarget`. As mentioned in `adjust`, this value should be above
@@ -349,6 +353,7 @@ maxAdjust TestWithTime{} = Nothing
 maxAdjust TestWithPow{} = Just $ MaxAdjustment 3
 -- See `adjust` for motivation.
 maxAdjust Testnet00 = Just $ MaxAdjustment 3
+maxAdjust Testnet01 = Just $ MaxAdjustment 3
 
 -- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
 -- enforce a "minimum difficulty", beyond which mining cannot become easier.
@@ -368,6 +373,7 @@ prereduction TestWithPow{} = 7
 -- wildly imbalanced over the first few days. Subsequent Difficulty Adjustment
 -- compensates for any remaining imbalance.
 prereduction Testnet00 = 14
+prereduction Testnet01 = 14
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.

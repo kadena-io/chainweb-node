@@ -23,11 +23,12 @@ import System.FilePath
 import System.IO.Extra
 import System.LogLevel
 
-import Test.Tasty.HUnit
 import Test.Tasty
 import Test.Tasty.Golden
+import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Service.BlockValidation
@@ -36,9 +37,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
-import Chainweb.Version (ChainwebVersion(..), someChainId)
-import Chainweb.BlockHeader.Genesis
 import Chainweb.Transaction
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
