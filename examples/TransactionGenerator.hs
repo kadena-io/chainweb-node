@@ -298,6 +298,7 @@ instance ToJSON ScriptConfig where
       , "isChainweb"          .= _isChainweb o
       , "chainwebHostAddress" .= _chainwebHostAddress o
       , "chainwebVersion"     .= _nodeVersion o
+      , "logHandle"              .= _logHandleConfig o
       ]
 
 instance FromJSON (ScriptConfig -> ScriptConfig) where
@@ -308,14 +309,6 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
     <*< chainwebHostAddress ..: "chainwebHostAddress" % o
     <*< nodeVersion         ..: "chainwebVersion"     % o
     <*< logHandleConfig     ..: "logging"             % o
-
-data ServantRecord = ServantRecord
-  { apiSend   :: SubmitBatch     -> ClientM RequestKeys
-  , apiPoll   :: Poll            -> ClientM PollResponses
-  , apiListen :: ListenerRequest -> ClientM ApiResult
-  , apiLocal  :: Command Text    -> ClientM (CommandSuccess Value)
-  }
-
 
 data TransactionGeneratorState = TransactionGeneratorState
   { _gsGen     :: Gen (PrimState IO)
@@ -331,7 +324,7 @@ defaultScriptConfig =
       _scriptCommand       = RunSimpleExpressions def def
     , _nodeChainId         = unsafeChainId 0
     , _isChainweb          = True
-    , _chainwebHostAddress = HostAddress (unsafeHostnameFromText "127.0.0.1") (unsafePortFromText "1789")
+    , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
     -- , _nodeVersion      = "testnet00"
     , _nodeVersion         = fromJuste $ chainwebVersionFromText "testWithTime"
     , _logHandleConfig     = U.StdOut
@@ -366,8 +359,8 @@ data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: Maybe TimingDistribution
   , _genAccountsKeysets :: Map Account (Map ContractName [SomeKeyPair])
   , _genClientEnv       :: ClientEnv
-  , _genServantRecord   :: ServantRecord
   , _genChainId         :: ChainId
+  , _genVersion         :: ChainwebVersion
   }
 
 makeLenses ''TransactionGeneratorConfig
@@ -458,8 +451,9 @@ sendTransaction ::
   -> TransactionGenerator m (Either ServantError RequestKeys)
 sendTransaction cmd = do
   cenv <- view genClientEnv
-  send <-  views genServantRecord apiSend
-  liftIO $ runClientM (send (SubmitBatch [cmd])) cenv
+  chain <- view genChainId
+  version <- view genVersion
+  liftIO $ runClientM (send version chain (SubmitBatch [cmd])) cenv
 
 loop ::
      (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
@@ -472,7 +466,7 @@ loop measure@(MeasureTime mtime) = do
     lift $ logg Info (toLogMessage $ (("sending a transaction took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
   gsCounter += 1
-  liftIO $ putStrLn $ "Transaction count: " <> show count
+  lift $ logg Info (toLogMessage $ (("Transaction count: " <> sshow count) :: Text))
   forkedListens requestKeys
   loop measure
 
@@ -492,18 +486,22 @@ forkedListens requestKeys = do
     forkedListen requestKey = do
         liftIO $ print requestKey
         clientEnv <- view genClientEnv
-        listen <- views genServantRecord apiListen
+        chain <- view genChainId
+        version <- view genVersion
         let listenerRequest = ListenerRequest requestKey
         -- LoggerCtxT has an instance  of MonadBaseControl
         -- Also, there is a function from `monad-control` which enables you
         -- to lift forkIO. The extra lift at the end is to get the entire
         -- computation back into the TransactionGenerator transformer.
         _ <- lift $ liftBaseDiscard forkIO $ do
-          (time,response) <- liftIO $ measureDiffTime (runClientM (listen listenerRequest) clientEnv)
+          (time,response) <- liftIO $ measureDiffTime (runClientM (listen version chain listenerRequest) clientEnv)
+          liftIO $ print response
           -- withLabel ("component", "transaction-generator") $
           logg Info $ toLogMessage (("It took " <> sshow time <> " seconds to get back the result.") :: Text)
           -- withLabel ("component", "transaction-generator") $
           logg Info $ toLogMessage $ (("The associated request is " <> sshow requestKey <> "\n" <> sshow response) :: Text)
+          -- liftIO $ putStrLn "do you get here?"
+        liftIO $ threadDelay 1000000
         return ()
 
 simpleloop ::
@@ -513,21 +511,18 @@ simpleloop ::
 simpleloop measure@(MeasureTime mtime) = do
   transaction <- generateSimpleTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
-  when mtime (liftIO $ putStrLn $ "sending a simple expression took: " <> show timeTaken)
+  when mtime $
+    lift $ logg Info (toLogMessage $ (("sending a simple expression took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
-  liftIO $ putStrLn $ "Simple expression transaction count: " ++ show count
+  lift $ logg Info (toLogMessage $ (("Simple expression transaction count: " <> sshow count) :: Text))
   gsCounter += 1
   forkedListens requestKeys
   simpleloop measure
 
 mkTransactionGeneratorConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TransactionGeneratorConfig
 mkTransactionGeneratorConfig mdistribution config =
-  TransactionGeneratorConfig mdistribution  mempty <$>  go <*> genApi <*> pure (_nodeChainId config)
+  TransactionGeneratorConfig mdistribution  mempty <$>  go <*> pure (_nodeChainId config) <*> pure (_nodeVersion config)
   where
-    genApi = do
-      let chainwebversion = _nodeVersion config
-          _send :<|> _poll :<|> _listen :<|> _local = generateApi chainwebversion (_nodeChainId config)
-      return $! ServantRecord _send _poll _listen _local
     go = do
        mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
        let timeout = responseTimeoutMicro (1000000 * 60 * 4)
@@ -568,15 +563,15 @@ loadContracts (MeasureTime mtime) contractLoaders config = do
         ts <- liftIO testSomeKeyPairs
         meta <- views genChainId makeMeta
         contracts <- liftIO $ traverse (\f -> f meta ts) contractLoaders
-        send <- views genServantRecord apiSend
-        poll <- views genServantRecord apiPoll
+        chain <- view genChainId
+        version <- view genVersion
         clientEnv <- view genClientEnv
         pollresponse <-
           liftIO $
           runExceptT $ do
             rkeys <-
-              ExceptT (runClientM (send (SubmitBatch contracts)) clientEnv)
-            ExceptT (runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv)
+              ExceptT (runClientM (send version chain (SubmitBatch contracts)) clientEnv)
+            ExceptT (runClientM (poll version chain (Poll (_rkRequestKeys rkeys))) clientEnv)
         liftIO $ withConsoleLogger Info $ logg Info (sshow pollresponse)
 
 sendTransactions :: MeasureTime -> ScriptConfig -> TimingDistribution -> LoggerCtxT (Logger SomeLogMessage) IO ()
@@ -586,14 +581,14 @@ sendTransactions measure config distribution = do
     meta <- views genChainId makeMeta
     (paymentKeysets, paymentAccounts) <- liftIO $ unzip <$> createPaymentsAccounts meta
     (coinKeysets, coinAccounts) <- liftIO $ unzip <$> createCoinAccounts meta
-    send <- views genServantRecord apiSend
-    poll <- views genServantRecord apiPoll
+    chain <- view genChainId
+    version <- view genVersion
     clientEnv <- view genClientEnv
     pollresponse <-
       liftIO $
       runExceptT $ do
-        rkeys <- ExceptT $ runClientM (send (SubmitBatch (paymentAccounts ++ coinAccounts))) clientEnv
-        ExceptT $ runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv
+        rkeys <- ExceptT $ runClientM (send version chain (SubmitBatch (paymentAccounts ++ coinAccounts))) clientEnv
+        ExceptT $ runClientM (poll version chain (Poll (_rkRequestKeys rkeys))) clientEnv
     lift $ logg Info $ toLogMessage $ ((sshow pollresponse) :: Text)
     lift (logg Info (toLogMessage ("Transactions are being generated" :: Text)))
     gen <- liftIO createSystemRandom
@@ -625,10 +620,11 @@ pollRequestKeys (MeasureTime mtime) rkeys@(RequestKeys [_]) config = do
       putStrLn "Polling your requestKey"
       gencfg <- mkTransactionGeneratorConfig Nothing config
       flip runReaderT gencfg $ do
-        poll <- views genServantRecord apiPoll
+        chain <- view genChainId
+        version <- view genVersion
         clientEnv <- view genClientEnv
         response <-
-          liftIO $ runClientM (poll (Poll (_rkRequestKeys rkeys))) clientEnv
+          liftIO $ runClientM (poll version chain (Poll (_rkRequestKeys rkeys))) clientEnv
         liftIO $ case response of
           Left _ -> do
             putStrLn "Failure"
@@ -658,8 +654,9 @@ listenerRequestKey (MeasureTime mtime) listenerRequest config = do
     go = do
       putStrLn "Listening..."
       gencfg <- mkTransactionGeneratorConfig Nothing config
-      let listen = apiListen . _genServantRecord $ gencfg
-      runClientM (listen listenerRequest) (_genClientEnv gencfg)
+      let version = _nodeVersion config
+          chain = _nodeChainId config
+      runClientM (listen version chain listenerRequest) (_genClientEnv gencfg)
 
 main :: IO ()
 main =
@@ -669,7 +666,7 @@ main =
        else error $ "This chain: " <> show (_nodeChainId config) <> " is invalid given this chainweb version: " <> show (_nodeVersion config)
   where
     startup config = do
-      let transHandle = config ^. logHandleConfig
+      let transHandle = _logHandleConfig config
           defconfig =
             U.defaultLogConfig
             & U.logConfigBackend . U.backendConfigHandle .~ transHandle
@@ -718,18 +715,29 @@ defaultContractLoaders = take numContracts
 numContracts :: Int
 numContracts = 2
 
-type TheApi
-   = (SubmitBatch -> ClientM RequestKeys)
- :<|> ((Poll -> ClientM PollResponses)
- :<|> ((ListenerRequest -> ClientM ApiResult)
- :<|> (Command Text -> ClientM (CommandSuccess Value))))
-
-generateApi :: ChainwebVersion -> ChainId -> TheApi
-generateApi version chainid =
-     case someChainwebVersionVal version of
+send :: ChainwebVersion -> ChainId -> (SubmitBatch -> ClientM RequestKeys)
+send version chainid =
+  case someChainwebVersionVal version of
         SomeChainwebVersionT (_ :: Proxy cv) ->
           case someChainIdVal chainid of
-            SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (PactApi cv cid))
+            SomeChainIdT (_ :: Proxy cid) ->
+              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
+
+poll :: ChainwebVersion -> ChainId -> (Poll -> ClientM PollResponses)
+poll version chainid =
+  case someChainwebVersionVal version of
+        SomeChainwebVersionT (_ :: Proxy cv) ->
+          case someChainIdVal chainid of
+            SomeChainIdT (_ :: Proxy cid) ->
+              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc PollApi))
+
+listen :: ChainwebVersion -> ChainId -> (ListenerRequest -> ClientM ApiResult)
+listen version chainid =
+  case someChainwebVersionVal version of
+        SomeChainwebVersionT (_ :: Proxy cv) ->
+          case someChainIdVal chainid of
+            SomeChainIdT (_ :: Proxy cid) ->
+              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc ListenApi))
 
 ---------------------------
 -- FOR DEBUGGING IN GHCI --

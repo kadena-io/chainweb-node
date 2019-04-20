@@ -68,7 +68,6 @@ module Chainweb.HostAddress
 , portFromText
 , pPort
 , readPortBytes
-, unsafePortFromText
 
 -- * Hostnames
 , Hostname
@@ -292,10 +291,6 @@ portToText = sshow
 portFromText :: MonadThrow m => T.Text -> m Port
 portFromText = readPortBytes . T.encodeUtf8
 {-# INLINE portFromText #-}
-
-unsafePortFromText :: HasCallStack => T.Text -> Port
-unsafePortFromText = fromJuste . portFromText
-{-# INLINE unsafePortFromText #-}
 
 instance HasTextRepresentation Port where
     toText = portToText
