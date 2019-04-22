@@ -18,6 +18,7 @@ module Chainweb.CutDB.Sync
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Lens (set)
 import Control.Monad
 
 import qualified Data.Text as T
@@ -77,7 +78,7 @@ syncSession
     -> PeerInfo
     -> CutDb cas
     -> P2pSession
-syncSession v useOrigin p db logg env = do
+syncSession v useOrigin p db logg env pinf = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes origin) $ cutStream db)
         (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
@@ -98,10 +99,12 @@ syncSession v useOrigin p db logg env = do
         logg @T.Text Debug $ "put cut " <> sshow c
 
     receive = do
+        -- Query cut that is at most 1000 blocks ahead
         h <- _cutHeight <$> _cut db
         c <- getCut cenv (h + 1000)
+
         logg @T.Text Info $ "receivecd cut " <> sshow c
-        addCutHashes db c
+        addCutHashes db $ set cutOrigin (Just pinf) c
 
     origin = if useOrigin then Just p else Nothing
 
