@@ -377,12 +377,12 @@ withInMemoryMempool :: InMemConfig t
                     -> BlockHeaderDb
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg blockHeaderDb f = do
+withInMemoryMempool cfg blockHeaderDb f =
     withTxBroadcaster $ \txB -> do
         let inMemIO = makeInMemPool cfg txB blockHeaderDb
-        let action = (\inMem -> do
-                back <- toMempoolBackend inMem
-                f back)
+        let action inMem = do
+              back <- toMempoolBackend inMem
+               back
         bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
@@ -390,7 +390,42 @@ destroyInMemPool :: InMemoryMempool t -> IO ()
 destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
 
 
+-------------------------------------------
+    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
+        q <- readIORef $ _inmemPending mdata
+        validated <- readIORef $ _inmemValidated mdata
+        confirmed <- readIORef $ _inmemConfirmed mdata
+        return $! (q, validated, confirmed)
+    return $! V.map (memberOne q validated confirmed) txs
+
+  where
+    memberOne q validated confirmed txHash =
+        PSQ.member txHash q ||
+        HashMap.member txHash validated ||
+        HashSet.member txHash confirmed
+
+
 ------------------------------------------------------------------------------
+lookupInMem :: MVar (InMemoryMempoolData t)
+            -> Vector TransactionHash
+            -> IO (Vector (LookupResult t))
+lookupInMem lock txs = do
+    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
+        q <- readIORef $ _inmemPending mdata
+        validated <- readIORef $ _inmemValidated mdata
+        confirmed <- readIORef $ _inmemConfirmed mdata
+        return $! (q, validated, confirmed)
+    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
+  where
+    lookupOne q validated confirmed txHash =
+        lookupQ q txHash <|>
+        lookupVal validated txHash <|>
+        lookupConfirmed confirmed txHash <|>
+        pure Missing
+
+    lookupQ q txHash = (Pending . snd) <$> PSQ.lookup txHash q
+    lookupVal val txHash = Validated <$> HashMap.lookup txHash val
+    lookupConfirmed confirmed txHash =-----------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector Bool)
@@ -427,7 +462,7 @@ lookupInMem lock txs = do
         lookupConfirmed confirmed txHash <|>
         pure Missing
 
-    lookupQ q txHash = fmap (Pending . snd) $ PSQ.lookup txHash q
+    lookupQ q txHash = (Pending . snd) <$> PSQ.lookup txHash q
     lookupVal val txHash = fmap Validated $ HashMap.lookup txHash val
     lookupConfirmed confirmed txHash =
         if HashSet.member txHash confirmed
@@ -450,8 +485,8 @@ insertInMem :: TxBroadcaster t  -- ^ transaction broadcaster
             -> IO ()
 insertInMem broadcaster cfg lock txs = do
     newTxs <- withMVarMasked lock $ \mdata ->
-                  ((V.map fst . V.filter ((==True) . snd)) <$>
-                   V.mapM (insOne mdata) txs)
+                  (V.map fst . V.filter ((==True) . snd)) <$>
+                   V.mapM (insOne mdata) txs
     broadcastTxs newTxs broadcaster
 
   where
@@ -515,7 +550,7 @@ markValidatedInMem :: InMemConfig t
                    -> MVar (InMemoryMempoolData t)
                    -> Vector (ValidatedTransaction t)
                    -> IO ()
-markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata -> do
+markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata ->
     V.mapM_ (validateOne mdata) txs
   where
     hash = txHasher $ _inmemTxCfg cfg
@@ -575,7 +610,7 @@ processForkInMem :: MVar (InMemoryMempoolData t)
 processForkInMem lock blockHeaderDb parentBlockHeader = do
     theData <- readMVar lock
     lastHeaderTVar <- readIORef (_inmemLastNewBlockParent theData)
-    lastHeader <- atomically $ readTVar lastHeaderTVar
+    lastHeader <- readTVarIO lastHeaderTVar
     MPCon.processFork blockHeaderDb parentBlockHeader lastHeader
 
 
@@ -587,7 +622,7 @@ reintroduceInMem :: TxBroadcaster t
                  -> IO ()
 reintroduceInMem broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
-                   (V.map fromJuste . V.filter isJust) <$>
+                   V.map fromJuste . V.filter isJust <$>
                    V.mapM (reintroduceOne mdata) txhashes
     -- we'll rebroadcast reintroduced transactions, clients can filter.
     broadcastTxs newOnes broadcaster
@@ -612,9 +647,9 @@ reintroduceInMem broadcaster cfg lock txhashes = do
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
 clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) $ PSQ.empty
-        writeIORef (_inmemValidated mdata) $ HashMap.empty
-        writeIORef (_inmemConfirmed mdata) $ HashSet.empty
+        writeIORef (_inmemPending mdata) PSQ.empty
+        writeIORef (_inmemValidated mdata) HashMap.empty
+        writeIORef (_inmemConfirmed mdata) HashSet.empty
         -- we won't reset the broadcaster but that's ok, the same one can be
         -- re-used
 

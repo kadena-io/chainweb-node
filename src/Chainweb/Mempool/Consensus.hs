@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Chainweb.Mempool.Consensus
 ( processFork
 ) where
@@ -46,7 +44,7 @@ processFork db newHeader (Just lastHeader) = do
 collectForkBlocks
     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
     -> IO (Vector BlockHeader, Vector BlockHeader)
-collectForkBlocks theStream = do
+collectForkBlocks theStream =
     go theStream (V.empty, V.empty)
   where
     go stream (oldBlocks, newBlocks) = do
@@ -62,8 +60,7 @@ collectForkBlocks theStream = do
 blockToTxs :: BlockHeader -> IO (Vector TransactionHash)
 blockToTxs _header = undefined
 
-data MempoolException
-    = MempoolConsensusException String
+newtype MempoolException = MempoolConsensusException String
 
 instance Show MempoolException where
     show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s

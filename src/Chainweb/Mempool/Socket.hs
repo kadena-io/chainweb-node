@@ -158,7 +158,7 @@ decodeVarWord = go 0 (0 :: Int) 0
         let !l = w .&. bmask
         let !h = w .&. hibit
         let !soFar' = soFar .|. (fromIntegral l `shiftL` shft)
-        if (h == 0 || numChars >= 11)
+        if h == 0 || numChars >= 11
           then return soFar'
           else go soFar' (numChars + 1) (shft + 7)
 
@@ -173,7 +173,7 @@ _toVarString = L.toStrict . Builder.toLazyByteString . encodeVarWord
 _fullyParse :: Parser a -> ByteString -> Maybe a
 _fullyParse p x = f $ Atto.parse p x
   where
-    f (Atto.Fail _ _ _) = Nothing
+    f (Atto.Fail {}) = Nothing
     f (Atto.Partial c) = f $! c ""
     f (Atto.Done _ r) = Just r
 
@@ -273,7 +273,7 @@ decodeTx txcfg = p <?> "decodeTx"
 encodeValidationInfo :: BlockHeight -> BlockHash -> Builder
 encodeValidationInfo h bhash =
     Builder.word64LE (fromIntegral h) <>
-    (encodeFramed $ runPutS $ encodeBlockHash bhash)
+    encodeFramed (runPutS $ encodeBlockHash bhash)
 
 
 parseU64LE :: Parser Word64
@@ -293,7 +293,6 @@ encodeLookupResult txcfg = go
     go Missing = Builder.word8 1
     go (Validated (ValidatedTransaction bHeight bHash t)) =
         mconcat [ Builder.word8 2
-                -- , encodeVector (encodeValidationInfo bHeight bHash)
                 , encodeValidationInfo bHeight bHash
                 , enc t ]
     go Confirmed = Builder.word8 3
@@ -464,7 +463,7 @@ toDebugStreams name sock = do
     shutdown = eatExceptions $ do
         debug (BC.unpack name ++ ": sending ShutdownSend")
         N.shutdown sock N.ShutdownSend
-    cleanup = eatExceptions $ do
+    cleanup = eatExceptions $
         debug (BC.unpack name ++ ": closing socket") `finally` N.close sock
 
 
@@ -477,7 +476,7 @@ toStreams sock = do
     writeEndB <- Streams.builderStream writeEnd
     return (readEnd, writeEndB, cleanup)
   where
-    cleanup = eatExceptions $ do
+    cleanup = eatExceptions $
         debug "closing socket" `finally` N.close sock
 
 -- | A single server session interacting with a remote client on an
@@ -562,7 +561,7 @@ serverSession' mempool restore (readEnd, writeEnd, cleanup) =
 
     subToStm mv = withMVar mv $
                   maybe (return STM.retry)
-                        (\x -> (fetchSub . mempoolSubChan) <$> readIORef x)
+                        (fmap (fetchSub . mempoolSubChan) . readIORef )
 
     fetchSub c = Left <$> (TBMChan.readTBMChan c >>= maybe STM.retry return)
     fetchRemote c = Right <$> TBMChan.readTBMChan c
@@ -932,8 +931,8 @@ ccmdToCmd CShutdown = error "impossible"
 
 closeChans :: ClientState t -> IO ()
 closeChans (ClientState cchan _ schan _ _ _ _) =
-    (atomically $ TBMChan.closeTBMChan cchan) `finally`
-    (atomically $ TBMChan.closeTBMChan schan)
+    atomically (TBMChan.closeTBMChan cchan) `finally`
+    atomically (TBMChan.closeTBMChan schan)
 
 
 tryReadChan :: TBMChan b -> STM b
@@ -961,8 +960,7 @@ sendFailedToAllPending cs r =
 
 
 dispatchResponse :: ClientState t -> ClientCommand t -> ServerMessage t -> IO ()
-dispatchResponse _ CKeepalive OK = debug "client: got OK for keepalive"
-                                       >> return ()
+dispatchResponse _ CKeepalive OK = void (debug "client: got OK for keepalive")
 dispatchResponse _ CKeepalive _ = dispatchMismatch
 
 dispatchResponse _ (CInsert _ m) OK = debug "client: got OK for insert"
@@ -982,8 +980,7 @@ dispatchResponse _ (CGetPending _) _ = dispatchMismatch
 dispatchResponse _ (CGetBlock _ m) (Block v) = putMVar m $! Right v
 dispatchResponse _ (CGetBlock _ _) _ = dispatchMismatch
 
-dispatchResponse _ (CSubscribe _) OK = debug "client: got OK for subscribe message"
-                                           >> return ()
+dispatchResponse _ (CSubscribe _) OK = void (debug "client: got OK for subscribe message")
 dispatchResponse _ (CSubscribe _) _ = dispatchMismatch
 
 dispatchResponse _ CShutdown _ = error "impossible, CShutdown doesn't queue"

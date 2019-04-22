@@ -67,7 +67,7 @@ newTestServer inMemCfg = mask_ $ do
 
   where
     server inmemMv envMv restore =
-        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb ->
             InMem.withInMemoryMempool inMemCfg blockHeaderDb $ \inmem -> do
                 putMVar inmemMv inmem
                 restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do

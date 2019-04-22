@@ -120,7 +120,7 @@ withChainResources
     -> IO a
 withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
     withBlockHeaderDb v cid $ \cdb ->
-    Mempool.withInMemoryMempool mempoolCfg cdb $ \mempool -> do
+    Mempool.withInMemoryMempool mempoolCfg cdb $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
         chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
         withPersistedDb cid chainDbDirPath cdb $

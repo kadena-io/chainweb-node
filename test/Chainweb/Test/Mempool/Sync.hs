@@ -32,14 +32,13 @@ import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 
 tests :: IO TestTree
-tests = do
-    withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
-        let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
-        return $ mempoolProperty
-            "Mempool.syncMempools"
-            gen
-            (propSync blockHeaderDb)
-            withFunc
+tests = withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+    let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
+    return $ mempoolProperty
+        "Mempool.syncMempools"
+        gen
+        (propSync blockHeaderDb)
+        withFunc
   where
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do

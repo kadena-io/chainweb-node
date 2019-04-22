@@ -62,7 +62,7 @@ newTestServer inmemCfg = mask_ $ do
   where
     host = "127.0.0.1"
     server inmemMv portMv restore =
-        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb ->
             InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
                 putMVar inmemMv inmem
                 restore $ M.server inmem host N.aNY_PORT portMv
