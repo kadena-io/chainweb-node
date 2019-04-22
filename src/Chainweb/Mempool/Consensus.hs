@@ -13,7 +13,6 @@ import Control.Monad
 import Control.Monad.Catch (throwM)
 
 import qualified Data.HashMap.Strict as HM
-import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -31,38 +30,39 @@ processFork :: BlockHeaderDb -> BlockHeader -> Maybe BlockHeader -> IO (Vector T
 processFork _db _newHeader Nothing = return V.empty
 processFork db newHeader (Just lastHeader) = do
     let s = branchDiff db newHeader lastHeader
-    (oldBlocks, newBlocks) <- collectForkBlocks s -- :: Vector BlockHeader
-    oldTrans <- foldM f S.empty oldBlocks
-    newTrans <- foldM f S.empty newBlocks
+    (oldBlocks, newBlocks) <- collectForkBlocks s
+    oldTrans <- foldM f V.empty oldBlocks
+    newTrans <- foldM f V.empty newBlocks
 
     -- before re-introducing the transactions from the losing fork (aka oldBlocks)
     -- filter out any transactions that have been included in the winning fork (aka newBlocks)
-    let diffTrans = oldTrans `S.difference` newTrans
+    let diffTrans = S.fromList (V.toList oldTrans) `S.difference` S.fromList (V.toList newTrans)
     return . V.fromList $ S.toList diffTrans
 
-  where f :: Set TransactionHash -> BlockHeader -> IO (Set TransactionHash)
+  where f :: Vector TransactionHash -> BlockHeader -> IO (Vector TransactionHash)
         f trans header = do
             txs <- blockToTxs header
-            return $ txs `S.union` trans
+            return $ txs V.++ trans
 
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.
 collectForkBlocks
     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
-    -> IO (Set BlockHeader, Set BlockHeader)
+    -> IO (Vector BlockHeader, Vector BlockHeader)
 collectForkBlocks theStream = do
-    go theStream (S.empty, S.empty)
+    go theStream (V.empty, V.empty)
   where
     go stream (oldBlocks, newBlocks) = do
         nxt <- S.next stream
         case nxt of
             Left _ -> return (oldBlocks, newBlocks) -- common branch point of the forks
-            Right (LeftD blk, strm) -> go strm (S.insert blk oldBlocks, newBlocks)
-            Right (RightD blk, strm) -> go strm (oldBlocks, S.insert blk newBlocks)
-            Right (BothD lBlk rBlk, strm) -> go strm ( S.insert lBlk oldBlocks,
-                                                       S.insert rBlk newBlocks )
+            Right (LeftD blk, strm) -> go strm (V.cons blk oldBlocks, newBlocks)
+            Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
 
-blockToTxs :: BlockHeader -> IO (Set TransactionHash)
+            Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
+                                                       V.cons rBlk newBlocks )
+
+blockToTxs :: BlockHeader -> IO (Vector TransactionHash)
 blockToTxs _header = undefined
 
 data MempoolException
