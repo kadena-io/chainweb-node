@@ -104,6 +104,7 @@ pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TimedConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig PowConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TimedCPM{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
@@ -220,6 +221,7 @@ initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
 initialPayloadState v@TimedConsensus{} cid = createCoinContract v cid
 initialPayloadState PowConsensus{} _ = return ()
+initialPayloadState v@TimedCPM{} cid = createCoinContract v cid
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 initialPayloadState v@Testnet01 cid = createCoinContract v cid
 

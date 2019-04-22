@@ -314,6 +314,7 @@ blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test{} = Nothing
 blockRate TimedConsensus{} = Just $ BlockRate 4
 blockRate PowConsensus{} = Just $ BlockRate 10
+blockRate TimedCPM{} = Just $ BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet00 = Just $ BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
@@ -333,6 +334,7 @@ window Test{} = Nothing
 window TimedConsensus{} = Nothing
 -- 5 blocks, should take 50 seconds.
 window PowConsensus{} = Just $ WindowWidth 5
+window TimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet00 = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
@@ -351,6 +353,7 @@ minAdjust :: ChainwebVersion -> Maybe MinAdjustment
 minAdjust Test{} = Nothing
 minAdjust TimedConsensus{} = Nothing
 minAdjust PowConsensus{} = Just $ MinAdjustment 3
+minAdjust TimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Testnet00 = Just $ MinAdjustment 3
 minAdjust Testnet01 = Just $ MinAdjustment 3
@@ -364,6 +367,7 @@ prereduction :: ChainwebVersion -> Int
 prereduction Test{} = 0
 prereduction TimedConsensus{} = 0
 prereduction PowConsensus{} = 7
+prereduction TimedCPM{} = 0
 -- As alluded to in `maxTarget`, 11 bits has been shown experimentally to be
 -- high enough to keep mining slow during the initial conditions of a
 -- single-machine-10-chain-10-miner scenario, thereby avoiding (too many)

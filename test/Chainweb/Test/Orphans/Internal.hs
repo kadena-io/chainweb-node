@@ -50,6 +50,8 @@ arbitraryBytesSized = sized $ \s -> choose (0, s) >>= arbitraryBytes
 -- -------------------------------------------------------------------------- --
 -- Basics
 
+-- FIXME: This doesn't throw pattern-match warnings when a new `ChainwebVersion`
+-- constructor is invented!
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ Test singletonChainGraph
@@ -58,7 +60,10 @@ instance Arbitrary ChainwebVersion where
         , TimedConsensus petersonChainGraph
         , PowConsensus singletonChainGraph
         , PowConsensus petersonChainGraph
+        , TimedCPM singletonChainGraph
+        , TimedCPM petersonChainGraph
         , Testnet00
+        , Testnet01
         ]
 
 instance Arbitrary ChainNodeId where

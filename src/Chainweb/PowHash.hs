@@ -139,6 +139,7 @@ powHash :: ChainwebVersion -> B.ByteString -> PowHash
 powHash Test{} = cryptoHash @SHA512t_256
 powHash TimedConsensus{} = cryptoHash @SHA512t_256
 powHash PowConsensus{} = cryptoHash @SHA512t_256
+powHash TimedCPM{} = cryptoHash @SHA512t_256
 powHash Testnet00 = cryptoHash @SHA512t_256
 powHash Testnet01 = cryptoHash @SHA512t_256
 

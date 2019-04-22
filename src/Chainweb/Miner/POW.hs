@@ -291,6 +291,7 @@ usePowHash :: ChainwebVersion -> (forall a . HashAlgorithm a => Proxy a -> f) ->
 usePowHash Test{} f = f $ Proxy @SHA512t_256
 usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
+usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
 

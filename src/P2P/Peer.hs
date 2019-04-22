@@ -448,6 +448,7 @@ bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
 bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
 bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
 
