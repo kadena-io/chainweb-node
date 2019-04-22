@@ -10,6 +10,7 @@ import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
 import Test.Tasty
 
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId)
 import Chainweb.Graph
 import Chainweb.Mempool.InMem (InMemConfig(..))
@@ -20,7 +21,7 @@ import Chainweb.RestAPI
     (ChainwebServerDbs(..), chainwebApplication, emptyChainwebServerDbs)
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
-import Chainweb.Test.Utils
+import Chainweb.Test.Utils (toyChainId, withTestAppServer)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Data.CAS.HashMap (HashMapCas)
@@ -28,12 +29,30 @@ import Network.X509.SelfSigned
 
 
 ------------------------------------------------------------------------------
+tests :: TestTree
+tests = withResource (newPool cfg) Pool.destroyAllResources $
+        \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
+            $ Chainweb.Test.Mempool.remoteTests
+            $ MempoolWithFunc
+            $ withRemoteMempool poolIO
+  where
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                              mockGasLimit mockMeta (const $ return True)
+    -- run the reaper @100Hz for testing
+    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
+    hz x = 1000000 `div` x
+    hashmeta = chainwebTestHashMeta
+    hasher = chainwebTestHasher . codecEncode mockCodec
+
 data TestServer = TestServer {
     _tsRemoteMempool :: !(MempoolBackend MockTx)
   , _tsLocalMempool :: !(MempoolBackend MockTx)
   , _tsServerThread :: !ThreadId
   }
 
+-- copied from Chainweb.Test.Utils
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
 
 newTestServer :: InMemConfig MockTx -> IO TestServer
 newTestServer inMemCfg = mask_ $ do
@@ -48,11 +67,12 @@ newTestServer inMemCfg = mask_ $ do
 
   where
     server inmemMv envMv restore =
-        InMem.withInMemoryMempool inMemCfg $ \inmem -> do
-            putMVar inmemMv inmem
-            restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
-                putMVar envMv env
-                atomically retry
+        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+            InMem.withInMemoryMempool inMemCfg blockHeaderDb $ \inmem -> do
+                putMVar inmemMv inmem
+                restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
+                    putMVar envMv env
+                    atomically retry
 
     version = Test singletonChainGraph
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
@@ -73,30 +93,13 @@ destroyTestServer (TestServer _ _ tid) = killThread tid
 newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
 newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
 
-
 ------------------------------------------------------------------------------
-tests :: TestTree
-tests = withResource (newPool cfg) Pool.destroyAllResources $
-        \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
-            $ Chainweb.Test.Mempool.remoteTests
-            $ MempoolWithFunc
-            $ withRemoteMempool poolIO
-  where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta (const $ return True)
-    -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
-    hz x = 1000000 `div` x
-    hashmeta = chainwebTestHashMeta
-    hasher = chainwebTestHasher . codecEncode mockCodec
-
 
 serverMempools
     :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () HashMapCas
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }
-
 
 withRemoteMempool
   :: IO (Pool.Pool TestServer) -> (MempoolBackend MockTx -> IO a) -> IO a

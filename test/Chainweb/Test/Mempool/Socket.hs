@@ -20,7 +20,23 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (toyChainId)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
+
 ------------------------------------------------------------------------------
+tests :: TestTree
+tests = withResource (newPool cfg) Pool.destroyAllResources $
+        \pool -> testGroup "Chainweb.Mempool.Socket"
+            $ Chainweb.Test.Mempool.remoteTests
+            $ MempoolWithFunc
+            $ withRemoteMempool pool
+  where
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                              mockGasLimit mockMeta
+                              (const $ return True)
+    -- run the reaper @100Hz for testing
+    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
+    hz x = 1000000 `div` x
+    hashmeta = chainwebTestHashMeta
+    hasher = chainwebTestHasher . codecEncode mockCodec
 
 data TestServer = TestServer {
     _tsClientState :: !(M.ClientState MockTx)
@@ -45,12 +61,11 @@ newTestServer inmemCfg = mask_ $ do
     return $! TestServer cs remoteMp inmem tid
   where
     host = "127.0.0.1"
-    -- server inmemMv portMv restore = InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
     server inmemMv portMv restore =
-      withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
-        InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
-          putMVar inmemMv inmem
-          restore $ M.server inmem host N.aNY_PORT portMv
+        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
+            InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+                putMVar inmemMv inmem
+                restore $ M.server inmem host N.aNY_PORT portMv
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer cs _ _ tid) =
@@ -58,24 +73,6 @@ destroyTestServer (TestServer cs _ _ tid) =
 
 newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
 newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
-
-
-tests :: TestTree
-tests = withResource (newPool cfg) Pool.destroyAllResources $
-        \pool -> testGroup "Chainweb.Mempool.Socket"
-            $ Chainweb.Test.Mempool.remoteTests
-            $ MempoolWithFunc
-            $ withRemoteMempool pool
-  where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta
-                              (const $ return True)
-    -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
-    hz x = 1000000 `div` x
-    hashmeta = chainwebTestHashMeta
-    hasher = chainwebTestHasher . codecEncode mockCodec
-
 
 withRemoteMempool
     :: IO (Pool.Pool TestServer)

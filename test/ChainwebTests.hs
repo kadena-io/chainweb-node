@@ -57,9 +57,10 @@ import qualified P2P.TaskQueue.Test (properties)
 main :: IO ()
 main = do
   pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
+  memPSuite <- mempoolTestSuite
   let allTests = testGroup "Chainweb Tests"
         . schedule Sequential
-        $ pactSuite : suite
+        $ pactSuite : memPSuite : suite
   defaultMain allTests
 
 pactTestSuite :: IO ScheduledTest
@@ -73,6 +74,18 @@ pactTestSuite = do
         , pactInProcApiTests
         , pactRemoteApiTests
         ]
+
+mempoolTestSuite :: IO ScheduledTest
+mempoolTestSuite = do
+    let restTests = Chainweb.Test.Mempool.RestAPI.tests
+    let socketTests  = Chainweb.Test.Mempool.Socket.tests
+    inMemTests <- Chainweb.Test.Mempool.InMem.tests
+    syncTests <- Chainweb.Test.Mempool.Sync.tests
+    pure $ testGroupSch "Chainweb-Mempool Tests"
+      [ syncTests
+      , restTests
+      , inMemTests
+      , socketTests ]
 
 suite :: [ScheduledTest]
 suite =
@@ -91,10 +104,6 @@ suite =
         , Chainweb.Test.RestAPI.tests
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests
-        , Chainweb.Test.Mempool.InMem.tests
-        , Chainweb.Test.Mempool.Socket.tests
-        , Chainweb.Test.Mempool.Sync.tests
-        , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties

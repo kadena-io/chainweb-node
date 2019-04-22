@@ -5,8 +5,7 @@ module Chainweb.Mempool.Consensus
 ) where
 
 ------------------------------------------------------------------------------
-import qualified Streaming as S (concats, effect, maps)
-import Streaming.Prelude (Stream, Of)
+import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.Exception
@@ -29,7 +28,7 @@ import Chainweb.Utils
 
 ------------------------------------------------------------------------------
 processFork :: BlockHeaderDb -> BlockHeader -> Maybe BlockHeader -> IO (Vector TransactionHash)
-processFork db newHeader Nothing = return V.empty
+processFork _db _newHeader Nothing = return V.empty
 processFork db newHeader (Just lastHeader) = do
     let s = branchDiff db newHeader lastHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s -- :: Vector BlockHeader
@@ -45,21 +44,6 @@ processFork db newHeader (Just lastHeader) = do
         f trans header = do
             txs <- blockToTxs header
             return $ txs `S.union` trans
-
--- collectOldBlocks
---     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
---     -> IO (Vector BlockHeader)
--- collectOldBlocks theStream = do
---     Todo: collect the new blocks also...
---     go theStream V.empty
---   where
---     go stream blocks = do
---         nxt <- S.next stream
---         case nxt of
---             Left _ -> return blocks -- common branch point of the forks
---             Right (LeftD blk, strm) -> go strm (V.cons blk blocks)
---             Right (BothD blk _, strm) -> go strm (V.cons blk blocks)
---             Right (RightD _, strm) -> go strm blocks -- nothing to add
 
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.

@@ -63,7 +63,6 @@ import System.Timeout (timeout)
 
 -- internal imports
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Mempool.Consensus as MPCon
@@ -78,7 +77,6 @@ type Priority = (Down GasPrice, Int64)
 
 toPriority :: GasPrice -> Int64 -> Priority
 toPriority r s = (Down r, s)
-
 
 ------------------------------------------------------------------------------
 -- | Priority search queue -- search by transaction hash in /O(log n)/ like a
@@ -140,7 +138,6 @@ broadcastTxs :: Vector t -> TxBroadcaster t -> IO ()
 broadcastTxs txs (TxBroadcaster _ _ q _) =
     -- TODO: timeout here?
     atomically $ void $ TBMChan.writeTBMChan q (Transactions txs)
-
 
 -- FIXME: read this from config
 tout :: TxBroadcaster t -> IO a -> IO (Maybe a)
@@ -280,7 +277,6 @@ makeInMemPool cfg txB blockHeaderDb = mask_ $ do
     dataLock <- (newData lastParent) >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
     return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb
-
   where
     newData lastPar = InMemoryMempoolData <$> newIORef PSQ.empty
                                           <*> newIORef HashMap.empty
@@ -357,7 +353,6 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   broadcaster _ blockHeaderDb) = do
     lock <- readMVar lockMVar
     lastParentTVar <- readIORef $ _inmemLastNewBlockParent lock
-    lastParent <- atomically $ readTVar lastParentTVar
 
     return $ MempoolBackend tcfg blockSizeLimit lastParentTVar member lookup insert getBlock
         markValidated markConfirmed processFork reintroduce getPending subscribe shutdown clear
@@ -374,7 +369,6 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
     clear = clearInMem lockMVar
-
 
 
 ------------------------------------------------------------------------------
