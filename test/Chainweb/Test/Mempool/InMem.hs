@@ -18,10 +18,6 @@ import Chainweb.Version
 ------------------------------------------------------------------------------
 
 tests :: IO TestTree
--- tests = testGroup "Chainweb.Mempool.InMem"
---             $ Chainweb.Test.Mempool.tests
---             $ MempoolWithFunc
---             $ InMem.withInMemoryMempool cfg blockHeaderDb
 tests = do
     withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
         return $ testGroup "Chainweb.Mempool.InMem"

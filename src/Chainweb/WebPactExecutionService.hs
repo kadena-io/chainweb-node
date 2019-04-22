@@ -56,7 +56,6 @@ mkPactExecutionService mempool q = PactExecutionService
       mv <- validateBlock h pd q
       r <- takeMVar mv
       case r of
-        -- Right pdo -> markAllConfirmed mempool pdo >> return pdo
         Right pdo -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h) >> return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
@@ -70,22 +69,6 @@ mkPactExecutionService mempool q = PactExecutionService
       takeMVar mv
   }
 
-{-
--- TODO: to support mempool transaction reintroduction we need to hook into
--- consensus instead of just killing every tx that ever made it into a valid
--- block
-markAllConfirmed
-    :: MempoolBackend ChainwebTransaction
-    -> PayloadWithOutputs
-    -> IO ()
-markAllConfirmed mempool payload = mempoolMarkConfirmed mempool txHashes
-  where
-    txcfg = mempoolTxConfig mempool
-    decodeTx = codecDecode $ txCodec txcfg
-    decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
-                   $ toList $ _payloadWithOutputsTransactions payload
-    !txHashes = V.fromList $ map (txHasher txcfg) decodedTxs
--}
 markAllValidated
     :: MempoolBackend ChainwebTransaction
     -> PayloadWithOutputs
@@ -98,7 +81,6 @@ markAllValidated mempool payload height hash = mempoolMarkValidated mempool vali
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    -- txHashes = V.fromList $ map (txHasher txcfg) decodedTxs
     validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
                                         { validatedHeight = height
                                         , validatedHash = hash

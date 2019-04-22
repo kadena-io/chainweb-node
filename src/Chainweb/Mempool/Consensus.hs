@@ -10,15 +10,12 @@ import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.Exception
 import Control.Monad
-import Control.Monad.Catch (throwM)
 
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 ------------------------------------------------------------------------------
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
@@ -72,15 +69,3 @@ instance Show MempoolException where
     show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
 
 instance Exception MempoolException
-
-type K = BlockHash
-type E = BlockHeader
-
-_parentHeader :: HM.HashMap K (E, Int) -> BlockHeader -> IO BlockHeader
-_parentHeader toHeadersMap header =
-    case HM.lookup (_blockParent header) toHeadersMap of
-        Just (h, _) ->return h
-        Nothing -> throwM $ MempoolConsensusException "Invalid BlockHeader lookup from BlockHash"
-
-_toHash :: BlockHeader -> BlockHash
-_toHash bHeader = _blockHash bHeader

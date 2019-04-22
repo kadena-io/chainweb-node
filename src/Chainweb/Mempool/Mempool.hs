@@ -15,7 +15,6 @@ module Chainweb.Mempool.Mempool
   , TransactionMetadata(..)
   , HashMeta(..)
   , Subscription(..)
-  -- , ValidationInfo(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
@@ -390,24 +389,6 @@ data Subscription t = Subscription {
   , mempoolSubFinal :: IO ()
   -- TODO: activity timer
 }
-
-
-------------------------------------------------------------------------------
-{-
-data ValidationInfo = ValidationInfo {
-    validatedHeight :: {-# UNPACK #-} !BlockHeight
-  , validatedHash :: {-# UNPACK #-} !BlockHash
-  }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
-
-data ValidatedTransaction t = ValidatedTransaction {
-    validatedForks :: Vector ValidationInfo
-  , validatedTransaction :: t
-  }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
--}
 
 data ValidatedTransaction t = ValidatedTransaction
     { validatedHeight :: {-# UNPACK #-} !BlockHeight
