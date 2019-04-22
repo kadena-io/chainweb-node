@@ -52,7 +52,9 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis.Testnet00
-import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0
+import Chainweb.BlockHeader.Genesis.Testnet01
+import qualified Chainweb.BlockHeader.Genesis.Testnet01Payload as TN1
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -99,18 +101,19 @@ genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
 genesisTime TestWithTime{} = BlockCreationTime epoche
 genesisTime TestWithPow{} = BlockCreationTime epoche
-genesisTime Simulation{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
+-- Thursday, 2019 April 18, 11:52 AM
+genesisTime Testnet01 = BlockCreationTime . Time $ TimeSpan 1555613536726767
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
-genesisMiner Simulation{} p = ChainNodeId (_chainId p) 0
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
 -- In other words, 0 is a meaningless hard-coding.
 genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
+genesisMiner Testnet01 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -121,11 +124,10 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = payloadBlock
+genesisBlockPayload TestWithTime{} _ = TN0.payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
-genesisBlockPayload Simulation{} _ =
-    error "genesisBlockPayload isn't yet defined for Simulation"
-genesisBlockPayload Testnet00 _ = payloadBlock
+genesisBlockPayload Testnet00 _ = TN0.payloadBlock
+genesisBlockPayload Testnet01 _ = TN1.payloadBlock
 
 emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
@@ -148,6 +150,10 @@ genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader Testnet00 p =
     case HM.lookup (_chainId p) testnet00Geneses of
         Nothing -> error $ "Testnet00: No genesis block exists for " <> show (_chainId p)
+        Just gb -> gb
+genesisBlockHeader Testnet01 p =
+    case HM.lookup (_chainId p) testnet01Geneses of
+        Nothing -> error $ "Testnet01: No genesis block exists for " <> show (_chainId p)
         Just gb -> gb
 genesisBlockHeader v p =
     genesisBlockHeader' v p (genesisTime v) (Nonce 0)
@@ -208,3 +214,29 @@ testnet00Geneses = HM.fromList $ map (_chainId &&& id) bs
          , testnet00C8
          , testnet00C9 ]
 {-# NOINLINE testnet00Geneses #-}
+
+-- | Twenty Genesis Blocks for `Testnet00`.
+testnet01Geneses :: HM.HashMap ChainId BlockHeader
+testnet01Geneses = HM.fromList $ map (_chainId &&& id) bs
+  where
+    bs = [ testnet01C0
+         , testnet01C1
+         , testnet01C2
+         , testnet01C3
+         , testnet01C4
+         , testnet01C5
+         , testnet01C6
+         , testnet01C7
+         , testnet01C8
+         , testnet01C9
+         , testnet01C10
+         , testnet01C11
+         , testnet01C12
+         , testnet01C13
+         , testnet01C14
+         , testnet01C15
+         , testnet01C16
+         , testnet01C17
+         , testnet01C18
+         , testnet01C19 ]
+{-# NOINLINE testnet01Geneses #-}

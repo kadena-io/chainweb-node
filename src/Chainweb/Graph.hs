@@ -19,6 +19,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.Graph
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -41,6 +43,7 @@ module Chainweb.Graph
 -- * Chain Graph
 
 , ChainGraph
+, chainGraphKnown
 , toChainGraph
 , validChainGraph
 , adjacentChainIds
@@ -67,25 +70,30 @@ module Chainweb.Graph
 , checkWebChainId
 , checkAdjacentChainIds
 
--- * Some Graphs
+-- * Specific, Known Graphs
 
+, KnownGraph(..)
+, knownGraph
 , singletonChainGraph
 , pairChainGraph
+, triangleChainGraph
 , petersonChainGraph
+, twentyChainGraph
+, hoffmanSingletonGraph
 
 ) where
 
-import Control.Arrow
-import Control.DeepSeq
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
+import Control.Arrow ((&&&))
+import Control.DeepSeq (NFData(..))
+import Control.Lens (Getter, to, view)
+import Control.Monad (unless, void)
+import Control.Monad.Catch (Exception, MonadThrow(..))
 
-import Data.Bits
-import Data.Function
-import Data.Hashable
+import Data.Bits (xor)
+import Data.Function (on)
+import Data.Hashable (Hashable(..))
 import qualified Data.HashSet as HS
-import Data.Kind
+import Data.Kind (Type)
 
 import GHC.Generics hiding (to)
 
@@ -93,10 +101,9 @@ import Numeric.Natural
 
 -- internal imports
 
-import Chainweb.ChainId
+import Chainweb.ChainId (ChainId, HasChainId(..), unsafeChainId)
 import Chainweb.Utils
 
-import Data.DiGraph hiding (diameter, order, shortestPath, size)
 import qualified Data.DiGraph as G
 
 -- -------------------------------------------------------------------------- --
@@ -129,8 +136,9 @@ instance Exception ChainGraphException
 -- Chainweb Graph
 
 data ChainGraph = ChainGraph
-    { _chainGraphGraph :: !(DiGraph ChainId)
-    , _chainGraphShortestPathCache :: {- lazy -} ShortestPathCache ChainId
+    { _chainGraphGraph :: !(G.DiGraph ChainId)
+    , _chainGraphKnown :: !KnownGraph
+    , _chainGraphShortestPathCache :: {- lazy -} G.ShortestPathCache ChainId
     , _chainGraphHash :: {- lazy -} Int
     }
     deriving (Generic)
@@ -148,20 +156,25 @@ instance Ord ChainGraph where
 instance Hashable ChainGraph where
     hashWithSalt s = xor s . _chainGraphHash
 
+chainGraphKnown :: Getter ChainGraph KnownGraph
+chainGraphKnown = to _chainGraphKnown
+{-# INLINE chainGraphKnown #-}
+
 -- | This function is unsafe, it throws an error if the graph isn't a valid
 -- chain graph. That's OK, since chaingraphs are hard-coded in the code and
--- won't change dinamically, except for during testing.
+-- won't change dynamically, except for during testing.
 --
-toChainGraph :: (a -> ChainId) -> DiGraph a -> ChainGraph
-toChainGraph f g
+toChainGraph :: (a -> ChainId) -> KnownGraph -> G.DiGraph a -> ChainGraph
+toChainGraph f kg g
     | validChainGraph c = ChainGraph
         { _chainGraphGraph = c
-        , _chainGraphShortestPathCache = shortestPathCache c
+        , _chainGraphKnown = kg
+        , _chainGraphShortestPathCache = G.shortestPathCache c
         , _chainGraphHash = hash c
         }
     | otherwise = error "the given graph is not a valid chain graph"
   where
-    c = mapVertices f g
+    c = G.mapVertices f g
 {-# INLINE toChainGraph #-}
 
 -- | A valid chain graph is symmetric, regular, and the out-degree
@@ -169,11 +182,11 @@ toChainGraph f g
 --
 -- These properties imply that the graph is strongly connected.
 --
-validChainGraph :: DiGraph ChainId -> Bool
+validChainGraph :: G.DiGraph ChainId -> Bool
 validChainGraph g
-    = isDiGraph g
-    && isSymmetric g
-    && isRegular g
+    = G.isDiGraph g
+    && G.isSymmetric g
+    && G.isRegular g
     && (G.order g <= 1 || G.size g >= 1)
 {-# INLINE validChainGraph #-}
 
@@ -182,7 +195,7 @@ adjacentChainIds
     => ChainGraph
     -> p
     -> HS.HashSet ChainId
-adjacentChainIds (ChainGraph g _ _) cid = adjacents (_chainId cid) g
+adjacentChainIds (ChainGraph g _ _ _) cid = G.adjacents (_chainId cid) g
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
@@ -203,7 +216,7 @@ pattern Adj a b <- AdjPair (a, b)
 adjs
     :: ChainGraph
     -> HS.HashSet (AdjPair ChainId)
-adjs = HS.map (uncurry Adj) . edges . _chainGraphGraph
+adjs = HS.map (uncurry Adj) . G.edges . _chainGraphGraph
 {-# INLINE adjs #-}
 
 adjsOfVertex
@@ -226,12 +239,12 @@ degree :: ChainGraph -> Natural
 degree = G.minOutDegree . _chainGraphGraph
 
 diameter :: ChainGraph -> Natural
-diameter = fromJuste . diameter_ . _chainGraphShortestPathCache
+diameter = fromJuste . G.diameter_ . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected
 
 shortestPath :: ChainId -> ChainId -> ChainGraph -> [ChainId]
 shortestPath src trg = fromJuste
-    . shortestPath_ src trg
+    . G.shortestPath_ src trg
     . _chainGraphShortestPathCache
     -- this is safe, because we know that the graph is strongly connected
 
@@ -258,7 +271,7 @@ instance HasChainGraph ChainGraph where
 -- Checks with a given Graphs
 
 graphChainIds :: ChainGraph -> HS.HashSet ChainId
-graphChainIds = vertices . _chainGraphGraph
+graphChainIds = G.vertices . _chainGraphGraph
 {-# INLINE graphChainIds #-}
 
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
@@ -267,12 +280,12 @@ graphChainIds = vertices . _chainGraphGraph
 checkWebChainId :: MonadThrow m => HasChainGraph g => HasChainId p => g -> p -> m ()
 checkWebChainId g p = unless (isWebChain g p)
     $ throwM $ ChainNotInChainGraphException
-        (Expected (vertices $ _chainGraphGraph $ _chainGraph g))
+        (Expected (G.vertices $ _chainGraphGraph $ _chainGraph g))
         (Actual (_chainId p))
 
 
 isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
-isWebChain g p = isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
+isWebChain g p = G.isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
 {-# INLINE isWebChain #-}
 
 -- | Given a 'ChainGraph' @g@, @checkAdjacentChainIds cid as@ checks that the
@@ -292,18 +305,40 @@ checkAdjacentChainIds g cid expectedAdj = do
     checkWebChainId g cid
     void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
-        (Actual $ adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
+        (Actual $ G.adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
     return (getExpected expectedAdj)
 
 -- -------------------------------------------------------------------------- --
 -- Some Graphs
 
+-- | Graphs which have known, specific, intended meaning for Chainweb.
+--
+data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingle
+    deriving (Generic)
+    deriving anyclass (NFData)
+
+knownGraph :: KnownGraph -> ChainGraph
+knownGraph Singleton = singletonChainGraph
+knownGraph Pair = pairChainGraph
+knownGraph Triangle = triangleChainGraph
+knownGraph Peterson = petersonChainGraph
+knownGraph Twenty = twentyChainGraph
+knownGraph HoffmanSingle = hoffmanSingletonGraph
+
 singletonChainGraph :: ChainGraph
-singletonChainGraph = toChainGraph (unsafeChainId . int) singleton
+singletonChainGraph = toChainGraph (unsafeChainId . int) Singleton G.singleton
 
 pairChainGraph :: ChainGraph
-pairChainGraph = toChainGraph (unsafeChainId . int) pair
+pairChainGraph = toChainGraph (unsafeChainId . int) Pair G.pair
+
+triangleChainGraph :: ChainGraph
+triangleChainGraph = toChainGraph (unsafeChainId . int) Triangle G.triangle
 
 petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph (unsafeChainId . int) petersonGraph
+petersonChainGraph = toChainGraph (unsafeChainId . int) Peterson G.petersonGraph
 
+twentyChainGraph :: ChainGraph
+twentyChainGraph = toChainGraph (unsafeChainId . int) Twenty G.twentyChainGraph
+
+hoffmanSingletonGraph :: ChainGraph
+hoffmanSingletonGraph = toChainGraph (unsafeChainId . int) HoffmanSingle G.hoffmanSingleton

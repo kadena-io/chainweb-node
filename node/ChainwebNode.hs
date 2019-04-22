@@ -285,10 +285,9 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Testnet00)
+    (defaultChainwebNodeConfiguration Testnet01)
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node (_nodeConfigChainweb conf)
-

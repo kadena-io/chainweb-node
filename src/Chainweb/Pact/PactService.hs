@@ -73,7 +73,8 @@ import qualified Pact.Types.SQLite as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader
+    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId (ChainId, chainIdInt)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -103,8 +104,8 @@ pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Simulation{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -219,8 +220,8 @@ initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
 initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
 initialPayloadState TestWithPow{} _ = return ()
-initialPayloadState Simulation{} _ = return ()
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
+initialPayloadState v@Testnet01 cid = createCoinContract v cid
 
 createCoinContract :: ChainwebVersion -> ChainId -> PactServiceM ()
 createCoinContract v cid = do

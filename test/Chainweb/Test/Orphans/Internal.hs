@@ -58,8 +58,6 @@ instance Arbitrary ChainwebVersion where
         , TestWithTime petersonChainGraph
         , TestWithPow singletonChainGraph
         , TestWithPow petersonChainGraph
-        , Simulation singletonChainGraph
-        , Simulation petersonChainGraph
         , Testnet00
         ]
 

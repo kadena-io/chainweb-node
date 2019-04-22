@@ -128,12 +128,12 @@ sensible, or otherwise have a simple way to refer to it.
 To run a node:
 
 ```bash
-chainweb-node --node-id=0 --config-file=./scripts/test-bootstrap-node.config
+chainweb-node --node-id=0 --config-file=./tools/run-nodes/test-bootstrap-node.config
 ```
 
 This will run a local "bootstrap" node on your machine. Its runtime options - as
 well as a hard-coded SSL certificate - are found in
-`./scripts/test-bootstrap-node.config`. Further nodes can be ran with a simple:
+`./tools/run-nodes/test-bootstrap-node.config`. Further nodes can be ran with a simple:
 
 ```bash
 chainweb-node --node-id=NID
@@ -143,18 +143,22 @@ chainweb-node --node-id=NID
 loopback network. The default `--port` value is 0, which causes the node to
 request a free port from the operating system.
 
-Alternatively, the directory `scripts` contains a shell script for starting a
-network of `chainweb-node`s and collecting the logs from all nodes:
+Alternatively, we provide an additional script - `run-nodes` - for starting a
+network of `chainweb-node`s and collecting the logs from each:
 
 ```bash
-# create directory for log files
+# Create directory for log files.
 mkdir -p tmp/run-nodes-logs
 
-# the first argument is the path to the chainweb-node binary
-./scripts/run-nodes.sh ./chainweb-node 10 ./tmp/run-nodes-logs
+# By default, run 10 nodes locally.
+run-nodes --exe=path/to/chainweb-node -- --telemetry-log-handle=file:./tmp/run-nodes-logs
 
-# stop all nodes with Ctrl-C
+# Stop all nodes with Ctrl-C
 ```
+
+Any option after `--` will be passed as-is to each `chainweb-node` instance.
+
+See `run-nodes --help` for a complete list of its options.
 
 ### Details
 
