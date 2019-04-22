@@ -124,7 +124,7 @@ import Data.Singletons
 --
 data ChainwebVersion
     = Test ChainGraph
-        -- ^ Test instance with
+        -- ^ Test instance with:
         --
         --   * configurable graph,
         --   * genesis block time is epoch,
@@ -134,22 +134,22 @@ data ChainwebVersion
         --   * POW is simulated by poison process thread delay.
         --
 
-    | TestWithTime ChainGraph
-        -- ^ Test instance with
+    | TimedConsensus ChainGraph
+        -- ^ Test instance with:
         --
         --   * configurable graph,
-        --   * genesis block time current time
+        --   * genesis block time current time,
         --   * target is maxBound,
-        --   * nonce is constant
+        --   * nonce is constant,
         --   * creationTime of BlockHeaders is actual time, and
         --   * POW is simulated by poison process thread delay.
         --
 
     | TestWithPow ChainGraph
-        -- ^ Test instance with
+        -- ^ Test instance with:
         --
         --   * configurable graph,
-        --   * genesis block time current time
+        --   * genesis block time current time,
         --   * target is maxBound,
         --   * nonce is constant, and
         --   * creationTime of BlockHeaders is actual time.
@@ -179,7 +179,7 @@ instance Show ChainwebVersion where
 --
 chainwebVersionId :: ChainwebVersion -> Word32
 chainwebVersionId v@Test{} = toTestChainwebVersion v
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v
+chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
 chainwebVersionId Testnet01 = 0x00000002
@@ -229,7 +229,7 @@ chainwebVersionFromText t =
         Just v -> pure v
         Nothing -> case t of
             "test" -> pure $ Test petersonChainGraph
-            "testWithTime" -> pure $ TestWithTime petersonChainGraph
+            "timedConsensus" -> pure $ TimedConsensus petersonChainGraph
             "testWithPow" -> pure $ TestWithPow petersonChainGraph
             _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
@@ -245,7 +245,7 @@ instance HasTextRepresentation ChainwebVersion where
 chainwebVersions :: HM.HashMap T.Text ChainwebVersion
 chainwebVersions = HM.fromList $
     f Test "test"
-    <> f TestWithTime "testWithTime"
+    <> f TimedConsensus "timedConsensus"
     <> f TestWithPow "testWithPow"
     <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
   where
@@ -301,13 +301,13 @@ splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
 
 codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
 codeToTestVersion 0x80000000 = Test
-codeToTestVersion 0x80000001 = TestWithTime
+codeToTestVersion 0x80000001 = TimedConsensus
 codeToTestVersion 0x80000002 = TestWithPow
 codeToTestVersion _ = error "Unknown ChainwebVersion Code"
 
 testVersionToCode :: ChainwebVersion -> Word32
 testVersionToCode Test{} = 0x80000000
-testVersionToCode TestWithTime{} = 0x80000001
+testVersionToCode TimedConsensus{} = 0x80000001
 testVersionToCode TestWithPow{} = 0x80000002
 testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
@@ -323,7 +323,7 @@ fromTestChainwebVersionId i =
 
 chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TestWithTime g) = g
+chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (TestWithPow g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 chainwebVersionGraph Testnet01 = twentyChainGraph

@@ -137,7 +137,7 @@ randomPowHash = PowHash . SB.toShort <$> liftIO (BR.random powHashBytesCount)
 
 powHash :: ChainwebVersion -> B.ByteString -> PowHash
 powHash Test{} = cryptoHash @SHA512t_256
-powHash TestWithTime{} = cryptoHash @SHA512t_256
+powHash TimedConsensus{} = cryptoHash @SHA512t_256
 powHash TestWithPow{} = cryptoHash @SHA512t_256
 powHash Testnet00 = cryptoHash @SHA512t_256
 powHash Testnet01 = cryptoHash @SHA512t_256

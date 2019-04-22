@@ -250,7 +250,7 @@ instance ToParamSchema ChainwebVersion where
         & type_ .~ SwaggerString
         & enum_ ?~ (toJSON <$>
             [ Test petersonChainGraph
-            , TestWithTime petersonChainGraph
+            , TimedConsensus petersonChainGraph
             , TestWithPow petersonChainGraph
             , Testnet00
             ])

@@ -12,9 +12,9 @@
 --
 module Main ( main ) where
 
+import Control.Error.Util (note)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
-import Control.Error.Util (note)
 
 import qualified Data.ByteString as B
 import qualified Data.HashMap.Strict as HM
@@ -29,10 +29,11 @@ import System.Path
 
 -- internal modules
 
-import Chainweb.Graph (petersonChainGraph)
 import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.Graph (petersonChainGraph)
 import Chainweb.TreeDB.Persist (fileEntries)
-import Chainweb.Version (ChainwebVersion(..), chainwebVersionId, chainwebVersionFromText)
+import Chainweb.Version
+    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionId)
 
 import Utils.Gexf
 
@@ -49,7 +50,7 @@ pEnv = Env <$> version <*> inFile <*> outFiles
 
     version :: Parser ChainwebVersion
     version = option cver (long "version" <> metavar "VERSION"
-                           <> value (TestWithTime petersonChainGraph)
+                           <> value (TimedConsensus petersonChainGraph)
                            <> help "Chainweb Version used to produce the INPUT FILES")
 
     inFile :: Parser FilePath

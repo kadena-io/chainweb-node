@@ -54,8 +54,8 @@ instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ Test singletonChainGraph
         , Test petersonChainGraph
-        , TestWithTime singletonChainGraph
-        , TestWithTime petersonChainGraph
+        , TimedConsensus singletonChainGraph
+        , TimedConsensus petersonChainGraph
         , TestWithPow singletonChainGraph
         , TestWithPow petersonChainGraph
         , Testnet00

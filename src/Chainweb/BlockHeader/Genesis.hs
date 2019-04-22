@@ -99,7 +99,7 @@ genesisBlockTarget = maxTarget
 --
 genesisTime :: ChainwebVersion -> BlockCreationTime
 genesisTime Test{} = BlockCreationTime epoche
-genesisTime TestWithTime{} = BlockCreationTime epoche
+genesisTime TimedConsensus{} = BlockCreationTime epoche
 genesisTime TestWithPow{} = BlockCreationTime epoche
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
@@ -108,7 +108,7 @@ genesisTime Testnet01 = BlockCreationTime . Time $ TimeSpan 1555613536726767
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
-genesisMiner TestWithTime{} p = ChainNodeId (_chainId p) 0
+genesisMiner TimedConsensus{} p = ChainNodeId (_chainId p) 0
 genesisMiner TestWithPow{} p = ChainNodeId (_chainId p) 0
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
 -- In other words, 0 is a meaningless hard-coding.
@@ -124,7 +124,7 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TestWithTime{} _ = TN0.payloadBlock
+genesisBlockPayload TimedConsensus{} _ = TN0.payloadBlock
 genesisBlockPayload TestWithPow{} _ = emptyPayload
 genesisBlockPayload Testnet00 _ = TN0.payloadBlock
 genesisBlockPayload Testnet01 _ = TN1.payloadBlock

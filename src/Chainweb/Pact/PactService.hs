@@ -102,7 +102,7 @@ import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TimedConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
@@ -218,7 +218,7 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = return ()
-initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
+initialPayloadState v@TimedConsensus{} cid = createCoinContract v cid
 initialPayloadState TestWithPow{} _ = return ()
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 initialPayloadState v@Testnet01 cid = createCoinContract v cid
