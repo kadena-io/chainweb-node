@@ -94,9 +94,9 @@ import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
 import Chainweb.Utils
-import Chainweb.Utils.Logging
+import Utils.Logging
 import Chainweb.Version
-import qualified Chainweb.Utils.Logging.Config as U
+import qualified Utils.Logging.Config as U
 
 newtype MeasureTime = MeasureTime
   { measureTime :: Bool

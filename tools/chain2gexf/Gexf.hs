@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Utils.Gexf
+-- Module: Gexf
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -14,7 +14,7 @@
 --
 -- TODO
 --
-module Chainweb.Utils.Gexf
+module Gexf
 ( blockHeaders2gexf
 , blockMap2gexf
 , readP2pSessions

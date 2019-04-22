@@ -34,7 +34,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.TreeDB.Persist (fileEntries)
 import Chainweb.Version (ChainwebVersion(..), chainwebVersionId, chainwebVersionFromText)
 
-import Utils.Gexf
+import Gexf
 
 ---
 

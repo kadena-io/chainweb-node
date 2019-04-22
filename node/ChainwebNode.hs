@@ -81,8 +81,8 @@ import P2P.Node
 
 import PkgInfo
 
-import Chainweb.Utils.Logging
-import Chainweb.Utils.Logging.Config
+import Utils.Logging
+import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
 -- Configuration

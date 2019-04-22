@@ -159,9 +159,6 @@ library
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
-        , Chainweb.Utils.Gexf
-        , Chainweb.Utils.Logging
-        , Chainweb.Utils.Logging.Config
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -217,6 +214,9 @@ library
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
 
+        -- utils
+        , Utils.Logging
+        , Utils.Logging.Config
     build-depends:
           Decimal >= 0.4.2
         , QuickCheck >= 2.10
@@ -773,7 +773,7 @@ executable chain2gexf
     hs-source-dirs: tools/chain2gexf node
     main-is: Chain2Gexf.hs
     other-modules:
-        Utils.Gexf
+        Gexf
     build-depends:
         -- internal
           chainweb
