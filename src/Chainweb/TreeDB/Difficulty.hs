@@ -55,10 +55,9 @@ hashTarget db bh
                  & fmap fromJuste  -- Thanks to the two guard conditions above,
                                    -- this will (should) always succeed.
 
-        let
-            -- The time difference in microseconds between when the earliest and
-            -- latest blocks in the window were mined.
-            delta :: TimeSpan Int64
+        -- The time difference in microseconds between when the earliest and
+        -- latest blocks in the window were mined.
+        let delta :: TimeSpan Int64
             !delta = TimeSpan $ time bh' - time start
 
         pure . adjust ver delta $ _blockTarget bh'

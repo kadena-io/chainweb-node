@@ -62,8 +62,8 @@ module Chainweb.Difficulty
 , blockRate
 , WindowWidth(..)
 , window
-, MaxAdjustment(..)
-, maxAdjust
+, MinAdjustment(..)
+, minAdjust
 , prereduction
 -- ** Adjustment
 , adjust
@@ -338,22 +338,22 @@ window Testnet00 = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet01 = Just $ WindowWidth 120
 
--- | The maximum number of bits that a single application of `adjust` can apply
--- to some `HashTarget`. As mentioned in `adjust`, this value should be above
--- \(e = 2.71828\cdots\).
+-- | The minimum factor of change that a single application of `adjust` must
+-- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
+-- this value should be above \(e = 2.71828\cdots\).
 --
-newtype MaxAdjustment = MaxAdjustment Natural
+newtype MinAdjustment = MinAdjustment Natural
 
--- | The Proof-of-Work `MaxAdjustment` for each `ChainwebVersion`. For chainwebs
+-- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
 -- that do not expect to perform POW, this should be `Nothing`.
 --
-maxAdjust :: ChainwebVersion -> Maybe MaxAdjustment
-maxAdjust Test{} = Nothing
-maxAdjust TestWithTime{} = Nothing
-maxAdjust TestWithPow{} = Just $ MaxAdjustment 3
+minAdjust :: ChainwebVersion -> Maybe MinAdjustment
+minAdjust Test{} = Nothing
+minAdjust TestWithTime{} = Nothing
+minAdjust TestWithPow{} = Just $ MinAdjustment 3
 -- See `adjust` for motivation.
-maxAdjust Testnet00 = Just $ MaxAdjustment 3
-maxAdjust Testnet01 = Just $ MaxAdjustment 3
+minAdjust Testnet00 = Just $ MinAdjustment 3
+minAdjust Testnet01 = Just $ MinAdjustment 3
 
 -- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
 -- enforce a "minimum difficulty", beyond which mining cannot become easier.
@@ -482,29 +482,32 @@ prereduction Testnet01 = 14
 -- expectations. For now, however, `Rational` is stable for a Haskell-only
 -- environment.
 --
--- === Adjustment Limits
+-- === Adjustment Minimums
 --
--- Spikes in /HashRate/ may occur as the mining network grows. To ensure that
--- adjustment does not occur too quickly, we cap the total "significant bits of
--- change" as to no more than \(Z\) bits in either the "harder" or "easier"
--- direction at one time. Experimentally, it has been shown that \(Z\) should be
--- greater than \(e = 2.71828\cdots\) (/source needed/). See `maxAdjust`.
+-- Spikes in /HashRate/ may occur as the mining network grows and shrinks. To
+-- ensure that adjustment does not occur too quickly or with too much
+-- granularity, we enforce a "minimum factor of change" ( \(Z\) ) for `adjust`.
+-- If `adjust` notices that the change for the given window is not large enough,
+-- then it will not occur. The overall pattern of difficulty then becomes less
+-- of a rippling pond, and more of a series of plateaus with distinct jumps.
+-- Analysis has been shown that \(Z\) should be greater than a factor of
+-- \(e = 2.71828\cdots\) (/source needed/). See also `minAdjust`.
 --
 adjust :: ChainwebVersion -> TimeSpan Int64 -> HashTarget -> HashTarget
 adjust ver (TimeSpan delta) oldTarget
     -- Intent: When increasing the difficulty (thereby lowering the target
-    -- toward 0), the leading 1-bit must not move more than 3 bits at a time.
-    | newTarget < oldTarget = max newTarget (HashTarget $! oldNat `div` 8)
-    -- Intent: Cap the new target back down, if it somehow managed to go over
-    -- the maximum. This is possible during POW, since we assume
-    -- @maxTarget < maxBound@.
-    | newTarget > maxTarget ver = maxTarget ver
+    -- toward 0), the target must decrease by at least some minimum threshold
+    -- (usually 3x) to be accepted.
+    | nat newTarget <= (nat oldTarget `div` minAdj) = newTarget
+
     -- Intent: When decreasing the difficulty (thereby raising the target toward
-    -- `maxTarget`), ensure that the new target does not increase by more than 3
-    -- bits at a time. Using `countLeadingZeros` like this also helps avoid a
-    -- `Word256` overflow.
-    | countLeadingZeros oldNat - countLeadingZeros (nat newTarget) > maxAdj = HashTarget $! oldNat * 8
-    | otherwise = newTarget
+    -- `maxTarget`), ensure that the new target increases by at least some
+    -- minimum threshold.
+    | nat newTarget >= (nat oldTarget * minAdj)
+      && nat oldTarget <= (nat (maxTarget ver) `div` minAdj) = newTarget
+
+    -- Intent: The target did not change enough - do not alter it!
+    | otherwise = oldTarget
 
     -- DEBUGGING --
     -- Uncomment the following to get a live view of difficulty adjustment. You
@@ -534,9 +537,9 @@ adjust ver (TimeSpan delta) oldTarget
         Just (WindowWidth n) -> n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
-    maxAdj :: Int
-    maxAdj = case maxAdjust ver of
-        Just (MaxAdjustment n) -> int n
+    minAdj :: PowHashNat
+    minAdj = case minAdjust ver of
+        Just (MinAdjustment n) -> int n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     -- The average time in seconds that it took to mine each block in
@@ -560,12 +563,6 @@ adjust ver (TimeSpan delta) oldTarget
 
     nat :: HashTarget -> PowHashNat
     nat (HashTarget n) = n
-
-    oldNat :: PowHashNat
-    oldNat = nat oldTarget
-
-    -- floating :: Rational -> Double
-    -- floating = realToFrac
 
 -- -------------------------------------------------------------------------- --
 -- Properties
