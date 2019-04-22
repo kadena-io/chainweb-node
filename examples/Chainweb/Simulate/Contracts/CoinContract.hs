@@ -7,17 +7,9 @@ module Chainweb.Simulate.Contracts.CoinContract where
 import Control.Monad hiding (guard)
 
 import Data.Aeson
--- import Data.Char
--- import Data.Decimal
--- import Data.Maybe
 import Data.Text (Text)
--- import Data.Map (Map (..))
--- import qualified Data.Map as M
--- import qualified Data.Text as T
 
 import Fake
-
--- import GHC.Generics hiding (from, to)
 
 import System.Random
 
@@ -41,26 +33,11 @@ data CoinContractRequest
   | CoinAccountBalance Account
   | CoinTransfer SenderName ReceiverName Guard Amount
 
-instance Show CoinContractRequest where
-  show (CoinCreateAccount account _guard) = "CoinContract.CoinCreateAccount: " ++ parens (show account)
-  show (CoinAccountBalance account) = "CoinContract.CoinAccountBalance: " ++ parens (show account)
-  show (CoinTransfer sender receiver _guard amount) =
-    "CoinContract.CoinTransfer: "
-    ++ parens (show sender)
-    ++ parens (show receiver)
-    ++ parens (show amount)
-
 type Guard = [SomeKeyPair]
 
 -- for simplicity
 type SenderName = Account
 type ReceiverName = Account
-type MinerName = Account
-type Name = Account
-newtype Address = Address String
-
-errPrefix :: String
-errPrefix = "CoinContract."
 
 mkRandomCoinContractRequest :: [(Account,Maybe [SomeKeyPair])] -> IO (FGen CoinContractRequest)
 mkRandomCoinContractRequest kacts = do
@@ -118,79 +95,3 @@ createCoinContractRequest meta request =
               , "receiver-guard" .= fmap formatB16PubKey guard
               ]
       mkExec theCode theData meta adminKeyset Nothing
-  where
-    _functionErrPrefix :: String
-    _functionErrPrefix = "createCoinContractRequest:"
-
------------------------------------
--- Code that may be resurrected! --
------------------------------------
-{-
-    BuyGas (Account sender) (Amount amount) -> do
-      adminKeyset <- testSomeKeyPairs
-      let theCode =
-            printf "(coin.buy-gas \"%s\" %s)" sender (show amount)
-          theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-      mkExec theCode theData meta adminKeyset Nothing
-    -- guard should just be a keyset here.
-    RedeemGas (Account minername) guard (Account name) amount -> do
-      adminKeyset <- testSomeKeyPairs
-      let theCode =
-            printf
-              "(coin.reedem-gas \"%s\" (read-keyset \"%s\") \"%s\" %s)"
-              minername
-              ("miner-guard" :: String)
-              name
-              (show amount)
-          theData =
-            object
-              [ "admin-keyset" .= fmap formatB16PubKey adminKeyset
-              , "miner-guard"  .= fmap formatB16PubKey guard
-              ]
-      mkExec theCode theData meta adminKeyset Nothing
--}
-
------------------------------------
--- Code that may be resurrected! --
------------------------------------
-{-
-    Coinbase (Address address) guard (Amount amount) -> do
-      adminKeyset <- testSomeKeyPairs
-      let theCode =
-            printf
-            "(coin.coinbase \"%s\" (read-keyset \"%s\") %s)"
-            address
-            ("adress-guard" :: String)
-            (show amount)
-          theData =
-            object
-              [ "admin-keyset" .= fmap formatB16PubKey adminKeyset
-              , "address-guard" .= fmap formatB16PubKey guard
-              ]
-      mkExec theCode theData meta adminKeyset Nothing
-    FundTx _sender _miner _guard _amount -> do
-      undefined                 -- TODO: need to figure out what to do
-                                -- with a defpact
-    Debit _account _amount -> do
-      undefined
-    Credit _account _guard _amount -> do
-      undefined
-    DeleteCoin _accountA _chainid _accountB _guard _amount -> do
-      undefined
-    CreateCoin _proof -> do
-      undefined
-
-
-  -- BuyGas SenderName Amount
-  -- --| RedeemGas MinerName Guard Name Amount
-  -- --| Coinbase Address Guard Amount
-  -- --| FundTx SenderName MinerName Guard Amount
-  -- --| Debit Account Amount
-  -- --| Credit Account Guard Amount
-  -- --| DeleteCoin Account ChainId Account Guard Amount
-  -- --| CreateCoin Proof
-
--- data Proof = Proof              -- dunno yet
--- data Guard = Guard              -- dunno yet
-
--}

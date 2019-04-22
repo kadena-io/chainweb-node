@@ -118,12 +118,6 @@ data SimplePaymentRequest
   | SPRequestPay Account Account Amount
   | SPCreateAccount Account Balance [SomeKeyPair]
 
-instance Show SimplePaymentRequest where
-  show (SPRequestGetBalance account) = "SPRequestGetBalance: " ++ parens (show account)
-  show (SPRequestPay accountA accountB amount) =
-    "SPRequestPay: " ++ parens (show accountA) ++ " " ++ parens (show accountB) ++ " " ++ parens (show amount)
-  show (SPCreateAccount account balance _) = "SPCreateAccount: " ++ parens (show account) ++ " " ++ parens (show balance)
-
 createSimplePaymentRequest :: PublicMeta -> SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO (Command Text)
 createSimplePaymentRequest meta (SPCreateAccount (Account account) (Balance initialBalance) somekeyset) _ = do
   adminKeyset <- testSomeKeyPairs

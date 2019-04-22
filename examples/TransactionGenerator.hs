@@ -15,6 +15,8 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeOperators              #-}
 
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+
 -- | Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
@@ -76,34 +78,29 @@ import Pact.ApiReq
 import Pact.Parse (ParsedInteger(..),ParsedDecimal(..))
 import Pact.Types.API
 import Pact.Types.ChainMeta (PublicMeta(..))
-import Pact.Types.Command (Command(..), CommandSuccess(..),RequestKey(..))
+import Pact.Types.Command (Command(..), RequestKey(..))
 import Pact.Types.Crypto
 import Pact.Types.Util (Hash(..))
 
 -- CHAINWEB
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.Version
-import Chainweb.RestAPI.Utils
-
--- THIS MODULE MAY BE USED LATER
--- import Chainweb.Simulate.Contracts.CommercialPaper
-import Utils.Logging
-import qualified Utils.Logging.Config as U
-import Chainweb.Utils
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
+import Chainweb.RestAPI.Utils
+import Chainweb.Simulate.Contracts.CoinContract
 import Chainweb.Simulate.Contracts.Common
-import Chainweb.Simulate.Contracts.CryptoCritters
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
-import Chainweb.Simulate.Contracts.CoinContract
 import Chainweb.Simulate.Utils
+import Chainweb.Utils
+import Chainweb.Utils.Logging
+import Chainweb.Version
+import qualified Chainweb.Utils.Logging.Config as U
 
 newtype MeasureTime = MeasureTime
   { measureTime :: Bool
   } deriving (Eq, Show, Generic)
-    deriving newtype (Read)
 
 instance FromJSON MeasureTime
 
@@ -395,6 +392,9 @@ generateSimpleTransaction = do
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
 
+numContracts :: Int
+numContracts = 2
+
 generateTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TransactionGenerator m (Command Text)
 generateTransaction = do
   cid <- view genChainId
@@ -407,7 +407,6 @@ generateTransaction = do
         coinaccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "coin")))
         liftIO $ do
           coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
-          withConsoleLogger Info (logg Info (T.pack $ show coinContractRequest))
           createCoinContractRequest (makeMeta cid) coinContractRequest
       1 ->
         liftIO $ do
@@ -417,7 +416,6 @@ generateTransaction = do
         paymentaccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "payment")))
         liftIO $ do
           paymentsRequest <- mkRandomSimplePaymentRequest paymentaccts >>= generate
-          withConsoleLogger Info (logg Info $ T.pack $ show paymentsRequest)
           case paymentsRequest of
             SPRequestPay fromAccount _ _ ->
               let errmsg = "This account does not have an associated keyset!"
@@ -462,8 +460,9 @@ loop ::
 loop measure@(MeasureTime mtime) = do
   transaction <- generateTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
+  lift $ logg Info $ (toLogMessage $ (("Sent transaction with request keys: " <> sshow requestKeys) :: Text))
   when mtime $
-    lift $ logg Info (toLogMessage $ (("sending a transaction took: " <> sshow timeTaken) :: Text))
+    lift $ logg Info (toLogMessage $ (("Sending a transaction (with request keys) " <> sshow requestKeys <> " took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
   gsCounter += 1
   lift $ logg Info (toLogMessage $ (("Transaction count: " <> sshow count) :: Text))
@@ -702,42 +701,31 @@ createLoader (ContractName contractName) meta kp = do
   mkExec theCode theData meta adminKeyset Nothing
 
 defaultContractLoaders :: [ContractLoader]
-defaultContractLoaders = take numContracts
-  [helloWorldContractLoader
-  , simplePaymentsContractLoader
-  , cryptoCritterContractLoader]
+defaultContractLoaders = [helloWorldContractLoader , simplePaymentsContractLoader]
   -- Remember coin contract is already loaded.
 
--- add this back in later
--- , commercialPaperContractLoader
+api version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) ->
+          client
+            (Proxy :: Proxy (PactApi cv cid))
 
--- We are just going to work with some contracts at this point in time.
-numContracts :: Int
-numContracts = 2
-
-send :: ChainwebVersion -> ChainId -> (SubmitBatch -> ClientM RequestKeys)
+send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
 send version chainid =
-  case someChainwebVersionVal version of
-        SomeChainwebVersionT (_ :: Proxy cv) ->
-          case someChainIdVal chainid of
-            SomeChainIdT (_ :: Proxy cid) ->
-              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
+  let go :<|> _ :<|> _ :<|> _ = api version chainid
+  in go
 
-poll :: ChainwebVersion -> ChainId -> (Poll -> ClientM PollResponses)
+poll :: ChainwebVersion -> ChainId -> Poll -> ClientM PollResponses
 poll version chainid =
-  case someChainwebVersionVal version of
-        SomeChainwebVersionT (_ :: Proxy cv) ->
-          case someChainIdVal chainid of
-            SomeChainIdT (_ :: Proxy cid) ->
-              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc PollApi))
+  let _ :<|> go :<|> _ :<|> _ = api version chainid
+  in go
 
-listen :: ChainwebVersion -> ChainId -> (ListenerRequest -> ClientM ApiResult)
+listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ApiResult
 listen version chainid =
-  case someChainwebVersionVal version of
-        SomeChainwebVersionT (_ :: Proxy cv) ->
-          case someChainIdVal chainid of
-            SomeChainIdT (_ :: Proxy cid) ->
-              client (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc ListenApi))
+  let _ :<|> _ :<|> go :<|> _ = api version chainid
+  in go
 
 ---------------------------
 -- FOR DEBUGGING IN GHCI --

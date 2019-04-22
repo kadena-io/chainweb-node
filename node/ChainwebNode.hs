@@ -81,8 +81,8 @@ import P2P.Node
 
 import PkgInfo
 
-import Utils.Logging
-import Utils.Logging.Config
+import Chainweb.Utils.Logging
+import Chainweb.Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -251,4 +251,3 @@ main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node (_nodeConfigChainweb conf)
-
