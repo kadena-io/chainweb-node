@@ -75,6 +75,20 @@ in
           sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
         };
 
+        # --- massiv --- #
+        massiv = callHackageDirect {
+          pkg = "massiv";
+          ver = "0.3.0.0";
+          sha256 = "0yv5vq9v18jzs5mbg2qpyh18dbc54s143231b3d0bw9mawp81nsi";
+        };
+
+        scheduler = callHackageDirect {
+          pkg = "scheduler";
+          ver = "1.0.0";
+          sha256 = "0kmb7v5bl5rcn37bgz1ghrdpr22dbxkzmrd6h65jkhbvciz8hqlf";
+        };
+        # --- end massiv --- #
+
         fast-builder = callHackageDirect {
           pkg = "fast-builder";
           ver = "0.1.0.0";

@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.Testnet00Payload ( payloadBlock ) where
+module Chainweb.BlockHeader.Genesis.Testnet01Payload ( payloadBlock ) where
 
 import Data.Text.Encoding (encodeUtf8)
 import Data.Yaml (decodeThrow)

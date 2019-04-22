@@ -14,13 +14,11 @@
     balance:decimal
     guard:guard
     )
-
   (deftable coin-table:{coin-schema})
 
   (defschema creates-schema
     exists:string
     )
-
   (deftable creates-table:{creates-schema})
 
   ; --------------------------------------------------------------------------
@@ -171,14 +169,16 @@
 
     (require-capability (TRANSFER))
       (with-default-read coin-table account
-        { "balance" : 0.0 }
-        { "balance" := balance }
+        { "balance" : 0.0, "guard" : guard }
+        { "balance" := balance, "guard" := retg }
+          ; we don't want to overwrite an existing guard with the user-supplied one
+        (enforce (= retg guard) "account guards do not match")
 
         (write coin-table account
           { "balance" : (+ balance amount)
-          , "guard": guard
-          }
-          )))
+          , "guard"   : retg
+          }))
+      )
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
     (with-capability (TRANSFER)

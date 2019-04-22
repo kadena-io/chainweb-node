@@ -58,8 +58,6 @@ instance Arbitrary ChainwebVersion where
         , TestWithTime petersonChainGraph
         , TestWithPow singletonChainGraph
         , TestWithPow petersonChainGraph
-        , Simulation singletonChainGraph
-        , Simulation petersonChainGraph
         , Testnet00
         ]
 
@@ -114,11 +112,11 @@ instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries
       where
         entries
-            = liftA2 (:+:) arbitrary
+            = liftA2 (:+:) (Nonce <$> chooseAny)
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (Nonce <$> chooseAny)
+            $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) (pure (unsafeChainId 0))
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)

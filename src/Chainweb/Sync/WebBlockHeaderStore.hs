@@ -316,7 +316,30 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
 
         logg Debug $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 
-        -- Validate block header
+        -- ------------------------------------------------------------------ --
+        -- Validation
+
+        -- 1. Validate Parents and Adjacent Parents
+        --
+        -- Existence and validitey of parents and adjacent parents is guaranteed
+        -- in the dependency resolution code above.
+
+        -- 2. Validate BlockHeader
+        --
+        -- Single chain properties are currently validated when the block header
+        -- is inserted into the block header db.
+
+        -- 3. Validate Braiding
+        --
+        -- Currently, we allow blocks here that are not part of a valid
+        -- braiding. However, those block won't make it into cuts, because the
+        -- cut processor uses 'joinIntoHeavier' to combine an external cut with
+        -- the local cut, which guarantees that only blocks with valid braiding
+        -- are referenced by local cuts.
+        --
+        -- TODO: check braiding and reject blocks without valid braiding here.
+
+        -- 4. Validate block payload
         --
         -- Pact validation is done in the context of a particular header. Just
         -- because the payload does already exist in the store doesn't mean that

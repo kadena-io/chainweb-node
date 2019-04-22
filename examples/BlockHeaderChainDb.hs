@@ -46,16 +46,17 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.DiGraph
-
 -- -------------------------------------------------------------------------- --
 -- Main
 
-exampleChainId :: ChainId
-exampleChainId = unsafeChainId 0
-
 graph :: ChainGraph
-graph = toChainGraph (const exampleChainId) singleton
+graph = singletonChainGraph
+
+exampleVersion :: ChainwebVersion
+exampleVersion = Test graph
+
+exampleChainId :: ChainId
+exampleChainId = someChainId exampleVersion
 
 -- | Setup a logger and run the example
 --
@@ -72,7 +73,7 @@ main = withHandleBackend (_logConfigBackend config)
 example :: Logger T.Text -> IO ()
 example logger = do
     db <- DB.initBlockHeaderDb DB.Configuration
-        { DB._configRoot = genesisBlockHeader (Test graph) exampleChainId
+        { DB._configRoot = genesisBlockHeader exampleVersion exampleChainId
         }
     withAsync (observer logger db) $ \o -> do
         mapConcurrently_ (miner logger db) $ ChainNodeId exampleChainId <$> [0..5]

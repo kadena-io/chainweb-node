@@ -113,7 +113,7 @@ simpleSessionTests :: Bool -> ChainwebVersion -> TestTree
 simpleSessionTests tls version =
     withBlockHeaderDbsServer tls version (testBlockHeaderDbs version) (return noMempool)
     $ \env -> testGroup "client session tests"
-        $ simpleClientSession env <$> toList (chainIds_ $ _chainGraph version)
+        $ simpleClientSession env <$> toList (chainIds version)
 
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
@@ -223,10 +223,14 @@ putExisting = simpleTest "put existing block header" isRight $ \h0 ->
 
 putOnWrongChain :: IO TestClientEnv_ -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
-    $ \h0 -> headerPutClient (_chainwebVersion h0) (_chainId h0)
-        . head
-        . testBlockHeadersWithNonce (Nonce 2)
-        $ genesisBlockHeader (Test petersonChainGraph) (unsafeChainId 1)
+    $ \h0 -> do
+        cid <- mkChainId v (1 :: Int)
+        headerPutClient (_chainwebVersion h0) (_chainId h0)
+            . head
+            . testBlockHeadersWithNonce (Nonce 2)
+            $ genesisBlockHeader v cid
+  where
+    v = Test petersonChainGraph
 
 putMissingParent :: IO TestClientEnv_ -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->

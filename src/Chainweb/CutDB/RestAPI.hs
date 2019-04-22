@@ -38,6 +38,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Version
 
 import Data.Singletons
@@ -47,6 +48,7 @@ import Data.Singletons
 
 type CutGetApi_
     = "cut"
+    :> QueryParam "maxheight" MaxRank
     :> Get '[JSON] CutHashes
 
 type CutGetApi (v :: ChainwebVersionT)

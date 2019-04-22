@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -21,8 +22,10 @@ module Chainweb.Test.Utils
 (
 -- * BlockHeaderDb Generation
   toyBlockHeaderDb
+, toyChainId
 , toyGenesis
-, withDB
+, genesisBlockHeaderForChain
+, withToyDB
 , insertN
 , prettyTree
 , normalizeTree
@@ -79,6 +82,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -131,7 +135,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version
 
 import Data.CAS.HashMap hiding (toList)
 
@@ -142,10 +146,16 @@ import Numeric.AffineSpace
 import qualified P2P.Node.PeerDB as P2P
 
 -- -------------------------------------------------------------------------- --
--- BlockHeaderDb Generation
+-- Toy Values
+--
+-- All toy values are based on `toyVersion`. Don't use these values with another
+-- chainweb version!
 
 toyVersion :: ChainwebVersion
 toyVersion = Test singletonChainGraph
+
+toyChainId :: ChainId
+toyChainId = someChainId toyVersion
 
 toyGenesis :: ChainId -> BlockHeader
 toyGenesis cid = genesisBlockHeader toyVersion cid
@@ -163,8 +173,21 @@ toyBlockHeaderDb cid = (g,) <$> initBlockHeaderDb (Configuration g)
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
-withDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
+withToyDB :: ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withToyDB cid = bracket (toyBlockHeaderDb cid) (closeBlockHeaderDb . snd) . uncurry
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeaderDb Generation
+
+genesisBlockHeaderForChain
+    :: MonadThrow m
+    => HasChainwebVersion v
+    => Integral i
+    => v
+    -> i
+    -> m BlockHeader
+genesisBlockHeaderForChain v i
+    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
@@ -217,7 +240,7 @@ tree v g = do
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = return $ genesisBlockHeader v (unsafeChainId 0)
+genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v (0 :: Int)
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -252,11 +275,11 @@ header h = do
     return
         . fromLog
         . newMerkleLog
-        $ _blockHash h
+        $ nonce
+            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+            :+: _blockHash h
             :+: target
             :+: testBlockPayload h
-            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
-            :+: nonce
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
             :+: succ (_blockHeight h)
@@ -278,7 +301,7 @@ singleton :: ChainGraph
 singleton = singletonChainGraph
 
 testBlockHeaderDbs :: ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
-testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds_ (_chainGraph v)
+testBlockHeaderDbs v = mapM toEntry $ toList $ chainIds v
   where
     toEntry c = do
         d <- db c

@@ -28,15 +28,11 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.ChainId (ChainId, unsafeChainId)
-import Chainweb.Test.Utils (insertN, withDB)
+import Chainweb.Test.Utils (insertN, withToyDB, toyChainId)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Persist (fileEntries, persist)
 
 ---
-
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0
 
 tests :: TestTree
 tests = testGroup "Persistence"
@@ -50,7 +46,7 @@ tests = testGroup "Persistence"
 -- write its only block, the genesis block.
 --
 onlyGenesis :: Assertion
-onlyGenesis = withDB chainId0 $ \g db -> do
+onlyGenesis = withToyDB toyChainId $ \g db -> do
     persist p db
     g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) p
     g' @?= Just g
@@ -66,7 +62,7 @@ onlyGenesis = withDB chainId0 $ \g db -> do
 --  * The first block streamed from both the DB and the file will be the genesis.
 --
 manyBlocksWritten :: Assertion
-manyBlocksWritten = withDB chainId0 $ \g db -> do
+manyBlocksWritten = withToyDB toyChainId $ \g db -> do
     void $ insertN len g db
     persist p db
     fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing

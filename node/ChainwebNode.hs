@@ -55,6 +55,8 @@ import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
 
+import Numeric.Natural
+
 import qualified Streaming.Prelude as S
 
 import qualified System.Logger as L
@@ -70,12 +72,15 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
-import Chainweb.Utils.RequestLog
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
+import Chainweb.Utils.RequestLog
 import Chainweb.Version (ChainwebVersion(..))
 
 import Data.CAS.HashMap
 import Data.LogMessage
+import Data.PQueue
+import qualified Data.TaskMap as TM
 
 import P2P.Node
 
@@ -169,6 +174,37 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \
                 logFunctionText l Info $ "logged stats"
                 threadDelay 60000000 {- 1 minute -}
 
+data QueueStats = QueueStats
+    { _queueStatsCutQueueSize :: !Natural
+    , _queueStatsBlockHeaderQueueSize :: !Natural
+    , _queueStatsBlockHeaderTaskMapSize :: !Natural
+    , _queueStatsPayloadQueueSize :: !Natural
+    , _queueStatsPayloadTaskMapSize :: !Natural
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData, ToJSON)
+
+runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("Queue Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped Queue Monitor"
+  where
+    go l = do
+        logFunctionText l Info $ "Initialized Queue Monitor"
+        forever $ do
+            stats <- QueueStats
+                <$> cutDbQueueSize cutDb
+                <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore cutDb)
+                <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore cutDb))
+                <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore cutDb)
+                <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore cutDb))
+
+            logFunctionText l Info $ "got stats"
+            logFunctionJson logger Info stats
+            logFunctionText l Info $ "logged stats"
+            threadDelay 60000000 {- 1 minute -}
+
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
@@ -178,6 +214,7 @@ node conf logger = do
     withChainweb @HashMapCas conf logger pdb $ \cw -> mapConcurrently_ id
         [ runChainweb cw
         , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+        , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
         , runRtsMonitor (_chainwebLogger cw)
         ]
 
@@ -209,6 +246,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
+    queueStatsBackend <- managed
+        $ mkTelemetryLogger @QueueStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -218,6 +257,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler counterBackend
             , logHandler newBlockBackend
             , logHandler requestLogBackend
+            , logHandler queueStatsBackend
             ] baseBackend
 
     liftIO $ f
@@ -245,7 +285,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Testnet00)
+    (defaultChainwebNodeConfiguration Testnet01)
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do

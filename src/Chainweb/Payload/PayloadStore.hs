@@ -65,7 +65,6 @@ import qualified Data.Sequence as S
 -- internal modules
 
 import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
-import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Version
 
@@ -214,7 +213,7 @@ initializePayloadDb
     => ChainwebVersion
     -> PayloadDb cas
     -> IO ()
-initializePayloadDb v db = traverse_ initForChain $ chainIds_ $ _chainGraph v
+initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid = do
         addNewPayload db $ genesisBlockPayload v cid

@@ -236,7 +236,7 @@ instance (KnownNat n) => Arbitrary (Gnm n) where
 -- All entries of the result matrix are either whole numbers or 'Infinity'.
 --
 fglShortestPaths :: G.Graph g => g Int Int -> Array U Ix2 Double
-fglShortestPaths g = makeArray Seq (n :. n) $ \(i :. j) ->
+fglShortestPaths g = makeArray Seq (M.Sz (n :. n)) $ \(i :. j) ->
     maybe (1/0) realToFrac $ G.getDistance j (sp i)
   where
     sp i = G.spTree i g
@@ -245,7 +245,7 @@ fglShortestPaths g = makeArray Seq (n :. n) $ \(i :. j) ->
 fglDiameter :: G.Graph g => g Int Int -> Maybe Natural
 fglDiameter g = if M.isEmpty sps
     then Just 0
-    else let x = round $ M.maximum sps
+    else let x = round $ M.maximum' sps
         in if x == round (1/0 :: Double) then Nothing else Just x
   where
     sps = fglShortestPaths g

@@ -83,7 +83,7 @@ testCaseStepsN name n test = testGroup name $ flip map [1..n] $ \i ->
 --
 targetChain :: Cut -> BlockHeader -> IO ChainId
 targetChain c srcBlock = do
-    cids <- generate (shuffle $ toList $ chainIds_ graph)
+    cids <- generate (shuffle $ toList $ chainIds c)
     go cids
   where
     graph = _chainGraph c
@@ -189,9 +189,8 @@ apiTests tls v = withTestPayloadResource v 100 (\_ _ -> return ()) $ \dbsIO ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
-    cids = toList (chainIds_ graph)
+    cids = toList $ chainIds v
     payloadDbs db = (, db) <$> cids
-    graph = _chainGraph v
 
 txApiTests :: IO TestClientEnv_ -> Step -> IO ()
 txApiTests envIO step = do

@@ -448,9 +448,8 @@ bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
 bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Simulation{} = error
-    $ "bootstrap peer info isn't defined for chainweb version Simulation"
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
+bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
