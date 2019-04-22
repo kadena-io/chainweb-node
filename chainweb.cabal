@@ -156,7 +156,6 @@ library
         , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
-        , Chainweb.TreeDB.Sync
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
@@ -368,7 +367,6 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
-        Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
 
     build-depends:

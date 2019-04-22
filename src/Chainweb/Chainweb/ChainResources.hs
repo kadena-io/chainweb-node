@@ -21,7 +21,6 @@ module Chainweb.Chainweb.ChainResources
 , chainResPeer
 , chainResMempool
 , chainResLogger
-, chainResSyncDepth
 , chainResPact
 , withChainResources
 
@@ -31,8 +30,6 @@ module Chainweb.Chainweb.ChainResources
 -- * Mempool Sync
 , runMempoolSyncClient
 ) where
-
-import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeAsyncException)
@@ -67,8 +64,6 @@ import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.TreeDB.Persist
-import Chainweb.TreeDB.RemoteDB
-import Chainweb.TreeDB.Sync
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -85,7 +80,6 @@ data ChainResources logger = ChainResources
     { _chainResPeer :: !(PeerResources logger)
     , _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResSyncDepth :: !Depth
     , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
     , _chainResPact :: PactExecutionService
     }
@@ -127,7 +121,6 @@ withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
                 { _chainResPeer = peer
                 , _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
-                , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
                 , _chainResPact = mkPactExecutionService mempool requestQ
                 }
@@ -145,45 +138,6 @@ withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
     load = do
         createDirectoryIfMissing True (toFilePath dir)
         whenM (doesFileExist $ toFilePath path) (restore path db)
-
--- | Synchronize the local block database over the P2P network.
---
-runChainSyncClient
-    :: Logger logger
-    => HTTP.Manager
-        -- ^ HTTP connection pool
-    -> ChainResources logger
-        -- ^ chain resources
-    -> IO ()
-runChainSyncClient mgr chain = bracket create destroy go
-  where
-    syncLogger = setComponent "header-sync" $ _chainResLogger chain
-    netId = ChainNetwork (_chainId chain)
-    syncLogg = logFunctionText syncLogger
-    create = p2pCreateNode
-        (_chainwebVersion chain)
-        netId
-        (_peerResPeer $ _chainResPeer chain)
-        (logFunction syncLogger)
-        (_peerResDb $ _chainResPeer chain)
-        mgr
-        (chainSyncP2pSession (_chainResSyncDepth chain) (_chainResBlockHeaderDb chain))
-
-    go n = do
-        -- Run P2P client node
-        syncLogg Info "initialized"
-        p2pStartNode (_peerResConfig $ _chainResPeer chain) n
-
-    destroy n = p2pStopNode n `finally` syncLogg Info "stopped"
-
-chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
-chainSyncP2pSession depth db logg env _ = do
-    peer <- PeerTree <$> remoteDb db logg env
-    chainwebSyncSession db peer depth logg
-
-syncDepth :: ChainGraph -> Depth
-syncDepth g = Depth (2 * diameter g)
-{-# NOINLINE syncDepth #-}
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

@@ -42,7 +42,6 @@ import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
-import qualified Chainweb.Test.TreeDB.Sync
 import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
@@ -81,7 +80,6 @@ suite =
             [ Chainweb.Test.BlockHeaderDB.tests
             , Chainweb.Test.TreeDB.RemoteDB.tests
             , Chainweb.Test.TreeDB.Persistence.tests
-            , Chainweb.Test.TreeDB.Sync.tests
             , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
         , Chainweb.Test.CoinContract.tests
