@@ -447,7 +447,7 @@ instance FromJSON Peer where
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
 bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
 bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
 

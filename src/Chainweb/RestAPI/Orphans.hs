@@ -251,7 +251,7 @@ instance ToParamSchema ChainwebVersion where
         & enum_ ?~ (toJSON <$>
             [ Test petersonChainGraph
             , TimedConsensus petersonChainGraph
-            , TestWithPow petersonChainGraph
+            , PowConsensus petersonChainGraph
             , Testnet00
             ])
 

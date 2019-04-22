@@ -36,7 +36,7 @@ import P2P.Peer
 bootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
 bootstrapPeerConfig v@Test{} = testBootstrapPeerConfig v
 bootstrapPeerConfig v@TimedConsensus{} = testBootstrapPeerConfig v
-bootstrapPeerConfig v@TestWithPow{} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@PowConsensus{} = testBootstrapPeerConfig v
 bootstrapPeerConfig Testnet00 = error
     $ "bootstrap peer config isn't defined for chainweb version Testnet00"
 bootstrapPeerConfig Testnet01 = error
@@ -64,7 +64,7 @@ testBootstrapPeerConfig v =
 bootstrapCertificate :: ChainwebVersion -> X509CertPem
 bootstrapCertificate Test{} = testBootstrapCertificate
 bootstrapCertificate TimedConsensus{} = testBootstrapCertificate
-bootstrapCertificate TestWithPow{} = testBootstrapCertificate
+bootstrapCertificate PowConsensus{} = testBootstrapCertificate
 bootstrapCertificate Testnet00 = error
     $ "bootstrap certificate isn't defined for chainweb version Testnet00"
 bootstrapCertificate Testnet01 = error
@@ -122,7 +122,7 @@ testBootstrapCertificate = X509CertPem $ B8.intercalate "\n"
 bootstrapKey :: ChainwebVersion -> X509KeyPem
 bootstrapKey Test{} = testBootstrapKey
 bootstrapKey TimedConsensus{} = testBootstrapKey
-bootstrapKey TestWithPow{} = testBootstrapKey
+bootstrapKey PowConsensus{} = testBootstrapKey
 bootstrapKey Testnet00 = error
     $ "bootstrap key isn't defined for chainweb version Testnet00"
 bootstrapKey Testnet01 = error

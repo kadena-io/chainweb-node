@@ -82,6 +82,6 @@ runMiner v m = (chooseMiner v)
         -> IO ()
     chooseMiner Test{} = testMiner
     chooseMiner TimedConsensus{} = testMiner
-    chooseMiner TestWithPow{} = powMiner
+    chooseMiner PowConsensus{} = powMiner
     chooseMiner Testnet00 = powMiner
     chooseMiner Testnet01 = powMiner

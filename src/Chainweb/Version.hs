@@ -145,7 +145,7 @@ data ChainwebVersion
         --   * POW is simulated by poison process thread delay.
         --
 
-    | TestWithPow ChainGraph
+    | PowConsensus ChainGraph
         -- ^ Test instance with:
         --
         --   * configurable graph,
@@ -180,7 +180,7 @@ instance Show ChainwebVersion where
 chainwebVersionId :: ChainwebVersion -> Word32
 chainwebVersionId v@Test{} = toTestChainwebVersion v
 chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v
+chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
 chainwebVersionId Testnet01 = 0x00000002
 {-# INLINABLE chainwebVersionId #-}
@@ -230,7 +230,7 @@ chainwebVersionFromText t =
         Nothing -> case t of
             "test" -> pure $ Test petersonChainGraph
             "timedConsensus" -> pure $ TimedConsensus petersonChainGraph
-            "testWithPow" -> pure $ TestWithPow petersonChainGraph
+            "powConsensus" -> pure $ PowConsensus petersonChainGraph
             _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
 instance HasTextRepresentation ChainwebVersion where
@@ -246,7 +246,7 @@ chainwebVersions :: HM.HashMap T.Text ChainwebVersion
 chainwebVersions = HM.fromList $
     f Test "test"
     <> f TimedConsensus "timedConsensus"
-    <> f TestWithPow "testWithPow"
+    <> f PowConsensus "powConsensus"
     <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
@@ -302,13 +302,13 @@ splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
 codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
 codeToTestVersion 0x80000000 = Test
 codeToTestVersion 0x80000001 = TimedConsensus
-codeToTestVersion 0x80000002 = TestWithPow
+codeToTestVersion 0x80000002 = PowConsensus
 codeToTestVersion _ = error "Unknown ChainwebVersion Code"
 
 testVersionToCode :: ChainwebVersion -> Word32
 testVersionToCode Test{} = 0x80000000
 testVersionToCode TimedConsensus{} = 0x80000001
-testVersionToCode TestWithPow{} = 0x80000002
+testVersionToCode PowConsensus{} = 0x80000002
 testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet01 =
@@ -324,7 +324,7 @@ fromTestChainwebVersionId i =
 chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TimedConsensus g) = g
-chainwebVersionGraph (TestWithPow g) = g
+chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 chainwebVersionGraph Testnet01 = twentyChainGraph
 
