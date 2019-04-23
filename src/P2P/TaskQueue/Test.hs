@@ -48,7 +48,7 @@ newtype TestRunnerException = TestRunnerException Int
 instance Exception TestRunnerException
 
 testRunner :: AttemptsCount -> PQueue (Task Int a) -> IO ()
-testRunner limit q = forM_ [0..] $ session limit q (\_ _ -> yield)
+testRunner limit q = forM_ [0..] $ session_ limit q (\_ _ -> yield)
     -- session limit q (\_ m -> T.putStrLn $ logText m)
 
 -- -------------------------------------------------------------------------- --
