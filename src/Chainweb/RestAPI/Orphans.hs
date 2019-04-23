@@ -245,6 +245,8 @@ instance ToParamSchema ChainId where
         & type_ .~ SwaggerInteger
         & format ?~ "word32"
 
+-- FIXME: Invention of new `ChainwebVersion` values will not warn of pattern
+-- match issues here!
 instance ToParamSchema ChainwebVersion where
     toParamSchema _ = mempty
         & type_ .~ SwaggerString
@@ -252,7 +254,9 @@ instance ToParamSchema ChainwebVersion where
             [ Test petersonChainGraph
             , TimedConsensus petersonChainGraph
             , PowConsensus petersonChainGraph
+            , TimedCPM petersonChainGraph
             , Testnet00
+            , Testnet01
             ])
 
 -- -------------------------------------------------------------------------- --
