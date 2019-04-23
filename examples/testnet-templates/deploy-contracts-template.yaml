@@ -3,12 +3,14 @@ chainwebNodePort:
 isChainweb: true
 nodeChainId: 0
 serverRootPrefix: https://us1.chainweb.com
-chainwebVersion: testWithTime
+chainwebVersion: testnet
 timingDistribution:
   mean: 1000000
   tag: Gaussian
   var: 62500
 scriptCommand:
-  tag: RunStandardContracts
+  tag: DeployContracts
   contents:
-    _getOption: false
+    - []
+    - _getOption: false
+logHandle: stdout

@@ -128,21 +128,22 @@ transactionCommandToText = T.decodeUtf8 . transactionCommandBytes
 transactionCommandBytes :: TransactionCommand -> B8.ByteString
 transactionCommandBytes t =
   case t of
-    DeployContracts contracts (MeasureTime mtime) ->
-      "deploy [" <>
-      B8.intercalate "," ((B8.pack . getContractName) <$> contracts) <>
-      "] " <>
-      (fromString . map toLower . show $ mtime)
-    RunStandardContracts d (MeasureTime mtime) ->
-      "run-standard " <> timingDistributionBytes d <> " " <>
-      (fromString . map toLower . show $ mtime)
-    RunSimpleExpressions d (MeasureTime mtime) ->
-      "run-simple " <> timingDistributionBytes d <> " " <>
-      (fromString . map toLower . show $ mtime)
     PollRequestKeys bs (MeasureTime mtime) ->
       "poll [" <> B8.unwords bs <> "] " <> (fromString . map toLower . show $ mtime)
     ListenerRequestKey bytestring (MeasureTime mtime) ->
       "listen " <> bytestring <> " " <> (fromString . map toLower . show $ mtime)
+    _ -> error "Operation not supported."
+    -- DeployContracts contracts (MeasureTime mtime) ->
+    --   "deploy [" <>
+    --   B8.intercalate "," ((B8.pack . getContractName) <$> contracts) <>
+    --   "] " <>
+    --   (fromString . map toLower . show $ mtime)
+    -- RunStandardContracts d (MeasureTime mtime) ->
+    --   "run-standard " <> timingDistributionBytes d <> " " <>
+    --   (fromString . map toLower . show $ mtime)
+    -- RunSimpleExpressions d (MeasureTime mtime) ->
+    --   "run-simple " <> timingDistributionBytes d <> " " <>
+    --   (fromString . map toLower . show $ mtime)
 
 transactionCommandFromText :: MonadThrow m => Text -> m TransactionCommand
 transactionCommandFromText = readTransactionCommandBytes . T.encodeUtf8
@@ -153,48 +154,49 @@ readTransactionCommandBytes = parseBytes "transaction-command" transactionComman
 {-# INLINE readTransactionCommandBytes #-}
 
 transactionCommandParser :: A.Parser TransactionCommand
-transactionCommandParser = deploy <|> runstandard <|> runsimple <|> pollkeys <|> listenkeys
+transactionCommandParser = pollkeys <|> listenkeys
+-- transactionCommandParser = deploy <|> runstandard <|> runsimple <|> pollkeys <|> listenkeys
 
-deploy :: A.Parser TransactionCommand
-deploy = do
-  _constructor <- A.string "deploy"
-  A.skipSpace
-  _open <- A.char '['
-  contracts <- A.sepBy parseContractName (A.char ',')
-  _close <- A.char ']'
-  A.skipSpace
-  measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  return $ DeployContracts contracts measure
+-- deploy :: A.Parser TransactionCommand
+-- deploy = do
+--   _constructor <- A.string "deploy"
+--   A.skipSpace
+--   _open <- A.char '['
+--   contracts <- A.sepBy parseContractName (A.char ',')
+--   _close <- A.char ']'
+--   A.skipSpace
+--   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
+--   return $ DeployContracts contracts measure
 
-parseContractName :: A.Parser ContractName
-parseContractName =
-  ContractName <$> A.many1 (A.letter_ascii <|> A.char '-' <|> A.digit)
+-- parseContractName :: A.Parser ContractName
+-- parseContractName =
+--   ContractName <$> A.many1 (A.letter_ascii <|> A.char '-' <|> A.digit)
 
-runstandard :: A.Parser TransactionCommand
-runstandard = do
-  _constructor <- A.string "run-standard"
-  A.skipSpace
-  dist <- timingDistributionParser
-  A.skipSpace
-  measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  return $ RunStandardContracts dist measure
+-- runstandard :: A.Parser TransactionCommand
+-- runstandard = do
+--   _constructor <- A.string "run-standard"
+--   A.skipSpace
+--   dist <- timingDistributionParser
+--   A.skipSpace
+--   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
+--   return $ RunStandardContracts dist measure
 
-runsimple :: A.Parser TransactionCommand
-runsimple = do
-  _constructor <- A.string "run-simple"
-  A.skipSpace
-  dist <- timingDistributionParser
-  A.skipSpace
-  measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  return $ RunSimpleExpressions dist measure
+-- runsimple :: A.Parser TransactionCommand
+-- runsimple = do
+--   _constructor <- A.string "run-simple"
+--   A.skipSpace
+--   dist <- timingDistributionParser
+--   A.skipSpace
+--   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
+--   return $ RunSimpleExpressions dist measure
 
 pollkeys :: A.Parser TransactionCommand
 pollkeys = do
   _constructor <- A.string "poll"
   A.skipSpace
-  _open <- A.char '['
-  bs <- A.sepBy parseRequestKey (A.char ',')
-  _close <- A.char ']'
+  _open <- A.char '[' >> A.skipSpace
+  bs <- A.sepBy parseRequestKey (A.skipSpace >> A.char ',' >> A.skipSpace)
+  _close <- A.skipSpace >> A.char ']'
   A.skipSpace
   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
   return $ PollRequestKeys bs measure
@@ -225,49 +227,49 @@ data TimingDistribution
   | Uniform  { low   :: !Double , high  :: !Double }
   deriving (Eq, Show, Generic)
 
-timingDistributionBytes :: TimingDistribution -> B8.ByteString
-timingDistributionBytes t =
-  case t of
-    Gaussian m v ->
-      "gaussian " <> sshow m <> " " <> sshow v
-    Uniform l h ->
-      "uniform " <> sshow l <> " " <> sshow h
+-- timingDistributionBytes :: TimingDistribution -> B8.ByteString
+-- timingDistributionBytes t =
+--   case t of
+--     Gaussian m v ->
+--       "gaussian " <> sshow m <> " " <> sshow v
+--     Uniform l h ->
+--       "uniform " <> sshow l <> " " <> sshow h
 
-timingDistributionToText :: TimingDistribution -> Text
-timingDistributionToText = T.decodeUtf8 . timingDistributionBytes
-{-# INLINE timingDistributionToText #-}
+-- timingDistributionToText :: TimingDistribution -> Text
+-- timingDistributionToText = T.decodeUtf8 . timingDistributionBytes
+-- {-# INLINE timingDistributionToText #-}
 
-timingDistributionFromText :: MonadThrow m => Text -> m TimingDistribution
-timingDistributionFromText = readTimingDistributionBytes . T.encodeUtf8
-{-# INLINE timingDistributionFromText #-}
+-- timingDistributionFromText :: MonadThrow m => Text -> m TimingDistribution
+-- timingDistributionFromText = readTimingDistributionBytes . T.encodeUtf8
+-- {-# INLINE timingDistributionFromText #-}
 
-readTimingDistributionBytes :: MonadThrow m => B8.ByteString -> m TimingDistribution
-readTimingDistributionBytes = parseBytes "timing-distribution" timingDistributionParser
-{-# INLINE readTimingDistributionBytes #-}
+-- readTimingDistributionBytes :: MonadThrow m => B8.ByteString -> m TimingDistribution
+-- readTimingDistributionBytes = parseBytes "timing-distribution" timingDistributionParser
+-- {-# INLINE readTimingDistributionBytes #-}
 
-timingDistributionParser :: A.Parser TimingDistribution
-timingDistributionParser = gaussianParser <|> uniformParser
-  where
-    gaussianParser = do
-      _str <- A.string "gaussian"
-      A.skipSpace
-      m <- A.double
-      A.skipSpace
-      v <- A.double
-      return (Gaussian m v)
-    uniformParser = do
-      _str <- A.string "uniform"
-      A.skipSpace
-      ulow <- A.double
-      A.skipSpace
-      uhigh <- A.double
-      return (Uniform ulow uhigh)
+-- timingDistributionParser :: A.Parser TimingDistribution
+-- timingDistributionParser = gaussianParser <|> uniformParser
+--   where
+--     gaussianParser = do
+--       _str <- A.string "gaussian"
+--       A.skipSpace
+--       m <- A.double
+--       A.skipSpace
+--       v <- A.double
+--       return (Gaussian m v)
+--     uniformParser = do
+--       _str <- A.string "uniform"
+--       A.skipSpace
+--       ulow <- A.double
+--       A.skipSpace
+--       uhigh <- A.double
+--       return (Uniform ulow uhigh)
 
-instance HasTextRepresentation TimingDistribution where
-  toText = timingDistributionToText
-  {-# INLINE toText #-}
-  fromText = timingDistributionFromText
-  {-# INLINE fromText #-}
+-- instance HasTextRepresentation TimingDistribution where
+--   toText = timingDistributionToText
+--   {-# INLINE toText #-}
+--   fromText = timingDistributionFromText
+--   {-# INLINE fromText #-}
 
 instance Default TimingDistribution where
   def = Gaussian 1000000 (1000000 / 16)
@@ -333,24 +335,24 @@ scriptConfigParser = id
       % long "script-command"
       <> short 'c'
       <> metavar "COMMAND"
-      <> help "The specific command to run: see examples/transaction-generatar-help.txt for more detail."
+      <> help "The specific command to run: see examples/transaction-generator-help.md for more detail."
   <*< nodeChainId .:: textOption
       % long "node-chain-id"
       <> short 'i'
       <> metavar "INT"
       <> help "The specific chain that will receive generated \"fake\" transactions."
-  <*< isChainweb .:: option auto
-      % long "is-chainweb"
-      <> short 'w'
-      <> metavar "BOOL"
-      <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
+  -- <*< isChainweb .:: option auto
+  --     % long "is-chainweb"
+  --     <> short 'w'
+  --     <> metavar "BOOL"
+  --     <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
   <*< chainwebHostAddress %:: pHostAddress Nothing
-  <*< nodeVersion .:: textOption
-      % long "chainweb-version"
-      <> short 'v'
-      <> metavar "VERSION"
-      <> help "Chainweb Version"
-  <*< logHandleConfig .:: U.pHandleConfig
+  -- <*< nodeVersion .:: textOption
+  --     % long "chainweb-version"
+  --     <> short 'v'
+  --     <> metavar "VERSION"
+  --     <> help "Chainweb Version"
+  -- <*< logHandleConfig .:: U.pHandleConfig
 
 data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: Maybe TimingDistribution
@@ -660,7 +662,7 @@ listenerRequestKey (MeasureTime mtime) listenerRequest config = do
 main :: IO ()
 main =
   runWithConfiguration mainInfo $ \config ->
-    if HS.member (_nodeChainId config) $ chainIds_ $ _chainGraph (_nodeVersion config)
+    if HS.member (_nodeChainId config) $ graphChainIds $ _chainGraph (_nodeVersion config)
        then startup config
        else error $ "This chain: " <> show (_nodeChainId config) <> " is invalid given this chainweb version: " <> show (_nodeVersion config)
   where

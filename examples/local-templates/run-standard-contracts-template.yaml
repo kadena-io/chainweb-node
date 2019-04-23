@@ -3,9 +3,12 @@ nodeChainId: 0
 chainwebHostAddress:
   hostname: 127.0.0.1
   port: 1789
-chainwebVersion: testWithTime-4075880449
+chainwebVersion: testWithTime-peterson
 scriptCommand:
-  tag: DeployContracts
+  tag: RunStandardContracts
   contents:
-  - []
+  - mean: 1000000
+    tag: Gaussian
+    var: 62500
   - measureTime: false
+logHandle: stdout

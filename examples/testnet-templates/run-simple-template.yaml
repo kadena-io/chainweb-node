@@ -1,0 +1,14 @@
+isChainweb: true
+nodeChainId: 0
+chainwebHostAddress:
+  hostname: https://us1.chainweb.com
+  port: 443
+chainwebVersion: testnet
+scriptCommand:
+  tag: RunSimpleExpressions
+  contents:
+  - mean: 1000000
+    tag: Gaussian
+    var: 62500
+  - measureTime: false
+logHandle: stdout
