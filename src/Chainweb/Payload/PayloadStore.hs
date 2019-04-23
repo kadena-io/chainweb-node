@@ -250,7 +250,7 @@ addNewPayload
     -> IO ()
 addNewPayload db s = addPayload db txs txTree outs outTree
   where
-    (bts,bos) = payloadWithOutputsToBlockObjects s
+    (bts, bos) = payloadWithOutputsToBlockObjects s
     (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
     (outTree, outs) = newBlockOutputs (_blockCoinbaseOutput bos) (_blockOutputs bos)
 

@@ -218,9 +218,9 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
       Just x -> pure x
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
-initialPayloadState Test{} _ = return ()
-initialPayloadState v@TimedConsensus{} cid = createCoinContract v cid
-initialPayloadState PowConsensus{} _ = return ()
+initialPayloadState Test{} _ = pure ()
+initialPayloadState TimedConsensus{} _ = pure ()
+initialPayloadState PowConsensus{} _ = pure ()
 initialPayloadState v@TimedCPM{} cid = createCoinContract v cid
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 initialPayloadState v@Testnet01 cid = createCoinContract v cid

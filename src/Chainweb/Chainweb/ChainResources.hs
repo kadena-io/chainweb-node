@@ -104,7 +104,7 @@ instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
--- Intializes all local Chain resources, but doesn't start any networking.
+-- | Intializes all local Chain resources, but doesn't start any networking.
 --
 withChainResources
     :: Logger logger
@@ -129,8 +129,16 @@ withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
                 , _chainResLogger = logger
                 , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
-                , _chainResPact = mkPactExecutionService mempool requestQ
+                , _chainResPact = pes mempool requestQ
                 }
+  where
+    pes mempool requestQ = case v of
+        Test{} -> emptyPactExecutionService
+        TimedConsensus{} -> emptyPactExecutionService
+        PowConsensus{} -> emptyPactExecutionService
+        TimedCPM{} -> mkPactExecutionService mempool requestQ
+        Testnet00 -> mkPactExecutionService mempool requestQ
+        Testnet01 -> mkPactExecutionService mempool requestQ
 
 withPersistedDb
     :: ChainId

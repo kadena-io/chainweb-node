@@ -62,10 +62,9 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
-import Chainweb.Pact.Types (noCoinbase, noMiner, toCoinbaseOutput)
+import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoche)
-import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, encodeChainwebVersion)
 
 ---
@@ -126,17 +125,11 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TimedConsensus{} _ = TN0.payloadBlock
+genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} _ = TN0.payloadBlock
 genesisBlockPayload Testnet00 _ = TN0.payloadBlock
 genesisBlockPayload Testnet01 _ = TN1.payloadBlock
-
-emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
-  where (BlockPayload h i o) = newBlockPayload miner coinbase mempty
-        miner = MinerData $ encodeToByteString noMiner
-        coinbase = toCoinbaseOutput noCoinbase
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
