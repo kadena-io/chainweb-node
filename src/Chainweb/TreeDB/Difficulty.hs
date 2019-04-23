@@ -46,7 +46,7 @@ hashTarget db bh
     -- Intent: Neither the genesis block, nor any block whose height is not a
     -- multiple of the `BlockRate` shall be considered for adjustment.
     | isGenesisBlockHeader bh' = pure $! _blockTarget bh'
-    | int (_blockHeight bh') `mod` ww /= 0 = pure $! _blockTarget bh'
+    | height `mod` ww /= 0 = pure $! _blockTarget bh'
     | otherwise = do
         start <- branchEntries db Nothing Nothing minr maxr lower upper $ \s -> s
             & P.map (^. isoBH)
@@ -63,12 +63,21 @@ hashTarget db bh
 
         pure . adjust ver delta $ _blockTarget bh'
   where
+    height :: Natural
+    height = int $ _blockHeight bh'
+
     bh' :: BlockHeader
     bh' = bh ^. isoBH
 
     ww :: Natural
     ww = case window ver of
-      Just (WindowWidth n) -> n
+      Just (WindowWidth n)
+          -- Intent: Initial network conditions are chaotic. `HashTarget`s are
+          -- so easy that mining progresses extremely quickly. In order to not
+          -- overwhelm the Cut network, we perform earlier adjustments before
+          -- the first "official" adjustment epoch is reached.
+          | height < n -> n `div` 10
+          | otherwise -> n
       Nothing -> error $ "hashTarget: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     ver :: ChainwebVersion
