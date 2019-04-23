@@ -180,7 +180,7 @@ chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a
         & info.title   .~ "Chainweb"
         & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> " API"
+        & info.description ?~ sshow v
 
 prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
