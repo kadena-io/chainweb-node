@@ -71,6 +71,9 @@ getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) en
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
+catchupStepSize :: BlockHeight
+catchupStepSize = 1000
+
 syncSession
     :: ChainwebVersion
     -> Bool
@@ -101,7 +104,9 @@ syncSession v useOrigin p db logg env pinf = do
     receive = do
         -- Query cut that is at most 1000 blocks ahead
         h <- _cutHeight <$> _cut db
-        c <- getCut cenv (h + 1000)
+        c <- getCut cenv (h + min catchupStepSize (int farAheadThreshold - 1))
+            -- Cf. documentation of 'fastAheadThreshold' for why this bound is
+            -- needed
 
         logg @T.Text Info $ "receivecd cut " <> sshow c
         addCutHashes db $ set cutOrigin (Just pinf) c

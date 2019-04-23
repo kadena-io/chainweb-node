@@ -617,15 +617,6 @@ giveNewWebChain db v f = do
     bdb <- liftIO (initWebBlockHeaderDb db v)
     give bdb f
 
--- giveNewWebChain
---     :: MonadIO m
---     => ChainwebVersion
---     -> (Given WebBlockHeaderDb => m a)
---     -> m a
--- giveNewWebChain v f = do
---     db <- liftIO (initWebBlockHeaderDb v)
---     give db f
-
 ioTest
     :: RocksDb
     -> ChainwebVersion
@@ -633,8 +624,3 @@ ioTest
     -> T.Property
 ioTest db v f = T.monadicIO $ giveNewWebChain db v $ f >>= T.assert
 
--- ioTest
---     :: ChainwebVersion
---     -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
---     -> T.Property
--- ioTest v f = T.monadicIO $ giveNewWebChain v $ f >>= T.assert

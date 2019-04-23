@@ -53,7 +53,6 @@ import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
@@ -179,7 +178,7 @@ spvTransactionOutputRoundtripTest rdb v step = do
 -- -------------------------------------------------------------------------- --
 -- REST API
 
-type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
 
 apiTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbsIO ->

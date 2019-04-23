@@ -10,7 +10,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Content addressable block payload store that uses RocksDB as storage backend.
 --
 module Chainweb.Payload.PayloadStore.RocksDB
 ( newPayloadDb

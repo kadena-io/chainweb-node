@@ -22,7 +22,14 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Persisted iey-value and and content-addressable-key-value stores with a
+-- RocksDB backend.
+--
+-- A 'RocksDbTable' provides a typed key-value store with an additional iterator
+-- interace.
+--
+-- 'RocksDbCas' adds an 'IsCas' instance for a 'RocksDbTable' where the value
+-- type is content-addressable.
 --
 module Data.CAS.RocksDB
 ( RocksDb(..)
@@ -77,6 +84,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import Data.CAS
 import qualified Data.Text as T
 
@@ -84,6 +92,7 @@ import qualified Database.RocksDB.Base as R
 import qualified Database.RocksDB.Iterator as I
 
 import GHC.Generics (Generic)
+import GHC.Stack
 
 import qualified Streaming.Prelude as S
 
@@ -130,9 +139,6 @@ withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
 -- could handle the types in all sub-namespaces. This could for instance
 -- be useful for iterating over the complete database.
 
--- | Encodings of keys must NOT contain any of '$', '%', '/', and '0'. This is
--- not enforced by the implementation.
---
 data Codec a = Codec
     { _codecEncode :: !(a -> B.ByteString)
     , _codecDecode :: !(forall m . MonadThrow m => B.ByteString -> m a)
@@ -145,14 +151,23 @@ data RocksDbTable k v = RocksDbTable
     , _rocksDbTableDb :: !R.DB
     }
 
+-- | Create a new 'RocksDbTable' in the given 'RocksDb'.
+--
+-- Table name components must NOT contain any of '$', '%', and '/'. A user
+-- error is raised if the namespace contains any of these characters.
+--
 newTable
-    :: RocksDb
+    :: HasCallStack
+    => RocksDb
     -> Codec v
     -> Codec k
     -> [B.ByteString]
     -> RocksDbTable k v
 newTable db valCodec keyCodec namespace
-    = RocksDbTable valCodec keyCodec ns (_rocksDbHandle db)
+    | any (B8.any (\x -> x `elem` ['$', '%', '/'])) namespace
+        = error $ "Data.CAS.RocksDb.newTable: invalid character in table namespace: " <> sshow namespace
+    | otherwise
+        = RocksDbTable valCodec keyCodec ns (_rocksDbHandle db)
   where
     ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace <> "$"
 {-# INLINE newTable #-}

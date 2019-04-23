@@ -130,7 +130,7 @@ library
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.PayloadStore.HashMap
+        , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client

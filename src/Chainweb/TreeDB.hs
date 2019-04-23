@@ -240,10 +240,14 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | This stream returns a prefix of the keys of the nodes in the tree in
     -- ascending order starting from the given key or the genesis block key.
     --
-    -- This stream doesn't block indefinitely. If there is no further entry
-    -- available it terminates and returns a number of returned items and a
-    -- cursor. Implementations should block on IO at most a constant amount of
-    -- time.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- If there is no further entry available it terminates and returns a number
+    -- of returned items and a cursor. Implementations should block on IO at
+    -- most a constant amount of time.
     --
     -- The default implementation is based on 'entries', which in some cases
     -- doesn't give good performance.
@@ -262,10 +266,14 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | This stream returns a prefix of the entries of the nodes in the tree in
     -- ascending order starting from the given key or the genesis block.
     --
-    -- This stream doesn't block indefinitely. If there is no further entry
-    -- available it terminates and returns a number of returned items and a
-    -- cursor. Implementations should block on IO at most a constant amount of
-    -- time.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- If there is no further entry available it terminates and returns a number
+    -- of returned items and a cursor. Implementations should block on IO at
+    -- most a constant amount of time.
     --
     entries
         :: db
@@ -285,8 +293,12 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- at the entry @n@. The number of items in the result is limited by @l@.
     -- Items are returned in descending order.
     --
-    -- The result stream doesn't block. It may return less than the requested
-    -- number of items.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- The result stream may return less than the requested number of items.
     --
     branchKeys
         :: db
@@ -310,8 +322,12 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- @lower@, starting at the entry after @n@. The number of items in the
     -- result is limited by @l@. Items are returned in descending order.
     --
-    -- The result stream doesn't block. It may return less than the requested
-    -- number of items.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- The result stream may return less than the requested number of items.
     --
     branchEntries
         :: db
@@ -361,6 +377,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- ---------------------------------------------------------------------- --
     -- Misc
 
+    -- | The largest entry in the database. This is the last entry in the
+    -- 'entries' stream. It is also an entry of maximal rank.
+    --
     maxEntry :: db -> IO (DbEntry db)
 
     -- | Maximum rank of all entries in the database.

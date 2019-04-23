@@ -84,6 +84,7 @@ webEntries db f = go (view (webBlockHeaderDb . to HM.elems) db) mempty
     go [] s = f s
     go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
         go t (() <$ S.mergeOn _blockCreationTime s x)
+            -- FIXME: should we include the rank in the order?
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb

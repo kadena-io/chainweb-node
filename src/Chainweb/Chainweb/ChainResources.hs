@@ -13,7 +13,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Allocate chainweb resources for individual chains
 --
 module Chainweb.Chainweb.ChainResources
 ( ChainResources(..)
@@ -125,11 +125,8 @@ withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
     withBlockHeaderDb rdb v cid $ \cdb -> do
-        -- chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
-        -- withPersistedDb cid chainDbDirPath cdb $ do
 
-            -- replay pact (TODO: after pact supports a persisted db backen this
-            -- should required only in rare cases when the db is corrupted)
+            -- replay pact
             let pact = mkPactExecutionService mempool requestQ
             replayPact logger pact cdb payloadDb
 

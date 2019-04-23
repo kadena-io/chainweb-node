@@ -52,7 +52,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.HashMap
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
@@ -64,7 +64,6 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.CAS
-import Data.CAS.HashMap (HashMapCas)
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
@@ -86,11 +85,11 @@ withTestCutDb
     -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (CutDb HashMapCas -> IO a)
+    -> (CutDb RocksDbCas -> IO a)
     -> IO a
 withTestCutDb rdb v n logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
-    payloadDb <- newPayloadDb
+    let payloadDb = newPayloadDb rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
@@ -107,7 +106,7 @@ withTestPayloadResource
     -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (IO (CutDb HashMapCas, PayloadDb HashMapCas) -> TestTree)
+    -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
     -> TestTree
 withTestPayloadResource rdb v n logfun inner
     = withResource start stopTestPayload $ \envIO -> do
@@ -123,10 +122,10 @@ startTestPayload
     -> ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb HashMapCas, PayloadDb HashMapCas)
+    -> IO (Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
 startTestPayload rdb v logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
-    payloadDb <- newPayloadDb
+    let payloadDb = newPayloadDb rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
@@ -136,7 +135,7 @@ startTestPayload rdb v logfun n = do
     foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
-stopTestPayload :: (Async (), Async (), CutDb HashMapCas, PayloadDb HashMapCas) -> IO ()
+stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
 stopTestPayload (pserver, hserver, cutDb, _) = do
     stopCutDb cutDb
     cancel hserver
@@ -162,8 +161,8 @@ startLocalWebBlockHeaderStore mgr webDb = do
 
 withLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb HashMapCas
-    -> (WebBlockPayloadStore HashMapCas -> IO a)
+    -> PayloadDb cas
+    -> (WebBlockPayloadStore cas -> IO a)
     -> IO a
 withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
     mem <- new
@@ -171,8 +170,8 @@ withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
 
 startLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb HashMapCas
-    -> IO (Async (), WebBlockPayloadStore HashMapCas)
+    -> PayloadDb cas
+    -> IO (Async (), WebBlockPayloadStore cas)
 startLocalPayloadStore mgr payloadDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
@@ -183,7 +182,8 @@ startLocalPayloadStore mgr payloadDb = do
 --
 mine
     :: HasCallStack
-    => CutDb HashMapCas
+    => PayloadCas cas
+    => CutDb cas
     -> Cut
     -> IO Cut
 mine cutDb c = do
@@ -227,7 +227,7 @@ mine cutDb c = do
 --
 randomBlockHeader
     :: HasCallStack
-    => CutDb HashMapCas
+    => CutDb cas
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
@@ -244,7 +244,8 @@ randomBlockHeader cutDb = do
 --
 randomTransaction
     :: HasCallStack
-    => CutDb HashMapCas
+    => PayloadCas cas
+    => CutDb cas
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb

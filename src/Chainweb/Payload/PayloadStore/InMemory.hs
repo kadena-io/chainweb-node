@@ -3,15 +3,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Payload.PayloadStore.HashMap
+-- Module: Chainweb.Payload.PayloadStore.InMemory
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- An in-memory block payload store.
 --
-module Chainweb.Payload.PayloadStore.HashMap
+module Chainweb.Payload.PayloadStore.InMemory
 ( newPayloadDb
 
 -- * Internal

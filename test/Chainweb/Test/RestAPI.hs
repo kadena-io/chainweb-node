@@ -47,7 +47,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
@@ -101,7 +100,7 @@ tests_ rdb tls =
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
 
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []

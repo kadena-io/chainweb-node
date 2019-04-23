@@ -24,6 +24,7 @@ import Control.Monad
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
+import Data.Foldable (toList)
 import Data.Int
 import Data.Maybe
 import Data.Proxy
@@ -88,8 +89,8 @@ nNodes = 1
 version :: ChainwebVersion
 version = TestWithTime petersonChainGraph
 
-cid :: ChainId
-cid = either (error . sshow) id $ mkChainId version (0 :: Int)
+cid :: HasCallStack => ChainId
+cid = head . toList $ chainIds version
 
 tests :: RocksDb -> IO TestTree
 tests rdb = do
@@ -120,16 +121,15 @@ testSend cmds env = do
             result <- sendWithRetry cmds env sb
             case result of
                 Left e -> assertFailure (show e)
-                Right rks -> do
-                    tt0 <- checkRequestKeys "command-0" rks
-                    return (tt0, rks)
+                Right rks ->
+                    return (checkRequestKeys "command-0" rks, rks)
 
 testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO TestTree
 testPoll cmds env rks = do
     response <- pollWithRetry cmds env rks
     case response of
         Left e -> assertFailure (show e)
-        Right rsp -> checkResponse "command-0" rks rsp
+        Right rsp -> return $ checkResponse "command-0" rks rsp
 
 testMPValidated
     :: MempoolBackend ChainwebTransaction
@@ -204,20 +204,22 @@ pollWithRetry cmds env rks = do
 maxMemPoolRetries :: Int
 maxMemPoolRetries = 30
 
-checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
-checkRequestKeys filePrefix rks = do
-    let fp = filePrefix ++ "-expected-rks.txt"
-    let bsRks = return $ foldMap (toS . show ) (_rkRequestKeys rks)
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+checkRequestKeys :: FilePath -> RequestKeys -> TestTree
+checkRequestKeys filePrefix rks =
+    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+  where
+    fp = filePrefix ++ "-expected-rks.txt"
+    bsRks = return $! foldMap (toS . show ) (_rkRequestKeys rks)
 
-checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
-checkResponse filePrefix rks (PollResponses theMap) = do
-    let fp = filePrefix ++ "-expected-resp.txt"
-    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _arResult <$> catMaybes mays
-    let bsResponse = return $ toS $ foldMap A.encode values
+checkResponse :: FilePath -> RequestKeys -> PollResponses -> TestTree
+checkResponse filePrefix rks (PollResponses theMap) =
+    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
+  where
+    fp = filePrefix ++ "-expected-resp.txt"
+    mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
+    values = _arResult <$> catMaybes mays
+    bsResponse = return $! toS $! foldMap A.encode values
 
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
 
 getCwBaseUrl :: Port -> BaseUrl
 getCwBaseUrl thePort = BaseUrl
@@ -263,7 +265,7 @@ runTestNodes
     -> IO ()
 runTestNodes rdb loglevel v n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (500000 * int i)
+        threadDelay (1000 * int i)
         let baseConf = config v n (NodeId i)
         conf <- if
             | i == 0 ->
@@ -329,5 +331,5 @@ setBootstrapPeerInfo =
 
 -- for Stuart:
 runGhci :: IO ()
-runGhci = withTempRocksDb "RemotePactTests" $ \rdb -> tests rdb >>= defaultMain
+runGhci = withTempRocksDb "ghci.RemotePactTests" $ \rdb -> tests rdb >>= defaultMain
 

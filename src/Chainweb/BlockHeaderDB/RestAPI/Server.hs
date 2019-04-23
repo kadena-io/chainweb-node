@@ -117,10 +117,11 @@ branchHashesHandler
 branchHashesHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
-    liftIO $ finiteStreamToPage id effectiveLimit . void
-        & branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
+    liftIO
+        $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage id effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -140,10 +141,11 @@ branchHeadersHandler
 branchHeadersHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
-    liftIO $ finiteStreamToPage key effectiveLimit . void
-        & branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
+    liftIO
+        $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage key effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -161,8 +163,10 @@ hashesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finitePrefixOfInfiniteStreamToPage id effectiveLimit . void
-        & keys db nextChecked (succ <$> effectiveLimit) minr maxr
+    liftIO
+        $ keys db nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finitePrefixOfInfiniteStreamToPage id effectiveLimit
+        . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -180,8 +184,9 @@ headersHandler
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
-        & entries db nextChecked (succ <$> effectiveLimit) minr maxr
+    liftIO
+        $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultEntryLimit
 

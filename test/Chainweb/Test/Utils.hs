@@ -146,7 +146,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
@@ -421,7 +420,7 @@ pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
     -> [(ChainId, BlockHeaderDb)]
     -> ChainwebVersion
-    -> TestClientEnv t HashMapCas
+    -> TestClientEnv t cas
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs, _cdbEnvVersion }
     = TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] [] [] _cdbEnvVersion
 
@@ -429,7 +428,7 @@ pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
     -> ChainwebVersion
-    -> TestClientEnv t HashMapCas
+    -> TestClientEnv t cas
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion }
     = TestClientEnv _pdbEnvClientEnv Nothing [] [] [] _pdbEnvPeerDbs _pdbEnvVersion
 
@@ -546,12 +545,13 @@ clientEnvWithChainwebTestServer tls v dbsIO
 
 withPeerDbsServer
     :: Show t
+    => PayloadCas cas
     => ToJSON t
     => FromJSON t
     => Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO (TestClientEnv t HashMapCas) -> TestTree)
+    -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
     peerDbs <- peerDbsIO
@@ -561,13 +561,14 @@ withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
 
 withPayloadServer
     :: Show t
+    => PayloadCas cas
     => ToJSON t
     => FromJSON t
     => Bool
     -> ChainwebVersion
-    -> IO (CutDb HashMapCas)
-    -> IO [(ChainId, PayloadDb HashMapCas)]
-    -> (IO (TestClientEnv t HashMapCas) -> TestTree)
+    -> IO (CutDb cas)
+    -> IO [(ChainId, PayloadDb cas)]
+    -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 withPayloadServer tls v cutDbIO payloadDbsIO = clientEnvWithChainwebTestServer tls v $ do
     payloadDbs <- payloadDbsIO
@@ -579,13 +580,14 @@ withPayloadServer tls v cutDbIO payloadDbsIO = clientEnvWithChainwebTestServer t
 
 withBlockHeaderDbsServer
     :: Show t
+    => PayloadCas cas
     => ToJSON t
     => FromJSON t
     => Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
-    -> (IO (TestClientEnv t HashMapCas) -> TestTree)
+    -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO
     = clientEnvWithChainwebTestServer tls v $ do
