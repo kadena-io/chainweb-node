@@ -83,7 +83,7 @@ nNodes :: Natural
 nNodes = 1
 
 version :: ChainwebVersion
-version = TimedConsensus petersonChainGraph
+version = TimedCPM petersonChainGraph
 
 cid :: ChainId
 cid = either (error . sshow) id $ mkChainId version (0 :: Int)
