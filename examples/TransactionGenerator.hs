@@ -1,20 +1,19 @@
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveFunctor		#-}
-{-# LANGUAGE DeriveGeneric		#-}
-{-# LANGUAGE DerivingStrategies		#-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances		#-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings		#-}
-{-# LANGUAGE RankNTypes			#-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeOperators              #-}
-
+{-# LANGUAGE BangPatterns                    #-}
+{-# LANGUAGE DataKinds                       #-}
+{-# LANGUAGE DeriveFunctor                   #-}
+{-# LANGUAGE DeriveGeneric                   #-}
+{-# LANGUAGE DerivingStrategies              #-}
+{-# LANGUAGE FlexibleContexts                #-}
+{-# LANGUAGE FlexibleInstances               #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving      #-}
+{-# LANGUAGE MultiParamTypeClasses           #-}
+{-# LANGUAGE OverloadedStrings               #-}
+{-# LANGUAGE RankNTypes                      #-}
+{-# LANGUAGE ScopedTypeVariables             #-}
+{-# LANGUAGE StandaloneDeriving              #-}
+{-# LANGUAGE TemplateHaskell                 #-}
+{-# LANGUAGE TypeApplications                #-}
+{-# LANGUAGE TypeOperators                   #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 -- | Module: Main
@@ -132,18 +131,7 @@ transactionCommandBytes t =
       "poll [" <> B8.unwords bs <> "] " <> (fromString . map toLower . show $ mtime)
     ListenerRequestKey bytestring (MeasureTime mtime) ->
       "listen " <> bytestring <> " " <> (fromString . map toLower . show $ mtime)
-    _ -> error "Operation not supported."
-    -- DeployContracts contracts (MeasureTime mtime) ->
-    --   "deploy [" <>
-    --   B8.intercalate "," ((B8.pack . getContractName) <$> contracts) <>
-    --   "] " <>
-    --   (fromString . map toLower . show $ mtime)
-    -- RunStandardContracts d (MeasureTime mtime) ->
-    --   "run-standard " <> timingDistributionBytes d <> " " <>
-    --   (fromString . map toLower . show $ mtime)
-    -- RunSimpleExpressions d (MeasureTime mtime) ->
-    --   "run-simple " <> timingDistributionBytes d <> " " <>
-    --   (fromString . map toLower . show $ mtime)
+    _ -> error "impossible"
 
 transactionCommandFromText :: MonadThrow m => Text -> m TransactionCommand
 transactionCommandFromText = readTransactionCommandBytes . T.encodeUtf8
@@ -155,40 +143,6 @@ readTransactionCommandBytes = parseBytes "transaction-command" transactionComman
 
 transactionCommandParser :: A.Parser TransactionCommand
 transactionCommandParser = pollkeys <|> listenkeys
--- transactionCommandParser = deploy <|> runstandard <|> runsimple <|> pollkeys <|> listenkeys
-
--- deploy :: A.Parser TransactionCommand
--- deploy = do
---   _constructor <- A.string "deploy"
---   A.skipSpace
---   _open <- A.char '['
---   contracts <- A.sepBy parseContractName (A.char ',')
---   _close <- A.char ']'
---   A.skipSpace
---   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
---   return $ DeployContracts contracts measure
-
--- parseContractName :: A.Parser ContractName
--- parseContractName =
---   ContractName <$> A.many1 (A.letter_ascii <|> A.char '-' <|> A.digit)
-
--- runstandard :: A.Parser TransactionCommand
--- runstandard = do
---   _constructor <- A.string "run-standard"
---   A.skipSpace
---   dist <- timingDistributionParser
---   A.skipSpace
---   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
---   return $ RunStandardContracts dist measure
-
--- runsimple :: A.Parser TransactionCommand
--- runsimple = do
---   _constructor <- A.string "run-simple"
---   A.skipSpace
---   dist <- timingDistributionParser
---   A.skipSpace
---   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
---   return $ RunSimpleExpressions dist measure
 
 pollkeys :: A.Parser TransactionCommand
 pollkeys = do
@@ -226,50 +180,6 @@ data TimingDistribution
   = Gaussian { mean  :: !Double , var   :: !Double }
   | Uniform  { low   :: !Double , high  :: !Double }
   deriving (Eq, Show, Generic)
-
--- timingDistributionBytes :: TimingDistribution -> B8.ByteString
--- timingDistributionBytes t =
---   case t of
---     Gaussian m v ->
---       "gaussian " <> sshow m <> " " <> sshow v
---     Uniform l h ->
---       "uniform " <> sshow l <> " " <> sshow h
-
--- timingDistributionToText :: TimingDistribution -> Text
--- timingDistributionToText = T.decodeUtf8 . timingDistributionBytes
--- {-# INLINE timingDistributionToText #-}
-
--- timingDistributionFromText :: MonadThrow m => Text -> m TimingDistribution
--- timingDistributionFromText = readTimingDistributionBytes . T.encodeUtf8
--- {-# INLINE timingDistributionFromText #-}
-
--- readTimingDistributionBytes :: MonadThrow m => B8.ByteString -> m TimingDistribution
--- readTimingDistributionBytes = parseBytes "timing-distribution" timingDistributionParser
--- {-# INLINE readTimingDistributionBytes #-}
-
--- timingDistributionParser :: A.Parser TimingDistribution
--- timingDistributionParser = gaussianParser <|> uniformParser
---   where
---     gaussianParser = do
---       _str <- A.string "gaussian"
---       A.skipSpace
---       m <- A.double
---       A.skipSpace
---       v <- A.double
---       return (Gaussian m v)
---     uniformParser = do
---       _str <- A.string "uniform"
---       A.skipSpace
---       ulow <- A.double
---       A.skipSpace
---       uhigh <- A.double
---       return (Uniform ulow uhigh)
-
--- instance HasTextRepresentation TimingDistribution where
---   toText = timingDistributionToText
---   {-# INLINE toText #-}
---   fromText = timingDistributionFromText
---   {-# INLINE fromText #-}
 
 instance Default TimingDistribution where
   def = Gaussian 1000000 (1000000 / 16)
@@ -335,24 +245,19 @@ scriptConfigParser = id
       % long "script-command"
       <> short 'c'
       <> metavar "COMMAND"
-      <> help "The specific command to run: see examples/transaction-generator-help.md for more detail."
+      <> help ("The specific command to run: see examples/transaction-generator-help.md for more detail."
+               <> "The only commands supported on the commandline are 'poll' and 'listen'.")
   <*< nodeChainId .:: textOption
       % long "node-chain-id"
       <> short 'i'
       <> metavar "INT"
-      <> help "The specific chain that will receive generated \"fake\" transactions."
-  -- <*< isChainweb .:: option auto
-  --     % long "is-chainweb"
-  --     <> short 'w'
-  --     <> metavar "BOOL"
-  --     <> help "Indicates that remote server is a chainweb instead of 'pact -s'"
+      <> help "The specific chain that will receive generated transactions."
   <*< chainwebHostAddress %:: pHostAddress Nothing
-  -- <*< nodeVersion .:: textOption
-  --     % long "chainweb-version"
-  --     <> short 'v'
-  --     <> metavar "VERSION"
-  --     <> help "Chainweb Version"
-  -- <*< logHandleConfig .:: U.pHandleConfig
+  <*< nodeVersion .:: textOption
+      % long "chainweb-version"
+      <> short 'v'
+      <> metavar "VERSION"
+      <> help "Chainweb Version"
 
 data TransactionGeneratorConfig = TransactionGeneratorConfig
   { _timingdist         :: Maybe TimingDistribution
@@ -464,7 +369,7 @@ loop measure@(MeasureTime mtime) = do
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
   lift $ logg Info $ (toLogMessage $ (("Sent transaction with request keys: " <> sshow requestKeys) :: Text))
   when mtime $
-    lift $ logg Info (toLogMessage $ (("Sending a transaction (with request keys) " <> sshow requestKeys <> " took: " <> sshow timeTaken) :: Text))
+    lift $ logg Info (toLogMessage $ (("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
   gsCounter += 1
   lift $ logg Info (toLogMessage $ (("Transaction count: " <> sshow count) :: Text))
@@ -476,9 +381,6 @@ forkedListens ::
   => Either ServantError RequestKeys
   -> TransactionGenerator m ()
 forkedListens requestKeys = do
-  ---------- BELOW ----------
-  -- Is there a better way to write this?
-  ---------- BELOW ----------
   err <- mapM (mapM forkedListen) (mapM _rkRequestKeys requestKeys)
   case sequence err of
     Left servantError -> lift $ logg Error (toLogMessage ((sshow servantError) :: Text))
@@ -494,16 +396,13 @@ forkedListens requestKeys = do
         -- Also, there is a function from `monad-control` which enables you
         -- to lift forkIO. The extra lift at the end is to get the entire
         -- computation back into the TransactionGenerator transformer.
-        _ <- lift $ liftBaseDiscard forkIO $ do
+        void $ lift $ liftBaseDiscard forkIO $ do
           (time,response) <- liftIO $ measureDiffTime (runClientM (listen version chain listenerRequest) clientEnv)
           liftIO $ print response
-          -- withLabel ("component", "transaction-generator") $
+          -- withLabel ("component", "transaction-generator") $ -- add this back in later
           logg Info $ toLogMessage (("It took " <> sshow time <> " seconds to get back the result.") :: Text)
-          -- withLabel ("component", "transaction-generator") $
+          -- withLabel ("component", "transaction-generator") $ -- add this back in later
           logg Info $ toLogMessage $ (("The associated request is " <> sshow requestKey <> "\n" <> sshow response) :: Text)
-          -- liftIO $ putStrLn "do you get here?"
-        liftIO $ threadDelay 1000000
-        return ()
 
 simpleloop ::
      (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
@@ -540,16 +439,6 @@ mainInfo =
     "Chainweb-TransactionGenerator"
     scriptConfigParser
     defaultScriptConfig
-
---------------------------------------------------
--- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
---------------------------------------------------
--- newtype ContractLoader a = ContractLoader
---   { loadContract :: [SomeKeyPair] -> IO (Command a)
---   } deriving Functor
---------------------------------------------------
--- THIS MAY BE ADDED LATER IF DEEMED NECESSARY. --
---------------------------------------------------
 
 type ContractLoader = PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
@@ -740,7 +629,3 @@ _genapi2 version chainid =
         SomeChainIdT (_ :: Proxy cid) ->
           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
-
--- Local Variables:
--- haskell-process-args-cabal-repl: ("exe:transaction-generator")
--- End:

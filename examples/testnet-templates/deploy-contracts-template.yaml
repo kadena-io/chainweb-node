@@ -3,7 +3,7 @@ chainwebNodePort:
 isChainweb: true
 nodeChainId: 0
 serverRootPrefix: https://us1.chainweb.com
-chainwebVersion: testnet
+chainwebVersion: testnet00
 timingDistribution:
   mean: 1000000
   tag: Gaussian

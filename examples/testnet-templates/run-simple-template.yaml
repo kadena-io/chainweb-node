@@ -3,7 +3,7 @@ nodeChainId: 0
 chainwebHostAddress:
   hostname: https://us1.chainweb.com
   port: 443
-chainwebVersion: testnet
+chainwebVersion: testnet00
 scriptCommand:
   tag: RunSimpleExpressions
   contents:
