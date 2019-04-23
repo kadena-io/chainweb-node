@@ -30,7 +30,7 @@ import Control.Concurrent
     (MVar, ThreadId, forkIOWithUnmask, killThread, modifyMVarMasked,
     modifyMVarMasked_, modifyMVar_, myThreadId, newEmptyMVar, newMVar, putMVar,
     readMVar, takeMVar, withMVar)
-import Control.Concurrent.STM (STM, TVar, atomically, newTVar)
+import Control.Concurrent.STM (STM, atomically)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
@@ -51,7 +51,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import Data.Foldable (for_, mapM_)
 import Data.Int (Int64)
-import Data.IORef (mkWeakIORef, newIORef, readIORef)
+import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -707,7 +707,7 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
         debug $ "client: got response for command " ++ show c
         return v
 
-toBackend :: Show t => ClientConfig t -> ClientState t -> TVar (Maybe BlockHeader) -> MempoolBackend t
+toBackend :: Show t => ClientConfig t -> ClientState t -> IORef (Maybe BlockHeader) -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
     MempoolBackend txcfg blockSizeLimit lastPar pMember pLookup pInsert
                    pGetBlock unsupported unsupported unsupported unsupported
@@ -786,7 +786,7 @@ mkClient (inp, outp, cleanup) config = mask_ $ do
      smv <- newEmptyMVar
      q <- newMVar id
      cb <- newMVar (const $ return ())
-     lastPar <- atomically $ newTVar Nothing
+     lastPar <- newIORef Nothing
 
      cleanupMv <- newEmptyMVar
      let !cs = ClientState cchan cmv schan smv q cb cleanupMv

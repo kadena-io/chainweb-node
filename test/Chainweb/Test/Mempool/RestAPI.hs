@@ -4,7 +4,10 @@ module Chainweb.Test.Mempool.RestAPI (tests) where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
+
+import Data.IORef
 import qualified Data.Pool as Pool
+
 import qualified Network.HTTP.Client as HTTP
 import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
 import Test.Tasty
@@ -61,7 +64,7 @@ newTestServer inMemCfg = mask_ $ do
     tid <- forkIOWithUnmask $ server inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    lastPar <- atomically $ newTVar Nothing
+    lastPar <- newIORef Nothing
     let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit lastPar env
     return $! TestServer remoteMp inmem tid
 

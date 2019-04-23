@@ -35,7 +35,6 @@ module Chainweb.Chainweb.ChainResources
 import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.MVar (MVar)
-import Control.Concurrent.STM
 import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -244,7 +243,7 @@ mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
         throwM e
     peerMempool = do
         -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar <- atomically $ newTVar Nothing
+        noLastPar <- newIORef Nothing
         return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

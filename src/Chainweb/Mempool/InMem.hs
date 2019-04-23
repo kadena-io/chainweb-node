@@ -266,22 +266,21 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- here.
   , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
   , _inmemConfirmed :: IORef (HashSet TransactionHash)
-  , _inmemLastNewBlockParent :: IORef (TVar (Maybe BlockHeader))
+  , _inmemLastNewBlockParent :: IORef (Maybe BlockHeader)
 }
 
 
 ------------------------------------------------------------------------------
 makeInMemPool :: InMemConfig t -> TxBroadcaster t -> BlockHeaderDb -> IO (InMemoryMempool t)
 makeInMemPool cfg txB blockHeaderDb = mask_ $ do
-    lastParent <- atomically $ newTVar Nothing
-    dataLock <- (newData lastParent) >>= newMVar
+    dataLock <- newData  >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
     return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb
   where
-    newData lastPar = InMemoryMempoolData <$> newIORef PSQ.empty
+    newData = InMemoryMempoolData <$> newIORef PSQ.empty
                                           <*> newIORef HashMap.empty
                                           <*> newIORef HashSet.empty
-                                          <*> newIORef lastPar
+                                          <*> newIORef Nothing
 
 
 ------------------------------------------------------------------------------
@@ -352,9 +351,9 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lockMVar
                                   broadcaster _ blockHeaderDb) = do
     lock <- readMVar lockMVar
-    lastParentTVar <- readIORef $ _inmemLastNewBlockParent lock
+    let lastParentRef = _inmemLastNewBlockParent lock
 
-    return $ MempoolBackend tcfg blockSizeLimit lastParentTVar member lookup insert getBlock
+    return $ MempoolBackend tcfg blockSizeLimit lastParentRef member lookup insert getBlock
         markValidated markConfirmed processFork reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lockMVar
@@ -382,7 +381,7 @@ withInMemoryMempool cfg blockHeaderDb f =
         let inMemIO = makeInMemPool cfg txB blockHeaderDb
         let action inMem = do
               back <- toMempoolBackend inMem
-               back
+              f back
         bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
@@ -391,41 +390,6 @@ destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
 
 
 -------------------------------------------
-    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
-        q <- readIORef $ _inmemPending mdata
-        validated <- readIORef $ _inmemValidated mdata
-        confirmed <- readIORef $ _inmemConfirmed mdata
-        return $! (q, validated, confirmed)
-    return $! V.map (memberOne q validated confirmed) txs
-
-  where
-    memberOne q validated confirmed txHash =
-        PSQ.member txHash q ||
-        HashMap.member txHash validated ||
-        HashSet.member txHash confirmed
-
-
-------------------------------------------------------------------------------
-lookupInMem :: MVar (InMemoryMempoolData t)
-            -> Vector TransactionHash
-            -> IO (Vector (LookupResult t))
-lookupInMem lock txs = do
-    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
-        q <- readIORef $ _inmemPending mdata
-        validated <- readIORef $ _inmemValidated mdata
-        confirmed <- readIORef $ _inmemConfirmed mdata
-        return $! (q, validated, confirmed)
-    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
-  where
-    lookupOne q validated confirmed txHash =
-        lookupQ q txHash <|>
-        lookupVal validated txHash <|>
-        lookupConfirmed confirmed txHash <|>
-        pure Missing
-
-    lookupQ q txHash = (Pending . snd) <$> PSQ.lookup txHash q
-    lookupVal val txHash = Validated <$> HashMap.lookup txHash val
-    lookupConfirmed confirmed txHash =-----------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector Bool)
@@ -442,7 +406,6 @@ memberInMem lock txs = do
         PSQ.member txHash q ||
         HashMap.member txHash validated ||
         HashSet.member txHash confirmed
-
 
 ------------------------------------------------------------------------------
 lookupInMem :: MVar (InMemoryMempoolData t)
@@ -609,8 +572,8 @@ processForkInMem :: MVar (InMemoryMempoolData t)
                  -> IO (Vector TransactionHash)
 processForkInMem lock blockHeaderDb parentBlockHeader = do
     theData <- readMVar lock
-    lastHeaderTVar <- readIORef (_inmemLastNewBlockParent theData)
-    lastHeader <- readTVarIO lastHeaderTVar
+    let lastHeaderRef = _inmemLastNewBlockParent theData
+    lastHeader <- readIORef lastHeaderRef
     MPCon.processFork blockHeaderDb parentBlockHeader lastHeader
 
 
