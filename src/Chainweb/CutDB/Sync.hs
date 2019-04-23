@@ -103,7 +103,7 @@ syncSession v useOrigin p db logg env pinf = do
         h <- _cutHeight <$> _cut db
         c <- getCut cenv (h + 1000)
 
-        logg @T.Text Info $ "receivecd cut " <> sshow c
+        logg @T.Text Info $ "received cut " <> sshow c
         addCutHashes db $ set cutOrigin (Just pinf) c
 
     origin = if useOrigin then Just p else Nothing
