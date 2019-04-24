@@ -47,7 +47,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -55,14 +55,10 @@ import Data.CAS.HashMap hiding (toList)
 -- TODO remove these?
 
 hashes :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
-hashes db = liftIO . SP.toList_ $ keys db Nothing Nothing Nothing Nothing
+hashes db = liftIO $ SP.toList_ & keys db Nothing Nothing Nothing Nothing
 
 headers :: MonadIO m => BlockHeaderDb -> m [DbEntry BlockHeaderDb]
-headers db = liftIO . SP.toList_ $ entries db Nothing Nothing Nothing Nothing
-
-dbBranches :: MonadIO m => BlockHeaderDb -> m [DbKey BlockHeaderDb]
-dbBranches db =
-    liftIO . SP.toList_ $ leafKeys db Nothing Nothing Nothing Nothing
+headers db = liftIO $ SP.toList_ & entries db Nothing Nothing Nothing Nothing
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Utils
@@ -84,17 +80,17 @@ isErrorCode _ _ = False
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-tests :: TestTree
-tests = testGroup "REST API tests"
-    [ testGroup "Http" (tests_ False)
-    , testGroup "Https" (tests_ True)
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "REST API tests"
+    [ testGroup "Http" (tests_ rdb False)
+    , testGroup "Https" (tests_ rdb True)
     ]
 
-tests_ :: Bool -> [TestTree]
-tests_ tls =
-    [ simpleSessionTests tls version
-    , putTests tls version
-    , pagingTests tls version
+tests_ :: RocksDb -> Bool -> [TestTree]
+tests_ rdb tls =
+    [ simpleSessionTests rdb tls version
+    , putTests rdb tls version
+    , pagingTests rdb tls version
     ]
   where
     version = Test singletonChainGraph
@@ -104,14 +100,14 @@ tests_ tls =
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
 
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
 
-simpleSessionTests :: Bool -> ChainwebVersion -> TestTree
-simpleSessionTests tls version =
-    withBlockHeaderDbsServer tls version (testBlockHeaderDbs version) (return noMempool)
+simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
+simpleSessionTests rdb tls version =
+    withBlockHeaderDbsServer tls version (testBlockHeaderDbs rdb version) (return noMempool)
     $ \env -> testGroup "client session tests"
         $ simpleClientSession env <$> toList (chainIds version)
 
@@ -142,15 +138,6 @@ simpleClientSession envIO cid =
             (Expected gbh0)
             (Actual gen1)
 
-        void $ liftIO $ step "branchesClient: get gensis block header"
-        brs <- leafHashesClient version cid Nothing Nothing Nothing Nothing
-        assertExpectation "branchesClient returned wrong number of entries"
-            (Expected 1)
-            (Actual $ _pageLimit brs)
-        assertExpectation "branchesClient returned wrong entry"
-            (Expected $ _blockHash gbh0)
-            (Actual . head . _pageItems $ brs)
-
         void $ liftIO $ step "headerPutClient: put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders gbh0
         forM_ newHeaders $ \h -> do
@@ -171,15 +158,6 @@ simpleClientSession envIO cid =
         assertExpectation "hashesClient returned wrong hashes"
             (Expected $ key <$> _pageItems bhs2)
             (Actual $ _pageItems hs2)
-
-        void $ liftIO $ step "branchesClient: get latest branch"
-        brs2 <- leafHashesClient version cid Nothing Nothing Nothing Nothing
-        assertExpectation "branchesClient returned wrong number of entries"
-            (Expected 1)
-            (Actual $ _pageLimit brs2)
-        assertExpectation "branchesClient returned wrong entry"
-            (Expected . _blockHash $ last newHeaders)
-            (Actual . head $ _pageItems brs2)
 
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (_blockHash h))
@@ -244,9 +222,9 @@ put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
         . take 5
         $ testBlockHeadersWithNonce (Nonce 4) h0
 
-putTests :: Bool -> ChainwebVersion -> TestTree
-putTests tls version =
-    withBlockHeaderDbsServer tls version (testBlockHeaderDbs version) (return noMempool)
+putTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
+putTests rdb tls version =
+    withBlockHeaderDbsServer tls version (testBlockHeaderDbs rdb version) (return noMempool)
         $ \env -> testGroup "put tests"
             [ putNewBlockHeader env
             , putExisting env
@@ -258,15 +236,14 @@ putTests tls version =
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
-pagingTests :: Bool -> ChainwebVersion -> TestTree
-pagingTests tls version =
+pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
+pagingTests rdb tls version =
     withBlockHeaderDbsServer tls version
-            (starBlockHeaderDbs 6 $ testBlockHeaderDbs version)
+            (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient version env
         , testPageLimitHashesClient version env
-        , testPageLimitBranchesClient version env
         ]
 
 pagingTest
@@ -360,7 +337,3 @@ testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False re
   where
     request cid l n = hashesClient version cid l n Nothing Nothing
 
-testPageLimitBranchesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
-testPageLimitBranchesClient version = pagingTest "branchesClient" dbBranches id True request
-  where
-    request cid l n = leafHashesClient version cid l n Nothing Nothing

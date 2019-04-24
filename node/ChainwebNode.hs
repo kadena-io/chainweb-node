@@ -48,6 +48,8 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
 
+import Data.CAS.RocksDB
+import qualified Data.Text as T
 import Data.Typeable
 
 import GHC.Generics hiding (from)
@@ -59,6 +61,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.Directory
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -71,13 +74,11 @@ import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version (ChainwebVersion(..))
 
-import Data.CAS.HashMap
 import Data.LogMessage
 import Data.PQueue
 import qualified Data.TaskMap as TM
@@ -95,6 +96,7 @@ import Utils.Logging.Config
 data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
     , _nodeConfigLog :: !LogConfig
+    , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
     }
     deriving (Show, Eq, Generic)
 
@@ -105,23 +107,29 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
+    , _nodeConfigDatabaseDirectory = Nothing
     }
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
         [ "chainweb" .= _nodeConfigChainweb o
         , "logging" .= _nodeConfigLog o
+        , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
     parseJSON = withObject "ChainwebNodeConfig" $ \o -> id
         <$< nodeConfigChainweb %.: "chainweb" % o
         <*< nodeConfigLog %.: "logging" % o
+        <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
     <*< nodeConfigLog %:: pLogConfig
+    <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
+        % long "database-directory"
+        <> help "directory where the databases are persisted"
 
 -- -------------------------------------------------------------------------- --
 -- Monitors
@@ -208,15 +216,25 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: Logger logger => ChainwebConfiguration -> logger -> IO ()
+node :: Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
-    pdb <- emptyInMemoryPayloadDb
-    withChainweb @HashMapCas conf logger pdb $ \cw -> mapConcurrently_ id
-        [ runChainweb cw
-        , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-        , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-        , runRtsMonitor (_chainwebLogger cw)
-        ]
+    rocksDbDir <- getRocksDbDir
+    withRocksDb rocksDbDir $ \rocksDb -> do
+        logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        withChainweb cwConf logger rocksDb $ \cw -> mapConcurrently_ id
+            [ runChainweb cw
+            , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runRtsMonitor (_chainwebLogger cw)
+            ]
+  where
+    cwConf = _nodeConfigChainweb conf
+    nodeText = T.unpack (toText (_configNodeId cwConf))
+    v = _configChainwebVersion cwConf
+    getRocksDbDir = case _nodeConfigDatabaseDirectory conf of
+        Nothing -> getXdgDirectory XdgData
+            $ "chainweb-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
+        Just d -> return d
 
 withNodeLogger
     :: LogConfig
@@ -290,4 +308,5 @@ mainInfo = programInfo
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    withNodeLogger (_nodeConfigLog conf) v $ node (_nodeConfigChainweb conf)
+    withNodeLogger (_nodeConfigLog conf) v $ node conf
+

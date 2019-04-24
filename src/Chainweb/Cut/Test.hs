@@ -96,6 +96,8 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
+import Data.CAS.RocksDB
+
 import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
@@ -494,33 +496,33 @@ prop_meetJoinAbsorption = do
         c0' <- meet given c0 =<< joinIntoHeavier given c0 c1
         return (c0' == c0)
 
-properties_lattice :: ChainwebVersion -> [(String, T.Property)]
-properties_lattice v =
-    [ ("joinIdemPotent", ioTest v prop_joinIdempotent)
-    , ("joinCommutative", ioTest v prop_joinCommutative)
-    , ("joinAssociative", ioTest v prop_joinAssociative) -- Fails
-    , ("joinIdentity", ioTest v prop_joinIdentity)
+properties_lattice :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
+properties_lattice db v =
+    [ ("joinIdemPotent", ioTest db v prop_joinIdempotent)
+    , ("joinCommutative", ioTest db v prop_joinCommutative)
+    , ("joinAssociative", ioTest db v prop_joinAssociative) -- Fails
+    , ("joinIdentity", ioTest db v prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest v prop_meetIdempotent)
-    , ("meetCommutative", ioTest v prop_meetCommutative)
-    , ("meetAssociative", ioTest v prop_meetAssociative)
-    , ("meetZeroAbsorption", ioTest v prop_meetZeroAbsorption) -- Fails
+    , ("meetIdemPotent", ioTest db v prop_meetIdempotent)
+    , ("meetCommutative", ioTest db v prop_meetCommutative)
+    , ("meetAssociative", ioTest db v prop_meetAssociative)
+    , ("meetZeroAbsorption", ioTest db v prop_meetZeroAbsorption) -- Fails
 
-    , ("joinMeetAbsorption", ioTest v prop_joinMeetAbsorption)
-    , ("meetJoinAbsorption", ioTest v prop_meetJoinAbsorption) -- Fails
+    , ("joinMeetAbsorption", ioTest db v prop_joinMeetAbsorption)
+    , ("meetJoinAbsorption", ioTest db  v prop_meetJoinAbsorption) -- Fails
     ]
 
-properties_lattice_passing :: ChainwebVersion -> [(String, T.Property)]
-properties_lattice_passing v =
-    [ ("joinIdemPotent", ioTest v prop_joinIdempotent)
-    , ("joinCommutative", ioTest v prop_joinCommutative)
-    , ("joinIdentity", ioTest v prop_joinIdentity)
+properties_lattice_passing :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
+properties_lattice_passing db v =
+    [ ("joinIdemPotent", ioTest db v prop_joinIdempotent)
+    , ("joinCommutative", ioTest db v prop_joinCommutative)
+    , ("joinIdentity", ioTest db v prop_joinIdentity)
 
-    , ("meetIdemPotent", ioTest v prop_meetIdempotent)
-    , ("meetCommutative", ioTest v prop_meetCommutative)
-    , ("meetAssociative", ioTest v prop_meetAssociative)
+    , ("meetIdemPotent", ioTest db v prop_meetIdempotent)
+    , ("meetCommutative", ioTest db v prop_meetCommutative)
+    , ("meetAssociative", ioTest db v prop_meetAssociative)
 
-    , ("joinMeetAbsorption", ioTest v prop_joinMeetAbsorption)
+    , ("joinMeetAbsorption", ioTest db v prop_joinMeetAbsorption)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -557,48 +559,48 @@ prop_meetGenesisCut = liftIO $ (==) c <$> meet given c c
 -- -------------------------------------------------------------------------- --
 -- Misc Properties
 
-prop_arbitraryForkBraiding :: ChainwebVersion -> T.Property
-prop_arbitraryForkBraiding v = ioTest v $ give (_chainGraph v) $ do
+prop_arbitraryForkBraiding :: RocksDb -> ChainwebVersion -> T.Property
+prop_arbitraryForkBraiding db v = ioTest db v $ give (_chainGraph v) $ do
     TestFork b cl cr <- arbitraryFork
     T.assert (prop_cutBraiding b)
     T.assert (prop_cutBraiding cl)
     T.assert (prop_cutBraiding cr)
     return True
 
-prop_joinBase :: ChainwebVersion -> T.Property
-prop_joinBase v = ioTest v $ do
+prop_joinBase :: RocksDb -> ChainwebVersion -> T.Property
+prop_joinBase db v = ioTest db v $ do
     TestFork b cl cr <- arbitraryFork
     m <- liftIO $ join given (prioritizeHeavier cl cr) cl cr
     return (_joinBase m == b)
 
-prop_joinBaseMeet :: ChainwebVersion -> T.Property
-prop_joinBaseMeet v = ioTest v $ do
+prop_joinBaseMeet :: RocksDb -> ChainwebVersion -> T.Property
+prop_joinBaseMeet db v = ioTest db v $ do
     TestFork _ a b <- arbitraryFork
     liftIO $ (==)
         <$> meet given a b
         <*> (_joinBase <$> join given (prioritizeHeavier a b) a b)
 
-properties_testMining :: ChainwebVersion -> [(String, T.Property)]
-properties_testMining v =
-    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding v)]
+properties_testMining :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
+properties_testMining db v =
+    [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)]
 
-properties_misc :: ChainwebVersion -> [(String, T.Property)]
-properties_misc v =
-    [ ("prop_joinBase", prop_joinBase v)
-    , ("prop_joinBaseMeet", prop_joinBaseMeet v)
-    , ("prop_meetGenesisCut", ioTest v prop_meetGenesisCut)
-    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding v)
+properties_misc :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
+properties_misc db v =
+    [ ("prop_joinBase", prop_joinBase db v)
+    , ("prop_joinBaseMeet", prop_joinBaseMeet db v)
+    , ("prop_meetGenesisCut", ioTest db v prop_meetGenesisCut)
+    , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)
     ]
 
 -- -------------------------------------------------------------------------- --
 -- "Valid" Properties
 
-properties :: [(String, T.Property)]
-properties
-    = properties_lattice_passing v
+properties :: RocksDb -> [(String, T.Property)]
+properties db
+    = properties_lattice_passing db v
     <> properties_cut v
-    <> properties_testMining v
-    <> properties_misc v
+    <> properties_testMining db v
+    <> properties_misc db v
   where
     v = Test pairChainGraph
 
@@ -607,15 +609,18 @@ properties
 
 giveNewWebChain
     :: MonadIO m
-    => ChainwebVersion
+    => RocksDb
+    -> ChainwebVersion
     -> (Given WebBlockHeaderDb => m a)
     -> m a
-giveNewWebChain v f = do
-    db <- liftIO (initWebBlockHeaderDb v)
-    give db f
+giveNewWebChain db v f = do
+    bdb <- liftIO (initWebBlockHeaderDb db v)
+    give bdb f
 
 ioTest
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
-ioTest v f = T.monadicIO $ giveNewWebChain v $ f >>= T.assert
+ioTest db v f = T.monadicIO $ giveNewWebChain db v $ f >>= T.assert
+
