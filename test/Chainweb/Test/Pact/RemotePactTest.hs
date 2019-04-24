@@ -104,7 +104,7 @@ tests = do
     tt1 <- testPoll cmds cwEnv rks
     let tConfig = mempoolTxConfig noopMempool
     let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
-    tt2 <- testMPValidated mPool rks
+    let tt2 = testCase "mempoolValidationCheck" $ testMPValidated mPool rks
 
     return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
 
@@ -131,18 +131,28 @@ testPoll cmds env rks = do
 testMPValidated
     :: MempoolBackend ChainwebTransaction
     -> RequestKeys
-    -> IO TestTree
+    -> Assertion
 testMPValidated mPool rks = do
     let txHashes = V.fromList $ TransactionHash . unHash . unRequestKey <$> _rkRequestKeys rks
-    responses <- mempoolLookup mPool txHashes
-    checkValidated responses
+    b <- go maxMempoolRetries mPool txHashes
+    assertBool "At least one transaction was not validated" b
+    return ()
+  where
+    go :: Int -> MempoolBackend ChainwebTransaction -> Vector TransactionHash ->  IO Bool
+    go 0 _ _ = return False
+    go retries mp hashes = do
+        results <- mempoolLookup mp hashes
+        if checkValidated results then return True
+        else do
+            sleep 1
+            go (retries - 1) mp hashes
 
-checkValidated :: Vector (LookupResult ChainwebTransaction) -> IO TestTree
-checkValidated results = do
-    when (null results)
-        $ assertFailure "No results returned from mempool's lookupTransaction"
-    return $ testCase "allTransactionsValidated" $
-        assertBool "At least one transaction was not validated" $ V.all f results
+maxMempoolRetries :: Int
+maxMempoolRetries = 30
+
+checkValidated :: Vector (LookupResult ChainwebTransaction) -> Bool
+checkValidated results =
+    not (null results) && V.all f results
   where
     f (Validated _) = True
     f Confirmed     = True
@@ -197,9 +207,6 @@ pollWithRetry cmds env rks = do
               Right _ -> do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
-
-maxMemPoolRetries :: Int
-maxMemPoolRetries = 30
 
 checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
 checkRequestKeys filePrefix rks = do
