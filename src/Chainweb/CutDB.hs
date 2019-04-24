@@ -283,6 +283,7 @@ processCuts
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
+    & S.filterM (fmap not . farAHead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain (\c -> loggc Info c $ "fetch all prerequesites")
@@ -311,10 +312,23 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     threshold :: Int
     threshold = int $ 2 * diameter graph * order graph
 
+    -- NOTE: THIS NUMBER MUST BE LARGER THAN THE RESPECTIVE LIMIT
+    -- IN 'CutDB.Sync'
+    farAHeadThreshold :: Int
+    farAHeadThreshold = 2000
+
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
+
+    -- FIXME: this is problematic. We should drop these before they are
+    -- added to the queue, to prevent the queue becoming stale.
+    farAHead x = do
+        h <- _cutHeight <$> readTVarIO cutVar
+        let r = (int (_cutHashesHeight x) - farAHeadThreshold) >= int h
+        when r $ loggc Info x "skip far ahead cut"
+        return r
 
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar

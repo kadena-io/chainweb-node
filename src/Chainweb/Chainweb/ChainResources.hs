@@ -177,7 +177,7 @@ runChainSyncClient mgr chain = bracket create destroy go
     destroy n = p2pStopNode n `finally` syncLogg Info "stopped"
 
 chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
-chainSyncP2pSession depth db logg env = do
+chainSyncP2pSession depth db logg env _ = do
     peer <- PeerTree <$> remoteDb db logg env
     chainwebSyncSession db peer depth logg
 
@@ -220,7 +220,7 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
-mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
+mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
   where
     go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"
