@@ -139,7 +139,6 @@ testMPValidated mPool rks = do
     let txHashes = V.fromList $ TransactionHash . unHash . unRequestKey <$> _rkRequestKeys rks
     b <- go maxMempoolRetries mPool txHashes
     assertBool "At least one transaction was not validated" b
-    return ()
   where
     go :: Int -> MempoolBackend ChainwebTransaction -> Vector TransactionHash ->  IO Bool
     go 0 _ _ = return False
