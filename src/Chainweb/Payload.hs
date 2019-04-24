@@ -87,6 +87,7 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import Data.Aeson
+import qualified Data.Aeson.Types as A
 import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -297,7 +298,20 @@ data BlockPayload = BlockPayload
         -- ^ Root of 'OutputsTree' of the block. Foreign key into
         -- 'BlockOutputsStore' and 'OutputTreeStore'.
     }
-    deriving (Show)
+    deriving (Show, Eq, Ord, Generic)
+
+instance ToJSON BlockPayload where
+    toJSON o = object
+        [ "payloadHash" .= _blockPayloadPayloadHash o
+        , "transactionsHash" .= _blockPayloadTransactionsHash o
+        , "outputsHash" .= _blockPayloadOutputsHash o
+        ]
+
+instance FromJSON BlockPayload where
+    parseJSON = withObject "BlockPayload" $ \o -> BlockPayload
+        <$> o .: "payloadHash"
+        <*> o .: "transactionsHash"
+        <*> o .: "outputsHash"
 
 instance IsCasValue BlockPayload where
     type CasKeyType BlockPayload = BlockPayloadHash
@@ -382,7 +396,20 @@ data BlockTransactions = BlockTransactions
     , _blockMinerData :: !MinerData
         -- ^ Miner data for rewards
     }
-    deriving (Show)
+    deriving (Show, Eq, Ord, Generic)
+
+instance ToJSON BlockTransactions where
+    toJSON o = object
+        [ "transactionHash" .= _blockTransactionsHash o
+        , "transaction" .= _blockTransactions o
+        , "minerData" .= _blockMinerData o
+        ]
+
+instance FromJSON BlockTransactions where
+    parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
+        <$> o .: "transactionHash"
+        <*> o .: "transaction"
+        <*> o .: "minerData"
 
 instance IsCasValue BlockTransactions where
     type CasKeyType BlockTransactions = BlockTransactionsHash
@@ -475,6 +502,19 @@ data BlockOutputs = BlockOutputs
     }
     deriving (Show)
 
+instance ToJSON BlockOutputs where
+    toJSON o = object
+        [ "outputsHash" .= _blockOutputsHash o
+        , "outputs" .= _blockOutputs o
+        , "coinbaseOutput" .= _blockCoinbaseOutput o
+        ]
+
+instance FromJSON BlockOutputs where
+    parseJSON = withObject "BlockOutputs" $ \o -> BlockOutputs
+        <$> o .: "outputsHash"
+        <*> o .: "outputs"
+        <*> o .: "coinbaseOutput"
+
 instance IsCasValue BlockOutputs where
     type CasKeyType BlockOutputs = BlockOutputsHash
     casKey = _blockOutputsHash
@@ -516,6 +556,24 @@ instance IsCasValue TransactionTree where
     type CasKeyType TransactionTree = BlockTransactionsHash
     casKey = _transactionTreeHash
 
+instance ToJSON TransactionTree where
+    toJSON o = object
+        [ "hash" .= _transactionTreeHash o
+        , "tree" .= merkleTreeToJson (_transactionTree o)
+        ]
+
+instance FromJSON TransactionTree where
+    parseJSON = withObject "TransactionTree" $ \o -> TransactionTree
+        <$> o .: "hash"
+        <*> (o .: "tree" >>= merkleTreeFromJson)
+
+merkleTreeToJson :: MerkleTree a -> Value
+merkleTreeToJson = toJSON . encodeB64UrlNoPaddingText . encodeMerkleTree
+
+merkleTreeFromJson :: HashAlgorithm a => Value -> A.Parser (MerkleTree a)
+merkleTreeFromJson = withText "MerkleTree" $ \t -> either (fail . sshow) return
+    $ decodeB64UrlNoPaddingText t >>= decodeMerkleTree
+
 -- -------------------------------------------------------------------------- --
 -- Output Merkle Tree
 
@@ -533,6 +591,17 @@ data OutputTree = OutputTree
 instance IsCasValue OutputTree where
     type CasKeyType OutputTree = BlockOutputsHash
     casKey = _outputTreeHash
+
+instance ToJSON OutputTree where
+    toJSON o = object
+        [ "hash" .= _outputTreeHash o
+        , "tree" .= merkleTreeToJson (_outputTree o)
+        ]
+
+instance FromJSON OutputTree where
+    parseJSON = withObject "OutputTree" $ \o -> OutputTree
+        <$> o .: "hash"
+        <*> (o .: "tree" >>= merkleTreeFromJson)
 
 -- -------------------------------------------------------------------------- --
 -- Data Creation

@@ -43,7 +43,6 @@ module Chainweb.TreeDB
 
 -- * Utils
 , root
-, maxHeader
 , toTree
 , descend
 
@@ -93,7 +92,6 @@ import Data.Semigroup
 import Data.Typeable
 
 import GHC.Generics
-import GHC.Stack
 
 import Numeric.Natural
 
@@ -212,11 +210,7 @@ type DbKey db = Key (DbEntry db)
 
 class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
-    {-# MINIMAL
-        lookup,
-        (allEntries | entries),
-        (leafKeys | leafEntries),
-        (insert | insertStream) #-}
+    {-# MINIMAL lookup, entries, (insert | insertStream), maxEntry #-}
 
     type family DbEntry db :: Type
 
@@ -246,10 +240,14 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- | This stream returns a prefix of the keys of the nodes in the tree in
     -- ascending order starting from the given key or the genesis block key.
     --
-    -- This stream doesn't block indefinitely. If there is no further entry
-    -- available it terminates and returns a number of returned items and a
-    -- cursor. Implementations should block on IO at most a constant amount of
-    -- time.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- If there is no further entry available it terminates and returns a number
+    -- of returned items and a cursor. Implementations should block on IO at
+    -- most a constant amount of time.
     --
     -- The default implementation is based on 'entries', which in some cases
     -- doesn't give good performance.
@@ -260,38 +258,22 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Maybe Limit
         -> Maybe MinRank
         -> Maybe MaxRank
-        -> S.Stream (Of (DbKey db)) IO (Natural, Eos)
-    keys db k l mir mar = S.map key $ entries db k l mir mar
+        -> (S.Stream (Of (DbKey db)) IO (Natural, Eos) -> IO a)
+        -> IO a
+    keys db k l mir mar f = entries db k l mir mar $ f . S.map key
     {-# INLINEABLE keys #-}
-
-    -- | The infinite stream of all keys in ascending order. The stream may
-    -- block indefinitely.
-    --
-    allKeys
-        :: db
-        -> Maybe (NextItem (DbKey db))
-        -> S.Stream (Of (DbKey db)) IO ()
-    allKeys db = go
-      where
-        go x = do
-            n :> (_, eos) <- keys db x Nothing Nothing Nothing
-                & S.copy
-                & S.last
-            case eos of
-                Eos True -> error "code invariant violation"
-                Eos False -> go (Exclusive <$> n)
-    {-# INLINEABLE allKeys #-}
 
     -- | This stream returns a prefix of the entries of the nodes in the tree in
     -- ascending order starting from the given key or the genesis block.
     --
-    -- This stream doesn't block indefinitely. If there is no further entry
-    -- available it terminates and returns a number of returned items and a
-    -- cursor. Implementations should block on IO at most a constant amount of
-    -- time.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
     --
-    -- The default implementation is based on 'allEntries', which in most cases
-    -- doesn't give good performance.
+    -- If there is no further entry available it terminates and returns a number
+    -- of returned items and a cursor. Implementations should block on IO at
+    -- most a constant amount of time.
     --
     entries
         :: db
@@ -299,74 +281,8 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Maybe Limit
         -> Maybe MinRank
         -> Maybe MaxRank
-        -> S.Stream (Of (DbEntry db)) IO (Natural, Eos)
-    entries db k l mir mar = allEntries db Nothing
-        & applyRank mir mar
-        & timeoutStream 1000 {- microseconds -}
-        & void
-        & seekLimitStream key k l
-    {-# INLINEABLE entries #-}
-
-    -- | The infinite stream of all entries in ascending order. The stream may
-    -- block indefinitely.
-    --
-    -- The default implementation is based on @entries@ and spins in a busy loop
-    -- while waiting for new entries.
-    --
-    allEntries
-        :: db
-        -> Maybe (NextItem (DbKey db))
-        -> S.Stream (Of (DbEntry db)) IO ()
-    allEntries db = go
-      where
-        go x = do
-            n :> (_, eos) <- entries db x Nothing Nothing Nothing
-                & S.copy
-                & S.last
-            case eos of
-                Eos True -> error "code invariant violation"
-                Eos False -> go (Exclusive . key <$> n)
-    {-# INLINEABLE allEntries #-}
-
-    -- ---------------------------------------------------------------------- --
-    -- Leaves
-
-    -- | A set of leaves in ascending order.
-    --
-    -- The semantics are as follows:
-    --
-    -- A set of nodes is returned such that each node in the tree, that has a
-    -- rank within the given range of ranks, is either a successor or a
-    -- predecessor of the nodes in the set.
-    --
-    -- If no minimum rank is given, a minimum rank of zero is assumed. If no
-    -- maximum rank is given, a maximum rank if infinity is assumed.
-    --
-    -- Note that, if the minimum rank is zero, returning the genesis block is
-    -- always a legal result, but implementations should try to return a large
-    -- set.
-    --
-    leafEntries
-        :: db
-        -> Maybe (NextItem (DbKey db))
-        -> Maybe Limit
-        -> Maybe MinRank
-        -> Maybe MaxRank
-        -> S.Stream (Of (DbEntry db)) IO (Natural, Eos)
-    leafEntries db k l mir mar = leafKeys db k l mir mar
-        & lookupStreamM db
-    {-# INLINEABLE leafEntries #-}
-
-    leafKeys
-        :: db
-        -> Maybe (NextItem (DbKey db))
-        -> Maybe Limit
-        -> Maybe MinRank
-        -> Maybe MaxRank
-        -> S.Stream (Of (DbKey db)) IO (Natural, Eos)
-    leafKeys db k l mir mar = leafEntries db k l mir mar
-        & S.map key
-    {-# INLINEABLE leafKeys #-}
+        -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
+        -> IO a
 
     -- ---------------------------------------------------------------------- --
     -- * Branches
@@ -377,8 +293,12 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- at the entry @n@. The number of items in the result is limited by @l@.
     -- Items are returned in descending order.
     --
-    -- The result stream doesn't block. It may return less than the requested
-    -- number of items.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- The result stream may return less than the requested number of items.
     --
     branchKeys
         :: db
@@ -390,9 +310,10 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
             -- Upper limits
         -> HS.HashSet (UpperBound (DbKey db))
             -- Lower limits
-        -> S.Stream (Of (DbKey db)) IO (Natural, Eos)
-    branchKeys db k l mir mar lower uppper = S.map key
-        $ branchEntries db k l mir mar lower uppper
+        -> (S.Stream (Of (DbKey db)) IO (Natural, Eos) -> IO a)
+        -> IO a
+    branchKeys db k l mir mar lower upper f =
+        branchEntries db k l mir mar lower upper $ f . S.map key
     {-# INLINEABLE branchKeys #-}
 
     -- | @branchEntries n l mir mar lower upper@ returns all nodes within the
@@ -401,8 +322,12 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- @lower@, starting at the entry after @n@. The number of items in the
     -- result is limited by @l@. Items are returned in descending order.
     --
-    -- The result stream doesn't block. It may return less than the requested
-    -- number of items.
+    -- The stream is provide via continuation passing style. This supports
+    -- implementations that allocate resources for the streams that must be
+    -- released after the items in the stream are processed. The returned stream
+    -- must only be used within the scope of the continuation.
+    --
+    -- The result stream may return less than the requested number of items.
     --
     branchEntries
         :: db
@@ -412,10 +337,12 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Maybe MaxRank
         -> HS.HashSet (LowerBound (DbKey db))
         -> HS.HashSet (UpperBound (DbKey db))
-        -> S.Stream (Of (DbEntry db)) IO (Natural, Eos)
-    branchEntries db k l mir mar lower upper = getBranch db lower upper
-        & applyRank mir mar
-        & seekLimitStream key k l
+        -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
+        -> IO a
+    branchEntries db k l mir mar lower upper f = f $
+        getBranch db lower upper
+            & applyRank mir mar
+            & seekLimitStream key k l
     {-# INLINEABLE branchEntries #-}
 
     -- ---------------------------------------------------------------------- --
@@ -450,15 +377,18 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- ---------------------------------------------------------------------- --
     -- Misc
 
+    -- | The largest entry in the database. This is the last entry in the
+    -- 'entries' stream. It is also an entry of maximal rank.
+    --
+    maxEntry :: db -> IO (DbEntry db)
+
     -- | Maximum rank of all entries in the database.
     --
     -- prop> maxRank db == head (branches db Nothing (Just 1))
     --
     --
-    maxRank :: HasCallStack => db -> IO Natural
-    maxRank db = fmap (rank . fromJuste)
-        $ S.last_
-        $ leafEntries db Nothing Nothing Nothing Nothing
+    maxRank :: db -> IO Natural
+    maxRank = fmap rank . maxEntry
     {-# INLINEABLE maxRank #-}
 
 -- -------------------------------------------------------------------------- --
@@ -476,14 +406,9 @@ descend db (MaxRank (Max r)) = go
         | rank e > r = lookupParentM GenesisParentThrow db e >>= go
         | otherwise = return e
 
-maxHeader :: TreeDb db => db -> IO (DbEntry db)
-maxHeader db = do
-    r <- root db
-    S.fold_ (maxBy (compare `on` rank)) r id
-        $ leafEntries db Nothing Nothing Nothing Nothing
-
 root :: TreeDb db => db -> IO (DbEntry db)
-root db = fmap fromJuste $ S.head_ $ entries db Nothing (Just 1) Nothing Nothing
+root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
+{-# INLINE root #-}
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
@@ -742,8 +667,8 @@ foldableEntries k l mir mar f = S.each f
 --
 toTree :: (TreeDb db, Ord (DbKey db)) => db -> IO (Tree (DbEntry db))
 toTree db = do
-    let es = entries db Nothing Nothing Nothing Nothing
-    hs <- S.toList_ $ S.map (\h -> (h, key h, [fromMaybe (key h) $ parent h] )) es
+    hs <- entries db Nothing Nothing Nothing Nothing $ \es ->
+        S.toList_ $ S.map (\h -> (h, key h, [fromMaybe (key h) $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
         g' = transposeG g
     pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'

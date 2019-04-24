@@ -32,21 +32,23 @@ import Chainweb.Test.Utils (insertN, withToyDB, toyChainId)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Persist (fileEntries, persist)
 
+import Data.CAS.RocksDB
+
 ---
 
-tests :: TestTree
-tests = testGroup "Persistence"
+tests :: RocksDb -> TestTree
+tests db = testGroup "Persistence"
     [ testGroup "Encoding round-trips"
-        [ testCase "Fresh TreeDb (only genesis)" onlyGenesis
-        , testCase "Multiple Entries" manyBlocksWritten
+        [ testCase "Fresh TreeDb (only genesis)" (onlyGenesis db)
+        , testCase "Multiple Entries" (manyBlocksWritten db)
         ]
     ]
 
 -- | Persisting a freshly initialized `TreeDb` will successfully read and
 -- write its only block, the genesis block.
 --
-onlyGenesis :: Assertion
-onlyGenesis = withToyDB toyChainId $ \g db -> do
+onlyGenesis :: RocksDb -> Assertion
+onlyGenesis rdb = withToyDB rdb toyChainId $ \g db -> do
     persist p db
     g' <- runResourceT . S.head_ $ fileEntries @(ResourceT IO) p
     g' @?= Just g
@@ -61,11 +63,11 @@ onlyGenesis = withToyDB toyChainId $ \g db -> do
 --  * The DB and its persistence will have the same contents in the same order.
 --  * The first block streamed from both the DB and the file will be the genesis.
 --
-manyBlocksWritten :: Assertion
-manyBlocksWritten = withToyDB toyChainId $ \g db -> do
+manyBlocksWritten :: RocksDb -> Assertion
+manyBlocksWritten rdb = withToyDB rdb toyChainId $ \g db -> do
     void $ insertN len g db
     persist p db
-    fromDB <- S.toList_ $ entries db Nothing Nothing Nothing Nothing
+    fromDB <- entries db Nothing Nothing Nothing Nothing $ S.toList_
     fromFi <- runResourceT . S.toList_ $ fileEntries p
     length fromDB @?= len + 1
     length fromFi @?= len + 1
