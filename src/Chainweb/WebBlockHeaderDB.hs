@@ -21,7 +21,6 @@ module Chainweb.WebBlockHeaderDB
 , getWebBlockHeaderDb
 , webBlockHeaderDb
 , webEntries
-, webAllEntries
 , lookupWebBlockHeaderDb
 , lookupAdjacentParentHeader
 , lookupParentHeader
@@ -31,15 +30,10 @@ module Chainweb.WebBlockHeaderDB
 , checkBlockAdjacentParents
 ) where
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM.TBQueue
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.STM
-import Control.Monad.Trans.Class
 
-import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -58,6 +52,8 @@ import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Web Chain Database
@@ -80,27 +76,15 @@ data WebBlockHeaderDb = WebBlockHeaderDb
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
 
--- | Returns the infinite stream of all blocks of all block header databases
--- When all available blocks are consumed, the stream blocks until until a new
--- block comes available.
+-- | Returns all blocks in all block header databases.
 --
-webAllEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
-webAllEntries db = do
-    q <- lift $ newTBQueueIO (len dbs)
-    lift $ forConcurrently_ streams $ S.mapM_ $ atomically . writeTBQueue q
-    forever $ lift (atomically (readTBQueue q)) >>= S.yield
+webEntries :: WebBlockHeaderDb -> (S.Stream (Of BlockHeader) IO () -> IO a) -> IO a
+webEntries db f = go (view (webBlockHeaderDb . to HM.elems) db) mempty
   where
-    streams = flip allEntries Nothing <$> dbs
-    dbs = view (webBlockHeaderDb . to HM.elems) db
-
--- | Returns all  blocks in all block header databases.
---
-webEntries :: WebBlockHeaderDb -> S.Stream (Of BlockHeader) IO ()
-webEntries db =
-    foldl' (\a b -> () <$ S.mergeOn _blockCreationTime a b) mempty streams
-  where
-    streams = (\x -> entries x Nothing Nothing Nothing Nothing) <$> dbs
-    dbs = view (webBlockHeaderDb . to HM.elems) db
+    go [] s = f s
+    go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
+        go t (() <$ S.mergeOn _blockCreationTime s x)
+            -- FIXME: should we include the rank in the order?
 
 type instance Index WebBlockHeaderDb = ChainId
 type instance IxValue WebBlockHeaderDb = BlockHeaderDb
@@ -118,13 +102,23 @@ instance HasChainwebVersion WebBlockHeaderDb where
     {-# INLINE _chainwebVersion #-}
 
 initWebBlockHeaderDb
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> IO WebBlockHeaderDb
-initWebBlockHeaderDb v = WebBlockHeaderDb
-    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds v)
+initWebBlockHeaderDb db v = WebBlockHeaderDb
+    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid db)) (HS.toMap $ chainIds v)
     <*> pure v
   where
     conf cid = Configuration (genesisBlockHeader v cid)
+
+-- initWebBlockHeaderDb
+--     :: ChainwebVersion
+--     -> IO WebBlockHeaderDb
+-- initWebBlockHeaderDb v = WebBlockHeaderDb
+--     <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds v)
+--     <*> pure v
+--   where
+--     conf cid = Configuration (genesisBlockHeader v cid)
 
 -- | FIXME: this needs some consistency checks
 --

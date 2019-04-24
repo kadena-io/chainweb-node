@@ -66,37 +66,29 @@ instance TreeDb RemoteDb where
         client = logServantError alog "failed to query tree db entry"
             $ headerClient ver cid k
 
-    keys (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
+    keys (RemoteDb env alog ver cid) next limit minr maxr f
+        = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = logServantError alog "failed to query tree db keys"
             $ hashesClient ver cid limit nxt minr maxr
 
-    entries (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
+    entries (RemoteDb env alog ver cid) next limit minr maxr f
+        = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query tree db entries"
             $ headersClient ver cid limit nxt minr maxr
 
-    leafEntries (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
-      where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = logServantError alog "failed to query leaf entries"
-            $ leafHeadersClient ver cid limit nxt minr maxr
-
-    leafKeys (RemoteDb env alog ver cid) next limit minr maxr = callAndPage client next 0 env
-      where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = logServantError alog "failed to query leaf keys"
-            $ leafHashesClient ver cid limit nxt minr maxr
-
-    branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+    branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
+        = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = logServantError alog "failed to query remote branch keys"
             $ branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
-    branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper = callAndPage client next 0 env
+    branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper f
+        = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query remote branch entries"
@@ -106,6 +98,9 @@ instance TreeDb RemoteDb where
       where
         client = logServantError alog "failed to put tree db entry"
             $ headerPutClient ver cid e
+
+    -- We could either use the cut or create a new API
+    -- maxEntry (RemoteDb env alog ver cid) e =
 
 logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
 logServantError alog msg = handle $ \(e :: ServantError) -> do

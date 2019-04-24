@@ -24,12 +24,14 @@ import Control.Monad
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
+import Data.Foldable (toList)
 import Data.Int
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -59,8 +61,8 @@ import Pact.Types.Util
 
 -- internal modules
 
-import Chainweb.Chainweb
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -70,11 +72,13 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
-import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.CAS.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -85,13 +89,13 @@ nNodes = 1
 version :: ChainwebVersion
 version = TestWithTime petersonChainGraph
 
-cid :: ChainId
-cid = either (error . sshow) id $ mkChainId version (0 :: Int)
+cid :: HasCallStack => ChainId
+cid = head . toList $ chainIds version
 
-tests :: IO TestTree
-tests = do
+tests :: RocksDb -> IO TestTree
+tests rdb = do
     peerInfoVar <- newEmptyMVar
-    theAsync <- async $ runTestNodes Warn version nNodes Nothing peerInfoVar
+    theAsync <- async $ runTestNodes rdb Warn version nNodes peerInfoVar
     link theAsync
     newPeerInfo <- readMVar peerInfoVar
     let thePort = _hostAddressPort (_peerAddr newPeerInfo)
@@ -117,16 +121,15 @@ testSend cmds env = do
             result <- sendWithRetry cmds env sb
             case result of
                 Left e -> assertFailure (show e)
-                Right rks -> do
-                    tt0 <- checkRequestKeys "command-0" rks
-                    return (tt0, rks)
+                Right rks ->
+                    return (checkRequestKeys "command-0" rks, rks)
 
 testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO TestTree
 testPoll cmds env rks = do
     response <- pollWithRetry cmds env rks
     case response of
         Left e -> assertFailure (show e)
-        Right rsp -> checkResponse "command-0" rks rsp
+        Right rsp -> return $ checkResponse "command-0" rks rsp
 
 testMPValidated
     :: MempoolBackend ChainwebTransaction
@@ -201,20 +204,22 @@ pollWithRetry cmds env rks = do
 maxMemPoolRetries :: Int
 maxMemPoolRetries = 30
 
-checkRequestKeys :: FilePath -> RequestKeys -> IO TestTree
-checkRequestKeys filePrefix rks = do
-    let fp = filePrefix ++ "-expected-rks.txt"
-    let bsRks = return $ foldMap (toS . show ) (_rkRequestKeys rks)
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+checkRequestKeys :: FilePath -> RequestKeys -> TestTree
+checkRequestKeys filePrefix rks =
+    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
+  where
+    fp = filePrefix ++ "-expected-rks.txt"
+    bsRks = return $! foldMap (toS . show ) (_rkRequestKeys rks)
 
-checkResponse :: FilePath -> RequestKeys -> PollResponses -> IO TestTree
-checkResponse filePrefix rks (PollResponses theMap) = do
-    let fp = filePrefix ++ "-expected-resp.txt"
-    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _arResult <$> catMaybes mays
-    let bsResponse = return $ toS $ foldMap A.encode values
+checkResponse :: FilePath -> RequestKeys -> PollResponses -> TestTree
+checkResponse filePrefix rks (PollResponses theMap) =
+    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
+  where
+    fp = filePrefix ++ "-expected-resp.txt"
+    mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
+    values = _arResult <$> catMaybes mays
+    bsResponse = return $! toS $! foldMap A.encode values
 
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
 
 getCwBaseUrl :: Port -> BaseUrl
 getCwBaseUrl thePort = BaseUrl
@@ -252,27 +257,27 @@ data PactTestApiCmds = PactTestApiCmds
 -- test node(s), config, etc. for this test
 ----------------------------------------------------------------------------------------------------
 runTestNodes
-    :: LogLevel
+    :: RocksDb
+    -> LogLevel
     -> ChainwebVersion
     -> Natural
-    -> Maybe FilePath
     -> MVar PeerInfo
     -> IO ()
-runTestNodes loglevel v n chainDbDir portMVar =
+runTestNodes rdb loglevel v n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (500000 * int i)
-        let baseConf = config v n (NodeId i) chainDbDir
+        threadDelay (1000 * int i)
+        let baseConf = config v n (NodeId i)
         conf <- if
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
-        node loglevel portMVar conf
+        node rdb loglevel portMVar conf
 
-node :: LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
-node loglevel peerInfoVar conf = do
-    pdb <- emptyInMemoryPayloadDb
-    withChainweb conf logger pdb $ \cw -> do
+node :: RocksDb -> LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
+node rdb loglevel peerInfoVar conf = do
+    rocksDb <- testRocksDb ("remotePactTest-" <> encodeUtf8 (toText nid)) rdb
+    withChainweb conf logger rocksDb $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
         when (nid == NodeId 0) $ do
@@ -298,9 +303,8 @@ config
     :: ChainwebVersion
     -> Natural
     -> NodeId
-    -> Maybe FilePath
     -> ChainwebConfiguration
-config v n nid chainDbDir = defaultChainwebConfiguration v
+config v n nid = defaultChainwebConfiguration v
     & set configNodeId nid
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
@@ -309,7 +313,6 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
-    & set configChainDbDirPath chainDbDir
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
     & set (configTransactionIndex . enableConfigEnabled) True
 
@@ -328,4 +331,5 @@ setBootstrapPeerInfo =
 
 -- for Stuart:
 runGhci :: IO ()
-runGhci = tests >>= defaultMain
+runGhci = withTempRocksDb "ghci.RemotePactTests" $ \rdb -> tests rdb >>= defaultMain
+
