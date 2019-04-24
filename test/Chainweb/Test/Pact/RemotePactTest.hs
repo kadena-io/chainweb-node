@@ -110,7 +110,7 @@ tests rdb = do
     let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
     let tt2 = testCase "mempoolValidationCheck" $ testMPValidated mPool rks
 
-    return $ testGroup "PactRemoteTest" $ tt0 : (tt1 : [tt2])
+    return $ testGroup "PactRemoteTest" $ [tt0, tt1,tt2]
 
 testSend :: PactTestApiCmds -> ClientEnv -> IO (TestTree, RequestKeys)
 testSend cmds env = do
