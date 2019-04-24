@@ -22,6 +22,7 @@ extra-deps:
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1
   - QuickCheck-GenT-0.2.0
+  - rocksdb-haskell-1.0.1@sha256:3a437ec1cedea56e02ae85a8e37539151c5295cb228117e46aa90767f1072d61
   - sbv-8.1
   - scheduler-1.0.0@sha256:7f5ddfff0d911b089014f0d7668fe7380c65d94630f204f943181e04815b14ed
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
