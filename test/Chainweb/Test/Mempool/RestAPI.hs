@@ -27,7 +27,7 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (toyChainId, withTestAppServer)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
-import Data.CAS.HashMap (HashMapCas)
+import Data.CAS.RocksDB
 import Network.X509.SelfSigned
 
 
@@ -99,7 +99,7 @@ newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
 ------------------------------------------------------------------------------
 
 serverMempools
-    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () HashMapCas
+    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () RocksDbCas {- ununsed -}
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

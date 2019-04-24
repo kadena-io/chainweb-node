@@ -130,6 +130,8 @@ library
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
+        , Chainweb.Payload.PayloadStore.RocksDB
+        , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
@@ -157,7 +159,6 @@ library
         , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
-        , Chainweb.TreeDB.Sync
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Paging
@@ -170,6 +171,7 @@ library
 
         , Data.CAS
         , Data.CAS.HashMap
+        , Data.CAS.RocksDB
         , Data.DiGraph
         , Data.DiGraph.FloydWarshall
         , Data.IVar
@@ -279,6 +281,7 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
+        , rocksdb-haskell >= 1.0.1
         , safe-exceptions >= 0.1
         , safeio >= 0.0
         , servant >= 0.14
@@ -369,7 +372,6 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
-        Chainweb.Test.TreeDB.Sync
         Chainweb.Test.Utils
 
     build-depends:
@@ -410,6 +412,7 @@ test-suite chainweb-tests
         , pact >= 2.6
         , paths >= 0.2
         , quickcheck-instances >= 0.3
+        , random >= 1.1
         , random-bytestring >= 0.1
         , raw-strings-qq >= 1.0
         , reflection >= 2.1
@@ -503,6 +506,7 @@ executable chainweb-node
         , case-insensitive >= 1.2
         , configuration-tools >= 0.4
         , deepseq >= 1.4
+        , directory >= 1.3
         , exceptions >= 0.8
         , http-client >= 0.5
         , lens >= 4.16
@@ -638,6 +642,7 @@ executable blockheaderdb-example
         , lens >= 4.16
         , random >= 1.1
         , streaming >= 0.2.2
+        , temporary >= 1.3
         , text >= 1.2
         , yet-another-logger >= 0.3.1
 

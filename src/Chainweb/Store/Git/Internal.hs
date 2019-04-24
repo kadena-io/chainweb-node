@@ -42,6 +42,7 @@ module Chainweb.Store.Git.Internal
   , lookupByBlockHash
   , lookupTreeEntryByHash
   , readParent
+  , leafEntries
 
     -- * Traversal
   , walk
@@ -177,7 +178,7 @@ instance TreeDb GitStore where
 
     lookup gs (T2 hgt hsh) = fmap GitStoreBlockHeader <$> lookupByBlockHash gs hgt hsh
 
-    entries gs next limit minr0 maxr = do
+    entries gs next limit minr0 maxr inner = inner $ do
         ls <- liftIO $ lockGitStore gs leaves'
         let !highest = _te_blockHeight $ maximumBy (compare `on` _te_blockHeight) ls
         counter <- liftIO $ newIORef 0
@@ -245,25 +246,35 @@ instance TreeDb GitStore where
             g (_, T2 _ blob) =
                 GitStoreBlockHeader <$> lockGitStore gs (\gsd -> readHeader' gsd blob)
 
-    leafEntries gs next limit minr maxr = do
-        ls <- fmap (sortOn _blockHeight) . liftIO $ leaves gs
-        counter <- liftIO $ newIORef 0
-        countItems counter . postprocess . P.map GitStoreBlockHeader $ P.each ls
-        total <- liftIO $ readIORef counter
-        pure (int total, Eos True)
-      where
-        postprocess :: Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-        postprocess =
-            maybe id filterItems limit
-            . maybe id seekToNext next
-            . maybe id maxItems maxr
-            . maybe id minItems minr
-
-        minItems :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
-        minItems (MinRank (Min n)) =
-            P.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
-
     insert gs (GitStoreBlockHeader bh) = void $ insertBlock gs bh
+
+    maxEntry gs = GitStoreBlockHeader <$> maximumBy (compare `on` _blockHeight) <$> leaves gs
+
+leafEntries
+    :: Num a
+    => GitStore
+    -> Maybe (NextItem (T2 BlockHeight BlockHash))
+    -> Maybe Limit
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Stream (Of GitStoreBlockHeader) IO (a, Eos)
+leafEntries gs next limit minr maxr = do
+    ls <- fmap (sortOn _blockHeight) . liftIO $ leaves gs
+    counter <- liftIO $ newIORef 0
+    countItems counter . postprocess . P.map GitStoreBlockHeader $ P.each ls
+    total <- liftIO $ readIORef counter
+    pure (int total, Eos True)
+    where
+    postprocess :: Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+    postprocess =
+        maybe id filterItems limit
+        . maybe id seekToNext next
+        . maybe id maxItems maxr
+        . maybe id minItems minr
+
+    minItems :: MinRank -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
+    minItems (MinRank (Min n)) =
+        P.dropWhile (\(GitStoreBlockHeader bh) -> int (_blockHeight bh) < n)
 
 filterItems :: Limit -> Stream (Of (DbEntry GitStore)) IO () -> Stream (Of (DbEntry GitStore)) IO ()
 filterItems = P.take . int . _getLimit

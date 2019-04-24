@@ -10,7 +10,9 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
--- Description: An in-memory 'IsCas' implementation based on 'HM.HashMap'.
+-- Description:
+--
+-- A thread-safe in-memory 'IsCas' implementation based on 'HM.HashMap'.
 --
 module Data.CAS.HashMap
 ( HashMapCas

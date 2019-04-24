@@ -52,9 +52,11 @@ import Chainweb.NodeId
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -62,7 +64,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.CAS
-import Data.CAS.HashMap (HashMapCas)
+import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
 
@@ -79,15 +81,17 @@ import Data.TaskMap
 withTestCutDb
     :: forall a
     . HasCallStack
-    => ChainwebVersion
+    => RocksDb
+    -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (CutDb HashMapCas -> IO a)
+    -> (CutDb RocksDbCas -> IO a)
     -> IO a
-withTestCutDb v n logfun f = do
-    payloadDb <- emptyInMemoryPayloadDb
+withTestCutDb rdb v n logfun f = do
+    rocksDb <- testRocksDb "withTestCutDb" rdb
+    let payloadDb = newPayloadDb rocksDb
     initializePayloadDb v payloadDb
-    webDb <- initWebBlockHeaderDb v
+    webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb $ \payloadStore ->
@@ -98,29 +102,32 @@ withTestCutDb v n logfun f = do
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
 withTestPayloadResource
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (IO (CutDb HashMapCas, PayloadDb HashMapCas) -> TestTree)
+    -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
     -> TestTree
-withTestPayloadResource v n logfun inner
+withTestPayloadResource rdb v n logfun inner
     = withResource start stopTestPayload $ \envIO -> do
         inner (envIO >>= \(_,_,a,b) -> return (a,b))
   where
-    start = startTestPayload v logfun n
+    start = startTestPayload rdb v logfun n
 
 -- -------------------------------------------------------------------------- --
 -- Internal Utils for mocking up the backends
 
 startTestPayload
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb HashMapCas, PayloadDb HashMapCas)
-startTestPayload v logfun n = do
-    payloadDb <- emptyInMemoryPayloadDb
+    -> IO (Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
+startTestPayload rdb v logfun n = do
+    rocksDb <- testRocksDb "startTestPayload" rdb
+    let payloadDb = newPayloadDb rocksDb
     initializePayloadDb v payloadDb
-    webDb <- initWebBlockHeaderDb v
+    webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
@@ -128,7 +135,7 @@ startTestPayload v logfun n = do
     foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
-stopTestPayload :: (Async (), Async (), CutDb HashMapCas, PayloadDb HashMapCas) -> IO ()
+stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
 stopTestPayload (pserver, hserver, cutDb, _) = do
     stopCutDb cutDb
     cancel hserver
@@ -154,8 +161,8 @@ startLocalWebBlockHeaderStore mgr webDb = do
 
 withLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb HashMapCas
-    -> (WebBlockPayloadStore HashMapCas -> IO a)
+    -> PayloadDb cas
+    -> (WebBlockPayloadStore cas -> IO a)
     -> IO a
 withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
     mem <- new
@@ -163,8 +170,8 @@ withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
 
 startLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb HashMapCas
-    -> IO (Async (), WebBlockPayloadStore HashMapCas)
+    -> PayloadDb cas
+    -> IO (Async (), WebBlockPayloadStore cas)
 startLocalPayloadStore mgr payloadDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
@@ -175,7 +182,8 @@ startLocalPayloadStore mgr payloadDb = do
 --
 mine
     :: HasCallStack
-    => CutDb HashMapCas
+    => PayloadCas cas
+    => CutDb cas
     -> Cut
     -> IO Cut
 mine cutDb c = do
@@ -219,12 +227,13 @@ mine cutDb c = do
 --
 randomBlockHeader
     :: HasCallStack
-    => CutDb HashMapCas
+    => CutDb cas
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
-    allBlockHeaders <- filter (checkHeight curCut)
-        <$> S.toList_ (webEntries $ view cutDbWebBlockHeaderDb cutDb)
+    allBlockHeaders <- webEntries (view cutDbWebBlockHeaderDb cutDb) $ \s -> s
+        & S.filter (checkHeight curCut)
+        & S.toList_
     generate $ elements allBlockHeaders
   where
     chainHeight curCut cid = _blockHeight (curCut ^?! ixg (_chainId cid))
@@ -235,7 +244,8 @@ randomBlockHeader cutDb = do
 --
 randomTransaction
     :: HasCallStack
-    => CutDb HashMapCas
+    => PayloadCas cas
+    => CutDb cas
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb

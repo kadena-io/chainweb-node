@@ -34,6 +34,7 @@ module P2P.TaskQueue
 
 -- * P2P Session for Running Queued Tasks
 , session
+, session_
 
 -- * Exceptions
 , TaskException(..)
@@ -64,6 +65,8 @@ import Chainweb.Utils
 import Data.IVar
 import Data.LogMessage
 import Data.PQueue
+
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -144,8 +147,18 @@ session
     -> PQueue (Task env a)
     -> LogFunction
     -> env
+    -> PeerInfo
     -> IO Bool
-session limit q logFun env = mask $ \restore -> do
+session li q lo e _ = session_ li q lo e
+{-# INLINE session #-}
+
+session_
+    :: AttemptsCount
+    -> PQueue (Task env a)
+    -> LogFunction
+    -> env
+    -> IO Bool
+session_ limit q logFun env = mask $ \restore -> do
     task <- pQueueRemove q
 
     -- check if the result variable as already been filled

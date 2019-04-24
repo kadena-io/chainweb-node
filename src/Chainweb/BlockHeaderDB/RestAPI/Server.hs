@@ -117,10 +117,11 @@ branchHashesHandler
 branchHashesHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
-    liftIO $ finiteStreamToPage id effectiveLimit $ void
+    liftIO
         $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
+        $ finiteStreamToPage id effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -140,48 +141,11 @@ branchHeadersHandler
 branchHeadersHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
-    liftIO $ finiteStreamToPage key effectiveLimit $ void
+    liftIO
         $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
-  where
-    effectiveLimit = limit <|> Just defaultKeyLimit
-
--- | All leaf nodes (i.e. the newest blocks on any given branch).
---
--- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
---
-leafHashesHandler
-    :: TreeDb db
-    => db
-    -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-leafHashesHandler db limit next minr maxr = do
-    nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finiteStreamToPage id effectiveLimit $ void
-        $ leafKeys db nextChecked (succ <$> effectiveLimit) minr maxr
-  where
-    effectiveLimit = limit <|> Just defaultKeyLimit
-
--- | All leaf nodes (i.e. the newest blocks on any given branch).
---
--- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
---
-leafHeadersHandler
-    :: TreeDb db
-    => db
-    -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-leafHeadersHandler db limit next minr maxr = do
-    nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finiteStreamToPage key effectiveLimit $ void
-        $ leafEntries db nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finiteStreamToPage key effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -199,8 +163,10 @@ hashesHandler
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finitePrefixOfInfiniteStreamToPage id effectiveLimit $ void
+    liftIO
         $ keys db nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finitePrefixOfInfiniteStreamToPage id effectiveLimit
+        . void
   where
     effectiveLimit = limit <|> Just defaultKeyLimit
 
@@ -218,8 +184,9 @@ headersHandler
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO $ finitePrefixOfInfiniteStreamToPage key effectiveLimit $ void
+    liftIO
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
   where
     effectiveLimit = limit <|> Just defaultEntryLimit
 
@@ -256,10 +223,8 @@ headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
 -- BlockHeaderDB API Server
 
 blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
-blockHeaderDbServer (BlockHeaderDb_ db) =
-    leafHashesHandler db
-    :<|> leafHeadersHandler db
-    :<|> hashesHandler db
+blockHeaderDbServer (BlockHeaderDb_ db)
+    = hashesHandler db
     :<|> headersHandler db
     :<|> headerHandler db
     :<|> headerPutHandler db

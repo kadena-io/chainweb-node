@@ -220,7 +220,7 @@ limitCut wdb h c = c & (cutHeaders . itraverse) f
     ch = h `div` int (order (_chainGraph wdb))
     f cid x = do
         db <- give wdb $ getWebBlockHeaderDb cid
-        a <- S.head_ $ branchEntries db
+        a <- S.head_ & branchEntries db
             Nothing (Just 1)
             Nothing (Just $ int ch)
             mempty (HS.singleton $ UpperBound $ _blockHash x)

@@ -212,7 +212,7 @@ getBlockPayload s priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     casLookup cas payloadHash >>= \case
         Just x -> return $ payloadWithOutputsToPayloadData x
-        Nothing -> memo memoMap payloadHash $ \k -> do
+        Nothing -> memo memoMap payloadHash $ \k ->
             pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
                     t <- queryPayloadTask k
@@ -293,15 +293,19 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         -- P2P network
         --
         (maybeOrigin', header) <- pullOrigin k maybeOrigin >>= \case
-            Nothing -> do
-                t <- queryBlockHeaderTask k
-                pQueueInsert queue t
-                ChainValue _ x <- awaitTask t
-                return (Nothing, x)
-            Just x -> return (maybeOrigin, x)
+                Nothing -> do
+                    t <- queryBlockHeaderTask k
+                    pQueueInsert queue t
+                    ChainValue _ x <- awaitTask t
+                    return (Nothing, x)
+                Just x -> return (maybeOrigin, x)
 
+        -- Query Prerequesits recursively. If there is already job for this
+        -- prerequesite in the memo-table it is awaited, otherwise a new job is
+        -- created.
+        --
         let queryPrerequesiteHeader p = Concurrently $ void $ do
-                logg Debug $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
+                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
                 getBlockHeaderInternal headerStore payloadStore priority maybeOrigin' p
 
         p <- runConcurrently
@@ -314,7 +318,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
             -- query adjacent parents (recursively)
             <* mconcat (queryPrerequesiteHeader <$> adjParents header)
 
-        logg Debug $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 
         -- ------------------------------------------------------------------ --
         -- Validation
@@ -349,13 +353,13 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         -- is't yet in the block header database and thus we still must
         -- validated the payload for this block header.
         --
-        logg Debug $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
         validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
-            logg Warn $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
+            logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
             throwM e
-        logg Debug $ "getBlockHeaderInternal pact validation succeeded"
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal pact validation succeeded"
 
-        logg Debug $ "getBlockHeaderInternal return header " <> sshow h
+        logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
         return $ chainValue header
 
   where
@@ -372,6 +376,8 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
     logg :: LogFunctionText
     logg = logfun @T.Text
 
+    taskMsg k msg = "header task " <> sshow k <> ": " <> msg
+
     pact = _pactValidateBlock
         $ _webPactExecutionService
         $ _webBlockPayloadStorePact payloadStore
@@ -383,11 +389,11 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
-            l @T.Text Debug $ "task " <> sshow ck <> ": query remote block header"
+            l @T.Text Debug $ taskMsg ck $ "query remote block header"
             r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
-                l @T.Text Debug $ "task " <> sshow ck <> " failed: " <> sshow e
+                l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
-            l @T.Text Debug $ "task " <> sshow ck <> ": received remote block header"
+            l @T.Text Debug $ taskMsg ck "received remote block header"
             return r
 
     rDb :: ChainwebVersion -> ChainId -> ClientEnv -> RemoteDb
@@ -395,16 +401,32 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
 
     adjParents = toList . imap ChainValue . _getBlockHashRecord . _blockAdjacentHashes
 
-    pullOrigin :: ChainValue BlockHash -> Maybe PeerInfo -> IO (Maybe BlockHeader)
+    pullOrigin
+        :: ChainValue BlockHash
+        -> Maybe PeerInfo
+        -> IO (Maybe BlockHeader)
     pullOrigin ck Nothing = do
-        logg Debug $ "task " <> sshow ck <> ": no origin"
+        logg Debug $ taskMsg ck "no origin"
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
-        logg Debug $ "task " <> sshow ck <> ": lookup origin"
+        logg Debug $ taskMsg ck $ "lookup origin"
         r <- TDB.lookup (rDb v cid originEnv) k
-        logg Debug $ "task " <> sshow ck <> ": received from origin"
+        logg Debug $ taskMsg ck "received from origin"
         return r
+
+    -- pullOriginDeps _ Nothing = return ()
+    -- pullOriginDeps ck@(ChainValue cid k) (Just origin) = do
+    --     let originEnv = peerInfoClientEnv mgr origin
+    --     curRank <- liftIO $ do
+    --         cdb <- give (_webBlockHeaderStoreCas headerStore) (getWebBlockHeaderDb cid)
+    --         maxRank cdb
+    --     (l, _) <- TDB.branchEntries (rDb v cid originEnv)
+    --         Nothing (Just 1000)
+    --         (Just $ int curRank) Nothing
+    --         mempty (HS.singleton (UpperBound k))
+    --     liftIO $ logg Info $ taskMsg ck $ "pre-fetched " <> sshow l <> " block headers"
+    --     return ()
 
 -- -------------------------------------------------------------------------- --
 -- WebBlockHeaderStore

@@ -53,7 +53,7 @@ import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -61,11 +61,11 @@ import Data.CAS.HashMap hiding (toList)
 -- FIXME: These tests is randomized, and should either be rewritten using
 -- quickCheck instead of HUnit or should be derandomized.
 --
-tests :: TestTree
-tests = testGroup "SPV tests"
-    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest version)
-    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest version)
-    , apiTests True version
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "SPV tests"
+    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
+    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
+    , apiTests rdb True version
     ]
   where
     version = Test petersonChainGraph
@@ -104,10 +104,10 @@ targetChain c srcBlock = do
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
 
-spvTransactionRoundtripTest :: ChainwebVersion -> Step -> IO ()
-spvTransactionRoundtripTest v step = do
+spvTransactionRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
+spvTransactionRoundtripTest rdb v step = do
     step "setup cut db"
-    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
         step "pick random transaction"
         (h, txIx, tx, _) <- randomTransaction cutDb
 
@@ -139,10 +139,10 @@ spvTransactionRoundtripTest v step = do
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
 
-spvTransactionOutputRoundtripTest :: ChainwebVersion -> Step -> IO ()
-spvTransactionOutputRoundtripTest v step = do
+spvTransactionOutputRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
+spvTransactionOutputRoundtripTest rdb v step = do
     step "setup cut db"
-    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
 
         step "pick random transaction output"
         (h, outIx, _, out) <- randomTransaction cutDb
@@ -178,10 +178,10 @@ spvTransactionOutputRoundtripTest v step = do
 -- -------------------------------------------------------------------------- --
 -- REST API
 
-type TestClientEnv_ = TestClientEnv MockTx HashMapCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
 
-apiTests :: Bool -> ChainwebVersion -> TestTree
-apiTests tls v = withTestPayloadResource v 100 (\_ _ -> return ()) $ \dbsIO ->
+apiTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
+apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbsIO ->
     testGroup "SPV API tests"
         [ withPayloadServer tls v (fst <$> dbsIO) (payloadDbs . snd <$> dbsIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)

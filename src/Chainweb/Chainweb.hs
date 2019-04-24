@@ -53,7 +53,6 @@ module Chainweb.Chainweb
 , configChainwebVersion
 , configMiner
 , configP2p
-, configChainDbDirPath
 , configTransactionIndex
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -83,6 +82,8 @@ module Chainweb.Chainweb
 , runMiner
 
 ) where
+
+import Chainweb.Payload.PayloadStore.RocksDB
 
 import Configuration.Utils hiding (Lens', (<.>))
 
@@ -137,6 +138,8 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
+import Data.CAS.RocksDB
+
 import P2P.Node.Configuration
 import P2P.Peer
 
@@ -168,7 +171,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configP2p :: !P2pConfiguration
-    , _configChainDbDirPath :: !(Maybe FilePath)
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
     , _configThrottleRate :: !Natural
@@ -191,7 +193,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configP2p = defaultP2pConfiguration
-    , _configChainDbDirPath = Nothing
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
     , _configThrottleRate = 1000
@@ -203,7 +204,6 @@ instance ToJSON ChainwebConfiguration where
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "p2p" .= _configP2p o
-        , "chainDbDirPath" .= _configChainDbDirPath o
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
         , "throttleRate" .= _configThrottleRate o
@@ -215,7 +215,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configP2p %.: "p2p" % o
-        <*< configChainDbDirPath ..: "chainDbDirPath" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottleRate ..: "throttleRate" % o
@@ -232,9 +231,6 @@ pChainwebConfiguration = id
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
     <*< configP2p %:: pP2pConfiguration Nothing
-    <*< configChainDbDirPath .:: fmap Just % textOption
-        % long "chain-db-dir"
-        <> help "directory where chain databases are persisted"
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
     <*< configIncludeOrigin .:: enableDisableFlag
@@ -277,17 +273,20 @@ instance HasChainGraph (Chainweb logger cas) where
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainweb
-    :: PayloadCas cas
-    => Logger logger
+    :: Logger logger
     => ChainwebConfiguration
     -> logger
-    -> PayloadDb cas
-    -> (Chainweb logger cas -> IO a)
+    -> RocksDb
+    -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainweb c logger payloadDb inner =
+withChainweb c logger rocksDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
-    withChainwebInternal (set configP2p (_peerResConfig peer) conf) logger'
-                         peer payloadDb inner
+        withChainwebInternal
+            (set configP2p (_peerResConfig peer) conf)
+            logger'
+            peer
+            rocksDb
+            inner
   where
     v = _chainwebVersion c
 
@@ -308,25 +307,27 @@ mempoolConfig = Mempool.InMemConfig
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
+-- TODO: abstract cas creation
+--
 withChainwebInternal
-    :: PayloadCas cas
-    => Logger logger
+    :: Logger logger
     => ChainwebConfiguration
     -> logger
     -> PeerResources logger
-    -> PayloadDb cas
-    -> (Chainweb logger cas -> IO a)
+    -> RocksDb
+    -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainwebInternal conf logger peer payloadDb inner = do
+withChainwebInternal conf logger peer rocksDb inner = do
     initializePayloadDb v payloadDb
     cutMV <- newEmptyMVar
     go mempty (toList cids) cutMV
   where
+    payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
     go cs (cid : t) mv =
-        withChainResources v cid peer chainDbDir (chainLogger cid) mempoolConfig mv $ \c ->
+        withChainResources v cid rocksDb peer (chainLogger cid) mempoolConfig mv payloadDb $ \c ->
             go (HM.insert cid c cs) t mv
 
     -- Initialize global resources
@@ -386,7 +387,6 @@ withChainwebInternal conf logger peer payloadDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
-    chainDbDir = _configChainDbDirPath conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)

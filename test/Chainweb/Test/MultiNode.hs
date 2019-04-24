@@ -52,6 +52,7 @@ import qualified Data.HashSet as HS
 import Data.List
 import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
@@ -83,13 +84,14 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import Chainweb.Payload.PayloadStore (emptyInMemoryPayloadDb)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+
+import Data.CAS.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -122,10 +124,8 @@ config
         -- ^ number of nodes
     -> NodeId
         -- ^ NodeId
-    -> (Maybe FilePath)
-        -- ^ directory where the chaindbs are persisted
     -> ChainwebConfiguration
-config v n nid chainDbDir = defaultChainwebConfiguration v
+config v n nid = defaultChainwebConfiguration v
     & set configNodeId nid
         -- Set the node id.
 
@@ -150,9 +150,6 @@ config v n nid chainDbDir = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigSessionTimeout) 60
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
-
-    & set configChainDbDirPath chainDbDir
-        -- Place where the chaindbs are persisted.
 
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
@@ -200,10 +197,10 @@ node
     -> MVar ConsensusState
     -> MVar PeerInfo
     -> ChainwebConfiguration
+    -> RocksDb
     -> IO ()
-node loglevel write stateVar bootstrapPeerInfoVar conf = do
-    pdb <- emptyInMemoryPayloadDb
-    withChainweb conf logger pdb $ \cw -> do
+node loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
+    withChainweb conf logger nodeRocksDb $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.
@@ -227,6 +224,8 @@ node loglevel write stateVar bootstrapPeerInfoVar conf = do
             (view (chainwebCutResources . cutsCutDb) cw)
             state
 
+    nodeRocksDb = set rocksDbNamespace (T.encodeUtf8 $ toText nid) rdb
+
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
 
@@ -237,34 +236,33 @@ runNodes
     -> ChainwebVersion
     -> Natural
         -- ^ number of nodes
-    -> (Maybe FilePath)
-        -- ^ directory where the chaindbs are persisted
     -> IO ()
-runNodes loglevel write stateVar v n chainDbDir = do
+runNodes loglevel write stateVar v n =
+    withTempRocksDb "multinode-tests" $ \rdb -> do
 
-    -- NOTE: pact is enabled until we have a good way to disable it globally in
-    -- "Chainweb.Chainweb".
-    --
-    -- TODO: disable pact for these tests
-    --
+        -- NOTE: pact is enabled until we have a good way to disable it globally in
+        -- "Chainweb.Chainweb".
+        --
+        -- TODO: disable pact for these tests
+        --
 
-    bootstrapPortVar <- newEmptyMVar
-        -- this is a hack for testing: normally bootstrap node peer infos are
-        -- hardcoded. To avoid conflicts in concurrent test runs we extract an
-        -- OS assigned port from the bootstrap node during startup and inject it
-        -- into the configuration of the remaining nodes.
+        bootstrapPortVar <- newEmptyMVar
+            -- this is a hack for testing: normally bootstrap node peer infos are
+            -- hardcoded. To avoid conflicts in concurrent test runs we extract an
+            -- OS assigned port from the bootstrap node during startup and inject it
+            -- into the configuration of the remaining nodes.
 
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (500000 * int i)
+        forConcurrently_ [0 .. int n - 1] $ \i -> do
+            threadDelay (500000 * int i)
 
-        let baseConf = config v n (NodeId i) chainDbDir
-        conf <- if
-            | i == 0 ->
-                return $ bootstrapConfig baseConf
-            | otherwise ->
-                setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
+            let baseConf = config v n (NodeId i)
+            conf <- if
+                | i == 0 ->
+                    return $ bootstrapConfig baseConf
+                | otherwise ->
+                    setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-        node loglevel write stateVar bootstrapPortVar conf
+            node loglevel write stateVar bootstrapPortVar conf rdb
 
 runNodesForSeconds
     :: LogLevel
@@ -274,15 +272,13 @@ runNodesForSeconds
         -- ^ Number of chainweb consensus nodes
     -> Seconds
         -- ^ test duration in seconds
-    -> Maybe FilePath
-        -- ^ directory where the chaindbs are persisted
     -> (T.Text -> IO ())
         -- ^ logging backend callback
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel v n seconds chainDbDir write = do
+runNodesForSeconds loglevel v n seconds write = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1000000)
-        $ runNodes loglevel write stateVar v n chainDbDir
+        $ runNodes loglevel write stateVar v n
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -295,9 +291,8 @@ test
     -> ChainwebVersion
     -> Natural
     -> Seconds
-    -> Maybe FilePath
     -> TestTree
-test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
+test loglevel v n seconds = testCaseSteps label $ \f -> do
     let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
@@ -313,7 +308,7 @@ test loglevel v n seconds chainDbDir = testCaseSteps label $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             if c < maxLogMsgs then logFun msg else return ()
 
-    runNodesForSeconds loglevel v n seconds chainDbDir countedLog >>= \case
+    runNodesForSeconds loglevel v n seconds countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
         Just stats -> do
             logsCount <- readMVar var
@@ -375,9 +370,9 @@ sampleConsensusState
     -> ConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do
-    !hashes' <- S.fold_ (flip HS.insert) (_stateBlockHashes s) id
-        $ S.map _blockHash
-        $ webEntries bhdb
+    !hashes' <- webEntries bhdb
+        $ S.fold_ (flip HS.insert) (_stateBlockHashes s) id
+        . S.map _blockHash
     !c <- _cut cutdb
     return $! s
         { _stateBlockHashes = hashes'

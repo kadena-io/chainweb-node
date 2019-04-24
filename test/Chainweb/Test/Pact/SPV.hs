@@ -60,10 +60,11 @@ import Chainweb.Test.CutDB
 import Chainweb.Utils
 import Chainweb.Version
 
+import Data.CAS.RocksDB
 
-tests :: TestTree
-tests = testGroup "SPV-Pact Integration Tests"
-  [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest version)
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "SPV-Pact Integration Tests"
+  [ testCaseStepsN "SPV Roundtrip" 10 (spvIntegrationTest rdb version)
   ]
   where
     version = Test petersonChainGraph
@@ -151,10 +152,10 @@ createCoinCmd tx = buildExecParsedCode spvData
 -- -------------------------------------------------------------------------- --
 -- SPV Tests
 
-spvIntegrationTest :: ChainwebVersion -> Step -> IO ()
-spvIntegrationTest v step = do
+spvIntegrationTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
+spvIntegrationTest rdb v step = do
     step "setup pact service and spv support"
-    withTestCutDb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
       withPactSetup cutDb $  \_pse _st -> do
         step "pick random transaction"
         (h, txIx, _, _) <- randomTransaction cutDb

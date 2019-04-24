@@ -1,5 +1,9 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -25,28 +29,27 @@ module Chainweb.BlockHeaderDB
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
-, copy
 
--- * Utils
-, childrenKeys
+-- internal
+, seekTreeDb
 ) where
 
 import Control.Arrow
-import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.Trans
+import Control.Monad.Trans.Maybe
 
-import Data.Foldable
+import Data.Aeson
+import Data.Bytes.Get
+import Data.Bytes.Put
+import Data.Function
+import Data.Hashable
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import qualified Data.List as L
-import Data.Semigroup (Min(..))
-import qualified Data.Sequence as Seq
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 
@@ -62,108 +65,97 @@ import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.ChainId
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Validation
-import Chainweb.Utils
+import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
 import Chainweb.Version
+
+import Data.CAS
+import Data.CAS.RocksDB
+
+import Numeric.Additive
 
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-type K = BlockHash
 type E = BlockHeader
 
+encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
+encodeBlockHeightBe (BlockHeight r) = putWord64be r
+
+decodeBlockHeightBe :: MonadGet m => m BlockHeight
+decodeBlockHeightBe = BlockHeight <$> getWord64be
+
 -- -------------------------------------------------------------------------- --
--- Internal DB Representation
---
--- Only functions in this section are allowed to modify values of the Db type.
+-- Ranked Block Header
 
-data Db = Db
-    { _dbEntries :: !(HM.HashMap K (E, Int))
-        -- ^ The map with data base entries along with the index in the insertion
-        -- order. This map is add-only, nothing is updated or deleted from it.
+newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHeader }
+    deriving (Show, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (Hashable, Eq, ToJSON, FromJSON)
 
-    , _dbBranches :: !(HM.HashMap K E)
-        -- ^ The set of leaf entries. These are all entries that don't have
-        -- children, which are precisely the entries in the children map that
-        -- map to an empty set.
+instance HasChainwebVersion RankedBlockHeader where
+    _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
+    {-# INLINE _chainwebVersion #-}
 
-    , _dbChildren :: !(HM.HashMap K (HS.HashSet E))
-        -- ^ The children relation, which allows to traverse the database
-        -- in the direction from the root to the leaves.
-        --
-        -- Entries are only added to the inner sets of this map. Nothing
-        -- is ever deleted.
+instance HasChainId RankedBlockHeader where
+    _chainId = _chainId . _getRankedBlockHeader
+    {-# INLINE _chainId #-}
 
-    , _dbEnumeration :: !(Seq.Seq E)
-        -- ^ The insertion order of the database entries.
-        --
-        -- This sequence is append-only.
+instance HasChainGraph RankedBlockHeader where
+    _chainGraph = _chainGraph . _getRankedBlockHeader
+    {-# INLINE _chainGraph #-}
 
-        -- An alternative approach would have been to link the entries in
-        -- '_dbEntries' via a (mutable) linked list. This approach would have
-        -- required an monadic context for upating the map without providing
-        -- substantial performance gains
-        -- (cf. https://gist.github.com/larskuhtz/5ee9510ad5346f988614f202420ddcc4)
+instance Ord RankedBlockHeader where
+    compare = compare `on` ((_blockHeight &&& id) . _getRankedBlockHeader)
+    {-# INLINE compare #-}
+
+encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
+encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
+{-# INLINE encodeRankedBlockHeader #-}
+
+decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
+decodeRankedBlockHeader = RankedBlockHeader <$> decodeBlockHeader
+{-# INLINE decodeRankedBlockHeader #-}
+
+-- -------------------------------------------------------------------------- --
+-- Ranked Block Hash
+
+data RankedBlockHash = RankedBlockHash
+    { _rankedBlockHashHeight :: !BlockHeight
+    , _rankedBlockHash :: !BlockHash
     }
-    deriving (Generic)
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (Hashable, NFData)
 
-instance NFData Db
+encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
+encodeRankedBlockHash (RankedBlockHash r bh) = do
+    encodeBlockHeightBe r
+    encodeBlockHash bh
+{-# INLINE encodeRankedBlockHash #-}
 
-makeLenses ''Db
+decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
+decodeRankedBlockHash = RankedBlockHash
+    <$> decodeBlockHeightBe
+    <*> decodeBlockHash
+{-# INLINE decodeRankedBlockHash #-}
 
--- | A a new entry to the database
---
-dbAddChecked :: MonadThrow m => E -> Db -> m Db
-dbAddChecked e db
-    | isMember = return db
-    | otherwise = dbAddCheckedInternal
-  where
-    isMember = HM.member (key e) (_dbEntries db)
+instance IsCasValue RankedBlockHeader where
+    type CasKeyType RankedBlockHeader = RankedBlockHash
+    casKey (RankedBlockHeader bh)
+        = RankedBlockHash (_blockHeight bh) (_blockHash bh)
+    {-# INLINE casKey #-}
 
-    -- Internal helper methods
+-- -------------------------------------------------------------------------- --
+-- BlockRank
 
-    -- | Unchecked addition
-    --
-    -- ASSUMES that
-    --
-    -- * Item is not yet in database
-    --
-    -- Guarantees that
-    --
-    -- * each item without children is included in branches and
-    -- * each item is included in children
-    -- * each item is included in the enumeration
-    --
-    dbAdd
-        = over dbEnumeration (Seq.:|> e)
-        . over dbChildren dbAddChildren
-        . over dbBranches dbAddBranch
-        . over dbEntries (HM.insert (key e) (e, length (_dbEnumeration db)))
-        $ db
-
-    dbAddCheckedInternal :: MonadThrow m => m Db
-    dbAddCheckedInternal = case parent e of
-        Nothing -> return dbAdd
-        Just p -> case HM.lookup p (_dbEntries db) of
-            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
-            Just (pe, _) -> do
-                unless (rank e == rank pe + 1)
-                    $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
-                return dbAdd
-
-    dbAddBranch :: HM.HashMap K E -> HM.HashMap K E
-    dbAddBranch bs = HM.insert (key e) e
-        $ maybe bs (`HM.delete` bs) (parent e)
-
-    dbAddChildren
-        :: HM.HashMap K (HS.HashSet E)
-        -> HM.HashMap K (HS.HashSet E)
-    dbAddChildren cs = HM.insert (key e) mempty $ case parent e of
-        Just p -> HM.insertWith (<>) p (HS.singleton e) cs
-        _ -> cs
-
-emptyDb :: Db
-emptyDb = Db mempty mempty mempty mempty
+newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
+    deriving (Show, Generic)
+    deriving anyclass (NFData)
+    deriving newtype
+        ( Eq, Ord, Hashable, ToJSON, FromJSON
+        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
+        , Num, Integral, Real, Enum
+        )
 
 -- -------------------------------------------------------------------------- --
 -- Chain Database Handle
@@ -172,6 +164,7 @@ emptyDb = Db mempty mempty mempty mempty
 --
 data Configuration = Configuration
     { _configRoot :: !BlockHeader
+    , _configRocksDb :: !RocksDb
     }
 
 -- | A handle to the database. This is a mutable stateful object.
@@ -184,18 +177,19 @@ data Configuration = Configuration
 data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
     , _chainDbChainwebVersion :: !ChainwebVersion
-    , _chainDbVar :: !(MVar Db)
+    , _chainDbRocksDb :: !RocksDb
         -- ^ Database that provides random access the block headers indexed by
         -- their hash. The 'MVar' is used as a lock to sequentialize concurrent
         -- access.
 
-    , _chainDbEnumeration :: !(TVar (Seq.Seq E))
-        -- ^ The enumeration of the db wrapped in a 'TVar'. It allows clients to
-        -- await additions to the database.
-        --
-        -- This TVar is updated under the database lock each time a value is
-        -- added is added to the sequence. It contains a pointer to the
-        -- enumeration in the database and it must not changed anywhere else.
+    , _chainDbCas :: !(RocksDbTable RankedBlockHash RankedBlockHeader)
+        -- ^ Ranked block hashes provide fast access and iterating  by block
+        -- height. Blocks of similar height are stored and cached closely
+        -- together. This table is an instance of 'IsCas'.
+
+    , _chainDbRankTable :: !(RocksDbTable BlockHash BlockHeight)
+        -- ^ This index supports lookup of a block hash for which the height
+        -- isn't known
     }
 
 instance HasChainId BlockHeaderDb where
@@ -206,158 +200,207 @@ instance HasChainwebVersion BlockHeaderDb where
     _chainwebVersion = _chainDbChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
+-- -------------------------------------------------------------------------- --
+-- Insert
+--
+-- Only functions in this section are allowed to modify values of the Db type.
+
+-- | A a new entry to the database
+--
+-- Updates all indices.
+--
+dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
+dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
+  where
+    r = int $ rank e
+    ek = RankedBlockHash r (_blockHash e)
+
+    -- Internal helper methods
+
+    -- | Unchecked addition
+    --
+    -- ASSUMES that
+    --
+    -- * Item is not yet in database
+    --
+    dbAddCheckedInternal :: IO ()
+    dbAddCheckedInternal = case parent e of
+        Nothing -> add
+        Just p -> casLookup (_chainDbCas db) (RankedBlockHash (r - 1) p)  >>= \case
+            Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
+            Just (RankedBlockHeader pe) -> do
+                unless (rank e == rank pe + 1)
+                    $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
+                add
+      where
+
+    -- TODO: make this atomic (create boilerplate to combine queries for
+    -- different tables)
+    add = do
+        casInsert (_chainDbCas db) (RankedBlockHeader e)
+        tableInsert (_chainDbRankTable db) (_blockHash e) (_blockHeight e)
+
+-- -------------------------------------------------------------------------- --
+-- Initialization
+
 -- | Initialize a database handle
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
-    initialDb <- dbAddChecked rootEntry emptyDb
-    BlockHeaderDb (_chainId rootEntry) (_chainwebVersion rootEntry)
-        <$> newMVar initialDb
-        <*> newTVarIO (_dbEnumeration initialDb)
+    dbAddChecked db rootEntry
+    return db
   where
     rootEntry = _configRoot config
+    cid = _chainId rootEntry
+    cidNs = T.encodeUtf8 (toText cid)
+
+    headerTable = newTable
+        (_configRocksDb config)
+        (Codec (runPut . encodeRankedBlockHeader) (runGet decodeRankedBlockHeader))
+        (Codec (runPut . encodeRankedBlockHash) (runGet decodeRankedBlockHash))
+        ["BlockHeader", cidNs, "header"]
+
+    rankTable = newTable
+        (_configRocksDb config)
+        (Codec (runPut . encodeBlockHeight) (runGet decodeBlockHeight))
+        (Codec (runPut . encodeBlockHash) (runGet decodeBlockHash))
+        ["BlockHeader", cidNs, "rank"]
+
+    db = BlockHeaderDb cid
+        (_chainwebVersion rootEntry)
+        (_configRocksDb config)
+        headerTable
+        rankTable
 
 -- | Close a database handle and release all resources
 --
 closeBlockHeaderDb :: BlockHeaderDb -> IO ()
-closeBlockHeaderDb = void . takeMVar . _chainDbVar
-
-snapshot :: BlockHeaderDb -> IO Db
-snapshot = readMVar . _chainDbVar
-
-enumerationIO :: BlockHeaderDb -> IO (Seq.Seq E)
-enumerationIO = readTVarIO . _chainDbEnumeration
-
-enumeration :: BlockHeaderDb -> STM (Seq.Seq E)
-enumeration = readTVar . _chainDbEnumeration
-
-copy :: BlockHeaderDb -> IO BlockHeaderDb
-copy db = withMVar (_chainDbVar db) $ \var ->
-    BlockHeaderDb (_chainDbId db) (_chainwebVersion db)
-        <$> newMVar var
-        <*> (newTVarIO =<< readTVarIO (_chainDbEnumeration db))
+closeBlockHeaderDb _ = return ()
 
 withBlockHeaderDb
-    :: ChainwebVersion
+    :: RocksDb
+    -> ChainwebVersion
     -> ChainId
     -> (BlockHeaderDb -> IO b)
     -> IO b
-withBlockHeaderDb v cid = bracket start closeBlockHeaderDb
+withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader v cid
+        , _configRocksDb = db
         }
 
 -- -------------------------------------------------------------------------- --
 -- TreeDB instance
 
+-- | TODO provide more efficient branchEntries implementation that uses
+-- iterators.
+--
 instance TreeDb BlockHeaderDb where
     type DbEntry BlockHeaderDb = BlockHeader
 
-    lookup db k = fmap fst . HM.lookup k . _dbEntries <$> snapshot db
+    lookup db h = runMaybeT $ do
+        -- lookup rank
+        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
 
-    leafEntries db n l mir mar
-        = _dbBranches <$> lift (snapshot db) >>= \b -> do
-            (s :: Maybe (NextItem (HS.HashSet K))) <- lift $ start b n
-            HM.elems b
-                & L.sortOn _blockHeight
-                & S.each
-                & seekStreamSet key s
-                & limitLeaves db mir mar
-                & limitStream l
-      where
-        start _ Nothing = return Nothing
-        start b (Just (Exclusive x)) = startSet b x Exclusive
-        start b (Just (Inclusive x)) = startSet b x Inclusive
+        -- lookup header
+        rh <- MaybeT $ casLookup (_chainDbCas db) $ RankedBlockHash r h
 
-        startSet b x clusive = Just . clusive . HS.fromList . fmap key
-            <$> S.toList_ (ascendIntersect db (keySet b) =<< liftIO (lookupM db x))
+        return $ _getRankedBlockHeader rh
+    {-# INLINEABLE lookup #-}
 
-    allKeys db = S.map key . allEntries db
+    entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
+        iterToValueStream it
+            & S.map _getRankedBlockHeader
+            & maybe id (\x -> S.takeWhile (\a -> int (_blockHeight a) <= x)) mar
+            & limitStream l
+    {-# INLINEABLE entries #-}
 
-    allEntries db k = do
-        sn <- lift $ snapshot db
-        case k of
-            Nothing -> fromIdx 0
-            Just (Exclusive x) -> case HM.lookup x (_dbEntries sn) of
-                Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb x
-                Just (_, i) -> fromIdx (i + 1)
-            Just (Inclusive x) -> case HM.lookup x (_dbEntries sn) of
-                Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb x
-                Just (_, i) -> fromIdx i
-      where
-        fromIdx i = do
-            s <- lift $ atomically $
-                Seq.drop i <$> enumeration db >>= \case
-                    Seq.Empty -> retry
-                    l -> return l
-            S.each s
-            fromIdx (i + length s)
-
-    entries db k l mir mar = lift (enumerationIO db)
-        >>= foldableEntries k l mir mar
+    keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
+        iterToKeyStream it
+            & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
+            & S.map _rankedBlockHash
+            & limitStream l
+    {-# INLINEABLE keys #-}
 
     insert db e = liftIO $ insertBlockHeaderDb db [e]
+    {-# INLINEABLE insert #-}
 
--- | All the children of a given node in at some point in time in
--- some arbitrary order.
---
--- The number is expected to be small enough to be returned in a single call
--- even for remote backends. FIXME: this may be a DOS vulnerability.
---
-childrenKeys
-    :: BlockHeaderDb
-    -> DbKey BlockHeaderDb
-    -> S.Stream (S.Of (DbKey BlockHeaderDb)) IO ()
-childrenKeys db = S.map key . childrenEntries db
+    maxEntry db = withTableIter (_chainDbCas db) $ \it -> do
+        tableIterLast it
+        tableIterValue it >>= \case
+            Just (RankedBlockHeader r) -> return r
+            Nothing -> throwM
+                $ InternalInvariantViolation "BlockHeaderDb.maxEntry: empty block header db"
+    {-# INLINEABLE maxEntry #-}
 
-childrenEntries
-    :: BlockHeaderDb
-    -> DbKey BlockHeaderDb
-    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
-childrenEntries db k =
-    HM.lookup k . _dbChildren <$> lift (snapshot db) >>= \case
-        Nothing -> lift $ throwM $ TreeDbKeyNotFound @BlockHeaderDb k
-        Just c -> S.each c
+    maxRank db = withTableIter (_chainDbCas db) $ \it -> do
+        tableIterLast it
+        tableIterKey it >>= \case
+            Just (RankedBlockHash r _) -> return (int r)
+            Nothing -> throwM
+                $ InternalInvariantViolation "BlockHeaderDb.maxRank: empty block header db"
+    {-# INLINEABLE maxRank #-}
 
-limitLeaves
+withSeekTreeDb
     :: BlockHeaderDb
+    -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
-    -> Maybe MaxRank
-    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO x
-    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO x
-limitLeaves db mir mar s = s
-    & maybe id (flip S.for . ascend db) mir
-    & maybe id (S.mapM . descend db) mar
-    & nub
+    -> (RocksDbTableIter RankedBlockHash RankedBlockHeader -> IO a)
+    -> IO a
+withSeekTreeDb db k mir = bracket (seekTreeDb db k mir) releaseTableIter
+{-# INLINE withSeekTreeDb #-}
 
-ascend
+-- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
+-- key doesn't exist it throws @TreeDbKeyNotFound@. Otherwise if @k@ was
+-- exclusive, it advance the iterator to the next item. If @minr@ is not
+-- 'Nothing' and the iterator is at a position smaller than @minr@ an invalid
+-- iterator is returned. Otherwise the iterator is returned.
+--
+-- If @k@ is 'Nothing' and @minr@ is not 'Nothing' it seeks up to @minr@ and
+-- returns the iterator.
+--
+-- If both @k@ and @minr@ are 'Nothing' it returns an iterator that points to
+-- the first entry in @d@.
+--
+seekTreeDb
     :: BlockHeaderDb
-    -> MinRank
-    -> DbEntry BlockHeaderDb
-    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
-ascend db (MinRank (Min r)) = go
-  where
-    go e
-        | rank e < r = S.for (childrenKeys db (key e) & lookupStreamM db) go
-        | otherwise = S.yield e
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> IO (RocksDbTableIter RankedBlockHash RankedBlockHeader)
+seekTreeDb db k mir = do
+    it <- createTableIter (_chainDbCas db)
+    case k of
+        Nothing -> case mir of
+            Nothing -> return ()
+            Just r -> tableIterSeek it
+                $ RankedBlockHash (BlockHeight $ int $ _getMinRank r) nullBlockHash
 
--- | @ascendIntersect db s e@ returns the intersection of the successors of
--- @e@ with the set @s@.
---
--- TODO: use rank to prune the search
--- FIXME: is this what we want if elements of @s@ are on the same branch?
---
-ascendIntersect
-    :: BlockHeaderDb
-    -> HS.HashSet (DbKey BlockHeaderDb)
-    -> DbEntry BlockHeaderDb
-    -> S.Stream (S.Of (DbEntry BlockHeaderDb)) IO ()
-ascendIntersect db s = go
+        Just a -> do
+
+            -- Seek to cursor
+            let x = _getNextItem a
+            r <- tableLookup (_chainDbRankTable db) x >>= \case
+                Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+                Just b -> return b
+            tableIterSeek it (RankedBlockHash r x)
+
+            -- if we don't find the cursor, throw exception
+            tableIterKey it >>= \case
+                Just (RankedBlockHash _ b) | b == x -> return ()
+                _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
+
+            -- If the cursor is exclusive, then advance the iterator
+            when (isExclusive a) $ tableIterNext it
+
+            -- Check minimum rank. Return invalid iter if cursor is below
+            -- minimum rank.
+            tableIterKey it >>= \case
+                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter it
+                _ -> return ()
+    return it
   where
-    go e
-        | key e `HS.member` s = S.yield e
-        | otherwise = S.for (childrenEntries db (key e)) go
+    invalidIter it = tableIterLast it >> tableIterNext it
 
 -- -------------------------------------------------------------------------- --
 -- Insertions
@@ -368,10 +411,8 @@ insertBlockHeaderDb db es = do
     -- Validate set of additions
     validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$> es
 
-    -- atomically add set of additions to database
-    modifyMVar_ (_chainDbVar db) $ \x -> do
-        x' <- foldM (flip dbAddChecked) x rankedAdditions
-        atomically $ writeTVar (_chainDbEnumeration db) $ _dbEnumeration x'
-        return $!! x'
+    -- add set of additions to database
+    mapM_ (dbAddChecked db) rankedAdditions
   where
     rankedAdditions = L.sortOn rank es
+

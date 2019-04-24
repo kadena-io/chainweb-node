@@ -20,7 +20,6 @@ import Control.Lens (each, from, over, to, (^.), (^..))
 import Data.Bool (bool)
 import Data.Foldable (foldlM)
 import qualified Data.HashSet as HS
-import Data.List (sort, sortOn)
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
 import Data.Tree (Tree(..))
@@ -29,7 +28,7 @@ import Numeric.Natural (Natural)
 
 import Prelude hiding (lookup)
 
-import Streaming (MonadIO, Of(..), Stream, liftIO)
+import Streaming (Of(..), Stream)
 import qualified Streaming.Prelude as P
 
 import Test.Tasty
@@ -62,25 +61,19 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
                           $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
                     , testPropertySch "streaming entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
-                    , testPropertySch "streaming leafEntries"
-                          $ streamCount_prop f (\db -> leafEntries db Nothing Nothing Nothing Nothing)
-                    , testPropertySch "streaming leafKeys"
-                          $ streamCount_prop f (\db -> leafKeys db Nothing Nothing Nothing Nothing)
                     , testPropertySch "streaming branchKeys"
                           $ streamCount_prop f (\db -> branches branchKeys db)
                     , testPropertySch "streaming branchEntries"
                           $ streamCount_prop f (\db -> branches branchEntries db)
                     ]
               , testGroupSch "Miscellaneous" $ schedule rs
-                    [ testPropertySch "All leaves are properly fetched" $ leafFetch_prop f
-                    , testPropertySch "Parent lookup of genesis fails" $ genParent_prop f
+                    [ testPropertySch "Parent lookup of genesis fails" $ genParent_prop f
                     , testPropertySch "All entries are properly fetched" $ entriesFetch_prop f
                     ]
               ]
         , testGroupSch "TreeDb Behaviour" $ schedule rs
             [ testPropertySch "Reinsertion is a no-op" $ reinsertion_prop f
             , testPropertySch "Cannot manipulate old nodes" $ handOfGod_prop f
-            , testPropertySch "Leaves are streamed in ascending order" $ leafOrder_prop f
             , testPropertySch "Entries are streamed in ascending order" $ entryOrder_prop f
             , testPropertySch "maxRank reports correct height" $ maxRank_prop f
             ]
@@ -125,7 +118,7 @@ reinsertion_prop
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 reinsertion_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
     fromFoldable db t
-    l <- P.length_ $ entries db Nothing Nothing Nothing Nothing
+    l <- entries db Nothing Nothing Nothing Nothing $ P.length_
     pure $ l == length t
   where
     t :: Tree (DbEntry db)
@@ -141,11 +134,11 @@ handOfGod_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    h <- maxHeader db
+    h <- maxEntry db
     try (insert db (over (isoBH . blockNonce) succ h)) >>= \case
         Left (_ :: SomeException) -> pure True
         Right _ -> do
-            h' <- maxHeader db
+            h' <- maxEntry db
             pure $ h == h'
   where
     t :: Tree (DbEntry db)
@@ -169,24 +162,12 @@ rootParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 streamCount_prop
     :: forall db a. (TreeDb db, IsBlockHeader (DbEntry db))
     => (DbEntry db -> (db -> IO Bool) -> IO Bool)
-    -> (db -> Stream (Of a) IO (Natural, Eos))
+    -> (db -> (Stream (Of a) IO (Natural, Eos) -> IO (Of [a] (Natural, Eos))) -> IO (Of [a] (Natural, Eos)))
     -> SparseTree
     -> Property
 streamCount_prop f g (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    (ls :> (n, _)) <- P.toList $ g db
+    (ls :> (n, _)) <- g db $ \s -> P.toList s
     pure $ len ls == n -- && n > 0
-  where
-    t :: Tree (DbEntry db)
-    t = fmap (^. from isoBH) t0
-
--- | Property: A `TreeDb` must be able to yield all of its leaves properly.
---
-leafFetch_prop
-    :: forall db. (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-leafFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    ls <- P.toList_ $ leafEntries db Nothing Nothing Nothing Nothing
-    pure $ sort ls == sort (treeLeaves t)
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
@@ -195,20 +176,8 @@ entriesFetch_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 entriesFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    l <- P.length_ $ entries db Nothing Nothing Nothing Nothing
+    l <- entries db Nothing Nothing Nothing Nothing $ P.length_
     pure $ l == length t
-  where
-    t :: Tree (DbEntry db)
-    t = fmap (^. from isoBH) t0
-
--- | Property: `leafEntries` streams leaves in ascending order of `BlockHeight`.
---
-leafOrder_prop
-    :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-leafOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    ls <- P.toList_ . P.map (^. isoBH) $ leafEntries db Nothing Nothing Nothing Nothing
-    pure $ ls == sortOn _blockHeight ls
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
@@ -233,7 +202,7 @@ entryOrder_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
     => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
 entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    hs <- P.toList_ . P.map (^. isoBH) $ entries db Nothing Nothing Nothing Nothing
+    hs <- entries db Nothing Nothing Nothing Nothing $ P.toList_ . P.map (^. isoBH)
     pure . isJust $ foldlM g S.empty hs
   where
     g acc h = let acc' = S.insert (_blockHash h) acc
@@ -244,7 +213,6 @@ entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 
 branches
     :: TreeDb t
-    => MonadIO m
     => (t
         -> Maybe a
         -> Maybe a1
@@ -252,15 +220,16 @@ branches
         -> Maybe a3
         -> HS.HashSet (LowerBound (Key (DbEntry t)))
         -> HS.HashSet (UpperBound (Key (DbEntry t)))
-        -> m b)
+        -> (m b -> IO x) -> IO x)
     -> t
-    -> m b
-branches f db = do
-    geni <- liftIO $ root db
-    leaf <- liftIO $ maxHeader db
+    -> (m b -> IO x)
+    -> IO x
+branches f db g = do
+    geni <- root db
+    leaf <- maxEntry db
     let lows = HS.singleton . LowerBound $ key geni
         ups  = HS.singleton . UpperBound $ key leaf
-    f db Nothing Nothing Nothing Nothing lows ups
+    f db Nothing Nothing Nothing Nothing lows ups g
 
 genParent_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
