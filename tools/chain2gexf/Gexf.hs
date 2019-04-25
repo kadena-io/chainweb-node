@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Utils.Gexf
+-- Module: Gexf
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -14,7 +14,7 @@
 --
 -- TODO
 --
-module Utils.Gexf
+module Gexf
 ( blockHeaders2gexf
 , blockMap2gexf
 , readP2pSessions
@@ -325,4 +325,3 @@ gexfEdge nid label weight attrValues src trg s e = Gexf $ xelem "edge"
         | (_title, value) <- values
         | i <- [0 :: Int ..]
         ]
-
