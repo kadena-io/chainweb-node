@@ -5,16 +5,17 @@
 -- |
 module Chainweb.Simulate.Contracts.SimplePayments where
 
+import Control.Monad (join)
+
 import Data.Aeson
-import Data.Char
-import Data.Decimal
-import Data.Default
+-- import Data.Char
+-- import Data.Decimal
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import Fake
 
-import GHC.Generics hiding (from, to)
+-- import GHC.Generics hiding (from, to)
 
 import NeatInterpolation
 
@@ -26,16 +27,18 @@ import Text.Printf
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.Command (Command(..))
-import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
+import Pact.Types.Crypto (SomeKeyPair)
+import Pact.Types.ChainMeta (PublicMeta(..))
 
 -- CHAINWEB
 
+import Chainweb.Simulate.Contracts.Common
 import Chainweb.Simulate.Utils
 
-simplePaymentsContractLoader :: [SomeKeyPair] -> IO (Command Text)
-simplePaymentsContractLoader adminKeyset = do
+simplePaymentsContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
+simplePaymentsContractLoader meta adminKeyset = do
     let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-    mkExec (T.unpack theCode) theData def adminKeyset Nothing
+    mkExec (T.unpack theCode) theData meta adminKeyset Nothing
   where
     theCode = [text| ;; Simple accounts model.
 ;;
@@ -88,111 +91,46 @@ simplePaymentsContractLoader adminKeyset = do
 (create-table payments-table)
   |]
 
-createAccount :: String -> IO ([SomeKeyPair], Command Text)
-createAccount name = do
-    adminKeyset <- testSomeKeyPairs
-    nameKeyset <- return <$> genKeyPair defaultScheme
-    let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-    res <- mkExec theCode theData def adminKeyset Nothing
-    return (nameKeyset, res)
-  where
-    theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
-
-createAccounts :: IO [([SomeKeyPair], Command Text)]
-createAccounts = traverse (createAccount . go) (words names)
-  where
-    go (x:xs) = toUpper x : map toLower xs
-    go _ = error "impossible"
-
-names :: String
-names = "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
-
-newtype Account = Account
-  { getAccount :: String
-  } deriving (Eq, Show, Generic)
-
-accountNames :: [Account]
-accountNames = map (Account . go) (words names)
-  where
-    go (x:xs) = toUpper x : map toLower xs
-    go _ = error "impossible"
-
-instance Fake Account where
-  fake = elements accountNames
-
-newtype Amount = Amount
-  { getAmount :: Decimal
-  } deriving (Eq, Show, Generic)
-
-instance Fake Amount where
-  fake =
-    Amount <$>
-    (realFracToDecimal <$> fromRange (0, 10) <*>
-     (fromRange (lowerLimit, upperLimit) :: FGen Double))
-    where
-      lowerLimit = 0
-      upperLimit = 1000
-
-newtype Balance = Balance
-  { getBalance :: Decimal
-  } deriving (Eq, Show, Generic)
-
-instance Fake Balance where
-  fake = Balance . fromIntegral <$> fromRange (0, 100000 :: Integer)
-
-distinctPair :: (Fake a, Eq a) => FGen (a,a)
-distinctPair = fake >>= \a -> (,) a <$> suchThat fake (/= a)
-
-mkRandomSimplePaymentRequest :: [(Account, [SomeKeyPair])] -> IO (FGen SimplePaymentRequest)
+mkRandomSimplePaymentRequest :: [(Account, Maybe [SomeKeyPair])] -> IO (FGen SimplePaymentRequest)
 mkRandomSimplePaymentRequest kacts = do
   request <- randomRIO (0, 1 :: Int)
   case request of
-    0 -> return $ RequestGetBalance <$> fake
+    0 -> return $ SPRequestGetBalance <$> fake
     1 -> return $ do
         (from, to) <- distinctPair
-        RequestPay from to <$> fake
+        SPRequestPay from to <$> fake
     -- Lol, this might be used later. For now, this constructor will
     -- not be exercised.
     2 -> return $ do
            acct <- fake
            bal <- fake
-           case lookup acct kacts of
+           case join (lookup acct kacts) of
             Nothing -> error (errmsg ++ (getAccount acct) ++ " " ++ show (fst <$> kacts))
-            Just keyset -> return $ CreateAccount acct bal keyset
+            Just keyset -> return $ SPCreateAccount acct bal keyset
     _ -> error "mkRandomSimplePaymentRequest: error in case statement."
   where
     errmsg =
            "mkRandomSimplePaymentRequest: something went wrong."
            ++ " Cannot find account name"
 
-
 data SimplePaymentRequest
-  = RequestGetBalance Account
-  | RequestPay Account Account Amount
-  | CreateAccount Account Balance [SomeKeyPair]
+  = SPRequestGetBalance Account
+  | SPRequestPay Account Account Amount
+  | SPCreateAccount Account Balance [SomeKeyPair]
 
-parens :: String -> String
-parens s = "(" ++ s ++ ")"
-
-instance Show SimplePaymentRequest where
-  show (RequestGetBalance account) = "RequestGetBalance: " ++ parens (show account)
-  show (RequestPay accountA accountB amount) =
-    "RequestPay: " ++ parens (show accountA) ++ " " ++ parens (show accountB) ++ " " ++ parens (show amount)
-  show (CreateAccount account balance _) = "CreateAccount: " ++ parens (show account) ++ " " ++ parens (show balance)
-
-createSimplePaymentRequest :: SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO (Command Text)
-createSimplePaymentRequest (CreateAccount (Account account) (Balance initialBalance) somekeyset) Nothing = do
+createSimplePaymentRequest :: PublicMeta -> SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO (Command Text)
+createSimplePaymentRequest meta (SPCreateAccount (Account account) (Balance initialBalance) somekeyset) _ = do
   adminKeyset <- testSomeKeyPairs
   let theData = object ["keyset" .= fmap formatB16PubKey somekeyset ,"admin-keyset" .= fmap formatB16PubKey adminKeyset]
       theCode = printf "(payments.create-account \"%s\" %s)" account (show initialBalance)
-  mkExec theCode theData def somekeyset Nothing
+  mkExec theCode theData meta somekeyset Nothing
 
-createSimplePaymentRequest (RequestGetBalance (Account account)) Nothing = do
+createSimplePaymentRequest meta (SPRequestGetBalance (Account account)) _ = do
   adminKeyset <- testSomeKeyPairs
   let theCode = printf "(payments.get-balance \"%s\")" account
-  mkExec theCode Null def adminKeyset Nothing
+  mkExec theCode Null meta adminKeyset Nothing
 
-createSimplePaymentRequest (RequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
+createSimplePaymentRequest meta (SPRequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
   let theCode = printf "(payments.pay \"%s\" \"%s\" %s)" from to (show amount)
-  mkExec theCode Null def keyset Nothing
-createSimplePaymentRequest _ _ = error "createSimplePaymentRequest: impossible"
+  mkExec theCode Null meta keyset Nothing
+createSimplePaymentRequest _ _ _ = error "createSimplePaymentRequest: impossible"
