@@ -8,20 +8,23 @@ import Text.PrettyPrint.ANSI.Leijen (fillSep, text, vcat)
 import qualified Chain2Gexf
 import qualified Ea
 import qualified RunNodes
+import qualified SlowTests
 import qualified TransactionGenerator
 
 data Command
   = C2Gexf
   | Ea
-  | RunNodes
   | GenTransactions
+  | RunNodes
+  | SlowTests
 
 commandParser :: Parser Command
 commandParser = subparser $
     command "bigbang" eaOpts <> -- Using "ea" as a command seemed to have problems
     command "chain2gexf" (C2Gexf <$ Chain2Gexf.opts) <>
+    command "gen-transactions" (GenTransactions <$ tgenOpts) <>
     command "run-nodes" (RunNodes <$ RunNodes.runNodesOpts) <>
-    command "gen-transactions" (GenTransactions <$ tgenOpts)
+    command "slow-tests" (SlowTests <$ slowTestOpts)
 
 tgenOpts :: ParserInfo Command
 tgenOpts = info (pure GenTransactions)
@@ -33,14 +36,20 @@ eaOpts = info (pure Ea)
     (fullDesc
      <> progDesc "Generate Chainweb genesis blocks and their payloads")
 
+slowTestOpts :: ParserInfo Command
+slowTestOpts = info (pure SlowTests)
+    (fullDesc
+     <> progDesc "Run slow Chainweb tests")
+
 main :: IO ()
 main = do
     cmd <- customExecParser p opts
     case cmd of
       C2Gexf -> Chain2Gexf.main
       Ea -> Ea.main
-      RunNodes -> RunNodes.main
       GenTransactions -> TransactionGenerator.main
+      RunNodes -> RunNodes.main
+      SlowTests -> SlowTests.main
   where
     opts = info (commandParser <**> helper) mods
     mods = headerDoc (Just theHeader)

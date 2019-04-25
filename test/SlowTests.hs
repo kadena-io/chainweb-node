@@ -11,7 +11,7 @@
 -- Chainweb Slow Tests
 --
 
-module Main ( main ) where
+module SlowTests ( main ) where
 
 import System.LogLevel
 import Test.Tasty
