@@ -18,7 +18,7 @@
 -- TODO
 --
 
-module Main where
+module TransactionGenerator ( main ) where
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 

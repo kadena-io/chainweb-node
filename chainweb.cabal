@@ -65,13 +65,6 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Wredundant-constraints
 
-custom-setup
-    setup-depends:
-          Cabal
-        , base >= 4.11
-        , configuration-tools >= 0.4
-
-
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
@@ -619,189 +612,81 @@ executable slow-tests
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
 
--- -------------------------------------------------------------------------- --
--- Examples for BlockHeaderDb usage
--- -------------------------------------------------------------------------- --
-
-executable blockheaderdb-example
+executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: examples
-    main-is: BlockHeaderChainDb.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , lens >= 4.16
-        , random >= 1.1
-        , streaming >= 0.2.2
-        , temporary >= 1.3
-        , text >= 1.2
-        , yet-another-logger >= 0.3.1
-
--- -------------------------------------------------------------------------- --
--- Single P2P Example
--- -------------------------------------------------------------------------- --
-
-executable p2p-example
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    hs-source-dirs: examples test
-    main-is: P2pExample.hs
+    hs-source-dirs: exe tools/chain2gexf tools/ea tools/run-nodes node examples
+    main-is: CwTool.hs
     other-modules:
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , bytestring >= 0.10
-        , configuration-tools >= 0.4
-        , exceptions >= 0.8
-        , http-client >= 0.5
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mwc-random >= 0.13
-        , text >= 1.2
-        , unordered-containers >= 0.2
-        , yet-another-logger >= 0.3.1
-
-    if flag(ed25519)
-        cpp-options: -DWITH_ED25519=1
-
--- -------------------------------------------------------------------------- --
--- Transaction Generator
--- -------------------------------------------------------------------------- --
-
-executable transaction-generator
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    hs-source-dirs: examples
-    main-is: TransactionGenerator.hs
-    other-modules:
+        Chain2Gexf
         Chainweb.Simulate.Contracts.CommercialPaper
         Chainweb.Simulate.Contracts.CryptoCritters
         Chainweb.Simulate.Contracts.HelloWorld
         Chainweb.Simulate.Contracts.SimplePayments
         Chainweb.Simulate.Utils
-    build-depends:
-        --internal
-          chainweb
-
-        --external
-        , aeson >= 1.4
-        , base >= 4.11
-        , base16-bytestring >= 0.1
-        , bytestring >= 0.10
-        , configuration-tools >= 0.4
-        , data-default >= 0.7
-        , Decimal >= 0.4.2
-        , fake >= 0.1.1.1
-        , http-client >= 0.5
-        , http-client-tls >=0.3
-        , lens >= 4.16
-        , mtl >= 2.2
-        , mwc-random >= 0.13
-        , neat-interpolation >= 0.3.2
-        , pact >= 2.6
-        , primitive >= 0.6
-        , random >= 1.1
-        , servant >= 0.14.1
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
-        , text >= 1.2
-
--- -------------------------------------------------------------------------- --
--- Ea
--- -------------------------------------------------------------------------- --
-
-executable ea
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/ea
-    main-is: Ea.hs
-    build-depends:
-        -- internal
-          chainweb
-        , pact
-
-        -- external
-        , aeson
-        , aeson-pretty >= 0.8
-        , base
-        , base-prelude >= 1.3
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , containers >= 0.5
-        , loglevel >= 0.1
-        , optparse-generic >= 1.3
-        , text >= 1.2
-        , vector >= 0.12
-        , yaml >= 0.8
-
--- -------------------------------------------------------------------------- --
--- chain2gexf
--- -------------------------------------------------------------------------- --
-
-executable chain2gexf
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/chain2gexf node
-    main-is: Chain2Gexf.hs
-    other-modules:
+        Ea
+        RunNodes
+        TransactionGenerator
         Utils.Gexf
     build-depends:
         -- internal
           chainweb
 
         -- external
+        , Decimal >= 0.4.2
         , aeson >= 1.4
-        , base
-        , bytestring
-        , errors >= 2.3
-        , lens >= 4.16
-        , optparse-applicative >= 0.14
-        , paths >= 0.2
-        , resourcet >= 1.2
-        , streaming >= 0.2
-        , text
-        , unordered-containers >= 0.2
-        , xmlgen >= 0.6
-
--- -------------------------------------------------------------------------- --
--- run-nodes
--- -------------------------------------------------------------------------- --
-
-executable run-nodes
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/run-nodes
-    main-is: RunNodes.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
+        , aeson-pretty >= 0.8
+        , ansi-wl-pprint >= 0.6
         , async >= 2.2
-        , base
+        , base >= 4.11
         , base-prelude >= 1.3
+        , base16-bytestring >= 0.1
+        , bytes >= 0.15
+        , bytestring >= 0.10
+        , case-insensitive >= 1.2
+        , configuration-tools >= 0.4
+        , containers >= 0.5
+        , data-default >= 0.7
+        , deepseq >= 1.4
         , directory >= 1.3
         , errors >= 2.3
+        , exceptions >= 0.8
+        , fake >= 0.1.1.1
         , formatting >= 6.3
+        , http-client >= 0.5
+        , http-client-tls >=0.3
+        , lens >= 4.16
+        , loglevel >= 0.1
+        , managed >= 1.0
+        , monad-control >= 1.0
+        , mtl >= 2.2
+        , mwc-random >= 0.13
+        , neat-interpolation >= 0.3.2
         , optparse-applicative >= 0.14
+        , optparse-generic >= 1.3
+        , pact >= 2.6
+        , paths >= 0.2
+        , primitive >= 0.6
+        , random >= 1.1
+        , resourcet >= 1.2
+        , servant >= 0.14.1
+        , servant-client >= 0.14
+        , servant-client-core >= 0.14
         , shelly >= 1.8
+        , stm
+        , streaming >= 0.2
+        , temporary >= 1.3
         , text >= 1.2
+        , unordered-containers >= 0.2
+        , vector >= 0.12
+        , wai >= 3.2
+        , wai-app-static >= 3.1
+        , wai-extra >= 3.0
+        , wai-cors >= 0.2
+        , warp >= 3.2
+        , xmlgen >= 0.6
+        , yaml >= 0.8
+        , yet-another-logger >= 0.3.1
