@@ -38,6 +38,7 @@ import Text.Trifecta.Delta
 import Pact.Native
 import Pact.Persist
 import Pact.Persist.SQLite
+import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Runtime
 import Pact.Types.Server
@@ -46,71 +47,26 @@ import Pact.Types.Server
 -- GENERIC INSTANCES --
 -----------------------
 
-deriving instance Generic ModuleData
-
-deriving instance Generic (ModuleDef a)
-
-deriving instance Generic Ref
-
-deriving instance Generic RefStore
-
-deriving instance Generic CommandState
-
-deriving instance Generic DefName
-
-deriving instance Generic Decimal
-
-deriving instance Generic Guard
-
-deriving instance Generic Example
-
-deriving instance Generic TableName
-
-deriving instance Generic NativeDefName
-
-deriving instance Generic (App (Term n))
-
-deriving instance Generic (BindType (Type (Term n)))
-
-deriving instance Generic (Term n)
-
-deriving instance Generic (Def n)
-
 deriving instance Generic (Governance g)
-
-deriving instance Generic (Module g)
-
-deriving instance Generic Interface
-
-deriving instance Generic KeySetName
-
-deriving instance Generic Use
-
-deriving instance Generic TableId
-
-deriving instance Generic Pragma
-
-deriving instance Generic (Object n)
-
+deriving instance Generic CommandState
+deriving instance Generic Decimal
+deriving instance Generic DefName
 deriving instance Generic FieldKey
-
-deriving instance Generic PactExec
-
+deriving instance Generic KeySetName
+deriving instance Generic ModuleData
+deriving instance Generic NativeDefName
 deriving instance Generic PactContinuation
+deriving instance Generic PactExec
+deriving instance Generic PactValue
+deriving instance Generic Pragma
+deriving instance Generic Ref
+deriving instance Generic RefStore
+deriving instance Generic TableId
+deriving instance Generic TableName
 
 ----------------------
 -- SERIAL INSTANCES --
 ----------------------
-
-deriving instance Serial TxId
-
-deriving instance Serial ModuleData
-
-deriving instance Serial Interface
-
-deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
-
-deriving instance Serial Ref
 
 instance Serial RefStore where
     serialize RefStore {..} = serialize _rsModules
@@ -119,64 +75,78 @@ instance Serial RefStore where
         _rsModules <- deserialize
         return $ RefStore {..}
 
-deriving instance Serial CommandState
-
-deriving instance Serial Code
-
-deriving instance Serial Parsed
-
-deriving instance Serial Delta
-
-deriving instance Serial Info
-
-deriving instance Serial DefName
-
-deriving instance Serial Example
-
-deriving instance Serial ModuleName
-
-deriving instance Serial NamespaceName
-
-deriving instance Serial DefType
-
-deriving instance Serial Meta
-
-deriving instance Serial (Exp Info)
-
-deriving instance Serial (LiteralExp Info)
-
+deriving instance (Generic a, Serial a) => Serial (App (Term a))
+deriving instance (Generic a, Serial a) => Serial (Arg a)
+deriving instance (Generic a, Serial a) => Serial (BindPair a)
+deriving instance (Generic a, Serial a) => Serial (BindType (Type (Term a)))
+deriving instance (Generic a, Serial a) => Serial (ConstVal (Term a))
+deriving instance (Generic a, Serial a) => Serial (Def a)
+deriving instance (Generic a, Serial a) => Serial (FunType a)
+deriving instance (Generic a, Serial a) => Serial (Governance a)
+deriving instance (Generic a, Serial a) => Serial (Module a)
+deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
+deriving instance (Generic a, Serial a) => Serial (Object a)
+deriving instance (Generic a, Serial a) => Serial (ObjectMap a)
+deriving instance (Generic a, Serial a) => Serial (Term a)
+deriving instance (Generic a, Serial a) => Serial (Type a)
+deriving instance (Generic a, Serial a) => Serial (TypeVar a)
 deriving instance Serial (AtomExp Info)
-
+deriving instance Serial (Exp Info)
 deriving instance Serial (ListExp Info)
-
-deriving instance Serial ListDelimiter
-
+deriving instance Serial (LiteralExp Info)
 deriving instance Serial (SeparatorExp Info)
-
-deriving instance Serial Separator
-
-deriving instance Serial Literal
-
-deriving instance Serial UTCTime
-
-deriving instance Serial NominalDiffTime
-
-deriving instance Serial Micro
-
+deriving instance Serial (TxLog Value)
+deriving instance Serial Code
+deriving instance Serial CommandState
 deriving instance Serial Decimal
-
-deriving instance (Generic n, Serial n) => Serial (Object n)
-
+deriving instance Serial DefName
+deriving instance Serial DefType
+deriving instance Serial Delta
+deriving instance Serial Example
 deriving instance Serial FieldKey
-
-deriving instance Serial PactExec
-
+deriving instance Serial Guard
+deriving instance Serial GuardType
+deriving instance Serial Hash
+deriving instance Serial Info
+deriving instance Serial Interface
+deriving instance Serial KeySet
+deriving instance Serial KeySetName
+deriving instance Serial ListDelimiter
+deriving instance Serial Literal
+deriving instance Serial Meta
+deriving instance Serial Micro
+deriving instance Serial ModuleData
+deriving instance Serial ModuleGuard
+deriving instance Serial ModuleName
+deriving instance Serial Name
+deriving instance Serial NamespaceName
+deriving instance Serial NominalDiffTime
 deriving instance Serial PactContinuation
-
+deriving instance Serial PactExec
+deriving instance Serial PactGuard
+deriving instance Serial PactId
+deriving instance Serial PactValue
+deriving instance Serial Parsed
+deriving instance Serial Pragma
+deriving instance Serial PrimType
+deriving instance Serial PublicKey
+deriving instance Serial Ref
+deriving instance Serial SQLiteConfig
+deriving instance Serial SchemaPartial
+deriving instance Serial SchemaType
+deriving instance Serial Separator
+deriving instance Serial TableId
+deriving instance Serial TableName
+deriving instance Serial TxId
+deriving instance Serial TypeName
+deriving instance Serial UTCTime
+deriving instance Serial Use
+deriving instance Serial UserGuard
+deriving instance Serial Value
 
 instance Serial1 Governance where
   serializeWith f (Governance t) = case t of
-    Left r  -> putWord8 0 >> serialize r
+    Left r -> putWord8 0 >> serialize r
     Right a -> putWord8 1 >> f a
 
   deserializeWith m = Governance <$> go
@@ -386,7 +356,6 @@ instance Serial1 BindType where
                     return $ BindSchema _bType
                 _ -> fail "BindType: Deserialization error."
 
-
 instance Serial1 Term where
     serializeWith f t =
         case t of
@@ -459,10 +428,10 @@ instance Serial1 Term where
                 putWord8 12
                 serialize _tUse
                 serialize _tInfo
-            TValue {..} -> do
-                putWord8 13
-                serialize _tValue
-                serialize _tInfo
+            -- TValue {..} -> do
+            --     putWord8 13
+            --     serialize _tValue
+            --     serialize _tInfo
             TStep {..} -> do
                 putWord8 14
                 serializeWith (serializeWith f) _tStepEntity
@@ -551,10 +520,10 @@ instance Serial1 Term where
                     _tUse <- deserialize
                     _tInfo <- deserialize
                     return $ TUse {..}
-                13 -> do
-                    _tValue <- deserialize
-                    _tInfo <- deserialize
-                    return $ TValue {..}
+                -- 13 -> do
+                --     _tValue <- deserialize
+                --     _tInfo <- deserialize
+                --     return $ TValue {..}
                 14 -> do
                     _tStepEntity <- deserializeWith (deserializeWith m)
                     _tStepExec <- deserializeWith m
@@ -593,71 +562,9 @@ pairListDeSerial1Helper f g m = go id
             p <- (,) <$> f m <*> g m
             go (dl . (p :))
 
-deriving instance Serial Guard
-
-deriving instance Serial ModuleGuard
-
-deriving instance Serial UserGuard
-
-deriving instance Serial KeySet
-
-deriving instance Serial KeySetName
-
-deriving instance Serial Name
-
-deriving instance Serial PublicKey
-
-deriving instance Serial PactGuard
-
-deriving instance Serial PactId
-
-deriving instance Serial TypeName
-
-deriving instance Serial SchemaPartial
-
-deriving instance Serial Use
-
-deriving instance Serial Hash
-
-deriving instance Serial Value
-
 instance Serial a => Serial (Vector.Vector a) where
     serialize = mapM_ serialize . Vector.toList
     deserialize = deserialize >>= return . Vector.fromList
-
-deriving instance Serial TableName
-
-deriving instance (Generic n, Serial n) => Serial (Arg (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Type (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (BindType (Type (Term n)))
-
-deriving instance (Generic n, Serial n) => Serial (Term n)
-
-deriving instance
-         (Generic n, Serial n) => Serial (FunType (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (ConstVal (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (App (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (TypeVar (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Def n)
-
-deriving instance (Generic g, Serial g) => Serial (Governance g)
-
-deriving instance (Generic g, Serial g) => Serial (Module g)
-
-deriving instance Serial PrimType
-
-deriving instance Serial GuardType
-
-deriving instance Serial SchemaType
 
 instance Serial1 FunType where
     serializeWith f (FunType {..}) = do
@@ -724,14 +631,7 @@ instance Serial1 TypeVar where
 instance Serial (Table DataKey) where
   serialize (DataTable t) = serialize t
   deserialize = DataTable <$> deserialize
+
 instance Serial (Table TxKey) where
   serialize (TxTable t) = serialize t
   deserialize = TxTable <$> deserialize
-
-deriving instance Serial TableId
-
-deriving instance Serial (TxLog Value)
-
-deriving instance Serial SQLiteConfig
-
-deriving instance Serial Pragma
