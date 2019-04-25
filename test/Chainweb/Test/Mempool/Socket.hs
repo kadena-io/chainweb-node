@@ -20,6 +20,7 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (toyChainId)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
+import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 tests :: TestTree
@@ -62,10 +63,11 @@ newTestServer inmemCfg = mask_ $ do
   where
     host = "127.0.0.1"
     server inmemMv portMv restore =
-        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb ->
-            InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
-                putMVar inmemMv inmem
-                restore $ M.server inmem host N.aNY_PORT portMv
+      withTempRocksDb "mempool-socket-tests" $ \rdb ->
+            withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
+                InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+                    putMVar inmemMv inmem
+                    restore $ M.server inmem host N.aNY_PORT portMv
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer cs _ _ tid) =

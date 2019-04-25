@@ -45,9 +45,7 @@ import Prelude hiding (log)
 
 import qualified Streaming.Prelude as S
 
-import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.LogLevel
-import System.Path
 
 -- internal modules
 
@@ -68,7 +66,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Persist
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -121,11 +118,10 @@ withChainResources
     -> PayloadDb cas
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer chainDbDir logger mempoolCfg mv inner =
-    withBlockHeaderDb v cid $ \cdb ->
+withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
+    withBlockHeaderDb rdb v cid $ \cdb ->
     Mempool.withInMemoryMempool mempoolCfg cdb $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
-    withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
             let pact = mkPactExecutionService mempool requestQ
@@ -161,20 +157,6 @@ replayPact logger pact cdb pdb = do
         Just p -> return $ payloadWithOutputsToPayloadData p
 
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
-
-withPersistedDb
-    :: ChainId
-    -> Maybe (Path Absolute)
-    -> BlockHeaderDb
-    -> IO a
-    -> IO a
-withPersistedDb _ Nothing _ = id
-withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
-  where
-    path = dir </> fragment "chain" <.> FileExt (T.unpack (toText cid))
-    load = do
-        createDirectoryIfMissing True (toFilePath dir)
-        whenM (doesFileExist $ toFilePath path) (restore path db)
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

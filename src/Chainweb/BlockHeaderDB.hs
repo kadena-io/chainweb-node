@@ -25,7 +25,6 @@ module Chainweb.BlockHeaderDB
 -- * Chain Database Handle
   Configuration(..)
 , BlockHeaderDb(..)
-, Db(..)
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
@@ -415,4 +414,3 @@ insertBlockHeaderDb db es = do
     mapM_ (dbAddChecked db) rankedAdditions
   where
     rankedAdditions = L.sortOn rank es
-

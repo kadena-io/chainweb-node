@@ -15,16 +15,17 @@ import Chainweb.Test.Utils (toyChainId)
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
+import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
 tests :: IO TestTree
-tests = do
-    withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
-        return $ testGroup "Chainweb.Mempool.InMem"
-            $ Chainweb.Test.Mempool.tests
-            $ MempoolWithFunc
-            $ InMem.withInMemoryMempool cfg blockHeaderDb
-
+tests =
+    withTempRocksDb "mempool-socket-tests" $ \rdb ->
+        withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
+            return $ testGroup "Chainweb.Mempool.InMem"
+                $ Chainweb.Test.Mempool.tests
+                $ MempoolWithFunc
+                $ InMem.withInMemoryMempool cfg blockHeaderDb
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)

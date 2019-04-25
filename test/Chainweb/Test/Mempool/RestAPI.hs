@@ -70,12 +70,13 @@ newTestServer inMemCfg = mask_ $ do
 
   where
     server inmemMv envMv restore =
-        withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb ->
-            InMem.withInMemoryMempool inMemCfg blockHeaderDb $ \inmem -> do
-                putMVar inmemMv inmem
-                restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
-                    putMVar envMv env
-                    atomically retry
+        withTempRocksDb "mempool-restapi-tests" $ \rdb ->
+            withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
+                InMem.withInMemoryMempool inMemCfg blockHeaderDb $ \inmem -> do
+                    putMVar inmemMv inmem
+                    restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
+                        putMVar envMv env
+                        atomically retry
 
     version = Test singletonChainGraph
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg

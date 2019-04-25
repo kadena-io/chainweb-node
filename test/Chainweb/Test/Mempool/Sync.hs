@@ -30,15 +30,18 @@ import Chainweb.Test.Mempool
 import Chainweb.Test.Utils (toyChainId)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
+import Data.CAS.RocksDB
 
 tests :: IO TestTree
-tests = withBlockHeaderDb toyVersion toyChainId $ \blockHeaderDb -> do
-    let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
-    return $ mempoolProperty
-        "Mempool.syncMempools"
-        gen
-        (propSync blockHeaderDb)
-        withFunc
+tests =
+    withTempRocksDb "mempool-sync-tests" $ \rdb ->
+        withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
+          let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
+          return $ mempoolProperty
+              "Mempool.syncMempools"
+              gen
+              (propSync blockHeaderDb)
+              withFunc
   where
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
