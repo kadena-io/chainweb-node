@@ -314,4 +314,3 @@ pLogConfig_ prefix = id
     <*< logConfigClusterId .:: fmap Just % textOption
         % long "cluster-id"
         <> help "a label that is added to all log messages from this node"
-

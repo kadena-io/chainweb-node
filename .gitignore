@@ -39,3 +39,4 @@ hlint.hs
 *.svg
 *.png
 *.graphml
+cache/

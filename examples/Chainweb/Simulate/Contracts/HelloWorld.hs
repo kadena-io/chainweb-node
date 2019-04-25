@@ -30,6 +30,7 @@ import Text.Printf (printf)
 -- pact
 
 import Pact.ApiReq (mkExec)
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
@@ -37,10 +38,10 @@ import Pact.Types.Crypto (SomeKeyPair)
 
 import Chainweb.Simulate.Utils
 
-helloWorldContractLoader :: [SomeKeyPair] -> IO (Command Text)
-helloWorldContractLoader adminKeyset = do
+helloWorldContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
+helloWorldContractLoader meta adminKeyset = do
   let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-  mkExec (T.unpack theCode) theData def adminKeyset Nothing
+  mkExec (T.unpack theCode) theData meta adminKeyset Nothing
   where
     theCode = [text|
 (module helloWorld 'admin-keyset

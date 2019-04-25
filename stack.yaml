@@ -32,7 +32,7 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yet-another-logger-0.3.1
 
-  - git: git@github.com:kadena-io/merkle-log.git
+  - git: https://github.com/kadena-io/merkle-log.git
     commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
   - git: https://github.com/kadena-io/pact.git
     commit: 641542c16dfbd3806c4e646429e90027b1f3d07f
