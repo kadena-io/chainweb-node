@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+
 module Chainweb.Transaction
   ( ChainwebTransaction
   , PayloadWithText(..)
@@ -24,7 +25,8 @@ import qualified Chainweb.Time as Time
 import Chainweb.Utils (Codec(..))
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
--- the Text that generated it, to make gossiping easier
+-- the Text that generated it, to make gossiping easier.
+--
 data PayloadWithText = PayloadWithText
     { payloadBytes :: ByteString
     , payloadObj :: Payload PublicMeta ParsedCode
