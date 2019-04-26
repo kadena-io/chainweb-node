@@ -66,7 +66,7 @@ import Data.Vector (Vector)
 
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command (CommandSuccess(..))
-import Pact.Types.Hash (Hash(..))
+import qualified Pact.Types.Hash as H
 import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Term (KeySet(..), Name(..), Term, tStr)
@@ -105,7 +105,7 @@ instance ToJSON FullLogTxOutput where
 
 data HashedLogTxOutput = HashedLogTxOutput
     { _hlCommandResult :: Value
-    , _hlTxLogHash :: Hash
+    , _hlTxLogHash :: H.Hash
     } deriving (Eq, Show)
 
 instance FromJSON HashedLogTxOutput where
@@ -122,12 +122,12 @@ instance ToJSON HashedLogTxOutput where
 
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
 toHashedLogTxOutput FullLogTxOutput{..} =
-    -- let hashed = hash $ encodeToByteString _flTxLogs
-    let hashed = undefined
-    in HashedLogTxOutput
+    HashedLogTxOutput
         { _hlCommandResult = _flCommandResult
-        , _hlTxLogHash = hashed
-        }
+        , _hlTxLogHash = H.toUntypedHash hashed }
+  where
+    hashed :: H.PactHash
+    hashed = H.hash $ encodeToByteString _flTxLogs
 
 type MinerKeys = KeySet
 type MinerId = Text
