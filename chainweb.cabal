@@ -249,6 +249,8 @@ library
         , data-dword >= 0.3
         , deepseq >= 1.4
         , directory >= 1.3
+        -- add version bounds for direct-sqlite
+        , direct-sqlite
         , ekg >= 0.4
         , errors >= 2.3
         , exceptions >= 0.8
