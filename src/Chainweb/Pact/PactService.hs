@@ -31,7 +31,6 @@ module Chainweb.Pact.PactService
     , pactSpvSupport
     ) where
 
-
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM

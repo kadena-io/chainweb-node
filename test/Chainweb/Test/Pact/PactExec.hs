@@ -20,8 +20,8 @@ module Chainweb.Test.Pact.PactExec
 
 import Control.Applicative
 import Control.Concurrent.MVar
-import Control.Monad.Trans.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Reader
 
 import Data.Aeson
 import Data.Default (def)
@@ -49,6 +49,7 @@ import Pact.Types.Logger
 import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
+import Chainweb.BlockHash
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
@@ -56,7 +57,6 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
-import Chainweb.BlockHash
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
@@ -258,4 +258,3 @@ fileCompareTxLogs label respIO = pactGoldenSch label $ do
         [ "output" .= _flTxLogs out
         , "cmd" .= ("coinbase" :: String)
         ]
-

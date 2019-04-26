@@ -146,7 +146,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s01 (Just $ ksData "1") $ defModule "1"
 
   runExec s01 Nothing "(m1.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
   void $ wrapState s01
     >>= discard _cpeCheckpointer
@@ -167,7 +167,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s02 (Just $ ksData "1") $ defModule "1"
 
   runExec s02 Nothing "(m1.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
   void $ wrapState s02
     >>= save _cpeCheckpointer bh00 hash00
@@ -185,7 +185,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s03 Nothing "(m1.insertTbl 'b 2)"
 
   runExec s03 Nothing "(m1.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1,2]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
   -- start a pact
   -- test is that exec comes back with proper step
@@ -218,7 +218,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s04 Nothing "(m1.insertTbl 'b 2)"
 
   runExec s04 Nothing "(m1.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1,2]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
   -- start a pact at txid 4, would fail if new block 01 had not been discarded
   runExec s04 Nothing "(m1.dopact 'pactA)"
@@ -245,7 +245,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s05 (Just $ ksData "2") $ defModule "2"
 
   runExec s05 Nothing "(m2.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
   runCont s05 pactId 1
     >>= ((Just 1 @=?) . pactCheckStep)
@@ -265,7 +265,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s06 Nothing "(m2.insertTbl 'b 2)"
 
   runExec s06 Nothing "(m2.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1,2]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
   void $ wrapState s06
     >>= discard _cpeCheckpointer
@@ -286,7 +286,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s07 Nothing "(m2.insertTbl 'b 2)"
 
   runExec s07 Nothing "(m2.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1,2]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
   void $ wrapState s07
     >>= save _cpeCheckpointer bh03 hash03
@@ -308,7 +308,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ runExec s08 (Just $ ksData "2") $ defModule "2"
 
   runExec s08 Nothing "(m2.readTbl)"
-    >>= \EvalResult{..} -> map fromPactValue _erOutput @?= [tIntList [1]]
+    >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
   -- this would fail if not a fork
   runCont s08 pactId 1
