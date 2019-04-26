@@ -65,6 +65,12 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Wredundant-constraints
 
+custom-setup
+    setup-depends:
+          Cabal
+        , base >= 4.11
+        , configuration-tools >= 0.4
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
