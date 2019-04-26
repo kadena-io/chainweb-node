@@ -76,10 +76,10 @@ import System.Random.MWC.Distributions (normal)
 import Pact.ApiReq
 import Pact.Parse (ParsedInteger(..),ParsedDecimal(..))
 import Pact.Types.API
-import Pact.Types.ChainMeta (PublicMeta(..))
+import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..), RequestKey(..))
 import Pact.Types.Crypto
-import Pact.Types.Util (Hash(..))
+import qualified Pact.Types.Hash as H
 
 -- CHAINWEB
 import Chainweb.ChainId
@@ -295,7 +295,7 @@ generateSimpleTransaction = do
   lift $ logg Info $ toLogMessage $ T.pack $ "The delay is" ++ show delay ++ " seconds."
   lift $ logg Info $ toLogMessage $ T.pack $ "Sending expression " ++ theCode
   kps <- liftIO testSomeKeyPairs
-  let publicmeta = PublicMeta (chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+  let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
 
@@ -440,7 +440,7 @@ mainInfo =
     scriptConfigParser
     defaultScriptConfig
 
-type ContractLoader = PublicMeta -> [SomeKeyPair] -> IO (Command Text)
+type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
 loadContracts :: MeasureTime -> [ContractLoader] -> ScriptConfig -> IO ()
 loadContracts (MeasureTime mtime) contractLoaders config = do
@@ -572,8 +572,8 @@ main =
                   else loadContracts mtime (initAdminKeysetContract : fmap createLoader contracts) config
              RunStandardContracts distribution mtime -> sendTransactions mtime config distribution
              RunSimpleExpressions distribution mtime -> sendSimpleExpressions mtime config distribution
-             PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . Hash) requestKeys)) config
-             ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ Hash requestKey)) config
+             PollRequestKeys requestKeys mtime -> liftIO $ pollRequestKeys mtime (RequestKeys (map (RequestKey . H.Hash) requestKeys)) config
+             ListenerRequestKey requestKey mtime -> liftIO $ listenerRequestKey mtime (ListenerRequest (RequestKey $ H.Hash requestKey)) config
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
