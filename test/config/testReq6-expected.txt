@@ -1,44 +1,36 @@
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 42
-        _P_decp: 0
+      balance: 42
     key: miner
     table: USER_coin_coin-table
   cmd: coinbase
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99999
-        _P_decp: 2
+      balance: 999.99
     key: sender00
     table: USER_coin_coin-table
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99999
-        _P_decp: 2
+      balance: 999.99
     key: sender00
     table: USER_coin_coin-table
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 4201
-        _P_decp: 2
+      balance: 42.01
     key: miner
     table: USER_coin_coin-table
   cmd:
@@ -47,12 +39,10 @@
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99998
-        _P_decp: 2
+      balance: 999.98
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -62,7 +52,7 @@
     key: test-admin
     table: SYS_keysets
   - value:
-      hash: 13f27fa23ee849424e026dc668ad168dee4b4598d0d806778bf3a213f02402b437d0770f36402c06989903e492e64513bc65acabc281cc27a1c7a3f97dec374f
+      hash: B6ZJgfWD5obPGmYc_iRKirDMP6-UGm2pUV7mtHD-RsQ
       blessed: []
       interfaces: []
       imports: []
@@ -158,12 +148,10 @@
     table: SYS_modules
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99998
-        _P_decp: 2
+      balance: 999.98
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -173,7 +161,7 @@
     key: test-admin
     table: SYS_keysets
   - value:
-      hash: 13f27fa23ee849424e026dc668ad168dee4b4598d0d806778bf3a213f02402b437d0770f36402c06989903e492e64513bc65acabc281cc27a1c7a3f97dec374f
+      hash: B6ZJgfWD5obPGmYc_iRKirDMP6-UGm2pUV7mtHD-RsQ
       blessed: []
       interfaces: []
       imports: []
@@ -269,12 +257,10 @@
     table: SYS_modules
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 4202
-        _P_decp: 2
+      balance: 42.02
     key: miner
     table: USER_coin_coin-table
   cmd:
@@ -283,12 +269,10 @@
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99997
-        _P_decp: 2
+      balance: 999.97
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -299,12 +283,10 @@
     table: SYS_usertables
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99997
-        _P_decp: 2
+      balance: 999.97
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -315,12 +297,10 @@
     table: SYS_usertables
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 4203
-        _P_decp: 2
+      balance: 42.03
     key: miner
     table: USER_coin_coin-table
   cmd:
@@ -329,72 +309,50 @@
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99996
-        _P_decp: 2
+      balance: 999.96
     key: sender00
     table: USER_coin_coin-table
   - value:
-      amount:
-        _P_decm: 10000000
-        _P_decp: 1
+      amount: 1000000
       data: Created account
-      balance:
-        _P_decm: 10000000
-        _P_decp: 1
+      balance: 1000000
     key: Acct1
     table: USER_test1_accounts
   - value:
-      amount:
-        _P_decm: 0
-        _P_decp: 1
+      amount: 0
       data: Created account
-      balance:
-        _P_decm: 0
-        _P_decp: 1
+      balance: 0
     key: Acct2
     table: USER_test1_accounts
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99996
-        _P_decp: 2
+      balance: 999.96
     key: sender00
     table: USER_coin_coin-table
   - value:
-      amount:
-        _P_decm: 10000000
-        _P_decp: 1
+      amount: 1000000
       data: Created account
-      balance:
-        _P_decm: 10000000
-        _P_decp: 1
+      balance: 1000000
     key: Acct1
     table: USER_test1_accounts
   - value:
-      amount:
-        _P_decm: 0
-        _P_decp: 1
+      amount: 0
       data: Created account
-      balance:
-        _P_decm: 0
-        _P_decp: 1
+      balance: 0
     key: Acct2
     table: USER_test1_accounts
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 4204
-        _P_decp: 2
+      balance: 42.04
     key: miner
     table: USER_coin_coin-table
   cmd:
@@ -403,80 +361,54 @@
 - output:
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99995
-        _P_decp: 2
+      balance: 999.95
     key: sender00
     table: USER_coin_coin-table
   - value:
-      amount:
-        _P_decm: -100
-        _P_decp: 2
+      amount: -1
       data:
-        _P_val:
-          transfer-to: Acct2
-      balance:
-        _P_decm: 99999900
-        _P_decp: 2
+        transfer-to: Acct2
+      balance: 999999
     key: Acct1
     table: USER_test1_accounts
   - value:
-      amount:
-        _P_decm: 100
-        _P_decp: 2
+      amount: 1
       data:
-        _P_val:
-          transfer-from: Acct1
-      balance:
-        _P_decm: 100
-        _P_decp: 2
+        transfer-from: Acct1
+      balance: 1
     key: Acct2
     table: USER_test1_accounts
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance:
-        _P_decm: 99995
-        _P_decp: 2
+      balance: 999.95
     key: sender00
     table: USER_coin_coin-table
   - value:
-      amount:
-        _P_decm: -100
-        _P_decp: 2
+      amount: -1
       data:
-        _P_val:
-          transfer-to: Acct2
-      balance:
-        _P_decm: 99999900
-        _P_decp: 2
+        transfer-to: Acct2
+      balance: 999999
     key: Acct1
     table: USER_test1_accounts
   - value:
-      amount:
-        _P_decm: 100
-        _P_decp: 2
+      amount: 1
       data:
-        _P_val:
-          transfer-from: Acct1
-      balance:
-        _P_decm: 100
-        _P_decp: 2
+        transfer-from: Acct1
+      balance: 1
     key: Acct2
     table: USER_test1_accounts
   - value:
       guard:
-        _P_pred: keys-all
-        _P_keys:
+        pred: keys-all
+        keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance:
-        _P_decm: 4205
-        _P_decp: 2
+      balance: 42.05
     key: miner
     table: USER_coin_coin-table
   cmd:
