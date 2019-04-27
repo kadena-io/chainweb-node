@@ -77,7 +77,7 @@ module Chainweb.Test.Utils
 
 -- * Scheduling Tests
 , RunStyle(..)
-, ScheduledTest
+, ScheduledTest(..)
 , schedule
 , testCaseSch
 , testGroupSch

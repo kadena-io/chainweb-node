@@ -12,7 +12,12 @@
 -- Stability: experimental
 --
 -- Unit test for Pact execution via the Http Pact interface (/send, etc.)(inprocess) API  in Chainweb
-module Chainweb.Test.Pact.RemotePactTest where
+module Chainweb.Test.Pact.RemotePactTest
+( tests
+, withNodes
+, withRequestKeys
+, runGhci
+) where
 
 import Control.Concurrent hiding (readMVar, putMVar)
 import Control.Concurrent.Async
@@ -45,13 +50,11 @@ import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
 
-import System.FilePath
 import System.LogLevel
 import System.Time.Extra
 
 import Test.Tasty.HUnit
 import Test.Tasty
-import Test.Tasty.Golden
 
 import Text.RawString.QQ(r)
 
@@ -74,7 +77,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils (testRocksDb)
+import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -82,6 +85,9 @@ import Data.CAS.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
+
+-- -------------------------------------------------------------------------- --
+-- Global Settings
 
 nNodes :: Natural
 nNodes = 1
@@ -92,27 +98,65 @@ version = TestWithTime petersonChainGraph
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds version
 
-tests :: RocksDb -> IO TestTree
-tests rdb = do
-    peerInfoVar <- newEmptyMVar
-    theAsync <- async $ runTestNodes rdb Warn version nNodes peerInfoVar
-    link theAsync
-    newPeerInfo <- readMVar peerInfoVar
-    let thePort = _hostAddressPort (_peerAddr newPeerInfo)
+testCmds :: PactTestApiCmds
+testCmds = apiCmds version cid
 
-    let cmds = apiCmds version cid
-    let cwBaseUrl = getCwBaseUrl thePort
-    cwEnv <- getClientEnv cwBaseUrl
-    (tt0, rks) <- testSend cmds cwEnv
+-- -------------------------------------------------------------------------- --
+-- Tests
 
-    tt1 <- testPoll cmds cwEnv rks
-    let tConfig = mempoolTxConfig noopMempool
+tests :: RocksDb -> ScheduledTest
+tests rdb = testGroupSch "PactRemoteTests"
+    [ withNodes rdb nNodes $ \net ->
+        withRequestKeys net $ \rks ->
+            testGroup "PactRemoteTests"
+                [ requestKeysGolden rks
+                , responseGolden net rks
+                , mempoolValidation net rks
+                ]
+    ]
+    -- The outer testGroupSch wrapper is just for scheduling purposes.
+
+-- for Stuart:
+runGhci :: IO ()
+runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
+
+requestKeysGolden :: IO RequestKeys -> TestTree
+requestKeysGolden rksIO = pactGolden "command-0-rks" $ do
+    rks <- rksIO
+    return $! foldMap (toS . show) (_rkRequestKeys rks)
+
+responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
+responseGolden networkIO rksIO = pactGolden "command-0-resp" $ do
+    rks <- rksIO
+    cwEnv <- _getClientEnv <$> networkIO
+    (PollResponses theMap) <- testPoll testCmds cwEnv rks
+    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
+    let values = _arResult <$> catMaybes mays
+    return $! toS $! foldMap A.encode values
+
+mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
+mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
+    rks <- rksIO
+    cwEnv <- _getClientEnv <$> networkIO
     let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
-    let tt2 = testCase "mempoolValidationCheck" $ testMPValidated mPool rks
+    testMPValidated mPool rks
+  where
+    tConfig = mempoolTxConfig noopMempool
 
-    return $ testGroup "PactRemoteTest" $ [tt0, tt1,tt2]
+-- -------------------------------------------------------------------------- --
+-- Utils
 
-testSend :: PactTestApiCmds -> ClientEnv -> IO (TestTree, RequestKeys)
+withRequestKeys
+    :: IO ChainwebNetwork
+    -> (IO RequestKeys -> TestTree)
+    -> TestTree
+withRequestKeys networkIO = withResource mkKeys (\_ -> return ())
+  where
+    mkKeys = do
+        cwEnv <- _getClientEnv <$> networkIO
+        testSend testCmds cwEnv
+
+testSend :: PactTestApiCmds -> ClientEnv -> IO RequestKeys
 testSend cmds env = do
     let msb = decodeStrictOrThrow $ toS escapedCmd
     case msb of
@@ -121,15 +165,14 @@ testSend cmds env = do
             result <- sendWithRetry cmds env sb
             case result of
                 Left e -> assertFailure (show e)
-                Right rks ->
-                    return (checkRequestKeys "command-0" rks, rks)
+                Right rks -> return rks
 
-testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO TestTree
+testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO PollResponses
 testPoll cmds env rks = do
     response <- pollWithRetry cmds env rks
     case response of
         Left e -> assertFailure (show e)
-        Right rsp -> return $ checkResponse "command-0" rks rsp
+        Right rsp -> return rsp
 
 testMPValidated
     :: MempoolBackend ChainwebTransaction
@@ -210,30 +253,6 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
-checkRequestKeys :: FilePath -> RequestKeys -> TestTree
-checkRequestKeys filePrefix rks =
-    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsRks
-  where
-    fp = filePrefix ++ "-expected-rks.txt"
-    bsRks = return $! foldMap (toS . show ) (_rkRequestKeys rks)
-
-checkResponse :: FilePath -> RequestKeys -> PollResponses -> TestTree
-checkResponse filePrefix rks (PollResponses theMap) =
-    goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) bsResponse
-  where
-    fp = filePrefix ++ "-expected-resp.txt"
-    mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    values = _arResult <$> catMaybes mays
-    bsResponse = return $! toS $! foldMap A.encode values
-
-
-getCwBaseUrl :: Port -> BaseUrl
-getCwBaseUrl thePort = BaseUrl
-    { baseUrlScheme = Https
-    , baseUrlHost = "127.0.0.1"
-    , baseUrlPort = fromIntegral thePort
-    , baseUrlPath = "" }
-
 escapedCmd :: BS.ByteString
 escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
 
@@ -262,6 +281,33 @@ data PactTestApiCmds = PactTestApiCmds
 ----------------------------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 ----------------------------------------------------------------------------------------------------
+
+newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
+
+withNodes
+    :: RocksDb
+    -> Natural
+    -> (IO ChainwebNetwork -> TestTree)
+    -> TestTree
+withNodes rdb n f = withResource start
+    (cancel . fst)
+    (f . fmap (ChainwebNetwork . snd))
+  where
+    start = do
+        peerInfoVar <- newEmptyMVar
+        a <- async $ runTestNodes rdb Warn version n peerInfoVar
+        i <- readMVar peerInfoVar
+        cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
+        return (a, cwEnv)
+
+    getCwBaseUrl :: Port -> BaseUrl
+    getCwBaseUrl p = BaseUrl
+        { baseUrlScheme = Https
+        , baseUrlHost = "127.0.0.1"
+        , baseUrlPort = fromIntegral p
+        , baseUrlPath = ""
+        }
+
 runTestNodes
     :: RocksDb
     -> LogLevel
@@ -335,6 +381,3 @@ setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfigurati
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
 
--- for Stuart:
-runGhci :: IO ()
-runGhci = withTempRocksDb "ghci.RemotePactTests" $ \rdb -> tests rdb >>= defaultMain
