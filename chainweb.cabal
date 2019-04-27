@@ -329,7 +329,7 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , xmlgen >= 0.6
-        , yaml >= 0.8
+        , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
     if flag(tls13)
@@ -450,7 +450,7 @@ test-suite chainweb-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
-        , yaml
+        , yaml >= 0.11
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
@@ -765,7 +765,7 @@ executable ea
         , optparse-generic >= 1.3
         , text >= 1.2
         , vector >= 0.12
-        , yaml >= 0.8
+        , yaml >= 0.11
 
 -- -------------------------------------------------------------------------- --
 -- chain2gexf
