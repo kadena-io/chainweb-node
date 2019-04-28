@@ -190,8 +190,6 @@ in
           sha256 = "0yym840jnh2cma5n4c0pv3nh1hyhag1v6pks73wdikhrcajffsh3";
         };
 
-        wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
-
         wai-cors = dontCheck (callHackageDirect {
           pkg = "wai-cors";
           ver = "0.2.6";

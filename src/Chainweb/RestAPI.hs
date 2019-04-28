@@ -40,7 +40,6 @@ module Chainweb.RestAPI
 , serveChainweb
 , serveChainwebSocket
 , serveChainwebSocketTls
-, serveChainwebSocketTlsEkg
 , Port
 
 -- * Chainweb API Client
@@ -69,14 +68,11 @@ import Network.Socket
 import Network.Wai (Middleware)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
-import Network.Wai.Metrics
 import Network.Wai.Middleware.Cors
 
 import Servant.API
 import Servant.Server
 import Servant.Swagger
-
-import System.Remote.Monitoring
 
 -- internal modules
 
@@ -277,25 +273,3 @@ serveChainwebSocketTls settings certChain key sock v dbs m
     tlsSettings = tlsServerChainSettings certChain key
     app = chainwebApplication v dbs
 
-serveChainwebSocketTlsEkg
-    :: Show t
-    => ToJSON t
-    => FromJSON t
-    => PayloadCas cas
-    => Port
-        -- ^ EKG port
-    -> Settings
-    -> X509CertPem
-    -> X509KeyPem
-    -> Socket
-    -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Middleware
-    -> IO ()
-serveChainwebSocketTlsEkg ekgPort settings certBytes keyBytes sock v dbs m = do
-    store <- serverMetricStore <$> forkServer "127.0.0.1" (int ekgPort)
-    waiMetrics <- registerWaiMetrics store
-    runTLSSocket tlsSettings settings sock $ (metrics waiMetrics) $ m app
-  where
-    tlsSettings = tlsServerSettings certBytes keyBytes
-    app = chainwebApplication v dbs
