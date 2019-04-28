@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -796,8 +797,10 @@ symbolText = fromString $ symbolVal (Proxy @s)
 -- -------------------------------------------------------------------------- --
 -- Optics
 
+#if ! MIN_VERSION_lens(4,17,1)
 -- | Like 'local' for reader environments, but modifies the
 -- target of a lens possibly deep in the environment
 --
 locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
 locally l f = Reader.local (over l f)
+#endif
