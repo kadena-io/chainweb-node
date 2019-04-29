@@ -64,7 +64,7 @@ tests = testGroupSch "PactExecutionTest"
     , withPact testMemPoolAccess $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
     , withPact testEmptyMemPool $ \reqQIO ->
-        newBlockTest "empty block tests" reqQIO
+        newBlockTest "empty-block-tests" reqQIO
     ]
 
 withPact :: MemPoolAccess -> (IO (TQueue RequestMsg) -> TestTree) -> TestTree
