@@ -214,7 +214,7 @@ execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkPactTestTransactions $ V.fromList cmdStrs
-    results <- runPact $ execTransactions (Just $ nullBlockHash) defaultMiner trans
+    results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) outputs)
