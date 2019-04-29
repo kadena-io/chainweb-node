@@ -223,8 +223,8 @@ showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :
 
 -- | By maximum, we mean "easiest".
 --
-maxTarget :: ChainwebVersion -> HashTarget
-maxTarget _ = HashTarget $ PowHashNat maxTargetWord
+maxTarget :: HashTarget
+maxTarget = HashTarget $ PowHashNat maxTargetWord
 
 maxTargetWord :: Word256
 maxTargetWord = maxBound
@@ -473,7 +473,7 @@ adjust ver (TimeSpan delta) oldTarget
     -- `maxTarget`), ensure that the new target increases by at least some
     -- minimum threshold.
     | nat newTarget >= (nat oldTarget * minAdj)
-      && nat oldTarget <= (nat (maxTarget ver) `div` minAdj) = newTarget
+      && nat oldTarget <= (nat maxTarget `div` minAdj) = newTarget
 
     -- Intent: The target did not change enough - do not alter it!
     | otherwise = oldTarget

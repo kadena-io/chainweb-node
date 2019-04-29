@@ -230,7 +230,7 @@ prop_block_genesis_parent b
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget (_blockChainwebVersion b)
+    ==> _blockTarget b == genesisBlockTarget
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

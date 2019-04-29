@@ -90,7 +90,7 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 -- subsequent block mining can have a `HashTarget` easier (re: higher) than
 -- this. Equivalent to `maxTarget`.
 --
-genesisBlockTarget :: ChainwebVersion -> HashTarget
+genesisBlockTarget :: HashTarget
 genesisBlockTarget = maxTarget
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the
@@ -173,7 +173,7 @@ genesisBlockHeader' v p ct n = fromLog mlog
         $ n
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: genesisBlockTarget v
+        :+: genesisBlockTarget
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
