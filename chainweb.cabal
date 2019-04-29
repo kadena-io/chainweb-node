@@ -63,7 +63,6 @@ common warning-flags
         -Wall
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
-        -Wredundant-constraints
 
 custom-setup
     setup-depends:
