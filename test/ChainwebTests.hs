@@ -39,7 +39,6 @@ import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
-import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
@@ -80,7 +79,6 @@ suite rdb =
             ]
         , Chainweb.Test.CoinContract.tests
         , Chainweb.Test.Store.CAS.FS.tests
-        , Chainweb.Test.Store.Git.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests

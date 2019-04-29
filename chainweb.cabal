@@ -149,8 +149,6 @@ library
         , Chainweb.SPV.RestAPI.Client
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
-        , Chainweb.Store.Git
-        , Chainweb.Store.Git.Internal
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
@@ -255,7 +253,6 @@ library
         , fast-builder >= 0.1
         , hashable >= 1.2
         , heaps >= 0.3
-        , hlibgit2 >= 0.18
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
@@ -372,7 +369,6 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
-        Chainweb.Test.Store.Git
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
