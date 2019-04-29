@@ -1,7 +1,7 @@
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# language GeneralizedNewtypeDeriving #-}
 
 -- |
 module Chainweb.Simulate.Contracts.Common where
@@ -11,12 +11,12 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Attoparsec.ByteString.Char8
 import Data.Bifunctor (bimap)
+import qualified Data.ByteString.Char8 as B8
 import Data.Char
 import Data.Decimal
 import Data.List (uncons)
 import Data.Maybe
 import Data.Text (Text)
-import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
 
 import Fake
@@ -30,18 +30,18 @@ import Text.Printf
 -- PACT
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedInteger(..),ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
-import Pact.Types.ChainMeta (PublicMeta(..))
 
 -- CHAINWEB
 
-import Chainweb.Simulate.Utils
 import Chainweb.ChainId
+import Chainweb.Simulate.Utils
 import Chainweb.Utils
 
-createPaymentsAccount :: PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
+createPaymentsAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
 createPaymentsAccount meta name = do
     adminKeyset <- testSomeKeyPairs
     nameKeyset <- return <$> genKeyPair defaultScheme
@@ -52,7 +52,7 @@ createPaymentsAccount meta name = do
     theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
 
 
-createCoinAccount :: PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
+createCoinAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
 createCoinAccount meta name = do
   adminKeyset <- testSomeKeyPairs
   nameKeyset <- return <$> genKeyPair defaultScheme
@@ -62,10 +62,10 @@ createCoinAccount meta name = do
   where
     theCode = printf "(coin.create-account \"%s\" (read-keyset \"%s\"))" name name
 
-createPaymentsAccounts :: PublicMeta -> IO [([SomeKeyPair], Command Text)]
+createPaymentsAccounts :: CM.PublicMeta -> IO [([SomeKeyPair], Command Text)]
 createPaymentsAccounts meta = traverse (createPaymentsAccount meta . safeCapitalize) (words names)
 
-createCoinAccounts :: PublicMeta -> IO [([SomeKeyPair], Command Text)]
+createCoinAccounts :: CM.PublicMeta -> IO [([SomeKeyPair], Command Text)]
 createCoinAccounts meta = traverse (createCoinAccount meta . safeCapitalize) (words names)
 
 safeCapitalize :: String -> String
@@ -111,8 +111,8 @@ parens :: String -> String
 parens s = "(" ++ s ++ ")"
 
 -- hardcoded sender (sender00)
-makeMeta :: ChainId -> PublicMeta
-makeMeta cid = PublicMeta (chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+makeMeta :: ChainId -> CM.PublicMeta
+makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
 
 newtype ContractName = ContractName { getContractName :: String}
   deriving (Eq, Ord, Show, Generic)

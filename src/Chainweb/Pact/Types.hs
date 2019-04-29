@@ -66,18 +66,17 @@ import Data.Vector (Vector)
 
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command (CommandSuccess(..))
+import qualified Pact.Types.Hash as H
 import Pact.Types.Persistence (TxLog(..))
 import Pact.Types.Runtime (SPVSupport(..))
-import Pact.Types.Term (KeySet(..), Name(..), tStr, Term)
-import Pact.Types.Util (Hash(..))
-import Pact.Types.Hash (hash)
+import Pact.Types.Term (KeySet(..), Name(..), Term, tStr)
 
 -- internal chainweb modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Payload
 import Chainweb.Pact.Backend.Types
+import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
@@ -106,7 +105,7 @@ instance ToJSON FullLogTxOutput where
 
 data HashedLogTxOutput = HashedLogTxOutput
     { _hlCommandResult :: Value
-    , _hlTxLogHash :: Hash
+    , _hlTxLogHash :: H.Hash
     } deriving (Eq, Show)
 
 instance FromJSON HashedLogTxOutput where
@@ -121,16 +120,14 @@ instance ToJSON HashedLogTxOutput where
         , "hlTxLogs" .= _hlTxLogHash o]
     {-# INLINE toJSON #-}
 
-
 toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
 toHashedLogTxOutput FullLogTxOutput{..} =
-    let hashed = hash $ encodeToByteString _flTxLogs
-    in HashedLogTxOutput
+    HashedLogTxOutput
         { _hlCommandResult = _flCommandResult
-        , _hlTxLogHash = hashed
-        }
-
-
+        , _hlTxLogHash = H.toUntypedHash hashed }
+  where
+    hashed :: H.PactHash
+    hashed = H.hash $ encodeToByteString _flTxLogs
 
 type MinerKeys = KeySet
 type MinerId = Text

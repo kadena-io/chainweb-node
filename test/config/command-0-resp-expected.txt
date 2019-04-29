@@ -1,1 +1,1 @@
-{"hlTxLogs":"0eaf24c04addc7c70485cdf82b5a0e31594b78074a1bb3193d8a135475f3464f8433faab894b323d22931028c154483c3209c6e4121b56bcd78ec0c9d34225f1","hlCommandResult":{"status":"success","data":3}}
+{"hlTxLogs":"57o_WzSf3oXKovDE4gNCzbNUglnLoAmnZtVyzW0B820","hlCommandResult":{"status":"success","data":{"i":null,"lit":3}}}

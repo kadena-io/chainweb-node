@@ -17,7 +17,6 @@
 -- Pact SQLite checkpoint module for Chainweb
 module Chainweb.Pact.Backend.Orphans where
 
-
 import Control.Monad
 
 import Data.Aeson hiding (Object)
@@ -26,10 +25,11 @@ import Data.Bytes.Put
 import Data.Bytes.Serial
 import Data.Decimal
 import Data.Default
-import Data.HashMap.Strict
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.Thyme.Clock
 import Data.Thyme.Internal.Micro
-import qualified Data.Vector as Vector
+import qualified Data.Vector as V
 
 import GHC.Generics hiding (Meta)
 
@@ -38,6 +38,7 @@ import Text.Trifecta.Delta
 import Pact.Native
 import Pact.Persist
 import Pact.Persist.SQLite
+import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Runtime
 import Pact.Types.Server
@@ -46,137 +47,105 @@ import Pact.Types.Server
 -- GENERIC INSTANCES --
 -----------------------
 
-deriving instance Generic ModuleData
-
-deriving instance Generic (ModuleDef a)
-
-deriving instance Generic Ref
-
-deriving instance Generic RefStore
-
-deriving instance Generic CommandState
-
-deriving instance Generic DefName
-
-deriving instance Generic Decimal
-
-deriving instance Generic Guard
-
-deriving instance Generic Example
-
-deriving instance Generic TableName
-
-deriving instance Generic NativeDefName
-
-deriving instance Generic (App (Term n))
-
-deriving instance Generic (BindType (Type (Term n)))
-
-deriving instance Generic (Term n)
-
-deriving instance Generic (Def n)
-
 deriving instance Generic (Governance g)
-
-deriving instance Generic (Module g)
-
-deriving instance Generic Interface
-
-deriving instance Generic KeySetName
-
-deriving instance Generic Use
-
-deriving instance Generic TableId
-
-deriving instance Generic Pragma
-
-deriving instance Generic (Object n)
-
+deriving instance Generic CommandState
+deriving instance Generic Decimal
+deriving instance Generic DefName
 deriving instance Generic FieldKey
-
-deriving instance Generic PactExec
-
+deriving instance Generic KeySetName
+deriving instance Generic NativeDefName
 deriving instance Generic PactContinuation
+deriving instance Generic PactExec
+deriving instance Generic Pragma
+deriving instance Generic RefStore
+deriving instance Generic TableId
+deriving instance Generic TableName
 
 ----------------------
 -- SERIAL INSTANCES --
 ----------------------
 
-deriving instance Serial TxId
-
-deriving instance Serial ModuleData
-
-deriving instance Serial Interface
-
-deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
-
-deriving instance Serial Ref
-
 instance Serial RefStore where
-    serialize RefStore {..} = serialize _rsModules
+    serialize RefStore{..} = serialize _rsModules
     deserialize = do
         let _rsNatives = nativeDefs
         _rsModules <- deserialize
-        return $ RefStore {..}
+        return $ RefStore{..}
 
-deriving instance Serial CommandState
-
-deriving instance Serial Code
-
-deriving instance Serial Parsed
-
-deriving instance Serial Delta
-
-deriving instance Serial Info
-
-deriving instance Serial DefName
-
-deriving instance Serial Example
-
-deriving instance Serial ModuleName
-
-deriving instance Serial NamespaceName
-
-deriving instance Serial DefType
-
-deriving instance Serial Meta
-
-deriving instance Serial (Exp Info)
-
-deriving instance Serial (LiteralExp Info)
-
+deriving instance (Generic a, Serial a) => Serial (App (Term a))
+deriving instance (Generic a, Serial a) => Serial (Arg a)
+deriving instance (Generic a, Serial a) => Serial (BindPair a)
+deriving instance (Generic a, Serial a) => Serial (BindType (Type (Term a)))
+deriving instance (Generic a, Serial a) => Serial (ConstVal (Term a))
+deriving instance (Generic a, Serial a) => Serial (Def a)
+deriving instance (Generic a, Serial a) => Serial (FunType a)
+deriving instance (Generic a, Serial a) => Serial (Governance a)
+deriving instance (Generic a, Serial a) => Serial (Module a)
+deriving instance (Generic a, Serial a) => Serial (ModuleData a)
+deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
+deriving instance (Generic a, Serial a) => Serial (Object a)
+deriving instance (Generic a, Serial a) => Serial (ObjectMap a)
+deriving instance (Generic a, Serial a) => Serial (Term a)
+deriving instance (Generic a, Serial a) => Serial (Type a)
+deriving instance (Generic a, Serial a) => Serial (TypeVar a)
 deriving instance Serial (AtomExp Info)
-
+deriving instance Serial (Exp Info)
 deriving instance Serial (ListExp Info)
-
-deriving instance Serial ListDelimiter
-
+deriving instance Serial (LiteralExp Info)
 deriving instance Serial (SeparatorExp Info)
-
-deriving instance Serial Separator
-
-deriving instance Serial Literal
-
-deriving instance Serial UTCTime
-
-deriving instance Serial NominalDiffTime
-
-deriving instance Serial Micro
-
+deriving instance Serial (TxLog Value)
+deriving instance Serial Code
+deriving instance Serial CommandState
 deriving instance Serial Decimal
-
-deriving instance (Generic n, Serial n) => Serial (Object n)
-
+deriving instance Serial DefName
+deriving instance Serial DefType
+deriving instance Serial Delta
+deriving instance Serial Example
 deriving instance Serial FieldKey
-
-deriving instance Serial PactExec
-
+deriving instance Serial Guard
+deriving instance Serial GuardType
+deriving instance Serial Hash
+deriving instance Serial Info
+deriving instance Serial Interface
+deriving instance Serial KeySet
+deriving instance Serial KeySetName
+deriving instance Serial ListDelimiter
+deriving instance Serial Literal
+deriving instance Serial Meta
+deriving instance Serial Micro
+deriving instance Serial ModuleGuard
+deriving instance Serial ModuleName
+deriving instance Serial Name
+deriving instance Serial NamespaceName
+deriving instance Serial NativeDefName
+deriving instance Serial NominalDiffTime
 deriving instance Serial PactContinuation
-
+deriving instance Serial PactExec
+deriving instance Serial PactGuard
+deriving instance Serial PactId
+deriving instance Serial PactValue
+deriving instance Serial Parsed
+deriving instance Serial Pragma
+deriving instance Serial PrimType
+deriving instance Serial PublicKey
+deriving instance Serial Ref
+deriving instance Serial SQLiteConfig
+deriving instance Serial SchemaPartial
+deriving instance Serial SchemaType
+deriving instance Serial Separator
+deriving instance Serial TableId
+deriving instance Serial TableName
+deriving instance Serial TxId
+deriving instance Serial TypeName
+deriving instance Serial TypeVarName
+deriving instance Serial UTCTime
+deriving instance Serial Use
+deriving instance Serial UserGuard
+deriving instance Serial Value
 
 instance Serial1 Governance where
   serializeWith f (Governance t) = case t of
-    Left r  -> putWord8 0 >> serialize r
+    Left r -> putWord8 0 >> serialize r
     Right a -> putWord8 1 >> f a
 
   deserializeWith m = Governance <$> go
@@ -238,16 +207,16 @@ instance Serial1 Exp where
 instance Serial1 LiteralExp where
     serializeWith f t =
         case t of
-            LiteralExp {..} -> serialize _litLiteral >> f _litInfo
+            LiteralExp{..} -> serialize _litLiteral >> f _litInfo
     deserializeWith m = do
         _litLiteral <- deserialize
         _litInfo <- m
-        return $ LiteralExp {..}
+        return $ LiteralExp{..}
 
 instance Serial1 AtomExp where
     serializeWith f t =
         case t of
-            AtomExp {..} -> do
+            AtomExp{..} -> do
                 serialize _atomAtom
                 mapM_ serialize _atomQualifiers
                 f _atomInfo
@@ -255,12 +224,12 @@ instance Serial1 AtomExp where
         _atomAtom <- deserialize
         _atomQualifiers <- deserialize
         _atomInfo <- m
-        return $ AtomExp {..}
+        return $ AtomExp{..}
 
 instance Serial1 ListExp where
     serializeWith f t =
         case t of
-            ListExp {..} -> do
+            ListExp{..} -> do
                 serializeWith (serializeWith f) _listList
                 serialize _listDelimiter
                 f _listInfo
@@ -268,21 +237,21 @@ instance Serial1 ListExp where
         _listList <- deserializeWith $ deserializeWith m
         _listDelimiter <- deserialize
         _listInfo <- m
-        return $ ListExp {..}
+        return $ ListExp{..}
 
 instance Serial1 SeparatorExp where
     serializeWith f t =
         case t of
-            SeparatorExp {..} -> do
+            SeparatorExp{..} -> do
                 serialize _sepSeparator
                 f _sepInfo
     deserializeWith m = do
         _sepSeparator <- deserialize
         _sepInfo <- m
-        return $ SeparatorExp {..}
+        return $ SeparatorExp{..}
 
 instance Serial1 Def where
-    serializeWith f Def {..} = do
+    serializeWith f Def{..} = do
         serialize _dDefName
         serialize _dModule
         serialize _dDefType
@@ -298,23 +267,24 @@ instance Serial1 Def where
         _dDefBody <- deserializeWith m
         _dMeta <- deserialize
         _dInfo <- deserialize
-        return $ Def {..}
+        return $ Def{..}
 
+-- FIXME: This should be autoderivable, since `Generic1` is autoderivable.
 instance Serial1 Object where
-  serializeWith f Object {..} = do
-    pairListSerial1Helper serialize (serializeWith f) _oObject
+  serializeWith f Object{..} = do
+    pairListSerial1Helper serialize (serializeWith f) $ M.toList $ _objectMap _oObject
     serializeWith (serializeWith f) _oObjectType
+    serialize _oKeyOrder
     serialize _oInfo
   deserializeWith m = do
-    _oObject <- pairListDeSerial1Helper (const deserialize) deserializeWith m
-    _oObjectType <- deserializeWith (deserializeWith m)
-    _oInfo <- deserialize
-    return $ Object {..}
-
-deriving instance Serial NativeDefName
+    om <- ObjectMap . M.fromList <$> pairListDeSerial1Helper (const deserialize) deserializeWith m
+    ot <- deserializeWith (deserializeWith m)
+    ko <- deserialize
+    oi <- deserialize
+    return $ Object om ot ko oi
 
 instance Serial NativeDFun where
-  serialize (NativeDFun {..}) = serialize _nativeName
+  serialize (NativeDFun{..}) = serialize _nativeName
   deserialize = do
     _nativeName <- deserialize
     maybe
@@ -323,7 +293,7 @@ instance Serial NativeDFun where
       (nativeDfunDeserialize _nativeName)
 
 nativeDfunDeserialize :: NativeDefName -> Maybe NativeDFun
-nativeDfunDeserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>= go
+nativeDfunDeserialize nativename = HM.lookup name nativeDefs >>= go
   where
     getText (NativeDefName text) = text
     name = Name (getText nativename) def
@@ -331,17 +301,17 @@ nativeDfunDeserialize nativename = Data.HashMap.Strict.lookup name nativeDefs >>
         case r of
             Direct t ->
                 case t of
-                    TNative {..} -> return _tNativeFun
+                    TNative{..} -> return _tNativeFun
                     _ -> Nothing
             rr@(Ref _) -> go rr
 
 instance Serial1 ConstVal where
     serializeWith f t =
         case t of
-            CVRaw {..} -> do
+            CVRaw{..} -> do
                 putWord8 0
                 f _cvRaw
-            CVEval {..} -> do
+            CVEval{..} -> do
                 putWord8 1
                 f _cvRaw
                 f _cvEval
@@ -350,17 +320,17 @@ instance Serial1 ConstVal where
             case a of
                 0 -> do
                     _cvRaw <- m
-                    return $ CVRaw {..}
+                    return $ CVRaw{..}
                 1 -> do
                     _cvRaw <- m
                     _cvEval <- m
-                    return $ CVEval {..}
+                    return $ CVEval{..}
                 _ -> fail "ConstVal: Deserialization error."
 
 instance Serial1 App where
     serializeWith f t =
         case t of
-            App {..} -> do
+            App{..} -> do
                 f _appFun
                 serializeWith f _appArgs
                 serialize _appInfo
@@ -368,13 +338,13 @@ instance Serial1 App where
         _appFun <- m
         _appArgs <- deserializeWith m
         _appInfo <- deserialize
-        return $ App {..}
+        return $ App{..}
 
 instance Serial1 BindType where
     serializeWith f t =
         case t of
             BindLet -> putWord8 0
-            BindSchema {..} -> do
+            BindSchema{..} -> do
                 putWord8 1
                 f _bType
     deserializeWith m =
@@ -386,25 +356,24 @@ instance Serial1 BindType where
                     return $ BindSchema _bType
                 _ -> fail "BindType: Deserialization error."
 
-
 instance Serial1 Term where
     serializeWith f t =
         case t of
-            TModule {..} -> do
+            TModule{..} -> do
                 putWord8 0
                 serializeWith (serializeWith f) _tModuleDef
                 serializeWith f _tModuleBody
                 serialize _tInfo
-            TList {..} -> do
+            TList{..} -> do
                 putWord8 1
-                serializeWith (serializeWith f) _tList
+                serializeWith (serializeWith f) $ V.toList _tList
                 serializeWith (serializeWith f) _tListType
                 serialize _tInfo
-            TDef {..} -> do
+            TDef{..} -> do
                 putWord8 2
                 serializeWith f _tDef
                 serialize _tInfo
-            TNative {..} -> do
+            TNative{..} -> do
                 putWord8 3
                 serialize _tNativeName
                 serialize _tNativeFun
@@ -412,65 +381,61 @@ instance Serial1 Term where
                 serialize _tNativeDocs
                 serialize _tNativeTopLevelOnly
                 serialize _tInfo
-            TConst {..} -> do
+            TConst{..} -> do
                 putWord8 4
                 serializeWith (serializeWith f) _tConstArg
                 serialize _tModule
                 serializeWith (serializeWith f) _tConstVal
                 serialize _tMeta
                 serialize _tInfo
-            TApp {..} -> do
+            TApp{..} -> do
                 putWord8 5
                 serializeWith (serializeWith f) _tApp
                 serialize _tInfo
-            TVar {..} -> do
+            TVar{..} -> do
                 putWord8 6
                 f _tVar
                 serialize _tInfo
-            TBinding {..} -> do
+            TBinding{..} -> do
                 putWord8 7
                 pairListSerial1Helper
                     (serializeWith (serializeWith f))
                     (serializeWith f)
-                    _tBindPairs
+                    $ map (\(BindPair a v) -> (a, v)) _tBindPairs
                 serializeWith f _tBindBody
                 serializeWith (serializeWith (serializeWith f)) _tBindType
                 serialize _tInfo
-            TObject {..} -> do
+            TObject{..} -> do
                 putWord8 8
                 serializeWith f _tObject
                 serialize _tInfo
-            TSchema {..} -> do
+            TSchema{..} -> do
                 putWord8 9
                 serialize _tSchemaName
                 serialize _tModule
                 serialize _tMeta
                 serializeWith (serializeWith (serializeWith f)) _tFields
                 serialize _tInfo
-            TLiteral {..} -> do
+            TLiteral{..} -> do
                 putWord8 10
                 serialize _tLiteral
                 serialize _tInfo
-            TGuard {..} -> do
+            TGuard{..} -> do
                 putWord8 11
                 serialize _tGuard
                 serialize _tInfo
-            TUse {..} -> do
+            TUse{..} -> do
                 putWord8 12
                 serialize _tUse
                 serialize _tInfo
-            TValue {..} -> do
+            TStep{..} -> do
                 putWord8 13
-                serialize _tValue
-                serialize _tInfo
-            TStep {..} -> do
-                putWord8 14
                 serializeWith (serializeWith f) _tStepEntity
                 serializeWith f _tStepExec
                 serializeWith (serializeWith f) _tStepRollback
                 serialize _tInfo
-            TTable {..} -> do
-                putWord8 15
+            TTable{..} -> do
+                putWord8 14
                 serialize _tTableName
                 serialize _tModule
                 serialize _tHash
@@ -484,16 +449,16 @@ instance Serial1 Term where
                     _tModuleDef <- deserializeWith (deserializeWith m)
                     _tModuleBody <- deserializeWith m
                     _tInfo <- deserialize
-                    return $ TModule {..}
+                    return $ TModule{..}
                 1 -> do
-                    _tList <- deserializeWith (deserializeWith m)
+                    _tList <- V.fromList <$> deserializeWith (deserializeWith m)
                     _tListType <- deserializeWith (deserializeWith m)
                     _tInfo <- deserialize
-                    return $ TList {..}
+                    return $ TList{..}
                 2 -> do
                     _tDef <- deserializeWith m
                     _tInfo <- deserialize
-                    return $ TDef {..}
+                    return $ TDef{..}
                 3 -> do
                     _tNativeName <- deserialize
                     _tNativeFun <- deserialize
@@ -502,24 +467,24 @@ instance Serial1 Term where
                     _tNativeDocs <- deserialize
                     _tNativeTopLevelOnly <- deserialize
                     _tInfo <- deserialize
-                    return $ TNative {..}
+                    return $ TNative{..}
                 4 -> do
                     _tConstArg <- deserializeWith (deserializeWith m)
                     _tModule <- deserialize
                     _tConstVal <- deserializeWith (deserializeWith m)
                     _tMeta <- deserialize
                     _tInfo <- deserialize
-                    return $ TConst {..}
+                    return $ TConst{..}
                 5 -> do
                     _tApp <- deserializeWith (deserializeWith m)
                     _tInfo <- deserialize
-                    return $ TApp {..}
+                    return $ TApp{..}
                 6 -> do
                     _tVar <- m
                     _tInfo <- deserialize
-                    return $ TVar {..}
+                    return $ TVar{..}
                 7 -> do
-                    _tBindPairs <-
+                    _tBindPairs <- map (\(k, v) -> BindPair k v) <$>
                         pairListDeSerial1Helper
                             (deserializeWith . deserializeWith)
                             deserializeWith
@@ -527,62 +492,62 @@ instance Serial1 Term where
                     _tBindBody <- deserializeWith m
                     _tBindType <- deserializeWith (deserializeWith (deserializeWith m))
                     _tInfo <- deserialize
-                    return $ TBinding {..}
+                    return $ TBinding{..}
                 8 -> do
                     _tObject <- deserializeWith m
                     _tInfo <- deserialize
-                    return $ TObject {..}
+                    return $ TObject{..}
                 9 -> do
                     _tSchemaName <- deserialize
                     _tModule <- deserialize
                     _tMeta <- deserialize
                     _tFields <- deserializeWith (deserializeWith (deserializeWith m))
                     _tInfo <- deserialize
-                    return $ TSchema {..}
+                    return $ TSchema{..}
                 10 -> do
                     _tLiteral <- deserialize
                     _tInfo <- deserialize
-                    return $ TLiteral {..}
+                    return $ TLiteral{..}
                 11 -> do
                     _tGuard <- deserialize
                     _tInfo <- deserialize
-                    return $ TGuard {..}
+                    return $ TGuard{..}
                 12 -> do
                     _tUse <- deserialize
                     _tInfo <- deserialize
-                    return $ TUse {..}
+                    return $ TUse{..}
                 13 -> do
-                    _tValue <- deserialize
-                    _tInfo <- deserialize
-                    return $ TValue {..}
-                14 -> do
                     _tStepEntity <- deserializeWith (deserializeWith m)
                     _tStepExec <- deserializeWith m
                     _tStepRollback <- deserializeWith (deserializeWith m)
                     _tInfo <- deserialize
-                    return $ TStep {..}
-                15 -> do
+                    return $ TStep{..}
+                14 -> do
                     _tTableName <- deserialize
                     _tModule <- deserialize
                     _tHash <- deserialize
                     _tTableType <- deserializeWith (deserializeWith m)
                     _tMeta <- deserialize
                     _tInfo <- deserialize
-                    return $ TTable {..}
+                    return $ TTable{..}
                 _ -> fail "Term: Deserialization error."
 
-pairListSerial1Helper ::
-     (MonadPut m, Foldable t1)
-  => (t2 -> m a)
-  -> (t3 -> m b)
-  -> t1 (t2, t3)
-  -> m ()
+pairListSerial1Helper
+    :: (MonadPut m, Foldable t1)
+    => (t2 -> m a)
+    -> (t3 -> m b)
+    -> t1 (t2, t3)
+    -> m ()
 pairListSerial1Helper f g xs = forM_ xs (uncurry go) >> putWord8 1
   where
     go a b = putWord8 0 >> f a >> g b
 
-pairListDeSerial1Helper ::
-     MonadGet m => (t -> m a1) -> (t -> m a2) -> t -> m [(a1, a2)]
+pairListDeSerial1Helper
+    :: MonadGet m
+    => (t -> m a1)
+    -> (t -> m a2)
+    -> t
+    -> m [(a1, a2)]
 pairListDeSerial1Helper f g m = go id
   where
     go dl = do
@@ -593,102 +558,40 @@ pairListDeSerial1Helper f g m = go id
             p <- (,) <$> f m <*> g m
             go (dl . (p :))
 
-deriving instance Serial Guard
-
-deriving instance Serial ModuleGuard
-
-deriving instance Serial UserGuard
-
-deriving instance Serial KeySet
-
-deriving instance Serial KeySetName
-
-deriving instance Serial Name
-
-deriving instance Serial PublicKey
-
-deriving instance Serial PactGuard
-
-deriving instance Serial PactId
-
-deriving instance Serial TypeName
-
-deriving instance Serial SchemaPartial
-
-deriving instance Serial Use
-
-deriving instance Serial Hash
-
-deriving instance Serial Value
-
-instance Serial a => Serial (Vector.Vector a) where
-    serialize = mapM_ serialize . Vector.toList
-    deserialize = deserialize >>= return . Vector.fromList
-
-deriving instance Serial TableName
-
-deriving instance (Generic n, Serial n) => Serial (Arg (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Type (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (BindType (Type (Term n)))
-
-deriving instance (Generic n, Serial n) => Serial (Term n)
-
-deriving instance
-         (Generic n, Serial n) => Serial (FunType (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (ConstVal (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (App (Term n))
-
-deriving instance
-         (Generic n, Serial n) => Serial (TypeVar (Term n))
-
-deriving instance (Generic n, Serial n) => Serial (Def n)
-
-deriving instance (Generic g, Serial g) => Serial (Governance g)
-
-deriving instance (Generic g, Serial g) => Serial (Module g)
-
-deriving instance Serial PrimType
-
-deriving instance Serial GuardType
-
-deriving instance Serial SchemaType
+instance Serial a => Serial (V.Vector a) where
+    serialize = mapM_ serialize . V.toList
+    deserialize = deserialize >>= return . V.fromList
 
 instance Serial1 FunType where
-    serializeWith f (FunType {..}) = do
+    serializeWith f (FunType{..}) = do
         serializeWith (serializeWith f) _ftArgs
         serializeWith f _ftReturn
     deserializeWith m = do
         _ftArgs <- deserializeWith (deserializeWith m)
         _ftReturn <- deserializeWith m
-        return $ FunType {..}
+        return $ FunType{..}
 
 instance Serial1 Arg where
-    serializeWith f (Arg {..}) = serialize _aName >> serializeWith f _aType >> serialize _aInfo
+    serializeWith f (Arg{..}) = serialize _aName >> serializeWith f _aType >> serialize _aInfo
     deserializeWith m = do
         _aName <- deserialize
         _aType <- deserializeWith m
         _aInfo <- deserialize
-        return $ Arg {..}
+        return $ Arg{..}
 
 instance Serial1 Type where
     serializeWith f t =
         case t of
             TyAny -> putWord8 0
-            TyVar {..} -> putWord8 1 >> serializeWith f _tyVar
+            TyVar{..} -> putWord8 1 >> serializeWith f _tyVar
             TyPrim p -> putWord8 2 >> serialize p
-            TyList {..} -> putWord8 3 >> serializeWith f _tyListType
-            TySchema {..} -> do
+            TyList{..} -> putWord8 3 >> serializeWith f _tyListType
+            TySchema{..} -> do
                 putWord8 4
                 serialize _tySchema
                 serializeWith f _tySchemaType
-            TyFun {..} -> putWord8 5 >> serializeWith f _tyFunType
-            TyUser {..} -> putWord8 6 >> f _tyUser
+            TyFun{..} -> putWord8 5 >> serializeWith f _tyFunType
+            TyUser{..} -> putWord8 6 >> f _tyUser
     deserializeWith m =
         getWord8 >>= \a ->
             case a of
@@ -701,37 +604,28 @@ instance Serial1 Type where
                 6 -> TyUser <$> m
                 _ -> fail "Type: Deserialization error."
 
-deriving instance Serial TypeVarName
-
 instance Serial1 TypeVar where
     serializeWith f v =
         case v of
-            TypeVar {..} -> do
+            TypeVar{..} -> do
                 putWord8 0
                 serialize _tvName
                 serializeWith (serializeWith f) _tvConstraint
-            SchemaVar {..} -> putWord8 1 >> serialize _tvName
+            SchemaVar{..} -> putWord8 1 >> serialize _tvName
     deserializeWith m =
         getWord8 >>= \a ->
             case a of
                 0 -> do
                     _tvName <- deserialize
                     _tvConstraint <- deserializeWith (deserializeWith m)
-                    return $ TypeVar {..}
+                    return $ TypeVar{..}
                 1 -> liftM SchemaVar deserialize
                 _ -> error "TypeVar: Deserialization error."
 
 instance Serial (Table DataKey) where
   serialize (DataTable t) = serialize t
   deserialize = DataTable <$> deserialize
+
 instance Serial (Table TxKey) where
   serialize (TxTable t) = serialize t
   deserialize = TxTable <$> deserialize
-
-deriving instance Serial TableId
-
-deriving instance Serial (TxLog Value)
-
-deriving instance Serial SQLiteConfig
-
-deriving instance Serial Pragma

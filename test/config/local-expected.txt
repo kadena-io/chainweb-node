@@ -2,8 +2,22 @@ test-group: local
 results:
   status: success
   data:
-    amount: '-1.00'
-    data:
-      transfer-to: Acct2
-    balance: '999999.00'
-    account: Acct1
+    obj:
+      amount:
+        i: null
+        lit: -1
+      data:
+        obj:
+          transfer-to:
+            i: null
+            lit: Acct2
+        type: '*'
+        i: null
+      balance:
+        i: null
+        lit: 999999
+      account:
+        i: null
+        lit: Acct1
+    type: '*'
+    i: null

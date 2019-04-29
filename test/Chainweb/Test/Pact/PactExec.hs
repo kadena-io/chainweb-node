@@ -20,15 +20,14 @@ module Chainweb.Test.Pact.PactExec
 
 import Control.Applicative
 import Control.Concurrent.MVar
-import Control.Monad.Trans.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Reader
 
 import Data.Aeson
 import Data.Default (def)
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
-import Data.Scientific
 import Data.String.Conv (toS)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -49,6 +48,7 @@ import Pact.Types.Logger
 import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
+import Chainweb.BlockHash
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
@@ -56,7 +56,6 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
-import Chainweb.BlockHash
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
@@ -65,8 +64,7 @@ tests :: ScheduledTest
 tests = testGroupSch "Simple pact execution tests"
     [ withPactCtx $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
-            [ execTest ctx testReq1
-            , execTest ctx testReq2
+            [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
@@ -103,15 +101,6 @@ data PactTestSetup = PactTestSetup
 
 -- -------------------------------------------------------------------------- --
 -- sample data
-
-testReq1 :: TestRequest
-testReq1 = TestRequest
-    { _trCmds = [ Code "(+ 1 1)" ]
-    , _trEval = \f -> testCaseSch "addition" $ do
-        (TestResponse [res] _) <- f
-        checkScientific (scientific 2 0) (snd res)
-    , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0"
-    }
 
 testReq2 :: TestRequest
 testReq2 = TestRequest
@@ -230,17 +219,6 @@ checkSuccessOnly resp =
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _ -> assertFailure "Status returned does not equal \"success\""
 
-checkScientific :: Scientific -> FullLogTxOutput -> Assertion
-checkScientific sci resp = parseScientific (_flCommandResult resp) @?= Just sci
-
-parseScientific :: Value -> Maybe Scientific
-parseScientific (Object o) =
-    case HM.lookup "data" o of
-        Nothing -> Nothing
-        Just (Number sci) -> Just sci
-        Just _ -> Nothing
-parseScientific _ = Nothing
-
 -- | A test runner for golden tests.
 --
 fileCompareTxLogs :: String -> IO TestResponse -> ScheduledTest
@@ -258,4 +236,3 @@ fileCompareTxLogs label respIO = pactGoldenSch label $ do
         [ "output" .= _flTxLogs out
         , "cmd" .= ("coinbase" :: String)
         ]
-
