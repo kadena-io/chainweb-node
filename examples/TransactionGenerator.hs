@@ -235,7 +235,7 @@ defaultScriptConfig =
     , _isChainweb          = True
     , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
     -- , _nodeVersion      = "testnet00"
-    , _nodeVersion         = fromJuste $ chainwebVersionFromText "testWithTime"
+    , _nodeVersion         = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
     , _logHandleConfig     = U.StdOut
     }
 

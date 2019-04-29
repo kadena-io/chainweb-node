@@ -123,38 +123,69 @@ import Data.Singletons
 -- versions are not mixed at runtime. This is not enforced at the type level.
 --
 data ChainwebVersion
+    --------------------
+    -- TESTING INSTANCES
+    --------------------
     = Test ChainGraph
-        -- ^ Test instance with
+        -- ^ General-purpose test instance, where:
         --
-        --   * configurable graph,
-        --   * genesis block time is epoch,
-        --   * target is maxBound,
-        --   * nonce is constant,
-        --   * creationTime of BlockHeaders is parent time plus one second, and
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the parent time plus one second, and
         --   * POW is simulated by poison process thread delay.
         --
-
-    | TestWithTime ChainGraph
-        -- ^ Test instance with
-        --
-        --   * configurable graph,
-        --   * genesis block time current time
-        --   * target is maxBound,
-        --   * nonce is constant
-        --   * creationTime of BlockHeaders is actual time, and
-        --   * POW is simulated by poison process thread delay.
+        -- This is primarily used in unit tests.
         --
 
-    | TestWithPow ChainGraph
-        -- ^ Test instance with
+    | TimedConsensus ChainGraph
+        -- ^ Test instance for confirming the behaviour of our Consensus
+        -- mechanisms (Cut processing, Header validation, etc.), where:
         --
-        --   * configurable graph,
-        --   * genesis block time current time
-        --   * target is maxBound,
-        --   * nonce is constant, and
-        --   * creationTime of BlockHeaders is actual time.
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the actual time,
+        --   * POW is simulated by poison process thread delay, and
+        --   * there are /no/ Pact or mempool operations running.
+        --
+        -- This is primarily used in our @slow-tests@ executable.
         --
 
+    | PowConsensus ChainGraph
+        -- ^ Test instance for confirming the behaviour of the Proof-of-Work
+        -- mining algorithm and Difficulty Adjustment, where:
+        --
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time the current time,
+        --   * the genesis `HashTarget` is 7 bits lower than maxBound,
+        --   * the `Nonce` changes with each mining attempt,
+        --   * creationTime of BlockHeaders is the actual time, and
+        --   * there are /no/ Pact or mempool operations running.
+        --
+        -- This is primarily used in our @slow-tests@ executable.
+        --
+
+    | TimedCPM ChainGraph
+        -- ^ Test instance for confirming the combined behaviour of our Consensus
+        -- mechanisms, Pact code processing and validation, and Mempool, where:
+        --
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the actual time,
+        --   * POW is simulated by poison process thread delay, and
+        --   * the Pact Service and Mempool operations are running.
+        --
+        -- This is primarily used in our @run-nodes@ executable.
+        --
+
+    -----------------------
+    -- PRODUCTION INSTANCES
+    -----------------------
     | Testnet00
     | Testnet01
     deriving (Eq, Ord, Generic)
@@ -179,8 +210,9 @@ instance Show ChainwebVersion where
 --
 chainwebVersionId :: ChainwebVersion -> Word32
 chainwebVersionId v@Test{} = toTestChainwebVersion v
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v
+chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
+chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
+chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
 chainwebVersionId Testnet01 = 0x00000002
 {-# INLINABLE chainwebVersionId #-}
@@ -229,8 +261,9 @@ chainwebVersionFromText t =
         Just v -> pure v
         Nothing -> case t of
             "test" -> pure $ Test petersonChainGraph
-            "testWithTime" -> pure $ TestWithTime petersonChainGraph
-            "testWithPow" -> pure $ TestWithPow petersonChainGraph
+            "timedConsensus" -> pure $ TimedConsensus petersonChainGraph
+            "powConsensus" -> pure $ PowConsensus petersonChainGraph
+            "timedCPM" -> pure $ TimedCPM petersonChainGraph
             _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
 instance HasTextRepresentation ChainwebVersion where
@@ -245,8 +278,9 @@ instance HasTextRepresentation ChainwebVersion where
 chainwebVersions :: HM.HashMap T.Text ChainwebVersion
 chainwebVersions = HM.fromList $
     f Test "test"
-    <> f TestWithTime "testWithTime"
-    <> f TestWithPow "testWithPow"
+    <> f TimedConsensus "timedConsensus"
+    <> f PowConsensus "powConsensus"
+    <> f TimedCPM "timedCPM"
     <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
@@ -301,14 +335,16 @@ splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
 
 codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
 codeToTestVersion 0x80000000 = Test
-codeToTestVersion 0x80000001 = TestWithTime
-codeToTestVersion 0x80000002 = TestWithPow
+codeToTestVersion 0x80000001 = TimedConsensus
+codeToTestVersion 0x80000002 = PowConsensus
+codeToTestVersion 0x80000003 = TimedCPM
 codeToTestVersion _ = error "Unknown ChainwebVersion Code"
 
 testVersionToCode :: ChainwebVersion -> Word32
 testVersionToCode Test{} = 0x80000000
-testVersionToCode TestWithTime{} = 0x80000001
-testVersionToCode TestWithPow{} = 0x80000002
+testVersionToCode TimedConsensus{} = 0x80000001
+testVersionToCode PowConsensus{} = 0x80000002
+testVersionToCode TimedCPM{} = 0x80000003
 testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet01 =
@@ -323,8 +359,9 @@ fromTestChainwebVersionId i =
 
 chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TestWithTime g) = g
-chainwebVersionGraph (TestWithPow g) = g
+chainwebVersionGraph (TimedConsensus g) = g
+chainwebVersionGraph (PowConsensus g) = g
+chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 chainwebVersionGraph Testnet01 = twentyChainGraph
 

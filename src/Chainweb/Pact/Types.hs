@@ -44,6 +44,7 @@ module Chainweb.Pact.Types
   , psStateValidated
     -- * defaults
   , defaultMiner
+  , emptyPayload
   , noMiner
   , noCoinbase
     -- * module exports
@@ -56,7 +57,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import Data.Aeson as A
+import Data.Aeson
 import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
@@ -85,10 +86,9 @@ data Transactions = Transactions
     , _transactionCoinbase :: FullLogTxOutput
     } deriving (Eq,Show)
 
-
 data FullLogTxOutput = FullLogTxOutput
-    { _flCommandResult :: A.Value
-    , _flTxLogs :: [TxLog A.Value]
+    { _flCommandResult :: Value
+    , _flTxLogs :: [TxLog Value]
     } deriving (Show, Eq)
 
 instance FromJSON FullLogTxOutput where
@@ -130,13 +130,13 @@ toHashedLogTxOutput FullLogTxOutput{..} =
     hashed = H.hash $ encodeToByteString _flTxLogs
 
 type MinerKeys = KeySet
+
 type MinerId = Text
 
 data MinerInfo = MinerInfo
   { _minerAccount :: MinerId
   , _minerKeys :: MinerKeys
   } deriving (Show,Eq)
-
 
 instance ToJSON MinerInfo where
   toJSON MinerInfo{..} =
@@ -147,6 +147,12 @@ instance FromJSON MinerInfo where
   parseJSON = withObject "MinerInfo" $ \o ->
     MinerInfo <$> o .: "m" <*> (KeySet <$> o .: "ks" <*> o .: "kp")
 
+emptyPayload :: PayloadWithOutputs
+emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+  where
+    (BlockPayload h i o) = newBlockPayload miner coinbase mempty
+    miner = MinerData $ encodeToByteString noMiner
+    coinbase = toCoinbaseOutput noCoinbase
 
 noMiner :: MinerInfo
 noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
@@ -165,7 +171,6 @@ toCoinbaseOutput = CoinbaseOutput . encodeToByteString . toHashedLogTxOutput
 
 fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m  HashedLogTxOutput
 fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
-
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository

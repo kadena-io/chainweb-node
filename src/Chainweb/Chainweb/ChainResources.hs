@@ -106,7 +106,7 @@ instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
--- Intializes all local Chain resources, but doesn't start any networking.
+-- | Intializes all local Chain resources, but doesn't start any networking.
 --
 withChainResources
     :: Logger logger
@@ -127,7 +127,7 @@ withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
-            let pact = mkPactExecutionService mempool requestQ
+            let pact = pes mempool requestQ
             replayPact logger pact cdb payloadDb
 
             -- run inner
@@ -138,6 +138,14 @@ withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
                 , _chainResMempool = mempool
                 , _chainResPact = pact
                 }
+  where
+    pes mempool requestQ = case v of
+        Test{} -> emptyPactExecutionService
+        TimedConsensus{} -> emptyPactExecutionService
+        PowConsensus{} -> emptyPactExecutionService
+        TimedCPM{} -> mkPactExecutionService mempool requestQ
+        Testnet00 -> mkPactExecutionService mempool requestQ
+        Testnet01 -> mkPactExecutionService mempool requestQ
 
 replayPact
     :: HasCallStack

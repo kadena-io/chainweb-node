@@ -1,8 +1,8 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE QuasiQuotes #-}
 
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
@@ -21,7 +21,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , runGhci
 ) where
 
-import Control.Concurrent hiding (readMVar, putMVar)
+import Control.Concurrent hiding (putMVar, readMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Exception
@@ -41,8 +41,8 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Network.HTTP.Client.TLS as HTTP
 import Network.Connection as HTTP
+import Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
 
@@ -54,8 +54,8 @@ import Servant.Client
 import System.LogLevel
 import System.Time.Extra
 
-import Test.Tasty.HUnit
 import Test.Tasty
+import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
 import Pact.Parse (ParsedInteger(..), ParsedDecimal(..))
@@ -95,7 +95,7 @@ nNodes :: Natural
 nNodes = 1
 
 version :: ChainwebVersion
-version = TestWithTime petersonChainGraph
+version = TimedCPM petersonChainGraph
 
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds version
@@ -193,8 +193,8 @@ checkValidated results =
     not (null results) && V.all f results
   where
     f (Validated _) = True
-    f Confirmed     = True
-    f _             = False
+    f Confirmed = True
+    f _ = False
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
