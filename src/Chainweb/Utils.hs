@@ -19,9 +19,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
--- ixg
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.

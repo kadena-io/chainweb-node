@@ -6,8 +6,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , TransactionConfig(..)
@@ -486,5 +487,3 @@ mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
     getPrice = GasPrice <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-
-

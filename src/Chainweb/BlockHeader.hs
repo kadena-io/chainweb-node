@@ -23,8 +23,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.BlockHeader
 -- Copyright: Copyright © 2018 Kadena LLC.
