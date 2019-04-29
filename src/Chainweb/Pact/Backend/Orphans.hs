@@ -53,13 +53,10 @@ deriving instance Generic Decimal
 deriving instance Generic DefName
 deriving instance Generic FieldKey
 deriving instance Generic KeySetName
-deriving instance Generic ModuleData
 deriving instance Generic NativeDefName
 deriving instance Generic PactContinuation
 deriving instance Generic PactExec
-deriving instance Generic PactValue
 deriving instance Generic Pragma
-deriving instance Generic Ref
 deriving instance Generic RefStore
 deriving instance Generic TableId
 deriving instance Generic TableName
@@ -84,6 +81,7 @@ deriving instance (Generic a, Serial a) => Serial (Def a)
 deriving instance (Generic a, Serial a) => Serial (FunType a)
 deriving instance (Generic a, Serial a) => Serial (Governance a)
 deriving instance (Generic a, Serial a) => Serial (Module a)
+deriving instance (Generic a, Serial a) => Serial (ModuleData a)
 deriving instance (Generic a, Serial a) => Serial (ModuleDef a)
 deriving instance (Generic a, Serial a) => Serial (Object a)
 deriving instance (Generic a, Serial a) => Serial (ObjectMap a)
@@ -115,7 +113,6 @@ deriving instance Serial ListDelimiter
 deriving instance Serial Literal
 deriving instance Serial Meta
 deriving instance Serial Micro
-deriving instance Serial ModuleData
 deriving instance Serial ModuleGuard
 deriving instance Serial ModuleName
 deriving instance Serial Name
