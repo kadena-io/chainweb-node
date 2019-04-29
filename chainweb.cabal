@@ -200,6 +200,7 @@ library
         , P2P.TaskQueue.Test
 
         -- pact
+        , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.MemoryDb
         , Chainweb.Pact.Backend.Orphans
