@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+
 module Chainweb.Transaction
   ( ChainwebTransaction
   , PayloadWithText(..)
@@ -7,7 +8,6 @@ module Chainweb.Transaction
   , gasLimitOf
   , gasPriceOf
   ) where
-
 
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (FromJSON(..), ToJSON(..))
@@ -18,14 +18,15 @@ import Pact.Parse (ParsedDecimal(..), ParsedInteger(..), parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import Pact.Types.Util (Hash(..))
+import qualified Pact.Types.Hash as H
 
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (Codec(..))
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
--- the Text that generated it, to make gossiping easier
+-- the Text that generated it, to make gossiping easier.
+--
 data PayloadWithText = PayloadWithText
     { payloadBytes :: ByteString
     , payloadObj :: Payload PublicMeta ParsedCode
@@ -59,7 +60,7 @@ chainwebTransactionConfig = Mempool.TransactionConfig chainwebPayloadCodec
   where
     getGasPrice = gasPriceOf . fmap payloadObj
     getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
-    commandHash c = let (Hash h) = _cmdHash c
+    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
                     in Mempool.TransactionHash h
 
     -- TODO: plumb through origination + expiry time from pact once it makes it

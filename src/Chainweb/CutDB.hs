@@ -35,6 +35,7 @@ module Chainweb.CutDB
 , cutDbConfigTelemetryLevel
 , cutDbConfigUseOrigin
 , defaultCutDbConfig
+, farAheadThreshold
 
 -- * CutDb
 , CutDb
@@ -138,6 +139,32 @@ defaultCutDbConfig v = CutDbConfig
   where
     g = _chainGraph v
 
+-- | We ignore cuts that are two far ahead of the current best cut that we have.
+-- There are two reasons for this:
+--
+-- 1. It limits the effect of a DOS attack where an attack sends large fake cuts
+--    that would consume a lot of resources before we notice that the cut was
+--    fake.
+--
+-- 2. It helps a node catching up with the overall consensus of the network by
+--    doing the catchup via several moderately fixed size steps instead of one
+--    giant step. The latter would consume an unlimited amount of resources,
+--    possibly leading to resource exhaustion on the local system. Also if the
+--    node is restarted during the catch-up process it resumes from the
+--    intermediate steps instead of starting all over again.
+--
+-- For the latter to work it is important that the local node only pulls cuts
+-- that are at most 'forAheadThreshold' blocks in the ahead. Otherwise the
+-- pulled blocks would be immediately rejected by the cut processing pipeline
+-- 'processCuts' below in the module and the node would never be able to join
+-- the consensus of the network.
+--
+-- NOTE: THIS NUMBER MUST BE STRICTLY LARGER THAN THE RESPECTIVE LIMIT IN
+-- 'CutDB.Sync'
+--
+farAheadThreshold :: Int
+farAheadThreshold = 2000
+
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
@@ -208,7 +235,7 @@ cutStm = to _cutStm
 
 member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
-    th <- maxHeader chainDb
+    th <- maxEntry chainDb
     lookup chainDb h >>= \case
         Nothing -> return False
         Just lh -> do
@@ -283,6 +310,7 @@ processCuts
 processCuts logFun headerStore payloadStore queue cutVar = queueToStream
     & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
+    & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain (\c -> loggc Info c $ "fetch all prerequesites")
@@ -315,6 +343,16 @@ processCuts logFun headerStore payloadStore queue cutVar = queueToStream
         Down a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
+
+    -- FIXME: this is problematic. We should drop these before they are
+    -- added to the queue, to prevent the queue becoming stale.
+    farAhead x = do
+        h <- _cutHeight <$> readTVarIO cutVar
+        let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
+        when r $ loggc Info x
+            $ "skip far ahead cut. Current height: " <> sshow h
+            <> ", got: " <> sshow (_cutHashesHeight x)
+        return r
 
     isVeryOld x = do
         h <- _cutHeight <$> readTVarIO cutVar

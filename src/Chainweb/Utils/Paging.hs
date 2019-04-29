@@ -9,6 +9,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 -- |
 -- Module: Chainweb.Utils.Paging
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -31,6 +33,8 @@ module Chainweb.Utils.Paging
 
 -- * Next Item
 , NextItem(..)
+, _getNextItem
+, getNextItem
 , isExclusive
 , isInclusive
 , nextItemToText
@@ -50,6 +54,7 @@ module Chainweb.Utils.Paging
 , properties
 ) where
 
+import Control.Lens (Getter, to)
 import Control.Lens.TH
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -60,7 +65,7 @@ import Data.Hashable
 import Data.Maybe
 import qualified Data.Text as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 
 import Numeric.Natural
 
@@ -128,6 +133,15 @@ data NextItem k
     = Inclusive k
     | Exclusive k
     deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable)
+
+_getNextItem :: NextItem k -> k
+_getNextItem (Inclusive k) = k
+_getNextItem (Exclusive k) = k
+{-# INLINE _getNextItem #-}
+
+getNextItem :: Getter (NextItem k) k
+getNextItem = to _getNextItem
+{-# INLINE getNextItem #-}
 
 isInclusive :: NextItem k -> Bool
 isInclusive Inclusive{} = True

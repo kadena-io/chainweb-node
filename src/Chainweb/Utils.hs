@@ -483,29 +483,29 @@ decodeStrictOrThrow = fromEitherM
     . eitherDecodeStrict
 {-# INLINE decodeStrictOrThrow #-}
 
+decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
+decodeStrictOrThrow' = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecodeStrict'
+{-# INLINE decodeStrictOrThrow' #-}
+
 decodeOrThrow :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode
 {-# INLINE decodeOrThrow #-}
 
-decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
-decodeFileStrictOrThrow = fromEitherM
-    <=< return . first (JsonDecodeException . T.pack)
-    <=< liftIO . eitherDecodeFileStrict
-{-# INLINE decodeFileStrictOrThrow #-}
-
-decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
-decodeStrictOrThrow' = fromEitherM
-    . first (JsonDecodeException . T.pack)
-    . eitherDecodeStrict
-{-# INLINE decodeStrictOrThrow' #-}
-
 decodeOrThrow' :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow' = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode'
 {-# INLINE decodeOrThrow' #-}
+
+decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
+decodeFileStrictOrThrow = fromEitherM
+    <=< return . first (JsonDecodeException . T.pack)
+    <=< liftIO . eitherDecodeFileStrict
+{-# INLINE decodeFileStrictOrThrow #-}
 
 decodeFileStrictOrThrow'
     :: forall a m

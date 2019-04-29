@@ -37,3 +37,4 @@ report.html
 *.svg
 *.png
 *.graphml
+cache/
