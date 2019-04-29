@@ -86,9 +86,7 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.Testnet00
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01
         , Chainweb.BlockHeader.Genesis.Testnet01Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
@@ -346,7 +344,6 @@ test-suite chainweb-tests
     hs-source-dirs: test
     main-is: ChainwebTests.hs
     other-modules:
-        Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
