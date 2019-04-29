@@ -111,8 +111,7 @@ tests rdb = testGroupSch "PactRemoteTests"
     [ withNodes rdb nNodes $ \net ->
         withRequestKeys net $ \rks ->
             testGroup "PactRemoteTests"
-                [ requestKeysGolden rks
-                , responseGolden net rks
+                [ responseGolden net rks
                 , mempoolValidation net rks
                 ]
     ]
@@ -121,11 +120,6 @@ tests rdb = testGroupSch "PactRemoteTests"
 -- for Stuart:
 runGhci :: IO ()
 runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
-
-requestKeysGolden :: IO RequestKeys -> TestTree
-requestKeysGolden rksIO = pactGolden "command-0-rks" $ do
-    rks <- rksIO
-    return $! foldMap (toS . show) (_rkRequestKeys rks)
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = pactGolden "command-0-resp" $ do
