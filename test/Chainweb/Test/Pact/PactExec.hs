@@ -1,6 +1,10 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -10,10 +14,12 @@
 --
 -- Unit test for Pact execution in Chainweb
 
-module Chainweb.Test.Pact.PactExec where
+module Chainweb.Test.Pact.PactExec
+( tests
+) where
 
 import Control.Applicative
-import Control.Monad.IO.Class
+import Control.Concurrent.MVar
 import Control.Monad.Trans.Reader
 import Control.Monad.State.Strict
 
@@ -24,16 +30,14 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Scientific
 import Data.String.Conv (toS)
-import Data.Text (Text)
-import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
-import System.FilePath
+import GHC.Generics (Generic)
+
 import System.IO.Extra
 
 import Test.Tasty
-import Test.Tasty.Golden
 import Test.Tasty.HUnit
 
 -- internal modules
@@ -50,28 +54,138 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Chainweb.BlockHash
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
-tests :: IO TestTree
-tests = do
-    setup <- pactTestSetup
-    stdTests <- pactExecTests setup
-    pure $ testGroup "Simple pact execution tests" stdTests
+tests :: ScheduledTest
+tests = testGroupSch "Simple pact execution tests"
+    [ withPactCtx $ \ctx -> testGroup "single transactions"
+        $ schedule Sequential
+            [ execTest ctx testReq1
+            , execTest ctx testReq2
+            , execTest ctx testReq3
+            , execTest ctx testReq4
+            , execTest ctx testReq5
+            ]
+    , withPactCtx $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Pact test datatypes
+
+-- | A test request is comprised of a list of commands, a textual discription,
+-- and an test runner function, that turns an IO acttion that produces are
+-- 'TestResponse' into a 'TestTree'.
+--
+data TestRequest = TestRequest
+    { _trCmds :: ![TestSource]
+    , _trDisplayStr :: !String
+    , _trEval :: !(IO TestResponse -> ScheduledTest)
+    }
+
+data TestSource = File FilePath | Code String
+  deriving (Show, Generic, ToJSON)
+
+data TestResponse = TestResponse
+    { _trOutputs :: ![(TestSource, FullLogTxOutput)]
+    , _trCoinBaseOutput :: !FullLogTxOutput
+    }
+    deriving (Generic, ToJSON)
+
+data PactTestSetup = PactTestSetup
+  { _pactServiceEnv :: !PactServiceEnv
+  , _pactDbState :: !PactDbState
+  }
+
+-- -------------------------------------------------------------------------- --
+-- sample data
+
+testReq1 :: TestRequest
+testReq1 = TestRequest
+    { _trCmds = [ Code "(+ 1 1)" ]
+    , _trEval = \f -> testCaseSch "addition" $ do
+        (TestResponse [res] _) <- f
+        checkScientific (scientific 2 0) (snd res)
+    , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0"
+    }
+
+testReq2 :: TestRequest
+testReq2 = TestRequest
+    { _trCmds = [ File "test1.pact" ]
+    , _trEval = \f -> testCaseSch "load module" $ do
+        (TestResponse [res] _) <- f
+        checkSuccessOnly (snd res)
+    , _trDisplayStr = "Loads a pact module"
+    }
+
+testReq3 :: TestRequest
+testReq3 = TestRequest
+    { _trCmds = [ Code "(create-table test1.accounts)" ]
+    , _trEval = fileCompareTxLogs "create-table"
+    , _trDisplayStr = "Creates tables"
+    }
+
+testReq4 :: TestRequest
+testReq4 = TestRequest
+    { _trCmds = [ Code "(test1.create-global-accounts)" ]
+    , _trEval = fileCompareTxLogs "create-accounts"
+    , _trDisplayStr = "Creates two accounts"
+    }
+
+testReq5 :: TestRequest
+testReq5 = TestRequest
+    { _trCmds = [ Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
+    , _trEval = fileCompareTxLogs "transfer-accounts"
+    , _trDisplayStr = "Transfers from one account to another"
+    }
+
+testReq6 :: TestRequest
+testReq6 = TestRequest
+    { _trCmds =
+        [ Code "(+ 1 1)"
+        , File "test1.pact"
+        , Code "(create-table test1.accounts)"
+        , Code "(test1.create-global-accounts)"
+        , Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+        ]
+    , _trEval = fileCompareTxLogs "testReq6"
+    , _trDisplayStr = "Transfers from one account to another"
+    }
+
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+-- | This enforces that only a single test can use the pact context at a time.
+-- It's up to the user to ensure that tests are scheduled in the right order.
+--
+withPactCtx :: ((forall a . PactServiceM a -> IO a) -> TestTree) -> TestTree
+withPactCtx f
+    = withResource start stop $ \ctxIO -> f $ \pact -> do
+        (pactStateVar, env) <- ctxIO
+        modifyMVar pactStateVar $ \s -> do
+            (a,s') <- runStateT (runReaderT pact env) s
+            return (s',a)
+
+  where
+    start :: IO (MVar PactServiceState, PactServiceEnv)
+    start = do
+        (PactTestSetup env dbSt) <- pactTestSetup
+        let pss = PactServiceState dbSt Nothing
+            cid = someChainId testVersion
+        pss' <- flip execStateT pss $ flip runReaderT env $ do
+            initialPayloadState testVersion cid
+        pactStateVar <- newMVar pss'
+        return (pactStateVar, env)
+
+    stop :: (MVar PactServiceState, PactServiceEnv) -> IO ()
+    stop (var, _) = void $ takeMVar var
 
 pactTestSetup :: IO PactTestSetup
 pactTestSetup = do
-    let loggers = alwaysLog
-    let logger = newLogger loggers $ LogName "PactService"
-    let pactCfg = pactDbConfig testVersion
-    let cmdConfig = toCommandConfig pactCfg
-    let gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
-    let gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
-    let gasEnv = GasEnv (fromIntegral gasLimit) 0.0
-                          (constGasModel (fromIntegral gasRate))
     (cpe, theState) <-
         case _ccSqlite cmdConfig of
             Nothing -> do
@@ -87,154 +201,61 @@ pactTestSetup = do
     let env = PactServiceEnv Nothing cpe P.noSPVSupport def
 
     pure $ PactTestSetup env theState
+  where
+    loggers = pactTestLogger
+    logger = newLogger loggers $ LogName "PactService"
+    pactCfg = pactDbConfig testVersion
+    cmdConfig = toCommandConfig pactCfg
+    gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
+    gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
+    gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
 
-
-pactExecTests :: PactTestSetup -> IO [TestTree]
-pactExecTests (PactTestSetup env st) = do
-    let pss = PactServiceState st Nothing
-        cid = someChainId testVersion
-    fst <$> runStateT (runReaderT (initialPayloadState testVersion cid >> execTests) env) pss
-
-execTests :: PactServiceM [TestTree]
-execTests = do
-    cmdStrs <- liftIO $ mapM (getPactCode . _trCmd) testPactRequests
-    trans <- liftIO $ mkPactTestTransactions cmdStrs
-    results <- execTransactions (Just $ nullBlockHash) defaultMiner trans
-    let outputs = snd <$> _transactionPairs results
-    let testResponses = V.toList $ V.zipWith TestResponse testPactRequests outputs
-    liftIO $ checkResponses (checkCoinbase (_transactionCoinbase results):testResponses)
+execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
+execTest runPact request = _trEval request $ do
+    cmdStrs <- mapM getPactCode $ _trCmds request
+    trans <- mkPactTestTransactions $ V.fromList cmdStrs
+    results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
+    let outputs = V.toList $ snd <$> _transactionPairs results
+    return $ TestResponse
+        (zip (_trCmds request) outputs)
+        (_transactionCoinbase results)
 
 getPactCode :: TestSource -> IO String
 getPactCode (Code str) = return str
 getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
 
-checkResponses :: [TestResponse] -> IO [TestTree]
-checkResponses responses = traverse (\resp -> _trEval (_trRequest resp ) resp) responses
-
-checkCoinbase :: FullLogTxOutput -> TestResponse
-checkCoinbase cbOut = TestResponse testCoinbase cbOut
-
-checkSuccessOnly :: TestResponse -> Assertion
+checkSuccessOnly :: FullLogTxOutput -> Assertion
 checkSuccessOnly resp =
-    case _flCommandResult $ _trOutput resp of
+    case _flCommandResult resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _ -> assertFailure "Status returned does not equal \"success\""
 
-checkScientific :: Scientific -> TestResponse -> Assertion
-checkScientific sci resp = do
-    let resultValue = _flCommandResult $ _trOutput resp
-    parseScientific resultValue @?= Just sci
+checkScientific :: Scientific -> FullLogTxOutput -> Assertion
+checkScientific sci resp = parseScientific (_flCommandResult resp) @?= Just sci
 
 parseScientific :: Value -> Maybe Scientific
 parseScientific (Object o) =
-  case HM.lookup "data" o of
-    Nothing -> Nothing
-    Just (Number sci) -> Just sci
-    Just _ -> Nothing
+    case HM.lookup "data" o of
+        Nothing -> Nothing
+        Just (Number sci) -> Just sci
+        Just _ -> Nothing
 parseScientific _ = Nothing
 
-ignoreTextMatch :: Text -> TestResponse -> Assertion
-ignoreTextMatch _ _ = True @?= True
+-- | A test runner for golden tests.
+--
+fileCompareTxLogs :: String -> IO TestResponse -> ScheduledTest
+fileCompareTxLogs label respIO = pactGoldenSch label $ do
+    resp <- respIO
+    return $ toS $ Y.encode
+        $ coinbase (_trCoinBaseOutput resp)
+        : (result <$> _trOutputs resp)
+  where
+    result (cmd, out) = object
+        [ "output" .= _flTxLogs out
+        , "cmd" .= cmd
+        ]
+    coinbase out = object
+        [ "output" .= _flTxLogs out
+        , "cmd" .= ("coinbase" :: String)
+        ]
 
-fullTextMatch :: Text -> TestResponse -> Assertion
-fullTextMatch matchText resp = do
-    let resultValue = _flCommandResult $ _trOutput resp
-    parseText resultValue @?= Just matchText
-
-parseText :: Value -> Maybe Text
-parseText (Object o) =
-  case HM.lookup "data" o of
-    Nothing -> Nothing
-    Just (String t) -> Just t
-    Just _ -> Nothing
-parseText _ = Nothing
-
-fileCompareTxLogs :: FilePath -> TestResponse -> IO TestTree
-fileCompareTxLogs fp resp =
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
-    where
-        ioBs = return $ toS $ Y.encode <$> _flTxLogs $ _trOutput resp
-
-----------------------------------------------------------------------------------------------------
--- Pact test datatypes
-----------------------------------------------------------------------------------------------------
-
-data TestRequest = TestRequest
-    { _trCmd :: TestSource
-    , _trEval :: TestResponse -> IO TestTree
-    , _trDisplayStr :: String
-    }
-
-data TestSource = File FilePath | Code String
-  deriving Show
-
-data TestResponse = TestResponse
-    { _trRequest :: TestRequest
-    , _trOutput :: FullLogTxOutput
-    }
-
-instance Show TestRequest where
-    show tr = "cmd: " ++ show (_trCmd tr) ++ "\nDisplay string: "
-              ++ show (_trDisplayStr tr)
-
-instance Show TestResponse where
-    show tr =
-        let tOutput = _trOutput tr
-            cmdResultStr = show $ _flCommandResult tOutput
-            txLogsStr = unlines $ fmap show (_flTxLogs tOutput)
-        in "\n\nCommandResult: " ++ cmdResultStr ++ "\n\n"
-           ++ "TxLogs: " ++ txLogsStr
-
-data PactTestSetup = PactTestSetup
-  { _pactServiceEnv :: PactServiceEnv
-  , _pactDbState :: PactDbState
-  }
-
-----------------------------------------------------------------------------------------------------
--- sample data
-----------------------------------------------------------------------------------------------------
-
-testPactRequests :: Vector TestRequest
-testPactRequests = V.fromList
-    [ testReq1
-    , testReq2
-    , testReq3
-    , testReq4
-    , testReq5
-    ]
-
-testReq1 :: TestRequest
-testReq1 = TestRequest
-    { _trCmd = Code "(+ 1 1)"
-    , _trEval = return . testCase "addition" . checkScientific (scientific 2 0)
-    , _trDisplayStr = "Executes 1 + 1 in Pact and returns 2.0" }
-
-testReq2 :: TestRequest
-testReq2 = TestRequest
-    { _trCmd = File "test1.pact"
-    , _trEval = return . testCase "load module" . checkSuccessOnly
-    , _trDisplayStr = "Loads a pact module" }
-
-testReq3 :: TestRequest
-testReq3 = TestRequest
-    { _trCmd = Code "(create-table test1.accounts)"
-    , _trEval = fileCompareTxLogs "create-table-expected.txt"
-    , _trDisplayStr = "Creates tables" }
-
-testReq4 :: TestRequest
-testReq4 = TestRequest
-    { _trCmd = Code "(test1.create-global-accounts)"
-    , _trEval = fileCompareTxLogs "create-accounts-expected.txt"
-    , _trDisplayStr = "Creates two accounts" }
-
-testReq5 :: TestRequest
-testReq5 = TestRequest
-    { _trCmd = Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
-    , _trEval = fileCompareTxLogs "transfer-accounts-expected.txt"
-    , _trDisplayStr = "Transfers from one account to another" }
-
-testCoinbase :: TestRequest
-testCoinbase = TestRequest
-    { _trCmd = Code "not evaluated"
-    , _trEval = fileCompareTxLogs "coinbase-expected.txt"
-    , _trDisplayStr = "Coinbase output test" }

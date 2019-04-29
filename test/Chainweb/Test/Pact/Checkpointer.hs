@@ -21,14 +21,13 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv)
 import Pact.Types.Command (ExecutionMode(Transactional))
 import Pact.Types.Hash (hash)
-import Pact.Types.Logger (Loggers, alwaysLog, newLogger)
+import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime (peStep, TxId, noSPVSupport)
 import Pact.Types.Server (CommandConfig(..), CommandEnv(..), CommandState)
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
 
-import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
 
 -- internal imports
@@ -43,15 +42,17 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
+import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Utils
 
-tests :: TestTree
-tests = testGroup "Checkpointer"
+tests :: ScheduledTest
+tests = testGroupSch "Checkpointer"
   [ testCase "testInMemory" testInMemory ]
 
 testInMemory :: Assertion
 testInMemory = do
   let conf = CommandConfig Nothing Nothing Nothing Nothing
-      loggers = alwaysLog
+      loggers = pactTestLogger
   cpEnv <- initInMemoryCheckpointEnv conf
         (newLogger loggers "inMemCheckpointer") freeGasEnv
   env <- mkPureEnv loggers

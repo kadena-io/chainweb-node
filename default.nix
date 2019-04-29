@@ -58,6 +58,18 @@ in
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
+        yaml = callHackageDirect {
+          pkg = "yaml";
+          ver = "0.11.0.0";
+          sha256 = "0nw3k8bijs88ipvqadmiwbab7asj4kmf6r4l1dma30fyam0hj2kv";
+        };
+
+        libyaml = callHackageDirect {
+          pkg = "libyaml";
+          ver = "0.1.1.0";
+          sha256 = "1sh71s6hfrn3s2dh80lki8v412dzcrmyljrdvwksj3las3pl4ws9";
+        };
+
         x509 = callHackageDirect {
           pkg = "x509";
           ver = "1.7.5";
