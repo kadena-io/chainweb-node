@@ -4,7 +4,7 @@
         pred: keys-all
         keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance: 210.04
+      balance: 168.03
     key: miner
     table: USER_coin_coin-table
   cmd: coinbase
@@ -14,7 +14,7 @@
         pred: keys-all
         keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance: 999.95
+      balance: 999.96
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -36,7 +36,7 @@
         pred: keys-all
         keys:
         - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance: 999.95
+      balance: 999.96
     key: sender00
     table: USER_coin_coin-table
   - value:
@@ -58,7 +58,7 @@
         pred: keys-all
         keys:
         - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-      balance: 210.05
+      balance: 168.04
     key: miner
     table: USER_coin_coin-table
   cmd:
