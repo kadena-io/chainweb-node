@@ -24,4 +24,5 @@ source-repository-package
     tag: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
 
 constraints:
-    megaparsec <7.0
+      megaparsec <7.0
+    , servant < 0.15
