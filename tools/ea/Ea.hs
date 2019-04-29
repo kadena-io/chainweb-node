@@ -48,17 +48,11 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisTime)
 import Chainweb.Logger (genericLogger)
-import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Transaction (PayloadWithText(..))
-import Chainweb.Utils (sshow)
 import Chainweb.Version
-    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionToText, chainIds, someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
@@ -66,13 +60,8 @@ import Pact.Types.Runtime (noSPVSupport)
 
 ---
 
-data Env w
-    = Headers
-        { version :: w ::: Text
-          <?> "The ChainwebVersion to use."
-        , time :: w ::: Maybe Int64
-          <?> "Genesis Block Time, in microseconds since the Epoch. Default is the Genesis Time of the given ChainwebVersion." }
-    | Payload
+data Env w =
+    Payload
         { version :: w ::: Text
           <?> "The ChainwebVersion to use."
         , transactions :: w ::: [FilePath]
@@ -83,13 +72,6 @@ instance ParseRecord (Env Wrapped)
 
 main :: IO ()
 main = unwrapRecord "ea" >>= \case
-    Headers v0 t -> do
-        v <- chainwebVersionFromText v0
-        let crtm = maybe (genesisTime v) (BlockCreationTime . Time . TimeSpan) t
-            modl = headerModule v $ headers v crtm
-            file = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> ".hs"
-        TIO.writeFile (T.unpack file) modl
-        putStrLn $ "Generated Genesis BlockHeaders for " <> show v
     Payload v0 txs0 -> do
         v <- chainwebVersionFromText v0
         let txs = bool txs0 [defCoinContract, defGrants] $ null txs0
@@ -105,50 +87,6 @@ defGrants = "pact/genesis/testnet00/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
 moduleName = T.toTitle . chainwebVersionToText
-
---------------------
--- Header Generation
---------------------
-
-headers :: ChainwebVersion -> BlockCreationTime -> [BlockHeader]
-headers v ct = map f $ toList $ chainIds v
-  where
-    f cid = mineGenesis v cid ct (Nonce 0)
-
-headerModule :: ChainwebVersion -> [BlockHeader] -> Text
-headerModule v hs = T.unlines $
-    [ "{-# LANGUAGE QuasiQuotes #-}"
-    , ""
-    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
-    , ""
-    , "module Chainweb.BlockHeader.Genesis." <> moduleName v <> " where"
-    , ""
-    , "import Data.Text (Text)"
-    , "import Data.Text.Encoding (encodeUtf8)"
-    , "import Data.Yaml (decodeThrow)"
-    , ""
-    , "import GHC.Stack (HasCallStack)"
-    , ""
-    , "import NeatInterpolation (text)"
-    , ""
-    , "import Chainweb.BlockHeader"
-    , "import Chainweb.Utils (fromJuste)"
-    , ""
-    , "unsafeFromYamlText :: HasCallStack => Text -> BlockHeader"
-    , "unsafeFromYamlText = _objectEncoded . fromJuste . decodeThrow . encodeUtf8"
-    , ""
-    ] <> map (genesisHeader v) (zip [0..] hs)
-
-genesisHeader :: ChainwebVersion -> (Int, BlockHeader) -> Text
-genesisHeader v (n, h) = T.unlines
-    [ fname <> " :: BlockHeader"
-    , fname <> " = unsafeFromYamlText"
-    , "    [text|"
-    , TE.decodeUtf8 . Yaml.encode $ ObjectEncoded h
-    , "    |]"
-    ]
-  where
-    fname = chainwebVersionToText v <> "C" <> sshow n
 
 ---------------------
 -- Payload Generation
