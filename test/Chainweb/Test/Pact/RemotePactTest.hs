@@ -76,7 +76,6 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
-import Chainweb.Test.Golden (golden)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils

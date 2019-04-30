@@ -53,7 +53,6 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Test.Golden
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)

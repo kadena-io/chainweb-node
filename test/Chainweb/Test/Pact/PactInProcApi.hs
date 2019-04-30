@@ -44,7 +44,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Test.Golden
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction

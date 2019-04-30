@@ -351,7 +351,6 @@ test-suite chainweb-tests
         Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
         Chainweb.Test.DiGraph
-        Chainweb.Test.Golden
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
