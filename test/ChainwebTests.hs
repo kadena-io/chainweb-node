@@ -39,14 +39,13 @@ import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
-import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
-import qualified Chainweb.Test.TreeDB.Sync
 import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
+import Data.CAS.RocksDB
 import qualified Data.DiGraph (properties)
 import qualified Data.PQueue.Test (properties)
 import qualified Data.Word.Encoding (properties)
@@ -55,42 +54,35 @@ import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
-main = do
-  pactSuite <- pactTestSuite -- Tasty.Golden tests nudge this towards being an IO result
-  let allTests = testGroup "Chainweb Tests"
-        . schedule Sequential
-        $ pactSuite : suite
-  defaultMain allTests
+main = withTempRocksDb "chainweb-tests" $ \rdb ->
+    defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+        $ pactTestSuite rdb
+        : suite rdb
 
-pactTestSuite :: IO ScheduledTest
-pactTestSuite = do
-    pactTests <- Chainweb.Test.Pact.PactExec.tests
-    pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
-    pactRemoteApiTests <- Chainweb.Test.Pact.RemotePactTest.tests
-    pure $ testGroupSch "Chainweb-Pact Tests"
-        [ pactTests
+pactTestSuite :: RocksDb -> ScheduledTest
+pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
+    $ schedule Sequential
+        [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , pactInProcApiTests
-        , pactRemoteApiTests
+        , Chainweb.Test.Pact.PactInProcApi.tests
+        , Chainweb.Test.Pact.RemotePactTest.tests rdb
         ]
 
-suite :: [ScheduledTest]
-suite =
+suite :: RocksDb -> [ScheduledTest]
+suite rdb =
     [ testGroupSch "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
-            [ Chainweb.Test.BlockHeaderDB.tests
+            [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
-            , Chainweb.Test.TreeDB.Persistence.tests
-            , Chainweb.Test.TreeDB.Sync.tests
+            , Chainweb.Test.TreeDB.Persistence.tests rdb
             , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
         , Chainweb.Test.CoinContract.tests
         , Chainweb.Test.Store.CAS.FS.tests
-        , Chainweb.Test.Store.Git.tests
         , Chainweb.Test.Roundtrips.tests
-        , Chainweb.Test.RestAPI.tests
+        , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests
-        , Chainweb.Test.SPV.tests
+        , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
@@ -105,6 +97,6 @@ suite =
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        , testProperties "Chainweb.Cut.Test" Chainweb.Cut.Test.properties
+        , testProperties "Chainweb.Cut.Test" (Chainweb.Cut.Test.properties rdb)
         ]
     ]

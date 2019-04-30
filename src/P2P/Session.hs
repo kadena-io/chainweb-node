@@ -36,6 +36,7 @@ import System.LogLevel
 -- Internal modules
 
 import Data.LogMessage
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Log Function
@@ -46,4 +47,4 @@ defaultLogFunction l = when (l >= Warn) . T.putStrLn . logText
 -- -------------------------------------------------------------------------- --
 -- P2P Client Session
 
-type P2pSession = LogFunction -> ClientEnv -> IO Bool
+type P2pSession = LogFunction -> ClientEnv -> PeerInfo -> IO Bool

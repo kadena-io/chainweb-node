@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -44,33 +45,62 @@ module Chainweb.Version
 
 -- * HasChainwebVersion
 , HasChainwebVersion(..)
+, mkChainId
+, chainIds
+, someChainId
+, randomChainId
 
+-- * ChainId
+, module Chainweb.ChainId
+
+-- * Re-exports from Chainweb.ChainGraph
+
+-- ** Chain Graph
+, ChainGraph
+, HasChainGraph(..)
+, adjacentChainIds
+
+-- ** Graph Properties
+, order
+, diameter
+, degree
+, shortestPath
+
+-- ** Undirected Edges
+, AdjPair
+, _getAdjPair
+, pattern Adj
+, adjs
+, adjsOfVertex
+, checkAdjacentChainIds
 ) where
 
-import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
-import Control.Monad.STM
 
-import Data.Aeson
+import Data.Aeson hiding (pairs)
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.Foldable
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Proxy
 import qualified Data.Text as T
+import Data.Tuple (swap)
 import Data.Word
 
 import GHC.Generics (Generic)
 import GHC.Stack
 import GHC.TypeLits
 
-import System.IO.Unsafe
+import System.Random
 
 -- internal modules
 
+import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
@@ -91,40 +121,71 @@ import Data.Singletons
 -- versions are not mixed at runtime. This is not enforced at the type level.
 --
 data ChainwebVersion
+    --------------------
+    -- TESTING INSTANCES
+    --------------------
     = Test ChainGraph
-        -- ^ Test instance with
+        -- ^ General-purpose test instance, where:
         --
-        --   * configurable graph,
-        --   * genesis block time is epoch,
-        --   * target is maxBound,
-        --   * nonce is constant,
-        --   * creationTime of BlockHeaders is parent time plus one second, and
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the parent time plus one second, and
         --   * POW is simulated by poison process thread delay.
         --
-
-    | TestWithTime ChainGraph
-        -- ^ Test instance with
-        --
-        --   * configurable graph,
-        --   * genesis block time current time
-        --   * target is maxBound,
-        --   * nonce is constant
-        --   * creationTime of BlockHeaders is actual time, and
-        --   * POW is simulated by poison process thread delay.
+        -- This is primarily used in unit tests.
         --
 
-    | TestWithPow ChainGraph
-        -- ^ Test instance with
+    | TimedConsensus ChainGraph
+        -- ^ Test instance for confirming the behaviour of our Consensus
+        -- mechanisms (Cut processing, Header validation, etc.), where:
         --
-        --   * configurable graph,
-        --   * genesis block time current time
-        --   * target is maxBound,
-        --   * nonce is constant, and
-        --   * creationTime of BlockHeaders is actual time.
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the actual time,
+        --   * POW is simulated by poison process thread delay, and
+        --   * there are /no/ Pact or mempool operations running.
+        --
+        -- This is primarily used in our @slow-tests@ executable.
         --
 
-    | Simulation ChainGraph
+    | PowConsensus ChainGraph
+        -- ^ Test instance for confirming the behaviour of the Proof-of-Work
+        -- mining algorithm and Difficulty Adjustment, where:
+        --
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time the current time,
+        --   * the genesis `HashTarget` is 7 bits lower than maxBound,
+        --   * the `Nonce` changes with each mining attempt,
+        --   * creationTime of BlockHeaders is the actual time, and
+        --   * there are /no/ Pact or mempool operations running.
+        --
+        -- This is primarily used in our @slow-tests@ executable.
+        --
+
+    | TimedCPM ChainGraph
+        -- ^ Test instance for confirming the combined behaviour of our Consensus
+        -- mechanisms, Pact code processing and validation, and Mempool, where:
+        --
+        --   * the underlying `ChainGraph` is configurable,
+        --   * the genesis block time is the Linux epoch,
+        --   * each `HashTarget` is maxBound,
+        --   * each mining `Nonce` is constant,
+        --   * the creationTime of `BlockHeader`s is the actual time,
+        --   * POW is simulated by poison process thread delay, and
+        --   * the Pact Service and Mempool operations are running.
+        --
+        -- This is primarily used in our @run-nodes@ executable.
+        --
+
+    -----------------------
+    -- PRODUCTION INSTANCES
+    -----------------------
     | Testnet00
+    | Testnet01
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -132,24 +193,32 @@ instance Show ChainwebVersion where
     show = T.unpack . toText
     {-# INLINE show #-}
 
-isTestChainwebVersionId :: Word32 -> Bool
-isTestChainwebVersionId i = 0x80000000 .&. i /= 0x0
-{-# INLINABLE isTestChainwebVersionId #-}
-
+-- | This function and its dual `fromChainwebVersionId` are used to efficiently
+-- serialize a `ChainwebVersion` and its associated internal `ChainGraph` value.
+-- __This function must be injective (one-to-one)!__ The scheme is as follows:
+--
+--   * Production `ChainwebVersion`s start from @0x00000001@ and count upwards.
+--     Their value must be less than @0x8000000@, but this limit is unlikely to
+--     ever be reached.
+--
+--   * `ChainwebVersion`s for testing begin at @0x80000000@, as can be seen in
+--     `toTestChainwebVersion`. This value is combined (via `.|.`) with the
+--     "code" of their associated `ChainGraph` (as seen in `graphToCode`). Such
+--     codes start at @0x00010000@ and count upwards.
+--
 chainwebVersionId :: ChainwebVersion -> Word32
-chainwebVersionId v@Test{} = toTestChainwebVersion v 0x80000000
-chainwebVersionId v@TestWithTime{} = toTestChainwebVersion v 0x80000001
-chainwebVersionId v@TestWithPow{} = toTestChainwebVersion v 0x80000002
-chainwebVersionId v@Simulation{} = toTestChainwebVersion v 0x80000003
+chainwebVersionId v@Test{} = toTestChainwebVersion v
+chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
+chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
+chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
+chainwebVersionId Testnet01 = 0x00000002
 {-# INLINABLE chainwebVersionId #-}
 
-fromChainwebVersionId :: MonadGet m => Word32 -> m ChainwebVersion
-fromChainwebVersionId i
-    | isTestChainwebVersionId i = return $ fromTestChainwebVersionId i
-    | otherwise = case i of
-        0x00000001 -> return Testnet00
-        _ -> fail $ "Unknown Chainweb version id: " ++ show i
+fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
+fromChainwebVersionId 0x00000001 = Testnet00
+fromChainwebVersionId 0x00000002 = Testnet01
+fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
 encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
@@ -157,7 +226,7 @@ encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
 decodeChainwebVersion :: MonadGet m => m ChainwebVersion
-decodeChainwebVersion = getWord32le >>= fromChainwebVersionId
+decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 
 instance ToJSON ChainwebVersion where
@@ -174,52 +243,26 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-chainwebVersionToText :: ChainwebVersion -> T.Text
-
--- production versions
+chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Testnet00 = "testnet00"
-
--- test versions
-chainwebVersionToText v@Test{} = "test-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@TestWithTime{} = "testWithTime-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@TestWithPow{} = "testWithPow-" <> sshow (chainwebVersionId v)
-chainwebVersionToText v@Simulation{} = "simulation-" <> sshow (chainwebVersionId v)
+chainwebVersionToText Testnet01 = "testnet01"
+chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
--- | Read textual representation of Chainweb Version
+-- | Read textual representation of a `ChainwebVersion`.
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
-
--- Production versions
---
-chainwebVersionFromText "testnet00" = return Testnet00
-
--- Well-known test version names.
---
--- These are only used for parsing textual representations. There is a very low
--- chance that a roundtrip test for the 'HasTextRepresentation' of
--- 'ChainwebVersion' will succeed due to these names.
---
-chainwebVersionFromText "test" = return $ Test petersonChainGraph
-chainwebVersionFromText "test-singleton" = return $ Test singletonChainGraph
-chainwebVersionFromText "test-peterson" = return $ Test petersonChainGraph
-
-chainwebVersionFromText "testWithTime" = return $ TestWithTime petersonChainGraph
-chainwebVersionFromText "testWithTime-singleton" = return $ TestWithTime singletonChainGraph
-chainwebVersionFromText "testWithTime-peterson" = return $ TestWithTime petersonChainGraph
-
-chainwebVersionFromText "testWithPow" = return $ TestWithPow petersonChainGraph
-chainwebVersionFromText "testWithPow-singleton" = return $ TestWithPow singletonChainGraph
-chainwebVersionFromText "testWithPow-peterson" = return $ TestWithPow petersonChainGraph
-
--- Generic test versions
---
-chainwebVersionFromText t = case T.breakOnEnd "-" t of
-    (_, i) -> case treadM i of
-        Left e -> throwM
-            $ TextFormatException $ "Unknown Chainweb version: \"" <> t <> "\": " <> sshow e
-        Right x -> return $ fromTestChainwebVersionId x
-{-# INLINABLE chainwebVersionFromText #-}
+chainwebVersionFromText "testnet00" = pure Testnet00
+chainwebVersionFromText "testnet01" = pure Testnet01
+chainwebVersionFromText t =
+    case HM.lookup t chainwebVersions of
+        Just v -> pure v
+        Nothing -> case t of
+            "test" -> pure $ Test petersonChainGraph
+            "timedConsensus" -> pure $ TimedConsensus petersonChainGraph
+            "powConsensus" -> pure $ PowConsensus petersonChainGraph
+            "timedCPM" -> pure $ TimedCPM petersonChainGraph
+            _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
 instance HasTextRepresentation ChainwebVersion where
     toText = chainwebVersionToText
@@ -228,66 +271,97 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
+-- Value Maps
+
+chainwebVersions :: HM.HashMap T.Text ChainwebVersion
+chainwebVersions = HM.fromList $
+    f Test "test"
+    <> f TimedConsensus "timedConsensus"
+    <> f PowConsensus "powConsensus"
+    <> f TimedCPM "timedCPM"
+    <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
+  where
+    f v p = map (\(k, g) -> (p <> k, v g)) pairs
+    pairs = [ ("-singleton", singletonChainGraph)
+            , ("-pair", pairChainGraph)
+            , ("-triangle", triangleChainGraph)
+            , ("-peterson", petersonChainGraph)
+            , ("-twenty", twentyChainGraph)
+            , ("-hoffman-singleton", hoffmanSingletonGraph)
+            ]
+
+prettyVersions :: HM.HashMap ChainwebVersion T.Text
+prettyVersions = HM.fromList . map swap $ HM.toList chainwebVersions
+
+-- -------------------------------------------------------------------------- --
 -- Test instances
 --
 -- The code in this section must not be called in production.
-
--- For all production instances of Chainweb, including test nets, the
--- 'ChainwebVersion' is a constant constructor that statically determines all
--- parameters of that version.
 --
--- For testing instances, however, we require the oppportunity to uses different
--- parameters. Defining a new static 'ChainwebVersion' value for each test
--- setting would create too much overhead and polute the code base. Instead we
--- parameterize the respective 'ChainwebVersion' constructors with for defining
--- the dynamically configurable parameters.
---
--- When deserializing a parameterized test 'ChainwebVersion' we need a way to
--- restore the dynamic parameters. For that hash those parameters (with 15bit
--- precision) and store the respective parameters in a global hash table. This
--- hashtable is used only for testing and must never be used by prodcution code.
---
-type TestChainwebVersionMap = HM.HashMap Word32 ChainwebVersion
 
--- | Global map for keeping track of Test Chainweb Versions with non-static
--- parameters.
+-- | See `chainwebVersionId` for a complete explanation of the values in this
+-- section below.
 --
-testChainwebVersionMap :: TVar TestChainwebVersionMap
-testChainwebVersionMap = unsafePerformIO $ newTVarIO mempty
-{-# NOINLINE testChainwebVersionMap #-}
+toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32
+toTestChainwebVersion v =
+    testVersionToCode v .|. graphToCode (view (chainGraph . chainGraphKnown) v)
 
-toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32 -> Word32
-toTestChainwebVersion Testnet00 _
-    = error "toTestChainwebVersion must not be called for a production isntances"
-toTestChainwebVersion v i = unsafePerformIO $ do
-    m <- readTVarIO testChainwebVersionMap
-    case HM.lookup h m of
-        Just _ -> return ()
-        Nothing -> atomically
-            $ modifyTVar' testChainwebVersionMap $ HM.insert h v
-    return h
-  where
-    h = i .|. (testChainwebVersionMask .&. int (hash v))
+-- | For the binary encoding of a `ChainGraph` within a `ChainwebVersion`.
+--
+graphToCode :: KnownGraph -> Word32
+graphToCode Singleton = 0x00010000
+graphToCode Pair = 0x00020000
+graphToCode Triangle = 0x00030000
+graphToCode Peterson = 0x00040000
+graphToCode Twenty = 0x00050000
+graphToCode HoffmanSingle = 0x00060000
 
-testChainwebVersionMask :: Word32
-testChainwebVersionMask = 0x7fff0000
+codeToGraph :: HasCallStack => Word32 -> KnownGraph
+codeToGraph 0x00010000 = Singleton
+codeToGraph 0x00020000 = Pair
+codeToGraph 0x00030000 = Triangle
+codeToGraph 0x00040000 = Peterson
+codeToGraph 0x00050000 = Twenty
+codeToGraph 0x00060000 = HoffmanSingle
+codeToGraph _ = error "Unknown Graph Code"
+
+-- | Split a `Word32` representation of a `ChainwebVersion` / `ChainGraph` pair
+-- into its constituent pieces.
+--
+splitTestCode :: Word32 -> (Word32, Word32)
+splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
+
+codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
+codeToTestVersion 0x80000000 = Test
+codeToTestVersion 0x80000001 = TimedConsensus
+codeToTestVersion 0x80000002 = PowConsensus
+codeToTestVersion 0x80000003 = TimedCPM
+codeToTestVersion _ = error "Unknown ChainwebVersion Code"
+
+testVersionToCode :: ChainwebVersion -> Word32
+testVersionToCode Test{} = 0x80000000
+testVersionToCode TimedConsensus{} = 0x80000001
+testVersionToCode PowConsensus{} = 0x80000002
+testVersionToCode TimedCPM{} = 0x80000003
+testVersionToCode Testnet00 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+testVersionToCode Testnet01 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
-fromTestChainwebVersionId i = case HM.lookup i m of
-        Nothing -> error  "failed to lookup test chainweb version in testChainwebVersionMap"
-        Just v -> v
-  where
-    m = unsafePerformIO $ readTVarIO testChainwebVersionMap
+fromTestChainwebVersionId i =
+    uncurry ($) . bimap codeToTestVersion (knownGraph . codeToGraph) $ splitTestCode i
 
 -- -------------------------------------------------------------------------- --
 -- Basic Properties
 
 chainwebVersionGraph :: ChainwebVersion -> ChainGraph
 chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TestWithTime g) = g
-chainwebVersionGraph (TestWithPow g) = g
-chainwebVersionGraph (Simulation g) = g
+chainwebVersionGraph (TimedConsensus g) = g
+chainwebVersionGraph (PowConsensus g) = g
+chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
+chainwebVersionGraph Testnet01 = twentyChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph
@@ -350,3 +424,37 @@ class HasChainwebVersion a where
 instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
+
+chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
+chainIds = graphChainIds . _chainGraph . _chainwebVersion
+{-# INLINE chainIds #-}
+
+mkChainId
+    :: MonadThrow m
+    => HasChainwebVersion v
+    => Integral i
+    => v
+    -> i
+    -> m ChainId
+mkChainId v i = cid
+    <$ checkWebChainId (chainwebVersionGraph $ _chainwebVersion v) cid
+  where
+    cid = unsafeChainId (fromIntegral i)
+{-# INLINE mkChainId #-}
+
+-- | Sometimes, in particular for testing and examples, some fixed chain id is
+-- needed, but it doesn't matter which one. This function provides some valid
+-- chain ids.
+--
+someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
+someChainId = head . toList . chainIds
+    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
+    -- graph.
+{-# INLINE someChainId #-}
+
+-- | Uniformily get a random ChainId
+--
+randomChainId :: HasChainwebVersion v => v -> IO ChainId
+randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
+  where
+    cs = chainIds v

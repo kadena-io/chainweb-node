@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -17,9 +18,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-
--- ixg
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -483,29 +481,29 @@ decodeStrictOrThrow = fromEitherM
     . eitherDecodeStrict
 {-# INLINE decodeStrictOrThrow #-}
 
+decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
+decodeStrictOrThrow' = fromEitherM
+    . first (JsonDecodeException . T.pack)
+    . eitherDecodeStrict'
+{-# INLINE decodeStrictOrThrow' #-}
+
 decodeOrThrow :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode
 {-# INLINE decodeOrThrow #-}
 
-decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
-decodeFileStrictOrThrow = fromEitherM
-    <=< return . first (JsonDecodeException . T.pack)
-    <=< liftIO . eitherDecodeFileStrict
-{-# INLINE decodeFileStrictOrThrow #-}
-
-decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
-decodeStrictOrThrow' = fromEitherM
-    . first (JsonDecodeException . T.pack)
-    . eitherDecodeStrict
-{-# INLINE decodeStrictOrThrow' #-}
-
 decodeOrThrow' :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow' = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode'
 {-# INLINE decodeOrThrow' #-}
+
+decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
+decodeFileStrictOrThrow = fromEitherM
+    <=< return . first (JsonDecodeException . T.pack)
+    <=< liftIO . eitherDecodeFileStrict
+{-# INLINE decodeFileStrictOrThrow #-}
 
 decodeFileStrictOrThrow'
     :: forall a m
@@ -796,8 +794,10 @@ symbolText = fromString $ symbolVal (Proxy @s)
 -- -------------------------------------------------------------------------- --
 -- Optics
 
+#if ! MIN_VERSION_lens(4,17,1)
 -- | Like 'local' for reader environments, but modifies the
 -- target of a lens possibly deep in the environment
 --
 locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
 locally l f = Reader.local (over l f)
+#endif

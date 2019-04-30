@@ -18,8 +18,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.Cut
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -42,6 +40,7 @@ module Chainweb.Cut
 , cutAdjs
 , lookupCutM
 , forkDepth
+, limitCut
 
 -- * Exceptions
 , CutException(..)
@@ -93,6 +92,7 @@ import Data.Ord
 import Data.Reflection hiding (int)
 
 import GHC.Generics (Generic)
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -166,7 +166,7 @@ lookupCutM
     -> m BlockHeader
 lookupCutM cid c = firstOf (ixg (_chainId cid)) c
     ??? ChainNotInChainGraphException
-        (Expected $ chainIds_ $ _chainGraph c)
+        (Expected $ chainIds c)
         (Actual (_chainId cid))
 
 _cutWeight :: Cut -> BlockWeight
@@ -202,6 +202,29 @@ cutAdjs
 cutAdjs c cid = HM.intersection
     (_cutHeaders c)
     (HS.toMap (adjacentChainIds (_chainGraph c) cid))
+
+-- -------------------------------------------------------------------------- --
+-- Limit Cut Hashes By Height
+
+limitCut
+    :: HasCallStack
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- upper bound for the cut height. This is not a tight bound.
+    -> Cut
+    -> IO Cut
+limitCut wdb h c = c & (cutHeaders . itraverse) f
+  where
+    ch = h `div` int (order (_chainGraph wdb))
+    f cid x = do
+        db <- give wdb $ getWebBlockHeaderDb cid
+        a <- S.head_ & branchEntries db
+            Nothing (Just 1)
+            Nothing (Just $ int ch)
+            mempty (HS.singleton $ UpperBound $ _blockHash x)
+        return $ fromJuste a
+            -- this is safe because branchEntries returns at least
+            -- the genesis block
 
 -- -------------------------------------------------------------------------- --
 -- Genesis Cut
@@ -504,4 +527,3 @@ forkDepth wdb a b = do
     maxDepth l u = maximum
         $ (\(_, x, y) -> _blockHeight y - _blockHeight x)
         <$> zipCuts l u
-

@@ -12,6 +12,7 @@
 --
 module Chainweb.CutDB.RestAPI.Client
 ( cutGetClient
+, cutGetClientLimit
 , cutPutClient
 ) where
 
@@ -23,6 +24,7 @@ import Servant.Client
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI
+import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Version
 
 import Data.Singletons
@@ -33,7 +35,15 @@ import Data.Singletons
 cutGetClient
     :: ChainwebVersion
     -> ClientM CutHashes
-cutGetClient (FromSing (SChainwebVersion :: Sing v)) = client $ cutGetApi @v
+cutGetClient (FromSing (SChainwebVersion :: Sing v))
+    = client (cutGetApi @v) Nothing
+
+cutGetClientLimit
+    :: ChainwebVersion
+    -> MaxRank
+    -> ClientM CutHashes
+cutGetClientLimit (FromSing (SChainwebVersion :: Sing v))
+    = client (cutGetApi @v) . Just
 
 -- -------------------------------------------------------------------------- --
 -- PUT Cut Client

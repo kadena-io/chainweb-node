@@ -31,6 +31,8 @@ module Chainweb.Utils.Paging
 
 -- * Next Item
 , NextItem(..)
+, _getNextItem
+, getNextItem
 , isExclusive
 , isInclusive
 , nextItemToText
@@ -50,6 +52,7 @@ module Chainweb.Utils.Paging
 , properties
 ) where
 
+import Control.Lens (Getter, to)
 import Control.Lens.TH
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -60,14 +63,14 @@ import Data.Hashable
 import Data.Maybe
 import qualified Data.Text as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
-import Test.QuickCheck.Instances ({- Arbitrary Natural -})
+import Test.QuickCheck.Instances ()
 
 -- internal modules
 
@@ -128,6 +131,15 @@ data NextItem k
     = Inclusive k
     | Exclusive k
     deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable)
+
+_getNextItem :: NextItem k -> k
+_getNextItem (Inclusive k) = k
+_getNextItem (Exclusive k) = k
+{-# INLINE _getNextItem #-}
+
+getNextItem :: Getter (NextItem k) k
+getNextItem = to _getNextItem
+{-# INLINE getNextItem #-}
 
 isInclusive :: NextItem k -> Bool
 isInclusive Inclusive{} = True
@@ -286,4 +298,3 @@ properties =
     [ ("streamToPage_limit", property prop_streamToPage_limit)
     , ("streamToPage_id", property prop_streamToPage_id)
     ]
-

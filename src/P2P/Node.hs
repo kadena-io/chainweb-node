@@ -417,7 +417,7 @@ newSession conf node = do
                     , round (1.1 * timeoutMs)
                     )
                 newSes <- async $ restore $ timeout t
-                    $ _p2pNodeClientSession node (loggFun node) env
+                    $ _p2pNodeClientSession node (loggFun node) env newPeerInfo
                 incrementActiveSessionCount peerDb newPeerInfo
                 info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)

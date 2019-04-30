@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -8,174 +10,134 @@
 -- Stability: experimental
 --
 -- Unit test for Pact execution via (inprocess) API  in Chainweb
-module Chainweb.Test.Pact.PactInProcApi where
+--
+module Chainweb.Test.Pact.PactInProcApi
+( tests
+) where
 
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Concurrent.MVar.Strict
+import Control.Exception (Exception)
 
-import qualified Data.Aeson as A (encode)
-import Data.Sequence (Seq)
-import Data.String.Conv (toS)
+import Data.Aeson (object, (.=))
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as T
-import Data.Vector (Vector, (!))
+import Data.Vector ((!))
 import qualified Data.Vector as V
+import qualified Data.Yaml as Y
 
-import System.FilePath
 import System.IO.Extra
 import System.LogLevel
 
-import Test.Tasty.HUnit
 import Test.Tasty
-import Test.Tasty.Golden
+import Test.Tasty.HUnit
+
+-- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
-import Chainweb.Version (ChainwebVersion(..))
-import Chainweb.BlockHeader.Genesis
+import Chainweb.Test.Utils
 import Chainweb.Transaction
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
+import qualified Chainweb.Pact.PactService as PS
+import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 
-tests :: IO TestTree
-tests = do
-  tt0 <- pactApiTest
-  tt1 <- pactEmptyBlockTest
-  return $ testGroup "PactExecutionTest" (tt0 ++ [tt1])
+testVersion :: ChainwebVersion
+testVersion = Testnet00
 
-pactApiTest :: IO [TestTree]
-pactApiTest = do
-    let logger = genericLogger Warn T.putStrLn
-        cid = unsafeChainId 0
+tests :: ScheduledTest
+tests = testGroupSch "PactExecutionTest"
+    [ withPact testMemPoolAccess $ \reqQIO -> testGroup "pact tests"
+        $ schedule Sequential
+            [ validateTest reqQIO
+            , localTest reqQIO
+            ]
+    , withPact testMemPoolAccess $ \reqQIO ->
+        newBlockTest "new-block-0" reqQIO
+    , withPact testEmptyMemPool $ \reqQIO ->
+        newBlockTest "empty-block-tests" reqQIO
+    ]
 
-    mv <- newEmptyMVar
-    -- Init for tests
-    withPactService' Testnet00 cid logger testMemPoolAccess mv $ \reqQ -> do
-        let headers = V.fromList $ getBlockHeaders 2
+withPact :: MemPoolAccess -> (IO (TQueue RequestMsg) -> TestTree) -> TestTree
+withPact mempool f = withResource startPact stopPact $ f . fmap snd
+  where
+    startPact = do
+        mv <- newEmptyMVar
+        reqQ <- atomically newTQueue
+        a <- async (PS.initPactService testVersion cid logger reqQ mempool mv)
+        return (a, reqQ)
 
-        -- newBlock test
-        let genesisHeader = genesisBlockHeader Testnet00 cid
-        respVar0 <- newBlock noMiner genesisHeader reqQ
-        mvr <- takeMVar respVar0 -- wait for response
-        plwo <- case mvr of
-          Left e -> assertFailure (show e)
-          Right r -> return r
+    stopPact (a, reqQ) = do
+        sendCloseMsg reqQ
+        cancel a
 
-        tt0 <- checkNewResponse "new-block-expected-0" plwo
+    logger = genericLogger Warn T.putStrLn
+    cid = someChainId testVersion
 
-        -- validate the same transactions sent to newBlock above
-        let matchingPlHash = _payloadWithOutputsPayloadHash plwo
-        let plData = PayloadData
-              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
-              , _payloadDataMiner = _payloadWithOutputsMiner plwo
-              , _payloadDataPayloadHash = matchingPlHash
-              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
-              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
-              }
-        let toValidateHeader =
-              (headers ! 1) { _blockPayloadHash = matchingPlHash, _blockParent = _blockHash genesisHeader }
-        respVar0b <- validateBlock toValidateHeader plData reqQ
-        rsp0b <- takeMVar respVar0b -- wait for response
+newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
+newBlockTest label reqIO = pactGolden label $ do
+    reqQ <- reqIO
+    let genesisHeader = genesisBlockHeader testVersion cid
+    respVar <- newBlock noMiner genesisHeader reqQ
+    goldenBytes "new-block" =<< takeMVar respVar
+  where
+    cid = someChainId testVersion
 
-        tt0b <- checkValidateResponse "validateBlock-expected-0" rsp0b
+validateTest :: IO (TQueue RequestMsg) -> ScheduledTest
+validateTest reqIO = pactGoldenSch "validateBlock-0" $ do
+    reqQ <- reqIO
+    let genesisHeader = genesisBlockHeader testVersion cid
+    respVar0 <- newBlock noMiner genesisHeader reqQ
+    plwo <- takeMVar respVar0 >>= \case
+        Left e -> assertFailure (show e)
+        Right r -> return r
 
-        locVar0c <- testLocal >>= \t -> local t reqQ
-        tt0c <- takeMVar locVar0c >>= \r -> case r of
-          Left e -> assertFailure $ "local failed: " ++ show e
-          Right r' -> return $ goldenVsString "local" (testPactFilesDir ++ "local-expected.txt") (return $ A.encode r')
+    -- validate the same transactions sent to newBlockTest above
+    let matchingPlHash = _payloadWithOutputsPayloadHash plwo
+    let plData = PayloadData
+            { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
+            , _payloadDataMiner = _payloadWithOutputsMiner plwo
+            , _payloadDataPayloadHash = matchingPlHash
+            , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
+            , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
+            }
 
-        return [tt0, tt0b, tt0c]
+    let headers = V.fromList $ getBlockHeaders cid 2
+    let toValidateHeader = (headers ! 1)
+            { _blockPayloadHash = matchingPlHash
+            , _blockParent = _blockHash genesisHeader
+            }
+    respVar1 <- validateBlock toValidateHeader plData reqQ
+    goldenBytes "validateBlock-0" =<< takeMVar respVar1
+  where
+    cid = someChainId testVersion
 
-pactEmptyBlockTest :: IO TestTree
-pactEmptyBlockTest = do
-    let logger = genericLogger Warn T.putStrLn
-        cid = unsafeChainId 0
+localTest :: IO (TQueue RequestMsg) -> ScheduledTest
+localTest reqIO = pactGoldenSch "local" $ do
+    reqQ <- reqIO
+    locVar0c <- testLocal >>= \t -> local t reqQ
+    goldenBytes "local" =<< takeMVar locVar0c
 
-    mv <- newEmptyMVar
+goldenBytes :: Y.ToJSON a => Exception e => String -> Either e a -> IO BL.ByteString
+goldenBytes label (Left e) = assertFailure $ label ++ ": " ++ show e
+goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
+    [ "test-group" .= label
+    , "results" .= a
+    ]
 
-    withPactService' Testnet00 cid logger testEmptyMemPool mv $ \reqQ -> do
-        let genesisHeader = genesisBlockHeader Testnet00 cid
-        respVar0 <- newBlock noMiner genesisHeader reqQ
-        mvr <- takeMVar respVar0 -- wait for response
-        plwo <- case mvr of
-          Left e -> assertFailure (show e)
-          Right r -> return r
-        tt0 <- checkNewResponse "new-empty-expected-0" plwo
-        return tt0
-
-checkNewResponse :: FilePath -> PayloadWithOutputs -> IO TestTree
-checkNewResponse filePrefix plwo = checkPayloadWithOutputs filePrefix "newBlock" plwo
-
-checkValidateResponse :: FilePath -> Either PactException PayloadWithOutputs -> IO TestTree
-checkValidateResponse filePrefix (Left s) = assertFailure $ filePrefix ++ ": " ++ show s
-checkValidateResponse filePrefix (Right plwo) =
-    checkPayloadWithOutputs filePrefix "validateBlock" plwo
-
-checkPayloadWithOutputs :: FilePath -> String -> PayloadWithOutputs-> IO TestTree
-checkPayloadWithOutputs filePrefix groupName plwo = do
-    ttTrans <- checkTransactions filePrefix
-               (fst <$> _payloadWithOutputsTransactions plwo)
-    ttTransOut <- checkTransOut filePrefix
-                  (snd <$> _payloadWithOutputsTransactions plwo)
-    ttBlockPlHash <- checkBlockPayloadHash filePrefix (_payloadWithOutputsPayloadHash plwo)
-    ttBlockTransHash <- checkBlockTransHash filePrefix (_payloadWithOutputsTransactionsHash plwo)
-    ttBlockOutsHash <- checkBlockOutsHash filePrefix (_payloadWithOutputsOutputsHash plwo)
-    return $ testGroup groupName
-        (ttTrans : [ttTransOut, ttBlockPlHash, ttBlockTransHash, ttBlockOutsHash])
-
-checkTransactions :: FilePath -> Seq Transaction -> IO TestTree
-checkTransactions filePrefix trans = do
-    let fp = filePrefix ++ "-trans.txt"
-    let ioBsTrans = return $ foldMap (toS . _transactionBytes) trans
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsTrans
-
-checkTransOut :: FilePath -> Seq TransactionOutput -> IO TestTree
-checkTransOut filePrefix transOuts = do
-    let fp = filePrefix ++ "-transOuts.txt"
-    let ioTransOuts = return $ foldMap (toS . _transactionOutputBytes) transOuts
-    return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioTransOuts
-
-checkBlockPayloadHash :: FilePath -> BlockPayloadHash -> IO TestTree
-checkBlockPayloadHash filePrefix bPayHash = do
-   let fp = filePrefix ++ "-blockPayHash.txt"
-   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
-   where
-       ioBs = return $ A.encode bPayHash
-
-checkBlockTransHash :: FilePath -> BlockTransactionsHash -> IO TestTree
-checkBlockTransHash filePrefix bTransHash = do
-   let fp = filePrefix ++ "-blockTransHash.txt"
-   return $ goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBs
-   where
-       ioBs = return $ A.encode bTransHash
-
-checkBlockOutsHash :: FilePath -> BlockOutputsHash -> IO TestTree
-checkBlockOutsHash filePrefix bOutsHash = do
-   let fp2 = filePrefix ++ "-blockOuts-hash.txt"
-   let ioBsOutsHash = return $ A.encode bOutsHash
-   return $ goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsOutsHash
-
-checkBlockTransactions :: FilePath -> BlockTransactions -> IO TestTree
-checkBlockTransactions filePrefix bTrans = do
-    let fp = filePrefix ++ "-blockTrans.txt"
-    let ioBsTrans = return $ foldMap (toS . _transactionBytes) (_blockTransactions bTrans)
-    let ttTrans = goldenVsString (takeBaseName fp) (testPactFilesDir ++ fp) ioBsTrans
-
-    let fp2 = filePrefix ++ "-blockTrans-hash.txt"
-    let ioBsHash = return $ toS $ A.encode $ _blockTransactionsHash bTrans
-    let ttTransHash = goldenVsString (takeBaseName fp2) (testPactFilesDir ++ fp2) ioBsHash
-
-    return $ testGroup "BlockTransactions" $ ttTrans : [ttTransHash]
-
-getBlockHeaders :: Int -> [BlockHeader]
-getBlockHeaders n = do
-    let gbh0 = genesis
-    let after0s = take (n - 1) $ testBlockHeaders gbh0
-    gbh0 : after0s
+getBlockHeaders :: ChainId -> Int -> [BlockHeader]
+getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+  where
+    gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess _bHeight _bHash = do
@@ -184,20 +146,26 @@ testMemPoolAccess _bHeight _bHash = do
           [ moduleStr
           , "(create-table test1.accounts)"
           , "(test1.create-global-accounts)"
-          , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" ]
+          , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+          ]
     mkPactTestTransactions cmdStrs
 
 testEmptyMemPool :: MemPoolAccess
 testEmptyMemPool _bHeight _bHash = mkPactTestTransactions V.empty
 
 testLocal :: IO ChainwebTransaction
-testLocal = head . V.toList <$> mkPactTestTransactions (V.fromList ["(test1.read-account \"Acct1\")"])
+testLocal = fmap (head . V.toList) $ mkPactTestTransactions $ V.fromList
+    [ "(test1.read-account \"Acct1\")"
+    ]
 
+{-
 cmdBlocks :: Vector (Vector String)
-cmdBlocks =  V.fromList [ V.fromList
-                              [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
-                              , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
-                        , V.fromList
-                              [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
-                              , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
-                        ]
+cmdBlocks =  V.fromList
+    [ V.fromList
+          [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
+          , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
+    , V.fromList
+          [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
+          , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
+    ]
+-}

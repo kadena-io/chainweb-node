@@ -13,9 +13,10 @@ module Chainweb.Test.BlockHeader.Genesis
 
 import Control.Monad (zipWithM_)
 
+import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (sortBy)
+import Data.List (sort, sortBy)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -24,9 +25,8 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeader (BlockHeader(..), Nonce(..))
 import Chainweb.BlockHeader.Genesis
-import Chainweb.ChainId (unsafeChainId)
 import Chainweb.Miner.Genesis (mineGenesis)
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), chainIds)
 
 ---
 
@@ -48,6 +48,7 @@ allBlocksParse = map _blockHeight testnet00Chains @?= replicate 10 0
 -- what was hardcoded?
 --
 regeneration :: ChainwebVersion -> [BlockHeader] -> Assertion
-regeneration v bs = zipWithM_ (\cid chain -> mine cid @?= chain) [0..] bs
+regeneration v bs = zipWithM_ (\cid chain -> mine cid @?= chain) cids bs
   where
-    mine c = mineGenesis v (unsafeChainId c) (genesisTime v) (Nonce 0)
+    cids = sort $ toList $ chainIds v
+    mine c = mineGenesis v c (genesisTime v) (Nonce 0)

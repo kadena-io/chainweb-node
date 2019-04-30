@@ -39,7 +39,7 @@ module Chainweb.Pact.TransactionExec
 import Control.Concurrent
 import Control.Exception.Safe (SomeException(..), throwM, tryAny)
 import Control.Lens hiding ((.=))
-import Control.Monad (join, void, when, unless)
+import Control.Monad (join, unless, void, when)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
@@ -48,7 +48,7 @@ import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Int (Int64)
 import qualified Data.Map.Lazy as Map
-import Data.Text (Text,pack)
+import Data.Text (Text, pack)
 import Data.Word (Word64)
 
 import NeatInterpolation (text)
@@ -60,18 +60,18 @@ import Pact.Interpreter
 import Pact.Parse (parseExprs)
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
+import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
+import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
 import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
-import Pact.Types.Util (Hash(..))
-import qualified Pact.Types.Hash as PactHash
 
 -- internal Chainweb modules
 
-import Chainweb.Pact.Types (MinerInfo(..), GasSupply(..))
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
 ------------------------------------------------------------------------------
@@ -196,7 +196,7 @@ applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
 
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd
-        coinbaseReq = RequestKey $ PactHash.hash "COINBASE"
+        coinbaseReq = RequestKey $ H.toUntypedHash (H.hash "COINBASE" :: H.PactHash)
 
     resultE <- tryAny $ coinbase cmdEnv minerInfo reward coinbaseReq
 
@@ -230,10 +230,9 @@ applyLocal logger dbEnv cmdState pd spv cmd@Command{..} = do
     Exec pm -> return pm
     _ -> throwCmdEx "local continuations not supported"
 
-  r <- tryAny $! applyExec' cmdEnv def exec _cmdSigs _cmdHash spv
+  r <- tryAny $! applyExec' cmdEnv def exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv
 
   traverse mkSuccess r
-
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
@@ -255,7 +254,7 @@ jsonResult :: ToJSON a => ExecutionMode -> RequestKey -> Gas -> a -> CommandResu
 jsonResult execMode cmd gas a =
     let txId = case execMode of
           Transactional tx -> Just tx
-          _otherMode       -> Nothing
+          _otherMode -> Nothing
     in CommandResult cmd txId (toJSON a) gas
 
 runPayload
@@ -267,29 +266,27 @@ runPayload
     -> IO (CommandResult, [TxLog Value])
 runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload of
     Exec pm ->
-      applyExec env initState (cmdToRequestKey c) pm _cmdSigs _cmdHash spv txLogs
+      applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
     Continuation ym ->
-      applyContinuation env initState (cmdToRequestKey c) ym _cmdSigs _cmdHash spv txLogs
-
+      applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
 
 mkSuccess :: EvalResult -> IO (CommandSuccess (Term Name))
 mkSuccess er = case _erOutput er of
   [] -> throwCmdEx "unexpected empty results"
-  outs -> return $ CommandSuccess $ last $ outs
-
+  outs -> return . CommandSuccess . fromPactValue $ last outs
 
 applyExec
     :: CommandEnv p
     -> EvalState
     -> RequestKey
     -> ExecMsg ParsedCode
-    -> [UserSig]
+    -> [Signer]
     -> Hash
     -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyExec env@CommandEnv{..} initState rk em senderSigs hash spv prevLogs = do
-    er@EvalResult{..} <- applyExec' env initState em senderSigs hash spv
+applyExec env@CommandEnv{..} initState rk em senderSigs hsh spv prevLogs = do
+    er@EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
     mkSuccess er >>= \s ->
       return (jsonResult _ceMode rk _erGas s, prevLogs <> _erLogs)
 
@@ -299,16 +296,16 @@ applyExec'
     ::CommandEnv p
     -> EvalState
     -> ExecMsg ParsedCode
-    -> [UserSig]
+    -> [Signer]
     -> Hash
     -> SPVSupport
     -> IO EvalResult
-applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hash spv = do
+applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh spv = do
     when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
     (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                  (MsgData sigs execData Nothing hash) refStore _ceGasEnv
+                  (MsgData sigs execData Nothing hsh) refStore _ceGasEnv
                   permissiveNamespacePolicy spv _cePublicData
     er@EvalResult{..} <- evalExecState initState evalEnv parsedCode
     unless (_ceMode == Local) $ do
@@ -328,19 +325,18 @@ handlePactExec (Right em) pe = do
     throwCmdEx $ "handlePactExec: defpact execution must occur as a single command: " ++ show em
   return $ Just pe
 
-
 applyContinuation
     :: CommandEnv p
     -> EvalState
     -> RequestKey
     -> ContMsg
-    -> [UserSig]
+    -> [Signer]
     -> Hash
     -> SPVSupport
     -> [TxLog Value]
     -> IO (CommandResult, [TxLog Value])
-applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hash spv prevLogs = do
-  er@EvalResult{..} <- applyContinuation' env initState msg senderSigs hash spv
+applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hsh spv prevLogs = do
+  er@EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
   mkSuccess er >>= \s ->
     pure $! (jsonResult _ceMode rk _erGas s, prevLogs <> _erLogs)
 
@@ -348,11 +344,11 @@ applyContinuation'
     :: CommandEnv p
     -> EvalState
     -> ContMsg
-    -> [UserSig]
+    -> [Signer]
     -> Hash
     -> SPVSupport
     -> IO EvalResult
-applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash spv =
+applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hsh spv =
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
@@ -377,13 +373,13 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hash 
           -- Setup environement and get result
                     let sigs = userSigsToPactKeySet senderSigs
                         pactStep =
-                            Just $ PactStep _cmStep _cmRollback _cmPactId _peYield
+                            Just $ PactStep _cmStep _cmRollback _cmPactId (fmap fromPactValue <$> _peYield)
                         evalEnv =
                             setupEvalEnv
                                 _ceDbEnv
                                 _ceEntity
                                 _ceMode
-                                (MsgData sigs _cmData pactStep hash)
+                                (MsgData sigs _cmData pactStep hsh)
                                 _csRefStore
                                 _ceGasEnv
                                 permissiveNamespacePolicy
@@ -455,7 +451,7 @@ buyGas env cmd spv (MinerInfo minerId minerKeys) (GasSupply supply) = do
         initState = initCapabilities [magic_FUND_TX]
 
     buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
-    result <- applyExec' env initState buyGasCmd (_cmdSigs cmd) (_cmdHash cmd) spv
+    result <- applyExec' env initState buyGasCmd (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv
     pure $! case _erExec result of
       Nothing ->
         Left "buyGas: Internal error - empty continuation"
@@ -481,7 +477,7 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
         initState  = initCapabilities [magic_FUND_TX]
 
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
-      (_cmdSigs cmd) (_cmdHash cmd) spv prevLogs
+      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv prevLogs
   where
     redeemGasCmd fee total pid = ContMsg pid 1 False $ object
       [ "fee" .= feeOf total fee

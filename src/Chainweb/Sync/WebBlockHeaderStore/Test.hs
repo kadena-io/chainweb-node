@@ -129,8 +129,7 @@ testAsyncFib n = do
 -- | A test task queue server for tasks that take int values as environment.
 --
 testQueueServer :: AttemptsCount -> PQueue (Task Int a) -> IO ()
-testQueueServer limit q = forM_ [0..] $ session limit q (\_ _ -> return ())
-    -- session limit q (\_ m -> T.putStrLn $ logText m)
+testQueueServer limit q = forM_ [0..] $ session_ limit q (\_ _ -> return ())
 
 -- TODO provide test with actual block header db
 

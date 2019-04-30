@@ -22,13 +22,13 @@ import System.IO (hFlush, stdout)
 
 import Chainweb.BlockHeader (BlockHeader(..), testBlockHeaders)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.ChainId (ChainId, unsafeChainId)
+import Chainweb.ChainId (ChainId)
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Store.Git
 import Chainweb.Store.Git.Internal (leaves', lockGitStore)
 import Chainweb.TreeDB
 import Chainweb.Utils (withTempDir)
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 ---
 
@@ -115,11 +115,12 @@ branches gs leaf =
 
 -- Borrowed from Chainweb.Test.Utils
 
+toyVersion :: ChainwebVersion
+toyVersion = Test singletonChainGraph
+
 genesis :: BlockHeader
-genesis = toyGenesis chainId0
+genesis = toyGenesis $ someChainId toyVersion
 
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader (Test singletonChainGraph) cid
+toyGenesis cid = genesisBlockHeader toyVersion cid
 
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0

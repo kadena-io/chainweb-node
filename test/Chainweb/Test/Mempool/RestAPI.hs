@@ -4,7 +4,6 @@ module Chainweb.Test.Mempool.RestAPI (tests) where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Data.Foldable
 import qualified Data.Pool as Pool
 import qualified Network.HTTP.Client as HTTP
 import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
@@ -24,7 +23,7 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
-import Data.CAS.HashMap (HashMapCas)
+import Data.CAS.RocksDB
 import Network.X509.SelfSigned
 
 
@@ -58,7 +57,7 @@ newTestServer inMemCfg = mask_ $ do
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     txcfg = InMem._inmemTxCfg inMemCfg
     host = "127.0.0.1"
-    chain = head $ toList $ chainIds_ singletonChainGraph
+    chain = someChainId version
     mkApp mp = chainwebApplication version (serverMempools [(chain, mp)])
     mkEnv port = do
         mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
@@ -92,7 +91,7 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
 
 
 serverMempools
-    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () HashMapCas
+    :: [(ChainId, MempoolBackend t)] -> ChainwebServerDbs t () RocksDbCas {- ununsed -}
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

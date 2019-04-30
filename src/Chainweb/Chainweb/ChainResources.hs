@@ -13,7 +13,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Allocate chainweb resources for individual chains
 --
 module Chainweb.Chainweb.ChainResources
 ( ChainResources(..)
@@ -21,18 +21,12 @@ module Chainweb.Chainweb.ChainResources
 , chainResPeer
 , chainResMempool
 , chainResLogger
-, chainResSyncDepth
 , chainResPact
 , withChainResources
-
--- * Chain Sync
-, runChainSyncClient
 
 -- * Mempool Sync
 , runMempoolSyncClient
 ) where
-
-import Configuration.Utils hiding (Lens', (<.>))
 
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeAsyncException)
@@ -43,16 +37,19 @@ import Control.Monad.Catch
 import Data.IORef
 import qualified Data.Text as T
 
-import Prelude hiding (log)
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import Prelude hiding (log)
+
+import qualified Streaming.Prelude as S
+
 import System.LogLevel
-import System.Path
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -64,14 +61,17 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
-import Chainweb.TreeDB.Persist
-import Chainweb.TreeDB.RemoteDB
-import Chainweb.TreeDB.Sync
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+
+import Data.CAS
+import Data.CAS.RocksDB
 
 import P2P.Node
 import P2P.Session
@@ -85,7 +85,6 @@ data ChainResources logger = ChainResources
     { _chainResPeer :: !(PeerResources logger)
     , _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResSyncDepth :: !Depth
     , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
     , _chainResPact :: PactExecutionService
     }
@@ -104,86 +103,68 @@ instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
--- Intializes all local Chain resources, but doesn't start any networking.
+-- | Intializes all local Chain resources, but doesn't start any networking.
 --
 withChainResources
     :: Logger logger
+    => PayloadCas cas
     => ChainwebVersion
     -> ChainId
+    -> RocksDb
     -> PeerResources logger
-    -> (Maybe FilePath)
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid peer chainDbDir logger mempoolCfg mv inner =
+withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
-    withBlockHeaderDb v cid $ \cdb -> do
-        chainDbDirPath <- traverse (makeAbsolute . fromFilePath) chainDbDir
-        withPersistedDb cid chainDbDirPath cdb $
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+
+            -- replay pact
+            let pact = pes mempool requestQ
+            replayPact logger pact cdb payloadDb
+
+            -- run inner
             inner $ ChainResources
                 { _chainResPeer = peer
                 , _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
-                , _chainResSyncDepth = syncDepth (_chainGraph v)
                 , _chainResMempool = mempool
-                , _chainResPact = mkPactExecutionService mempool requestQ
+                , _chainResPact = pact
                 }
+  where
+    pes mempool requestQ = case v of
+        Test{} -> emptyPactExecutionService
+        TimedConsensus{} -> emptyPactExecutionService
+        PowConsensus{} -> emptyPactExecutionService
+        TimedCPM{} -> mkPactExecutionService mempool requestQ
+        Testnet00 -> mkPactExecutionService mempool requestQ
+        Testnet01 -> mkPactExecutionService mempool requestQ
 
-withPersistedDb
-    :: ChainId
-    -> Maybe (Path Absolute)
+replayPact
+    :: HasCallStack
+    => Logger logger
+    => PayloadCas cas
+    => logger
+    -> PactExecutionService
     -> BlockHeaderDb
-    -> IO a
-    -> IO a
-withPersistedDb _ Nothing _ = id
-withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
-  where
-    path = dir </> fragment "chain" <.> FileExt (T.unpack (toText cid))
-    load = do
-        createDirectoryIfMissing True (toFilePath dir)
-        whenM (doesFileExist $ toFilePath path) (restore path db)
-
--- | Synchronize the local block database over the P2P network.
---
-runChainSyncClient
-    :: Logger logger
-    => HTTP.Manager
-        -- ^ HTTP connection pool
-    -> ChainResources logger
-        -- ^ chain resources
+    -> PayloadDb cas
     -> IO ()
-runChainSyncClient mgr chain = bracket create destroy go
+replayPact logger pact cdb pdb = do
+    logg Info "start replaying pact transactions"
+    (l, _) <- entries cdb Nothing Nothing Nothing Nothing $ \s -> s
+        & S.drop 1
+        & S.mapM_ (\h -> payload h >>= _pactValidateBlock pact h)
+    logg Info $ "finished replaying " <> sshow l <> " pact transactions"
   where
-    syncLogger = setComponent "header-sync" $ _chainResLogger chain
-    netId = ChainNetwork (_chainId chain)
-    syncLogg = logFunctionText syncLogger
-    create = p2pCreateNode
-        (_chainwebVersion chain)
-        netId
-        (_peerResPeer $ _chainResPeer chain)
-        (logFunction syncLogger)
-        (_peerResDb $ _chainResPeer chain)
-        mgr
-        (chainSyncP2pSession (_chainResSyncDepth chain) (_chainResBlockHeaderDb chain))
+    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
+        Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
+        Just p -> return $ payloadWithOutputsToPayloadData p
 
-    go n = do
-        -- Run P2P client node
-        syncLogg Info "initialized"
-        p2pStartNode (_peerResConfig $ _chainResPeer chain) n
-
-    destroy n = p2pStopNode n `finally` syncLogg Info "stopped"
-
-chainSyncP2pSession :: BlockHeaderTreeDb db => Depth -> db -> P2pSession
-chainSyncP2pSession depth db logg env = do
-    peer <- PeerTree <$> remoteDb db logg env
-    chainwebSyncSession db peer depth logg
-
-syncDepth :: ChainGraph -> Depth
-syncDepth g = Depth (2 * diameter g)
-{-# NOINLINE syncDepth #-}
+    logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.
@@ -220,7 +201,7 @@ runMempoolSyncClient mgr chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
-mempoolSyncP2pSession chain logg0 env = newIORef False >>= go
+mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
   where
     go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"

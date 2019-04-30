@@ -190,7 +190,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = give headerDb $ do
     -- it should be used.
     --
 
-    trgHeadHeader <- maxHeader trgChain
+    trgHeadHeader <- maxEntry trgChain
 
     -- crossChain == ]srcHeadHeader, trgHeadHeader]
     (srcHeadHeader, crossChain) <- crumbsToChain scid trgHeadHeader >>= \case

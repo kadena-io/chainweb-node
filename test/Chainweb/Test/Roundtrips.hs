@@ -156,6 +156,8 @@ jsonTestCases f =
     , testProperty "Transaction" $ f @Transaction
     , testProperty "TransactionOutput" $ f @TransactionOutput
     , testProperty "PayloadData" $ f @PayloadData
+    , testProperty "BlockTransactions" $ f @BlockTransactions
+    , testProperty "MinerData" $ f @MinerData
     ]
 
 jsonRoundtripTests :: TestTree

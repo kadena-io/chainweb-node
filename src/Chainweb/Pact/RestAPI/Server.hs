@@ -7,7 +7,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
@@ -40,6 +39,7 @@ import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Vector as V
 import qualified GHC.Event as Ev
+import qualified Pact.Types.Hash as H
 import Pact.Types.API
 import Pact.Types.Command
 import Prelude hiding (init, lookup)
@@ -276,7 +276,9 @@ lookupRequestKeyInBlock
     -> MaybeT IO ApiResult
 lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
   where
+    keyHash :: H.Hash
     keyHash = unRequestKey key
+
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
     go blockHeader = do
         -- bloom reports false positives, so if it says "no" we're sure the
@@ -308,7 +310,7 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     fromTx (tx, out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
-    matchingHash (cmd, _) = _cmdHash cmd == keyHash
+    matchingHash (cmd, _) = H.toUntypedHash (_cmdHash cmd) == keyHash
 
     lookupParent blockHeader = do
         let parentHash = _blockParent blockHeader

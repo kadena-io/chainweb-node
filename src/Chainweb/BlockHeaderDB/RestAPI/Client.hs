@@ -20,10 +20,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , hashesClient
 , headersClient_
 , headersClient
-, leafHashesClient_
-, leafHashesClient
-, leafHeadersClient_
-, leafHeadersClient
 , branchHashesClient_
 , branchHashesClient
 , branchHeadersClient_
@@ -126,60 +122,6 @@ headersClient v c limit start minr maxr = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ headersClient_ @v @c limit start minr maxr
-
--- -------------------------------------------------------------------------- --
--- Leaf Hashes Client
-
-leafHashesClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Maybe Limit
-    -> Maybe (NextItem (DbKey BlockHeaderDb))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leafHashesClient_ = client (leafHashesApi @v @c)
-
-leafHashesClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Maybe Limit
-    -> Maybe (NextItem (DbKey BlockHeaderDb))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-leafHashesClient v c limit start minr maxr = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ leafHashesClient_ @v @c limit start minr maxr
-
--- -------------------------------------------------------------------------- --
--- Leaf Headers Client
-
-leafHeadersClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Maybe Limit
-    -> Maybe (NextItem (DbKey BlockHeaderDb))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
-leafHeadersClient_ = client (leafHeadersApi @v @c)
-
-leafHeadersClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Maybe Limit
-    -> Maybe (NextItem (DbKey BlockHeaderDb))
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
-leafHeadersClient v c limit start minr maxr = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ leafHeadersClient_ @v @c limit start minr maxr
 
 -- -------------------------------------------------------------------------- --
 -- Branch Hashes Client

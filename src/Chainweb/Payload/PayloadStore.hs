@@ -20,8 +20,8 @@ module Chainweb.Payload.PayloadStore
 (
 -- * Transaction Database
 
-  BlockTransactionsStore
-, BlockPayloadStore
+  BlockTransactionsStore(..)
+, BlockPayloadStore(..)
 , TransactionDb(..)
 , TransactionDbCas
 , transactionDbBlockTransactions
@@ -29,9 +29,9 @@ module Chainweb.Payload.PayloadStore
 
 -- * Caches
 
-, OutputTreeStore
-, TransactionTreeStore
-, BlockOutputsStore
+, OutputTreeStore(..)
+, TransactionTreeStore(..)
+, BlockOutputsStore(..)
 , PayloadCache(..)
 , PayloadCacheCas
 , payloadCacheBlockOutputs
@@ -44,7 +44,6 @@ module Chainweb.Payload.PayloadStore
 , PayloadCas
 , payloadCache
 , transactionDb
-, emptyInMemoryPayloadDb
 
 -- ** Initialize Payload Database with Genesis Payloads
 
@@ -65,12 +64,10 @@ import qualified Data.Sequence as S
 -- internal modules
 
 import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
-import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Version
 
 import Data.CAS
-import qualified Data.CAS.HashMap as HashCAS
 
 type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
 
@@ -173,36 +170,6 @@ type PayloadCas cas =
     , CasConstraint cas BlockPayload
     )
 
-emptyInMemoryBlockPayloadStore :: IO (BlockPayloadStore HashCAS.HashMapCas)
-emptyInMemoryBlockPayloadStore = BlockPayloadStore <$> HashCAS.emptyCas
-
-emptyInMemoryBlockTransactionsStore :: IO (BlockTransactionsStore HashCAS.HashMapCas)
-emptyInMemoryBlockTransactionsStore = BlockTransactionsStore <$> HashCAS.emptyCas
-
-emptyInMemoryTransactionDb :: IO (TransactionDb HashCAS.HashMapCas)
-emptyInMemoryTransactionDb =
-    TransactionDb <$> emptyInMemoryBlockTransactionsStore <*> emptyInMemoryBlockPayloadStore
-
-emptyInMemoryBlockOutputsStore :: IO (BlockOutputsStore HashCAS.HashMapCas)
-emptyInMemoryBlockOutputsStore = BlockOutputsStore <$> HashCAS.emptyCas
-
-emptyInMemoryTransactionTreeStore :: IO (TransactionTreeStore HashCAS.HashMapCas)
-emptyInMemoryTransactionTreeStore = TransactionTreeStore <$> HashCAS.emptyCas
-
-emptyInMemoryOutputTreeStore :: IO (OutputTreeStore HashCAS.HashMapCas)
-emptyInMemoryOutputTreeStore = OutputTreeStore <$> HashCAS.emptyCas
-
-emptyInMemoryPayloadCache :: IO (PayloadCache HashCAS.HashMapCas)
-emptyInMemoryPayloadCache =
-    PayloadCache <$> emptyInMemoryBlockOutputsStore
-                 <*> emptyInMemoryTransactionTreeStore
-                 <*> emptyInMemoryOutputTreeStore
-
-emptyInMemoryPayloadDb :: IO (PayloadDb HashCAS.HashMapCas)
-emptyInMemoryPayloadDb =
-    PayloadDb <$> emptyInMemoryTransactionDb <*> emptyInMemoryPayloadCache
-
-
 -- -------------------------------------------------------------------------- --
 -- Initialize a PayloadDb with Genesis Payloads
 
@@ -214,7 +181,7 @@ initializePayloadDb
     => ChainwebVersion
     -> PayloadDb cas
     -> IO ()
-initializePayloadDb v db = traverse_ initForChain $ chainIds_ $ _chainGraph v
+initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid = do
         addNewPayload db $ genesisBlockPayload v cid
@@ -251,7 +218,7 @@ addNewPayload
     -> IO ()
 addNewPayload db s = addPayload db txs txTree outs outTree
   where
-    (bts,bos) = payloadWithOutputsToBlockObjects s
+    (bts, bos) = payloadWithOutputsToBlockObjects s
     (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
     (outTree, outs) = newBlockOutputs (_blockCoinbaseOutput bos) (_blockOutputs bos)
 

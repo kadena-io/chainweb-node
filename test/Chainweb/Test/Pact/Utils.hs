@@ -10,15 +10,19 @@
 module Chainweb.Test.Pact.Utils
 ( -- * test data
   someED25519Pair
-, genesis
-, chainId0
 , testPactFilesDir
 , testKeyPairs
+
+  -- * Golden Tests
+, pactGolden
+, pactGoldenSch
+
   -- * helper functions
 , getByteString
 , formatB16PubKey
 , mkPactTestTransactions
 , mkPactTransaction
+, pactTestLogger
 ) where
 
 import Control.Monad.Catch
@@ -27,10 +31,15 @@ import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
+import Data.Default (def)
 import Data.Text (Text, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import Data.Vector (Vector)
+
+import Test.Tasty
+import Test.Tasty.Golden
 
 -- internal pact modules
 
@@ -40,16 +49,15 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
 import Pact.Types.API
+import Pact.Types.Logger
 import Pact.Types.Util (toB16Text)
 import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
 -- internal chainweb modules
 
-import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.ChainId (ChainId, unsafeChainId)
-import Chainweb.Test.Utils (toyGenesis)
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Test.Utils
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -71,11 +79,29 @@ someED25519Pair =
     , ED25519
     )
 
-genesis :: BlockHeader
-genesis = toyGenesis chainId0
+-- -------------------------------------------------------------------------- --
+-- Golden Tests
 
-chainId0 :: ChainId
-chainId0 = unsafeChainId 0
+pactGolden
+    :: String
+        -- ^ Test Label
+    -> IO BL.ByteString
+        -- ^ Test action
+    -> TestTree
+pactGolden label
+    = goldenVsString label (testPactFilesDir <> fp)
+  where
+    fp = label <> "-expected.txt"
+
+
+pactGoldenSch
+    :: String
+        -- ^ Test Label
+    -> IO BL.ByteString
+        -- ^ Test action
+    -> ScheduledTest
+pactGoldenSch l = ScheduledTest l . pactGolden l
+{-# INLINE pactGoldenSch #-}
 
 ------------------------------------------------------------------------------
 -- helper logic
@@ -119,3 +145,12 @@ _mkPactTransaction' theData theCode kps = do
   nonce <- pack . show <$> getCurrentTime
   t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
   BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
+
+pactTestLogger :: Loggers
+pactTestLogger = initLoggers putStrLn f def
+  where
+    f _ b "ERROR" d = doLog error b "ERROR" d
+    f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
+    f a b c d = doLog a b c d
+

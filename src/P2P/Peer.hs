@@ -446,11 +446,11 @@ instance FromJSON Peer where
 --
 bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
 bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos TestWithTime{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos TestWithPow{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Simulation{} = error
-    $ "bootstrap peer info isn't defined for chainweb version Simulation"
+bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
+bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
+bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =

@@ -14,8 +14,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.CutDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -36,6 +34,7 @@ module Chainweb.CutDB
 , cutDbConfigTelemetryLevel
 , cutDbConfigUseOrigin
 , defaultCutDbConfig
+, farAheadThreshold
 
 -- * CutDb
 , CutDb
@@ -133,13 +132,39 @@ defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
 defaultCutDbConfig v = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
-    , _cutDbConfigBufferSize = 300
-        -- TODO this should probably depend on the diameter of the graph
-        -- It shouldn't be too big. Maybe something like @diameter * order^2@?
+    , _cutDbConfigBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
     }
+  where
+    g = _chainGraph v
+
+-- | We ignore cuts that are two far ahead of the current best cut that we have.
+-- There are two reasons for this:
+--
+-- 1. It limits the effect of a DOS attack where an attack sends large fake cuts
+--    that would consume a lot of resources before we notice that the cut was
+--    fake.
+--
+-- 2. It helps a node catching up with the overall consensus of the network by
+--    doing the catchup via several moderately fixed size steps instead of one
+--    giant step. The latter would consume an unlimited amount of resources,
+--    possibly leading to resource exhaustion on the local system. Also if the
+--    node is restarted during the catch-up process it resumes from the
+--    intermediate steps instead of starting all over again.
+--
+-- For the latter to work it is important that the local node only pulls cuts
+-- that are at most 'forAheadThreshold' blocks in the ahead. Otherwise the
+-- pulled blocks would be immediately rejected by the cut processing pipeline
+-- 'processCuts' below in the module and the node would never be able to join
+-- the consensus of the network.
+--
+-- NOTE: THIS NUMBER MUST BE STRICTLY LARGER THAN THE RESPECTIVE LIMIT IN
+-- 'CutDB.Sync'
+--
+farAheadThreshold :: Int
+farAheadThreshold = 2000
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -212,7 +237,7 @@ cutStm = to _cutStm
 
 member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
-    th <- maxHeader chainDb
+    th <- maxEntry chainDb
     lookup chainDb h >>= \case
         Nothing -> return False
         Just lh -> do
@@ -244,7 +269,6 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
-    -- queue <- newEmptyPQueue (int $ _cutDbConfigBufferSize config)
     queue <- newEmptyPQueue
     networkHeight <- newTVarIO Nothing
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar networkHeight
@@ -291,6 +315,7 @@ processCuts
 processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
     & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
+    & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain updateNetworkHeight
@@ -337,6 +362,17 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
         h <- _cutHeight <$> readTVarIO cutVar
         let !r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Info x "skip very old cut"
+        return r
+
+    -- FIXME: this is problematic. We should drop these before they are
+    -- added to the queue, to prevent the queue becoming stale.
+    farAhead :: CutHashes -> IO Bool
+    farAhead x = do
+        h <- _cutHeight <$> readTVarIO cutVar
+        let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
+        when r $ loggc Info x
+            $ "skip far ahead cut. Current height: " <> sshow h
+            <> ", got: " <> sshow (_cutHashesHeight x)
         return r
 
     isOld :: CutHashes -> IO Bool

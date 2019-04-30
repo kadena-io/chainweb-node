@@ -83,7 +83,7 @@ defaultP2pExampleConfig = P2pExampleConfig
     , _maxPeerCount = 50
     , _sessionTimeoutSeconds = 20
     , _meanSessionSeconds = 10
-    , _exampleChainId = unsafeChainId 0
+    , _exampleChainId = someChainId version
     , _logConfig = defaultLogConfig
     }
 
@@ -182,7 +182,7 @@ example conf logger =
 -- logging (either pass it to the session or the logg function)
 --
 noopSession :: Natural -> P2pSession
-noopSession t logfun _ = do
+noopSession t logfun _ _ = do
     logfun @T.Text L.Info "start session"
     timer t
     logfun @T.Text L.Info "stop session"

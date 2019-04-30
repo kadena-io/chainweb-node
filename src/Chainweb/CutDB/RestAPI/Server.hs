@@ -30,9 +30,11 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
+import Control.Lens (view)
 import Control.Monad.Except
 
 import Data.Proxy
+import Data.Semigroup
 
 import Network.Wai.Handler.Warp hiding (Port)
 
@@ -41,21 +43,25 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
--- | FIXME: include own peer info
---
-cutGetHandler :: CutDb cas -> Handler CutHashes
-cutGetHandler db = liftIO $ cutToCutHashes Nothing <$> _cut db
+cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
+cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
+cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
+    c <- _cut db
+    c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
+    return $ cutToCutHashes Nothing c'
 
 cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
 cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
