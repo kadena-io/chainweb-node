@@ -223,6 +223,7 @@ library
         -- utils
         , Utils.Logging
         , Utils.Logging.Config
+
     build-depends:
           Decimal >= 0.4.2
         , QuickCheck >= 2.10
@@ -358,6 +359,7 @@ test-suite chainweb-tests
         Chainweb.Test.CutDB
         Chainweb.Test.DiGraph
         Chainweb.Test.Mempool
+        Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Socket
