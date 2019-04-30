@@ -9,8 +9,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.Utils.Paging
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -72,7 +70,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
-import Test.QuickCheck.Instances ({- Arbitrary Natural -})
+import Test.QuickCheck.Instances ()
 
 -- internal modules
 
@@ -300,4 +298,3 @@ properties =
     [ ("streamToPage_limit", property prop_streamToPage_limit)
     , ("streamToPage_id", property prop_streamToPage_id)
     ]
-

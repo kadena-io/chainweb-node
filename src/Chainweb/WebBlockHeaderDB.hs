@@ -3,8 +3,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.WebBlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.

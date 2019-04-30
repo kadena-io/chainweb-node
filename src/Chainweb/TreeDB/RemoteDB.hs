@@ -60,6 +60,8 @@ data RemoteDb = RemoteDb
 instance TreeDb RemoteDb where
     type DbEntry RemoteDb = BlockHeader
 
+    maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
+
     -- If other default functions rely on this, it could be quite inefficient.
     lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
       where

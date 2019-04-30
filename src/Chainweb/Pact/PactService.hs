@@ -31,7 +31,6 @@ module Chainweb.Pact.PactService
     , pactSpvSupport
     ) where
 
-
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -75,7 +74,7 @@ import qualified Pact.Types.SQLite as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
-import Chainweb.ChainId (ChainId, chainIdInt)
+import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -102,8 +101,9 @@ import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TestWithTime{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TestWithPow{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TimedConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig PowConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig TimedCPM{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
@@ -173,7 +173,7 @@ initPactService' ver cid chainwebLogger spv act = do
             internalError' s
         Right _ -> return ()
 
-    let !pd = P.PublicData def (chainIdInt cid) def def
+    let !pd = P.PublicData def def def
     let !pse = PactServiceEnv Nothing checkpointEnv spv pd
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
@@ -217,9 +217,10 @@ pactSpvSupport mv = P.SPVSupport $ \s o -> do
       Just x -> pure x
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
-initialPayloadState Test{} _ = return ()
-initialPayloadState v@TestWithTime{} cid = createCoinContract v cid
-initialPayloadState TestWithPow{} _ = return ()
+initialPayloadState Test{} _ = pure ()
+initialPayloadState TimedConsensus{} _ = pure ()
+initialPayloadState PowConsensus{} _ = pure ()
+initialPayloadState v@TimedCPM{} cid = createCoinContract v cid
 initialPayloadState v@Testnet00 cid = createCoinContract v cid
 initialPayloadState v@Testnet01 cid = createCoinContract v cid
 

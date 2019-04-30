@@ -1,42 +1,50 @@
-- value:
-    guard:
-      _P_pred: keys-all
-      _P_keys:
-      - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-    balance:
-      _P_decm: 99997
-      _P_decp: 2
-  key: sender00
-  table: USER_coin_coin-table
-- value:
-    utModule:
-      namespace: null
-      name: test1
-  key: test1_accounts
-  table: SYS_usertables
-- value:
-    guard:
-      _P_pred: keys-all
-      _P_keys:
-      - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-    balance:
-      _P_decm: 99997
-      _P_decp: 2
-  key: sender00
-  table: USER_coin_coin-table
-- value:
-    utModule:
-      namespace: null
-      name: test1
-  key: test1_accounts
-  table: SYS_usertables
-- value:
-    guard:
-      _P_pred: keys-all
-      _P_keys:
-      - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
-    balance:
-      _P_decm: 4203
-      _P_decp: 2
-  key: miner
-  table: USER_coin_coin-table
+- output:
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+      balance: 84.01
+    key: miner
+    table: USER_coin_coin-table
+  cmd: coinbase
+- output:
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
+      balance: 999.98
+    key: sender00
+    table: USER_coin_coin-table
+  - value:
+      utModule:
+        namespace: null
+        name: test1
+    key: test1_accounts
+    table: SYS_usertables
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
+      balance: 999.98
+    key: sender00
+    table: USER_coin_coin-table
+  - value:
+      utModule:
+        namespace: null
+        name: test1
+    key: test1_accounts
+    table: SYS_usertables
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+      balance: 84.02
+    key: miner
+    table: USER_coin_coin-table
+  cmd:
+    tag: Code
+    contents: (create-table test1.accounts)

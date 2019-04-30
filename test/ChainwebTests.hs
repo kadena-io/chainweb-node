@@ -39,7 +39,6 @@ import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
-import qualified Chainweb.Test.Store.Git
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
@@ -55,25 +54,18 @@ import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
-main = do
-    withTempRocksDb "chainweb-tests" $ \rdb -> do
-        memPSuite <- mempoolTestSuite
-        pactSuite <- pactTestSuite rdb -- Tasty.Golden tests nudge this towards being an IO result
-        let allTests = testGroup "Chainweb Tests"
-                . schedule Sequential
-                $ pactSuite : memPSuite : suite rdb
-        defaultMain allTests
+main = withTempRocksDb "chainweb-tests" $ \rdb ->
+    defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+        $ pactTestSuite rdb
+        : suite rdb
 
-pactTestSuite :: RocksDb -> IO ScheduledTest
-pactTestSuite rdb = do
-    pactTests <- Chainweb.Test.Pact.PactExec.tests
-    pactInProcApiTests <- Chainweb.Test.Pact.PactInProcApi.tests
-    pactRemoteApiTests <- Chainweb.Test.Pact.RemotePactTest.tests rdb
-    pure $ testGroupSch "Chainweb-Pact Tests"
-        [ pactTests
+pactTestSuite :: RocksDb -> ScheduledTest
+pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
+    $ schedule Sequential
+        [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , pactInProcApiTests
-        , pactRemoteApiTests
+        , Chainweb.Test.Pact.PactInProcApi.tests
+        , Chainweb.Test.Pact.RemotePactTest.tests rdb
         ]
 
 mempoolTestSuite :: IO ScheduledTest
@@ -99,7 +91,6 @@ suite rdb =
             ]
         , Chainweb.Test.CoinContract.tests
         , Chainweb.Test.Store.CAS.FS.tests
-        , Chainweb.Test.Store.Git.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests
