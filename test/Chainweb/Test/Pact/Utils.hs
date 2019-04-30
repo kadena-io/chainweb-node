@@ -56,8 +56,8 @@ testKeyPairs = do
         apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
     mkKeyPairs [apiKP]
 
-testPactFilesDir :: String
-testPactFilesDir = "test/config/"
+testPactFilesDir :: FilePath
+testPactFilesDir = "test/pact/"
 
 -- | note this is "sender00"'s key
 someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)

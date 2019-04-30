@@ -20,7 +20,7 @@ import Chainweb.Test.Utils (ScheduledTest(..))
 
 ---
 
-goldenFilesDir :: String
+goldenFilesDir :: FilePath
 goldenFilesDir = "test/golden/"
 
 golden
