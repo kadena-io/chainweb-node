@@ -53,6 +53,7 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Test.Golden
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
@@ -222,7 +223,7 @@ checkSuccessOnly resp =
 -- | A test runner for golden tests.
 --
 fileCompareTxLogs :: String -> IO TestResponse -> ScheduledTest
-fileCompareTxLogs label respIO = pactGoldenSch label $ do
+fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
     return $ toS $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)

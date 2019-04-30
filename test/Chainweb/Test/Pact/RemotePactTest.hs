@@ -76,6 +76,7 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
+import Chainweb.Test.Golden (golden)
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -121,7 +122,7 @@ runGhci :: IO ()
 runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = pactGolden "command-0-resp" $ do
+responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
