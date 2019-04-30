@@ -154,9 +154,7 @@ genesisBlockHeader' v p ct n = fromLog mlog
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 
-genesisBlockHeaders
-    :: ChainwebVersion
-    -> HM.HashMap ChainId BlockHeader
+genesisBlockHeaders :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v = HM.fromList
     . fmap (id &&& genesisBlockHeader v)
     . toList

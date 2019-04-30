@@ -341,6 +341,7 @@ test-suite chainweb-tests
     hs-source-dirs: test
     main-is: ChainwebTests.hs
     other-modules:
+        Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
@@ -379,6 +380,7 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.11
         , base16-bytestring >= 0.1
+        , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , connection >=0.2
