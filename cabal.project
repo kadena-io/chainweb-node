@@ -5,11 +5,6 @@ packages: chainweb.cabal
 package chainweb
     tests: True
 
--- this is for building on Mac OS X with openssl installed via homebrew
-package hlibgit2
-    extra-lib-dirs: /usr/local/opt/openssl/lib
-    extra-include-dirs: /usr/local/opt/openssl/include
-
 package aeson
     flags: +cffi
 
@@ -29,4 +24,5 @@ source-repository-package
     tag: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
 
 constraints:
-    megaparsec <7.0
+      megaparsec <7.0
+    , servant < 0.15

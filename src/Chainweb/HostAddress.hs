@@ -108,7 +108,7 @@ module Chainweb.HostAddress
 , properties
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding ((<?>))
 
 import Control.DeepSeq
 import Control.Lens.TH

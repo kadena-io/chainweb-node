@@ -1,10 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -29,8 +28,8 @@ import Control.Lens
 import Control.Monad
 
 import qualified Data.Aeson as A
-import qualified Data.HashMap.Strict as HM
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Maybe
 import Data.Proxy
@@ -58,10 +57,10 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedInteger(..), ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
-import Pact.Types.Command
 import qualified Pact.Types.ChainMeta as CM
+import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 
 -- internal modules

@@ -46,8 +46,8 @@ in
       in {
         aeson = callHackageDirect {
           pkg = "aeson";
-          ver = "1.4.2.0";
-          sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
+          ver = "1.4.3.0";
+          sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
         chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
@@ -55,6 +55,7 @@ in
           doHaddock = runTests;
           doCoverage = runCoverage;
         }));
+
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
@@ -163,6 +164,7 @@ in
           ver = "0.2.1.0";
           sha256 = "1ys02jz4xg94g8z78cgafi24vjp7fyhf0slcyrhs1ffbhr8gqwm3";
         });
+
         fake = doJailbreak (callHackageDirect {
           pkg = "fake";
           ver = "0.1.1.1";
@@ -189,8 +191,6 @@ in
           ver = "0.2.2.0";
           sha256 = "0yym840jnh2cma5n4c0pv3nh1hyhag1v6pks73wdikhrcajffsh3";
         };
-
-        wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
 
         wai-cors = dontCheck (callHackageDirect {
           pkg = "wai-cors";
