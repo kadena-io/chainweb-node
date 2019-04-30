@@ -204,6 +204,7 @@ library
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.MemoryDb
         , Chainweb.Pact.Backend.Orphans
+        , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLiteCheckpointer
         , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Backend.Types
