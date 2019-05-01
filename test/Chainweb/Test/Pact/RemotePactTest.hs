@@ -134,11 +134,11 @@ mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
+    lastPar <- newIORef Nothing
+    let mPool = toMempool version cid tConfig 10000 lastPar cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
   where
     tConfig = mempoolTxConfig noopMempool
->>>>>>> origin/master
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -253,44 +253,8 @@ testBatch = do
     c <- mkExec "(+ 1 2)" A.Null pm kps Nothing
     pure $ SubmitBatch [c]
   where
-<<<<<<< HEAD
-    fp = filePrefix ++ "-expected-resp.txt"
-    mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    values = _arResult <$> catMaybes mays
-    bsResponse = return $! toS $! foldMap A.encode values
-
-
-getCwBaseUrl :: Port -> BaseUrl
-getCwBaseUrl thePort = BaseUrl
-    { baseUrlScheme = Https
-    , baseUrlHost = "127.0.0.1"
-    , baseUrlPort = fromIntegral thePort
-    , baseUrlPath = "" }
-
--- generated from Test.Pact.Utils with:
--- testKeyPairs >>= _mkPactTransaction' Null "(+ 1 2")
-escapedCmd :: BS.ByteString
-escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
-||||||| merged common ancestors
-    fp = filePrefix ++ "-expected-resp.txt"
-    mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    values = _arResult <$> catMaybes mays
-    bsResponse = return $! toS $! foldMap A.encode values
-
-
-getCwBaseUrl :: Port -> BaseUrl
-getCwBaseUrl thePort = BaseUrl
-    { baseUrlScheme = Https
-    , baseUrlHost = "127.0.0.1"
-    , baseUrlPort = fromIntegral thePort
-    , baseUrlPath = "" }
-
-escapedCmd :: BS.ByteString
-escapedCmd = [r|{"cmds":[{"hash":"d0613e7a16bf938f45b97aa831b0cc04da485140bec11cc8954e0509ea65d823472b1e683fa2950da1766cbe7fae9de8ed416e80b0ccbf12bfa6549eab89aeb6","sigs":[{"addr":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca","sig":"71cdedd5b1305881b1fd3d4ac2009cb247d0ebb55d1d122a7f92586828a1ed079e6afc9e8b3f75fa25fba84398eeea6cc3b92949a315420431584ba372605d07","scheme":"ED25519","pubKey":"368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}],"cmd":"{\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 2)\"}},\"meta\":{\"gasLimit\":100,\"chainId\":\"0\",\"gasPrice\":1.0e-4,\"sender\":\"sender00\"},\"nonce\":\"2019-03-29 20:35:45.012384811 UTC\"}"}]}|]
-=======
     pm :: CM.PublicMeta
     pm = CM.PublicMeta (CM.ChainId "0") "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
->>>>>>> origin/master
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
