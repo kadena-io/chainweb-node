@@ -61,7 +61,7 @@ hashTarget db bh
         let delta :: TimeSpan Int64
             !delta = TimeSpan $ time bh' - time start
 
-        pure . adjust ver delta $ _blockTarget bh'
+        pure . adjust ver (WindowWidth ww) delta $ _blockTarget bh'
   where
     height :: Natural
     height = int $ _blockHeight bh'

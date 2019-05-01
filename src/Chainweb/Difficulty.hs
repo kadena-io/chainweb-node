@@ -462,8 +462,8 @@ minAdjust Testnet01 = Just $ MinAdjustment 3
 -- Analysis has been shown that \(Z\) should be greater than a factor of
 -- \(e = 2.71828\cdots\) (/source needed/). See also `minAdjust`.
 --
-adjust :: ChainwebVersion -> TimeSpan Int64 -> HashTarget -> HashTarget
-adjust ver (TimeSpan delta) oldTarget
+adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Int64 -> HashTarget -> HashTarget
+adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
     -- Intent: When increasing the difficulty (thereby lowering the target
     -- toward 0), the target must decrease by at least some minimum threshold
     -- (usually 3x) to be accepted.
@@ -499,11 +499,6 @@ adjust ver (TimeSpan delta) oldTarget
     br :: Natural
     br = case blockRate ver of
         Just (BlockRate n) -> int n
-        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
-
-    ww :: Natural
-    ww = case window ver of
-        Just (WindowWidth n) -> n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     minAdj :: PowHashNat
