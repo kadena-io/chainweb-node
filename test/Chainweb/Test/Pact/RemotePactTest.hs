@@ -112,6 +112,7 @@ tests rdb = testGroupSch "PactRemoteTests"
             testGroup "PactRemoteTests"
                 [ responseGolden net rks
                 , mempoolValidation net rks
+                , spvValidation net rks
                 ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
@@ -137,6 +138,13 @@ mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     testMPValidated mPool rks
   where
     tConfig = mempoolTxConfig noopMempool
+
+-- spv round trip validation
+spvValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
+spvValidation netIO rksIO = testCase "spvRoundtripValidation" $ do
+  _rks <- rksIO
+  _cwEnv <- fmap _getClientEnv netIO
+  undefined
 
 -- -------------------------------------------------------------------------- --
 -- Utils
