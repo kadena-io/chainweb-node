@@ -25,7 +25,7 @@ import Chainweb.BlockHash (encodeBlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
 import Chainweb.ChainId (ChainId)
-import Chainweb.Test.Pact.Utils (pactGolden)
+import Chainweb.Test.Utils (golden)
 import Chainweb.Utils (runPut, sshow)
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -45,5 +45,5 @@ blockHashes =
     hash = BB.byteString . B64U.encode . runPut . encodeBlockHash . _blockHash
 
 blockHash :: ChainwebVersion -> TestTree
-blockHash v = pactGolden (sshow v <> "-block-hashes") $
+blockHash v = golden (sshow v <> "-block-hashes") $
     pure $ blockHashes $ genesisBlockHeaders v
