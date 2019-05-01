@@ -20,6 +20,7 @@ module Chainweb.Mempool.Mempool
   , LookupResult(..)
   , MockTx(..)
   , mockCodec
+  , mockEncode
   , mockBlockGasLimit
   , finalizeSubscriptionImmediately
   , chainwebTestHasher
@@ -67,6 +68,7 @@ import Prelude hiding (log)
 import System.LogLevel
 
 ------------------------------------------------------------------------------
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))

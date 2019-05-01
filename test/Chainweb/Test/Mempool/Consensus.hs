@@ -25,7 +25,9 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen
 import Test.Tasty
 
+
 -- internal modules
+import Pact.Types.Gas
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
@@ -36,7 +38,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Utils
-import Chainweb.Time (Time(..))
+import Chainweb.Time
 import qualified Chainweb.Time as Time
 import Chainweb.Version
 
@@ -78,9 +80,10 @@ testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 -- TODO: Remove the maybe
 genFork :: Gen (Maybe ForkInfo)
 genFork = do
-    let allTxs = getTransPool
+    allTxs <- liftIO $ getTransPool
     store <- liftIO $ newFakePayloadDb
-    theTree <- genTree testVersion allTxsh
+    h0 <- genesis testVersion
+    theTree <- genTree h0 allTxs
 
     return Nothing
 -- TODO: fold a list (of BlockHeader -> [TrasnsactionHash]) from the tree & add them to the store
@@ -89,64 +92,90 @@ genFork = do
 -- TODO: get the left and right leaf elements as the 'head' of the old/new forks
 
 
-getTransPool :: (Set TransactionHash)
-getTransPool =
-    S.fromList $ map [1 2 .. 100] $ \n ->
-        TransactionHash $ mockEncode $ mkMockTx n
+getTransPool :: IO (Set TransactionHash)
+getTransPool = do
+    txHashes <- sequence $ fmap
+        (\n -> do
+            mockTx <- mkMockTx n
+            return $ TransactionHash $ mockEncode mockTx )
+        [1 2 .. 100]
+    return $ S.fromList txHashes
 
-mkMockTx :: Int64 -> MockTx
-mkMockTx n = MockTx
-  { mockNonce = n
-  , mockGasPrice = GasPrice 0
-  , mockGasLimit = mockBlockGasLimit
-  , mockMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-  }
+mkMockTx :: Int64 -> IO MockTx
+mkMockTx n = do
+    mockMeta <- TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+    return $ MockTx
+        { mockNonce = n
+        , mockGasPrice = GasPrice 0
+        , mockGasLimit = mockBlockGasLimit
+        , mockMeta = mockMeta
+        }
 
-taketrans :: set transactionhash -> (set transactionhash, set transactionhash)
-taketrans txs = do
-  n <- chose (1, 3)
-  s.splitat n txs
+takeTrans :: Set TransactionHash -> Gen (Set TransactionHash, Set TransactionHash)
+takeTrans txs = do
+    n <- choose (1, 3)
+    return $ S.splitAt n txs
+
+data BlockTrans = BlockTrans
+    { btBlockHeader :: BlockHeader
+    , btTransactions :: Set TransactionHash }
 
 genTree
-    :: ChainwebVersion
-    -> C.HashMapCas FakePayload
+    :: BlockHeader
     -> Set TransactionHash
-    -> Gen (Tree (BlockHeader, [TransactionHash]))
-genTree v store allTxs = do
-    h <- genesis v
-    (theForest, _) <- preForkTrunk h allTxs S.empty
-    return $ Node h theForest
+    -> Gen (Tree BlockTrans)
+genTree h allTxs = do
+    (takenNow, theRest) <- takeTrans allTxs
+    next <- header' h
+    listOfOne <- preForkTrunk next theRest
+    return $ Node
+        BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+        listOfOne
 
 preForkTrunk
-    :: (BlockHeader, Set TransactionHash)
+    :: BlockHeader
     -> Set TransactionHash
-    -> Gen (Forest BlockHeader, [TransactionHash])
-preForkTrunk (h, taken) avail = do
+    -> Gen (Forest BlockTrans)
+preForkTrunk h avail = do
     next <- header' h
-    let (takenNow, therest) = takeTrans avail
-    frequency [ (1, sequenceA [fork (next, takenNow) theRest])
-              , (3, sequenceA [preForkTrunk (next, takenNow) theRest])
-              ]
+    (takenNow, theRest) <- takeTrans avail
+
+    children <- frequency [ (1, fork next theRest)
+                          , (3, preForkTrunk next theRest) ]
+    return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } children ]
+
 
 fork
-    :: (BlockHeader, Set TransactionHash)
+    :: BlockHeader
     -> Set TransactionHash
-    -> Gen (Tree BlockHeader, [TransactionHash])
-fork (h, taken) avail = do
+    -> Gen (Forest BlockTrans)
+fork h avail = do
     next <- header' h
-    let (takenNow, therest) = takeTrans avail
-    Node (next, takenNow) <$> [postForkTrunk (next, theRest) ,postForkTrunk (next, theRest)]
+    (takenNow, theRest) <- takeTrans avail
+
+    left <- postForkTrunk next theRest
+    right <- postForkTrunk next theRest -- TODO: what header to use here?
+    return $
+        [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+               (left ++ right)
+        ]
 
 postForkTrunk
-  :: (BlockHeader, Set TransactionHash)
+  :: BlockHeader
   -> Set TransactionHash
-  -> Gen (Forest BlockHeader, [TransactionHash])
-postForkTrunk (h, taken) avail = do
+  -> Gen (Forest BlockTrans)
+postForkTrunk h avail = do
     next <- header' h
-    let (takenNow, therest) = takeTrans avail
-    frequency [ (1, return [])
-              , (3, sequenceA [postForkTrunk (next, takenNow) theRest])
-              ]
+    (takenNow, theRest) <- takeTrans avail
+
+    listOf0or1 <- frequency
+        [ (1, return [])
+        , (3, postForkTrunk next theRest)
+        ]
+    return $
+        [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+               listOf0or1
+        ]
 
 header' :: BlockHeader -> Gen BlockHeader
 header' h = do

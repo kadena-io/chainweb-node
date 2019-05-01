@@ -226,6 +226,7 @@ library
         -- TODO: remove this
         , Chainweb.Test.Mempool.Consensus
 
+
     build-depends:
           Decimal >= 0.4.2
         , QuickCheck >= 2.10
@@ -331,6 +332,11 @@ library
         , xmlgen >= 0.6
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
+
+        --remove these
+        , tasty >= 1.0
+        , tasty-hunit >= 0.9
+        , tasty-quickcheck >= 0.9
 
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
