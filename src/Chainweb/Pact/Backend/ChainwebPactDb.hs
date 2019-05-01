@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TemplateHaskell   #-}
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -9,25 +9,49 @@
 -- Stability: experimental
 --
 
-module Chainweb.Pact.Backend.ChainwebPactDb (chainwebpactdb) where
+module Chainweb.Pact.Backend.ChainwebPactDb
+  ( chainwebpactdb
+  , SQLiteEnv(..)
+  , sConn
+  , sConfig
+  , sLogger
+  , ReorgVersion(..)
+  , BlockVersion(..)
+  , bvVersion
+  , bvBlock
+  ) where
 
-import Control.Concurrent.MVar
-import Control.Monad.State.Strict
+-- import Control.Concurrent.MVar
+-- import Control.Monad.State.Strict
+import Control.Lens
+import Control.Monad.Reader
+import Control.Exception
 
 import Data.Aeson
+import Database.SQLite3.Direct as SQ3
+-- import qualified Data.Text as T
+-- import Data.Text.Encoding
+import Data.String
+import Data.Word
+
+import Prelude hiding (log)
+
+import System.IO.Extra
 
 -- pact
 
-import Pact.Types.Term(ModuleName(..), TableName(..))
-import Pact.Interpreter
+-- import Pact.Interpreter
 import Pact.Persist hiding (beginTx, commitTx, rollbackTx, createTable)
 import Pact.Persist.SQLite
-import Pact.PersistPactDb
+import Pact.PersistPactDb hiding (log)
+import Pact.Types.Logger hiding (log)
 import Pact.Types.Persistence
--- import Pact.Types.Runtime
--- import Pact.Types.Server
+import Pact.Types.SQLite
+import Pact.Types.Term(ModuleName(..), TableName(..))
 
 -- chainweb
+
+import Chainweb.BlockHeader
 
 chainwebpactdb :: PactDb (DbEnv p)
 chainwebpactdb = PactDb
@@ -75,40 +99,113 @@ rollbackTx = undefined
 getTxLog :: Domain k v -> TxId -> Method e [TxLog v]
 getTxLog = undefined
 
--- This is not exported by PersistPactDb.
-type MVState p a = StateT (DbEnv p) IO a
+_initFunction :: SQLiteEnv -> IO ()
+_initFunction = undefined
 
--- This is not exported by PersistPactDb.
-runMVState :: MVar (DbEnv p) -> MVState p a -> IO a
-runMVState v a = modifyMVar v (runStateT a >=> \(r,m') -> return (m',r))
+data SQLiteEnv = SQLiteEnv {
+    _sConn :: Database
+  , _sConfig :: SQLiteConfig
+  , _sLogger :: Logger
+  }
 
-createTable :: MVar (DbEnv p) -> TableId -> IO ()
-createTable = undefined
+makeLenses ''SQLiteEnv
 
-cw_initSchema :: PactDbEnv (DbEnv p) -> IO ()
-cw_initSchema PactDbEnv {..} = cw_createSchema pdPactDbVar
+newtype ReorgVersion = ReorgVersion Word64
+
+data BlockVersion = BlockVersion
+  { _bvBlock :: !BlockHeight
+  , _bvVersion :: !ReorgVersion
+  }
+
+makeLenses ''BlockVersion
+
+_checkTableExist :: Database -> Utf8 -> IO [[SType]]
+_checkTableExist connection name =
+  qry_
+    connection
+    ("SELECT name FROM sqlite_master WHERE type='table' AND name='" <> name <> "';")
+    [RText]
+
+withSQLiteConnection :: String -> (Either (Error, Utf8) Database -> IO c) -> IO c
+withSQLiteConnection file = bracket (open (fromString file <> ".sqlite")) closer
   where
-    cw_createSchema :: MVar (DbEnv p) -> IO ()
-    cw_createSchema e = do
-      beginTx undefined e
-      createTable e versionHistoryTable
-      createTable e userTableInfo
-      createTable e keysetsTable
-      createTable e modulesTable
-      createTable e namespacesTable
-      void $ commitTx e
+    closer = either (return . Left . fst) close
 
-versionHistoryTable :: TableId
-versionHistoryTable = "SYS_versionHistory"
+withTempSQLiteConnection :: (Either (Error, Utf8) Database -> IO c) -> IO c
+withTempSQLiteConnection action = withTempDir (\file -> withSQLiteConnection file action)
 
-userTableInfo :: TableId
-userTableInfo = "SYS_usertables"
+_dirtSimpleDbTest :: IO (Either Error ())
+_dirtSimpleDbTest = withTempSQLiteConnection go
+  where
+    go e = case e of
+      Left l -> return (Left $ fst l)
+      Right c -> do
+        createBlockHistoryTable c
+        _checkTableExist c "BlockHistory" >>= print
+        createVersionHistoryTable c
+        _checkTableExist c "VersionHistory" >>= print
+        createVersionedTablesTable c
+        _checkTableExist c "VersionedTables" >>= print
+        return (Right ())
 
-keysetsTable :: TableId
-keysetsTable = "SYS_keysets"
+createBlockHistoryTable :: Database -> IO ()
+createBlockHistoryTable connection =
+  exec_
+    connection
+    "CREATE TABLE BlockHistory(blockheight UNSIGNED BIGINT PRIMARY KEY,hash BLOB);"
 
-modulesTable :: TableId
-modulesTable = "SYS_modules"
+createVersionHistoryTable  :: Database -> IO ()
+createVersionHistoryTable connection =
+  exec_
+    connection
+    "CREATE TABLE VersionHistory (version UNSIGNED BIGINT PRIMARY KEY,blockheight UNSIGNED BIGINT);"
 
-namespacesTable :: TableId
-namespacesTable = "SYS_namespaces"
+createVersionedTablesTable  :: Database -> IO ()
+createVersionedTablesTable connection =
+  exec_
+    connection
+    "CREATE TABLE VersionedTables (tableid varchar(256) PRIMARY KEY\
+  \ , blockheight UNSIGNED BIGINT\
+  \ , version UNSIGNED BIGINT);"
+
+{-
+
+for ints, investigate which int?
+
+  history of BH pairs  -- BlockHistory
+
+  schema BlockHistory
+
+  create table BlockHistory
+    (block  INT PRIMARY KEY
+    ,**header    varchar<256>) ** investigate best type for hashes
+    (BLOB seems to be the answer.)
+
+
+  history of BV pairs -- VersionHistory
+
+  schema VersionHistory
+
+  create table VersionHistory
+    (version  INT PRIMARY KEY
+    ,block    INT)
+
+  table management table -- VersionedTables
+
+  schema for VersionedTables
+
+  create table VersionedTables
+        (tableid   varchar<256> PRIMARY KEY
+        , block    INT
+        ,version   INT
+        , touchedBlock INT ** maybe
+        , touchedVersion INT ** maybe
+        )
+
+  tableid (primary key)
+
+  touched table
+
+
+
+-}
