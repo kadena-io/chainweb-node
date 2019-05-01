@@ -19,8 +19,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.Graph
 -- Copyright: Copyright © 2018 Kadena LLC.

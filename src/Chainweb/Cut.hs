@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -11,14 +10,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Cut
@@ -529,4 +527,3 @@ forkDepth wdb a b = do
     maxDepth l u = maximum
         $ (\(_, x, y) -> _blockHeight y - _blockHeight x)
         <$> zipCuts l u
-

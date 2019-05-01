@@ -52,7 +52,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Stack (HasCallStack)
 import Pact.Types.Command
-import Pact.Types.Util (Hash(..))
+import qualified Pact.Types.Hash as H
 ------------------------------------------------------------------------------
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -68,19 +68,19 @@ import Chainweb.Utils (fromJuste)
 import Data.CAS
 ------------------------------------------------------------------------------
 
-instance Bloom.Hashable Hash where
-    hashIO32 (Hash bytes) salt =
+instance Bloom.Hashable H.Hash where
+    hashIO32 (H.Hash bytes) salt =
         return $! fromIntegral $ hashWithSalt (fromIntegral salt) (hashCode :: Int)
       where
         hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 bytes)
 
-    hashIO64 (Hash bytes) salt =
+    hashIO64 (H.Hash bytes) salt =
         return $! fromIntegral $ hashWithSalt (fromIntegral salt) hashCode
       where
         hashCode = either error id $ runGetS getWord64host (B.take 8 bytes)
 
 
-type TransactionBloomCache_ = HashMap (BlockHeight, BlockHash) (Bloom Hash)
+type TransactionBloomCache_ = HashMap (BlockHeight, BlockHash) (Bloom H.Hash)
 
 data TransactionBloomCache = TransactionBloomCache {
     _map :: {-# UNPACK #-} !(IORef TransactionBloomCache_)
@@ -130,7 +130,7 @@ withCache
 withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
 
 
-member :: Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
+member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
 member h k (TransactionBloomCache mv _) = do
     mp <- readIORef mv
     -- N.B. return false positive on block missing
@@ -218,7 +218,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
         insBloom = do
             let payloadHash = _blockPayloadHash blockHeader
             (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
-            hashes <- mapM (fmap _cmdHash . fromTx) txsBs
+            hashes <- mapM (fmap (H.toUntypedHash . _cmdHash) . fromTx) txsBs
             let ~bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
             return $! HashMap.insert hkey bloom mp
 

@@ -45,9 +45,7 @@ import Prelude hiding (log)
 
 import qualified Streaming.Prelude as S
 
-import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.LogLevel
-import System.Path
 
 -- internal modules
 
@@ -68,7 +66,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Persist
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -106,7 +103,7 @@ instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
     {-# INLINE _chainId #-}
 
--- Intializes all local Chain resources, but doesn't start any networking.
+-- | Intializes all local Chain resources, but doesn't start any networking.
 --
 withChainResources
     :: Logger logger
@@ -127,7 +124,7 @@ withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
-            let pact = mkPactExecutionService mempool requestQ
+            let pact = pes mempool requestQ
             replayPact logger pact cdb payloadDb
 
             -- run inner
@@ -138,6 +135,14 @@ withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
                 , _chainResMempool = mempool
                 , _chainResPact = pact
                 }
+  where
+    pes mempool requestQ = case v of
+        Test{} -> emptyPactExecutionService
+        TimedConsensus{} -> emptyPactExecutionService
+        PowConsensus{} -> emptyPactExecutionService
+        TimedCPM{} -> mkPactExecutionService mempool requestQ
+        Testnet00 -> mkPactExecutionService mempool requestQ
+        Testnet01 -> mkPactExecutionService mempool requestQ
 
 replayPact
     :: HasCallStack
@@ -160,20 +165,6 @@ replayPact logger pact cdb pdb = do
         Just p -> return $ payloadWithOutputsToPayloadData p
 
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
-
-withPersistedDb
-    :: ChainId
-    -> Maybe (Path Absolute)
-    -> BlockHeaderDb
-    -> IO a
-    -> IO a
-withPersistedDb _ Nothing _ = id
-withPersistedDb cid (Just dir) db = bracket_ load (persist path db)
-  where
-    path = dir </> fragment "chain" <.> FileExt (T.unpack (toText cid))
-    load = do
-        createDirectoryIfMissing True (toFilePath dir)
-        whenM (doesFileExist $ toFilePath path) (restore path db)
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

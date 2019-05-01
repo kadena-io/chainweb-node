@@ -63,7 +63,6 @@ common warning-flags
         -Wall
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
-        -Wredundant-constraints
 
 custom-setup
     setup-depends:
@@ -81,6 +80,7 @@ library
     default-language: Haskell2010
     hs-source-dirs: src
     other-modules: PkgInfo
+    autogen-modules: PkgInfo
     exposed-modules:
           BackCompat.Test.QuickCheck
         , Chainweb.BlockHash
@@ -149,8 +149,6 @@ library
         , Chainweb.SPV.RestAPI.Client
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
-        , Chainweb.Store.Git
-        , Chainweb.Store.Git.Internal
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
@@ -228,7 +226,7 @@ library
           Decimal >= 0.4.2
         , QuickCheck >= 2.10
         , QuickCheck-GenT >=0.2
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
         , asn1-types >=0.3
@@ -260,7 +258,6 @@ library
         , fast-builder >= 0.1
         , hashable >= 1.2
         , heaps >= 0.3
-        , hlibgit2 >= 0.18
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
@@ -323,7 +320,6 @@ library
         , wai-extra >= 3.0
         , vector >= 0.12
         , vector-algorithms >= 0.8
-        , wai-middleware-metrics >= 0.2.4
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2
@@ -332,7 +328,7 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , xmlgen >= 0.6
-        , yaml >= 0.8
+        , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
     if flag(tls13)
@@ -378,7 +374,6 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
-        Chainweb.Test.Store.Git
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
@@ -391,7 +386,7 @@ test-suite chainweb-tests
         -- external
         , Decimal >= 0.4.2
         , QuickCheck >= 2.10
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11
         , base16-bytestring >= 0.1
@@ -453,35 +448,10 @@ test-suite chainweb-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
-        , yaml
+        , yaml >= 0.11
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
-
--- -------------------------------------------------------------------------- --
--- Chainweb Benchmarking
--- -------------------------------------------------------------------------- --
-
-benchmark chainweb-bench
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    type: exitcode-stdio-1.0
-    main-is: Bench.hs
-    hs-source-dirs:
-        bench
-    ghc-options:
-        -threaded
-        -O2
-        -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , base >= 4.11
-        , criterion >= 1.1
-        , streaming >= 0.2
-        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -495,6 +465,7 @@ executable chainweb-node
     ghc-options:
         -threaded
         -with-rtsopts=-N
+        -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
     other-modules:
@@ -507,7 +478,7 @@ executable chainweb-node
           chainweb
 
         -- external
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11
         , bytestring >= 0.10
@@ -561,7 +532,7 @@ executable slow-tests
         -- external
         , Decimal >= 0.4.2
         , QuickCheck >= 2.10
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11
         , base16-bytestring >= 0.1
@@ -707,7 +678,7 @@ executable transaction-generator
           chainweb
 
         --external
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.11
@@ -757,7 +728,7 @@ executable ea
         , pact
 
         -- external
-        , aeson
+        , aeson >= 1.4.3
         , aeson-pretty >= 0.8
         , base
         , base-prelude >= 1.3
@@ -768,7 +739,7 @@ executable ea
         , optparse-generic >= 1.3
         , text >= 1.2
         , vector >= 0.12
-        , yaml >= 0.8
+        , yaml >= 0.11
 
 -- -------------------------------------------------------------------------- --
 -- chain2gexf
@@ -786,7 +757,7 @@ executable chain2gexf
           chainweb
 
         -- external
-        , aeson >= 1.4
+        , aeson >= 1.4.3
         , base
         , bytestring
         , errors >= 2.3

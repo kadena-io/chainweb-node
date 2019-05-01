@@ -12,11 +12,13 @@ module Chainweb.Test.Pact.Utils
   someED25519Pair
 , testPactFilesDir
 , testKeyPairs
+
   -- * helper functions
 , getByteString
 , formatB16PubKey
 , mkPactTestTransactions
 , mkPactTransaction
+, pactTestLogger
 ) where
 
 import Control.Monad.Catch
@@ -25,6 +27,7 @@ import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
+import Data.Default (def)
 import Data.Text (Text, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
@@ -33,13 +36,14 @@ import Data.Vector (Vector)
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Types.API
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
-import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
-import Pact.Types.API
+import Pact.Types.Logger
+import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.Util (toB16Text)
-import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
 -- internal chainweb modules
 
@@ -52,8 +56,8 @@ testKeyPairs = do
         apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
     mkKeyPairs [apiKP]
 
-testPactFilesDir :: String
-testPactFilesDir = "test/config/"
+testPactFilesDir :: FilePath
+testPactFilesDir = "test/pact/"
 
 -- | note this is "sender00"'s key
 someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
@@ -108,3 +112,11 @@ _mkPactTransaction' theData theCode kps = do
   nonce <- pack . show <$> getCurrentTime
   t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
   BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
+
+pactTestLogger :: Loggers
+pactTestLogger = initLoggers putStrLn f def
+  where
+    f _ b "ERROR" d = doLog error b "ERROR" d
+    f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
+    f a b c d = doLog a b c d

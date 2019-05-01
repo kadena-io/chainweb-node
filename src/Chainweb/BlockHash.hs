@@ -21,9 +21,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- ixg
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.BlockHash
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -257,4 +254,3 @@ blockHashRecordFromSequence g cid = BlockHashRecord
     . HM.fromList
     . zip (sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
-

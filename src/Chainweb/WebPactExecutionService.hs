@@ -5,6 +5,7 @@ module Chainweb.WebPactExecutionService
   , PactExecutionService(..)
   , mkWebPactExecutionService
   , mkPactExecutionService
+  , emptyPactExecutionService
   ) where
 
 import Control.Concurrent.MVar
@@ -25,8 +26,8 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 
-import Pact.Types.Command
 import Data.Aeson (Value)
+import Pact.Types.Command
 
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
@@ -37,7 +38,6 @@ data PactExecutionService = PactExecutionService
 newtype WebPactExecutionService = WebPactExecutionService
   { _webPactExecutionService :: PactExecutionService
   }
-
 
 mkWebPactExecutionService :: HM.HashMap ChainId PactExecutionService -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
@@ -67,6 +67,16 @@ mkPactExecutionService mempool q = PactExecutionService
       mv <- local ct q
       takeMVar mv
   }
+
+-- | A mock execution service for testing scenarios. Throws out anything it's
+-- given.
+--
+emptyPactExecutionService :: PactExecutionService
+emptyPactExecutionService = PactExecutionService
+    { _pactValidateBlock = \_ _ -> pure emptyPayload
+    , _pactNewBlock = \_ _ -> pure emptyPayload
+    , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
+    }
 
 -- TODO: to support mempool transaction reintroduction we need to hook into
 -- consensus instead of just killing every tx that ever made it into a valid

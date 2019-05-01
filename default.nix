@@ -46,8 +46,8 @@ in
       in {
         aeson = callHackageDirect {
           pkg = "aeson";
-          ver = "1.4.2.0";
-          sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
+          ver = "1.4.3.0";
+          sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
         chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
@@ -55,8 +55,21 @@ in
           doHaddock = runTests;
           doCoverage = runCoverage;
         }));
+
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
+
+        yaml = callHackageDirect {
+          pkg = "yaml";
+          ver = "0.11.0.0";
+          sha256 = "0nw3k8bijs88ipvqadmiwbab7asj4kmf6r4l1dma30fyam0hj2kv";
+        };
+
+        libyaml = callHackageDirect {
+          pkg = "libyaml";
+          ver = "0.1.1.0";
+          sha256 = "1sh71s6hfrn3s2dh80lki8v412dzcrmyljrdvwksj3las3pl4ws9";
+        };
 
         x509 = callHackageDirect {
           pkg = "x509";
@@ -151,6 +164,7 @@ in
           ver = "0.2.1.0";
           sha256 = "1ys02jz4xg94g8z78cgafi24vjp7fyhf0slcyrhs1ffbhr8gqwm3";
         });
+
         fake = doJailbreak (callHackageDirect {
           pkg = "fake";
           ver = "0.1.1.1";
@@ -168,8 +182,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "641542c16dfbd3806c4e646429e90027b1f3d07f";
-          sha256 = "00cpdmhqvhzfhx5cw70pxi0afpk2z6km0w7hr7y1a0nkvrcb06ci";
+          rev = "0cf36de796dc88051fc34469e31a589317631fb9";
+          sha256 = "16k5m6rvj41g8md58gnh9qa9x53c5cyb92ql8xaap8vw2wl87zqf";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -177,8 +191,6 @@ in
           ver = "0.2.2.0";
           sha256 = "0yym840jnh2cma5n4c0pv3nh1hyhag1v6pks73wdikhrcajffsh3";
         };
-
-        wai-middleware-metrics = dontCheck super.wai-middleware-metrics;
 
         wai-cors = dontCheck (callHackageDirect {
           pkg = "wai-cors";
