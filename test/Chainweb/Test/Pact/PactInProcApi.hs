@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,8 +17,8 @@ module Chainweb.Test.Pact.PactInProcApi
 ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Concurrent.MVar.Strict
+import Control.Concurrent.STM
 import Control.Exception (Exception)
 
 import Data.Aeson (object, (.=))
@@ -84,7 +85,7 @@ withPact mempool f = withResource startPact stopPact $ f . fmap snd
     cid = someChainId testVersion
 
 newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
-newBlockTest label reqIO = pactGolden label $ do
+newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
     respVar <- newBlock noMiner genesisHeader reqQ
@@ -93,7 +94,7 @@ newBlockTest label reqIO = pactGolden label $ do
     cid = someChainId testVersion
 
 validateTest :: IO (TQueue RequestMsg) -> ScheduledTest
-validateTest reqIO = pactGoldenSch "validateBlock-0" $ do
+validateTest reqIO = goldenSch "validateBlock-0" $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
     respVar0 <- newBlock noMiner genesisHeader reqQ
@@ -122,7 +123,7 @@ validateTest reqIO = pactGoldenSch "validateBlock-0" $ do
     cid = someChainId testVersion
 
 localTest :: IO (TQueue RequestMsg) -> ScheduledTest
-localTest reqIO = pactGoldenSch "local" $ do
+localTest reqIO = goldenSch "local" $ do
     reqQ <- reqIO
     locVar0c <- testLocal >>= \t -> local t reqQ
     goldenBytes "local" =<< takeMVar locVar0c

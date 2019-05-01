@@ -121,7 +121,7 @@ runGhci :: IO ()
 runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = pactGolden "command-0-resp" $ do
+responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
