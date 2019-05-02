@@ -1,7 +1,5 @@
 packages: chainweb.cabal
 
--- with-compiler: ghc-8.4.4
-
 package chainweb
     tests: True
 
@@ -15,12 +13,12 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: git@github.com:kadena-io/thyme.git
+    location: https://github.com/kadena-io/thyme.git
     tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
 source-repository-package
     type: git
-    location: git@github.com:kadena-io/merkle-log.git
+    location: https://github.com/kadena-io/merkle-log.git
     tag: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
 
 constraints:

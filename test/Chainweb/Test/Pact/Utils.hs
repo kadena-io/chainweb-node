@@ -13,10 +13,6 @@ module Chainweb.Test.Pact.Utils
 , testPactFilesDir
 , testKeyPairs
 
-  -- * Golden Tests
-, pactGolden
-, pactGoldenSch
-
   -- * helper functions
 , getByteString
 , formatB16PubKey
@@ -31,33 +27,28 @@ import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy as BL
 import Data.Default (def)
 import Data.Text (Text, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import Data.Vector (Vector)
 
-import Test.Tasty
-import Test.Tasty.Golden
-
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Types.API
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
-import Pact.Types.RPC (PactRPC(Exec), ExecMsg(..))
-import Pact.Types.API
 import Pact.Types.Logger
+import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.Util (toB16Text)
-import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 
 -- internal chainweb modules
 
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Test.Utils
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -65,8 +56,8 @@ testKeyPairs = do
         apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
     mkKeyPairs [apiKP]
 
-testPactFilesDir :: String
-testPactFilesDir = "test/config/"
+testPactFilesDir :: FilePath
+testPactFilesDir = "test/pact/"
 
 -- | note this is "sender00"'s key
 someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
@@ -78,30 +69,6 @@ someED25519Pair =
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
     , ED25519
     )
-
--- -------------------------------------------------------------------------- --
--- Golden Tests
-
-pactGolden
-    :: String
-        -- ^ Test Label
-    -> IO BL.ByteString
-        -- ^ Test action
-    -> TestTree
-pactGolden label
-    = goldenVsString label (testPactFilesDir <> fp)
-  where
-    fp = label <> "-expected.txt"
-
-
-pactGoldenSch
-    :: String
-        -- ^ Test Label
-    -> IO BL.ByteString
-        -- ^ Test action
-    -> ScheduledTest
-pactGoldenSch l = ScheduledTest l . pactGolden l
-{-# INLINE pactGoldenSch #-}
 
 ------------------------------------------------------------------------------
 -- helper logic
@@ -153,4 +120,3 @@ pactTestLogger = initLoggers putStrLn f def
     f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
     f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
-
