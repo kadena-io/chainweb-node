@@ -7,7 +7,6 @@ import Test.Tasty
 import Control.Concurrent
 import Control.Exception
 import qualified Data.Pool as Pool
-import qualified Network.Socket as N
 ------------------------------------------------------------------------------
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
@@ -39,7 +38,7 @@ newTestServer inmemCfg = mask_ $ do
     host = "127.0.0.1"
     server inmemMv portMv restore = InMem.withInMemoryMempool inmemCfg $ \inmem -> do
         putMVar inmemMv inmem
-        restore $ M.server inmem host N.aNY_PORT portMv
+        restore $ M.server inmem host 0 portMv
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer cs _ _ tid) =

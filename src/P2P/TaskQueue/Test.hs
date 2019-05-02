@@ -66,13 +66,13 @@ test1 n = do
 
 test2a :: (Positive Int) -> IO Bool
 test2a (Positive n_) = do
-    tasks <- forM [0..n] $ \i ->
+    tasks <- forM [10..n+10] $ \i ->
         newTask (TaskId $ sshow i) (Priority (n - i)) $ \_ -> return @_ @Int
     q <- newEmptyPQueue
     withAsync (testRunner 3 q) $ \_ -> do
         traverse_ (pQueueInsert q) tasks
         results <- traverse awaitTask tasks
-        return $ results /= [0..n]
+        return $ results /= [10..n+10]
   where
     n = n_ + 10
 

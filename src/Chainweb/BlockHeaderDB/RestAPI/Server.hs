@@ -59,7 +59,7 @@ import Chainweb.Version
 -- Handler Tools
 
 checkKey
-    :: MonadError ServantErr m
+    :: MonadError ServerError m
     => MonadIO m
     => TreeDb db
     => db
@@ -72,8 +72,12 @@ checkKey db k = liftIO (lookup db k) >>= \case
         ]
     Just _ -> pure k
 
-err404Msg :: ToJSON msg  => msg -> ServantErr
+err404Msg :: ToJSON msg  => msg -> ServerError
+#if MIN_VERSION_servant(0,16,0)
+err404Msg msg = ServerError
+#else
 err404Msg msg = ServantErr
+#endif
     { errHTTPCode = 404
     , errReasonPhrase = "Not Found"
     , errBody = encode msg
@@ -83,7 +87,7 @@ err404Msg msg = ServantErr
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
 --
 checkBounds
-    :: MonadError ServantErr m
+    :: MonadError ServerError m
     => MonadIO m
     => TreeDb db
     => db

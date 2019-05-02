@@ -353,7 +353,7 @@ instance MonadTrans TransactionGenerator where
 sendTransaction ::
      (MonadIO m)
   => Command Text
-  -> TransactionGenerator m (Either ServantError RequestKeys)
+  -> TransactionGenerator m (Either ClientError RequestKeys)
 sendTransaction cmd = do
   cenv <- view genClientEnv
   chain <- view genChainId
@@ -378,7 +378,7 @@ loop measure@(MeasureTime mtime) = do
 
 forkedListens ::
      (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => Either ServantError RequestKeys
+  => Either ClientError RequestKeys
   -> TransactionGenerator m ()
 forkedListens requestKeys = do
   err <- mapM (mapM forkedListen) (mapM _rkRequestKeys requestKeys)
