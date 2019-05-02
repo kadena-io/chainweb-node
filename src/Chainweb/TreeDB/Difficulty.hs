@@ -76,6 +76,20 @@ hashTarget db bh
           -- so easy that mining progresses extremely quickly. In order to not
           -- overwhelm the Cut network, we perform earlier adjustments before
           -- the first "official" adjustment epoch is reached.
+          --
+          -- For the early adjustment intervals to remain balanced in both their
+          -- effect and timing, we must base them off the full `WindowWidth`,
+          -- which is derived from the `ChainwebVersion`. For production
+          -- `ChainwebVersion`s, we can assume two things about this number:
+          --
+          --   1. It is even.
+          --   2. It is large enough to be divisible by 10.
+          --
+          -- By splitting the early adjustments into 10 chunks, we guarantee
+          -- that the first adjustment comes quickly. Experimentally, it also
+          -- has the effect of forcing the network into a consensus almost
+          -- immediately - usually between 30s and a minute for 40 machines
+          -- spread across the earth.
           | height < n -> n `div` 10
           | otherwise -> n
       Nothing -> error $ "hashTarget: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
