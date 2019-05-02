@@ -18,9 +18,11 @@
 --
 module Chainweb.Test.CutDB
 ( withTestCutDb
+, withTestCutDbWithoutPact
 , withTestPayloadResource
 , randomTransaction
 , randomBlockHeader
+, fakePact
 ) where
 
 import Control.Concurrent.Async
@@ -83,21 +85,51 @@ withTestCutDb
     . HasCallStack
     => RocksDb
     -> ChainwebVersion
+        -- ^ the chainweb version
     -> Int
+        -- ^ number of blocks in the chainweb in addition to the genesis blocks
+    -> WebPactExecutionService
+        -- ^ a pact execution service.
+        --
+        -- When transaction don't matter you can use 'fakePact' from this module.
+        --
+        -- The function "testWebPactExecutionService" provides an pact execution
+        -- service that can be given a transaction generator, that allows to
+        -- create blocks with a well-defined set of test transactions.
+        --
     -> LogFunction
     -> (CutDb RocksDbCas -> IO a)
+        -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> IO a
-withTestCutDb rdb v n logfun f = do
+withTestCutDb rdb v n pact logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
-        withLocalPayloadStore mgr payloadDb $ \payloadStore ->
+        withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
-                foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
+                foldM_ (\c _ -> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
+
+-- | This function calls 'withTestCutDb' with a fake pact execution service. It
+-- can be used in tests where the semantics of pact transactions isn't
+-- important.
+--
+withTestCutDbWithoutPact
+    :: forall a
+    . HasCallStack
+    => RocksDb
+    -> ChainwebVersion
+        -- ^ the chainweb version
+    -> Int
+        -- ^ number of blocks in the chainweb in addition to the genesis blocks
+    -> LogFunction
+        -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> (CutDb RocksDbCas -> IO a)
+    -> IO a
+withTestCutDbWithoutPact rdb v n = withTestCutDb rdb v n fakePact
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
@@ -132,7 +164,7 @@ startTestPayload rdb v logfun n = do
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore
-    foldM_ (\c _ -> mine cutDb c) (genesisCut v) [0..n]
+    foldM_ (\c _ -> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
 stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
@@ -162,11 +194,12 @@ startLocalWebBlockHeaderStore mgr webDb = do
 withLocalPayloadStore
     :: HTTP.Manager
     -> PayloadDb cas
+    -> WebPactExecutionService
     -> (WebBlockPayloadStore cas -> IO a)
     -> IO a
-withLocalPayloadStore mgr payloadDb inner = withNoopQueueServer $ \queue -> do
+withLocalPayloadStore mgr payloadDb pact inner = withNoopQueueServer $ \queue -> do
     mem <- new
-    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact
+    inner $ WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr pact
 
 startLocalPayloadStore
     :: HTTP.Manager
@@ -183,10 +216,16 @@ startLocalPayloadStore mgr payloadDb = do
 mine
     :: HasCallStack
     => PayloadCas cas
-    => CutDb cas
+    => MinerInfo
+        -- ^ The miner. For testing you may use 'defaultMiner'.
+        -- miner.
+    -> WebPactExecutionService
+        -- ^ only the new-block generator is used. For testing you may use
+        -- 'fakePact'.
+    -> CutDb cas
     -> Cut
     -> IO Cut
-mine cutDb c = do
+mine miner pact cutDb c = do
     -- pick chain
     cid <- randomChainId cutDb
 
@@ -196,20 +235,17 @@ mine cutDb c = do
     -- No difficulty adjustment
     let target = _blockTarget parent
 
-    -- generate transactions
-    payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
-    miner <- generate arbitrary
-    coinbase <- generate arbitrary
-
     -- compute payloadHash
-    let outputs = newPayloadWithOutputs miner coinbase payload
-        payloadHash = _payloadWithOutputsPayloadHash outputs
+    outputs <- _webPactNewBlock pact miner parent
+    let payloadHash = _payloadWithOutputsPayloadHash outputs
 
     -- mine new block
     t <- getCurrentTimeIntegral
     give webDb (testMine (Nonce 0) target t payloadHash (NodeId 0) cid c) >>= \case
-        Left _ -> mine cutDb c
+        Left _ -> mine miner pact cutDb c
         Right (T2 _ c') -> do
+            -- TODO: call pact validation for new block payload
+
             -- add payload to db
             addNewPayload payloadDb outputs
 
@@ -270,18 +306,26 @@ randomTransaction cutDb = do
   where
     payloadDb = view cutDbPayloadCas cutDb
 
-
-
--- | FAKE pact execution service
+-- | FAKE pact execution service.
+--
+-- * The miner info parameter is ignored and the miner data is "fakeMiner".
+-- * The block header parameter is ignored and transactions are just random bytestrings.
+-- * The generated outputs are just the transaction bytes themself.
+-- * The coinbase is 'noCoinbase'
 --
 fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_h -> error "Unimplemented"
+  , _pactNewBlock = \_ _ -> do
+        payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
+        return $ newPayloadWithOutputs fakeMiner coinbase payload
+
   , _pactLocal = \_t -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = toCoinbaseOutput noCoinbase
+    fakeMiner = MinerData "fakeMiner"
+

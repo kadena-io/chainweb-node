@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -18,16 +19,8 @@ module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
 
-import Control.Applicative
-import Control.Concurrent.MVar
-import Control.Monad.State.Strict
-import Control.Monad.Trans.Reader
-
 import Data.Aeson
-import Data.Default (def)
-import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe
 import Data.String.Conv (toS)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -41,35 +34,26 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Pact.Gas
-import Pact.Interpreter
-import Pact.Types.Gas
-import Pact.Types.Logger
-import qualified Pact.Types.Runtime as P
-import Pact.Types.Server
-
 import Chainweb.BlockHash
-import Chainweb.Pact.Backend.InMemoryCheckpointer
-import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..))
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
 tests = testGroupSch "Simple pact execution tests"
-    [ withPactCtx $ \ctx -> testGroup "single transactions"
+    [ withPactCtx testVersion $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtx $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtx testVersion $ \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -93,11 +77,6 @@ data TestResponse = TestResponse
     , _trCoinBaseOutput :: !FullLogTxOutput
     }
     deriving (Generic, ToJSON)
-
-data PactTestSetup = PactTestSetup
-  { _pactServiceEnv :: !PactServiceEnv
-  , _pactDbState :: !PactDbState
-  }
 
 -- -------------------------------------------------------------------------- --
 -- sample data
@@ -147,57 +126,6 @@ testReq6 = TestRequest
 
 -- -------------------------------------------------------------------------- --
 -- Utils
-
--- | This enforces that only a single test can use the pact context at a time.
--- It's up to the user to ensure that tests are scheduled in the right order.
---
-withPactCtx :: ((forall a . PactServiceM a -> IO a) -> TestTree) -> TestTree
-withPactCtx f
-    = withResource start stop $ \ctxIO -> f $ \pact -> do
-        (pactStateVar, env) <- ctxIO
-        modifyMVar pactStateVar $ \s -> do
-            (a,s') <- runStateT (runReaderT pact env) s
-            return (s',a)
-
-  where
-    start :: IO (MVar PactServiceState, PactServiceEnv)
-    start = do
-        (PactTestSetup env dbSt) <- pactTestSetup
-        let pss = PactServiceState dbSt Nothing
-            cid = someChainId testVersion
-        pss' <- flip execStateT pss $ flip runReaderT env $ do
-            initialPayloadState testVersion cid
-        pactStateVar <- newMVar pss'
-        return (pactStateVar, env)
-
-    stop :: (MVar PactServiceState, PactServiceEnv) -> IO ()
-    stop (var, _) = void $ takeMVar var
-
-pactTestSetup :: IO PactTestSetup
-pactTestSetup = do
-    (cpe, theState) <-
-        case _ccSqlite cmdConfig of
-            Nothing -> do
-                env <- mkPureEnv loggers
-                liftA2 (,) (initInMemoryCheckpointEnv cmdConfig logger gasEnv)
-                    (mkPureState env cmdConfig)
-            Just sqlc -> do
-                env <- mkSQLiteEnv logger False sqlc loggers
-                liftA2 (,) (initSQLiteCheckpointEnv cmdConfig logger gasEnv)
-                    (mkSQLiteState env cmdConfig)
-
-    void $! saveInitial (_cpeCheckpointer cpe) theState
-    let env = PactServiceEnv Nothing cpe P.noSPVSupport def
-
-    pure $ PactTestSetup env theState
-  where
-    loggers = pactTestLogger
-    logger = newLogger loggers $ LogName "PactService"
-    pactCfg = pactDbConfig testVersion
-    cmdConfig = toCommandConfig pactCfg
-    gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
-    gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
-    gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
 
 execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do

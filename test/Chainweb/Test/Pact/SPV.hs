@@ -155,7 +155,7 @@ createCoinCmd tx = buildExecParsedCode spvData
 spvIntegrationTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvIntegrationTest rdb v step = do
     step "setup pact service and spv support"
-    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
       withPactSetup cutDb $  \_pse _st -> do
         step "pick random transaction"
         (h, txIx, _, _) <- randomTransaction cutDb
@@ -185,3 +185,4 @@ spvIntegrationTest rdb v step = do
 
         step "execute spv command"
         undefined
+
