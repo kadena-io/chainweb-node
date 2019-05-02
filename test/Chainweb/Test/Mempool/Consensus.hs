@@ -1,14 +1,12 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
-import Control.Lens
 
 import Data.Hashable
 import Data.Int
@@ -46,11 +44,26 @@ data ForkInfo = ForkInfo
   , _fiNewHeader :: BlockHeader
   , _fiOldForkTrans :: Set TransactionHash
   , _fiNewForkTrans :: Set TransactionHash
-  , _fiHeaderTree :: Tree BlockHeader
-  } deriving (Eq, Show)
+  , _fiHeaderTree :: Tree BlockTrans
+  } deriving (Show)
 
-makeLenses ''ForkInfo
+type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
 
+data BlockTrans = BlockTrans
+    { btBlockHeader :: BlockHeader
+    , btTransactions :: Set TransactionHash }
+
+data FakePayload = FakePayload
+    { _fplHash :: BlockPayloadHash
+    , _fplTxHashes :: [TransactionHash]
+    }
+    deriving (Show, Eq, Ord, Generic, Hashable)
+
+instance IsCasValue FakePayload where
+    type CasKeyType FakePayload = BlockPayloadHash
+    casKey (FakePayload bh txs) = bh
+
+----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
 prop_validTxsSource :: ForkInfo -> Bool
@@ -68,22 +81,56 @@ testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 run :: IO ()
 run = do
     payloadDb <- newFakePayloadDb
-    let theGen = genFork payloadDb
+    let theGenInfo = genFork payloadDb
+    sample theGenInfo
     return ()
+
+buildForkInfo :: Tree BlockTrans -> ForkInfo
+buildForkInfo t =
+    let (trunk, left, right) = splitNodes t
+    in ForkInfo
+      { _fiOldHeader = btBlockHeader (last left)
+      , _fiNewHeader = btBlockHeader (last right)
+      ,  _fiOldForkTrans = S.unions (btTransactions <$> left)
+      ,  _fiNewForkTrans = S.unions (btTransactions <$> right)
+      ,  _fiHeaderTree = t
+      }
+
+
+-- | Split the nodes into a triple of lists (xs, ys, zs) where xs = the nodes on the trunk before
+--   the fork, ys = the nodes on the left fork, and zs = the nodes on the right fork
+splitNodes :: Tree BlockTrans -> BT3
+splitNodes t =
+    let (trunk, restOfTree) = takeTrunk t
+        (leftFork, rightFork) = case restOfTree of
+            Node bt (x : y : zs) -> (takeFork x [], takeFork y [])
+            someTree -> ([], []) -- should never happen
+    in (trunk, leftFork, rightFork)
+
+takeTrunk :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
+takeTrunk theTree =
+    go theTree []
+  where
+    go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
+    go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
+    go t@(Node bt (x : y : [])) xs = (xs, t) -- reached the fork
+    go someTree xs = (xs, someTree) -- should never happen
+
+takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
+takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
+takeFork (Node bt []) xs = xs -- done with the fork
+takeFork someTree xs = xs -- should never happen
 
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
--- TODO: Remove the maybe
-genFork :: C.HashMapCas FakePayload -> Gen (Maybe ForkInfo)
+-- genFork :: C.HashMapCas FakePayload -> Gen (Tree BlockTrans)
+genFork :: C.HashMapCas FakePayload -> Gen ForkInfo
 genFork store = do
     allTxs <- getTransPool
     h0 <- genesis testVersion
     theTree <- genTree h0 allTxs
-    return Nothing
--- TODO: fold a list (of BlockHeader -> [TrasnsactionHash]) from the tree & add them to the store
--- foldTree :: (a -> [b] -> b) -> Tree a -> b
--- TODO: get the left and right leaf elements as the 'head' of the old/new forks
+    return $ buildForkInfo theTree
 
 getTransPool :: Gen (Set TransactionHash)
 getTransPool = do
@@ -96,12 +143,11 @@ getTransPool = do
 mkMockTx :: Int64 -> Gen MockTx
 mkMockTx n = do
     time <- arbitrary :: Gen (Time Int64)
-    let mockMeta = TransactionMetadata time time
     return MockTx
         { mockNonce = n
         , mockGasPrice = GasPrice 0
         , mockGasLimit = mockBlockGasLimit
-        , mockMeta = mockMeta
+        , mockMeta = TransactionMetadata time time
         }
 
 takeTrans :: Set TransactionHash -> Gen (Set TransactionHash, Set TransactionHash)
@@ -109,66 +155,46 @@ takeTrans txs = do
     n <- choose (1, 3)
     return $ S.splitAt n txs
 
-data BlockTrans = BlockTrans
-    { btBlockHeader :: BlockHeader
-    , btTransactions :: Set TransactionHash }
+instance Show BlockTrans where
+    show bt =
+      "BlockTrans - someHeaderFields {_blockParent = " ++ show (_blockParent (btBlockHeader bt))
+           ++ ", _blockHash = " ++ show (_blockHash (btBlockHeader bt))
+           ++ ", _blockHeight = " ++ show (_blockHeight (btBlockHeader bt)) ++ "}"
+           ++ "\nNumber of transactions: " ++ show (S.size (btTransactions bt)) ++ "\n\n"
 
-genTree
-    :: BlockHeader
-    -> Set TransactionHash
-    -> Gen (Tree BlockTrans)
+
+genTree :: BlockHeader -> Set TransactionHash -> Gen (Tree BlockTrans)
 genTree h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
     listOfOne <- preForkTrunk next theRest
-    return $ Node
-        BlockTrans { btBlockHeader = h, btTransactions = takenNow }
-        listOfOne
+    return $ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOfOne
 
-preForkTrunk
-    :: BlockHeader
-    -> Set TransactionHash
-    -> Gen (Forest BlockTrans)
+preForkTrunk :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
 preForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-
     children <- frequency [ (1, fork next theRest)
                           , (3, preForkTrunk next theRest) ]
     return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } children ]
 
-
-fork
-    :: BlockHeader
-    -> Set TransactionHash
-    -> Gen (Forest BlockTrans)
+fork :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
 fork h avail = do
-    next <- header' h
+    nextLeft <- header' h
+    nextRight <- header' h
     (takenNow, theRest) <- takeTrans avail
+    left <- postForkTrunk nextLeft theRest
+    right <- postForkTrunk nextRight theRest
+    return $ [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } (left ++ right) ]
 
-    left <- postForkTrunk next theRest
-    right <- postForkTrunk next theRest -- TODO: what header to use here?
-    return $
-        [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow }
-               (left ++ right)
-        ]
-
-postForkTrunk
-  :: BlockHeader
-  -> Set TransactionHash
-  -> Gen (Forest BlockTrans)
+postForkTrunk :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
 postForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-
     listOf0or1 <- frequency
         [ (1, return [])
-        , (3, postForkTrunk next theRest)
-        ]
-    return $
-        [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow }
-               listOf0or1
-        ]
+        , (3, postForkTrunk next theRest) ]
+    return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOf0or1 ]
 
 header' :: BlockHeader -> Gen BlockHeader
 header' h = do
@@ -183,7 +209,7 @@ header' h = do
             :+: target
             :+: testBlockPayload h
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
             :+: miner
@@ -196,16 +222,6 @@ header' h = do
   -- duplicated, since not exported from Chaineweb.Test.Utils
 genesis :: ChainwebVersion -> Gen BlockHeader
 genesis v = either (error . show) return $ genesisBlockHeaderForChain v (0 :: Int)
-
-data FakePayload = FakePayload
-    { _fplHash :: BlockPayloadHash
-    , _fplTxHashes :: [TransactionHash]
-    }
-    deriving (Show, Eq, Ord, Generic, Hashable)
-
-instance IsCasValue FakePayload where
-    type CasKeyType FakePayload = BlockPayloadHash
-    casKey (FakePayload bh txs) = bh
 
 newFakePayloadDb :: IO (C.HashMapCas FakePayload)
 newFakePayloadDb = C.emptyCas
