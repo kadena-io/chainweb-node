@@ -48,7 +48,8 @@ import Prelude hiding (log)
 
 import System.IO.Extra
 
-import Test.Tasty.HUnit
+
+-- import Test.Tasty.HUnit
 
 -- pact
 
@@ -192,6 +193,11 @@ nonVersionInsert c ins =
         , SInt (fromIntegral bh)
         , SInt (_getReOrgVersion version)
         ]
+
+assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
+assertEqual msg a b = if a == b
+  then return ()
+  else error $ msg ++ ": " ++ show a ++ " is not equal to " ++ show b
 
 _insertionTest  :: IO (Either Error ())
 _insertionTest = withTempSQLiteConnection $ \case
