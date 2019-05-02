@@ -18,6 +18,8 @@
 --
 module Chainweb.Test.CutDB
 ( withTestCutDb
+, extendTestCutDb
+, syncPact
 , withTestCutDbWithoutPact
 , withTestPayloadResource
 , randomTransaction
@@ -36,6 +38,8 @@ import Data.Tuple.Strict
 import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
+
+import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
@@ -112,6 +116,45 @@ withTestCutDb rdb v n pact logfun f = do
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
                 foldM_ (\c _ -> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
+
+-- | Adds the requested number of new blocks to the given 'CutDb'.
+--
+-- It is assumed that the 'WebPactExecutionService' is synced with the 'CutDb'.
+-- This can be done by calling 'syncPact'. The 'WebPactExecutionService' that
+-- was used to generate the given CutDb is already synced.
+--
+-- If the 'WebPactExecutionService' is not synced with the 'CutDb', this
+-- function will result in an exception @PactInternalError
+-- "InMemoryCheckpointer: Restore not found"@.
+--
+extendTestCutDb
+    :: PayloadCas cas
+    => CutDb cas
+    -> WebPactExecutionService
+    -> Natural
+    -> IO ()
+extendTestCutDb cutDb pact n = do
+    cur <- _cut cutDb
+    foldM_ (\c _ -> mine defaultMiner pact cutDb c) cur [0..n]
+
+-- | Synchronize the a 'WebPactExecutionService' with a 'CutDb' by replaying all
+-- transactions of the payloads of all blocks in the 'CutDb'.
+--
+syncPact
+    :: PayloadCas cas
+    => CutDb cas
+    -> WebPactExecutionService
+    -> IO ()
+syncPact cutDb pact =
+    void $ webEntries bhdb $ \s -> s
+        & S.filter ((/= 0) . _blockHeight)
+        & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h)
+  where
+    bhdb = view cutDbWebBlockHeaderDb cutDb
+    pdb = view cutDbPayloadCas cutDb
+    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
+        Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
+        Just p -> return $ payloadWithOutputsToPayloadData p
 
 -- | This function calls 'withTestCutDb' with a fake pact execution service. It
 -- can be used in tests where the semantics of pact transactions isn't
@@ -244,7 +287,7 @@ mine miner pact cutDb c = do
     give webDb (testMine (Nonce 0) target t payloadHash (NodeId 0) cid c) >>= \case
         Left _ -> mine miner pact cutDb c
         Right (T2 h c') -> do
-            _webPactValidateBlock pact h (payloadWithOutputsToPayloadData outputs)
+            void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData outputs)
 
             -- add payload to db
             addNewPayload payloadDb outputs
