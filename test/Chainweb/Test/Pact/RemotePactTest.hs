@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -76,6 +77,9 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
+#if ! MIN_VERSION_servant(0,16,0)
+import Chainweb.RestAPI.Utils
+#endif
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -205,7 +209,7 @@ maxSendRetries :: Int
 maxSendRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
+sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ClientError RequestKeys)
 sendWithRetry cmds env sb = go maxSendRetries
   where
     go retries =  do
@@ -226,7 +230,7 @@ maxPollRetries :: Int
 maxPollRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
+pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ClientError PollResponses)
 pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries
