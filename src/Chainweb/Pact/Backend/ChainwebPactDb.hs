@@ -13,6 +13,9 @@
 
 module Chainweb.Pact.Backend.ChainwebPactDb
   ( chainwebpactdb
+  , createBlockHistoryTable
+  , createVersionHistoryTable
+  , createVersionedTablesTable
   , SQLiteEnv(..)
   , sConn
   , sConfig
@@ -24,23 +27,24 @@ module Chainweb.Pact.Backend.ChainwebPactDb
   , detectVersionChange
   , onVersionChange
   , OnVersionChange(..)
+  , nonVersionInsert
+  , NonVersionInsert(..)
+  , withSQLiteConnection
+  , withTempSQLiteConnection
   ) where
 
--- import Control.Concurrent.MVar
--- import Control.Monad.State.Strict
 import Control.Lens
 import Control.Monad.Reader
+import Control.Monad.Catch hiding (bracket)
 import Control.Exception
 
--- import Data.Text.Encoding
--- import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import Data.Int
 import Data.Serialize (encode)
 import Data.String
 import Data.String.Conv
-import Data.Time.Clock
-import Data.Time.Format
+
+
 import Database.SQLite3.Direct as SQ3
 import qualified Data.Aeson as A
 
@@ -48,17 +52,14 @@ import Prelude hiding (log)
 
 import System.IO.Extra
 
-
--- import Test.Tasty.HUnit
-
 -- pact
 
--- import Pact.Interpreter
 import Pact.Persist hiding (beginTx, commitTx, rollbackTx, createTable)
 import Pact.Persist.SQLite
--- import Pact.PersistPactDb hiding (log)
 import Pact.Types.Logger hiding (log)
 import Pact.Types.Persistence
+import Pact.Types.Pretty (prettyString, viaShow)
+import Pact.Types.Runtime (throwDbError)
 import Pact.Types.SQLite
 import Pact.Types.Term(ModuleName(..), TableName(..))
 
@@ -135,15 +136,6 @@ data BlockVersion = BlockVersion
 
 makeLenses ''BlockVersion
 
-_checkTableExist :: Database -> Utf8 -> IO [[SType]]
-_checkTableExist c name =
-  qry_
-    c
-    ("SELECT name FROM sqlite_master WHERE type='table' AND name='" <> name <> "';")
-    [RText]
-
--- newtype WithSQLiteConection a = WithSQLiteConection ((Either Error Database) -> IO
-
 withSQLiteConnection :: String -> (Either (Error, Utf8) Database -> IO c) -> IO c
 withSQLiteConnection file = bracket (open (fromString file <> ".sqlite")) closer
   where
@@ -151,18 +143,6 @@ withSQLiteConnection file = bracket (open (fromString file <> ".sqlite")) closer
 
 withTempSQLiteConnection :: (Either (Error, Utf8) Database -> IO c) -> IO c
 withTempSQLiteConnection action = withTempDir (\file -> withSQLiteConnection file action)
-
-_dirtSimpleDbTest :: IO (Either Error ())
-_dirtSimpleDbTest = withTempSQLiteConnection $ \case
-   Left l -> return (Left $ fst l)
-   Right c -> do
-     createBlockHistoryTable c
-     createVersionHistoryTable c
-     createVersionedTablesTable c
-     _checkTableExist c "BlockHistory" >>= print
-     _checkTableExist c "VersionHistory" >>= print
-     _checkTableExist c "VersionedTables" >>= print
-     return (Right ())
 
 data NonVersionInsert
   = BlockHistory BlockHeight
@@ -194,182 +174,104 @@ nonVersionInsert c ins =
         , SInt (_getReOrgVersion version)
         ]
 
-assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
-assertEqual msg a b = if a == b
-  then return ()
-  else error $ msg ++ ": " ++ show a ++ " is not equal to " ++ show b
-
-_insertionTest  :: IO (Either Error ())
-_insertionTest = withTempSQLiteConnection $ \case
-  Left l -> return (Left $ fst l)
-  Right c -> do
-    createBlockHistoryTable c
-    nonVersionInsert c (BlockHistory (BlockHeight 0) nullBlockHash)
-    res1 <- qry_ c "SELECT * FROM BlockHistory;" [RInt, RBlob]
-    assertEqual "Read the BlockHistoryTable Table" res1 ans1
-    createVersionHistoryTable c
-    nonVersionInsert c (VersionHistory (BlockVersion (BlockHeight 0) (ReorgVersion 0)))
-    res2 <- qry_ c "SELECT * FROM VersionHistory;" [RInt, RInt]
-    assertEqual "Read the VersionHistoryTable Table" res2 ans2
-    createVersionedTablesTable c
-    nonVersionInsert c
-        (VersionedTables (TableName "user1") (BlockVersion (BlockHeight 0) (ReorgVersion 0)))
-    res3 <- qry_ c "SELECT * FROM VersionedTables;" [RText, RInt, RInt]
-    assertEqual "Read the VersionedTables Table" res3 ans3
-    return $ Right ()
-  where
-    ans1 =
-      [ [ SInt 0
-        , SBlob
-            "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-        ]
-      ]
-    ans2 = [[SInt 0,SInt 0]]
-    ans3 = [[SText "user1",SInt 0,SInt 0]]
-
-
 createBlockHistoryTable :: Database -> IO ()
 createBlockHistoryTable c =
-  exec_
-    c
-    "CREATE TABLE BlockHistory(blockheight UNSIGNED BIGINT PRIMARY KEY,hash BLOB);"
+  exec_ c
+    "CREATE TABLE BlockHistory\
+    \(blockheight UNSIGNED BIGINT PRIMARY KEY,\
+    \hash BLOB);"
 
 createVersionHistoryTable  :: Database -> IO ()
 createVersionHistoryTable c =
-  exec_
-    c
-    "CREATE TABLE VersionHistory (version UNSIGNED BIGINT PRIMARY KEY,blockheight UNSIGNED BIGINT);"
+  exec_ c
+    "CREATE TABLE VersionHistory\
+    \ (version UNSIGNED BIGINT PRIMARY KEY\
+    \,blockheight UNSIGNED BIGINT);"
 
 createVersionedTablesTable  :: Database -> IO ()
 createVersionedTablesTable c =
-  exec_
-    c
+  exec_ c
     "CREATE TABLE VersionedTables (tableid TEXT PRIMARY KEY\
   \ , blockheight UNSIGNED BIGINT\
   \ , version UNSIGNED BIGINT);"
-
-{-
-
-for ints, investigate which int?
-
-  history of BH pairs  -- BlockHistory
-
-  schema BlockHistory
-
-  create table BlockHistory
-    (block  INT PRIMARY KEY
-    ,**header    varchar<256>) ** investigate best type for hashes
-    (BLOB seems to be the answer.)
-
-
-  history of BV pairs -- VersionHistory
-
-  schema VersionHistory
-
-  create table VersionHistory
-    (version  INT PRIMARY KEY
-    ,block    INT)
-
-  table management table -- VersionedTables
-
-  schema for VersionedTables
-
-  create table VersionedTables
-        (tableid   varchar<256> PRIMARY KEY
-        , block    INT
-        ,version   INT
-        , touchedBlock INT ** maybe
-        , touchedVersion INT ** maybe
-        )
-
-  tableid (primary key)
-
-  touched table
-
-
-
--}
 
 detectVersionChange ::
      Database
   -> BlockHeight
   -> BlockHash
-  -> IO (Either String OnVersionChange)
+  -> IO OnVersionChange
 detectVersionChange c bRestore hsh  = do
-  let sqlBtoBH [[SInt bh]] = BlockHeight (fromIntegral bh)
-      sqlBtoBH _ = error "sqlBtoBH: wat"
-      sqlVtoV [[SInt version]] = ReorgVersion version
-      sqlVtoV _ = error "sqlVtoV: wat"
-  bCurrent <- sqlBtoBH <$>
-    qry_ c "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
-  vCurrent <- sqlVtoV <$>
-    qry_ c "SELECT max(version) AS current_version FROM VersionHistory;" [RInt]
+  bCurrent <- do
+    r <- qry_ c "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
+    case r of
+      [[SInt bh]] -> return $ BlockHeight (fromIntegral bh)
+      _ -> throwDbError $ "detectVersionChange: expected single row int response, got: " <> viaShow r
+  vCurrent <- do
+    r <- qry_ c "SELECT max(version) AS current_version FROM VersionHistory;" [RInt]
+    case r of
+      [[SInt version]] -> return $ ReorgVersion version
+      _ -> throwDbError $ "detectVersionChange: expected single row int response, got: " <> viaShow r
 
   -- enforce invariant that the history has (B_restore-1,H_parent).
   historyInvariant <-
-    qry c "SELECT COUNT(*)\
+    expectSing "Expecting a single column: " =<<
+    expectSing "Expecting a single row: " =<<
+        qry c "SELECT COUNT(*)\
            \ FROM BlockHistory\
            \ WHERE blockheight = (?)\
            \ AND hash = (?);" [SInt $ fromIntegral $ pred bRestore, SBlob (encode hsh)] [RInt]
 
-  if historyInvariant /= [[SInt 1]]
-    then return $ Left "HistoryInvariantViolation"
+  if historyInvariant /= SInt 1
+    then throwM HistoryInvariantViolation
   -- enforce invariant that B_restore is not greater than B_current + 1
-    else return $ case compare bRestore (bCurrent + 1) of
-        GT -> Left "RestoreInvariantViolation"
-        EQ -> Right $ NormalOperation (BlockVersion bRestore vCurrent)
-        LT -> Right $ Forking (BlockVersion bRestore (vCurrent + 1))
+    else case compare bRestore (bCurrent + 1) of
+        GT -> throwM RestoreInvariantViolation
+        EQ -> return $ NormalOperation (BlockVersion bRestore vCurrent)
+        LT -> return $ Forking (BlockVersion bRestore vCurrent)
+
+data OnVersionChangeException =
+  HistoryInvariantViolation
+  | RestoreInvariantViolation
+  deriving Show
+
+instance Exception OnVersionChangeException
 
 data OnVersionChange
   = Forking !BlockVersion
   | NormalOperation !BlockVersion
 
-onVersionChange ::
-     Database
-  -> BlockHeight
-  -> BlockVersion
-  -> IO (Either String (BlockVersion, SnapshotName))
-onVersionChange c bRestore (BlockVersion bCurrent vCurrent) =
-  case compare bRestore (bCurrent + 1) of
+_testDetectVersionChange :: IO ()
+_testDetectVersionChange = undefined
 
-    -- Probably better to throw an exception here.
-    GT -> return $ Left "bRestore should not be greater than bCurrent + 1"
+onVersionChange :: Database -> OnVersionChange -> IO (BlockVersion, SavepointName)
+onVersionChange c (NormalOperation bv@(BlockVersion _bRestore _vCurrent)) = do
+  mkSavepoint c "BLOCK"
+  return (bv, "BLOCK")
+onVersionChange c (Forking (BlockVersion bRestore vCurrent)) = do
+  let bvEnv = BlockVersion bRestore (vCurrent + 1)
+  tableMaintenanceRowsVersionedTables c bvEnv
+  tableMaintenanceVersionedTables c bvEnv
+  deleteHistory c bvEnv
+  mkSavepoint c "TRANSACTION"
+  return $ (bvEnv, "TRANSACTION")
 
-    -- normal operation
-    EQ -> do
-      name <- mkSnapshot c
-      -- set environment blockVersion
-      let bv_env = BlockVersion bRestore vCurrent
-      return $ Right (bv_env, name)
+tableMaintenanceRowsVersionedTables :: Database -> BlockVersion -> IO ()
+tableMaintenanceRowsVersionedTables _c _bv = undefined
 
-    LT -> do
-      let bv_env = BlockVersion bRestore (vCurrent + 1)
-      _tableMaintenanceRowsVersionedTables c bv_env
-      _tableMaintenanceVersionedTables c bv_env
-      _deleteHistory c bv_env
-      name <- mkSnapshot c
-      return $ Right (bv_env, name)
+tableMaintenanceVersionedTables :: Database -> BlockVersion -> IO ()
+tableMaintenanceVersionedTables _c _bv = undefined
 
-_tableMaintenanceRowsVersionedTables :: Database -> BlockVersion -> IO ()
-_tableMaintenanceRowsVersionedTables _c _bv = undefined
-
-_tableMaintenanceVersionedTables :: Database -> BlockVersion -> IO ()
-_tableMaintenanceVersionedTables _c _bv = undefined
-
-_deleteHistory :: Database -> BlockVersion -> IO ()
-_deleteHistory _c _bv = do
+deleteHistory :: Database -> BlockVersion -> IO ()
+deleteHistory _c _bv = do
   undefined
 
-mkSnapshot :: Database -> IO SnapshotName
-mkSnapshot c = do
-  s@(SnapshotName name) <- mkSnapshotName
-  exec' c "SAVEPOINT (?)" [SBlob name]
-  return s
+mkSavepoint :: Database -> SavepointName ->  IO ()
+mkSavepoint c (SavepointName name) = exec' c "SAVEPOINT (?)" [SBlob name]
 
-newtype SnapshotName = SnapshotName BS.ByteString
+newtype SavepointName = SavepointName BS.ByteString
   deriving (Eq, Ord, IsString)
   deriving newtype Show
 
-mkSnapshotName :: IO SnapshotName
-mkSnapshotName =
-  SnapshotName . toS . formatTime defaultTimeLocale "%Y%m%d%H%M%S%q" <$> getCurrentTime
+expectSing :: Show a => String -> [a] -> IO a
+expectSing _ [s] = return s
+expectSing desc v = throwDbError $ "Expected single-" <> prettyString desc <> " result, got: " <> viaShow v
