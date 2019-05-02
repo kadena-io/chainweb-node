@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
@@ -36,6 +37,7 @@ import qualified Data.Text.IO as T
 
 import Prelude hiding (lookup)
 
+-- import Servant (ServantErr)
 import Servant.Server
 
 -- internal modules
@@ -79,7 +81,7 @@ payloadHandler db k = run >>= \case
             (_blockPayloadTransactionsHash payload)
         return $ payloadData txs payload
 
-err404Msg :: ToJSON msg  => msg -> ServantErr
+err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
 
 -- -------------------------------------------------------------------------- --

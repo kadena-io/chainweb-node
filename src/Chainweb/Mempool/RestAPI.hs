@@ -15,8 +15,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
 module Chainweb.Mempool.RestAPI
   ( Mempool_(..)
@@ -42,9 +42,14 @@ module Chainweb.Mempool.RestAPI
 
 ------------------------------------------------------------------------------
 import Data.Int
-import Data.IORef
 import Servant
 import qualified System.IO.Streams as Streams
+
+#if MIN_VERSION_servant(0,15,0)
+import Servant.Types.SourceT
+#else
+import Data.IORef
+#endif
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -96,17 +101,12 @@ type MempoolLookupApi v c t =
 type MempoolGetBlockApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getBlock" :>
     QueryParam "blockSize" Int64 :> Post '[JSON] [t]
-
-#if MIN_VERSION_servant(0,15,0)
-#error TODO: need to support servant >= 0.15
-#else
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
     StreamPost NetstringFraming JSON (Streams.InputStream [TransactionHash])
 type MempoolSubscribeApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "subscribe" :>
     StreamPost NetstringFraming JSON (Streams.InputStream [t])
-#endif
 
 mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                  . Proxy (MempoolInsertApi v c t)
@@ -134,7 +134,6 @@ mempoolSubscribeApi = Proxy
 
 
 #if MIN_VERSION_servant(0,15,0)
-#error TODO: need to support servant >= 0.15
 ------------------------------------------------------------------------------
 instance ToSourceIO t (Streams.InputStream t) where
   toSourceIO is = SourceT $ \k -> k go

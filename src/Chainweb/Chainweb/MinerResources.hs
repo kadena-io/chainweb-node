@@ -81,7 +81,8 @@ runMiner v m = (chooseMiner v)
         -> CutDb cas
         -> IO ()
     chooseMiner Test{} = testMiner
-    chooseMiner TestWithTime{} = testMiner
-    chooseMiner TestWithPow{} = powMiner
+    chooseMiner TimedConsensus{} = testMiner
+    chooseMiner PowConsensus{} = powMiner
+    chooseMiner TimedCPM{} = testMiner
     chooseMiner Testnet00 = powMiner
     chooseMiner Testnet01 = powMiner

@@ -10,8 +10,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Utils.Logging.Config
 -- Copyright: Copyright © 2019 Kadena LLC.

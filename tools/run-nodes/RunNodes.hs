@@ -46,8 +46,8 @@ pNodes = option auto
 pVersion :: Parser ChainwebVersion
 pVersion = option cver
   (long "version" <> metavar "VERSION"
-   <> value (TestWithTime petersonChainGraph)
-   <> help "Chainweb Version to run the Nodes with (default: testWithTime-peterson)")
+   <> value (TimedCPM petersonChainGraph)
+   <> help "Chainweb Version to run the Nodes with (default: timedCPM-peterson)")
   where
     cver :: ReadM ChainwebVersion
     cver = eitherReader $ \s ->

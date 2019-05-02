@@ -4,8 +4,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
-
 -- |
 -- Module: Numeric.AffineSpace
 -- Copyright: Copyright © 2018 Kadena LLC.

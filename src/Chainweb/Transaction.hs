@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE RankNTypes #-}
+
 module Chainweb.Transaction
   ( ChainwebTransaction
   , PayloadWithText(..)
@@ -8,29 +12,35 @@ module Chainweb.Transaction
   , gasPriceOf
   ) where
 
+import qualified Chainweb.Mempool.Mempool as Mempool
+import qualified Chainweb.Time as Time
+import Chainweb.Utils (Codec(..))
+
+import Control.DeepSeq
 
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (FromJSON(..), ToJSON(..))
 import Data.ByteString.Char8 (ByteString)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
+
+import GHC.Generics (Generic)
+
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..), parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import Pact.Types.Util (Hash(..))
-
-import qualified Chainweb.Mempool.Mempool as Mempool
-import qualified Chainweb.Time as Time
-import Chainweb.Utils (Codec(..))
+import qualified Pact.Types.Hash as H
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
--- the Text that generated it, to make gossiping easier
+-- the Text that generated it, to make gossiping easier.
+--
 data PayloadWithText = PayloadWithText
     { payloadBytes :: ByteString
     , payloadObj :: Payload PublicMeta ParsedCode
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (NFData)
 
 instance ToJSON PayloadWithText where
     toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 bs)
@@ -59,7 +69,7 @@ chainwebTransactionConfig = Mempool.TransactionConfig chainwebPayloadCodec
   where
     getGasPrice = gasPriceOf . fmap payloadObj
     getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
-    commandHash c = let (Hash h) = _cmdHash c
+    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
                     in Mempool.TransactionHash h
 
     -- TODO: plumb through origination + expiry time from pact once it makes it

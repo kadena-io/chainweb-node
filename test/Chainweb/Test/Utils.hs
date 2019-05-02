@@ -75,9 +75,13 @@ module Chainweb.Test.Utils
 , assertGe
 , assertLe
 
+-- * Golden Tests
+, golden
+, goldenSch
+
 -- * Scheduling Tests
 , RunStyle(..)
-, ScheduledTest
+, ScheduledTest(..)
 , schedule
 , testCaseSch
 , testGroupSch
@@ -91,6 +95,7 @@ import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
@@ -119,6 +124,7 @@ import System.Random (randomIO)
 import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
 import Test.Tasty
+import Test.Tasty.Golden
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
@@ -317,7 +323,7 @@ header h = do
             :+: target
             :+: testBlockPayload h
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
             :+: miner
@@ -671,6 +677,27 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
+
+-- -------------------------------------------------------------------------- --
+-- Golden Testing
+
+goldenFilesDir :: FilePath
+goldenFilesDir = "test/golden/"
+
+golden
+    :: String -- ^ Test Label
+    -> IO BL.ByteString -- ^ Test action
+    -> TestTree
+golden l = goldenVsString l (goldenFilesDir <> fp)
+  where
+    fp = l <> "-expected.txt"
+
+goldenSch
+    :: String -- ^ Test Label
+    -> IO BL.ByteString -- ^ Test action
+    -> ScheduledTest
+goldenSch l = ScheduledTest l . golden l
+{-# INLINE goldenSch #-}
 
 -- -------------------------------------------------------------------------- --
 -- Scheduling Tests

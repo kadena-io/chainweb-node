@@ -17,9 +17,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 -- Module: Chainweb.Difficulty
@@ -64,7 +62,6 @@ module Chainweb.Difficulty
 , window
 , MinAdjustment(..)
 , minAdjust
-, prereduction
 -- ** Adjustment
 , adjust
 
@@ -224,24 +221,13 @@ newtype HashTarget = HashTarget PowHashNat
 showTargetBits :: HashTarget -> T.Text
 showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
 
--- | By maximum, we mean "easiest". For POW-based chainwebs, this is reduced
--- down from `maxBound` so that the mining of initial blocks doesn't occur too
--- quickly, stressing the system, or otherwise negatively affecting difficulty
--- adjustment with very brief time deltas between blocks.
+-- | By maximum, we mean "easiest".
 --
--- Otherwise, chainwebs with "trivial targets" expect this to be `maxBound` and
--- never change. See also `prereduction`.
---
-maxTarget :: ChainwebVersion -> HashTarget
-maxTarget = HashTarget . PowHashNat . maxTargetWord
+maxTarget :: HashTarget
+maxTarget = HashTarget $ PowHashNat maxTargetWord
 
--- | A pre-reduction of 9 bits has experimentally been shown to be an
--- equilibrium point for the hash power provided by a single, reasonably
--- performant laptop in early 2019. It is further reduced from 9 to be merciful
--- to CI machines.
---
-maxTargetWord :: ChainwebVersion -> Word256
-maxTargetWord v = maxBound `div` (2 ^ prereduction v)
+maxTargetWord :: Word256
+maxTargetWord = maxBound
 
 instance IsMerkleLogEntry ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
@@ -253,34 +239,34 @@ instance IsMerkleLogEntry ChainwebHashTag HashTarget where
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `targetToDifficulty`.
 --
-difficultyToTarget :: ChainwebVersion -> HashDifficulty -> HashTarget
-difficultyToTarget v (HashDifficulty (PowHashNat difficulty)) =
-    HashTarget . PowHashNat $ maxTargetWord v `div` difficulty
+difficultyToTarget :: HashDifficulty -> HashTarget
+difficultyToTarget (HashDifficulty (PowHashNat difficulty)) =
+    HashTarget . PowHashNat $ maxTargetWord `div` difficulty
 {-# INLINE difficultyToTarget #-}
 
 -- | Like `difficultyToTarget`, but accepts a `Rational` that would have been
 -- produced by `targetToDifficultyR` and then further manipulated during
 -- Difficulty Adjustment.
 --
-difficultyToTargetR :: ChainwebVersion -> Rational -> HashTarget
-difficultyToTargetR v difficulty =
-    HashTarget . PowHashNat $ maxTargetWord v `div` floor difficulty
+difficultyToTargetR :: Rational -> HashTarget
+difficultyToTargetR difficulty =
+    HashTarget . PowHashNat $ maxTargetWord `div` floor difficulty
 {-# INLINE difficultyToTargetR #-}
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
 --
-targetToDifficulty :: ChainwebVersion -> HashTarget -> HashDifficulty
-targetToDifficulty v (HashTarget (PowHashNat target)) =
-    HashDifficulty . PowHashNat $ maxTargetWord v `div` target
+targetToDifficulty :: HashTarget -> HashDifficulty
+targetToDifficulty (HashTarget (PowHashNat target)) =
+    HashDifficulty . PowHashNat $ maxTargetWord `div` target
 {-# INLINE targetToDifficulty #-}
 
 -- | Like `targetToDifficulty`, but yields a `Rational` for lossless
 -- calculations in Difficulty Adjustment.
 --
-targetToDifficultyR :: ChainwebVersion -> HashTarget -> Rational
-targetToDifficultyR v (HashTarget (PowHashNat target)) =
-    int (maxTargetWord v) % int target
+targetToDifficultyR :: HashTarget -> Rational
+targetToDifficultyR (HashTarget (PowHashNat target)) =
+    int maxTargetWord % int target
 {-# INLINE targetToDifficultyR #-}
 
 -- | The critical check in Proof-of-Work mining: did the generated hash match
@@ -312,8 +298,9 @@ newtype BlockRate = BlockRate Seconds
 --
 blockRate :: ChainwebVersion -> Maybe BlockRate
 blockRate Test{} = Nothing
-blockRate TestWithTime{} = Just $ BlockRate 4
-blockRate TestWithPow{} = Just $ BlockRate 10
+blockRate TimedConsensus{} = Just $ BlockRate 4
+blockRate PowConsensus{} = Just $ BlockRate 10
+blockRate TimedCPM{} = Just $ BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet00 = Just $ BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
@@ -330,9 +317,10 @@ newtype WindowWidth = WindowWidth Natural
 --
 window :: ChainwebVersion -> Maybe WindowWidth
 window Test{} = Nothing
-window TestWithTime{} = Nothing
+window TimedConsensus{} = Nothing
 -- 5 blocks, should take 50 seconds.
-window TestWithPow{} = Just $ WindowWidth 5
+window PowConsensus{} = Just $ WindowWidth 5
+window TimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet00 = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
@@ -349,31 +337,12 @@ newtype MinAdjustment = MinAdjustment Natural
 --
 minAdjust :: ChainwebVersion -> Maybe MinAdjustment
 minAdjust Test{} = Nothing
-minAdjust TestWithTime{} = Nothing
-minAdjust TestWithPow{} = Just $ MinAdjustment 3
+minAdjust TimedConsensus{} = Nothing
+minAdjust PowConsensus{} = Just $ MinAdjustment 3
+minAdjust TimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Testnet00 = Just $ MinAdjustment 3
 minAdjust Testnet01 = Just $ MinAdjustment 3
-
--- | The number of bits to offset `maxTarget` by from `maxBound`, so as to
--- enforce a "minimum difficulty", beyond which mining cannot become easier.
---
--- See `adjust`.
---
-prereduction :: ChainwebVersion -> Int
-prereduction Test{} = 0
-prereduction TestWithTime{} = 0
-prereduction TestWithPow{} = 7
--- As alluded to in `maxTarget`, 11 bits has been shown experimentally to be
--- high enough to keep mining slow during the initial conditions of a
--- single-machine-10-chain-10-miner scenario, thereby avoiding (too many)
--- aggressive forks. Therefore for a machine running a single miner across 10
--- chains, we increase this further to 14 (3 bits => 8x harder) to come as close
--- as possible to a stable, "preadjusted" state, such that mining rates won't be
--- wildly imbalanced over the first few days. Subsequent Difficulty Adjustment
--- compensates for any remaining imbalance.
-prereduction Testnet00 = 14
-prereduction Testnet01 = 14
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.
@@ -493,8 +462,8 @@ prereduction Testnet01 = 14
 -- Analysis has been shown that \(Z\) should be greater than a factor of
 -- \(e = 2.71828\cdots\) (/source needed/). See also `minAdjust`.
 --
-adjust :: ChainwebVersion -> TimeSpan Int64 -> HashTarget -> HashTarget
-adjust ver (TimeSpan delta) oldTarget
+adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Int64 -> HashTarget -> HashTarget
+adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
     -- Intent: When increasing the difficulty (thereby lowering the target
     -- toward 0), the target must decrease by at least some minimum threshold
     -- (usually 3x) to be accepted.
@@ -504,7 +473,7 @@ adjust ver (TimeSpan delta) oldTarget
     -- `maxTarget`), ensure that the new target increases by at least some
     -- minimum threshold.
     | nat newTarget >= (nat oldTarget * minAdj)
-      && nat oldTarget <= (nat (maxTarget ver) `div` minAdj) = newTarget
+      && nat oldTarget <= (nat maxTarget `div` minAdj) = newTarget
 
     -- Intent: The target did not change enough - do not alter it!
     | otherwise = oldTarget
@@ -532,11 +501,6 @@ adjust ver (TimeSpan delta) oldTarget
         Just (BlockRate n) -> int n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
-    ww :: Natural
-    ww = case window ver of
-        Just (WindowWidth n) -> n
-        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
-
     minAdj :: PowHashNat
     minAdj = case minAdjust ver of
         Just (MinAdjustment n) -> int n
@@ -551,7 +515,7 @@ adjust ver (TimeSpan delta) oldTarget
     -- The mining difficulty of the previous block (the parent) as a
     -- function of its `HashTarget`.
     oldDiff :: Rational
-    oldDiff = targetToDifficultyR ver oldTarget
+    oldDiff = targetToDifficultyR oldTarget
 
     -- The adjusted difficulty, following the formula explained in the
     -- docstring of this function.
@@ -559,7 +523,7 @@ adjust ver (TimeSpan delta) oldTarget
     newDiff = oldDiff * int br / avg
 
     newTarget :: HashTarget
-    newTarget = difficultyToTargetR ver newDiff
+    newTarget = difficultyToTargetR newDiff
 
     nat :: HashTarget -> PowHashNat
     nat (HashTarget n) = n

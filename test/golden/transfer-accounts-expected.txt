@@ -1,0 +1,66 @@
+- output:
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+      balance: 168.03
+    key: miner
+    table: USER_coin_coin-table
+  cmd: coinbase
+- output:
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
+      balance: 999.96
+    key: sender00
+    table: USER_coin_coin-table
+  - value:
+      amount: -1
+      data:
+        transfer-to: Acct2
+      balance: 999999
+    key: Acct1
+    table: USER_test1_accounts
+  - value:
+      amount: 1
+      data:
+        transfer-from: Acct1
+      balance: 1
+    key: Acct2
+    table: USER_test1_accounts
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
+      balance: 999.96
+    key: sender00
+    table: USER_coin_coin-table
+  - value:
+      amount: -1
+      data:
+        transfer-to: Acct2
+      balance: 999999
+    key: Acct1
+    table: USER_test1_accounts
+  - value:
+      amount: 1
+      data:
+        transfer-from: Acct1
+      balance: 1
+    key: Acct2
+    table: USER_test1_accounts
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+      balance: 168.04
+    key: miner
+    table: USER_coin_coin-table
+  cmd:
+    tag: Code
+    contents: (test1.transfer "Acct1" "Acct2" 1.00)

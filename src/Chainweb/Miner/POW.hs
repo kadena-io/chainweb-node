@@ -224,12 +224,13 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
             insertWebBlockHeaderDb newHeader
 
             return $! T3 newHeader c' adjustments'
-
   where
     v = _chainwebVersion cutDb
     wcdb = view cutDbWebBlockHeaderDb cutDb
     payloadDb = view cutDbPayloadCas cutDb
     payloadStore = view cutDbPayloadStore cutDb
+
+    pact :: PactExecutionService
     pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
 
     logg :: LogLevel -> T.Text -> IO ()
@@ -239,7 +240,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
 
     validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
-    validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
+    validatePayload h o = void . _pactValidateBlock pact h $ toPayloadData o
 
     getTarget
         :: ChainId
@@ -254,6 +255,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
                 t <- hashTarget db bh
                 pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
 
+    toPayloadData :: PayloadWithOutputs -> PayloadData
     toPayloadData d = PayloadData
               { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
               , _payloadDataMiner = _payloadWithOutputsMiner d
@@ -289,8 +291,9 @@ getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
 
 usePowHash :: ChainwebVersion -> (forall a . HashAlgorithm a => Proxy a -> f) -> f
 usePowHash Test{} f = f $ Proxy @SHA512t_256
-usePowHash TestWithTime{} f = f $ Proxy @SHA512t_256
-usePowHash TestWithPow{} f = f $ Proxy @SHA512t_256
+usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
+usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
+usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
 
@@ -337,7 +340,7 @@ mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
             -- Start inner mining loop
             go (0 :: Int) nonce
 
-    -- On success: deserialize and returnb the new BlockHeader
+    -- On success: deserialize and return the new BlockHeader
     runGet decodeBlockHeaderWithoutHash bytes
 
   where

@@ -14,8 +14,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- |
 -- Module: Chainweb.Chainweb
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -479,4 +477,3 @@ runChainweb cw = do
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
-
