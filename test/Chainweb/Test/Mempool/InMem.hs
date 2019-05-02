@@ -18,15 +18,16 @@ import Chainweb.Version
 import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
-tests :: IO TestTree
-tests =
-    withTempRocksDb "mempool-socket-tests" $ \rdb ->
-        withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
-            return $ testGroup "Chainweb.Mempool.InMem"
-                $ Chainweb.Test.Mempool.tests
-                $ MempoolWithFunc
-                $ InMem.withInMemoryMempool cfg blockHeaderDb
+tests :: TestTree
+tests = testGroup "Chainweb.Mempool.InMem"
+            $ Chainweb.Test.Mempool.tests
+            $ MempoolWithFunc
+            $ InMem.withInMemoryMempool'
+                  cfg
+                  (withTempRocksDb "mempool-socket-tests")
+                  (withBlockHeaderDb' toyVersion toyChainId)
   where
+    withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)
     -- run the reaper @100Hz for testing
@@ -34,6 +35,7 @@ tests =
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
+----------------------------------------------------------------------------------------------------
 
 -- copied from Chainweb.Test.Utils
 toyVersion :: ChainwebVersion

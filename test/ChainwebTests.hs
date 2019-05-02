@@ -68,18 +68,6 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         ]
 
-mempoolTestSuite :: IO ScheduledTest
-mempoolTestSuite = do
-    let restTests = Chainweb.Test.Mempool.RestAPI.tests
-    let socketTests  = Chainweb.Test.Mempool.Socket.tests
-    inMemTests <- Chainweb.Test.Mempool.InMem.tests
-    syncTests <- Chainweb.Test.Mempool.Sync.tests
-    pure $ testGroupSch "Chainweb-Mempool Tests"
-      [ syncTests
-      , restTests
-      , inMemTests
-      , socketTests ]
-
 suite :: RocksDb -> [ScheduledTest]
 suite rdb =
     [ testGroupSch "Chainweb Unit Tests"
@@ -95,6 +83,10 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests rdb
+        , Chainweb.Test.Mempool.InMem.tests
+        , Chainweb.Test.Mempool.Socket.tests
+        , Chainweb.Test.Mempool.Sync.tests
+        , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties

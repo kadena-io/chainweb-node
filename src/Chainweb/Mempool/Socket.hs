@@ -707,7 +707,7 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
         debug $ "client: got response for command " ++ show c
         return v
 
-toBackend :: Show t => ClientConfig t -> ClientState t -> IORef (Maybe BlockHeader) -> MempoolBackend t
+toBackend :: Show t => ClientConfig t -> ClientState t -> Maybe (IORef BlockHeader) -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
     MempoolBackend txcfg blockSizeLimit lastPar pMember pLookup pInsert
                    pGetBlock unsupported unsupported unsupported unsupported
@@ -786,7 +786,7 @@ mkClient (inp, outp, cleanup) config = mask_ $ do
      smv <- newEmptyMVar
      q <- newMVar id
      cb <- newMVar (const $ return ())
-     lastPar <- newIORef Nothing
+     let lastPar = Nothing
 
      cleanupMv <- newEmptyMVar
      let !cs = ClientState cchan cmv schan smv q cb cleanupMv

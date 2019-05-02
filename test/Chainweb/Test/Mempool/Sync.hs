@@ -32,17 +32,16 @@ import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Data.CAS.RocksDB
 
-tests :: IO TestTree
-tests =
-    withTempRocksDb "mempool-sync-tests" $ \rdb ->
-        withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
-          let withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg blockHeaderDb)
-          return $ mempoolProperty
-              "Mempool.syncMempools"
-              gen
-              (propSync blockHeaderDb)
-              withFunc
+tests :: TestTree
+tests = mempoolProperty "Mempool.syncMempools" gen
+        propSync
+        $ MempoolWithFunc
+        $ withInMemoryMempool'
+            testInMemCfg
+            (withTempRocksDb "mempool-sync-tests")
+            (withBlockHeaderDb' toyVersion toyChainId)
   where
+    withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
@@ -68,11 +67,12 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
 
 
 propSync
-    :: BlockHeaderDb
-    -> (Set MockTx, Set MockTx, Set MockTx)
+    :: (Set MockTx, Set MockTx, Set MockTx)
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync blockHeaderDb (txs, missing, later) localMempool =
+propSync (txs, missing, later) localMempool =
+  withTempRocksDb "mempool-sync-tests" $ \rdb ->
+  withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
     withInMemoryMempool testInMemCfg blockHeaderDb $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV

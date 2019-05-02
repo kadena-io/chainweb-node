@@ -12,6 +12,7 @@ module Chainweb.Mempool.InMem
 
     -- * Initialization functions
   , withInMemoryMempool
+  , withInMemoryMempool'
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
@@ -70,6 +71,7 @@ import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (fromJuste)
 
+import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -266,7 +268,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- here.
   , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
   , _inmemConfirmed :: IORef (HashSet TransactionHash)
-  , _inmemLastNewBlockParent :: IORef (Maybe BlockHeader)
+  , _inmemLastNewBlockParent :: Maybe (IORef BlockHeader)
 }
 
 
@@ -280,7 +282,7 @@ makeInMemPool cfg txB blockHeaderDb = mask_ $ do
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
                                           <*> newIORef HashMap.empty
                                           <*> newIORef HashSet.empty
-                                          <*> newIORef Nothing
+                                          <*> return Nothing
 
 
 ------------------------------------------------------------------------------
@@ -383,6 +385,21 @@ withInMemoryMempool cfg blockHeaderDb f =
               back <- toMempoolBackend inMem
               f back
         bracket inMemIO destroyInMemPool action
+
+------------------------------------------------------------------------------
+withInMemoryMempool' :: InMemConfig t
+                     -> ((RocksDb -> IO a) -> IO a)
+                     -> (RocksDb -> (BlockHeaderDb -> IO a) -> IO a)
+                     -> (MempoolBackend t -> IO a) -> IO a
+withInMemoryMempool' cfg withRocks withBlocks withMempool =
+    withRocks $ \rocksDb -> do
+        withBlocks rocksDb $ \blockHeaderDb -> do
+            withTxBroadcaster $ \txB -> do
+                let inMemIO = makeInMemPool cfg txB blockHeaderDb
+                let action inMem = do
+                      back <- toMempoolBackend inMem
+                      withMempool back
+                bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t -> IO ()
@@ -572,8 +589,10 @@ processForkInMem :: MVar (InMemoryMempoolData t)
                  -> IO (Vector TransactionHash)
 processForkInMem lock blockHeaderDb parentBlockHeader = do
     theData <- readMVar lock
-    let lastHeaderRef = _inmemLastNewBlockParent theData
-    lastHeader <- readIORef lastHeaderRef
+
+    -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
+    lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
+
     MPCon.processFork blockHeaderDb parentBlockHeader lastHeader
 
 

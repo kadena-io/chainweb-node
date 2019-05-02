@@ -224,7 +224,7 @@ mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
         throwM e
     peerMempool = do
         -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar <- newIORef Nothing
+        let noLastPar = Nothing
         return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

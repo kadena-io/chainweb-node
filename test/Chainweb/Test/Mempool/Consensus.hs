@@ -9,7 +9,6 @@ module Chainweb.Test.Mempool.Consensus
   ) where
 
 import Control.Lens
-import Control.Monad.IO.Class
 
 import Data.Hashable
 import Data.Int
@@ -19,33 +18,25 @@ import Data.Tree
 
 import GHC.Generics
 
-import System.Random
-
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen
 import Test.Tasty
-
 
 -- internal modules
 import Pact.Types.Gas
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Mempool
-import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Utils
 import Chainweb.Time
-import qualified Chainweb.Time as Time
 import Chainweb.Version
 
 import Data.CAS
 import qualified Data.CAS.HashMap as C
 import Numeric.AffineSpace
-
 
 tests :: [TestTree]
 tests = undefined
@@ -74,37 +65,39 @@ prop_noOrhanedTxs = undefined
 testVersion :: ChainwebVersion
 testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 
+run :: IO ()
+run = do
+    payloadDb <- newFakePayloadDb
+    let theGen = genFork payloadDb
+    return ()
+
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
 -- TODO: Remove the maybe
-genFork :: Gen (Maybe ForkInfo)
-genFork = do
-    allTxs <- liftIO $ getTransPool
-    store <- liftIO $ newFakePayloadDb
+genFork :: C.HashMapCas FakePayload -> Gen (Maybe ForkInfo)
+genFork store = do
+    allTxs <- getTransPool
     h0 <- genesis testVersion
     theTree <- genTree h0 allTxs
-
     return Nothing
 -- TODO: fold a list (of BlockHeader -> [TrasnsactionHash]) from the tree & add them to the store
 -- foldTree :: (a -> [b] -> b) -> Tree a -> b
-
 -- TODO: get the left and right leaf elements as the 'head' of the old/new forks
 
-
-getTransPool :: IO (Set TransactionHash)
+getTransPool :: Gen (Set TransactionHash)
 getTransPool = do
-    txHashes <- sequence $ fmap
-        (\n -> do
-            mockTx <- mkMockTx n
-            return $ TransactionHash $ mockEncode mockTx )
-        [1 2 .. 100]
-    return $ S.fromList txHashes
+    let txHashes = fmap (\n -> do
+                         mockTx <- mkMockTx n
+                         return $ TransactionHash $ mockEncode mockTx )
+                     [1..100]
+    S.fromList <$> sequenceA txHashes
 
-mkMockTx :: Int64 -> IO MockTx
+mkMockTx :: Int64 -> Gen MockTx
 mkMockTx n = do
-    mockMeta <- TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
-    return $ MockTx
+    time <- arbitrary :: Gen (Time Int64)
+    let mockMeta = TransactionMetadata time time
+    return MockTx
         { mockNonce = n
         , mockGasPrice = GasPrice 0
         , mockGasLimit = mockBlockGasLimit
@@ -212,7 +205,7 @@ data FakePayload = FakePayload
 
 instance IsCasValue FakePayload where
     type CasKeyType FakePayload = BlockPayloadHash
-    casKey (FakePayload fpl) = _fplHash fpl
+    casKey (FakePayload bh txs) = bh
 
 newFakePayloadDb :: IO (C.HashMapCas FakePayload)
 newFakePayloadDb = C.emptyCas

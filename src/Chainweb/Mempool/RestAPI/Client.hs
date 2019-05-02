@@ -56,7 +56,7 @@ toMempool
     -> ChainId
     -> TransactionConfig t
     -> Int64
-    -> IORef (Maybe BlockHeader)
+    -> Maybe (IORef BlockHeader)
     -> ClientEnv
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit lastPar env =

@@ -116,7 +116,7 @@ data MempoolBackend t = MempoolBackend {
 
     -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
     --   in the case of forks
-  , mempoolLastNewBlockParent :: IORef (Maybe BlockHeader)
+  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -159,12 +159,11 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
-noopMempool :: IO (MempoolBackend t)
-noopMempool = do
-    noopLastParent <- newIORef Nothing
-    return $ MempoolBackend txcfg 1000 noopLastParent noopMember noopLookup noopInsert noopGetBlock
-                            noopMarkValidated noopMarkConfirmed noopProcessFork noopReintroduce
-                            noopGetPending noopSubscribe noopShutdown noopClear
+noopMempool :: MempoolBackend t
+noopMempool =
+    MempoolBackend txcfg 1000 Nothing noopMember noopLookup noopInsert noopGetBlock
+                   noopMarkValidated noopMarkConfirmed noopProcessFork noopReintroduce
+                   noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
