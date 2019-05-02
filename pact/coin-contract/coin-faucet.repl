@@ -1,0 +1,31 @@
+
+
+(begin-tx)
+(load "coin.pact")
+(commit-tx)
+
+(begin-tx)
+
+(env-data { "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"], "faucet-admin": ["faucet"] })
+
+(env-keys ["keys1", "keys2", "faucet"])
+(load "coin-faucet.pact")
+(commit-tx)
+(use coin)
+(use coin-faucet)
+
+(define-keyset 'k1 (read-keyset "k1"))
+(define-keyset 'k2 (read-keyset "k2"))
+(define-keyset 'k3 (read-keyset "k3"))
+(initiate-faucet (read-keyset 'k2))
+(expect "faucet-acount is funded" TOTAL_COIN_COUNT (account-balance FAUCET_ADMIN))
+
+(create-account 'kate (read-keyset "k1"))
+(account-balance 'kate)
+(get-one-coin 'kate (read-keyset "k1") (time "2016-07-22T12:00:00Z"))
+(account-balance 'kate)
+(account-balance FAUCET_ADMIN)
+
+(at 'tx-time (read history-table 'kate))
+(last-transaction 'kate)
+(limit-max 'kate (time "2016-07-22T14:00:00Z"))
