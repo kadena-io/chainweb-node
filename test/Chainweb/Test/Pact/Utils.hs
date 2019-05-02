@@ -150,6 +150,7 @@ pactTestLogger = initLoggers putStrLn f def
   where
     f _ b "ERROR" d = doLog error b "ERROR" d
     f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "INFO" d = doLog (\_ -> return ()) b "DEBUG" d
     f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
 
