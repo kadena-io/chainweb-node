@@ -201,7 +201,7 @@ testPactExecutionService
     :: ChainwebVersion
     -> V.ChainId
     -> MemPoolAccess
-        -- ^ transaction generator
+       -- ^ transaction generator
     -> IO PactExecutionService
 testPactExecutionService v cid mempoolAccess = do
     ctx <- testPactCtx v cid
@@ -219,7 +219,7 @@ testPactExecutionService v cid mempoolAccess = do
 testWebPactExecutionService
     :: ChainwebVersion
     -> (V.ChainId -> MemPoolAccess)
-        -- ^ transaction generator
+       -- ^ transaction generator
     -> IO WebPactExecutionService
 testWebPactExecutionService v mempoolAccess
     = fmap mkWebPactExecutionService
@@ -239,4 +239,3 @@ withPactCtx v f
         evalPactServiceM ctx pact
   where
     start = testPactCtx v (someChainId v)
-
