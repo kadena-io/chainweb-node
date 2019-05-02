@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -26,7 +27,10 @@ import Control.Concurrent
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
+#if ! MIN_VERSION_servant(0,15,0)
 import qualified Control.Concurrent.STM.TBMChan as Chan
+#endif
+import Control.DeepSeq
 import Control.Exception
 import Control.Monad
 import Control.Monad.Identity
@@ -38,7 +42,12 @@ import Data.Proxy
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
+#if MIN_VERSION_servant(0,15,0)
+import Servant.Types.SourceT
+import Servant.Client.Streaming
+#else
 import Servant.Client
+#endif
 import qualified System.IO.Streams as Streams
 import System.IO.Unsafe
 ------------------------------------------------------------------------------
@@ -51,7 +60,7 @@ import Chainweb.Version
 
 -- TODO: all of these operations need timeout support.
 toMempool
-    :: (Show t, FromJSON t, ToJSON t)
+    :: (Show t, FromJSON t, ToJSON t, NFData t)
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
@@ -70,9 +79,15 @@ toMempool version chain txcfg blocksizeLimit lastPar env =
     lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
     insert v = void $ go (insertClient version chain (V.toList v))
     getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+#if MIN_VERSION_servant(0,15,0)
+    getPending cb = withClientM (getPendingClient version chain) env $ \case
+        Left e -> throwIO e
+        Right is -> Streams.mapM_ (cb . V.fromList) is >>= Streams.skipToEof
+#else
     getPending cb = go (getPendingClient version chain) >>=
                     Streams.mapM_ (cb . V.fromList) >>=
                     Streams.skipToEof
+#endif
 
     subscribe = do
         mv <- newEmptyMVar
@@ -100,6 +115,16 @@ toMempool version chain txcfg blocksizeLimit lastPar env =
     subThread mv chan restore =
         flip finally (tryPutMVar mv () `finally`
                       atomically (TBMChan.closeTBMChan chan)) $
+#if MIN_VERSION_servant(0,15,0)
+        restore $ withClientM (subscribeClient version chain) env $ \case
+            Left e -> throwIO e
+            Right is -> liftIO
+                $ Streams.mapM_ (const $ tryPutMVar mv ()) is
+                >>= Streams.filter (not . null)
+                >>= Streams.mapM_
+                    (atomically . TBMChan.writeTBMChan chan . V.fromList)
+                >>= Streams.skipToEof
+#else
         restore $ flip runClientM env $ do
             is <- subscribeClient version chain
             liftIO (Streams.mapM_ (const $ tryPutMVar mv ()) is
@@ -107,6 +132,7 @@ toMempool version chain txcfg blocksizeLimit lastPar env =
                     >>= Streams.mapM_ (atomically . TBMChan.writeTBMChan chan
                                                   . V.fromList)
                     >>= Streams.skipToEof)
+#endif
 
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
@@ -220,7 +246,29 @@ subscribeClient v c = runIdentity $ do
 
 ------------------------------------------------------------------------------
 #if MIN_VERSION_servant(0,15,0)
-#error TODO: need to support servant >= 0.15
+
+-- TODO: the code in this module could be simplfied by replacing the use of
+-- io-streams with servant's build-in SourceIO stream type.
+--
+instance Show a => FromSourceIO a (Streams.InputStream a) where
+    fromSourceIO (SourceT src) = unsafePerformIO $ src $ \step ->
+        Streams.fromGenerator (go step)
+      where
+        go :: StepT IO a -> Streams.Generator a ()
+        go Stop = return ()
+        go (Error msg) = fail msg -- TODO: fail
+        go (Skip step) = go step
+        go (Yield a step) = Streams.yield a >> go step
+        go (Effect m) = liftIO m >>= go
+
+    -- FIXME: is the use of unsafePerformIO safe here? It seems that the IO in
+    -- the return type of 'Streams.fromGenerator' is needed to intialize the
+    -- 'IORef's in the streams type. The new servant streaming api enforces that
+    -- the stream is fully evaluated within a bracket, but is that enough?
+    --
+    -- The proper solution is not to use io-streams here. Let's do this once the
+    -- nix build supports servant-0.16 and we can drop the legacy code.
+
 #else
 asIoStream :: Show a => ResultStream a -> (Streams.InputStream a -> IO b) -> IO b
 asIoStream (ResultStream func) withFunc = func $ \popper -> do

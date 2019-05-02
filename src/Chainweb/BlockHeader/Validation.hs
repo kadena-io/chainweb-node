@@ -230,7 +230,7 @@ prop_block_genesis_parent b
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget (_blockChainwebVersion b)
+    ==> _blockTarget b == genesisBlockTarget
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
@@ -251,7 +251,7 @@ prop_block_creationTime p b
 prop_block_weight :: BlockHeader -> BlockHeader -> Bool
 prop_block_weight p b
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
-    | otherwise = _blockWeight b == int (targetToDifficulty (_blockChainwebVersion b) (_blockTarget b)) + _blockWeight p
+    | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
 prop_block_chainId :: BlockHeader -> BlockHeader -> Bool
 prop_block_chainId = (==) `on` _blockChainId

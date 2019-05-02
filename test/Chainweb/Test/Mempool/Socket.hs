@@ -7,7 +7,6 @@ import Test.Tasty
 import Control.Concurrent
 import Control.Exception
 import qualified Data.Pool as Pool
-import qualified Network.Socket as N
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
 import Chainweb.Graph (singletonChainGraph)
@@ -67,7 +66,7 @@ newTestServer inmemCfg = mask_ $ do
             withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
                 InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
                     putMVar inmemMv inmem
-                    restore $ M.server inmem host N.aNY_PORT portMv
+                    restore $ M.server inmem host 0 portMv
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer cs _ _ tid) =

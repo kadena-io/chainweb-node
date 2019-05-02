@@ -87,9 +87,7 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.Testnet00
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01
         , Chainweb.BlockHeader.Genesis.Testnet01Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
@@ -126,7 +124,6 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
-        , Chainweb.Miner.Genesis
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
@@ -282,7 +279,6 @@ library
         , paths >= 0.2
         , pem >=0.2
         , psqueues >= 0.2.7.0
-        , raw-strings-qq >= 1.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -329,7 +325,6 @@ library
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
-        , xmlgen >= 0.6
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
@@ -398,6 +393,7 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.11
         , base16-bytestring >= 0.1
+        , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , connection >=0.2
@@ -408,7 +404,6 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
-        , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
         , hashable >= 1.2
@@ -427,12 +422,9 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
-        , raw-strings-qq >= 1.0
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
-        , safe >= 0.3
-        , scientific >= 0.3
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -460,31 +452,6 @@ test-suite chainweb-tests
 
     if flag(ed25519)
         cpp-options: -dWITH_ED25519=1
-
--- -------------------------------------------------------------------------- --
--- Chainweb Benchmarking
--- -------------------------------------------------------------------------- --
-
-benchmark chainweb-bench
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    type: exitcode-stdio-1.0
-    main-is: Bench.hs
-    hs-source-dirs:
-        bench
-    ghc-options:
-        -threaded
-        -O2
-        -with-rtsopts=-N
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , base >= 4.11
-        , criterion >= 1.1
-        , streaming >= 0.2
-        , unordered-containers >= 0.2
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -769,7 +736,7 @@ executable ea
         , bytestring >= 0.10
         , containers >= 0.5
         , loglevel >= 0.1
-        , optparse-generic >= 1.3
+        , optparse-applicative >= 0.14
         , text >= 1.2
         , vector >= 0.12
         , yaml >= 0.11
