@@ -42,7 +42,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
-import Options.Generic
+import Options.Applicative
 
 import System.LogLevel (LogLevel(..))
 
@@ -60,24 +60,27 @@ import Pact.Types.Runtime (noSPVSupport)
 
 ---
 
-data Env w =
-    Payload
-        { version :: w ::: Text
-          <?> "The ChainwebVersion to use."
-        , transactions :: w ::: [FilePath]
-          <?> "Path to a YAML file containing a Pact transaction. Can be used multiple times. Default loads files based on the given ChainwebVersion." }
-    deriving (Generic)
+data Env = Env [FilePath]
 
-instance ParseRecord (Env Wrapped)
+pEnv :: Parser Env
+pEnv = Env <$> many pTrans
+
+pTrans :: Parser FilePath
+pTrans = strOption
+    (long "transaction" <> metavar "PATH"
+    <> help "Path to YAML file containing a Pact transaction. Can be used multiple times. By default, loads the Coin Contract and Grants files.")
 
 main :: IO ()
-main = unwrapRecord "ea" >>= \case
-    Payload v0 txs0 -> do
-        v <- chainwebVersionFromText v0
+main = do
+    Env txs0 <- execParser opts
+    for_ [Testnet00, Testnet01] $ \v -> do
         let txs = bool txs0 [defCoinContract, defGrants] $ null txs0
+        putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v txs
-        putStrLn $ "Generated Genesis Payload for " <> show v
-        putStrLn "Please recompile Chainweb and Ea before using the 'headers' command."
+    putStrLn "Done."
+  where
+    opts = info (pEnv <**> helper)
+        (fullDesc <> header "ea - Generate Pact Payload modules")
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
