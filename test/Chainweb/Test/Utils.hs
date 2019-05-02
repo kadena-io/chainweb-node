@@ -323,7 +323,7 @@ header h = do
             :+: target
             :+: testBlockPayload h
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
             :+: miner
