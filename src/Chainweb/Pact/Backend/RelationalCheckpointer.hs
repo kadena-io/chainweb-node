@@ -10,22 +10,24 @@ module Chainweb.Pact.Backend.RelationalCheckpointer where
 
 import Control.Concurrent.MVar
 
+import Database.SQLite3.Direct as SQ3
 
 -- pact
 import Pact.Types.Server (CommandConfig(..))
 import Pact.Types.Gas (GasEnv(..))
 import Pact.Types.Logger (Logger(..))
-import Pact.PersistPactDb (DbEnv(..))
-import Pact.Persist.SQLite (SQLite(..))
+-- import Pact.PersistPactDb (DbEnv(..))
+-- import Pact.Persist.SQLite (SQLite(..))
 
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.ChainwebPactDb
 
 initRelationalCheckpointer ::
      DbConnection -> CommandConfig -> Logger -> GasEnv -> IO CheckpointEnv
-initRelationalCheckpointer dbconn cmdConfig logger gasEnv = do
+initRelationalCheckpointer dbconn cmdConfig loggr gasEnv = do
   let checkpointer =
         Checkpointer
           { restore = innerRestore dbconn
@@ -38,11 +40,12 @@ initRelationalCheckpointer dbconn cmdConfig logger gasEnv = do
     CheckpointEnv
       { _cpeCheckpointer = checkpointer
       , _cpeCommandConfig = cmdConfig
-      , _cpeLogger = logger
+      , _cpeLogger = loggr
       , _cpeGasEnv = gasEnv
       }
 
-type DbConnection = MVar (DbEnv SQLite)
+-- type DbConnection = MVar (DbEnv SQLite)
+type DbConnection = MVar Database
 
 innerRestore ::
      DbConnection -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
