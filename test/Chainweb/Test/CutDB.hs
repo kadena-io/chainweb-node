@@ -243,8 +243,8 @@ mine miner pact cutDb c = do
     t <- getCurrentTimeIntegral
     give webDb (testMine (Nonce 0) target t payloadHash (NodeId 0) cid c) >>= \case
         Left _ -> mine miner pact cutDb c
-        Right (T2 _ c') -> do
-            -- TODO: call pact validation for new block payload
+        Right (T2 h c') -> do
+            _webPactValidateBlock pact h (payloadWithOutputsToPayloadData outputs)
 
             -- add payload to db
             addNewPayload payloadDb outputs
