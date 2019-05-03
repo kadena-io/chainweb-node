@@ -35,6 +35,8 @@ module Chainweb.Difficulty
 , powHashNat
 , encodePowHashNat
 , decodePowHashNat
+, encodePowHashNatBe
+, decodePowHashNatBe
 
 -- * HashTarget
 , HashTarget(..)
@@ -51,6 +53,8 @@ module Chainweb.Difficulty
 , HashDifficulty(..)
 , encodeHashDifficulty
 , decodeHashDifficulty
+, encodeHashDifficultyBe
+, decodeHashDifficultyBe
 
 -- * Difficulty Adjustment
 -- ** Fork-specific Settings
@@ -159,6 +163,14 @@ decodePowHashNat :: MonadGet m => m PowHashNat
 decodePowHashNat = PowHashNat <$> decodeWordLe
 {-# INLINE decodePowHashNat #-}
 
+encodePowHashNatBe :: MonadPut m => PowHashNat -> m ()
+encodePowHashNatBe (PowHashNat n) = encodeWordBe n
+{-# INLINE encodePowHashNatBe #-}
+
+decodePowHashNatBe :: MonadGet m => m PowHashNat
+decodePowHashNatBe = PowHashNat <$> decodeWordBe
+{-# INLINE decodePowHashNatBe #-}
+
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     {-# INLINE toJSON #-}
@@ -200,6 +212,14 @@ encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 decodeHashDifficulty :: MonadGet m => m HashDifficulty
 decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
 {-# INLINE decodeHashDifficulty #-}
+
+encodeHashDifficultyBe :: MonadPut m => HashDifficulty -> m ()
+encodeHashDifficultyBe (HashDifficulty x) = encodePowHashNatBe x
+{-# INLINE encodeHashDifficultyBe #-}
+
+decodeHashDifficultyBe :: MonadGet m => m HashDifficulty
+decodeHashDifficultyBe = HashDifficulty <$> decodePowHashNatBe
+{-# INLINE decodeHashDifficultyBe #-}
 
 -- -------------------------------------------------------------------------- --
 -- HashTarget

@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -15,6 +16,7 @@ module Data.CAS
 ( IsCasValue(..)
 , IsCas(..)
 , casMember
+, CasConstraint
 ) where
 
 import Data.Kind
@@ -47,4 +49,6 @@ class IsCasValue (CasValueType a) => IsCas a where
 casMember :: IsCas a => a -> CasKeyType (CasValueType a) -> IO Bool
 casMember db = fmap isJust . casLookup db
 {-# INLINE casMember #-}
+
+type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
 
