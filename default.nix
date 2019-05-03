@@ -121,6 +121,32 @@ in
           sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
         };
 
+        # --- deque --- #
+        deque = callHackageDirect {
+          pkg = "deque";
+          ver = "0.4.2.1";
+          sha256 = "0vlkp380nyq1x04jyhpskls1v5h3ckndj2d61v60skamm7gfgfm4";
+        };
+
+        strict-list = callHackageDirect {
+          pkg = "strict-list";
+          ver = "0.1.4";
+          sha256 = "0ifhm6gh7lzgsklmpyqkljk0800krzjpc9pqxll4ixw7kf3sn51n";
+        };
+
+        semigroupoids = callHackageDirect {
+          pkg = "semigroupoids";
+          ver = "5.3.2";
+          sha256 = "0mc9hwvjcidxnjpr0gilywgbnpqh5y384x2id2iai68w1lckpdy2";
+        };
+
+        base-orphans = callHackageDirect {
+          pkg = "base-orphans";
+          ver = "0.8.1";
+          sha256 = "1jg06ykz8fsk1vlwih4vjw3kpcysp8nfsv7qjm42y2gfyzn6jvsk";
+        };
+        # --- end deque --- #
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
