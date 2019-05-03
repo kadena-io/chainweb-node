@@ -80,8 +80,12 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
+import Data.Ratio ((%))
 import qualified Data.Text as T
 
+import qualified Deque.Strict as DQ
+
+import GHC.Exts (IsList(..))
 import GHC.Generics hiding (to)
 
 import Numeric.Natural
@@ -169,12 +173,46 @@ farAheadThreshold = 2000
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
--- | This is a singleton DB that contains the latest chainweb cut as only entry.
+-- | A bounded, strict `DQ.Deque` which drops old elements off its right side as
+-- new elements are added (`DQ.cons`'d) to the left.
+--
+-- Not terribly robust.
+--
+data BDQ a = BDQ { _bdq :: !(DQ.Deque a), _bdqLimit :: !Word }
+
+-- | Create a `BDQ` that contains @n@ copies of some `a`.
+--
+newBDQ :: a -> Word -> BDQ a
+newBDQ a n = BDQ as n
+  where
+    as = fromList . take (int n) $ repeat a
+
+-- | \(\mathcal{O}(1)\), occasionally \(\mathcal{O}(n)\).
+consBDQ :: a -> BDQ a -> BDQ a
+consBDQ a (BDQ q l) = BDQ (DQ.cons a $ DQ.init q) l
+
+-- | A sample of peers and the Cut Heights they report from `Cut`s that they
+-- submit to the network. This data is used to extrapolate the current height of
+-- the overall network consensus.
+--
+newtype PeerHeights = PeerHeights (BDQ BlockHeight)
+
+-- | The approximate average Cut Height of the network, at least as accurately
+-- as we've seen from Cuts coming in from the network.
+--
+avgNetworkHeight :: PeerHeights -> BlockHeight
+avgNetworkHeight (PeerHeights (BDQ q l)) = BlockHeight $ floor avg
+  where
+    avg :: Rational
+    avg = int (foldl' (+) 0 q) % int l
+
+-- | This is a singleton DB that contains the latest chainweb cut as its only
+-- entry.
 --
 data CutDb cas = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
-    , _cutApproxNetworkHeight :: !(TVar (Maybe BlockHeight))
+    , _cutPeerHeights :: !(TVar PeerHeights)
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -270,13 +308,13 @@ startCutDb
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     queue <- newEmptyPQueue
-    networkHeight <- newTVarIO Nothing
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar networkHeight
+    peerHeights <- newTVarIO . PeerHeights $ newBDQ (BlockHeight 0) 10
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar peerHeights
     logfun @T.Text Info "CutDB started"
     return $ CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
-        , _cutApproxNetworkHeight = networkHeight
+        , _cutPeerHeights = peerHeights
         , _cutDbAsync = cutAsync
         , _cutDbLogFunction = logfun
         , _cutDbHeaderStore = headerStore
@@ -284,14 +322,14 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         }
   where
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar (Maybe BlockHeight) -> IO ()
-    processor queue cutVar networkHeight = do
-        processCuts logfun headerStore payloadStore queue cutVar networkHeight `catches`
+    processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar PeerHeights -> IO ()
+    processor queue cutVar peerHeights = do
+        processCuts logfun headerStore payloadStore queue cutVar peerHeights `catches`
             [ Handler $ \(e :: SomeAsyncException) -> throwM e
             , Handler $ \(e :: SomeException) ->
                 logfun @T.Text Error $ "CutDB failed: " <> sshow e
             ]
-        processor queue cutVar networkHeight
+        processor queue cutVar peerHeights
 
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
@@ -310,9 +348,9 @@ processCuts
     -> WebBlockPayloadStore cas
     -> PQueue (Down CutHashes)
     -> TVar Cut
-    -> TVar (Maybe BlockHeight)
+    -> TVar PeerHeights
     -> IO ()
-processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueToStream
+processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToStream
     & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
@@ -340,8 +378,14 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
     -- | Broadcast the newest estimated `BlockHeight` of the network to other
     -- components of this node.
     --
+    -- Ignores any Cuts that came into the pipeline from /this/ node, i.e.
+    -- `CutHashes` whose origin field is `Nothing`.
+    --
     updateNetworkHeight :: CutHashes -> IO ()
-    updateNetworkHeight = atomically . writeTVar networkHeight . Just .  _cutHashesHeight
+    updateNetworkHeight ch = case _cutOrigin ch of
+        Nothing -> pure ()
+        Just _  -> atomically . modifyTVar' peerHeights $
+            \(PeerHeights q) -> PeerHeights $ consBDQ (_cutHashesHeight ch) q
 
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
@@ -357,22 +401,22 @@ processCuts logFun headerStore payloadStore queue cutVar networkHeight = queueTo
         S.yield a
         queueToStream
 
-    isVeryOld :: CutHashes -> IO Bool
-    isVeryOld x = do
-        h <- _cutHeight <$> readTVarIO cutVar
-        let !r = int (_cutHashesHeight x) <= (int h - threshold)
-        when r $ loggc Info x "skip very old cut"
-        return r
-
     -- FIXME: this is problematic. We should drop these before they are
     -- added to the queue, to prevent the queue becoming stale.
     farAhead :: CutHashes -> IO Bool
     farAhead x = do
         h <- _cutHeight <$> readTVarIO cutVar
-        let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
+        let !r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
         when r $ loggc Info x
             $ "skip far ahead cut. Current height: " <> sshow h
             <> ", got: " <> sshow (_cutHashesHeight x)
+        return r
+
+    isVeryOld :: CutHashes -> IO Bool
+    isVeryOld x = do
+        h <- _cutHeight <$> readTVarIO cutVar
+        let !r = int (_cutHashesHeight x) <= (int h - threshold)
+        when r $ loggc Info x "skip very old cut"
         return r
 
     isOld :: CutHashes -> IO Bool
@@ -448,14 +492,12 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 consensusCut :: CutDb cas -> IO Cut
 consensusCut cutdb = atomically $ do
     cur <- _cutStm cutdb
-    readTVar (_cutApproxNetworkHeight cutdb) >>= \case
-        Nothing -> pure cur
-        Just nh -> do
-            let !currentHeight = _cutHeight cur
-                !thresh = int . catchupThreshold $ _chainwebVersion cutdb
-                !mini = bool (nh - thresh) 0 $ thresh > nh
-            when (currentHeight < mini) retry
-            pure cur
+    nh  <- avgNetworkHeight <$> readTVar (_cutPeerHeights cutdb)
+    let !currentHeight = _cutHeight cur
+        !thresh = int . catchupThreshold $ _chainwebVersion cutdb
+        !mini = bool (nh - thresh) 0 $ thresh > nh
+    when (currentHeight < mini) retry
+    pure cur
 
 -- | The distance from the true Cut within which the current node could be
 -- considered "caught up".
