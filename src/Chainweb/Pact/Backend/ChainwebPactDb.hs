@@ -214,27 +214,21 @@ detectVersionChange c bRestore hsh  = do
 
   -- enforce invariant that the history has (B_restore-1,H_parent).
   historyInvariant <-
-    expectSing "Expecting a single column: " =<<
-    expectSing "Expecting a single row: " =<<
         qry c "SELECT COUNT(*)\
            \ FROM BlockHistory\
            \ WHERE blockheight = (?)\
-           \ AND hash = (?);" [SInt $ fromIntegral $ pred bRestore, SBlob (encode hsh)] [RInt]
+           \ AND hash = (?);"
+            [SInt $ fromIntegral $ pred bRestore, SBlob (encode hsh)] [RInt]
+        >>= expectSing "row"
+        >>= expectSing "column"
 
   if historyInvariant /= SInt 1
-    then throwM HistoryInvariantViolation
+    then throwM (userError "History invariant violation")
   -- enforce invariant that B_restore is not greater than B_current + 1
     else case compare bRestore (bCurrent + 1) of
-        GT -> throwM RestoreInvariantViolation
+        GT -> throwM (userError "Block_Restore invariant violation!")
         EQ -> return $ NormalOperation (BlockVersion bRestore vCurrent)
         LT -> return $ Forking (BlockVersion bRestore vCurrent)
-
-data OnVersionChangeException =
-  HistoryInvariantViolation
-  | RestoreInvariantViolation
-  deriving Show
-
-instance Exception OnVersionChangeException
 
 data OnVersionChange
   = Forking !BlockVersion
@@ -253,17 +247,43 @@ onVersionChange c (Forking (BlockVersion bRestore vCurrent)) = do
   tableMaintenanceVersionedTables c bvEnv
   deleteHistory c bvEnv
   mkSavepoint c "TRANSACTION"
-  return $ (bvEnv, "TRANSACTION")
+  return (bvEnv, "TRANSACTION")
 
+-- This is not testable just yet.
 tableMaintenanceRowsVersionedTables :: Database -> BlockVersion -> IO ()
-tableMaintenanceRowsVersionedTables _c _bv = undefined
+tableMaintenanceRowsVersionedTables c (BlockVersion (BlockHeight bh) _) = do
+  tblNames <- qry c
+                "SELECT tableid FROM VersionedTables\
+                \ WHERE blockheight<(?)"
+                [SInt (fromIntegral bh)]
+                [RText]
+  forM_ tblNames $ \row ->
+    case row of
+      [name@(SText _)] ->
+        exec' c
+            "DELETE FROM (?)\
+            \ WHERE blockheight >= (?)"
+            [name, SInt (fromIntegral bh)]
+      _ -> throwDbError "An exception occured while querying the VersionedTables table for table names."
 
 tableMaintenanceVersionedTables :: Database -> BlockVersion -> IO ()
-tableMaintenanceVersionedTables _c _bv = undefined
+tableMaintenanceVersionedTables c (BlockVersion (BlockHeight bh) _) = do
+  tblNames <- qry c
+              "SELECT tableid FROM VersionedTables\
+              \ WHERE blockheight>=(?)"
+              [SInt (fromIntegral bh)]
+              [RText]
+  forM_ tblNames $ \row ->
+    case row of
+      [name@(SText _)] -> exec' c "DROP TABLE (?)" [name]
+      _ -> throwDbError "An exception occured while querying the VersionedTables table for table names."
 
 deleteHistory :: Database -> BlockVersion -> IO ()
-deleteHistory _c _bv = do
-  undefined
+deleteHistory c (BlockVersion bh _) =
+  exec' c
+    "DELETE FROM BlockHistory\
+    \ WHERE BlockHistory.blockheight >= (?)"
+    [SInt (fromIntegral bh)]
 
 mkSavepoint :: Database -> SavepointName ->  IO ()
 mkSavepoint c (SavepointName name) = exec' c "SAVEPOINT (?)" [SBlob name]
