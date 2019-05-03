@@ -19,6 +19,7 @@ import GHC.Generics
 
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Monadic
 import Test.Tasty
 
 -- internal modules
@@ -28,6 +29,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
+import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -41,7 +43,8 @@ tests :: [TestTree]
 tests = undefined
 
 data ForkInfo = ForkInfo
-  { fiOldHeader :: BlockHeader
+  { fiPayloadStore :: C.HashMapCas FakePayload
+  , fiOldHeader :: BlockHeader
   , fiNewHeader :: BlockHeader
   , fiOldForkTrans :: Set TransactionHash
   , fiNewForkTrans :: Set TransactionHash
@@ -52,6 +55,30 @@ data ForkInfo = ForkInfo
   , fiLeftForkHeaders :: [BlockHeader]
   , fiRightForkHeaders :: [BlockHeader]
   }
+
+instance Show ForkInfo where
+    show ForkInfo{..} =
+        "ForkInfo - forkHeight: " ++ show fiForkHeight
+        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
+        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
+        ++ "\n\t"
+        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
+        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
+        ++ "\n\t"
+        ++ "'head' of old fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
+        ++ "\n\t"
+        ++ "'head' of new fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
+        ++ "\n\tmain trunk headers:"
+        ++ concatMap debugHeader fiPreForkHeaders
+        ++ "\n\tleft fork headers:"
+        ++ concatMap debugHeader fiLeftForkHeaders
+        ++ "\n\t right fork headers:"
+        ++ concatMap debugHeader fiRightForkHeaders
+        ++ "\n\n"
 
 data BlockTrans = BlockTrans
     { btBlockHeader :: BlockHeader
@@ -70,8 +97,12 @@ instance IsCasValue FakePayload where
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
-prop_validTxsSource :: ForkInfo -> Bool
-prop_validTxsSource = undefined
+prop_validTxsSource :: ForkInfo -> Property
+prop_validTxsSource ForkInfo{..} = monadicIO $ do
+    reIntroTransV <- run $ processFork fiPayloadStore new (Just old)
+    let reIntroTrans = S.fromList vIntroTransV
+    assert (reIntroTrans `isSubsetOf` fiOldForkTrans)
+        && (reIntroTrans `disjoint` fiNewForKTrans)
 
 -- | Property: All transactions that were in the old fork (and not also in the new fork) should be
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
@@ -82,25 +113,29 @@ prop_noOrhanedTxs = undefined
 testVersion :: ChainwebVersion
 testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 
-run :: IO ()
-run = do
+runit :: IO ()
+runit = do
     payloadDb <- newFakePayloadDb
     let theGenInfo = genFork payloadDb
+
+    -- properties not hooked up yet, for now:
     sample theGenInfo
+
     return ()
 
 ----------------------------------------------------------------------------------------------------
 --  Info about generated forks
 ----------------------------------------------------------------------------------------------------
-buildForkInfo :: Tree BlockTrans -> ForkInfo
-buildForkInfo t =
+buildForkInfo :: C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
+buildForkInfo store t =
     let (preFork, left, right) = splitNodes t
         forkHeight = length preFork
     in if (null preFork || null left || null right)
         then error "buildForkInfo -- all of the 3 lists must be non-empty"
         else
             ForkInfo
-            { fiOldHeader = btBlockHeader (head left)
+            { fiPayloadStore = store
+            , fiOldHeader = btBlockHeader (head left)
             , fiNewHeader = btBlockHeader (head right)
             , fiOldForkTrans = S.unions (btTransactions <$> left)
             , fiNewForkTrans = S.unions (btTransactions <$> right)
@@ -120,15 +155,15 @@ splitNodes :: Tree BlockTrans -> BT3
 splitNodes t =
     let (trunk, restOfTree) = takePreFork t
         (leftFork, rightFork) = case restOfTree of
-            Node bt (x : y : zs) -> (takeFork x [], takeFork y [])
+            Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
             someTree -> ([], []) -- should never happen
     -- in (trunk, leftFork, rightFork)
     -- remove this:
     in case (trunk, leftFork, rightFork) of
         ([], [], []) -> error "all 3 empty"
-        ([], y, z) -> error "trunk is empty (maybe others too)"
-        (x, [], z) -> error "left is empty (maybe the right as well)"
-        (x, y, []) -> error "right is empty (others are not"
+        ([], _y, _z) -> error "trunk is empty (maybe others too)"
+        (_x, [], _z) -> error "left is empty (maybe the right as well)"
+        (_x, _y, []) -> error "right is empty (others are not"
         (x, y, z) -> (x, y, z)
 
 takePreFork :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
@@ -137,20 +172,19 @@ takePreFork theTree =
   where
     go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
     go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
-    go t@(Node bt (x : y : [])) xs = (bt : xs, t) -- reached the fork
+    go t@(Node bt (_x : _y : [])) xs = (bt : xs, t) -- reached the fork
     go someTree xs = (xs, someTree) -- should never happen
 
 takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
 takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
 takeFork (Node bt []) xs = bt : xs -- done with the fork
-takeFork someTree xs = xs -- should never happen
+takeFork _someTree xs = xs -- should never happen
 
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
--- genFork :: C.HashMapCas FakePayload -> Gen (Tree BlockTrans)
 genFork :: C.HashMapCas FakePayload -> Gen ForkInfo
-genFork store = do
+genFork _store = do
     allTxs <- getTransPool
     h0 <- genesis testVersion
     theTree <- genTree h0 allTxs
@@ -179,43 +213,11 @@ takeTrans txs = do
     n <- choose (1, 3)
     return $ S.splitAt n txs
 
-instance Show ForkInfo where
-    show ForkInfo{..} =
-        "ForkInfo - forkHeight: " ++ show fiForkHeight
-        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
-        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
-        ++ "\n\t"
-        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
-        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
-        ++ "\n\t"
-        ++ "'head' of old fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
-        ++ "\n\t"
-        ++ "'head' of new fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
-        ++ "\n\tmain trunk headers:"
-        ++ concatMap debugHeader fiPreForkHeaders
-        ++ "\n\tleft fork headers:"
-        ++ concatMap debugHeader fiLeftForkHeaders
-        ++ "\n\t right fork headers:"
-        ++ concatMap debugHeader fiRightForkHeaders
-        ++ "\n\n"
-
 debugHeader :: BlockHeader -> String
 debugHeader BlockHeader{..} = "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
                            ++ "\n\t\tblockHash: " ++ show _blockHash
                            ++ "\n\t\tparentHash: " ++ show _blockParent
                            ++ "\n"
-
--- instance Show BlockTrans where
---     show bt =
---       "BlockTrans - someHeaderFields {_blockParent = " ++ show (_blockParent (btBlockHeader bt))
---            ++ ", _blockHash = " ++ show (_blockHash (btBlockHeader bt))
---            ++ ", _blockHeight = " ++ show (_blockHeight (btBlockHeader bt)) ++ "}"
---            ++ "\nNumber of transactions: " ++ show (S.size (btTransactions bt)) ++ "\n\n"
-
 
 genTree :: BlockHeader -> Set TransactionHash -> Gen (Tree BlockTrans)
 genTree h allTxs = do
