@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Mempool.Consensus
@@ -40,14 +41,17 @@ tests :: [TestTree]
 tests = undefined
 
 data ForkInfo = ForkInfo
-  { _fiOldHeader :: BlockHeader
-  , _fiNewHeader :: BlockHeader
-  , _fiOldForkTrans :: Set TransactionHash
-  , _fiNewForkTrans :: Set TransactionHash
-  , _fiHeaderTree :: Tree BlockTrans
-  } deriving (Show)
-
-type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
+  { fiOldHeader :: BlockHeader
+  , fiNewHeader :: BlockHeader
+  , fiOldForkTrans :: Set TransactionHash
+  , fiNewForkTrans :: Set TransactionHash
+  , fiForkHeight :: Int
+  , fiLeftBranchHeight :: Int
+  , fiRightBranchHeight :: Int
+  , fiPreForkHeaders :: [BlockHeader]
+  , fiLeftForkHeaders :: [BlockHeader]
+  , fiRightForkHeaders :: [BlockHeader]
+  }
 
 data BlockTrans = BlockTrans
     { btBlockHeader :: BlockHeader
@@ -85,40 +89,60 @@ run = do
     sample theGenInfo
     return ()
 
+----------------------------------------------------------------------------------------------------
+--  Info about generated forks
+----------------------------------------------------------------------------------------------------
 buildForkInfo :: Tree BlockTrans -> ForkInfo
 buildForkInfo t =
-    let (trunk, left, right) = splitNodes t
-    in ForkInfo
-      { _fiOldHeader = btBlockHeader (last left)
-      , _fiNewHeader = btBlockHeader (last right)
-      ,  _fiOldForkTrans = S.unions (btTransactions <$> left)
-      ,  _fiNewForkTrans = S.unions (btTransactions <$> right)
-      ,  _fiHeaderTree = t
-      }
+    let (preFork, left, right) = splitNodes t
+        forkHeight = length preFork
+    in if (null preFork || null left || null right)
+        then error "buildForkInfo -- all of the 3 lists must be non-empty"
+        else
+            ForkInfo
+            { fiOldHeader = btBlockHeader (head left)
+            , fiNewHeader = btBlockHeader (head right)
+            , fiOldForkTrans = S.unions (btTransactions <$> left)
+            , fiNewForkTrans = S.unions (btTransactions <$> right)
+            , fiForkHeight = forkHeight
+            , fiLeftBranchHeight = length left + forkHeight
+            , fiRightBranchHeight = length right + forkHeight
+            , fiPreForkHeaders = btBlockHeader <$> preFork
+            , fiLeftForkHeaders = btBlockHeader <$> left
+            , fiRightForkHeaders = btBlockHeader <$> right
+            }
 
+type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
 
 -- | Split the nodes into a triple of lists (xs, ys, zs) where xs = the nodes on the trunk before
 --   the fork, ys = the nodes on the left fork, and zs = the nodes on the right fork
 splitNodes :: Tree BlockTrans -> BT3
 splitNodes t =
-    let (trunk, restOfTree) = takeTrunk t
+    let (trunk, restOfTree) = takePreFork t
         (leftFork, rightFork) = case restOfTree of
             Node bt (x : y : zs) -> (takeFork x [], takeFork y [])
             someTree -> ([], []) -- should never happen
-    in (trunk, leftFork, rightFork)
+    -- in (trunk, leftFork, rightFork)
+    -- remove this:
+    in case (trunk, leftFork, rightFork) of
+        ([], [], []) -> error "all 3 empty"
+        ([], y, z) -> error "trunk is empty (maybe others too)"
+        (x, [], z) -> error "left is empty (maybe the right as well)"
+        (x, y, []) -> error "right is empty (others are not"
+        (x, y, z) -> (x, y, z)
 
-takeTrunk :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
-takeTrunk theTree =
+takePreFork :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
+takePreFork theTree =
     go theTree []
   where
     go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
     go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
-    go t@(Node bt (x : y : [])) xs = (xs, t) -- reached the fork
+    go t@(Node bt (x : y : [])) xs = (bt : xs, t) -- reached the fork
     go someTree xs = (xs, someTree) -- should never happen
 
 takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
 takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
-takeFork (Node bt []) xs = xs -- done with the fork
+takeFork (Node bt []) xs = bt : xs -- done with the fork
 takeFork someTree xs = xs -- should never happen
 
 ----------------------------------------------------------------------------------------------------
@@ -155,12 +179,42 @@ takeTrans txs = do
     n <- choose (1, 3)
     return $ S.splitAt n txs
 
-instance Show BlockTrans where
-    show bt =
-      "BlockTrans - someHeaderFields {_blockParent = " ++ show (_blockParent (btBlockHeader bt))
-           ++ ", _blockHash = " ++ show (_blockHash (btBlockHeader bt))
-           ++ ", _blockHeight = " ++ show (_blockHeight (btBlockHeader bt)) ++ "}"
-           ++ "\nNumber of transactions: " ++ show (S.size (btTransactions bt)) ++ "\n\n"
+instance Show ForkInfo where
+    show ForkInfo{..} =
+        "ForkInfo - forkHeight: " ++ show fiForkHeight
+        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
+        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
+        ++ "\n\t"
+        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
+        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
+        ++ "\n\t"
+        ++ "'head' of old fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
+        ++ "\n\t"
+        ++ "'head' of new fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
+        ++ "\n\tmain trunk headers:"
+        ++ concatMap debugHeader fiPreForkHeaders
+        ++ "\n\tleft fork headers:"
+        ++ concatMap debugHeader fiLeftForkHeaders
+        ++ "\n\t right fork headers:"
+        ++ concatMap debugHeader fiRightForkHeaders
+        ++ "\n\n"
+
+debugHeader :: BlockHeader -> String
+debugHeader BlockHeader{..} = "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
+                           ++ "\n\t\tblockHash: " ++ show _blockHash
+                           ++ "\n\t\tparentHash: " ++ show _blockParent
+                           ++ "\n"
+
+-- instance Show BlockTrans where
+--     show bt =
+--       "BlockTrans - someHeaderFields {_blockParent = " ++ show (_blockParent (btBlockHeader bt))
+--            ++ ", _blockHash = " ++ show (_blockHash (btBlockHeader bt))
+--            ++ ", _blockHeight = " ++ show (_blockHeight (btBlockHeader bt)) ++ "}"
+--            ++ "\nNumber of transactions: " ++ show (S.size (btTransactions bt)) ++ "\n\n"
 
 
 genTree :: BlockHeader -> Set TransactionHash -> Gen (Tree BlockTrans)
