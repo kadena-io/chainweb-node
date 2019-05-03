@@ -8,12 +8,16 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
+import Control.Monad.IO.Class
 
+import Data.CAS.RocksDB
 import Data.Hashable
 import Data.Int
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Tree
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -26,6 +30,7 @@ import Test.Tasty
 import Pact.Types.Gas
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
@@ -39,11 +44,9 @@ import Data.CAS
 import qualified Data.CAS.HashMap as C
 import Numeric.AffineSpace
 
-tests :: [TestTree]
-tests = undefined
-
 data ForkInfo = ForkInfo
-  { fiPayloadStore :: C.HashMapCas FakePayload
+  { fiBlockHeaderDb :: BlockHeaderDb
+  , fiPayloadStore :: C.HashMapCas FakePayload
   , fiOldHeader :: BlockHeader
   , fiNewHeader :: BlockHeader
   , fiOldForkTrans :: Set TransactionHash
@@ -99,10 +102,10 @@ instance IsCasValue FakePayload where
 --   the old fork and are not represented in the new fork blocks
 prop_validTxsSource :: ForkInfo -> Property
 prop_validTxsSource ForkInfo{..} = monadicIO $ do
-    reIntroTransV <- run $ processFork fiPayloadStore new (Just old)
-    let reIntroTrans = S.fromList vIntroTransV
-    assert (reIntroTrans `isSubsetOf` fiOldForkTrans)
-        && (reIntroTrans `disjoint` fiNewForKTrans)
+    reIntroTransV <- liftIO $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
+    let reIntroTrans = S.fromList $ V.toList reIntroTransV
+    assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
+          && (reIntroTrans `S.disjoint` fiNewForkTrans)
 
 -- | Property: All transactions that were in the old fork (and not also in the new fork) should be
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
@@ -113,92 +116,42 @@ prop_noOrhanedTxs = undefined
 testVersion :: ChainwebVersion
 testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 
-runit :: IO ()
-runit = do
-    payloadDb <- newFakePayloadDb
-    let theGenInfo = genFork payloadDb
+tests :: [TestTree]
+tests = undefined
 
-    -- properties not hooked up yet, for now:
-    sample theGenInfo
+testSetup :: IO ()
+testSetup = do
+    withRocksDb "mempool-consensus-test" $ \rdb ->
+        withToyDB rdb toyChainId $ \h0 db -> do
+            payloadDb <- newFakePayloadDb
+            let allTxs = getTransPool
+            let genForkInfo' :: Gen (IO ForkInfo)
+                genForkInfo' = genFork db payloadDb h0 allTxs
 
-    return ()
+            -- let theGenInfo = genFork payloadDb
+            -- sample theGenInfo
+            return ()
 
-----------------------------------------------------------------------------------------------------
---  Info about generated forks
-----------------------------------------------------------------------------------------------------
-buildForkInfo :: C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
-buildForkInfo store t =
-    let (preFork, left, right) = splitNodes t
-        forkHeight = length preFork
-    in if (null preFork || null left || null right)
-        then error "buildForkInfo -- all of the 3 lists must be non-empty"
-        else
-            ForkInfo
-            { fiPayloadStore = store
-            , fiOldHeader = btBlockHeader (head left)
-            , fiNewHeader = btBlockHeader (head right)
-            , fiOldForkTrans = S.unions (btTransactions <$> left)
-            , fiNewForkTrans = S.unions (btTransactions <$> right)
-            , fiForkHeight = forkHeight
-            , fiLeftBranchHeight = length left + forkHeight
-            , fiRightBranchHeight = length right + forkHeight
-            , fiPreForkHeaders = btBlockHeader <$> preFork
-            , fiLeftForkHeaders = btBlockHeader <$> left
-            , fiRightForkHeaders = btBlockHeader <$> right
-            }
-
-type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
-
--- | Split the nodes into a triple of lists (xs, ys, zs) where xs = the nodes on the trunk before
---   the fork, ys = the nodes on the left fork, and zs = the nodes on the right fork
-splitNodes :: Tree BlockTrans -> BT3
-splitNodes t =
-    let (trunk, restOfTree) = takePreFork t
-        (leftFork, rightFork) = case restOfTree of
-            Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
-            someTree -> ([], []) -- should never happen
-    -- in (trunk, leftFork, rightFork)
-    -- remove this:
-    in case (trunk, leftFork, rightFork) of
-        ([], [], []) -> error "all 3 empty"
-        ([], _y, _z) -> error "trunk is empty (maybe others too)"
-        (_x, [], _z) -> error "left is empty (maybe the right as well)"
-        (_x, _y, []) -> error "right is empty (others are not"
-        (x, y, z) -> (x, y, z)
-
-takePreFork :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
-takePreFork theTree =
-    go theTree []
-  where
-    go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
-    go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
-    go t@(Node bt (_x : _y : [])) xs = (bt : xs, t) -- reached the fork
-    go someTree xs = (xs, someTree) -- should never happen
-
-takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
-takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
-takeFork (Node bt []) xs = bt : xs -- done with the fork
-takeFork _someTree xs = xs -- should never happen
-
-----------------------------------------------------------------------------------------------------
--- Fork generation
-----------------------------------------------------------------------------------------------------
-genFork :: C.HashMapCas FakePayload -> Gen ForkInfo
-genFork _store = do
-    allTxs <- getTransPool
-    h0 <- genesis testVersion
-    theTree <- genTree h0 allTxs
-    return $ buildForkInfo theTree
-
-getTransPool :: Gen (Set TransactionHash)
-getTransPool = do
+getTransPool :: Gen (IO (Set TransactionHash))
+getTransPool =
     let txHashes = fmap (\n -> do
                          mockTx <- mkMockTx n
                          return $ TransactionHash $ mockEncode mockTx )
                      [1..100]
-    S.fromList <$> sequenceA txHashes
+    in S.fromList <$> sequenceA txHashes
 
-mkMockTx :: Int64 -> Gen MockTx
+genesisIO :: ChainwebVersion -> Gen (IO BlockHeader)
+genesisIO v = either (error . sshow) return $ genesisBlockHeaderForChain v (0 :: Int)
+
+----------------------------------------------------------------------------------------------------
+-- Fork generation
+----------------------------------------------------------------------------------------------------
+genFork :: BlockHeaderDb -> C.HashMapCas FakePayload -> BlockHeader -> Set TransactionHash -> Gen (IO ForkInfo)
+genFork bhDb payloadStore genBlock allTxs = do
+    theTree <- genTree genBlock allTxs
+    return $ buildForkInfo theTree
+
+mkMockTx :: Int64 -> Gen (IO MockTx)
 mkMockTx n = do
     time <- arbitrary :: Gen (Time Int64)
     return MockTx
@@ -290,3 +243,60 @@ queryFakePayload db hash = casLookup db hash
 
 payloadDbToList :: C.HashMapCas FakePayload -> IO [FakePayload]
 payloadDbToList = C.toList
+
+----------------------------------------------------------------------------------------------------
+--  Info about generated forks
+----------------------------------------------------------------------------------------------------
+buildForkInfo :: C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
+buildForkInfo store t =
+    let (preFork, left, right) = splitNodes t
+        forkHeight = length preFork
+    in if (null preFork || null left || null right)
+        then error "buildForkInfo -- all of the 3 lists must be non-empty"
+        else
+            ForkInfo
+            { fiPayloadStore = store
+            , fiOldHeader = btBlockHeader (head left)
+            , fiNewHeader = btBlockHeader (head right)
+            , fiOldForkTrans = S.unions (btTransactions <$> left)
+            , fiNewForkTrans = S.unions (btTransactions <$> right)
+            , fiForkHeight = forkHeight
+            , fiLeftBranchHeight = length left + forkHeight
+            , fiRightBranchHeight = length right + forkHeight
+            , fiPreForkHeaders = btBlockHeader <$> preFork
+            , fiLeftForkHeaders = btBlockHeader <$> left
+            , fiRightForkHeaders = btBlockHeader <$> right
+            }
+
+type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
+
+-- | Split the nodes into a triple of lists (xs, ys, zs) where xs = the nodes on the trunk before
+--   the fork, ys = the nodes on the left fork, and zs = the nodes on the right fork
+splitNodes :: Tree BlockTrans -> BT3
+splitNodes t =
+    let (trunk, restOfTree) = takePreFork t
+        (leftFork, rightFork) = case restOfTree of
+            Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
+            someTree -> ([], []) -- should never happen
+    -- in (trunk, leftFork, rightFork)
+    -- remove this:
+    in case (trunk, leftFork, rightFork) of
+        ([], [], []) -> error "all 3 empty"
+        ([], _y, _z) -> error "trunk is empty (maybe others too)"
+        (_x, [], _z) -> error "left is empty (maybe the right as well)"
+        (_x, _y, []) -> error "right is empty (others are not"
+        (x, y, z) -> (x, y, z)
+
+takePreFork :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
+takePreFork theTree =
+    go theTree []
+  where
+    go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
+    go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
+    go t@(Node bt (_x : _y : [])) xs = (bt : xs, t) -- reached the fork
+    go someTree xs = (xs, someTree) -- should never happen
+
+takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
+takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
+takeFork (Node bt []) xs = bt : xs -- done with the fork
+takeFork _someTree xs = xs -- should never happen
