@@ -15,21 +15,32 @@ module Chainweb.Test.CutDB.Test
 ( test
 ) where
 
-import Data.LogMessage
-import qualified Data.Text.IO as T
+import Chainweb.Graph
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Version
-import Chainweb.Graph
+
 import Data.CAS.RocksDB
+import Data.LogMessage
+import qualified Data.Text.IO as T
+
+import System.LogLevel
 
 test :: IO ()
 test = do
+    -- Pact service that is used to initialize the cut data base
     pactExec <- testWebPactExecutionService v txGenerator
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
-        withTestCutDb rdb v 20 pactExec logg $ \cutDb ->
-            return ()
+        withTestCutDb rdb v 20 pactExec logg $ \cutDb -> do
+
+            -- pact service, that is used to extend the cut data base
+            pactExec2 <- testWebPactExecutionService v txGenerator
+            syncPact cutDb pactExec2
+            extendTestCutDb cutDb pactExec2 20
   where
     v = TimedCPM petersonChainGraph
-    txGenerator cid bockHeight blockHash = return mempty {- Vector of ChainwebTransaction -}
-    logg _ = T.putStrLn . logText
+    txGenerator _cid _bockHeight _blockHash = return mempty {- Vector of ChainwebTransaction -}
+    logg l
+        | l <= Warn = T.putStrLn . logText
+        | otherwise = const $ return ()
+

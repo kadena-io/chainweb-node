@@ -148,7 +148,7 @@ spvValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 spvValidation netIO rksIO = testCase "spvRoundtripValidation" $ do
   _rks <- rksIO
   _cwEnv <- fmap _getClientEnv netIO
-  undefined
+  error "Chainweb.Test.Pact.RemotePactTests.spvValidation: FIXME"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
