@@ -100,9 +100,14 @@ instance IsCasValue FakePayload where
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
-prop_validTxsSource :: ForkInfo -> Property
-prop_validTxsSource ForkInfo{..} = monadicIO $ do
-    reIntroTransV <- liftIO $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
+prop_validTxSource
+    :: BlockHeaderDb
+    -> C.HashMapCas FakePayload
+    -> BlockHeader
+    -> Property
+prop_validTxSource db payloadStore genBlock = monadicIO $ do
+    ForkInfo{..} <- genFork db payloadStore genBlock
+    reIntroTransV <- run $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
           && (reIntroTrans `S.disjoint` fiNewForkTrans)
@@ -110,8 +115,12 @@ prop_validTxsSource ForkInfo{..} = monadicIO $ do
 -- | Property: All transactions that were in the old fork (and not also in the new fork) should be
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
 --   processFork)
-prop_noOrhanedTxs :: ForkInfo -> Bool
-prop_noOrhanedTxs = undefined
+prop_noOrphanedTxs
+    :: BlockHeaderDb
+    -> C.HashMapCas FakePayload
+    -> BlockHeader
+    -> Property
+prop_noOrphanedTxs db payloadStore genBlock = undefined -- monadicIO $ do
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00 -- TODO: what is the right version to use for tests?
@@ -119,41 +128,43 @@ testVersion = Testnet00 -- TODO: what is the right version to use for tests?
 tests :: [TestTree]
 tests = undefined
 
-testSetup :: IO ()
-testSetup = do
+runTests :: IO ()
+runTests =
     withRocksDb "mempool-consensus-test" $ \rdb ->
         withToyDB rdb toyChainId $ \h0 db -> do
             payloadDb <- newFakePayloadDb
-            let allTxs = getTransPool
-            let genForkInfo' :: Gen (IO ForkInfo)
-                genForkInfo' = genFork db payloadDb h0 allTxs
-
-            -- let theGenInfo = genFork payloadDb
-            -- sample theGenInfo
+            quickCheck (prop_validTxSource db payloadDb h0)
+            quickCheck (prop_noOrphanedTxs db payloadDb h0)
             return ()
 
-getTransPool :: Gen (IO (Set TransactionHash))
-getTransPool =
-    let txHashes = fmap (\n -> do
-                         mockTx <- mkMockTx n
-                         return $ TransactionHash $ mockEncode mockTx )
-                     [1..100]
-    in S.fromList <$> sequenceA txHashes
+getTransPool :: PropertyM IO (Set TransactionHash)
+getTransPool = do
+    S.fromList <$> sequenceA txHashes
+  where
+    txHashes = fmap (\n -> do
+                        mockTx <- mkMockTx n
+                        return $ TransactionHash $ mockEncode mockTx )
+                    [1..100]
 
-genesisIO :: ChainwebVersion -> Gen (IO BlockHeader)
-genesisIO v = either (error . sshow) return $ genesisBlockHeaderForChain v (0 :: Int)
+genesisIO :: ChainwebVersion -> IO BlockHeader
+genesisIO v = genesisBlockHeaderForChain v (0 :: Int)
 
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
-genFork :: BlockHeaderDb -> C.HashMapCas FakePayload -> BlockHeader -> Set TransactionHash -> Gen (IO ForkInfo)
-genFork bhDb payloadStore genBlock allTxs = do
-    theTree <- genTree genBlock allTxs
-    return $ buildForkInfo theTree
+genFork
+    :: BlockHeaderDb
+    -> C.HashMapCas FakePayload
+    -> BlockHeader
+    -> PropertyM IO ForkInfo
+genFork db payloadStore startHeader = do
+    allTxs <- getTransPool
+    theTree <- genTree db startHeader allTxs
+    return $ buildForkInfo payloadStore theTree
 
-mkMockTx :: Int64 -> Gen (IO MockTx)
+mkMockTx :: Int64 -> PropertyM IO MockTx
 mkMockTx n = do
-    time <- arbitrary :: Gen (Time Int64)
+    time <- pick arbitrary
     return MockTx
         { mockNonce = n
         , mockGasPrice = GasPrice 0
@@ -161,9 +172,9 @@ mkMockTx n = do
         , mockMeta = TransactionMetadata time time
         }
 
-takeTrans :: Set TransactionHash -> Gen (Set TransactionHash, Set TransactionHash)
+takeTrans :: Set TransactionHash -> PropertyM IO (Set TransactionHash, Set TransactionHash)
 takeTrans txs = do
-    n <- choose (1, 3)
+    n <- pick $ choose (1, 3)
     return $ S.splitAt n txs
 
 debugHeader :: BlockHeader -> String
@@ -172,22 +183,32 @@ debugHeader BlockHeader{..} = "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0
                            ++ "\n\t\tparentHash: " ++ show _blockParent
                            ++ "\n"
 
-genTree :: BlockHeader -> Set TransactionHash -> Gen (Tree BlockTrans)
-genTree h allTxs = do
+genTree :: BlockHeaderDb -> BlockHeader -> Set TransactionHash -> PropertyM IO (Tree BlockTrans)
+genTree db h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
     listOfOne <- preForkTrunk next theRest
-    return $ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOfOne
+    theNewNode <- newNode db BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOfOne
+    return theNewNode
 
-preForkTrunk :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
+-- | Create a new Tree node and add the BlockHeader to the BlockHeaderDb
+newNode :: BlockHeaderDb -> BlockTrans -> [Tree BlockTrans] -> PropertyM IO (Tree BlockTrans)
+newNode db blockTrans children = do
+    let theNewNode = Node blockTrans children
+    -- TODO add to the blockHeaderDb:  (btBlockHeader blockTrans) db
+    return theNewNode
+
+preForkTrunk :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
 preForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
+
+    -- frequency :: [(Int, Gen a)] -> Gen a
     children <- frequency [ (1, fork next theRest)
                           , (3, preForkTrunk next theRest) ]
     return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } children ]
 
-fork :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
+fork :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
 fork h avail = do
     nextLeft <- header' h
     nextRight <- header' h
@@ -196,19 +217,19 @@ fork h avail = do
     right <- postForkTrunk nextRight theRest
     return $ [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } (left ++ right) ]
 
-postForkTrunk :: BlockHeader -> Set TransactionHash -> Gen (Forest BlockTrans)
+postForkTrunk :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
 postForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-    listOf0or1 <- frequency
+    listOf0or1 <- pick $ frequency
         [ (1, return [])
         , (3, postForkTrunk next theRest) ]
     return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOf0or1 ]
 
-header' :: BlockHeader -> Gen BlockHeader
+header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
-    nonce <- Nonce <$> chooseAny
-    miner <- arbitrary
+    nonce <- Nonce <$> pick chooseAny
+    miner <- pick arbitrary
     return
         . fromLog
         . newMerkleLog
