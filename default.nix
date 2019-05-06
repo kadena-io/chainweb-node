@@ -121,6 +121,12 @@ in
           sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
         };
 
+        bounded-queue = callHackageDirect {
+          pkg = "bounded-queue";
+          ver = "1.0.0";
+          sha256 = "04p9p8n3l75lhc0f4g7q8qwxwcjpv11mqyf46wxnb3s9wd0wyazc";
+        };
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
