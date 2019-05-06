@@ -17,6 +17,9 @@ module Chainweb.Test.Pact.SPV
 ) where
 
 
+
+import Control.Concurrent.MVar (newMVar)
+
 import Data.Aeson ((.=), object)
 import Data.CAS.RocksDB
 import Data.Default (def)
@@ -45,16 +48,15 @@ import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..))
 test :: IO ()
 test = do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v txGenerator
+    pact0 <- testWebPactExecutionService v Nothing txGenerator
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
+            cdb <- newMVar cutDb
 
             -- pact service, that is used to extend the cut data base
-            pact <- testWebPactExecutionService v txGenerator
+            pact <- testWebPactExecutionService v (Just cdb) txGenerator
             syncPact cutDb pact
             extendTestCutDb cutDb pact 20
-
-
 
   where
     v = TimedCPM petersonChainGraph
@@ -70,18 +72,31 @@ txGenerator
 txGenerator _cid _bhe _bha =
     mkPactTestTransactions' $ Vector.fromList txs
   where
-    txs = [ PactTransaction tx1Code tx1Data ]
-
-    tx1Code =
-      [text|
-        (coin.delete-coin 'sender00 2 'sender01 (read-keyset 'acc2-keys) 1.0)
-        |]
-
-    tx1Data =
+    txs = [ PactTransaction tx1Code tx1Data
+          , PactTransaction tx2Code tx2Data
+          ]
+    -- standard admin keys
+    keys =
       let !k = KeySet
             [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
             ( Name "keys-all" def )
-      in Just $ object [ "acc2-keys" .=  k]
+      in Just $ object [ "sender01-keys" .=  k]
+
+    -- Burn coin on chain '$cid' and create on chain 2, creating SPV proof
+    tx1Code =
+      [text|
+        (coin.delete-coin 'sender00 2 'sender01 (read-keyset 'sender01-keys) 1.0)
+        |]
+    tx1Data = keys
+
+    -- Consume SPV proof (TODO), validating burn occurred on prev chain '$cid'
+    -- and created on chain 2
+    tx2Code =
+      [text|
+        (coin.create-coin { "foo": 1 })
+        |]
+
+    tx2Data = keys
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)

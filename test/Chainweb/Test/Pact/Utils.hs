@@ -72,6 +72,7 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
+import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
@@ -207,14 +208,18 @@ evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
 destroyTestPactCtx :: TestPactCtx -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
-testPactCtx :: ChainwebVersion -> V.ChainId -> IO TestPactCtx
-testPactCtx v cid = do
+testPactCtx
+    :: ChainwebVersion
+    -> V.ChainId
+    -> Maybe (MVar (CutDb cas))
+    -> IO TestPactCtx
+testPactCtx v cid cutDB = do
     dbSt <- initializeState
     checkpointEnv <- initInMemoryCheckpointEnv cmdConfig logger gasEnv
     void $ saveInitial (_cpeCheckpointer checkpointEnv) dbSt
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
-        <*> pure (PactServiceEnv Nothing checkpointEnv P.noSPVSupport def)
+        <*> pure (PactServiceEnv Nothing checkpointEnv spv def)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -224,7 +229,7 @@ testPactCtx v cid = do
     gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
     gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
-
+    spv = maybe P.noSPVSupport pactSpvSupport cutDB
     initializeState = case _ccSqlite cmdConfig of
         Nothing -> do
             env <- mkPureEnv loggers
@@ -238,11 +243,12 @@ testPactCtx v cid = do
 testPactExecutionService
     :: ChainwebVersion
     -> V.ChainId
+    -> Maybe (MVar (CutDb cas))
     -> MemPoolAccess
        -- ^ transaction generator
     -> IO PactExecutionService
-testPactExecutionService v cid mempoolAccess = do
-    ctx <- testPactCtx v cid
+testPactExecutionService v cid cutDB mempoolAccess = do
+    ctx <- testPactCtx v cid cutDB
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
@@ -256,23 +262,28 @@ testPactExecutionService v cid mempoolAccess = do
 --
 testWebPactExecutionService
     :: ChainwebVersion
+    -> Maybe (MVar (CutDb cas))
     -> (V.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> IO WebPactExecutionService
-testWebPactExecutionService v mempoolAccess
+testWebPactExecutionService v cutDB mempoolAccess
     = fmap mkWebPactExecutionService
     $ fmap HM.fromList
     $ traverse
-        (\c -> (c,) <$> testPactExecutionService v c (mempoolAccess c))
+        (\c -> (c,) <$> testPactExecutionService v c cutDB (mempoolAccess c))
     $ toList
     $ chainIds v
 
 -- | This enforces that only a single test can use the pact context at a time.
 -- It's up to the user to ensure that tests are scheduled in the right order.
 --
-withPactCtx :: ChainwebVersion -> ((forall a . PactServiceM a -> IO a) -> TestTree) -> TestTree
-withPactCtx v f
-    = withResource start destroyTestPactCtx $ \ctxIO -> f $ \pact -> do
+withPactCtx
+    :: ChainwebVersion
+    -> Maybe  (MVar (CutDb cas))
+    -> ((forall a . PactServiceM a -> IO a) -> TestTree)
+    -> TestTree
+withPactCtx v cutDB f
+    = withResource (start cutDB) destroyTestPactCtx $ \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
         evalPactServiceM ctx pact
   where
