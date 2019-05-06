@@ -17,13 +17,18 @@ module Chainweb.Test.Pact.Utils
 
   -- * helper functions
 , getByteString
+, mergeObjects
+, singletonOf
 , formatB16PubKey
 , mkPactTestTransactions
+, mkPactTestTransactions'
 , mkPactTransaction
 , pactTestLogger
 
+
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
+, PactTransaction(..)
 , testPactCtx
 , destroyTestPactCtx
 , evalPactServiceM
@@ -46,7 +51,7 @@ import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
-import Data.Text (Text, pack)
+import Data.Text (Text, unpack, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import Data.Vector (Vector)
@@ -82,6 +87,7 @@ import Pact.Types.Gas
 import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
+
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
     let (pub, priv, addr, scheme) = someED25519Pair
@@ -112,12 +118,37 @@ getByteString = fst . B16.decode
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
+-- | Merge a list of JSON Objects together. This will defer to 'Null' if any other values
+-- are found. Beware.
+mergeObjects :: [Value] -> Value
+mergeObjects = Object . HM.unions . foldr unwrap []
+  where
+    unwrap (Object o) l = o:l
+    unwrap _ l = l
+
+-- | Lift a Maybe into a singleton List
+singletonOf :: Maybe a -> [a]
+singletonOf (Just a) = [a]
+singletonOf Nothing = []
+
 mkPactTestTransactions :: Vector String -> IO (Vector ChainwebTransaction)
 mkPactTestTransactions cmdStrs = do
     kps <- testKeyPairs
     let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
     -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
     traverse (mkPactTransaction kps theData "1") cmdStrs
+
+mkPactTestTransactions' :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+mkPactTestTransactions' txs =
+    testKeyPairs >>= \ks -> traverse (go ks) txs
+  where
+    -- merge tx data and create pact command
+    go ks (PactTransaction c d) =
+      let pd = mergeObjects $ [keys ks] <> singletonOf d
+      in mkPactTransaction ks pd "1" (unpack c)
+
+    -- create public test admin keys from test keyset
+    keys ks = object ["test-admin-keyset" .= fmap formatB16PubKey ks]
 
 mkPactTransaction
   :: [SomeKeyPair]
@@ -161,6 +192,12 @@ data TestPactCtx = TestPactCtx
     { _testPactCtxState :: !(MVar PactServiceState)
     , _testPactCtxEnv :: !PactServiceEnv
     }
+
+data PactTransaction = PactTransaction
+  { _pactCode :: Text
+  , _pactData :: Maybe Value
+  }
+
 
 evalPactServiceM :: TestPactCtx -> PactServiceM a -> IO a
 evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
