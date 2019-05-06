@@ -16,6 +16,7 @@ module Chainweb.Test.Pact.SPV
 ( test
 ) where
 
+
 import Data.Aeson ((.=), object)
 import Data.CAS.RocksDB
 import Data.Default (def)
@@ -75,7 +76,7 @@ txGenerator _cid _bhe _bha =
       [text|
         (coin.delete-coin 'sender00 2 'sender00 (read-keyset 'acc2-keys) 1.0)
         |]
-        
+
     tx1Data =
       let !k = KeySet
             [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
