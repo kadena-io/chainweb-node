@@ -15,6 +15,8 @@ module Chainweb.Test.Pact.SPV
 ( test
 ) where
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Graph
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
@@ -41,24 +43,29 @@ test = do
             pact <- testWebPactExecutionService v txGenerator
             syncPact cutDb pact
             extendTestCutDb cutDb pact 20
+
+
+
   where
     v = TimedCPM petersonChainGraph
-    txGenerator _cid _bockHeight _blockHash = return mempty {- Vector of ChainwebTransaction -}
     logg l
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
-spvTransactions :: IO (Vector ChainwebTransaction)
-spvTransactions =
+txGenerator
+    :: ChainId
+    -> BlockHeight
+    -> BlockHash
+    -> IO (Vector ChainwebTransaction)
+txGenerator _cid _bhe _bha =
     mkPactTestTransactions' $ Vector.fromList txs
   where
-    txs =
-      [ PactTransaction tx1Code tx1Data]
+    txs = [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =
       "(coin.delete-coin \"Acct1\" 2 \"Acct2\" (read-keyset 'acc2-keys) 1.0)"
     tx1Data = Just $ object
-      [ ("acc2-keys"::Text) .=  ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"::Text)
+      [ "acc2-keys" .=  ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"::Text)
       ]
 
 {-
