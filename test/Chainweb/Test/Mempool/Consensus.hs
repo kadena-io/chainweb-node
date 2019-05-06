@@ -16,7 +16,7 @@ import Data.Int
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Tree
-import Data.Vector (Vector)
+import Data.Vector ((!))
 import qualified Data.Vector as V
 
 import GHC.Generics
@@ -38,7 +38,7 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Version
+import qualified Chainweb.TreeDB as TreeDB
 
 import Data.CAS
 import qualified Data.CAS.HashMap as C
@@ -95,7 +95,7 @@ data FakePayload = FakePayload
 
 instance IsCasValue FakePayload where
     type CasKeyType FakePayload = BlockPayloadHash
-    casKey (FakePayload bh txs) = bh
+    casKey (FakePayload bh _txs) = bh
 
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
@@ -120,13 +120,16 @@ prop_noOrphanedTxs
     -> C.HashMapCas FakePayload
     -> BlockHeader
     -> Property
-prop_noOrphanedTxs db payloadStore genBlock = undefined -- monadicIO $ do
+prop_noOrphanedTxs db payloadStore genBlock = monadicIO $ do
+    ForkInfo{..} <- genFork db payloadStore genBlock
+    reIntroTransV <- run $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
+    let reIntroTrans = S.fromList $ V.toList reIntroTransV
+    let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
+    assert $ expectedTrans `S.isSubsetOf` reIntroTrans
 
-testVersion :: ChainwebVersion
-testVersion = Testnet00 -- TODO: what is the right version to use for tests?
-
-tests :: [TestTree]
-tests = undefined
+-- TODO: revert to [TestTree]
+tests :: IO ()
+tests = runTests
 
 runTests :: IO ()
 runTests =
@@ -146,9 +149,6 @@ getTransPool = do
                         return $ TransactionHash $ mockEncode mockTx )
                     [1..100]
 
-genesisIO :: ChainwebVersion -> IO BlockHeader
-genesisIO v = genesisBlockHeaderForChain v (0 :: Int)
-
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ genFork
 genFork db payloadStore startHeader = do
     allTxs <- getTransPool
     theTree <- genTree db startHeader allTxs
-    return $ buildForkInfo payloadStore theTree
+    return $ buildForkInfo db payloadStore theTree
 
 mkMockTx :: Int64 -> PropertyM IO MockTx
 mkMockTx n = do
@@ -195,18 +195,28 @@ genTree db h allTxs = do
 newNode :: BlockHeaderDb -> BlockTrans -> [Tree BlockTrans] -> PropertyM IO (Tree BlockTrans)
 newNode db blockTrans children = do
     let theNewNode = Node blockTrans children
+    liftIO $ TreeDB.insert db (btBlockHeader blockTrans)
     -- TODO add to the blockHeaderDb:  (btBlockHeader blockTrans) db
+    -- insert
+    --     :: db
+    --     -> DbEntry db
+    --     -> IO ()
     return theNewNode
 
 preForkTrunk :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
 preForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-
-    -- frequency :: [(Int, Gen a)] -> Gen a
-    children <- frequency [ (1, fork next theRest)
-                          , (3, preForkTrunk next theRest) ]
+    children <- frequencyM [(1, fork next theRest), (3, preForkTrunk next theRest)]
     return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } children ]
+
+-- | Version of frequency where the generators are in IO
+frequencyM :: [(Int, PropertyM IO a)] -> PropertyM IO a
+frequencyM xs = do
+    let indexGens = (elements . (:[])) <$> [0..]
+    let indexZip = zip (fst <$> xs) indexGens
+    n <- pick $ frequency indexZip :: PropertyM IO Int -- the original 'frequency' chooses the index of the value
+    snd $ ((V.fromList xs) ! n)
 
 fork :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
 fork h avail = do
@@ -221,9 +231,7 @@ postForkTrunk :: BlockHeader -> Set TransactionHash -> PropertyM IO (Forest Bloc
 postForkTrunk h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-    listOf0or1 <- pick $ frequency
-        [ (1, return [])
-        , (3, postForkTrunk next theRest) ]
+    listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk next theRest)]
     return [ Node BlockTrans { btBlockHeader = h, btTransactions = takenNow } listOf0or1 ]
 
 header' :: BlockHeader -> PropertyM IO BlockHeader
@@ -249,10 +257,6 @@ header' h = do
     target = _blockTarget h -- no difficulty adjustment
     v = _blockChainwebVersion h
 
-  -- duplicated, since not exported from Chaineweb.Test.Utils
-genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = either (error . show) return $ genesisBlockHeaderForChain v (0 :: Int)
-
 newFakePayloadDb :: IO (C.HashMapCas FakePayload)
 newFakePayloadDb = C.emptyCas
 
@@ -268,15 +272,16 @@ payloadDbToList = C.toList
 ----------------------------------------------------------------------------------------------------
 --  Info about generated forks
 ----------------------------------------------------------------------------------------------------
-buildForkInfo :: C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
-buildForkInfo store t =
+buildForkInfo :: BlockHeaderDb -> C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
+buildForkInfo blockHeaderDb store t =
     let (preFork, left, right) = splitNodes t
         forkHeight = length preFork
     in if (null preFork || null left || null right)
         then error "buildForkInfo -- all of the 3 lists must be non-empty"
         else
             ForkInfo
-            { fiPayloadStore = store
+            { fiBlockHeaderDb = blockHeaderDb
+            , fiPayloadStore = store
             , fiOldHeader = btBlockHeader (head left)
             , fiNewHeader = btBlockHeader (head right)
             , fiOldForkTrans = S.unions (btTransactions <$> left)
