@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 -- |
 -- Module: Chainweb.Test.CutDB.Test
@@ -15,20 +16,30 @@ module Chainweb.Test.Pact.SPV
 ( test
 ) where
 
+import Data.Aeson ((.=), object)
+import Data.CAS.RocksDB
+import Data.Default (def)
+import Data.LogMessage
+import qualified Data.Text.IO as T
+import Data.Vector as Vector
+
+import NeatInterpolation (text)
+import System.LogLevel
+
+-- internal chainweb modules
+
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Graph
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Version
 
-import Data.Aeson ((.=), object)
-import Data.CAS.RocksDB
-import Data.LogMessage
-import Data.Text (Text)
-import qualified Data.Text.IO as T
-import Data.Vector as Vector
+-- internal pact modules
 
-import System.LogLevel
+import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..))
+
 
 test :: IO ()
 test = do
@@ -41,25 +52,35 @@ test = do
             pact <- testWebPactExecutionService v txGenerator
             syncPact cutDb pact
             extendTestCutDb cutDb pact 20
+
+
+
   where
     v = TimedCPM petersonChainGraph
-    txGenerator _cid _bockHeight _blockHash = return mempty {- Vector of ChainwebTransaction -}
     logg l
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
-spvTransactions :: IO (Vector ChainwebTransaction)
-spvTransactions =
+txGenerator
+    :: ChainId
+    -> BlockHeight
+    -> BlockHash
+    -> IO (Vector ChainwebTransaction)
+txGenerator _cid _bhe _bha =
     mkPactTestTransactions' $ Vector.fromList txs
   where
-    txs =
-      [ PactTransaction tx1Code tx1Data]
+    txs = [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =
-      "(coin.delete-coin \"Acct1\" 2 \"Acct2\" (read-keyset 'acc2-keys) 1.0)"
-    tx1Data = Just $ object
-      [ ("acc2-keys"::Text) .=  ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"::Text)
-      ]
+      [text|
+        (coin.delete-coin 'sender00 2 'sender00 (read-keyset 'acc2-keys) 1.0)
+        |]
+        
+    tx1Data =
+      let !k = KeySet
+            [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+            ( Name "keys-all" def )
+      in Just $ object [ "acc2-keys" .=  k]
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
