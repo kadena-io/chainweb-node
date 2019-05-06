@@ -74,7 +74,7 @@ txGenerator _cid _bhe _bha =
 
     tx1Code =
       [text|
-        (coin.delete-coin 'sender00 2 'sender00 (read-keyset 'acc2-keys) 1.0)
+        (coin.delete-coin 'sender00 2 'sender01 (read-keyset 'acc2-keys) 1.0)
         |]
 
     tx1Data =
