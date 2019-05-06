@@ -22,8 +22,12 @@ import Chainweb.Utils
 
 ------------------------------------------------------------------------------
 processFork :: BlockHeaderDb -> BlockHeader -> Maybe BlockHeader -> IO (Vector TransactionHash)
-processFork _db _newHeader Nothing = return V.empty
+processFork _db _newHeader Nothing = putStrLn "processFork - EMPTY" >> return V.empty
 processFork db newHeader (Just lastHeader) = do
+
+    putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
+            ++ "lastHeader = " ++ show (_blockHash lastHeader)
+
     let s = branchDiff db newHeader lastHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
     oldTrans <- foldM f V.empty oldBlocks
@@ -53,7 +57,6 @@ collectForkBlocks theStream =
             Left _ -> return (oldBlocks, newBlocks) -- common branch point of the forks
             Right (LeftD blk, strm) -> go strm (V.cons blk oldBlocks, newBlocks)
             Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
-
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
 
