@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Configuration.Utils.CommandLine
-import Options.Applicative
-import Text.PrettyPrint.ANSI.Leijen (fillSep, text, vcat)
+import System.Environment
+import System.Exit
+import Text.Printf
 
 import qualified Chain2Gexf
 import qualified Ea
@@ -11,58 +11,80 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TransactionGenerator
 
-data Command
-  = C2Gexf
-  | Ea
-  | GenTransactions
-  | RunNodes
-  | SlowTests
-
-commandParser :: Parser Command
-commandParser = subparser $
-    command "bigbang" eaOpts <> -- Using "ea" as a command seemed to have problems
-    command "chain2gexf" (C2Gexf <$ Chain2Gexf.opts) <>
-    command "gen-transactions" (GenTransactions <$ tgenOpts) <>
-    command "run-nodes" (RunNodes <$ RunNodes.runNodesOpts) <>
-    command "slow-tests" (SlowTests <$ slowTestOpts)
-
-tgenOpts :: ParserInfo Command
-tgenOpts = info (pure GenTransactions)
-    (fullDesc
-     <> progDesc "Generate a random stream of simulated blockchain transactions")
-
-eaOpts :: ParserInfo Command
-eaOpts = info (pure Ea)
-    (fullDesc
-     <> progDesc "Generate Chainweb genesis blocks and their payloads")
-
-slowTestOpts :: ParserInfo Command
-slowTestOpts = info (pure SlowTests)
-    (fullDesc
-     <> progDesc "Run slow Chainweb tests")
-
 main :: IO ()
 main = do
-    cmd <- customExecParser p opts
-    case cmd of
-      C2Gexf -> Chain2Gexf.main
-      Ea -> Ea.main
-      GenTransactions -> TransactionGenerator.main
-      RunNodes -> RunNodes.main
-      SlowTests -> SlowTests.main
+    args <- getArgs
+    case args of
+      [] -> printHelp topLevelCommands
+      ["-h"] -> printHelp topLevelCommands
+      ["--help"] -> printHelp topLevelCommands
+      (cmd:restOfArgs) -> do
+        case filter (\cs -> cmd == csCmd cs) topLevelCommands of
+          [] -> do
+            printf "Error: \"%s\" is not a valid command\n\n" cmd
+            printHelp topLevelCommands
+            exitFailure
+          [cs] -> withArgs restOfArgs $ csAction cs
+          _ -> error "Duplicate command encountered.  This shouldn't happen!"
+
+data CommandSpec = CommandSpec
+    { csCmd :: String
+    , csDescription :: String
+    , csAction :: IO ()
+    }
+
+padRight :: Int -> String -> String
+padRight n s = s ++ padding
   where
-    opts = info (commandParser <**> helper) mods
-    mods = headerDoc (Just theHeader)
-        <> footerDoc (Just theFooter)
-    theHeader = vcat
+    padding = replicate (max 0 (n - length s)) ' '
+
+
+cmdHelpLine :: CommandSpec -> String
+cmdHelpLine cs = printf "  %s%s" (padRight 25 $ csCmd cs) (csDescription cs)
+
+topLevelCommands :: [CommandSpec]
+topLevelCommands =
+  [ CommandSpec
+      "bigbang"
+      "Generate Chainweb genesis blocks and their payloads"
+      Ea.main
+  , CommandSpec
+      "chain2gexf"
+      "Convert a persisted Chainweb into .gexf format for viewing"
+      Chain2Gexf.main
+  , CommandSpec
+      "gen-transactions"
+      "Generate a random stream of simulated blockchain transactions"
+      TransactionGenerator.main
+  , CommandSpec
+      "run-nodes"
+      "Run a local cluster of chainweb-node binaries"
+      RunNodes.main
+  , CommandSpec
+      "slow-tests"
+      "Run slow Chainweb tests"
+      SlowTests.main
+  ]
+
+printHelp :: [CommandSpec] -> IO ()
+printHelp commands = do
+    progName <- getProgName
+    putStrLn $ unlines $
+      header progName ++
+      map cmdHelpLine commands
+  where
+    header progName =
       [ "Chainweb Tool"
       , ""
-      , fillSep [ text w | w <- words theDesc ]
-      ]
-    theDesc = "This executable contains misc commands that have been created for various reasons in the course of Chainweb development.  Linking executables is slow and the resulting binaries are large, so it is more efficient in terms of build time, space usage, download time, etc to consolidate them into one binary."
-    theFooter = vcat
-      [ "Run the following command to enable tab completion:"
+      , "This executable contains misc commands that have been created for various"
+      , "reasons in the course of Chainweb development. Linking executables is slow and"
+      , "the resulting binaries are large, so it is more efficient in terms of build"
+      , "time, space usage, download time, etc to consolidate them into one binary."
       , ""
-      , "source <(cwtool --bash-completion-script `which cwtool`)"
+      , "Usage: "++progName++" COMMAND"
+      , ""
+      , "Available options:"
+      ,   "  -h,--help                Show this help text"
+      , ""
+      , "Available commands:"
       ]
-    p = prefs showHelpOnEmpty
