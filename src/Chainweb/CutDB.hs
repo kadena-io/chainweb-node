@@ -80,12 +80,9 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
-import Data.Ratio ((%))
+import qualified Data.Queue.Bounded as BQ
 import qualified Data.Text as T
 
-import qualified Deque.Strict as DQ
-
-import GHC.Exts (IsList(..))
 import GHC.Generics hiding (to)
 
 import Numeric.Natural
@@ -173,38 +170,17 @@ farAheadThreshold = 2000
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
--- | A bounded, strict `DQ.Deque` which drops old elements off its right side as
--- new elements are added (`DQ.cons`'d) to the left.
---
--- Not terribly robust.
---
-data BDQ a = BDQ { _bdq :: !(DQ.Deque a), _bdqLimit :: !Word }
-
--- | Create a `BDQ` that contains @n@ copies of some `a`.
---
-newBDQ :: a -> Word -> BDQ a
-newBDQ a n = BDQ as n
-  where
-    as = fromList . take (int n) $ repeat a
-
--- | \(\mathcal{O}(1)\), occasionally \(\mathcal{O}(n)\).
-consBDQ :: a -> BDQ a -> BDQ a
-consBDQ a (BDQ q l) = BDQ (DQ.cons a $ DQ.init q) l
-
 -- | A sample of peers and the Cut Heights they report from `Cut`s that they
 -- submit to the network. This data is used to extrapolate the current height of
 -- the overall network consensus.
 --
-newtype PeerHeights = PeerHeights (BDQ BlockHeight)
+newtype PeerHeights = PeerHeights (BQ.BQueue BlockHeight)
 
 -- | The approximate average Cut Height of the network, at least as accurately
 -- as we've seen from Cuts coming in from the network.
 --
 avgNetworkHeight :: PeerHeights -> BlockHeight
-avgNetworkHeight (PeerHeights (BDQ q l)) = BlockHeight $ floor avg
-  where
-    avg :: Rational
-    avg = int (foldl' (+) 0 q) % int l
+avgNetworkHeight (PeerHeights q) = BQ.average q
 
 -- | This is a singleton DB that contains the latest chainweb cut as its only
 -- entry.
@@ -308,7 +284,7 @@ startCutDb
 startCutDb config logfun headerStore payloadStore = mask_ $ do
     cutVar <- newTVarIO (_cutDbConfigInitialCut config)
     queue <- newEmptyPQueue
-    peerHeights <- newTVarIO . PeerHeights $ newBDQ (BlockHeight 0) 10
+    peerHeights <- newTVarIO . PeerHeights $ BQ.singleton 16 (BlockHeight 0)
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar peerHeights
     logfun @T.Text Info "CutDB started"
     return $ CutDb
@@ -384,8 +360,8 @@ processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToSt
     updateNetworkHeight :: CutHashes -> IO ()
     updateNetworkHeight ch = case _cutOrigin ch of
         Nothing -> pure ()
-        Just _  -> atomically . modifyTVar' peerHeights $
-            \(PeerHeights q) -> PeerHeights $ consBDQ (_cutHashesHeight ch) q
+        Just _ -> atomically . modifyTVar' peerHeights $
+            \(PeerHeights q) -> PeerHeights $ BQ.cons (_cutHashesHeight ch) q
 
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg

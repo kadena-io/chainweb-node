@@ -10,7 +10,6 @@ extra-deps:
   - compactable-0.1.2.2
   - configuration-tools-0.4.0
   - crackNum-2.3
-  - deque-0.4.2.1@sha256:ea663e190c2bd49a124754c2b53846bfb73b5a8c316da69965b4007321952fea,1853
   - ed25519-donna-0.1.1
   - fake-0.1.1.1@sha256:a551fed1dbdd2ce3629cb843597d24793562cdd136e1252ae2febe0b91d239a8
   - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
@@ -28,8 +27,6 @@ extra-deps:
   - rocksdb-haskell-1.0.1@sha256:3a437ec1cedea56e02ae85a8e37539151c5295cb228117e46aa90767f1072d61
   - sbv-8.1
   - scheduler-1.0.0@sha256:7f5ddfff0d911b089014f0d7668fe7380c65d94630f204f943181e04815b14ed
-  - semigroupoids-5.3.2@sha256:7a00aa24d8129b153f19991b96341e6f725ba77cef46b151c84d6dac1d12b47e,7335
-  - strict-list-0.1.4@sha256:0fa869e2c21b710b7133e8628169f120fe6299342628edd3d5087ded299bc941,1631
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
   - tasty-1.2
   - token-bucket-0.1.0.1@sha256:ef80a31e7f4f794e3686eb405a49afc663535dd3a11c012a002a7bacce897da6
@@ -44,3 +41,5 @@ extra-deps:
     commit: 0cf36de796dc88051fc34469e31a589317631fb9
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - git: https://gitlab.com/fosskers/bounded-queue.git
+    commit: b6309b729d5bd5546cac2c73624dfcd5b4aee060
