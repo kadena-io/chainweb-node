@@ -25,7 +25,9 @@
   ; Capabilities
   ; --------------------------------------------------------------------------
 
-  (defcap GOVERNANCE () (enforce false "upgrade disabled"))
+  (defcap GOVERNANCE ()
+    "upgrade disabled"
+    false)
 
   (defcap TRANSFER ()
     "Autonomous capability to protect debit and credit actions"
@@ -46,6 +48,7 @@
 
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
+
 
   ; --------------------------------------------------------------------------
   ; Coin Contract
@@ -214,6 +217,7 @@
               (credit create-account create-account-guard quantity)))
           )))
     )
+
 
 
 )
