@@ -87,7 +87,6 @@ magic_FUND_TX = mkMagicCap "FUND_TX"
 applyCmd
     :: Logger
     -> PactDbEnv p
-    -> MVar CommandState
     -> ExecutionMode
     -> MinerInfo
     -> GasModel
@@ -95,14 +94,14 @@ applyCmd
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel pd spv cmd = do
+applyCmd logger pactDbEnv mode minerInfo gasModel pd spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
         pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
         supply = gasSupplyOf cmd
 
-    let buyGasEnv = CommandEnv Nothing (bumpExecMode startEM) pactDbEnv cmdState logger freeGasEnv pd'
+    let buyGasEnv = CommandEnv Nothing mode pactDbEnv logger freeGasEnv pd'
 
     buyGasResultE <- tryAny $! buyGas buyGasEnv cmd spv minerInfo supply
 
@@ -155,17 +154,16 @@ applyCmd logger pactDbEnv cmdState startEM minerInfo gasModel pd spv cmd = do
 applyGenesisCmd
     :: Logger
     -> PactDbEnv p
-    -> MVar CommandState
     -> ExecutionMode
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd = do
+applyGenesisCmd logger dbEnv execMode pd spv cmd = do
     -- cmd env with permissive gas model
 
     let pd' = set pdPublicMeta (publicMetaOf cmd) pd
-    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd'
+    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv logger freeGasEnv pd'
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
@@ -186,16 +184,15 @@ applyGenesisCmd logger dbEnv cmdState execMode pd spv cmd = do
 applyCoinbase
     :: Logger
     -> PactDbEnv p
-    -> MVar CommandState
     -> ExecutionMode
     -> MinerInfo
     -> Decimal
     -> PublicData
     -> IO ((CommandResult, [TxLog Value]), CommandEnv p)
-applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
+applyCoinbase logger dbEnv execMode minerInfo reward pd = do
 
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv cmdState logger freeGasEnv pd
+    let cmdEnv = CommandEnv Nothing (bumpExecMode execMode) dbEnv logger freeGasEnv pd
         coinbaseReq = RequestKey $ H.toUntypedHash (H.hash "COINBASE" :: H.PactHash)
 
     resultE <- tryAny $ coinbase cmdEnv minerInfo reward coinbaseReq
@@ -215,16 +212,15 @@ applyCoinbase logger dbEnv cmdState execMode minerInfo reward pd = do
 applyLocal
     :: Logger
     -> PactDbEnv p
-    -> MVar CommandState
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO (Either SomeException (CommandSuccess (Term Name)))
-applyLocal logger dbEnv cmdState pd spv cmd@Command{..} = do
+applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   -- cmd env with permissive gas model
   let pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
-      cmdEnv = CommandEnv Nothing Local dbEnv cmdState logger freeGasEnv pd'
+      cmdEnv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd'
 
   exec <- case _pPayload _cmdPayload of
     Exec pm -> return pm
@@ -302,7 +298,6 @@ applyExec'
     -> IO EvalResult
 applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh spv = do
     when (null (_pcExps parsedCode)) $ throwCmdEx "No expressions found"
-    (CommandState refStore pacts) <- readMVar _ceState
     let sigs = userSigsToPactKeySet senderSigs
         evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
                   (MsgData sigs execData Nothing hsh) refStore _ceGasEnv
@@ -352,7 +347,6 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hsh s
     case _ceMode of
         Local -> throwCmdEx "Local continuation exec not supported"
         Transactional _ -> do
-            state@CommandState{..} <- readMVar _ceState
             case Map.lookup _cmPactId _csPacts of
                 Nothing -> throwCmdEx $ "applyContinuation: txid not found: " ++ show _cmPactId
                 Just PactExec{..}
@@ -400,35 +394,6 @@ applyContinuation' env@CommandEnv{..} initState msg@ContMsg{..} senderSigs hsh s
                                 else continuationUpdate env msg state exec
                             pure er
 
-rollbackUpdate :: CommandEnv p -> ContMsg -> CommandState -> IO ()
-rollbackUpdate CommandEnv{..} ContMsg{..} CommandState{..} = do
-    -- if step doesn't have a rollback function, no error thrown.
-    -- Therefore, pact will be deleted from state.
-    let newState = CommandState _csRefStore $ Map.delete _cmPactId _csPacts
-    logLog _ceLogger "DEBUG" $
-      "applyContinuation: rollbackUpdate: reaping pact " ++ show _cmPactId
-    void $! swapMVar _ceState newState
-
-continuationUpdate
-    :: CommandEnv p
-    -> ContMsg
-    -> CommandState
-    -> PactExec
-    -> IO ()
-continuationUpdate CommandEnv{..} ContMsg{..} CommandState{..} newPactExec@PactExec{..} = do
-    let nextStep = _cmStep + 1
-        isLast = nextStep >= _peStepCount
-        updateState pacts = CommandState _csRefStore pacts -- never loading modules during continuations
-    if isLast
-        then do
-          logLog _ceLogger "DEBUG" $
-            "applyContinuation: continuationUpdate: reaping pact: " ++ show _pePactId
-          void $! swapMVar _ceState $ updateState $ Map.delete _pePactId _csPacts
-        else do
-            logLog _ceLogger "DEBUG" $ "applyContinuation: updated state of pact "
-              ++ show _pePactId ++ ": " ++ show newPactExec
-            void $! swapMVar _ceState $ updateState $
-              Map.insert _pePactId newPactExec _csPacts
 
 ------------------------------------------------------------------------------
 -- Coin Contract
