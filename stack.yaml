@@ -5,7 +5,6 @@ packages:
 
 extra-deps:
   - aeson-1.4.3.0
-  - base-orphans-0.8.1@sha256:defd0057b5db93257528d89b5b01a0fee9738e878c121c686948ac4aa5dded63,2927
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
   - bounded-queue-1.0.0
   - compactable-0.1.2.2
