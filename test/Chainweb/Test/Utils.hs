@@ -86,6 +86,7 @@ module Chainweb.Test.Utils
 , testCaseSch
 , testGroupSch
 , testPropertySch
+, runSched
 ) where
 
 import Control.Concurrent
@@ -728,3 +729,7 @@ schedule Parallel tgs = map _schTest tgs
 schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
   where
     f a b = after AllFinish (_schLabel a) $ _schTest b
+
+-- | Util for GHCI execution of a scheduled test
+runSched :: ScheduledTest -> IO ()
+runSched = defaultMain . testGroup "" . schedule Sequential . pure

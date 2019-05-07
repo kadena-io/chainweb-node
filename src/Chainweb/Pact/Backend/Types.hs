@@ -17,7 +17,6 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( CheckpointEnv(..)
-    , cpeCommandConfig
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
@@ -49,7 +48,6 @@ import qualified Pact.PersistPactDb as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHash
@@ -98,7 +96,6 @@ data Checkpointer = Checkpointer
 -- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer
-    , _cpeCommandConfig :: P.CommandConfig
     , _cpeLogger :: P.Logger
     , _cpeGasEnv :: P.GasEnv
     }

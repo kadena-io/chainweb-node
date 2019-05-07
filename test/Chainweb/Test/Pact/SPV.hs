@@ -38,7 +38,6 @@ import Pact.Interpreter
 import Pact.Types.Command
 import Pact.Types.Gas
 import Pact.Types.Logger
-import Pact.Types.Server
 import Pact.Types.RPC
 
 -- internal chainweb modules
@@ -49,7 +48,6 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.InMemoryCheckpointer
-import Chainweb.Pact.Backend.SQLiteCheckpointer
 import Chainweb.Pact.PactService
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -112,11 +110,10 @@ runRST action pse st = fmap fst $
 withPactSetup :: CutDb cas -> (PactServiceEnv -> PactDbState -> IO a) -> IO a
 withPactSetup cdb f = do
     let l = newLogger alwaysLog (LogName "pact-spv")
-        conf = toCommandConfig $ pactDbConfig (Test petersonChainGraph)
         genv = GasEnv 0 0.0 (constGasModel 0)
 
     mv <- newMVar cdb
-    (cpe, st) <- initConf conf l genv
+    (cpe, st) <- initConf l genv
     void $ saveInitial (cpe ^. cpeCheckpointer) st
 
     let spv = pactSpvSupport mv
@@ -126,17 +123,12 @@ withPactSetup cdb f = do
 
     initCC pse pss >> f pse st
   where
-    initConf c l g = case _ccSqlite c of
-      Nothing -> do
+    initConf l g = do
         e <- mkPureEnv alwaysLog
-        cpe <- initInMemoryCheckpointEnv c l g
-        st <- mkPureState e c
+        cpe <- initInMemoryCheckpointEnv l g
+        st <- mkPureState e
         pure (cpe,st)
-      Just s -> do
-        e <- mkSQLiteEnv l False s alwaysLog
-        cpe <- initSQLiteCheckpointEnv c l g
-        st <- mkSQLiteState e c
-        pure (cpe,st)
+
 
     initCC = runRST $
       initialPayloadState Testnet00 $ someChainId Testnet00

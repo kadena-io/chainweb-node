@@ -18,19 +18,14 @@ import Control.Concurrent.MVar
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 
--- MIGHT INCLUDE THIS MODULE LATER
--- import Chainweb.ChainId
--- MIGHT INCLUDE THIS MODULE LATER
-
-initInMemoryCheckpointEnv :: P.CommandConfig -> P.Logger -> P.GasEnv -> IO CheckpointEnv
-initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
+initInMemoryCheckpointEnv :: P.Logger -> P.GasEnv -> IO CheckpointEnv
+initInMemoryCheckpointEnv logger gasEnv = do
     inmem <- newMVar mempty
     return $
         CheckpointEnv
@@ -42,7 +37,6 @@ initInMemoryCheckpointEnv cmdConfig logger gasEnv = do
                       , saveInitial = saveInitial' inmem
                       , discard = discard' inmem
                       }
-            , _cpeCommandConfig = cmdConfig
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             }
@@ -71,8 +65,6 @@ saveInitial' lock p@PactDbState {..} = do
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@PactDbState {..} = do
-     -- Saving off checkpoint.
-     -- modifyMVarMasked_ lock (return . HMS.insert (height, hash) p)
      Right <$> modifyMVar_ lock (return . HMS.insert (height, hash) p)
 
 discard' :: MVar Store -> PactDbState -> IO (Either String ())
