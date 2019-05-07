@@ -86,7 +86,10 @@ module Chainweb.Test.Utils
 , testCaseSch
 , testGroupSch
 , testPropertySch
+
+-- * GHCI Runners
 , runSched
+, runRocks
 ) where
 
 import Control.Concurrent
@@ -733,3 +736,6 @@ schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
 -- | Util for GHCI execution of a scheduled test
 runSched :: ScheduledTest -> IO ()
 runSched = defaultMain . testGroup "" . schedule Sequential . pure
+
+runRocks :: (RocksDb -> TestTree) -> IO ()
+runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb)

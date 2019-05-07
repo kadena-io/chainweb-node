@@ -57,8 +57,12 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.Utils
 
 import Data.CAS.RocksDB
+
+_run :: IO ()
+_run = runRocks tests
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "SPV-Pact Integration Tests"
@@ -72,7 +76,7 @@ tests rdb = testGroup "SPV-Pact Integration Tests"
 
 type Step = String -> IO ()
 
-testCaseStepsN :: String -> Natural -> (Step -> Assertion) -> TestTree
+testCaseStepsN :: HasCallStack => String -> Natural -> (Step -> Assertion) -> TestTree
 testCaseStepsN name n t = testGroup name $ fmap steps [1..n]
   where
     steps i = testCaseSteps ("Run test number " <> sshow i) t
