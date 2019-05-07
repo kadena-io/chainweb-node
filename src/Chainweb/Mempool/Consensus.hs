@@ -8,6 +8,7 @@ import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 
 import qualified Data.Set as S
 import Data.Vector (Vector)
@@ -17,13 +18,22 @@ import qualified Data.Vector as V
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB
 import Chainweb.Utils
 
+import Chainweb.Store.CAS
 ------------------------------------------------------------------------------
-processFork :: BlockHeaderDb -> BlockHeader -> Maybe BlockHeader -> IO (Vector TransactionHash)
-processFork _db _newHeader Nothing = putStrLn "processFork - EMPTY" >> return V.empty
-processFork db newHeader (Just lastHeader) = do
+processFork
+    :: BlockHeaderDb
+    -> BlockHeader
+    -> Maybe BlockHeader
+    -> Maybe (PayloadDb cas)
+    -> IO (Vector TransactionHash)
+processFork _db _newHeader Nothing _payloadDb = return V.empty
+processFork _db _newHeader _lastHeader Nothing =
+    throwM $ MempoolConsensusException "processFork = no PayloadDb was provided"
+processFork db newHeader (Just lastHeader) (Just payloadDb) = do
 
     putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
             ++ "lastHeader = " ++ show (_blockHash lastHeader)
@@ -40,7 +50,7 @@ processFork db newHeader (Just lastHeader) = do
 
   where f :: Vector TransactionHash -> BlockHeader -> IO (Vector TransactionHash)
         f trans header = do
-            txs <- blockToTxs header
+            txs <- blockToTxs payloadDb header
             return $ txs V.++ trans
 
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
@@ -60,8 +70,11 @@ collectForkBlocks theStream =
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
 
-blockToTxs :: BlockHeader -> IO (Vector TransactionHash)
-blockToTxs _header = undefined
+blockToTxs :: (PayloadDb cas) -> BlockHeader -> IO (Vector TransactionHash)
+blockToTxs payloadStore header = do
+    case casLookup payloadStore (_blockHash header) of
+        Just txs -> return txs
+        Nothing  -> return V.empty
 
 newtype MempoolException = MempoolConsensusException String
 

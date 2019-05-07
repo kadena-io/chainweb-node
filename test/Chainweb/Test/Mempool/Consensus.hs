@@ -29,6 +29,7 @@ import Test.QuickCheck.Monadic
 -- internal modules
 import Pact.Types.Gas
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
@@ -46,7 +47,7 @@ import Numeric.AffineSpace
 
 data ForkInfo = ForkInfo
   { fiBlockHeaderDb :: BlockHeaderDb
-  , fiPayloadStore :: C.HashMapCas FakePayload
+  , fiPayloadStore :: PayloadStore
   , fiOldHeader :: BlockHeader
   , fiNewHeader :: BlockHeader
   , fiOldForkTrans :: Set TransactionHash
@@ -87,22 +88,22 @@ data BlockTrans = BlockTrans
     { btBlockHeader :: BlockHeader
     , btTransactions :: Set TransactionHash }
 
-data FakePayload = FakePayload
-    { _fplHash :: BlockPayloadHash
-    , _fplTxHashes :: [TransactionHash]
+data MockPayload = MockPayload
+    { _mplHash :: BlockHash
+    , _mplTxHashes :: [TransactionHash]
     }
     deriving (Show, Eq, Ord, Generic, Hashable)
 
-instance IsCasValue FakePayload where
-    type CasKeyType FakePayload = BlockPayloadHash
-    casKey (FakePayload bh _txs) = bh
+instance IsCasValue MockPayload where
+    type CasKeyType MockPayload = BlockHash
+    casKey (MockPayload bh _txs) = bh
 
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
 prop_validTxSource
     :: BlockHeaderDb
-    -> C.HashMapCas FakePayload
+    -> C.HashMapCas MockPayload
     -> BlockHeader
     -> Property
 prop_validTxSource db payloadStore genBlock = monadicIO $ do
@@ -110,26 +111,27 @@ prop_validTxSource db payloadStore genBlock = monadicIO $ do
     liftIO $ putStrLn "ForkInfo from prop_validTxSource:"
     liftIO $ putStrLn $ show fi
 
-    -- reIntroTransV <- run $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
-    -- let _reIntroTrans = S.fromList $ V.toList reIntroTransV
+    reIntroTransV <- run $
+        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (Just payloadStore)
+    let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
-    assert True
-    -- assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
-    --       && (reIntroTrans `S.disjoint` fiNewForkTrans)
+    assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
+           && (reIntroTrans `S.disjoint` fiNewForkTrans)
 
 -- | Property: All transactions that were in the old fork (and not also in the new fork) should be
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
 --   processFork)
-_prop_noOrphanedTxs
+prop_noOrphanedTxs
     :: BlockHeaderDb
-    -> C.HashMapCas FakePayload
+    -> PayloadStore
     -> BlockHeader
     -> Property
-_prop_noOrphanedTxs db payloadStore genBlock = monadicIO $ do
+prop_noOrphanedTxs db payloadStore genBlock = monadicIO $ do
     fi@ForkInfo{..} <- genFork db payloadStore genBlock
     liftIO $ putStrLn "ForkInfo from prop_noOrphanedTxs:"
     liftIO $ putStrLn $ show fi
-    reIntroTransV <- run $ processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader)
+    reIntroTransV <- run $
+        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (Just payloadStore)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
     assert $ expectedTrans `S.isSubsetOf` reIntroTrans
@@ -146,9 +148,9 @@ runTests =
             -- is this needed?
             -- TreeDB.insert db h0
 
-            payloadDb <- newFakePayloadDb
+            payloadDb <- newMockPayloadDb
             quickCheck (prop_validTxSource db payloadDb h0)
-            -- quickCheck (prop_noOrphanedTxs db payloadDb h0)
+            quickCheck (prop_noOrphanedTxs db payloadDb h0)
             return ()
 
 getTransPool :: PropertyM IO (Set TransactionHash)
@@ -165,12 +167,12 @@ getTransPool = do
 ----------------------------------------------------------------------------------------------------
 genFork
     :: BlockHeaderDb
-    -> C.HashMapCas FakePayload
+    -> PayloadStore
     -> BlockHeader
     -> PropertyM IO ForkInfo
 genFork db payloadStore startHeader = do
     allTxs <- getTransPool
-    theTree <- genTree db startHeader allTxs
+    theTree <- genTree db payloadStore startHeader allTxs
     return $ buildForkInfo db payloadStore theTree
 
 mkMockTx :: Int64 -> PropertyM IO MockTx
@@ -194,27 +196,53 @@ debugHeader BlockHeader{..} = "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0
                            ++ "\n\t\tparentHash: " ++ show _blockParent
                            ++ "\n"
 
-genTree :: BlockHeaderDb -> BlockHeader -> Set TransactionHash -> PropertyM IO (Tree BlockTrans)
-genTree db h allTxs = do
+genTree
+  :: BlockHeaderDb
+  -> PayloadStore
+  -> BlockHeader
+  -> Set TransactionHash
+  -> PropertyM IO (Tree BlockTrans)
+genTree db store h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    listOfOne <- preForkTrunk db next theRest
-    theNewNode <- newNode db BlockTrans { btBlockHeader = next, btTransactions = takenNow } listOfOne
+    listOfOne <- preForkTrunk db store next theRest
+    theNewNode <- newNode db store
+                          BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+                          listOfOne
     return theNewNode
 
 -- | Create a new Tree node and add the BlockHeader to the BlockHeaderDb
-newNode :: BlockHeaderDb -> BlockTrans -> [Tree BlockTrans] -> PropertyM IO (Tree BlockTrans)
-newNode db blockTrans children = do
+newNode
+    :: BlockHeaderDb
+    -> PayloadStore
+    -> BlockTrans
+    -> [Tree BlockTrans]
+    -> PropertyM IO (Tree BlockTrans)
+newNode db store blockTrans children = do
+    let h = btBlockHeader blockTrans
     let theNewNode = Node blockTrans children
-    liftIO $ TreeDB.insert db (btBlockHeader blockTrans)
+    liftIO $ TreeDB.insert db h
+
+    -- insert to mock payload store -- key is blockHash, value is list of tx hashes
+    liftIO $ insertMockPayload store
+        MockPayload {_mplHash = _blockHash h, _mplTxHashes = S.toList (btTransactions blockTrans) }
+
     return theNewNode
 
-preForkTrunk :: BlockHeaderDb -> BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
-preForkTrunk db h avail = do
+preForkTrunk :: BlockHeaderDb -> PayloadStore -> BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
+preForkTrunk db store h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-    children <- frequencyM [(1, fork db next theRest), (3, preForkTrunk db next theRest)]
-    theNewNode <- newNode db  BlockTrans {btBlockHeader = next, btTransactions = takenNow} children
+    children <- frequencyM [(1, fork db store next theRest), (3, preForkTrunk db store next theRest)]
+    theNewNode <- newNode db store
+                          BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+                          children
+
+
+    -- theNewNode <- newNode db store
+    --                       BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+    --                       listOfOne
+
     return [theNewNode]
 
 -- | Version of frequency where the generators are in IO
@@ -225,22 +253,31 @@ frequencyM xs = do
     n <- pick $ frequency indexZip :: PropertyM IO Int -- the original 'frequency' chooses the index of the value
     snd $ ((V.fromList xs) ! n)
 
-fork :: BlockHeaderDb -> BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
-fork db h avail = do
+fork
+    :: BlockHeaderDb
+    -> PayloadStore
+    -> BlockHeader
+    -> Set TransactionHash
+    -> PropertyM IO (Forest BlockTrans)
+fork db store h avail = do
     nextLeft <- header' h
     nextRight <- header' h
     (takenNow, theRest) <- takeTrans avail
-    left <- postForkTrunk db nextLeft theRest
-    right <- postForkTrunk db nextRight theRest
-    theNewNode <- newNode db BlockTrans {btBlockHeader = h, btTransactions = takenNow} (left ++ right)
+    left <- postForkTrunk db store nextLeft theRest
+    right <- postForkTrunk db store nextRight theRest
+    theNewNode <- newNode db store
+                          BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+                          (left ++ right)
     return [theNewNode]
 
-postForkTrunk :: BlockHeaderDb -> BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
-postForkTrunk db h avail = do
+postForkTrunk :: BlockHeaderDb -> PayloadStore -> BlockHeader -> Set TransactionHash -> PropertyM IO (Forest BlockTrans)
+postForkTrunk db store h avail = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-    listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk db next theRest)]
-    theNewNode <- newNode db BlockTrans {btBlockHeader = h, btTransactions = takenNow} listOf0or1
+    listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk db store next theRest)]
+    theNewNode <- newNode db store
+                          BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+                          listOf0or1
     return [theNewNode]
 
 header' :: BlockHeader -> PropertyM IO BlockHeader
@@ -266,22 +303,24 @@ header' h = do
     target = _blockTarget h -- no difficulty adjustment
     v = _blockChainwebVersion h
 
-newFakePayloadDb :: IO (C.HashMapCas FakePayload)
-newFakePayloadDb = C.emptyCas
+type PayloadStore = C.HashMapCas MockPayload
 
-_insertFakePayload :: C.HashMapCas FakePayload -> FakePayload -> IO ()
-_insertFakePayload db theHash =  casInsert db theHash
+newMockPayloadDb :: IO PayloadStore
+newMockPayloadDb = C.emptyCas
 
-_queryFakePayload :: C.HashMapCas FakePayload -> BlockPayloadHash -> IO (Maybe FakePayload)
-_queryFakePayload db theHash = casLookup db theHash
+insertMockPayload :: PayloadStore -> MockPayload -> IO ()
+insertMockPayload db theHash =  casInsert db theHash
 
-_payloadDbToList :: C.HashMapCas FakePayload -> IO [FakePayload]
+_queryMockPayload :: PayloadStore -> BlockHash -> IO (Maybe MockPayload)
+_queryMockPayload db theHash = casLookup db theHash
+
+_payloadDbToList :: PayloadStore -> IO [MockPayload]
 _payloadDbToList = C.toList
 
 ----------------------------------------------------------------------------------------------------
 --  Info about generated forks
 ----------------------------------------------------------------------------------------------------
-buildForkInfo :: BlockHeaderDb -> C.HashMapCas FakePayload -> Tree BlockTrans -> ForkInfo
+buildForkInfo :: BlockHeaderDb -> PayloadStore -> Tree BlockTrans -> ForkInfo
 buildForkInfo blockHeaderDb store t =
     let (preFork, left, right) = splitNodes t
         forkHeight = length preFork

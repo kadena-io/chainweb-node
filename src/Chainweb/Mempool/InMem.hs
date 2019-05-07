@@ -48,7 +48,7 @@ import Data.Int (Int64)
 import Data.IORef
     (IORef, atomicModifyIORef', mkWeakIORef, modifyIORef', newIORef, readIORef,
     writeIORef)
-import Data.Maybe (isJust)
+import Data.Maybe (fromJust, isJust)
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -68,6 +68,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Time as Time
 import Chainweb.Utils (fromJuste)
 
@@ -248,12 +249,13 @@ data InMemConfig t = InMemConfig {
 
 
 ------------------------------------------------------------------------------
-data InMemoryMempool t = InMemoryMempool {
+data InMemoryMempool t cas = InMemoryMempool {
     _inmemCfg :: InMemConfig t
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
   , _inmemBlockHeaderDb :: BlockHeaderDb
+  , _inmemPayloadStore :: Maybe (PayloadDb cas)
   -- TODO: reap expired transactions
 }
 
@@ -273,11 +275,16 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 
 
 ------------------------------------------------------------------------------
-makeInMemPool :: InMemConfig t -> TxBroadcaster t -> BlockHeaderDb -> IO (InMemoryMempool t)
-makeInMemPool cfg txB blockHeaderDb = mask_ $ do
+makeInMemPool
+    :: InMemConfig t
+    -> TxBroadcaster t
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IO (InMemoryMempool t cas)
+makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
     dataLock <- newData  >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb
+    return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb payloadDb
   where
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
                                           <*> newIORef HashMap.empty
@@ -286,10 +293,10 @@ makeInMemPool cfg txB blockHeaderDb = mask_ $ do
 
 
 ------------------------------------------------------------------------------
-makeSelfFinalizingInMemPool :: InMemConfig t -> BlockHeaderDb -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg blockHeaderDb =
+makeSelfFinalizingInMemPool :: InMemConfig t -> BlockHeaderDb -> Maybe (PayloadDb cas) ->IO (MempoolBackend t)
+makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
-        mpool <- makeInMemPool cfg txb blockHeaderDb
+        mpool <- makeInMemPool cfg txb blockHeaderDb payloadStore
         ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
         back <- toMempoolBackend mpool
@@ -348,10 +355,10 @@ reaperThread cfg dataLock restore = forever $ do
 
 
 ------------------------------------------------------------------------------
-toMempoolBackend :: InMemoryMempool t -> IO (MempoolBackend t)
+toMempoolBackend :: InMemoryMempool t cas -> IO (MempoolBackend t)
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lockMVar
-                                  broadcaster _ blockHeaderDb) = do
+                                  broadcaster _ blockHeaderDb payloadStore) = do
     lock <- readMVar lockMVar
     let lastParentRef = _inmemLastNewBlockParent lock
 
@@ -364,7 +371,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     getBlock = getBlockInMem cfg lockMVar
     markValidated = markValidatedInMem cfg lockMVar
     markConfirmed = markConfirmedInMem lockMVar
-    processFork = processForkInMem lockMVar blockHeaderDb
+    processFork = processForkInMem lockMVar blockHeaderDb payloadStore
     reintroduce = reintroduceInMem broadcaster cfg lockMVar
     getPending = getPendingInMem cfg lockMVar
     subscribe = subscribeInMem broadcaster
@@ -376,11 +383,12 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
 -- | A 'bracket' function for in-memory mempools.
 withInMemoryMempool :: InMemConfig t
                     -> BlockHeaderDb
+                    -> Maybe (PayloadDb cas)
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg blockHeaderDb f =
+withInMemoryMempool cfg blockHeaderDb payloadDb f =
     withTxBroadcaster $ \txB -> do
-        let inMemIO = makeInMemPool cfg txB blockHeaderDb
+        let inMemIO = makeInMemPool cfg txB blockHeaderDb payloadDb
         let action inMem = do
               back <- toMempoolBackend inMem
               f back
@@ -395,15 +403,15 @@ withInMemoryMempool' cfg withRocks withBlocks withMempool =
     withRocks $ \rocksDb -> do
         withBlocks rocksDb $ \blockHeaderDb -> do
             withTxBroadcaster $ \txB -> do
-                let inMemIO = makeInMemPool cfg txB blockHeaderDb
+                let inMemIO = makeInMemPool cfg txB blockHeaderDb Nothing
                 let action inMem = do
                       back <- toMempoolBackend inMem
                       withMempool back
                 bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
-destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid _) = killThread tid
+destroyInMemPool :: InMemoryMempool t cas -> IO ()
+destroyInMemPool (InMemoryMempool _ _ _ tid _ _) = killThread tid
 
 
 -------------------------------------------
@@ -585,15 +593,16 @@ getPendingInMem cfg lock callback = do
 ------------------------------------------------------------------------------
 processForkInMem :: MVar (InMemoryMempoolData t)
                  -> BlockHeaderDb
+                 -> Maybe (PayloadDb cas)
                  -> BlockHeader
                  -> IO (Vector TransactionHash)
-processForkInMem lock blockHeaderDb parentBlockHeader = do
+processForkInMem lock blockHeaderDb payloadStore parentBlockHeader = do
     theData <- readMVar lock
 
     -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
     lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
 
-    MPCon.processFork blockHeaderDb parentBlockHeader lastHeader
+    MPCon.processFork blockHeaderDb parentBlockHeader lastHeader payloadStore
 
 
 ------------------------------------------------------------------------------

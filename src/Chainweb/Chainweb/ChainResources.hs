@@ -35,6 +35,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.IORef
+import Data.Maybe
 import qualified Data.Text as T
 
 import GHC.Stack
@@ -115,17 +116,18 @@ withChainResources
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
-    -> PayloadDb cas
+    -> Maybe (PayloadDb cas)
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-    Mempool.withInMemoryMempool mempoolCfg cdb $ \mempool ->
+    Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
 
             -- replay pact
             let pact = pes mempool requestQ
-            replayPact logger pact cdb payloadDb
+            -- payloadStore is only 'Nothing' in some unit tests not using this code
+            replayPact logger pact cdb $ fromJust payloadDb
 
             -- run inner
             inner $ ChainResources
