@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes #-}
-
+{-# LANGUAGE AllowAmbiguousTypes #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -19,9 +19,9 @@ module Chainweb.Test.Pact.SPV
 
 
 import Control.Concurrent.MVar (newMVar)
+import Control.Lens hiding ((.=))
 
 import Data.Aeson ((.=), object)
-import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.LogMessage
 import qualified Data.Text.IO as T
@@ -34,11 +34,17 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Pact.Types
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
+import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
+
+import Data.CAS.RocksDB
 
 -- internal pact modules
 
@@ -48,15 +54,24 @@ import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..))
 test :: IO ()
 test = do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v Nothing txGenerator
+    pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
-
             -- pact service, that is used to extend the cut data base
             pact <- testWebPactExecutionService v (Just cdb) txGenerator
             syncPact cutDb pact
-            extendTestCutDb cutDb pact 20
+
+            c <- _cut cutDb
+            let h = c ^?! ixg (someChainId c)
+            p <- _webPactNewBlock pact defaultMiner h
+
+            print p
+
+            -- 1. We have the cut db so we can decide what we put in there.
+            --
+
+            -- 2. We will need another pact service to handle single proof consumption
 
   where
     v = TimedCPM petersonChainGraph
@@ -64,39 +79,35 @@ test = do
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
+-- | Generate burn/create Pact Service commands
 txGenerator
     :: ChainId
     -> BlockHeight
     -> BlockHash
     -> IO (Vector ChainwebTransaction)
-txGenerator _cid _bhe _bha =
-    mkPactTestTransactions' $ Vector.fromList txs
+txGenerator cid _bhe _bha =
+    mkPactTestTransactions' (Vector.fromList txs)
   where
-    txs = [ PactTransaction tx1Code tx1Data
-          , PactTransaction tx2Code tx2Data
+    chain = chainIdToText cid
+    txs = [ PactTransaction (tx1Code chain) tx1Data
+       --   , PactTransaction tx2Code tx2Data
           ]
     -- standard admin keys
     keys =
-      let !k = KeySet
+      let k = KeySet
             [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
             ( Name "keys-all" def )
       in Just $ object [ "sender01-keys" .=  k]
 
     -- Burn coin on chain '$cid' and create on chain 2, creating SPV proof
-    tx1Code =
+    tx1Code c =
       [text|
-        (coin.delete-coin 'sender00 2 'sender01 (read-keyset 'sender01-keys) 1.0)
+        (coin.delete-coin 'sender00 $c 'sender01 (read-keyset 'sender01-keys) 1.0)
         |]
     tx1Data = keys
 
-    -- Consume SPV proof (TODO), validating burn occurred on prev chain '$cid'
-    -- and created on chain 2
-    tx2Code =
-      [text|
-        (coin.create-coin { "foo": 1 })
-        |]
-
-    tx2Data = keys
+    -- tx2Code = [text| (verify-spv "TXOUT" { "foo" : 1 }) |]
+    -- tx2Data = keys
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
