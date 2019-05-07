@@ -7,6 +7,7 @@ extra-deps:
   - aeson-1.4.3.0
   - base-orphans-0.8.1@sha256:defd0057b5db93257528d89b5b01a0fee9738e878c121c686948ac4aa5dded63,2927
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
+  - bounded-queue-1.0.0
   - compactable-0.1.2.2
   - configuration-tools-0.4.0
   - crackNum-2.3
@@ -41,5 +42,3 @@ extra-deps:
     commit: 0cf36de796dc88051fc34469e31a589317631fb9
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-  - git: https://gitlab.com/fosskers/bounded-queue.git
-    commit: b6309b729d5bd5546cac2c73624dfcd5b4aee060
