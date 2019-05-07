@@ -54,6 +54,7 @@ in
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
+          testTarget = "--test-option=--hide-successes";
         }));
 
         configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
