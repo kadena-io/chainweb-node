@@ -46,6 +46,8 @@ import Chainweb.WebPactExecutionService
 
 import Data.CAS.RocksDB
 
+import qualified Streaming.Prelude as S
+
 -- internal pact modules
 
 import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..))
@@ -58,33 +60,25 @@ test = do
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
+
             -- pact service, that is used to extend the cut data base
             pact <- testWebPactExecutionService v (Just cdb) txGenerator
             syncPact cutDb pact
 
-            c <- _cut cutDb
-            let h = c ^?! ixg (someChainId c)
-            p <- _webPactNewBlock pact defaultMiner h
-
-            print p
-
-            -- 1. We have the cut db so we can decide what we put in there.
-            --
-
-            -- 2. We will need another pact service to handle single proof consumption
-
+            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact 1
+            print outs
   where
     v = TimedCPM petersonChainGraph
     logg l
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
+type TransactionGenerator
+    = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+
 -- | Generate burn/create Pact Service commands
-txGenerator
-    :: ChainId
-    -> BlockHeight
-    -> BlockHash
-    -> IO (Vector ChainwebTransaction)
+--
+txGenerator :: TransactionGenerator
 txGenerator cid _bhe _bha =
     mkPactTestTransactions' (Vector.fromList txs)
   where

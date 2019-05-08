@@ -114,7 +114,7 @@ withTestCutDb rdb v n pact logfun f = do
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
-                foldM_ (\c _ -> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
+                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
@@ -132,10 +132,12 @@ extendTestCutDb
     => CutDb cas
     -> WebPactExecutionService
     -> Natural
-    -> IO ()
-extendTestCutDb cutDb pact n = do
-    cur <- _cut cutDb
-    foldM_ (\c _ -> mine defaultMiner pact cutDb c) cur [0..n]
+    -> S.Stream (S.Of (Cut, ChainId, PayloadWithOutputs)) IO ()
+extendTestCutDb cutDb pact n = S.scanM
+    (\(c, _, _) _ -> mine defaultMiner pact cutDb c)
+    (mine defaultMiner pact cutDb =<< _cut cutDb)
+    return
+    (S.each [0..n-1])
 
 -- | Synchronize the a 'WebPactExecutionService' with a 'CutDb' by replaying all
 -- transactions of the payloads of all blocks in the 'CutDb'.
@@ -207,7 +209,7 @@ startTestPayload rdb v logfun n = do
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore
-    foldM_ (\c _ -> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
+    foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
 stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
@@ -267,11 +269,32 @@ mine
         -- 'fakePact'.
     -> CutDb cas
     -> Cut
-    -> IO Cut
+    -> IO (Cut, ChainId, PayloadWithOutputs)
 mine miner pact cutDb c = do
     -- pick chain
     cid <- randomChainId cutDb
 
+    tryMine miner pact cutDb c cid >>= \case
+        Left _ -> mine miner pact cutDb c
+        Right x -> return x
+
+-- | Build a linear chainweb (no forks). No POW or poison delay is applied.
+-- Block times are real times.
+--
+tryMine
+    :: HasCallStack
+    => PayloadCas cas
+    => MinerInfo
+        -- ^ The miner. For testing you may use 'defaultMiner'.
+        -- miner.
+    -> WebPactExecutionService
+        -- ^ only the new-block generator is used. For testing you may use
+        -- 'fakePact'.
+    -> CutDb cas
+    -> Cut
+    -> ChainId
+    -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
+tryMine miner pact cutDb c cid = do
     -- The parent block to mine on.
     let parent = c ^?! ixg cid
 
@@ -285,7 +308,6 @@ mine miner pact cutDb c = do
     -- mine new block
     t <- getCurrentTimeIntegral
     give webDb (testMine (Nonce 0) target t payloadHash (NodeId 0) cid c) >>= \case
-        Left _ -> mine miner pact cutDb c
         Right (T2 h c') -> do
             void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData outputs)
 
@@ -294,7 +316,8 @@ mine miner pact cutDb c = do
 
             -- add cut to db
             addCutHashes cutDb (cutToCutHashes Nothing c')
-            return c'
+            return $ Right (c', cid, outputs)
+        Left e -> return $ Left e
   where
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb
