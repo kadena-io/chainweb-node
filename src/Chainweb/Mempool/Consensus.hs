@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Chainweb.Mempool.Consensus
 ( processFork
 ) where
@@ -25,35 +26,29 @@ import Chainweb.Store.CAS hiding (casLookup)
 
 import Data.CAS
 ------------------------------------------------------------------------------
+
 processFork
-    :: IsCas a
+    :: Ord x
     => BlockHeaderDb
     -> BlockHeader
     -> Maybe BlockHeader
-    -> Maybe a
-    -> IO (Maybe (CasValueType a))
-processFork _db _newHeader Nothing _payloadDb = return Nothing
-processFork _db _newHeader _lastHeader Nothing =
-    throwM $ MempoolConsensusException "processFork = no PayloadDb was provided"
-processFork db newHeader (Just lastHeader) (Just payloadDb) = do
+    -> (BlockHeader -> IO (S.Set x))
+    -> IO (V.Vector x)
+processFork db newHeader (Just lastHeader) payloadLookup = do
 
     putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
             ++ "lastHeader = " ++ show (_blockHash lastHeader)
 
     let s = branchDiff db newHeader lastHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
-    oldTrans <- foldM f V.empty oldBlocks
-    newTrans <- foldM f V.empty newBlocks
+    oldTrans <- foldM f mempty oldBlocks
+    newTrans <- foldM f mempty newBlocks
 
     -- before re-introducing the transactions from the losing fork (aka oldBlocks)
     -- filter out any transactions that have been included in the winning fork (aka newBlocks)
-    let diffTrans = S.fromList (V.toList oldTrans) `S.difference` S.fromList (V.toList newTrans)
-    return . V.fromList $ S.toList diffTrans
-
-  where -- f :: Vector TransactionHash -> BlockHeader -> IO (CasValueType a)
-        f trans header = do
-            txs <- blockToTxs payloadDb header
-            return $ txs V.++ trans
+    return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+  where
+    f trans header = S.union trans <$> payloadLookup header
 
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.
@@ -71,13 +66,6 @@ collectForkBlocks theStream =
             Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
-
--- blockToTxs :: IsCas a => a -> BlockHeader -> IO (Vector TransactionHash)
-blockToTxs :: IsCas a => a -> BlockHeader -> IO (Data.CAS.CasValueType a)
-blockToTxs store header = do
-    case casLookup store (_blockHash header) of
-        Just txs -> return txs
-        Nothing  -> return V.empty
 
 newtype MempoolException = MempoolConsensusException String
 

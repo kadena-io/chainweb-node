@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -112,11 +113,15 @@ prop_validTxSource db payloadStore genBlock = monadicIO $ do
     liftIO $ putStrLn $ show fi
 
     reIntroTransV <- run $
-        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (Just payloadStore)
+        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) lookupPayload
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
            && (reIntroTrans `S.disjoint` fiNewForkTrans)
+  where
+    lookupPayload h = casLookup payloadStore (_blockHash h) >>= \case
+        Nothing -> error "must not happen"
+        Just x -> return $ S.fromList $ _mplTxHashes x
 
 -- | Property: All transactions that were in the old fork (and not also in the new fork) should be
 --   marked available to re-entry into the mempool) (i.e., should be found in the Vector returned by
@@ -131,10 +136,14 @@ prop_noOrphanedTxs db payloadStore genBlock = monadicIO $ do
     liftIO $ putStrLn "ForkInfo from prop_noOrphanedTxs:"
     liftIO $ putStrLn $ show fi
     reIntroTransV <- run $
-        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (Just payloadStore)
+        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) lookupPayload
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
     assert $ expectedTrans `S.isSubsetOf` reIntroTrans
+  where
+    lookupPayload h = casLookup payloadStore (_blockHash h) >>= \case
+        Nothing -> error "must not happen"
+        Just x -> return $ S.fromList $ _mplTxHashes x
 
 -- TODO: revert to [TestTree]
 tests :: IO ()
