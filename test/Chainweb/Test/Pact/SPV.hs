@@ -78,7 +78,6 @@ test = do
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
-
 -- | Generate burn/create Pact Service commands
 --
 txGenerator :: TransactionGenerator
@@ -106,6 +105,9 @@ txGenerator cid _bhe _bha =
     -- tx2Code = [text| (coin.delete-coin { "chain" : 1 }) |]
     -- tx2Data = keys
 
+-- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
+-- we need in order to execute an SPV request to the api
+--
 payloadTx :: PayloadWithOutputs -> IO (Transaction, TransactionOutput)
 payloadTx = go . toList . _payloadWithOutputsTransactions
   where

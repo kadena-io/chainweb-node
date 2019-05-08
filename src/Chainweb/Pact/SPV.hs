@@ -60,19 +60,22 @@ pactSPV dbVar = SPVSupport $ \s o -> do
   where
     txout cdb o = do
       -- The strategy is this:
-      --
+
       -- 1. Create JSON-formatted input or output proof from
-      -- pact object (KV-pairs of keys and pact types as avlues)
-      --
+      -- pact object (KV-pairs of keys and pact types as values)
+
+      t <- proofOf @OutputProof o
+
       -- 2. Verify the output/input via the SPV api. This will
       -- produce proof that a transaction input/output occurred.
       -- If this fails, it will be returned as a failed command
       -- along with the relevant error message.
-      --
-      -- 3. Create a Pact 'CommandSuccess' object and return
-      -- the successfully verified proof object.
-      t <- proofOf @OutputProof o
+
       (TransactionOutput u) <- verifyTransactionOutputProof cdb t
+
+      -- 3. Create a Pact 'CommandSuccess'f object and return
+      -- the successfully verified proof object.
+
       supportOf u
 
     txin cdb o = do
