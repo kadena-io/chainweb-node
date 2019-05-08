@@ -119,7 +119,7 @@ txGenerator2 cdb _cid _bhe _bha = do
       ]
 
     tx1Code =
-      [text| (coin.create-coin 'proof |]
+      [text| (coin.create-coin 'proof) |]
 
     tx1Data txo =
       Just (object [ "proof" .= txo ])
