@@ -28,7 +28,6 @@ module Chainweb.Pact.PactService
     , createCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
-    , pactSpvSupport
     ) where
 
 import Control.Applicative
@@ -40,8 +39,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
-import Crypto.Hash.Algorithms
 
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
@@ -83,12 +80,11 @@ import Chainweb.Pact.Backend.SQLiteCheckpointer (initSQLiteCheckpointEnv)
 import Chainweb.Pact.Backend.SqliteDb (mkSQLiteState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (closePactDb, toEnv', toEnvPersist')
 import Chainweb.Payload
-import Chainweb.SPV
-import Chainweb.SPV.VerifyProof
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -133,10 +129,8 @@ initPactService
     -> MVar (CutDb cas)
     -> IO ()
 initPactService ver cid chainwebLogger reqQ memPoolAccess _cutMV =
-    initPactService' ver cid chainwebLogger spv $
+    initPactService' ver cid chainwebLogger noSPV $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
-  where
-    spv = P.noSPVSupport -- pactSpvSupport cutMV
 
 initPactService'
     :: Logger logger
@@ -178,43 +172,6 @@ initPactService' ver cid chainwebLogger spv act = do
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
 
-
-pactSpvSupport
-    :: MVar (CutDb cas) -> P.SPVSupport
-pactSpvSupport mv = P.SPVSupport $ \s o -> do
-    cdb <- readMVar mv
-    case s of
-      "TXOUT" -> do
-        t <- outputProofOf o
-        (TransactionOutput u) <- verifyTransactionOutputProof cdb t
-        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right $! P._tObject . P._csData $ v
-      "TXIN" -> do
-        t <- inputProofOf o
-        (Transaction u) <- verifyTransactionProof cdb t
-        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right . P._tObject . P._csData $ v
-      _ -> pure $! Left "spvSupport: Unsupported SPV mode"
-  where
-    -- serialize pact object and produce an
-    -- spv proof (either in or outgoing)
-    outputProofOf o = psDecode @(TransactionOutputProof SHA512t_256)
-      . A.toJSON
-      $ P.TObject o def
-
-    inputProofOf o = psDecode @(TransactionProof SHA512t_256)
-      . A.toJSON
-      $ P.TObject o def
-
-    psDecode :: (A.FromJSON a) => A.Value -> IO a
-    psDecode a = case A.fromJSON a of
-      A.Error s -> internalError' s
-      A.Success x -> pure x
-
-    psDecode' :: (A.FromJSON a) => ByteString -> IO a
-    psDecode' b = case A.decode (b ^. lazy) of
-      Nothing -> internalError' "spvSupport: Unable to decode tx output"
-      Just x -> pure x
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = pure ()

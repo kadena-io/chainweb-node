@@ -203,13 +203,14 @@ library
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
+        , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.Orphans
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.RestAPI
-        , Chainweb.Pact.RestAPI.Orphans
-        , Chainweb.Pact.RestAPI.Server
+        , Chainweb.Pact.SPV
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils

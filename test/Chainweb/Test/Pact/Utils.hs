@@ -75,6 +75,7 @@ import Pact.Types.Util (toB16Text)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.PactService
+import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -229,7 +230,7 @@ testPactCtx v cid cutDB = do
     gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
     gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
     gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
-    spv = maybe P.noSPVSupport pactSpvSupport cutDB
+    spv = maybe noSPV pactSPV cutDB
     initializeState = case _ccSqlite cmdConfig of
         Nothing -> do
             env <- mkPureEnv loggers
