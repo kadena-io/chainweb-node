@@ -51,7 +51,6 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Version
 
-import Data.CAS
 import Data.CAS.RocksDB
 
 
@@ -111,7 +110,7 @@ txGenerator2
     :: PayloadCas cas
     => CutDb cas
     -> TransactionGenerator
-txGenerator2 cdb cid _bhe _bha = do
+txGenerator2 cdb _cid _bhe _bha = do
     txo <- createTransactionOutputProof cdb (unsafeChainId 0) (unsafeChainId 0) 1 0
     mkPactTestTransactions' $ fromList (txs txo)
   where
@@ -142,40 +141,3 @@ keys =
         [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
         ( Name "keys-all" def )
   in Just $ object [ "sender01-keys" .=  k]
-
-{-
-  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
-    (with-capability (TRANSFER)
-      (debit delete-account quantity)
-      { "create-chain-id": create-chain-id
-      , "create-account": create-account
-      , "create-account-guard": create-account-guard
-      , "quantity": quantity
-      , "delete-chain-id": (at "chain-id" (chain-data))
-      , "delete-account": delete-account
-      , "delete-tx-hash": (tx-hash)
-      }))
-
-  (defun create-coin (proof)
-    (let ((outputs (at "outputs" (verify-spv "TXOUT" proof))))
-      (enforce (= 1 (length outputs)) "only one tx in outputs")
-      (bind (at 0 outputs)
-        { "create-chain-id":= create-chain-id
-        , "create-account" := create-account
-        , "create-account-guard" := create-account-guard
-        , "quantity" := quantity
-        , "delete-tx-hash" := delete-tx-hash
-        , "delete-chain-id" := delete-chain-id
-        }
-        (enforce (= (at "chain-id" (chain-data)) create-chain-id "enforce correct create chain ID"))
-        (let ((create-id (format "%:%" [delete-tx-hash delete-chain-id])))
-          (with-default-read create-id creates-table
-            { "exists": false }
-            { "exists":= exists }
-            (enforce (not exists) (format "enforce unique usage of %" [create-id]))
-            (insert creates-table create-id { "exists": true })
-            (with-capability (TRANSFER)
-              (credit create-account create-account-guard quantity)))
-          )))
-    )
--}
