@@ -19,12 +19,14 @@ module Chainweb.Test.Pact.SPV
 
 
 import Control.Concurrent.MVar (newMVar)
+import Control.Exception (throwIO)
 
 import Data.Aeson ((.=), object)
 import Data.Default (def)
+import Data.Foldable (toList)
 import Data.LogMessage
 import qualified Data.Text.IO as T
-import Data.Vector as Vector
+import Data.Vector (Vector, fromList)
 
 
 import NeatInterpolation (text)
@@ -38,6 +40,7 @@ import System.LogLevel
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Graph
+import Chainweb.Payload
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
@@ -63,7 +66,8 @@ test = do
             syncPact cutDb pact
 
             Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact 1
-            print outs
+            (_, txOutput) <- payloadTx outs
+            print txOutput
   where
     v = TimedCPM petersonChainGraph
     logg l
@@ -79,11 +83,11 @@ type TransactionGenerator
 --
 txGenerator :: TransactionGenerator
 txGenerator cid _bhe _bha =
-    mkPactTestTransactions' (Vector.fromList txs)
+    mkPactTestTransactions' (fromList txs)
   where
     chain = chainIdToText cid
     txs = [ PactTransaction (tx1Code chain) tx1Data
-          , PactTransaction tx2Code tx2Data
+          -- , PactTransaction tx2Code tx2Data
           ]
     -- standard admin keys
     keys =
@@ -99,8 +103,15 @@ txGenerator cid _bhe _bha =
         |]
     tx1Data = keys
 
-    tx2Code = [text| (coin.delete-coin { "chain" : 1 }) |]
-    tx2Data = keys
+    -- tx2Code = [text| (coin.delete-coin { "chain" : 1 }) |]
+    -- tx2Data = keys
+
+payloadTx :: PayloadWithOutputs -> IO (Transaction, TransactionOutput)
+payloadTx = go . toList . _payloadWithOutputsTransactions
+  where
+    go [(tx,txo)] = pure (tx,txo)
+    go _ = throwIO . userError $
+      "Single tx yielded multiple tx outputs"
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
