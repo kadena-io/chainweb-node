@@ -190,7 +190,8 @@
       , "create-account": create-account
       , "create-account-guard": create-account-guard
       , "quantity": quantity
-      , "delete-chain-id": (at "chain-id" (chain-data))
+      , "delete-block-height" : (at 'block-height (chain-data))
+      , "delete-chain-id": (at 'chain-id (chain-data))
       , "delete-account": delete-account
       , "delete-tx-hash": (tx-hash)
       }))
