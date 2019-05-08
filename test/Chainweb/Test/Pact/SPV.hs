@@ -3,6 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -21,7 +23,7 @@ module Chainweb.Test.Pact.SPV
 import Control.Concurrent.MVar (newMVar)
 import Control.Exception (throwIO)
 
-import Data.Aeson ((.=), object)
+import Data.Aeson (Value, (.=), object)
 import Data.Default (def)
 import Data.Foldable (toList)
 import Data.LogMessage
@@ -39,14 +41,19 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Version
 
+import Data.CAS
 import Data.CAS.RocksDB
+
 
 -- internal pact modules
 
@@ -62,12 +69,18 @@ test = do
             cdb <- newMVar cutDb
 
             -- pact service, that is used to extend the cut data base
-            pact <- testWebPactExecutionService v (Just cdb) txGenerator
-            syncPact cutDb pact
+            pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
+            syncPact cutDb pact1
 
-            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact 1
+            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact1 1
+
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cutDb
+            syncPact cutDb pact2
+
+            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact2 1
             (_, txOutput) <- payloadTx outs
-            print txOutput
+            print outs
+
   where
     v = TimedCPM petersonChainGraph
     logg l
@@ -80,31 +93,37 @@ type TransactionGenerator
 
 -- | Generate burn/create Pact Service commands
 --
-txGenerator :: TransactionGenerator
-txGenerator cid _bhe _bha =
+txGenerator1 :: TransactionGenerator
+txGenerator1 cid _bhe _bha =
     mkPactTestTransactions' (fromList txs)
   where
     chain = chainIdToText cid
-    txs = [ PactTransaction (tx1Code chain) tx1Data
-          -- , PactTransaction tx2Code tx2Data
-          ]
-
-    -- standard admin keys
-    keys =
-      let k = KeySet
-            [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
-            ( Name "keys-all" def )
-      in Just $ object [ "sender01-keys" .=  k]
+    txs = [ PactTransaction tx1Code tx1Data ]
 
     -- Burn coin on chain '$cid' and create on chain 2, creating SPV proof
-    tx1Code c =
+    tx1Code =
       [text|
-        (coin.delete-coin 'sender00 $c 'sender01 (read-keyset 'sender01-keys) 1.0)
+        (coin.delete-coin 'sender00 $chain 'sender01 (read-keyset 'sender01-keys) 1.0)
         |]
     tx1Data = keys
 
-    -- tx2Code = [text| (coin.delete-coin { "chain" : 1 }) |]
-    -- tx2Data = keys
+txGenerator2
+    :: PayloadCas cas
+    => CutDb cas
+    -> TransactionGenerator
+txGenerator2 cdb cid _bhe _bha = do
+    txo <- createTransactionOutputProof cdb (unsafeChainId 0) (unsafeChainId 0) 1 0
+    mkPactTestTransactions' $ fromList (txs txo)
+  where
+    txs txo =
+      [ PactTransaction tx1Code (tx1Data txo)
+      ]
+
+    tx1Code =
+      [text| (coin.create-coin 'proof |]
+
+    tx1Data txo =
+      Just (object [ "proof" .= txo ])
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api
@@ -115,6 +134,14 @@ payloadTx = go . toList . _payloadWithOutputsTransactions
     go [(tx,txo)] = pure (tx,txo)
     go _ = throwIO . userError $
       "Single tx yielded multiple tx outputs"
+
+    -- standard admin keys
+keys :: Maybe Value
+keys =
+  let k = KeySet
+        [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+        ( Name "keys-all" def )
+  in Just $ object [ "sender01-keys" .=  k]
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)

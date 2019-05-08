@@ -308,10 +308,10 @@ crumbsToChain srcCid trgHeader
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
-        :: BlockHeader
-        -> [ChainId]
-        -> [(Int, BlockHeader)]
-        -> IO (BlockHeader, [(Int, BlockHeader)])
+       :: BlockHeader
+       -> [ChainId]
+       -> [(Int, BlockHeader)]
+       -> IO (BlockHeader, [(Int, BlockHeader)])
     go cur [] acc = return (cur, acc)
     go cur (h:t) acc = do
         adjpHdr <- lookupAdjacentParentHeader cur h
