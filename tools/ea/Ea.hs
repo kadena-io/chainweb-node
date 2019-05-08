@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Main ( main ) where
+module Ea ( main ) where
 
 import BasePrelude
 

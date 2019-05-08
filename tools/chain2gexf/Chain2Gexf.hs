@@ -10,7 +10,7 @@
 --
 -- TODO
 --
-module Main ( main ) where
+module Chain2Gexf ( main, opts ) where
 
 import Control.Error.Util (note)
 import Control.Monad.IO.Class
@@ -74,7 +74,11 @@ main = do
     o <- makeAbsolute $ fromFilePath o0
     putStrLn $ "Generating GEXF file for: " <> show w
     db2gexf i o
+
+opts :: ParserInfo Env
+opts = info (pEnv <**> helper)
+    (fullDesc
+     <> progDesc theDesc
+     <> header ("chain2gexf - " <> theDesc))
   where
-    opts = info (pEnv <**> helper)
-        (fullDesc
-         <> header "chain2gexf - Convert a persisted Chainweb into .gexf format for viewing.")
+    theDesc = "Convert a persisted Chainweb into .gexf format for viewing"
