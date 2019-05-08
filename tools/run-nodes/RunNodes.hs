@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Main ( main ) where
+module RunNodes ( main, runNodesOpts ) where
 
 import BasePrelude hiding (option, (%))
 import Chainweb.Graph (petersonChainGraph)
@@ -77,7 +77,7 @@ runNode nid mconf (Env e ns v _ ps) = shelly $ run_ (fromText $ T.pack e) ops
 
 main :: IO ()
 main = do
-  env@(Env e ns _ c _) <- execParser opts
+  env@(Env e ns _ c _) <- execParser runNodesOpts
   print env
   canExec <- (executable <$> getPermissions e) `catch` (\(_ :: SomeException) -> pure False)
   if | not canExec -> error $ e <> " is not executable, or does not exist."
@@ -89,6 +89,8 @@ main = do
            threadDelay 1000000  -- 1 second
            -- Launch Common Nodes
            mapConcurrently_ (\n -> runNode n Nothing env) [1 .. ns - 1]
-  where
-    opts = info (pEnv <**> helper)
-        (fullDesc <> header "run-nodes - Run a local cluster of chainweb-node binaries")
+
+
+runNodesOpts :: ParserInfo Env
+runNodesOpts = info (pEnv <**> helper)
+    (fullDesc <> progDesc "Run a local cluster of chainweb-node binaries")

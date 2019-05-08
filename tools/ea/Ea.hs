@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Main ( main ) where
+module Ea ( main ) where
 
 import BasePrelude
 
@@ -42,23 +42,17 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
-import Options.Generic
+import Options.Applicative
 
 import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisTime)
 import Chainweb.Logger (genericLogger)
-import Chainweb.Miner.Genesis (mineGenesis)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Time (Time(..), TimeSpan(..))
 import Chainweb.Transaction (PayloadWithText(..))
-import Chainweb.Utils (sshow)
 import Chainweb.Version
-    (ChainwebVersion(..), chainwebVersionFromText, chainwebVersionToText, chainIds, someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
@@ -66,36 +60,27 @@ import Pact.Types.Runtime (noSPVSupport)
 
 ---
 
-data Env w
-    = Headers
-        { version :: w ::: Text
-          <?> "The ChainwebVersion to use."
-        , time :: w ::: Maybe Int64
-          <?> "Genesis Block Time, in microseconds since the Epoch. Default is the Genesis Time of the given ChainwebVersion." }
-    | Payload
-        { version :: w ::: Text
-          <?> "The ChainwebVersion to use."
-        , transactions :: w ::: [FilePath]
-          <?> "Path to a YAML file containing a Pact transaction. Can be used multiple times. Default loads files based on the given ChainwebVersion." }
-    deriving (Generic)
+data Env = Env [FilePath]
 
-instance ParseRecord (Env Wrapped)
+pEnv :: Parser Env
+pEnv = Env <$> many pTrans
+
+pTrans :: Parser FilePath
+pTrans = strOption
+    (long "transaction" <> metavar "PATH"
+    <> help "Path to YAML file containing a Pact transaction. Can be used multiple times. By default, loads the Coin Contract and Grants files.")
 
 main :: IO ()
-main = unwrapRecord "ea" >>= \case
-    Headers v0 t -> do
-        v <- chainwebVersionFromText v0
-        let crtm = maybe (genesisTime v) (BlockCreationTime . Time . TimeSpan) t
-            modl = headerModule v $ headers v crtm
-            file = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> ".hs"
-        TIO.writeFile (T.unpack file) modl
-        putStrLn $ "Generated Genesis BlockHeaders for " <> show v
-    Payload v0 txs0 -> do
-        v <- chainwebVersionFromText v0
+main = do
+    Env txs0 <- execParser opts
+    for_ [Testnet00, Testnet01] $ \v -> do
         let txs = bool txs0 [defCoinContract, defGrants] $ null txs0
+        putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v txs
-        putStrLn $ "Generated Genesis Payload for " <> show v
-        putStrLn "Please recompile Chainweb and Ea before using the 'headers' command."
+    putStrLn "Done."
+  where
+    opts = info (pEnv <**> helper)
+        (fullDesc <> header "ea - Generate Pact Payload modules")
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -105,50 +90,6 @@ defGrants = "pact/genesis/testnet00/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
 moduleName = T.toTitle . chainwebVersionToText
-
---------------------
--- Header Generation
---------------------
-
-headers :: ChainwebVersion -> BlockCreationTime -> [BlockHeader]
-headers v ct = map f $ toList $ chainIds v
-  where
-    f cid = mineGenesis v cid ct (Nonce 0)
-
-headerModule :: ChainwebVersion -> [BlockHeader] -> Text
-headerModule v hs = T.unlines $
-    [ "{-# LANGUAGE QuasiQuotes #-}"
-    , ""
-    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
-    , ""
-    , "module Chainweb.BlockHeader.Genesis." <> moduleName v <> " where"
-    , ""
-    , "import Data.Text (Text)"
-    , "import Data.Text.Encoding (encodeUtf8)"
-    , "import Data.Yaml (decodeThrow)"
-    , ""
-    , "import GHC.Stack (HasCallStack)"
-    , ""
-    , "import NeatInterpolation (text)"
-    , ""
-    , "import Chainweb.BlockHeader"
-    , "import Chainweb.Utils (fromJuste)"
-    , ""
-    , "unsafeFromYamlText :: HasCallStack => Text -> BlockHeader"
-    , "unsafeFromYamlText = _objectEncoded . fromJuste . decodeThrow . encodeUtf8"
-    , ""
-    ] <> map (genesisHeader v) (zip [0..] hs)
-
-genesisHeader :: ChainwebVersion -> (Int, BlockHeader) -> Text
-genesisHeader v (n, h) = T.unlines
-    [ fname <> " :: BlockHeader"
-    , fname <> " = unsafeFromYamlText"
-    , "    [text|"
-    , TE.decodeUtf8 . Yaml.encode $ ObjectEncoded h
-    , "    |]"
-    ]
-  where
-    fname = chainwebVersionToText v <> "C" <> sshow n
 
 ---------------------
 -- Payload Generation
@@ -166,7 +107,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 (someChainId Testnet00) logger noSPVSupport $
+    payloadWO <- initPactService' (someChainId Testnet00) logger noSPVSupport $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

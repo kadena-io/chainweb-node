@@ -703,7 +703,7 @@ newBlockHeader miner adj pay nonce target t b = fromLog $ newMerkleLog
     :+: target
     :+: pay
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
     :+: miner

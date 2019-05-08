@@ -86,6 +86,11 @@ module Chainweb.Test.Utils
 , testCaseSch
 , testGroupSch
 , testPropertySch
+
+-- * GHCI Runners
+, runSched
+, runRocks
+, runSchedRocks
 ) where
 
 import Control.Concurrent
@@ -323,7 +328,7 @@ header h = do
             :+: target
             :+: testBlockPayload h
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty v target) + _blockWeight h
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
             :+: miner
@@ -728,3 +733,13 @@ schedule Parallel tgs = map _schTest tgs
 schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
   where
     f a b = after AllFinish (_schLabel a) $ _schTest b
+
+-- | Util for GHCI execution of a scheduled test
+runSched :: ScheduledTest -> IO ()
+runSched = defaultMain . testGroup "" . schedule Sequential . pure
+
+runRocks :: (RocksDb -> TestTree) -> IO ()
+runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb)
+
+runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
+runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)

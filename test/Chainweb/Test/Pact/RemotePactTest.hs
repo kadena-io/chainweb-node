@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -17,7 +18,6 @@ module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
 , withRequestKeys
-, runGhci
 ) where
 
 import Control.Concurrent hiding (putMVar, readMVar)
@@ -76,6 +76,9 @@ import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
+#if ! MIN_VERSION_servant(0,16,0)
+import Chainweb.RestAPI.Utils
+#endif
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -103,10 +106,10 @@ testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
 -- -------------------------------------------------------------------------- --
--- Tests
+-- Tests. GHCI use `runSchedRocks tests`
 
 tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "PactRemoteTests"
+tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withRequestKeys net $ \rks ->
             testGroup "PactRemoteTests"
@@ -115,10 +118,6 @@ tests rdb = testGroupSch "PactRemoteTests"
                 ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
-
--- for Stuart:
-runGhci :: IO ()
-runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "command-0-resp" $ do
@@ -205,7 +204,7 @@ maxSendRetries :: Int
 maxSendRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ServantError RequestKeys)
+sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ClientError RequestKeys)
 sendWithRetry cmds env sb = go maxSendRetries
   where
     go retries =  do
@@ -226,7 +225,7 @@ maxPollRetries :: Int
 maxPollRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ServantError PollResponses)
+pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ClientError PollResponses)
 pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries
@@ -245,10 +244,11 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
+
 testBatch :: IO SubmitBatch
 testBatch = do
     kps <- testKeyPairs
-    c <- mkExec "(+ 1 2)" A.Null pm kps Nothing
+    c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
     pure $ SubmitBatch [c]
   where
     pm :: CM.PublicMeta

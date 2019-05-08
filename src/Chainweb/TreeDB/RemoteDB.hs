@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -40,6 +41,9 @@ import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId (ChainId)
+#if ! MIN_VERSION_servant(0,16,0)
+import Chainweb.RestAPI.Utils
+#endif
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -105,7 +109,7 @@ instance TreeDb RemoteDb where
     -- maxEntry (RemoteDb env alog ver cid) e =
 
 logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
-logServantError alog msg = handle $ \(e :: ServantError) -> do
+logServantError alog msg = handle $ \(e :: ClientError) -> do
     liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
     throwM e
 

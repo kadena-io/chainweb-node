@@ -12,15 +12,22 @@
 module Chainweb.Pact.Utils
     ( toEnv'
     , toEnvPersist'
+<<<<<<< HEAD
     , closePactDb
     , withSQLiteDb
+=======
+>>>>>>> master
     ) where
 
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 
+<<<<<<< HEAD
 import System.Directory
+=======
+import Pact.Interpreter as P
+>>>>>>> master
 
 import Pact.Interpreter
 import Pact.PersistPactDb
@@ -47,6 +54,7 @@ toEnvPersist' (Env' pactDbEnv) = do
           , _pdepEnv = dbEnv
           }
     return $! EnvPersist' pDbEnvPersist
+<<<<<<< HEAD
 
 -- This is a band-aid solution; We're just going to close the
 -- database connection here to be safe.
@@ -70,3 +78,5 @@ withSQLiteDb initLog deleteOldFile (Just sqlc) loggers = bracket open close
       mkPactDbEnv chainwebpactdb dbe
     -- We would want asynchronous exceptions to bubble up if any should exist.
     close env = withMVar (pdPactDbVar env) (closeSQLite . _db)
+=======
+>>>>>>> master
