@@ -24,7 +24,9 @@ main = do
             printf "Error: \"%s\" is not a valid command\n\n" cmd
             printHelp topLevelCommands
             exitFailure
-          [cs] -> withArgs restOfArgs $ csAction cs
+          [cs] -> do
+            progName <- getProgName
+            withArgs restOfArgs $ withProgName (unwords [progName, cmd]) $ csAction cs
           _ -> error "Duplicate command encountered.  This shouldn't happen!"
 
 data CommandSpec = CommandSpec
