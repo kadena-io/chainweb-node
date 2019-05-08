@@ -23,9 +23,10 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
 
-import Crypto.Hash.Algorithms (SHA512t_256)
+import Crypto.Hash.Algorithms
 
 -- internal chainweb modules
 
@@ -120,10 +121,10 @@ mkSuccess
     => ByteString
     -- ^ Transaction verification proof output string
     -> m (CommandSuccess (Term Name))
-mkSuccess a
+mkSuccess
     = maybe (spvError err) pure
-    $ decode @(CommandSuccess (Term Name))
-    $ a ^. lazy
+    . decode @(CommandSuccess (Term Name))
+    . fromStrict
   where
     err = "Unable to decode bytestring as CommandSuccess"
 

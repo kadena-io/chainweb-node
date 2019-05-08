@@ -19,7 +19,6 @@ module Chainweb.Test.Pact.SPV
 
 
 import Control.Concurrent.MVar (newMVar)
-import Control.Lens hiding ((.=))
 
 import Data.Aeson ((.=), object)
 import Data.Default (def)
@@ -34,15 +33,11 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Pact.Types
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
-import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebPactExecutionService
 
 import Data.CAS.RocksDB
 
@@ -84,7 +79,7 @@ txGenerator cid _bhe _bha =
   where
     chain = chainIdToText cid
     txs = [ PactTransaction (tx1Code chain) tx1Data
-       --   , PactTransaction tx2Code tx2Data
+          , PactTransaction tx2Code tx2Data
           ]
     -- standard admin keys
     keys =
@@ -100,8 +95,8 @@ txGenerator cid _bhe _bha =
         |]
     tx1Data = keys
 
-    -- tx2Code = [text| (verify-spv "TXOUT" { "foo" : 1 }) |]
-    -- tx2Data = keys
+    tx2Code = [text| (coin.delete-coin { "chain" : 1 }) |]
+    tx2Data = keys
 
 {-
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)

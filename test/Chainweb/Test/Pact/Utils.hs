@@ -86,7 +86,6 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
-import qualified Pact.Types.Runtime as P
 import Pact.Types.Server
 
 
@@ -125,13 +124,12 @@ formatB16PubKey = toB16Text . formatPublicKey
 mergeObjects :: [Value] -> Value
 mergeObjects = Object . HM.unions . foldr unwrap []
   where
-    unwrap (Object o) l = o:l
-    unwrap _ l = l
+    unwrap (Object o) = (:) o
+    unwrap _ = id
 
 -- | Lift a Maybe into a singleton List
 singletonOf :: Maybe a -> [a]
-singletonOf (Just a) = [a]
-singletonOf Nothing = []
+singletonOf = toList
 
 mkPactTestTransactions :: Vector String -> IO (Vector ChainwebTransaction)
 mkPactTestTransactions cmdStrs = do
