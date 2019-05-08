@@ -21,16 +21,18 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Store.CAS hiding (casLookup)
 
-import Chainweb.Store.CAS
+import Data.CAS
 ------------------------------------------------------------------------------
 processFork
-    :: BlockHeaderDb
+    :: IsCas a
+    => BlockHeaderDb
     -> BlockHeader
     -> Maybe BlockHeader
-    -> Maybe (PayloadDb cas)
-    -> IO (Vector TransactionHash)
-processFork _db _newHeader Nothing _payloadDb = return V.empty
+    -> Maybe a
+    -> IO (Maybe (CasValueType a))
+processFork _db _newHeader Nothing _payloadDb = return Nothing
 processFork _db _newHeader _lastHeader Nothing =
     throwM $ MempoolConsensusException "processFork = no PayloadDb was provided"
 processFork db newHeader (Just lastHeader) (Just payloadDb) = do
@@ -48,7 +50,7 @@ processFork db newHeader (Just lastHeader) (Just payloadDb) = do
     let diffTrans = S.fromList (V.toList oldTrans) `S.difference` S.fromList (V.toList newTrans)
     return . V.fromList $ S.toList diffTrans
 
-  where f :: Vector TransactionHash -> BlockHeader -> IO (Vector TransactionHash)
+  where -- f :: Vector TransactionHash -> BlockHeader -> IO (CasValueType a)
         f trans header = do
             txs <- blockToTxs payloadDb header
             return $ txs V.++ trans
@@ -70,9 +72,10 @@ collectForkBlocks theStream =
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
 
-blockToTxs :: (PayloadDb cas) -> BlockHeader -> IO (Vector TransactionHash)
-blockToTxs payloadStore header = do
-    case casLookup payloadStore (_blockHash header) of
+-- blockToTxs :: IsCas a => a -> BlockHeader -> IO (Vector TransactionHash)
+blockToTxs :: IsCas a => a -> BlockHeader -> IO (Data.CAS.CasValueType a)
+blockToTxs store header = do
+    case casLookup store (_blockHash header) of
         Just txs -> return txs
         Nothing  -> return V.empty
 
