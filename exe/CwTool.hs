@@ -45,7 +45,7 @@ cmdHelpLine cs = printf "  %s%s" (padRight 25 $ csCmd cs) (csDescription cs)
 topLevelCommands :: [CommandSpec]
 topLevelCommands =
   [ CommandSpec
-      "bigbang"
+      "ea"
       "Generate Chainweb genesis blocks and their payloads"
       Ea.main
   , CommandSpec

@@ -25,9 +25,7 @@ import Chainweb.Version
 import qualified Network.X509.SelfSigned.Test
 
 main :: IO ()
-main = do
-  putStrLn "In SlowTests.main"
-  defaultMain suite
+main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
