@@ -1,61 +1,94 @@
-(define-keyset 'faucet-admin (read-keyset 'faucet-admin))
+(module coin-faucet FAUCET-GOVERNANCE
 
-(module coin-faucet 'faucet-admin
+  "'coin-faucet' represents Kadena's Coin Faucet Contract."
 
-  "'coin' represents the Kadena Coin Contract."
+  (defcap FAUCET-GOVERNANCE () true)
 
-
-  ; (implements coin-sig)
-  ; (implements spv-sig)
+  (use coin)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
   ; --------------------------------------------------------------------------
 
-  (use coin)
-
   (defschema history
-    tx-time: time
+    @doc "Table to record of the behavior of addresses. Last transaction time,   \
+    \ total coins earned, and total coins returned are recorded per transaction. "
+    last-tx-time:time
+    total-coins-earned:decimal
+    total-coins-returned:decimal
     )
 
   (deftable history-table: {history})
 
-  (defconst FAUCET_ADMIN 'faucet-admin)
-  (defconst TOTAL_COIN_COUNT 1000000.0)
-  (defconst ONE_COIN 1.0)
-  (defconst MAX_GIVEOUT_PER_DAY 10.0)
+  ; --------------------------------------------------------------------------
+  ; Capabilities
+  ; --------------------------------------------------------------------------
 
-  (defun initiate-faucet (admin-guard:guard)
-    (enforce (< 0.0 TOTAL_COIN_COUNT) "Seed money is negative")
-    (create-account FAUCET_ADMIN admin-guard)
-    (with-capability (COINBASE)
-      (coinbase FAUCET_ADMIN admin-guard TOTAL_COIN_COUNT)))
+  (defcap HISTORY ()
+    "Enforces faucet-guard when looking up history"
+    (enforce-guard (faucet-guard)))
 
-  ;;
-  (defun get-one-coin (address address-guard curr-time)
-;    (limit-max address curr-time)
-    (with-capability (ACCOUNT_GUARD address)
-      (transfer FAUCET_ADMIN address address-guard ONE_COIN)
-    )
+  ; --------------------------------------------------------------------------
+  ; Constants
+  ; --------------------------------------------------------------------------
 
-    (write history-table address {"tx-time": curr-time})
+  (defconst FAUCET_ACCOUNT 'faucet-account)
+  (defconst COIN_PER_REQUEST 1.0)
+  (defconst WAIT_TIME_PER_REQUEST 3600.0)
+  (defconst EPOCH  (time "1970-01-01T00:00:00Z"))
 
-    ;;insert transaction-history in history table
-    ;(insert history address {"fundCount":0})
-    ;(count-funds address)
-    )
+  ; --------------------------------------------------------------------------
+  ; Coin Faucet Contract
+  ; --------------------------------------------------------------------------
 
+  (defun faucet-guard:guard () (create-module-guard 'faucet-admin))
 
-  (defun limit-max (address curr-time:time)
-    (if (< (last-transaction address)  (add-time curr-time (hours -1))) true false))
+  (defun request-coin:string (address address-guard)
+    @doc "Transfers COIN_PER_REQUEST coins from faucet account to requester.  \
+    \ Inserts or updates the record of the requester in history table to keep \
+    \ track of the record. Limits the number of coin giveout by time,         \
+    \ WAIT_TIME_PER_REQUEST."
 
-  (defun last-transaction (address)
-    (at 'tx-time (read history-table address))
+    (with-capability (HISTORY)
+      (with-default-read history-table address
+        {"last-tx-time": EPOCH, "total-coins-earned": 0.0, "total-coins-returned": 0.0}
+        {"last-tx-time":= last-tx-time,
+         "total-coins-earned":= total-coins-earned,
+         "total-coins-returned":= total-coins-returned}
+        (enforce (> (diff-time (curr-time) last-tx-time) WAIT_TIME_PER_REQUEST) "Has reached maximum giveout")
+        (transfer FAUCET_ACCOUNT address address-guard COIN_PER_REQUEST)
+        (write history-table address {
+          "last-tx-time": (curr-time),
+          "total-coins-earned": (+ COIN_PER_REQUEST total-coins-earned),
+          "total-coins-returned": total-coins-returned }))))
+
+  (defun return-coin:string (address amount)
+    @doc "Returns the coin back to the faucet account after use. Updates the    \
+    \ history table to keep track of behavior. "
+
+    @model [(property (> amount 0.0))]
+    (with-capability (HISTORY)
+      (with-read history-table address {"total-coins-returned":= coins-returned}
+        (transfer address FAUCET_ACCOUNT (faucet-guard) amount)
+        (update history-table address {"total-coins-returned": (+ amount coins-returned)}))))
+
+  (defun describe-behavior:string (address)
+    @doc "Describes past coin request and returns of the account"
+
+    (with-capability (HISTORY)
+        (with-read history-table address {
+          "total-coins-earned":= total-coins-earned,
+          "total-coins-returned":= total-coins-returned
+          }
+          (format "Address {} had earned {} and returned {}"
+            [address, total-coins-earned, total-coins-returned]))))
+
+  (defun curr-time:time ()
+    @doc "Returns current chain's block-time in time type"
+    (add-time EPOCH (at 'block-time (chain-data)))
   )
 
-  ;; Limit coins / person a day
-
-  ;; Limit transfers
 )
 
 (create-table history-table)
+(coin.coinbase FAUCET_ACCOUNT (faucet-guard) 1000000000000.0)
