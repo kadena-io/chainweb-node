@@ -95,7 +95,7 @@ pactSPV dbVar = SPVSupport $ \s o -> do
 proofOf
     :: (FromJSON a, MonadThrow m)
     => Object Name -> m a
-proofOf = spvDecode . toJSON . (flip TObject) def
+proofOf o = spvDecode . toJSON $ TObject o def
 
 -- | Internal method: decode some JSON value as 'FromJSON a => a'.
 --
