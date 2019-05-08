@@ -43,12 +43,6 @@ import Pact.Types.Runtime
 
 
 -- -------------------------------------------------------------------------- --
--- Convenient types
-
-type OutputProof = TransactionOutputProof SHA512t_256
-type InputProof = TransactionProof SHA512t_256
-
--- -------------------------------------------------------------------------- --
 -- Pact SPV functionality
 
 noSPV :: SPVSupport
@@ -111,7 +105,7 @@ spvDecode
     :: (FromJSON a, MonadThrow m)
     => Value -> m a
 spvDecode a = case fromJSON a of
-    Error s -> spvError $ "Unable to decode tx: " <> s
+    Error s -> spvError $ "Unable to decode proof subject: " <> s
     Success x -> pure x
 
 -- | Produce a Pact 'CommandSuccess' of a transaction proof bytestring.
@@ -126,7 +120,11 @@ mkSuccess
     . decode @(CommandSuccess (Term Name))
     . fromStrict
   where
-    err = "Unable to decode bytestring as CommandSuccess"
+    err = "Unable to decode proof object"
+
+
+type OutputProof = TransactionOutputProof SHA512t_256
+type InputProof = TransactionProof SHA512t_256
 
 -- -------------------------------------------------------------------------- --
 -- Nicely formatted errors
