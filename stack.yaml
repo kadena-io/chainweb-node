@@ -7,7 +7,7 @@ extra-deps:
   - aeson-1.4.3.0
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
   - compactable-0.1.2.2
-  - configuration-tools-0.4.0
+  # - configuration-tools-0.4.0
   - crackNum-2.3
   - ed25519-donna-0.1.1
   - fake-0.1.1.1@sha256:a551fed1dbdd2ce3629cb843597d24793562cdd136e1252ae2febe0b91d239a8
@@ -40,3 +40,5 @@ extra-deps:
     commit: d9a35f6edee1a99cd6f864f68fc3b3b44ce0b4cd
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - git: https://github.com/alephcloud/hs-configuration-tools.git
+    commit: 3fd730ea34a51d1276ea8766f5344ceb4e791aee
