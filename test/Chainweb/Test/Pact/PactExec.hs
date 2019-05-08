@@ -84,9 +84,7 @@ data TestResponse = TestResponse
 testReq2 :: TestRequest
 testReq2 = TestRequest
     { _trCmds = [ File "test1.pact" ]
-    , _trEval = \f -> testCaseSch "load module" $ do
-        (TestResponse [res] _) <- f
-        checkSuccessOnly (snd res)
+    , _trEval = checkSuccessOnly' "load module test1.pact"
     , _trDisplayStr = "Loads a pact module"
     }
 
@@ -120,7 +118,7 @@ testReq6 = TestRequest
         , Code "(test1.create-global-accounts)"
         , Code "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
         ]
-    , _trEval = fileCompareTxLogs "testReq6"
+    , _trEval = checkSuccessOnly' "load test1.pact, create table, transfer"
     , _trDisplayStr = "Transfers from one account to another"
     }
 
@@ -146,6 +144,14 @@ checkSuccessOnly resp =
     case _flCommandResult resp of
         (Object o) -> HM.lookup "status" o @?= Just "success"
         _ -> assertFailure "Status returned does not equal \"success\""
+
+checkSuccessOnly' :: String -> IO TestResponse -> ScheduledTest
+checkSuccessOnly' msg f = testCaseSch msg $ do
+        f' <- f
+        case f' of
+          (TestResponse res@(_:_) _) ->
+            checkSuccessOnly (snd $ last res)
+          (TestResponse res _) -> fail (show res) -- TODO
 
 -- | A test runner for golden tests.
 --

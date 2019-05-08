@@ -50,7 +50,6 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe
 import Data.Text (Text, unpack, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
@@ -86,7 +85,6 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
-import Pact.Types.Server
 
 
 testKeyPairs :: IO [SomeKeyPair]
@@ -176,13 +174,13 @@ _mkPactTransaction' theData theCode kps = do
   t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
   BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
 
-pactTestLogger :: Loggers
-pactTestLogger = initLoggers putStrLn f def
+pactTestLogger :: Bool -> Loggers
+pactTestLogger showAll = initLoggers putStrLn f def
   where
     f _ b "ERROR" d = doLog error b "ERROR" d
-    f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
-    f _ b "INFO" d = doLog (\_ -> return ()) b "DEBUG" d
-    f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
+    f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
 
 -- -------------------------------------------------------------------------- --
@@ -213,29 +211,20 @@ testPactCtx
     -> Maybe (MVar (CutDb cas))
     -> IO TestPactCtx
 testPactCtx v cid cutDB = do
-    dbSt <- initializeState
-    checkpointEnv <- initInMemoryCheckpointEnv cmdConfig logger gasEnv
-    void $ saveInitial (_cpeCheckpointer checkpointEnv) dbSt
+    cpe <- initInMemoryCheckpointEnv logger gasEnv
+    env <- mkPureEnv loggers
+    dbSt <- mkPureState env
+    void $ saveInitial (_cpeCheckpointer cpe) dbSt
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
-        <*> pure (PactServiceEnv Nothing checkpointEnv spv def)
+        <*> pure (PactServiceEnv Nothing cpe spv def)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger
-    logger = newLogger pactTestLogger $ LogName "PactService"
-    cmdConfig = toCommandConfig $ pactDbConfig v
-    gasLimit = fromMaybe 0 (_ccGasLimit cmdConfig)
-    gasRate = fromMaybe 0 (_ccGasRate cmdConfig)
-    gasEnv = GasEnv (fromIntegral gasLimit) 0.0 (constGasModel (fromIntegral gasRate))
+    loggers = pactTestLogger True
+    logger = newLogger loggers $ LogName "PactService"
+    gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPV pactSPV cutDB
-    initializeState = case _ccSqlite cmdConfig of
-        Nothing -> do
-            env <- mkPureEnv loggers
-            mkPureState env cmdConfig
-        Just sqlc -> do
-            env <- mkSQLiteEnv logger False sqlc loggers
-            mkSQLiteState env cmdConfig
 
 -- | A test PactExecutionService for a single chain
 --

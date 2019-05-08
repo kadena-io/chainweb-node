@@ -10,27 +10,22 @@
   cmd: coinbase
 - output:
   - value:
-      guard:
-        pred: keys-all
-        keys:
-        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-      balance: 999.96
-    key: sender00
-    table: USER_coin_coin-table
-  - value:
-      amount: -1
-      data:
-        transfer-to: Acct2
-      balance: 999999
-    key: Acct1
-    table: USER_test1_accounts
-  - value:
-      amount: 1
-      data:
-        transfer-from: Acct1
-      balance: 1
-    key: Acct2
-    table: USER_test1_accounts
+      executed: true
+      pactId: Ul1AJMFOe0ipsMximdyHqdhj44n44QmWQ4Iknan12L4
+      step: 0
+      yield: null
+      continuation:
+        args:
+        - sender00
+        - miner
+        - pred: keys-all
+          keys:
+          - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+        - 1.0e-2
+        def: coin.fund-tx
+      stepCount: 2
+    key: Ul1AJMFOe0ipsMximdyHqdhj44n44QmWQ4Iknan12L4
+    table: SYS_pacts
   - value:
       guard:
         pred: keys-all
@@ -53,6 +48,48 @@
       balance: 1
     key: Acct2
     table: USER_test1_accounts
+  - value:
+      executed: true
+      pactId: Ul1AJMFOe0ipsMximdyHqdhj44n44QmWQ4Iknan12L4
+      step: 0
+      yield: null
+      continuation:
+        args:
+        - sender00
+        - miner
+        - pred: keys-all
+          keys:
+          - f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27
+        - 1.0e-2
+        def: coin.fund-tx
+      stepCount: 2
+    key: Ul1AJMFOe0ipsMximdyHqdhj44n44QmWQ4Iknan12L4
+    table: SYS_pacts
+  - value:
+      guard:
+        pred: keys-all
+        keys:
+        - 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
+      balance: 999.96
+    key: sender00
+    table: USER_coin_coin-table
+  - value:
+      amount: -1
+      data:
+        transfer-to: Acct2
+      balance: 999999
+    key: Acct1
+    table: USER_test1_accounts
+  - value:
+      amount: 1
+      data:
+        transfer-from: Acct1
+      balance: 1
+    key: Acct2
+    table: USER_test1_accounts
+  - value: null
+    key: Ul1AJMFOe0ipsMximdyHqdhj44n44QmWQ4Iknan12L4
+    table: SYS_pacts
   - value:
       guard:
         pred: keys-all

@@ -26,7 +26,11 @@ import Data.LogMessage
 import qualified Data.Text.IO as T
 import Data.Vector as Vector
 
+
 import NeatInterpolation (text)
+
+import qualified Streaming.Prelude as S
+
 import System.LogLevel
 
 -- internal chainweb modules
@@ -40,8 +44,6 @@ import Chainweb.Transaction
 import Chainweb.Version
 
 import Data.CAS.RocksDB
-
-import qualified Streaming.Prelude as S
 
 -- internal pact modules
 
@@ -68,8 +70,10 @@ test = do
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
+
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+
 
 -- | Generate burn/create Pact Service commands
 --
