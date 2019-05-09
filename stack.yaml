@@ -19,6 +19,7 @@ extra-deps:
   - libyaml-0.1.1.0@sha256:b3fcd8c44622c75e054c2267f3fec39a58a311748000310cbc8257a4683d3f02,2090
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
   - massiv-0.3.0.0
+  - nonempty-containers-0.1.1.0
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
   # QuickCheck-2.12
   - QuickCheck-2.12.6.1

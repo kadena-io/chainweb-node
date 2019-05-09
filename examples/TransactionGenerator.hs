@@ -55,6 +55,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map as M
+import qualified Data.Sequence.NonEmpty as NES
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -219,7 +220,7 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
 data TXGState = TXGState
   { _gsGen     :: !(Gen (PrimState IO))
   , _gsCounter :: !Int64
-  , _gsChains  :: !(NEL.NonEmpty ChainId)
+  , _gsChains  :: !(NES.NESeq ChainId)
   }
 
 gsCounter :: Lens' TXGState Int64
@@ -292,9 +293,9 @@ generateSimpleTransaction = do
   stdgen <- liftIO newStdGen
   let (operandA, operandB, op) =
         flip evalState stdgen $ do
-            a <- state (randomR (1, 100 :: Integer))
-            b <- state (randomR (1, 100 :: Integer))
-            ind <- state (randomR (0, 2 :: Int))
+            a <- state $ randomR (1, 100 :: Integer)
+            b <- state $ randomR (1, 100 :: Integer)
+            ind <- state $ randomR (0, 2 :: Int)
             let operation = "+-*" !! ind
             return (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
@@ -302,7 +303,10 @@ generateSimpleTransaction = do
   lift . logg Info . toLogMessage . T.pack $ "The delay is" ++ show delay ++ " seconds."
   lift . logg Info . toLogMessage . T.pack $ "Sending expression " ++ theCode
   kps <- liftIO testSomeKeyPairs
-  cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
+
+  -- Choose a Chain to send this transaction to, and cycle the state.
+  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
+
   let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
@@ -314,7 +318,7 @@ numContracts = 2
 generateTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TXG m (Command Text)
 generateTransaction = do
   contractIndex <- liftIO $ randomRIO (0, numContracts)
-  cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
+  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
   sample <- case contractIndex of
     -- COIN CONTRACT
     0 -> do
@@ -357,7 +361,7 @@ instance MonadTrans TXG where
 sendTransaction :: MonadIO m => Command Text -> TXG m (Either ClientError RequestKeys)
 sendTransaction cmd = do
   TXGConfig _ _ cenv v <- ask
-  cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
+  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
   liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
 loop
@@ -391,7 +395,7 @@ forkedListens requestKeys = do
     forkedListen requestKey = do
       liftIO $ print requestKey  -- TODO Should this be printed or logged?
       TXGConfig _ _ ce v <- ask
-      cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
+      cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
       let listenerRequest = ListenerRequest requestKey
       -- LoggerT has an instance of MonadBaseControl. Also, there is a
       -- function from `monad-control` which enables you to lift forkIO. The
@@ -491,7 +495,7 @@ sendTransactions measure config distribution = do
 
   let act = loop measure
       env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
-      stt = TXGState gen 0 $ _nodeChainId config
+      stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -510,7 +514,7 @@ sendSimpleExpressions measure config distribution = do
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config
   gen <- liftIO createSystemRandom
-  let !stt = TXGState gen 0 $ _nodeChainId config
+  let !stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
   evalStateT (runReaderT (runTXG (simpleloop measure)) gencfg) stt
 
 pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKeys -> IO ()
