@@ -6,6 +6,7 @@ packages:
 extra-deps:
   - aeson-1.4.3.0
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
+  - bounded-queue-1.0.0
   - compactable-0.1.2.2
   # - configuration-tools-0.4.0
   - crackNum-2.3

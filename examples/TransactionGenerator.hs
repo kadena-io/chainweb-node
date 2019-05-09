@@ -1,14 +1,15 @@
 {-# LANGUAGE BangPatterns                    #-}
 {-# LANGUAGE DataKinds                       #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveAnyClass                  #-}
 {-# LANGUAGE DeriveFunctor                   #-}
 {-# LANGUAGE DeriveGeneric                   #-}
 {-# LANGUAGE DerivingStrategies              #-}
 {-# LANGUAGE FlexibleContexts                #-}
 {-# LANGUAGE FlexibleInstances               #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving      #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase                      #-}
 {-# LANGUAGE MultiParamTypeClasses           #-}
+{-# LANGUAGE NoImplicitPrelude               #-}
 {-# LANGUAGE OverloadedStrings               #-}
 {-# LANGUAGE RankNTypes                      #-}
 {-# LANGUAGE ScopedTypeVariables             #-}
@@ -30,12 +31,11 @@
 
 module TransactionGenerator ( main ) where
 
+import BasePrelude hiding ((%), rotate, loop, timeout)
+
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
-import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
-import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TQueue
 import Control.Lens hiding ((.=), (|>), op)
 import Control.Monad.Catch
@@ -45,21 +45,17 @@ import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
 import Data.ByteString (ByteString)
-import Data.Char
 import Data.Default (Default(..), def)
-import Data.Foldable (traverse_)
 import Data.LogMessage
 import Data.Sequence.NonEmpty (NESeq(..))
-import Data.Int
 import Data.Map (Map)
-import Data.Proxy
-import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map as M
+import qualified Data.Queue.Bounded as BQ
 import qualified Data.Sequence.NonEmpty as NES
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -70,18 +66,13 @@ import Network.HTTP.Client hiding (Proxy)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
 
-import GHC.Generics
-
 import Servant.API
 import Servant.Client
 
-import System.Exit
 import System.Logger hiding (StdOut)
 import System.Random
 import System.Random.MWC (Gen, uniformR, createSystemRandom)
 import System.Random.MWC.Distributions (normal)
-
-import Text.Printf (printf)
 
 -- PACT
 import Pact.ApiReq
@@ -223,9 +214,10 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
     <*< logHandleConfig     ..: "logging"             % o
 
 data TXGState = TXGState
-  { _gsGen     :: !(Gen (PrimState IO))
-  , _gsCounter :: !Int64
-  , _gsChains  :: !(NESeq ChainId)
+  { _gsGen       :: !(Gen (PrimState IO))
+  , _gsCounter   :: !Int64
+  , _gsChains    :: !(NESeq ChainId)
+  , _gsRespTimes :: !(TVar (BQ.BQueue Int))
   }
 
 gsCounter :: Lens' TXGState Int64
@@ -310,7 +302,7 @@ generateSimpleTransaction = do
             pure (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
   liftIO $ threadDelay delay
-  lift . logg Info . toLogMessage . T.pack $ "The delay is" ++ show delay ++ " seconds."
+  -- lift . logg Info . toLogMessage . T.pack $ "The delay is " ++ show delay ++ " seconds."
   lift . logg Info . toLogMessage . T.pack $ "Sending expression " ++ theCode
   kps <- liftIO testSomeKeyPairs
 
@@ -393,38 +385,49 @@ loop
   -> TQueue Text
   -> MeasureTime
   -> TXG m ()
-loop f tq measure@(MeasureTime mtime) = do
+loop f tq measure@(MeasureTime _) = do
   (cid, transaction) <- f
-  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
+  (_, requestKeys) <- measureDiffTime $ sendTransaction cid transaction
   count <- use gsCounter
   gsCounter += 1
 
   liftIO . atomically $ do
-    writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
-    when mtime $ writeTQueue tq $ "Sending it took: " <> sshow timeTaken
+    -- writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
+    -- when mtime $ writeTQueue tq $ "Sending it took: " <> sshow timeTaken
     writeTQueue tq $ "Transaction count: " <> sshow count
 
   case requestKeys of
     Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
-    Right rks -> forkedListens tq cid rks
+    Right rks -> do
+      bq <- gets _gsRespTimes
+      forkedListens tq bq cid rks
 
   logs <- liftIO . atomically $ flushTQueue tq
   lift $ traverse_ (logg Info . toLogMessage) logs
   loop f tq measure
 
-forkedListens :: MonadIO m => TQueue Text -> ChainId -> RequestKeys -> TXG m ()
-forkedListens tq cid (RequestKeys rks) = do
+forkedListens
+  :: MonadIO m
+  => TQueue Text
+  -> TVar (BQ.BQueue Int)
+  -> ChainId
+  -> RequestKeys
+  -> TXG m ()
+forkedListens tq bq cid (RequestKeys rks) = do
   TXGConfig _ _ ce v <- ask
   liftIO $ traverse_ (forkedListen ce v) rks
   where
     forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
-    forkedListen ce v rk = void . async $ do
-      (time, res) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
-      atomically $ do
-        writeTQueue tq $ sshow rk
-        writeTQueue tq $ sshow res
-        writeTQueue tq $ "It took " <> sshow time <> " seconds to get back the result."
-        writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
+    forkedListen ce v rk = do
+      void . async $ do
+        (time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
+        atomically $ do
+          q <- readTVar bq
+          let q' = BQ.cons (floor time) q
+          writeTVar bq q'
+          writeTQueue tq $ "Average complete result time: " <> sshow (BQ.average q')
+          -- writeTQueue tq $ sshow res
+          -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
 mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
 mkTXGConfig mdistribution config =
@@ -490,12 +493,14 @@ sendTransactions measure config distribution = do
     ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
   logg Info $ toLogMessage (sshow pollresponse :: Text)
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+
+  -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
-
+  bq  <- liftIO . newTVarIO $ BQ.empty 32
   let act = loop generateTransaction tq measure
       env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
-      stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
+      stt = TXGState gen 0 (NES.fromList $ _nodeChainId config) bq
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -514,9 +519,13 @@ sendSimpleExpressions
 sendSimpleExpressions measure config distribution = do
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config
+
+  -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
-  let !stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
+  bq  <- liftIO . newTVarIO $ BQ.empty 32
+  let !stt = TXGState gen 0 (NES.fromList $ _nodeChainId config) bq
+
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
 pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKeys -> IO ()
@@ -571,6 +580,7 @@ work cfg = do
     defconfig :: U.LogConfig
     defconfig =
       U.defaultLogConfig
+      & U.logConfigLogger . loggerConfigThreshold .~ Info
       & U.logConfigBackend . U.backendConfigHandle .~ transH
       & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transH
 

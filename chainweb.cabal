@@ -521,6 +521,7 @@ executable cwtool
         , base >= 4.11
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
+        , bounded-queue >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
