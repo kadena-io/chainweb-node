@@ -18,11 +18,9 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 
-<<<<<<< HEAD
-import System.Directory
-=======
+
 import Pact.Interpreter as P
->>>>>>> master
+
 
 import Pact.Interpreter
 import Pact.PersistPactDb

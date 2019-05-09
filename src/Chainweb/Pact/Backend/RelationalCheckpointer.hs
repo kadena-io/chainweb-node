@@ -12,22 +12,21 @@ import Control.Concurrent.MVar
 
 import Database.SQLite3.Direct as SQ3
 
--- pact
-import Pact.Types.Server (CommandConfig(..))
 import Pact.Types.Gas (GasEnv(..))
 import Pact.Types.Logger (Logger(..))
+-- pact
 -- import Pact.PersistPactDb (DbEnv(..))
 -- import Pact.Persist.SQLite (SQLite(..))
 
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.Types
 
 initRelationalCheckpointer ::
-     DbConnection -> CommandConfig -> Logger -> GasEnv -> IO CheckpointEnv
-initRelationalCheckpointer dbconn cmdConfig loggr gasEnv = do
+     Db -> Logger -> GasEnv -> IO CheckpointEnv
+initRelationalCheckpointer dbconn loggr gasEnv = do
   let checkpointer =
         Checkpointer
           { restore = innerRestore dbconn
@@ -39,31 +38,24 @@ initRelationalCheckpointer dbconn cmdConfig loggr gasEnv = do
   return $
     CheckpointEnv
       { _cpeCheckpointer = checkpointer
-      , _cpeCommandConfig = cmdConfig
       , _cpeLogger = loggr
       , _cpeGasEnv = gasEnv
       }
 
--- type DbConnection = MVar (DbEnv SQLite)
-type DbConnection = MVar Database
+type Db = MVar SQLiteEnv
 
-innerRestore ::
-     DbConnection -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
+innerRestore :: Db -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
 innerRestore _dbconn _bh _hash = return (Right undefined)
 
-innerRestoreInitial :: DbConnection -> IO (Either String PactDbState)
+innerRestoreInitial :: Db -> IO (Either String PactDbState)
 innerRestoreInitial _dbconn = return (Right undefined)
 
 innerSave ::
-     DbConnection
-  -> BlockHeight
-  -> BlockHash
-  -> PactDbState
-  -> IO (Either String ())
+     Db -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 innerSave _dbconn _bh _hash _state = return (Right ())
 
-innerSaveInitial :: DbConnection -> PactDbState -> IO (Either String ())
+innerSaveInitial :: Db -> PactDbState -> IO (Either String ())
 innerSaveInitial _dbconn _state = return (Right ())
 
-innerDiscard :: DbConnection -> PactDbState -> IO (Either String ())
+innerDiscard :: Db -> PactDbState -> IO (Either String ())
 innerDiscard _dbconn _state = undefined
