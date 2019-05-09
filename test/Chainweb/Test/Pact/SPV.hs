@@ -131,37 +131,25 @@ txGenerator1 :: TransactionGenerator
 txGenerator1 _cid _bhe _bha =
     mkPactTestTransactions' txs
   where
-    txs = fromList [ PactTransaction tx1Code keys ]
+    txs =
+      let c = [text|
+                (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
+                |]
 
-    tx1Code =
-      [text|
-        (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
-        |]
+      in fromList [ PactTransaction c keys ]
+
 
 txGenerator2 :: PactSPVProof -> TransactionGenerator
-txGenerator2 _p _cid _bhe _bha = do
-    -- q <- extractProof p
-    mkPactTestTransactions' txs
+txGenerator2 p _cid _bhe _bha = do
+    q <- extractProof p
+    print q
+    mkPactTestTransactions' (txs q)
   where
-    txs = fromList [ PactTransaction tx1Code tx1Data ]
+    txs q =
+      let d = Just $ object [ "proof" .= q ]
+          c = [text| (coin.create-coin (read-msg 'proof)) |]
 
-    tx1Code =
-      [text|
-        (coin.create-coin
-          { "create-chain-id": 1
-          , "create-account": "sender01"
-          , "create-account-guard": (read-keyset 'sender01-keys)
-          , "quantity": 1.0
-          , "delete-block-height": 0
-          , "delete-chain-id": ""
-          , "delete-account": "sender00"
-          , "delete-tx-hash": "4N2nEcpa3-oiJQe15sAd2ib21QkwGoyET8KHLQ8qcr8"
-          })
-        |]
-        
-    tx1Data = keys
-
-
+      in fromList [ PactTransaction c d ]
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api
@@ -186,8 +174,8 @@ keys = Just $ object [ "sender01-keys" .= k ]
 -- by a successful result, so that we can pass this along to as the
 -- 'coin.create-coin' proof
 extractProof :: PactSPVProof -> IO PactSPVProofObject
-extractProof (TransactionOutput bs) = do
-    hl <- fromBS @HashedLogTxOutput bs _hlCommandResult
+extractProof (TransactionOutput t) = do
+    hl <- fromBS @HashedLogTxOutput t _hlCommandResult
     cr <- toResult hl
     toObject cr
 
@@ -205,10 +193,10 @@ extractProof (TransactionOutput bs) = do
         A.Success s -> pure . f $ s
 
     fromBS :: FromJSON a => ByteString -> (a -> b) -> IO b
-    fromBS k f = maybe err (pure . f)
+    fromBS bs f = maybe err (pure . f)
         . A.decode
         . fromStrict
-        $ k
+        $ bs
       where
         err = internalError "spvTests: could not decode bytes"
 
