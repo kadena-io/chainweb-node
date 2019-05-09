@@ -5,6 +5,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -23,7 +24,10 @@ module Chainweb.Test.Pact.SPV
 import Control.Concurrent.MVar (newMVar)
 import Control.Exception (throwIO)
 
-import Data.Aeson (Value, (.=), object)
+import Data.Aeson (FromJSON, Value, (.=), object)
+import qualified Data.Aeson as A
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
 import Data.Foldable (toList)
 import Data.Functor (void)
@@ -42,11 +46,10 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
@@ -57,7 +60,8 @@ import Data.CAS.RocksDB
 
 -- internal pact modules
 
-import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..))
+import Pact.Types.Command
+import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..), Object(..))
 
 
 test :: IO ()
@@ -72,6 +76,7 @@ test = do
             pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
             syncPact cutDb pact1
 
+            -- get tx output from `(coin.delete-coin ...)` call
             Just (_, _, outs1) <- S.head_ $ extendTestCutDb cutDb pact1 1
             (_, txo1) <- payloadTx outs1
 
@@ -97,12 +102,12 @@ test = do
             void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cutDb
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 txo1
             syncPact cutDb pact2
 
-            Just (_, _, outs2) <- S.head_ $ extendTestCutDb cutDb pact2 1
-            (_, txo2) <- payloadTx outs2
-            print txo2
+            Just (_, _, _outs2) <- S.head_ $ extendTestCutDb cutDb pact2 1
+            -- (_, txo2) <- payloadTx outs2
+            return ()
 
   where
     v = TimedCPM petersonChainGraph
@@ -114,38 +119,39 @@ test = do
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
+type PactSPVProof
+    = TransactionOutput
+
+type PactSPVProofObject
+    = Object Name
+
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
 txGenerator1 _cid _bhe _bha =
-    mkPactTestTransactions' (fromList txs)
+    mkPactTestTransactions' txs
   where
-    txs = [ PactTransaction tx1Code tx1Data ]
+    txs = fromList [ PactTransaction tx1Code keys ]
 
-    -- Burn coin on chain '$cid' and create on chain 2, creating SPV proof
     tx1Code =
       [text|
         (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
         |]
-    tx1Data = keys
 
-txGenerator2
-    :: PayloadCas cas
-    => CutDb cas
-    -> TransactionGenerator
-txGenerator2 cdb _cid _bhe _bha = do
-    txo <- createTransactionOutputProof cdb (unsafeChainId 1) (unsafeChainId 0) 0 0
-    mkPactTestTransactions' $ fromList (txs txo)
+txGenerator2 :: PactSPVProof -> TransactionGenerator
+txGenerator2 p _cid _bhe _bha = do
+    q <- extractProof p
+    print $ tx1Data q
+    mkPactTestTransactions' $ txs q
   where
-    txs txo =
-      [ PactTransaction tx1Code (tx1Data txo)
-      ]
+    txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
 
     tx1Code =
-      [text| (coin.create-coin 'proof) |]
+      [text| (coin.create-coin 'outputs) |]
 
-    tx1Data txo =
-      Just (object [ "proof" .= txo ])
+    tx1Data q =
+      Just (object [ "outputs" .= q ])
+
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api
@@ -157,10 +163,46 @@ payloadTx = go . toList . _payloadWithOutputsTransactions
     go _ = throwIO . userError $
       "Single tx yielded multiple tx outputs"
 
-    -- standard admin keys
+-- | Test admin keys (see 'Chainweb.Test.Pact.Utils')
+--
 keys :: Maybe Value
 keys = Just $ object [ "sender01-keys" .= k ]
   where
     k = KeySet
       [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
       ( Name "keys-all" def )
+
+-- | Given a 'TransactionOutput', we must extract the data yielded
+-- by a successful result, so that we can pass this along to as the
+-- 'coin.create-coin' proof
+extractProof :: PactSPVProof -> IO PactSPVProofObject
+extractProof (TransactionOutput bs) = do
+    hl <- fromBS @HashedLogTxOutput bs _hlCommandResult
+    cr <- toResult hl
+    toObject cr
+
+  where
+
+    toResult :: Value -> IO Value
+    toResult v = fromValue v _csData
+
+    toObject :: Value -> IO PactSPVProofObject
+    toObject v = fromValue v id
+
+    fromValue :: FromJSON a => Value -> (a -> b) -> IO b
+    fromValue v f = case A.fromJSON v of
+        A.Error e -> aesonErr e
+        A.Success s -> pure . f $ s
+
+    fromBS :: FromJSON a => ByteString -> (a -> b) -> IO b
+    fromBS k f = maybe err (pure . f)
+        . A.decode
+        . fromStrict
+        $ k
+      where
+        err = internalError "spvTests: could not decode bytes"
+
+    aesonErr :: String -> IO a
+    aesonErr s = internalError'
+      $ "spvTests: could not decode proof object: "
+      <> s
