@@ -43,7 +43,6 @@ import Control.Monad.Except
 import Control.Monad.Primitive
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
-import Control.Monad.Trans.Control
 
 import Data.ByteString (ByteString)
 import Data.Char
@@ -388,63 +387,55 @@ sendTransaction cid cmd = do
   TXGConfig _ _ cenv v <- ask
   liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
-loop
-  :: (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => TQueue Text
-  -> MeasureTime
-  -> TXG m ()
+loop :: (MonadIO m, MonadLog SomeLogMessage m) => TQueue Text -> MeasureTime -> TXG m ()
 loop tq measure@(MeasureTime mtime) = do
   (cid, transaction) <- generateTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
-  lift . logg Info $ toLogMessage ("Sent transaction with request keys: " <> sshow requestKeys :: Text)
-  when mtime $
-    lift $ logg Info $ toLogMessage ("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken :: Text)
   count <- use gsCounter
   gsCounter += 1
-  lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
+
+  liftIO . atomically $ do
+    writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
+    when mtime $ writeTQueue tq $ "Sending it took: " <> sshow timeTaken
+    writeTQueue tq $ "Transaction count: " <> sshow count
+
   case requestKeys of
     Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
     Right rks -> forkedListens tq cid rks
+
   logs <- liftIO . atomically $ flushTQueue tq
   lift $ traverse_ (logg Info . toLogMessage) logs
   loop tq measure
 
-forkedListens
-  :: forall m. (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => TQueue Text
-  -> ChainId
-  -> RequestKeys
-  -> TXG m ()
+forkedListens :: MonadIO m => TQueue Text -> ChainId -> RequestKeys -> TXG m ()
 forkedListens tq cid (RequestKeys rks) = do
   TXGConfig _ _ ce v <- ask
   liftIO $ traverse_ (forkedListen ce v) rks
   where
     forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
-    forkedListen ce v rk = do
-      print rk  -- TODO Should this be printed or logged?
-      void . async $ do
-        (time, res) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
-        atomically $ do
-          writeTQueue tq $ sshow res
-          writeTQueue tq $ "It took " <> sshow time <> " seconds to get back the result."
-          writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
+    forkedListen ce v rk = void . async $ do
+      (time, res) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
+      atomically $ do
+        writeTQueue tq $ sshow rk
+        writeTQueue tq $ sshow res
+        writeTQueue tq $ "It took " <> sshow time <> " seconds to get back the result."
+        writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
-simpleloop
-  :: (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => TQueue Text
-  -> MeasureTime
-  -> TXG m ()
+simpleloop :: (MonadIO m, MonadLog SomeLogMessage m) => TQueue Text -> MeasureTime -> TXG m ()
 simpleloop tq measure@(MeasureTime mtime) = do
   (cid, transaction) <- generateSimpleTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
-  when mtime $
-    lift $ logg Info (toLogMessage (("sending a simple expression took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
-  lift $ logg Info (toLogMessage (("Simple expression transaction count: " <> sshow count) :: Text))
   gsCounter += 1
+
+  liftIO . atomically $ do
+    when mtime $ writeTQueue tq $ "sending a simple expression took: " <> sshow timeTaken
+    writeTQueue tq $ "Simple expression transaction count: " <> sshow count
+
   case requestKeys of
     Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
     Right rks -> forkedListens tq cid rks
+
   logs <- liftIO . atomically $ flushTQueue tq
   lift $ traverse_ (logg Info . toLogMessage) logs
   simpleloop tq measure
@@ -615,7 +606,7 @@ work cfg = do
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
   let chains = graphChainIds $ _chainGraph (_nodeVersion config)
-      isMem  = all (\cid -> HS.member cid chains) $ _nodeChainId config
+      isMem  = all (`HS.member` chains) $ _nodeChainId config
   unless isMem $ error $
     printf "Invalid chain %s for given version\n" (show $ _nodeChainId config)
   work config
