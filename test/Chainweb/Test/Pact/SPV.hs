@@ -111,6 +111,7 @@ txGenerator2
     => CutDb cas
     -> TransactionGenerator
 txGenerator2 cdb _cid _bhe _bha = do
+    print _cid
     txo <- createTransactionOutputProof cdb (unsafeChainId 0) (unsafeChainId 0) 1 0
     mkPactTestTransactions' $ fromList (txs txo)
   where
@@ -136,8 +137,8 @@ payloadTx = go . toList . _payloadWithOutputsTransactions
 
     -- standard admin keys
 keys :: Maybe Value
-keys =
-  let k = KeySet
-        [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
-        ( Name "keys-all" def )
-  in Just $ object [ "sender01-keys" .=  k]
+keys = Just $ object [ "sender01-keys" .= k ]
+  where
+    k = KeySet
+      [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+      ( Name "keys-all" def )
