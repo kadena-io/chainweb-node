@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -15,7 +16,7 @@ module Chainweb.Mempool.InMem
 
     -- * Initialization functions
   , withInMemoryMempool
-  , withInMemoryMempool'
+  , withTestInMemoryMempool
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
@@ -53,6 +54,7 @@ import Data.IORef
     writeIORef)
 import Data.Maybe (isJust)
 import Data.Ord (Down(..))
+import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -75,6 +77,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Time as Time
+import Chainweb.Transaction
 import Chainweb.Utils (fromJuste)
 
 import Data.CAS
@@ -265,7 +268,6 @@ data InMemoryMempool t cas = InMemoryMempool {
   -- TODO: reap expired transactions
 }
 
-
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
     _inmemPending :: IORef (PSQ t)
@@ -296,7 +298,6 @@ makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
                                           <*> newIORef HashMap.empty
                                           <*> newIORef HashSet.empty
                                           <*> return Nothing
-
 
 ------------------------------------------------------------------------------
 makeSelfFinalizingInMemPool :: PayloadCas cas
@@ -388,6 +389,35 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     shutdown = shutdownInMem broadcaster
     clear = clearInMem lockMVar
 
+-- (inMemPayloadLookup payloadStore)
+inMemPayloadLookup :: forall cas . PayloadCas cas => Maybe (PayloadDb cas) -> BlockHeader -> IO (Set ChainwebTransaction)
+inMemPayloadLookup payloadStore h = do
+   case payloadStore of
+        Nothing -> return mempty
+        Just s -> do
+            pwo <- casLookupM s (_blockPayloadHash h)
+            MPCon.chainwebTxsFromPWO pwo
+  where
+    casLookupM s h = do
+        x <- casLookup s h
+        case x of
+            Nothing -> throwIO $ PayloadNotFoundException h
+            Just pwo -> return pwo
+
+------------------------------------------------------------------------------
+processForkInMem :: PayloadCas cas
+                 => MVar (InMemoryMempoolData t)
+                 -> BlockHeaderDb
+                 -> Maybe (PayloadDb cas)
+                 -> BlockHeader
+                 -> IO (Vector ChainwebTransaction)
+processForkInMem lock blockHeaderDb payloadStore newBlockHeader = do
+    theData <- readMVar lock
+    -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
+    lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
+
+    MPCon.processFork blockHeaderDb newBlockHeader lastHeader
+        (inMemPayloadLookup payloadStore)
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
@@ -406,14 +436,16 @@ withInMemoryMempool cfg blockHeaderDb payloadDb f =
         bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
-withInMemoryMempool' :: forall a t . InMemConfig t
-                     -> ((RocksDb -> IO a) -> IO a)
-                     -> (RocksDb -> (BlockHeaderDb -> IO a) -> IO a)
-                     -> (MempoolBackend t -> IO a) -> IO a
-withInMemoryMempool' cfg withRocks withBlocks withMempool =
+withTestInMemoryMempool
+    :: forall a t . InMemConfig t
+    -> ((RocksDb -> IO a) -> IO a)
+    -> (RocksDb -> (BlockHeaderDb -> IO a) -> IO a)
+    -> (MempoolBackend t -> IO a) -> IO a
+withTestInMemoryMempool cfg withRocks withBlocks withMempool =
     withRocks $ \rocksDb -> do
         withBlocks rocksDb $ \blockHeaderDb -> do
             withTxBroadcaster $ \txB -> do
+                TBD: FIX THIS
                 let inMemIO = makeInMemPool cfg txB blockHeaderDb (Nothing :: Maybe (PayloadDb RocksDbCas))
                     action inMem = do
                       back <- toMempoolBackend inMem
@@ -423,7 +455,6 @@ withInMemoryMempool' cfg withRocks withBlocks withMempool =
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t cas -> IO ()
 destroyInMemPool (InMemoryMempool _ _ _ tid _ _) = killThread tid
-
 
 -------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
@@ -600,34 +631,6 @@ getPendingInMem cfg lock callback = do
 
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $ V.fromList $ dl []
-
-------------------------------------------------------------------------------
-processForkInMem :: PayloadCas cas
-                 => MVar (InMemoryMempoolData t)
-                 -> BlockHeaderDb
-                 -> Maybe (PayloadDb cas)
-                 -> BlockHeader
-                 -> IO (Vector TransactionHash)
-processForkInMem lock blockHeaderDb payloadStore parentBlockHeader = do
-    theData <- readMVar lock
-
-    -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
-    lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
-
-    MPCon.processFork blockHeaderDb parentBlockHeader lastHeader payloadLookup
-  where
-    payloadLookup h = case payloadStore of
-        Nothing -> return mempty
-        Just s -> S.fromList
-            . fmap (chainwebTestHasher . _transactionBytes)
-            . fmap fst
-            . toList
-            . _payloadWithOutputsTransactions
-            <$> casLookupM s (_blockPayloadHash h)
-
-    casLookupM s h = casLookup s h >>= \case
-        Nothing -> throwIO $ PayloadNotFoundException h
-        Just x -> return x
 
 ------------------------------------------------------------------------------
 reintroduceInMem :: TxBroadcaster t

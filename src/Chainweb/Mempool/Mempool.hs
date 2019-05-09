@@ -19,6 +19,7 @@ module Chainweb.Mempool.Mempool
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
+  , chainwebTransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
@@ -63,7 +64,9 @@ import qualified Data.Vector as V
 import Data.Word (Word64)
 import Foreign.StablePtr
 import GHC.Generics
+import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..))
+import qualified Pact.Types.Hash as H
 import Prelude hiding (log)
 import System.LogLevel
 
@@ -73,6 +76,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
+import Chainweb.Transaction
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Data.LogMessage (LogFunctionText)
@@ -138,7 +142,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-  , mempoolProcessFork :: BlockHeader -> IO (Vector TransactionHash)
+  , mempoolProcessFork :: BlockHeader -> IO (Vector ChainwebTransaction)
 
     -- | These transactions were on a losing fork. Reintroduce them.
   , mempoolReintroduce :: Vector TransactionHash -> IO ()
@@ -187,6 +191,25 @@ noopMempool =
     noopShutdown = return ()
     noopClear = return ()
 
+------------------------------------------------------------------------------
+chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
+chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
+    commandHash
+    chainwebTestHashMeta
+    getGasPrice
+    getGasLimit
+    (const txmeta)
+    (const $ return True)       -- TODO: insert extra transaction validation here
+
+  where
+    getGasPrice = gasPriceOf . fmap payloadObj
+    getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
+    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
+                    in TransactionHash h
+
+    -- TODO: plumb through origination + expiry time from pact once it makes it
+    -- into PublicMeta
+    txmeta = TransactionMetadata Time.minTime Time.maxTime
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {

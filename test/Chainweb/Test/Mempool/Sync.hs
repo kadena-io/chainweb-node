@@ -36,10 +36,11 @@ tests :: TestTree
 tests = mempoolProperty "Mempool.syncMempools" gen
         propSync
         $ MempoolWithFunc
-        $ withInMemoryMempool'
+        $ withTestInMemoryMempool
             testInMemCfg
             (withTempRocksDb "mempool-sync-tests")
             (withBlockHeaderDb' toyVersion toyChainId)
+            TBD-fix
   where
     withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)

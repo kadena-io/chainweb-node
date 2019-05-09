@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Chainweb.Mempool.Consensus
-( processFork
+( chainwebTxsFromPWO
+, processFork
 ) where
 
 ------------------------------------------------------------------------------
@@ -11,6 +12,11 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Either
+import Data.Foldable (toList)
+-- import Data.Sequence (Seq)
+
+import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -19,7 +25,9 @@ import qualified Data.Vector as V
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Store.CAS hiding (casLookup)
@@ -66,6 +74,19 @@ collectForkBlocks theStream =
             Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
+
+chainwebTxsFromPWO :: PayloadWithOutputs -> IO (Set ChainwebTransaction)
+chainwebTxsFromPWO pwo = do
+    let transSeq = fst <$> _payloadWithOutputsTransactions pwo
+    let bytes = _transactionBytes <$> transSeq
+    let eithers = toCWTransaction <$> bytes
+    -- Note: if any transactions fail to convert, the final validation hash will fail to match
+    -- the one computed during newBlock
+    let theRights  =  rights $ toList eithers
+    return $ S.fromList theRights
+  where
+    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
+
 
 newtype MempoolException = MempoolConsensusException String
 

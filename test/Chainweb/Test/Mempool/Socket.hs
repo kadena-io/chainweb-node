@@ -64,7 +64,8 @@ newTestServer inmemCfg = mask_ $ do
     server inmemMv portMv restore =
       withTempRocksDb "mempool-socket-tests" $ \rdb ->
             withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
-                InMem.withInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+                InMem.withTestInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
+                    TBD - fix
                     putMVar inmemMv inmem
                     restore $ M.server inmem host 0 portMv
 
