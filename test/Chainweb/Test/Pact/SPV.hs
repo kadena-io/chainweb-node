@@ -139,16 +139,28 @@ txGenerator1 _cid _bhe _bha =
         |]
 
 txGenerator2 :: PactSPVProof -> TransactionGenerator
-txGenerator2 p _cid _bhe _bha = do
-    q <- extractProof p
-    mkPactTestTransactions' $ txs q
+txGenerator2 _p _cid _bhe _bha = do
+    -- q <- extractProof p
+    mkPactTestTransactions' txs
   where
-    txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
+    txs = fromList [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =
-      [text| (coin.create-coin (read-msg 'proof)) |]
+      [text|
+        (coin.create-coin
+          { "create-chain-id": 1
+          , "create-account": "sender01"
+          , "create-account-guard": (read-keyset 'sender01-keys)
+          , "quantity": 1.0
+          , "delete-block-height": 0
+          , "delete-chain-id": ""
+          , "delete-account": "sender00"
+          , "delete-tx-hash": "4N2nEcpa3-oiJQe15sAd2ib21QkwGoyET8KHLQ8qcr8"
+          })
+        |]
+        
+    tx1Data = keys
 
-    tx1Data q = Just $ object [ "proof" .= (A.toJSON q) ]
 
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
