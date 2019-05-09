@@ -61,7 +61,7 @@ import Data.CAS.RocksDB
 -- internal pact modules
 
 import Pact.Types.Command
-import Pact.Types.Term (KeySet(..), PublicKey(..), Name(..), Object(..))
+import Pact.Types.Term (Term(..), KeySet(..), PublicKey(..), Name(..))
 
 
 test :: IO ()
@@ -123,7 +123,7 @@ type PactSPVProof
     = TransactionOutput
 
 type PactSPVProofObject
-    = Object Name
+    = Term Name
 
 -- | Generate burn/create Pact Service commands
 --
@@ -141,16 +141,14 @@ txGenerator1 _cid _bhe _bha =
 txGenerator2 :: PactSPVProof -> TransactionGenerator
 txGenerator2 p _cid _bhe _bha = do
     q <- extractProof p
-    print $ tx1Data q
     mkPactTestTransactions' $ txs q
   where
     txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
 
     tx1Code =
-      [text| (coin.create-coin 'outputs) |]
+      [text| (coin.create-coin (read-msg 'proof)) |]
 
-    tx1Data q =
-      Just (object [ "outputs" .= q ])
+    tx1Data q = Just $ object [ "proof" .= (A.toJSON q) ]
 
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
@@ -187,7 +185,7 @@ extractProof (TransactionOutput bs) = do
     toResult v = fromValue v _csData
 
     toObject :: Value -> IO PactSPVProofObject
-    toObject v = fromValue v id
+    toObject v = fromValue v $ \o -> TObject o def
 
     fromValue :: FromJSON a => Value -> (a -> b) -> IO b
     fromValue v f = case A.fromJSON v of

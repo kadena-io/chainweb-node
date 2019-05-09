@@ -136,7 +136,9 @@ mkPactTestTransactions cmdStrs = do
     -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
     traverse (mkPactTransaction kps theData "1") cmdStrs
 
-mkPactTestTransactions' :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+mkPactTestTransactions'
+    :: Vector PactTransaction
+    -> IO (Vector ChainwebTransaction)
 mkPactTestTransactions' txs =
     testKeyPairs >>= \ks -> traverse (go ks) txs
   where
