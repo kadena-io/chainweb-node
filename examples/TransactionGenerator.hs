@@ -271,7 +271,6 @@ data TXGConfig = TXGConfig
   { _confTimingDist :: !(Maybe TimingDistribution)
   , _confKeysets    :: !(Map Account (Map ContractName [SomeKeyPair]))
   , _confClientEnv  :: !ClientEnv
-  , _confChainIds   :: !(NEL.NonEmpty ChainId)
   , _confVersion    :: !ChainwebVersion
   }
 
@@ -357,7 +356,7 @@ instance MonadTrans TXG where
 
 sendTransaction :: MonadIO m => Command Text -> TXG m (Either ClientError RequestKeys)
 sendTransaction cmd = do
-  TXGConfig _ _ cenv _ v <- ask
+  TXGConfig _ _ cenv v <- ask
   cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
   liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
@@ -391,7 +390,7 @@ forkedListens requestKeys = do
     forkedListen :: RequestKey -> TXG m ()
     forkedListen requestKey = do
       liftIO $ print requestKey  -- TODO Should this be printed or logged?
-      TXGConfig _ _ ce _ v <- ask
+      TXGConfig _ _ ce v <- ask
       cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
       let listenerRequest = ListenerRequest requestKey
       -- LoggerT has an instance of MonadBaseControl. Also, there is a
@@ -428,7 +427,6 @@ mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
 mkTXGConfig mdistribution config =
   TXGConfig mdistribution mempty
   <$> cenv
-  <*> pure (_nodeChainId config)
   <*> pure (_nodeVersion config)
   where
     cenv :: IO ClientEnv
@@ -461,8 +459,8 @@ loadContracts (MeasureTime mtime) config contractLoaders = do
   where
     go :: IO ()
     go = do
-      TXGConfig _ _ ce cids v <- mkTXGConfig Nothing config
-      let !cid = NEL.head cids -- TODO Not right!
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
+      let !cid = NEL.head $ _nodeChainId config -- TODO Not right!
           !meta = makeMeta cid
       ts <- testSomeKeyPairs
       contracts <- traverse (\f -> f meta ts) contractLoaders
@@ -477,9 +475,9 @@ sendTransactions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 sendTransactions measure config distribution = do
-  cfg@(TXGConfig _ _ ce cids v) <- liftIO $ mkTXGConfig (Just distribution) config
+  cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config
 
-  let !cid = NEL.head cids -- TODO Not right!
+  let !cid = NEL.head $ _nodeChainId config -- TODO Not right!
       !meta = makeMeta cid
 
   (paymentKS, paymentAcc) <- liftIO $ unzip <$> createPaymentsAccounts meta
@@ -493,7 +491,7 @@ sendTransactions measure config distribution = do
 
   let act = loop measure
       env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
-      stt = TXGState gen 0 cids
+      stt = TXGState gen 0 $ _nodeChainId config
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -520,12 +518,15 @@ pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
   (timeTaken, !_action) <- measureDiffTime go
   when mtime (putStrLn $ "" <> show timeTaken)
   where
+    cid :: ChainId
+    cid = NEL.head $ _nodeChainId config
+
     go :: IO a
     go = do
       putStrLn "Polling your requestKey"
-      TXGConfig _ _ ce cid v <- mkTXGConfig Nothing config
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
       -- TODO cid!
-      response <- runClientM (poll v (NEL.head cid) . Poll $ _rkRequestKeys rkeys) ce
+      response <- runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
       case response of
         Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
         Right (PollResponses a)
@@ -541,11 +542,14 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print (_arResult r) >> exitSuccess
   where
+    cid :: ChainId
+    cid = NEL.head $ _nodeChainId config
+
     go :: IO (Either ServantError ApiResult)
     go = do
       putStrLn "Listening..."
-      TXGConfig _ _ ce cid v <- mkTXGConfig Nothing config
-      runClientM (listen v (NEL.head cid) listenerRequest) ce
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
+      runClientM (listen v cid listenerRequest) ce
 
 work :: ScriptConfig -> IO ()
 work cfg = do
