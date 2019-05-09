@@ -222,18 +222,28 @@ data TXGState = TXGState
   , _gsChains  :: !(NEL.NonEmpty ChainId)
   }
 
-makeLenses ''TXGState
+gsCounter :: Lens' TXGState Int64
+gsCounter f s = (\c -> s { _gsCounter = c }) <$> f (_gsCounter s)
 
 defaultScriptConfig :: ScriptConfig
-defaultScriptConfig =
-  ScriptConfig
-    { _scriptCommand       = RunSimpleExpressions def def
-    , _nodeChainId         = pure $ unsafeChainId 0
-    , _isChainweb          = True
-    , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
-    , _nodeVersion         = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
-    , _logHandleConfig     = U.StdOut
-    }
+defaultScriptConfig = ScriptConfig
+  { _scriptCommand       = RunSimpleExpressions def def
+  , _nodeChainId         = cids
+  , _isChainweb          = True
+  , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
+  , _nodeVersion         = v
+  , _logHandleConfig     = U.StdOut }
+  where
+    v :: ChainwebVersion
+    v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
+
+    -- TODO There is likely a bug here. Do we really want all available chains
+    -- by default? Setting any on the command-line might just Semigroup them all
+    -- together, instead of overwriting.
+    -- | The set of `ChainId`s of an established `ChainwebVersion` is guaranteed
+    -- to be non-empty.
+    cids :: NEL.NonEmpty ChainId
+    cids = NEL.fromList . HS.toList . graphChainIds $ _chainGraph v
 
 scriptConfigParser :: MParser ScriptConfig
 scriptConfigParser = id
@@ -258,19 +268,20 @@ scriptConfigParser = id
       <> help "The specific chain that will receive generated transactions."
 
 data TXGConfig = TXGConfig
-  { _timingdist         :: !(Maybe TimingDistribution)
-  , _genAccountsKeysets :: !(Map Account (Map ContractName [SomeKeyPair]))
-  , _genClientEnv       :: !(ClientEnv)
-  , _genChainId         :: !(NEL.NonEmpty ChainId)
-  , _genVersion         :: !(ChainwebVersion)
+  { _confTimingDist :: !(Maybe TimingDistribution)
+  , _confKeysets    :: !(Map Account (Map ContractName [SomeKeyPair]))
+  , _confClientEnv  :: !ClientEnv
+  , _confChainIds   :: !(NEL.NonEmpty ChainId)
+  , _confVersion    :: !ChainwebVersion
   }
 
-makeLenses ''TXGConfig
+confKeysets :: Lens' TXGConfig (Map Account (Map ContractName [SomeKeyPair]))
+confKeysets f c = (\ks -> c { _confKeysets = ks }) <$> f (_confKeysets c)
 
-generateDelay :: (MonadIO m) => TXG m Int
+generateDelay :: MonadIO m => TXG m Int
 generateDelay = do
-  distribution <- view timingdist
-  gen <- use gsGen
+  distribution <- asks _confTimingDist
+  gen <- gets _gsGen
   case distribution of
     Just (Gaussian gmean gvar) -> liftIO (truncate <$> normal gmean gvar gen)
     Just (Uniform ulow uhigh)  -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
@@ -289,14 +300,15 @@ generateSimpleTransaction = do
             return (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
   liftIO $ threadDelay delay
-  lift $ logg Info $ toLogMessage $ T.pack $ "The delay is" ++ show delay ++ " seconds."
-  lift $ logg Info $ toLogMessage $ T.pack $ "Sending expression " ++ theCode
+  lift . logg Info . toLogMessage . T.pack $ "The delay is" ++ show delay ++ " seconds."
+  lift . logg Info . toLogMessage . T.pack $ "Sending expression " ++ theCode
   kps <- liftIO testSomeKeyPairs
   cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
   let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   liftIO $ mkExec theCode theData publicmeta kps Nothing
 
+-- TODO What is this number?
 numContracts :: Int
 numContracts = 2
 
@@ -307,7 +319,7 @@ generateTransaction = do
   sample <- case contractIndex of
     -- COIN CONTRACT
     0 -> do
-      coinaccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "coin")))
+      coinaccts <- views confKeysets (M.toList . fmap (^. at (ContractName "coin")))
       liftIO $ do
         coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
         createCoinContractRequest (makeMeta cid) coinContractRequest
@@ -315,7 +327,7 @@ generateTransaction = do
       name <- generate fake
       helloRequest name
     2 -> do
-      paymentAccts <- views genAccountsKeysets (M.toList . fmap (^. at (ContractName "payment")))
+      paymentAccts <- views confKeysets (M.toList . fmap (^. at (ContractName "payment")))
       liftIO $ do
         paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
         case paymentsRequest of
@@ -345,10 +357,9 @@ instance MonadTrans TXG where
 
 sendTransaction :: MonadIO m => Command Text -> TXG m (Either ClientError RequestKeys)
 sendTransaction cmd = do
-  cenv <- view genClientEnv
+  TXGConfig _ _ cenv _ v <- ask
   cid <- gets (NEL.head . _gsChains) -- TODO Don't just take the head
-  version <- view genVersion
-  liftIO $ runClientM (send version cid (SubmitBatch [cmd])) cenv
+  liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
@@ -387,6 +398,9 @@ forkedListens requestKeys = do
       -- function from `monad-control` which enables you to lift forkIO. The
       -- extra lift at the end is to get the entire computation back into the
       -- TXG transformer.
+
+      -- TODO Experiment: Return the logging messages explicitly, then log them
+      -- in the parent thread.
       void $ lift $ liftBaseDiscard forkIO $ do
         (time, res) <- liftIO . measureDiffTime $ runClientM (listen v cid listenerRequest) ce
         liftIO $ print res
@@ -478,7 +492,7 @@ sendTransactions measure config distribution = do
   gen <- liftIO createSystemRandom
 
   let act = loop measure
-      env = set genAccountsKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
+      env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
       stt = TXGState gen 0 cids
 
   evalStateT (runReaderT (runTXG act) env) stt
