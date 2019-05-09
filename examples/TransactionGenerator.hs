@@ -387,9 +387,14 @@ sendTransaction cid cmd = do
   TXGConfig _ _ cenv v <- ask
   liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
-loop :: (MonadIO m, MonadLog SomeLogMessage m) => TQueue Text -> MeasureTime -> TXG m ()
-loop tq measure@(MeasureTime mtime) = do
-  (cid, transaction) <- generateTransaction
+loop
+  :: (MonadIO m, MonadLog SomeLogMessage m)
+  => TXG m (ChainId, Command Text)
+  -> TQueue Text
+  -> MeasureTime
+  -> TXG m ()
+loop f tq measure@(MeasureTime mtime) = do
+  (cid, transaction) <- f
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
   count <- use gsCounter
   gsCounter += 1
@@ -405,7 +410,7 @@ loop tq measure@(MeasureTime mtime) = do
 
   logs <- liftIO . atomically $ flushTQueue tq
   lift $ traverse_ (logg Info . toLogMessage) logs
-  loop tq measure
+  loop f tq measure
 
 forkedListens :: MonadIO m => TQueue Text -> ChainId -> RequestKeys -> TXG m ()
 forkedListens tq cid (RequestKeys rks) = do
@@ -420,25 +425,6 @@ forkedListens tq cid (RequestKeys rks) = do
         writeTQueue tq $ sshow res
         writeTQueue tq $ "It took " <> sshow time <> " seconds to get back the result."
         writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
-
-simpleloop :: (MonadIO m, MonadLog SomeLogMessage m) => TQueue Text -> MeasureTime -> TXG m ()
-simpleloop tq measure@(MeasureTime mtime) = do
-  (cid, transaction) <- generateSimpleTransaction
-  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
-  count <- use gsCounter
-  gsCounter += 1
-
-  liftIO . atomically $ do
-    when mtime $ writeTQueue tq $ "sending a simple expression took: " <> sshow timeTaken
-    writeTQueue tq $ "Simple expression transaction count: " <> sshow count
-
-  case requestKeys of
-    Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
-    Right rks -> forkedListens tq cid rks
-
-  logs <- liftIO . atomically $ flushTQueue tq
-  lift $ traverse_ (logg Info . toLogMessage) logs
-  simpleloop tq measure
 
 mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
 mkTXGConfig mdistribution config =
@@ -507,7 +493,7 @@ sendTransactions measure config distribution = do
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
 
-  let act = loop tq measure
+  let act = loop generateTransaction tq measure
       env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
       stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
 
@@ -531,7 +517,7 @@ sendSimpleExpressions measure config distribution = do
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
   let !stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
-  evalStateT (runReaderT (runTXG (simpleloop tq measure)) gencfg) stt
+  evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
 pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKeys -> IO ()
 pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
