@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts                #-}
 {-# LANGUAGE FlexibleInstances               #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving      #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses           #-}
 {-# LANGUAGE OverloadedStrings               #-}
 {-# LANGUAGE RankNTypes                      #-}
@@ -33,7 +34,7 @@ import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay, forkIO)
-import Control.Lens hiding ((.=), op)
+import Control.Lens hiding ((.=), (|>), op)
 import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Primitive
@@ -44,7 +45,9 @@ import Control.Monad.Trans.Control
 import Data.ByteString (ByteString)
 import Data.Char
 import Data.Default (Default(..), def)
+import Data.Foldable (traverse_)
 import Data.LogMessage
+import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Int
 import Data.Map (Map)
 import Data.Proxy
@@ -154,7 +157,7 @@ pollkeys = do
   _close <- A.skipSpace >> A.char ']'
   A.skipSpace
   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  return $ PollRequestKeys bs measure
+  pure $ PollRequestKeys bs measure
 
 parseRequestKey :: A.Parser ByteString
 parseRequestKey = B8.pack <$> A.count 128 (A.satisfy (A.inClass "abcdef0123456789"))
@@ -166,7 +169,7 @@ listenkeys = do
   bytestring <- parseRequestKey
   A.skipSpace
   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  return $ ListenerRequestKey bytestring measure
+  pure $ ListenerRequestKey bytestring measure
 
 instance HasTextRepresentation TransactionCommand where
   toText = transactionCommandToText
@@ -220,11 +223,14 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
 data TXGState = TXGState
   { _gsGen     :: !(Gen (PrimState IO))
   , _gsCounter :: !Int64
-  , _gsChains  :: !(NES.NESeq ChainId)
+  , _gsChains  :: !(NESeq ChainId)
   }
 
 gsCounter :: Lens' TXGState Int64
 gsCounter f s = (\c -> s { _gsCounter = c }) <$> f (_gsCounter s)
+
+gsChains :: Lens' TXGState (NESeq ChainId)
+gsChains f s = (\c -> s { _gsChains = c }) <$> f (_gsChains s)
 
 defaultScriptConfig :: ScriptConfig
 defaultScriptConfig = ScriptConfig
@@ -287,7 +293,9 @@ generateDelay = do
     Just (Uniform ulow uhigh)  -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
     Nothing                    -> error "generateDelay: impossible"
 
-generateSimpleTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TXG m (Command Text)
+generateSimpleTransaction
+  :: (MonadIO m, MonadLog SomeLogMessage m)
+  => TXG m (ChainId, Command Text)
 generateSimpleTransaction = do
   delay <- generateDelay
   stdgen <- liftIO newStdGen
@@ -297,7 +305,7 @@ generateSimpleTransaction = do
             b <- state $ randomR (1, 100 :: Integer)
             ind <- state $ randomR (0, 2 :: Int)
             let operation = "+-*" !! ind
-            return (a, b, operation)
+            pure (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
   liftIO $ threadDelay delay
   lift . logg Info . toLogMessage . T.pack $ "The delay is" ++ show delay ++ " seconds."
@@ -305,20 +313,32 @@ generateSimpleTransaction = do
   kps <- liftIO testSomeKeyPairs
 
   -- Choose a Chain to send this transaction to, and cycle the state.
-  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
+  cid <- uses gsChains NES.head
+  gsChains %= rotate
 
   let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-  liftIO $ mkExec theCode theData publicmeta kps Nothing
+  cmd <- liftIO $ mkExec theCode theData publicmeta kps Nothing
+  pure (cid, cmd)
+
+-- | O(1). The head value is moved to the end.
+rotate :: NESeq a -> NESeq a
+rotate (h :<|| rest) = rest :||> h
 
 -- TODO What is this number?
 numContracts :: Int
 numContracts = 2
 
-generateTransaction :: (MonadIO m, MonadLog SomeLogMessage m) => TXG m (Command Text)
+generateTransaction
+  :: (MonadIO m, MonadLog SomeLogMessage m)
+  => TXG m (ChainId, Command Text)
 generateTransaction = do
   contractIndex <- liftIO $ randomRIO (0, numContracts)
-  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
+
+  -- Choose a Chain to send this transaction to, and cycle the state.
+  cid <- uses gsChains NES.head
+  gsChains %= rotate
+
   sample <- case contractIndex of
     -- COIN CONTRACT
     0 -> do
@@ -326,9 +346,7 @@ generateTransaction = do
       liftIO $ do
         coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
         createCoinContractRequest (makeMeta cid) coinContractRequest
-    1 -> liftIO $ do
-      name <- generate fake
-      helloRequest name
+    1 -> liftIO $ generate fake >>= helloRequest
     2 -> do
       paymentAccts <- views confKeysets (M.toList . fmap (^. at (ContractName "payment")))
       liftIO $ do
@@ -345,7 +363,7 @@ generateTransaction = do
   delay <- generateDelay
   liftIO $ threadDelay delay
   lift $ logg Info (toLogMessage $ T.pack $ "The delay was " ++ show delay ++ " seconds.")
-  return sample
+  pure (cid, sample)
 
 -- TODO: Ideally we'd shove `LoggerT` into this stack, but `yet-another-logger`
 -- would have to be patched to add missing instances first. Having `LoggerT`
@@ -358,10 +376,13 @@ newtype TXG m a = TXG { runTXG :: ReaderT TXGConfig (StateT TXGState m) a }
 instance MonadTrans TXG where
   lift = TXG . lift . lift
 
-sendTransaction :: MonadIO m => Command Text -> TXG m (Either ClientError RequestKeys)
-sendTransaction cmd = do
+sendTransaction
+  :: MonadIO m
+  => ChainId
+  -> Command Text
+  -> TXG m (Either ClientError RequestKeys)
+sendTransaction cid cmd = do
   TXGConfig _ _ cenv v <- ask
-  cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
   liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
 
 loop
@@ -369,33 +390,31 @@ loop
   => MeasureTime
   -> TXG m ()
 loop measure@(MeasureTime mtime) = do
-  transaction <- generateTransaction
-  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
-  lift $ logg Info (toLogMessage (("Sent transaction with request keys: " <> sshow requestKeys) :: Text))
+  (cid, transaction) <- generateTransaction
+  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
+  lift $ logg Info $ toLogMessage (("Sent transaction with request keys: " <> sshow requestKeys) :: Text)
   when mtime $
-    lift $ logg Info (toLogMessage (("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken) :: Text))
+    lift $ logg Info $ toLogMessage (("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken) :: Text)
   count <- use gsCounter
   gsCounter += 1
   lift $ logg Info (toLogMessage (("Transaction count: " <> sshow count) :: Text))
-  forkedListens requestKeys
+  case requestKeys of
+    Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
+    Right rks -> forkedListens cid rks
   loop measure
 
 forkedListens
   :: forall m. (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => Either ClientError RequestKeys
+  => ChainId
+  -> RequestKeys
   -> TXG m ()
-forkedListens requestKeys = do
-  err <- traverse (traverse forkedListen) (traverse _rkRequestKeys requestKeys)
-  case sequence err of
-    Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
-    Right _ -> return ()
+forkedListens cid (RequestKeys rks) = traverse_ forkedListen rks
   where
     -- TODO Why aren't we using async here?
     forkedListen :: RequestKey -> TXG m ()
     forkedListen requestKey = do
       liftIO $ print requestKey  -- TODO Should this be printed or logged?
       TXGConfig _ _ ce v <- ask
-      cid <- gets (NES.head . _gsChains) -- TODO Don't just take the head
       let listenerRequest = ListenerRequest requestKey
       -- LoggerT has an instance of MonadBaseControl. Also, there is a
       -- function from `monad-control` which enables you to lift forkIO. The
@@ -417,14 +436,16 @@ simpleloop
   => MeasureTime
   -> TXG m ()
 simpleloop measure@(MeasureTime mtime) = do
-  transaction <- generateSimpleTransaction
-  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction transaction)
+  (cid, transaction) <- generateSimpleTransaction
+  (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
   when mtime $
     lift $ logg Info (toLogMessage (("sending a simple expression took: " <> sshow timeTaken) :: Text))
   count <- use gsCounter
   lift $ logg Info (toLogMessage (("Simple expression transaction count: " <> sshow count) :: Text))
   gsCounter += 1
-  forkedListens requestKeys
+  case requestKeys of
+    Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
+    Right rks -> forkedListens cid rks
   simpleloop measure
 
 mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
@@ -442,7 +463,7 @@ mkTXGConfig mdistribution config =
                  (T.unpack . hostnameToText . _hostAddressHost . _chainwebHostAddress $ config)
                  (fromIntegral . _hostAddressPort . _chainwebHostAddress $ config)
                  ""
-       return $! mkClientEnv mgr url
+       pure $! mkClientEnv mgr url
 
 mainInfo :: ProgramInfo ScriptConfig
 mainInfo =
@@ -487,8 +508,8 @@ sendTransactions measure config distribution = do
   (paymentKS, paymentAcc) <- liftIO $ unzip <$> createPaymentsAccounts meta
   (coinKS, coinAcc) <- liftIO $ unzip <$> createCoinAccounts meta
   pollresponse <- liftIO . runExceptT $ do
-    rkeys <- ExceptT $ runClientM (send v cid (SubmitBatch $ paymentAcc ++ coinAcc)) ce
-    ExceptT $ runClientM (poll v cid (Poll $ _rkRequestKeys rkeys)) ce
+    rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc ++ coinAcc) ce
+    ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
   logg Info $ toLogMessage (sshow pollresponse :: Text)
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gen <- liftIO createSystemRandom
@@ -503,7 +524,8 @@ sendTransactions measure config distribution = do
     buildGenAccountsKeysets x y z = M.fromList $ zipWith3 go x y z
 
     go :: a -> b -> b -> (a, Map ContractName b)
-    go name kpayment kcoin = (name, M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)])
+    go name kpayment kcoin =
+      (name, M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)])
 
 sendSimpleExpressions
   :: MeasureTime
@@ -523,7 +545,7 @@ pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
   when mtime (putStrLn $ "" <> show timeTaken)
   where
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config
+    cid = NEL.head $ _nodeChainId config  -- TODO not right!
 
     go :: IO a
     go = do
@@ -547,7 +569,7 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     Right r -> print (_arResult r) >> exitSuccess
   where
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config
+    cid = NEL.head $ _nodeChainId config  -- TODO not right!
 
     go :: IO (Either ServantError ApiResult)
     go = do
