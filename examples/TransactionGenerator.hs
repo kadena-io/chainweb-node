@@ -33,7 +33,10 @@ module TransactionGenerator ( main ) where
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TQueue
 import Control.Lens hiding ((.=), (|>), op)
 import Control.Monad.Catch
 import Control.Monad.Except
@@ -387,55 +390,51 @@ sendTransaction cid cmd = do
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => MeasureTime
+  => TQueue Text
+  -> MeasureTime
   -> TXG m ()
-loop measure@(MeasureTime mtime) = do
+loop tq measure@(MeasureTime mtime) = do
   (cid, transaction) <- generateTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
-  lift $ logg Info $ toLogMessage (("Sent transaction with request keys: " <> sshow requestKeys) :: Text)
+  lift . logg Info $ toLogMessage ("Sent transaction with request keys: " <> sshow requestKeys :: Text)
   when mtime $
-    lift $ logg Info $ toLogMessage (("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken) :: Text)
+    lift $ logg Info $ toLogMessage ("Sending a transaction (with request keys: " <> sshow requestKeys <> ") took: " <> sshow timeTaken :: Text)
   count <- use gsCounter
   gsCounter += 1
-  lift $ logg Info (toLogMessage (("Transaction count: " <> sshow count) :: Text))
+  lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
   case requestKeys of
-    Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
-    Right rks -> forkedListens cid rks
-  loop measure
+    Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
+    Right rks -> forkedListens tq cid rks
+  logs <- liftIO . atomically $ flushTQueue tq
+  lift $ traverse_ (logg Info . toLogMessage) logs
+  loop tq measure
 
 forkedListens
   :: forall m. (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => ChainId
+  => TQueue Text
+  -> ChainId
   -> RequestKeys
   -> TXG m ()
-forkedListens cid (RequestKeys rks) = traverse_ forkedListen rks
+forkedListens tq cid (RequestKeys rks) = do
+  TXGConfig _ _ ce v <- ask
+  liftIO $ traverse_ (forkedListen ce v) rks
   where
-    -- TODO Why aren't we using async here?
-    forkedListen :: RequestKey -> TXG m ()
-    forkedListen requestKey = do
-      liftIO $ print requestKey  -- TODO Should this be printed or logged?
-      TXGConfig _ _ ce v <- ask
-      let listenerRequest = ListenerRequest requestKey
-      -- LoggerT has an instance of MonadBaseControl. Also, there is a
-      -- function from `monad-control` which enables you to lift forkIO. The
-      -- extra lift at the end is to get the entire computation back into the
-      -- TXG transformer.
-
-      -- TODO Experiment: Return the logging messages explicitly, then log them
-      -- in the parent thread.
-      void $ lift $ liftBaseDiscard forkIO $ do
-        (time, res) <- liftIO . measureDiffTime $ runClientM (listen v cid listenerRequest) ce
-        liftIO $ print res
-        -- withLabel ("component", "transaction-generator") $ -- add this back in later
-        logg Info $ toLogMessage (("It took " <> sshow time <> " seconds to get back the result.") :: Text)
-        -- withLabel ("component", "transaction-generator") $ -- add this back in later
-        logg Info $ toLogMessage (("The associated request is " <> sshow requestKey <> "\n" <> sshow res) :: Text)
+    forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
+    forkedListen ce v rk = do
+      print rk  -- TODO Should this be printed or logged?
+      void . async $ do
+        (time, res) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
+        atomically $ do
+          writeTQueue tq $ sshow res
+          writeTQueue tq $ "It took " <> sshow time <> " seconds to get back the result."
+          writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
 simpleloop
   :: (MonadIO m, MonadLog SomeLogMessage m, MonadBaseControl IO m)
-  => MeasureTime
+  => TQueue Text
+  -> MeasureTime
   -> TXG m ()
-simpleloop measure@(MeasureTime mtime) = do
+simpleloop tq measure@(MeasureTime mtime) = do
   (cid, transaction) <- generateSimpleTransaction
   (timeTaken, requestKeys) <- measureDiffTime (sendTransaction cid transaction)
   when mtime $
@@ -445,8 +444,10 @@ simpleloop measure@(MeasureTime mtime) = do
   gsCounter += 1
   case requestKeys of
     Left servantError -> lift $ logg Error (toLogMessage (sshow servantError :: Text))
-    Right rks -> forkedListens cid rks
-  simpleloop measure
+    Right rks -> forkedListens tq cid rks
+  logs <- liftIO . atomically $ flushTQueue tq
+  lift $ traverse_ (logg Info . toLogMessage) logs
+  simpleloop tq measure
 
 mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
 mkTXGConfig mdistribution config =
@@ -513,8 +514,9 @@ sendTransactions measure config distribution = do
   logg Info $ toLogMessage (sshow pollresponse :: Text)
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gen <- liftIO createSystemRandom
+  tq  <- liftIO newTQueueIO
 
-  let act = loop measure
+  let act = loop tq measure
       env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
       stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
 
@@ -536,8 +538,9 @@ sendSimpleExpressions measure config distribution = do
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config
   gen <- liftIO createSystemRandom
+  tq  <- liftIO newTQueueIO
   let !stt = TXGState gen 0 . NES.fromList $ _nodeChainId config
-  evalStateT (runReaderT (runTXG (simpleloop measure)) gencfg) stt
+  evalStateT (runReaderT (runTXG (simpleloop tq measure)) gencfg) stt
 
 pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKeys -> IO ()
 pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
