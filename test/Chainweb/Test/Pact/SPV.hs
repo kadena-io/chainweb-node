@@ -26,6 +26,7 @@ import Control.Exception (throwIO)
 import Data.Aeson (Value, (.=), object)
 import Data.Default (def)
 import Data.Foldable (toList)
+import Data.Functor (void)
 import Data.LogMessage
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
@@ -71,14 +72,37 @@ test = do
             pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
             syncPact cutDb pact1
 
-            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact1 1
+            Just (_, _, outs1) <- S.head_ $ extendTestCutDb cutDb pact1 1
+            (_, txo1) <- payloadTx outs1
+
+            -- A proof can only be constructed if the block hash of the source block
+            -- is included in the block hash of the target. Extending the cut db with
+            -- `distance(source, target) * order(graph) + 2 * diameter(graph) * order(graph)`
+            -- should be sufficient to guarantee that a proof exists
+            -- (modulo off-by-one errors)
+
+            -- So, if the distance is 2, you would mine 10 (order of peterson graph) * 2 new blocks.
+            -- Since mining picks chains randomly you mine another 2 * diameter(graph) * 10 = 40
+            -- blocks to make up for uneven height distribution.
+
+            -- So in total you would add 60 blocks which would guarantee that all chains
+            -- advanced by at least 2 blocks. This is probably an over-approximation, I guess
+            -- the formula could be made a little more tight, but the that’s the overall idea.
+            -- The idea behind the `2 * diameter(graph) * order(graph)` corrective is that, the
+            -- block heights between any two chains can be at most `diameter(graph)` apart.
+
+            --
+            -- 'S.effects' forces the stream here. It -must- occur so that we evaluate the stream
+            --
+            void $! S.effects $ extendTestCutDb cutDb pact1 60
+            syncPact cutDb pact1
 
             pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cutDb
             syncPact cutDb pact2
 
-            Just (_, _, outs) <- S.head_ $ extendTestCutDb cutDb pact2 1
-            (_, txOutput) <- payloadTx outs
-            print outs
+            Just (_, _, outs2) <- S.head_ $ extendTestCutDb cutDb pact2 1
+            (_, txo2) <- payloadTx outs2
+            print txo2
 
   where
     v = TimedCPM petersonChainGraph
@@ -93,16 +117,15 @@ type TransactionGenerator
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
-txGenerator1 cid _bhe _bha =
+txGenerator1 _cid _bhe _bha =
     mkPactTestTransactions' (fromList txs)
   where
-    chain = chainIdToText cid
     txs = [ PactTransaction tx1Code tx1Data ]
 
     -- Burn coin on chain '$cid' and create on chain 2, creating SPV proof
     tx1Code =
       [text|
-        (coin.delete-coin 'sender00 $chain 'sender01 (read-keyset 'sender01-keys) 1.0)
+        (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
         |]
     tx1Data = keys
 
@@ -111,8 +134,7 @@ txGenerator2
     => CutDb cas
     -> TransactionGenerator
 txGenerator2 cdb _cid _bhe _bha = do
-    print _cid
-    txo <- createTransactionOutputProof cdb (unsafeChainId 0) (unsafeChainId 0) 1 0
+    txo <- createTransactionOutputProof cdb (unsafeChainId 1) (unsafeChainId 0) 0 0
     mkPactTestTransactions' $ fromList (txs txo)
   where
     txs txo =
