@@ -560,7 +560,7 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     cid :: ChainId
     cid = NEL.head $ _nodeChainId config  -- TODO not right!
 
-    go :: IO (Either ServantError ApiResult)
+    go :: IO (Either ClientError ApiResult)
     go = do
       putStrLn "Listening..."
       TXGConfig _ _ ce v <- mkTXGConfig Nothing config
