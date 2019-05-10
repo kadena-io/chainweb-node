@@ -41,8 +41,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Proxy
 import Data.Reflection (Given, give)
+import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..), T4(..))
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -111,14 +112,18 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -- Mine a new Cut
         --
         c <- _cut cutDb
-        T3 newBh c' adjustments' <- do
+        T4 newBh payload c' adjustments' <- do
             let go2 !x = race (awaitNextCut cutDb x) (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
                     Left c' -> go2 c'
                     Right !r -> return r
             go2 c
 
+        let !nmb = NewMinedBlock (ObjectEncoded newBh)
+                       . Seq.length
+                       $ _payloadWithOutputsTransactions payload
+
         logg Info $! "created new block" <> sshow i
-        logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
+        logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
@@ -162,7 +167,7 @@ mineCut
     -> MWC.GenIO
     -> Cut
     -> Adjustments
-    -> IO (T3 BlockHeader Cut Adjustments)
+    -> IO (T4 BlockHeader PayloadWithOutputs Cut Adjustments)
 mineCut logfun conf nid cutDb gen !c !adjustments = do
 
     -- Randomly pick a chain to mine on.
@@ -223,7 +228,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
             logg Info $! "add block to payload db"
             insertWebBlockHeaderDb newHeader
 
-            return $! T3 newHeader c' adjustments'
+            return $! T4 newHeader payload c' adjustments'
   where
     v = _chainwebVersion cutDb
     wcdb = view cutDbWebBlockHeaderDb cutDb
