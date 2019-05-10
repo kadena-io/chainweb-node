@@ -61,7 +61,7 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
-import Pact.Types.Term (DefName(..), ModuleName(..))
+import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
 
 -- internal Chainweb modules
 
@@ -206,7 +206,7 @@ applyLocal
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
-    -> IO (Either SomeException (CommandSuccess PactValue))
+    -> IO (Either SomeException (CommandSuccess (Term Name)))
 applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   -- cmd env with permissive gas model
@@ -252,10 +252,10 @@ runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload o
     Continuation ym ->
       applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
 
-mkSuccess :: EvalResult -> IO (CommandSuccess PactValue)
+mkSuccess :: EvalResult -> IO (CommandSuccess (Term Name))
 mkSuccess er = case _erOutput er of
   [] -> throwCmdEx "unexpected empty results"
-  outs -> return . CommandSuccess $ last outs
+  outs -> return . CommandSuccess . fromPactValue $ last outs
 
 applyExec
     :: CommandEnv p

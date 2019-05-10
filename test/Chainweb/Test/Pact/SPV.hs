@@ -20,7 +20,7 @@ module Chainweb.Test.Pact.SPV
 ) where
 
 
-
+import Control.Lens ((^.), at)
 import Control.Concurrent.MVar (newMVar)
 import Control.Exception (throwIO)
 
@@ -32,6 +32,7 @@ import Data.Default (def)
 import Data.Foldable (toList)
 import Data.Functor (void)
 import Data.LogMessage
+import Data.Text (unpack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -61,8 +62,8 @@ import Data.CAS.RocksDB
 -- internal pact modules
 
 import Pact.Types.Command
-import Pact.Types.Term (Term(..), KeySet(..), PublicKey(..), Name(..))
-
+import Pact.Types.Term
+import Pact.Types.Exp
 
 test :: IO ()
 test = do
@@ -132,24 +133,47 @@ txGenerator1 _cid _bhe _bha =
     mkPactTestTransactions' txs
   where
     txs =
-      let c = [text|
-                (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
-                |]
+      let c =
+            [text|
+              (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
+              |]
 
       in fromList [ PactTransaction c keys ]
 
 
+-- | Generate the 'create-coin' command in response
+-- to the previous 'delete-coin' call
+--
 txGenerator2 :: PactSPVProof -> TransactionGenerator
-txGenerator2 p _cid _bhe _bha = do
-    q <- extractProof p
-    print q
-    mkPactTestTransactions' (txs q)
+txGenerator2 p _cid _bhe _bha =
+    mkPactTestTransactions' . txs =<< extractHash p
   where
-    txs q =
-      let d = Just $ object [ "proof" .= q ]
-          c = [text| (coin.create-coin (read-msg 'proof)) |]
+    txs q = fromList
+      [ PactTransaction tx1Code (tx1Data q)
+      ]
 
-      in fromList [ PactTransaction c d ]
+    tx1Code =
+      [text|
+        (coin.create-coin
+          { "create-chain-id": 1
+          , "delete-tx-hash": (read-msg 'delete-hash)
+          , "delete-account": "sender00"
+          , "create-account": "sender01"
+          , "quantity": 1.0
+          , "create-account-guard": (read-keyset 'sender01-keys)
+          , "delete-chain-id": 0
+          })
+        |]
+
+    tx1Data q =
+      let k = KeySet
+            [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+            ( Name "keys-all" def )
+
+      in Just $ object
+         [ "sender01-keys" .= k
+         , "delete-hash" .= q
+         ]
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api
@@ -173,11 +197,12 @@ keys = Just $ object [ "sender01-keys" .= k ]
 -- | Given a 'TransactionOutput', we must extract the data yielded
 -- by a successful result, so that we can pass this along to as the
 -- 'coin.create-coin' proof
-extractProof :: PactSPVProof -> IO PactSPVProofObject
-extractProof (TransactionOutput t) = do
+extractHash :: PactSPVProof -> IO String
+extractHash (TransactionOutput t) = do
     hl <- fromBS @HashedLogTxOutput t _hlCommandResult
     cr <- toResult hl
-    toObject cr
+    o <- toObject cr
+    getHash o
 
   where
 
@@ -199,6 +224,16 @@ extractProof (TransactionOutput t) = do
         $ bs
       where
         err = internalError "spvTests: could not decode bytes"
+
+    getHash o = case o of
+      (TObject (Object (ObjectMap m) _ _ _) _) ->
+        case m ^. at (FieldKey "delete-tx-hash") of
+          Nothing -> aesonErr "extractHash: unable to locate delete tx hash"
+          Just a -> case a of
+            (TLiteral (LString h) _) -> pure . unpack $ h
+            _ -> aesonErr "extractHash: tx hash has wrong literal type"
+      _ -> aesonErr "extractHash: wrong term type - object required"
+
 
     aesonErr :: String -> IO a
     aesonErr s = internalError'
