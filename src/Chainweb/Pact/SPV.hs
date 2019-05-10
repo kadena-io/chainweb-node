@@ -92,32 +92,18 @@ pactSPV dbVar = SPVSupport $ \s o -> do
 --
 -- 'proofOf' '@(Transaction SHA512t_256)'
 --
-proofOf
-    :: (FromJSON a, MonadThrow m)
-    => Object Name -> m a
-proofOf o = spvDecode . toJSON $ TObject o def
-
--- | Internal method: decode some JSON value as 'FromJSON a => a'.
---
--- Usage is best with type applications as in 'proofOf':
--- the applied type propagates to this function.
---
--- 'spvDecode' '@OutputProof'
---
-spvDecode
-    :: (FromJSON a, MonadThrow m)
-    => Value -> m a
-spvDecode a = case fromJSON a of
-    Error s -> spvError $ "Unable to decode proof subject: " <> s
-    Success x -> pure x
+proofOf :: FromJSON a => Object Name -> IO a
+proofOf o =
+    let t = TObject o def
+    in print t >> (spvDecode . toJSON $ t)
+  where
+    spvDecode a = case fromJSON a of
+      Error s -> spvError $ "Unable to decode proof subject: " <> s
+      Success x -> pure x
 
 -- | Produce a Pact 'CommandSuccess' of a transaction proof bytestring.
 --
-mkSuccess
-    :: MonadThrow m
-    => ByteString
-    -- ^ Transaction verification proof output string
-    -> m (CommandSuccess (Term Name))
+mkSuccess :: ByteString -> IO (CommandSuccess (Term Name))
 mkSuccess
     = maybe (spvError err) pure
     . decode @(CommandSuccess (Term Name))
@@ -129,10 +115,11 @@ mkSuccess
 type OutputProof = TransactionOutputProof SHA512t_256
 type InputProof = TransactionProof SHA512t_256
 
+newtype T3 
 -- -------------------------------------------------------------------------- --
 -- Nicely formatted errors
 
 -- | Prepend "spvSupport" to any errors so we can differentiate
 --
-spvError :: MonadThrow m => String -> m a
+spvError :: String -> IO a
 spvError = internalError' . (<>) "spvSupport: "
