@@ -56,7 +56,7 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "PactExecutionTest"
+tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
     [ withPact testMemPoolAccess $ \reqQIO -> testGroup "pact tests"
         $ schedule Sequential
             [ validateTest reqQIO

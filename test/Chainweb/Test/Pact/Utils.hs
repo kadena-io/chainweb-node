@@ -113,10 +113,10 @@ _mkPactTransaction' theData theCode kps = do
   t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
   BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
 
-pactTestLogger :: Loggers
-pactTestLogger = initLoggers putStrLn f def
+pactTestLogger :: Bool -> Loggers
+pactTestLogger showAll = initLoggers putStrLn f def
   where
     f _ b "ERROR" d = doLog error b "ERROR" d
-    f _ b "DEBUG" d = doLog (\_ -> return ()) b "DEBUG" d
-    f _ b "DDL" d = doLog (\_ -> return ()) b "DDL" d
+    f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
