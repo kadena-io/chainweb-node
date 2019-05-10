@@ -235,9 +235,9 @@ data SyncState = SyncState {
 syncMempools'
     :: Show t
     => LogFunctionText
-    -> MempoolBackend t     -- ^ local mempool
-    -> MempoolBackend t     -- ^ remote mempool
-    -> IO ()                -- ^ on initial sync complete
+    -> MempoolBackend t   -- ^ local mempool
+    -> MempoolBackend t   -- ^ remote mempool
+    -> IO ()              -- ^ on initial sync complete
     -> IO ()
 syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
     bracket startSubscription cleanupSubscription sync
@@ -353,8 +353,8 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
 syncMempools
     :: Show t
     => LogFunctionText
-    -> MempoolBackend t     -- ^ local mempool
-    -> MempoolBackend t     -- ^ remote mempool
+    -> MempoolBackend t   -- ^ local mempool
+    -> MempoolBackend t   -- ^ remote mempool
     -> IO ()
 syncMempools log localMempool remoteMempool =
     syncMempools' log localMempool remoteMempool (return ())
