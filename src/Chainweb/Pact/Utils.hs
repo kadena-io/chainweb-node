@@ -9,26 +9,14 @@
 --
 -- Pact service for Chainweb
 
-module Chainweb.Pact.Utils
-    ( toEnv'
-    , toEnvPersist'
-    ) where
+module Chainweb.Pact.Utils where
+    -- ( toEnv' , toEnvPersist')
 
 import Control.Concurrent.MVar
-import Control.Exception
-import Control.Monad
-
 
 import Pact.Interpreter as P
 
-
-import Pact.Interpreter
-import Pact.PersistPactDb
-import Pact.Persist.SQLite (SQLite(..), closeSQLite, initSQLite, persister)
-import Pact.Types.SQLite
-import Pact.Types.Logger
-
-import Chainweb.Pact.Backend.ChainwebPactDb
+-- import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Types
 
 toEnv' :: EnvPersist' -> IO Env'

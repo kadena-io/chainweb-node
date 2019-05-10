@@ -282,7 +282,13 @@ in
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
       cabal-install = pkgs.haskellPackages.cabal-install;
-      ghcid = pkgs.haskellPackages.ghcid;
+      # ghcid = pkgs.haskellPackages.ghcid;
+      ghcid = pkgs.haskell.lib.dontCheck (pkgs.haskellPackages.callCabal2nix "ghcid" (pkgs.fetchFromGitHub {
+      owner = "ndmitchell";
+      repo = "ghcid";
+      rev = "2017d6b73962aea1227d68389605425777c997e4";
+      sha256 = "1pbgvbvij5nvrhw28gr1m8gh0bq54n66rk8gzi4lnwcz4rp0961p";
+      }) {});
     };
     shells = {
       ghc = ["chainweb"];
