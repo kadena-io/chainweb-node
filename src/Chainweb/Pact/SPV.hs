@@ -115,7 +115,7 @@ mkSuccess
 type OutputProof = TransactionOutputProof SHA512t_256
 type InputProof = TransactionProof SHA512t_256
 
-newtype T3 
+
 -- -------------------------------------------------------------------------- --
 -- Nicely formatted errors
 
