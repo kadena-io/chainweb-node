@@ -106,9 +106,8 @@ test = do
             pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 txo1
             syncPact cutDb pact2
 
-            Just (_, _, _outs2) <- S.head_ $ extendTestCutDb cutDb pact2 1
-            -- (_, txo2) <- payloadTx outs2
-            return ()
+            void $! S.head_ $ extendTestCutDb cutDb pact2 1
+
 
   where
     v = TimedCPM petersonChainGraph
