@@ -74,6 +74,8 @@ import System.Random
 import System.Random.MWC (Gen, uniformR, createSystemRandom)
 import System.Random.MWC.Distributions (normal)
 
+import Text.Pretty.Simple (pPrintNoColor)
+
 -- PACT
 import Pact.ApiReq
 import Pact.Parse (ParsedInteger(..),ParsedDecimal(..))
@@ -189,7 +191,7 @@ data ScriptConfig = ScriptConfig
   , _chainwebHostAddress :: !HostAddress
   , _nodeVersion         :: !ChainwebVersion
   , _logHandleConfig     :: !U.HandleConfig }
-  deriving (Generic)
+  deriving (Show, Generic)
 
 makeLenses ''ScriptConfig
 
@@ -301,14 +303,17 @@ generateSimpleTransaction = do
             let operation = "+-*" !! ind
             pure (a, b, operation)
       theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
-  liftIO $ threadDelay delay
-  -- lift . logg Info . toLogMessage . T.pack $ "The delay is " ++ show delay ++ " seconds."
-  lift . logg Info . toLogMessage . T.pack $ "Sending expression " ++ theCode
-  kps <- liftIO testSomeKeyPairs
 
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- uses gsChains NES.head
   gsChains %= rotate
+
+  -- Delay, so as not to hammer the network.
+  liftIO $ threadDelay delay
+  -- lift . logg Info . toLogMessage . T.pack $ "The delay is " ++ show delay ++ " seconds."
+  lift . logg Info . toLogMessage . T.pack $ printf "Sending expression %s to %s" theCode (show cid)
+  kps <- liftIO testSomeKeyPairs
+
 
   let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
@@ -605,6 +610,7 @@ main = runWithConfiguration mainInfo $ \config -> do
       isMem  = all (`HS.member` chains) $ _nodeChainId config
   unless isMem $ error $
     printf "Invalid chain %s for given version\n" (show $ _nodeChainId config)
+  pPrintNoColor config
   work config
 
 -- TODO: This is here for when a user wishes to deploy their own
