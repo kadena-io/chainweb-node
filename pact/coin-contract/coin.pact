@@ -186,15 +186,17 @@
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
     (with-capability (TRANSFER)
       (debit delete-account quantity)
+
       { "create-chain-id": create-chain-id
       , "create-account": create-account
       , "create-account-guard": create-account-guard
       , "quantity": quantity
-      , "delete-block-height" : (at 'block-height (chain-data))
+      , "delete-block-height": (at 'block-height (chain-data))
       , "delete-chain-id": (at 'chain-id (chain-data))
       , "delete-account": delete-account
       , "delete-tx-hash": (tx-hash)
-      }))
+      })
+    )
 
   (defun create-coin (proof)
     (let ((outputs (at 'outputs (verify-spv "TXOUT" proof))))

@@ -111,10 +111,8 @@ mkSuccess
   where
     err = "Unable to decode proof object"
 
-
 type OutputProof = TransactionOutputProof SHA512t_256
 type InputProof = TransactionProof SHA512t_256
-
 
 -- -------------------------------------------------------------------------- --
 -- Nicely formatted errors

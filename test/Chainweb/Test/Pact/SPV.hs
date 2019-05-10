@@ -88,8 +88,8 @@ test = do
             -- (modulo off-by-one errors)
 
             -- So, if the distance is 2, you would mine 10 (order of peterson graph) * 2 new blocks.
-            -- Since mining picks chains randomly you mine another 2 * diameter(graph) * 10 = 40
-            -- blocks to make up for uneven height distribution.
+            -- Since extending the cut db picks chains randomly you mine another
+            -- 2 * diameter(graph) * 10 = 40 blocks to make up for uneven height distribution.
 
             -- So in total you would add 60 blocks which would guarantee that all chains
             -- advanced by at least 2 blocks. This is probably an over-approximation, I guess
