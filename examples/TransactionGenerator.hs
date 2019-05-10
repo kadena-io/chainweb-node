@@ -268,7 +268,7 @@ scriptConfigParser = id
       % long "node-chain-id"
       <> short 'i'
       <> metavar "INT"
-      <> help "The specific chain that will receive generated transactions."
+      <> help "The specific chain that will receive generated transactions. Can be used multiple times."
 
 data TXGConfig = TXGConfig
   { _confTimingDist :: !(Maybe TimingDistribution)

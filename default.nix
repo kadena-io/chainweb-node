@@ -57,7 +57,6 @@ in
           testTarget = "--test-option=--hide-successes";
         }));
 
-        # configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.1" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
         yaml = callHackageDirect {
