@@ -391,6 +391,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     shutdown = shutdownInMem broadcaster
     clear = clearInMem lockMVar
 
+
 ------------------------------------------------------------------------------
 -- toTestMempoolBackend
 --     :: PayloadCas cas
@@ -682,12 +683,12 @@ getPendingInMem cfg lock callback = do
     sendChunk dl _ = callback $ V.fromList $ dl []
 
 ------------------------------------------------------------------------------
-reintroduceInMem :: TxBroadcaster t
+reintroduceInMem' :: TxBroadcaster t
                  -> InMemConfig t
                  -> MVar (InMemoryMempoolData t)
                  -> Vector TransactionHash
                  -> IO ()
-reintroduceInMem broadcaster cfg lock txhashes = do
+reintroduceInMem' broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
                    V.map fromJuste . V.filter isJust <$>
                    V.mapM (reintroduceOne mdata) txhashes
@@ -708,6 +709,18 @@ reintroduceInMem broadcaster cfg lock txhashes = do
         modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
         modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
         return $! Just tx
+
+------------------------------------------------------------------------------
+reintroduceInMem :: TxBroadcaster t
+                 -> InMemConfig t
+                 -> MVar (InMemoryMempoolData t)
+                 -> Vector t -- ChainwebTransaction
+                 -> IO ()
+reintroduceInMem broadcaster cfg lock txs =
+    reintroduceInMem' broadcaster cfg lock (V.map hashIt txs)
+  where
+    hashIt = txHasher $ _inmemTxCfg cfg
+    toHash tx = hashIt tx
 
 
 ------------------------------------------------------------------------------

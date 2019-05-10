@@ -74,6 +74,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Orphans
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
@@ -145,7 +146,9 @@ data MempoolBackend t = MempoolBackend {
   , mempoolProcessFork :: BlockHeader -> IO (Vector ChainwebTransaction)
 
     -- | These transactions were on a losing fork. Reintroduce them.
-  , mempoolReintroduce :: Vector TransactionHash -> IO ()
+
+    --   , mempoolReintroduce :: Vector TransactionHash -> IO ()
+  , mempoolReintroduce :: Vector t -> IO ()
 
     -- | given a callback function, loops through the pending candidate
     -- transactions and supplies the hashes to the callback in chunks. No
@@ -440,21 +443,21 @@ data MockTx = MockTx {
     deriving anyclass (FromJSON, ToJSON, NFData)
 
 
-instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
-    toJSON d = let s = T.pack $ show d
-               in toJSON s
+-- instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
+--     toJSON d = let s = T.pack $ show d
+--                in toJSON s
 
-instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
-    parseJSON v = do
-        s <- T.unpack <$> parseJSON v
-        return $! read s
+-- instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
+--     parseJSON v = do
+--         s <- T.unpack <$> parseJSON v
+--         return $! read s
 
--- orphan, needed for mock -- remove once this instance makes it upstream into pact
-instance ToJSON GasPrice where
-    toJSON (GasPrice d) = toJSON d
+-- -- orphan, needed for mock -- remove once this instance makes it upstream into pact
+-- instance ToJSON GasPrice where
+--     toJSON (GasPrice d) = toJSON d
 
-instance FromJSON GasPrice where
-    parseJSON v = GasPrice <$> parseJSON v
+-- instance FromJSON GasPrice where
+--     parseJSON v = GasPrice <$> parseJSON v
 
 mockBlockGasLimit :: Int64
 mockBlockGasLimit = 65535

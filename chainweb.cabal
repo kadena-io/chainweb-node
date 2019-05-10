@@ -125,6 +125,7 @@ library
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.Orphans
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.RocksDB
@@ -319,11 +320,6 @@ library
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
-        --remove these
-        , tasty >= 1.0
-        , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
-
     if flag(tls13)
         cpp-options: -DWITH_TLS13=1
 
@@ -398,6 +394,7 @@ test-suite chainweb-tests
         , extra >= 1.6
         , fgl >= 5.6
         , hashable >= 1.2
+        , hashtables >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
@@ -499,6 +496,7 @@ executable cwtool
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
+        Chainweb.Orphans
         Chainweb.Simulate.Contracts.CoinContract
         Chainweb.Simulate.Contracts.Common
         Chainweb.Simulate.Contracts.HelloWorld
