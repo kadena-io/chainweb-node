@@ -181,8 +181,6 @@ writeRow wt d k v e =
     write :: Utf8 -> BlockHeight -> ReorgVersion -> TxId -> Database -> IO ()
     write key@(Utf8 kk) bh (ReorgVersion version) (TxId txid) db =
       case wt of
-        -- | Insert a new row, fail if key already found.
-        --   Requires complete row value, enforced by pact runtime.
         Insert -> do
           res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key) [RText]
           case res of
@@ -196,9 +194,6 @@ writeRow wt d k v e =
                   , SInt (fromIntegral txid)
                   , SBlob (toStrict (Data.Aeson.encode v))]
             _ -> throwM $ userError $ "writeRow: key " <>  toS kk <> " was found in table."
-        -- | Update an existing row, fail if key not found.
-        --   Allows incomplete row values. (Not sure if we ever get
-        --   incomplete row values.)
         Update -> do
           res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key) [RText]
           case res of
@@ -212,8 +207,6 @@ writeRow wt d k v e =
                   , SInt (fromIntegral version)
                   , SInt (fromIntegral txid)
                   , SBlob (toStrict (Data.Aeson.encode v))]
-        -- | Update an existing row, or insert a new row if not found.
-        --   Requires complete row value, enforced by pact runtime.
         Write -> do
           res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key <> ";") [RText]
           case res of

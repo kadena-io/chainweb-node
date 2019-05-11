@@ -57,7 +57,7 @@ initRelationalCheckpointer dbconn loggr gasEnv = do
 type Db = MVar (CWDbEnv SQLiteEnv)
 
 innerRestore :: Db -> BlockHeight -> BlockHash -> IO (Either String (SQLiteEnv, TxId, Maybe ExecutionMode))
-innerRestore dbenv bh hsh = runCWDb dbenv $ runExceptT $ withExceptT ((mappend "restore :") .show) $ do
+innerRestore dbenv bh hsh = runCWDb dbenv $ runExceptT $ withExceptT ((mappend "restore :") . show) $ do
   -- TODO: Refactor so that savepoint is explicit!
   ExceptT $ tryAny $ preBlock $ do
     v <- detectVersionChange bh hsh
