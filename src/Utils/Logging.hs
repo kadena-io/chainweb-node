@@ -94,6 +94,7 @@ import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control
@@ -104,15 +105,16 @@ import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+import Data.Time
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import Network.Wai (Middleware)
 import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
-import Network.Wai (Middleware)
 import Network.Wai.UrlMap
 
 import System.IO
@@ -472,7 +474,8 @@ withElasticsearchBackend
     -> (Backend a -> IO b)
     -> IO b
 withElasticsearchBackend mgr esServer ixName inner = do
-    void $ HTTP.httpLbs putIndex mgr
+    i <- curIxName
+    createIndex i
         -- FIXME Do we need failure handling? If this fails the exeption
         -- is propagated to the main applcation
 
@@ -481,37 +484,50 @@ withElasticsearchBackend mgr esServer ixName inner = do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
+    curIxName = do
+        d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
+        return $ ixName <> "-" <> d
+
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
 
     processor queue = do
+        i <- curIxName
         (n, msg) <- atomically $ do
             h <- readTBQueue queue
-            go (1000 :: Int) (indexAction h) (1 :: Int)
+            go i (1000 :: Int) (indexAction i h) (1 :: Int)
         errorLogFun Info $ "send " <> sshow n <> " messages"
 
+        createIndex i
         void $ HTTP.httpLbs (putBulgLog msg) mgr
       where
-        go 0 !b !c = return (c, b)
-        go i !b !c = tryReadTBQueue queue >>= \case
+        go _ 0 !b !c = return (c, b)
+        go cix i !b !c = tryReadTBQueue queue >>= \case
             Nothing -> return (c, b)
-            Just x -> go i (b <> indexAction x) (pred c)
+            Just x -> do
+                go cix i (b <> indexAction cix x) (pred c)
 
+    createIndex i =
+        void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
+            `catch` \case
+                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) ->
+                    HTTP.httpLbs (putIndex i) mgr
+                ex -> throwM ex
 
-    putIndex = HTTP.defaultRequest
+    putIndex i = HTTP.defaultRequest
         { HTTP.method = "PUT"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName
+        , HTTP.path = T.encodeUtf8 i
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    _putLog a = HTTP.defaultRequest
+    _putLog i a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName <> "/_doc"
+        , HTTP.path = T.encodeUtf8 i <> "/_doc"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
@@ -528,16 +544,16 @@ withElasticsearchBackend mgr esServer ixName inner = do
         }
 
     e = fromEncoding . toEncoding
-    indexAction a
-        = fromEncoding indexActionHeader
+    indexAction i a
+        = fromEncoding (indexActionHeader i)
         <> BB.char7 '\n'
         <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
         <> BB.char7 '\n'
 
-    indexActionHeader :: Encoding
-    indexActionHeader = pairs
+    indexActionHeader :: T.Text -> Encoding
+    indexActionHeader i = pairs
         $ pair "index" $ pairs
-            $ ("_index" .= (ixName :: T.Text))
+            $ ("_index" .= (i :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
 
 -- -------------------------------------------------------------------------- --
