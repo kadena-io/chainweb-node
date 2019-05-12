@@ -250,7 +250,8 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
 
     markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
 
-    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
+    -- reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
+    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList
     markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
 
     -- BlockHash and BlockHeight don't matter for this test...

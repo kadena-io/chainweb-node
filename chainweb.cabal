@@ -496,7 +496,6 @@ executable cwtool
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
-        Chainweb.Orphans
         Chainweb.Simulate.Contracts.CoinContract
         Chainweb.Simulate.Contracts.Common
         Chainweb.Simulate.Contracts.HelloWorld

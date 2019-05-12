@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- |
 -- Module      :  Chainweb.Orphans
 -- Copyright   :  Copyright © 2018 Kadena LLC.

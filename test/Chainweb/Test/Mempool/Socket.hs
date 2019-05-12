@@ -13,6 +13,7 @@ import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Mempool.Socket as M
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
@@ -61,11 +62,11 @@ newTestServer inmemCfg = mask_ $ do
     return $! TestServer cs remoteMp inmem tid
   where
     host = "127.0.0.1"
+    noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
     server inmemMv portMv restore =
       withTempRocksDb "mempool-socket-tests" $ \rdb ->
             withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
-                InMem.withTestInMemoryMempool inmemCfg blockHeaderDb $ \inmem -> do
-                    TBD - fix
+                InMem.withInMemoryMempool inmemCfg blockHeaderDb noPayloadDb $ \inmem -> do
                     putMVar inmemMv inmem
                     restore $ M.server inmem host 0 portMv
 

@@ -5,7 +5,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 
-import Data.IORef
 import qualified Data.Pool as Pool
 
 import qualified Network.HTTP.Client as HTTP
@@ -20,6 +19,7 @@ import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MClient
+import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
     (ChainwebServerDbs(..), chainwebApplication, emptyChainwebServerDbs)
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
@@ -72,12 +72,13 @@ newTestServer inMemCfg = mask_ $ do
     server inmemMv envMv restore =
         withTempRocksDb "mempool-restapi-tests" $ \rdb ->
             withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb ->
-                InMem.withInMemoryMempool inMemCfg blockHeaderDb $ \inmem -> do
+                InMem.withInMemoryMempool inMemCfg blockHeaderDb noPayloadDb $ \inmem -> do
                     putMVar inmemMv inmem
                     restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
                         putMVar envMv env
                         atomically retry
 
+    noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
     version = Test singletonChainGraph
     blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     txcfg = InMem._inmemTxCfg inMemCfg

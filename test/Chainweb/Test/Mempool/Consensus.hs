@@ -44,8 +44,6 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
 
-import Data.CAS
-import qualified Data.CAS.HashMap as C
 import Numeric.AffineSpace
 
 data ForkInfo = ForkInfo
@@ -167,7 +165,7 @@ lookupFunc ht h = do
     mTxs <- HT.lookup ht h
     case mTxs of
         Nothing -> error "Test/Mempool/Consensus - hashtable lookup failed -- this should not happen"
-        Just x -> return $ S.fromList $ _mplTxHashes x
+        Just txs -> return txs
         -- MockPayload {_mplHash = _blockHash h, _mplTxHashes = S.toList (btTransactions blockTrans) }
 -- TODO: revert to [TestTree]
 tests :: IO ()
@@ -258,9 +256,7 @@ newNode db payloadLookup blockTrans children = do
     liftIO $ TreeDB.insert db h
 
     -- insert to mock payload store -- key is blockHash, value is list of tx hashes
-    liftIO $ insertMockPayload payloadLookup
-        MockPayload {_mplHash = _blockHash h, _mplTxHashes = S.toList (btTransactions blockTrans) }
-
+    liftIO $ HT.insert payloadLookup h (btTransactions blockTrans)
     return theNewNode
 
 ----------------------------------------------------------------------------------------------------

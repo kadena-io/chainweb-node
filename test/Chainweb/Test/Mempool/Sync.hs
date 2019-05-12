@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 module Chainweb.Test.Mempool.Sync (tests) where
 
 ------------------------------------------------------------------------------
@@ -25,6 +26,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Test.Utils (toyChainId)
@@ -33,6 +35,11 @@ import Chainweb.Version
 import Data.CAS.RocksDB
 
 tests :: TestTree
+{-
+tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
+  where
+    withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg)
+-}
 tests = mempoolProperty "Mempool.syncMempools" gen
         propSync
         $ MempoolWithFunc
@@ -40,7 +47,6 @@ tests = mempoolProperty "Mempool.syncMempools" gen
             testInMemCfg
             (withTempRocksDb "mempool-sync-tests")
             (withBlockHeaderDb' toyVersion toyChainId)
-            TBD-fix
   where
     withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
@@ -68,13 +74,20 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
 
 
 propSync
-    :: (Set MockTx, Set MockTx, Set MockTx)
+    :: (Set MockTx, Set MockTx , Set MockTx)
+    -- :: PayloadCas cas
+    -- => (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
+    -- -> Maybe (PayloadDb cas)
     -> IO (Either String ())
 propSync (txs, missing, later) localMempool =
+-- propSync (txs, missing, later) localMempool payloadDb =
   withTempRocksDb "mempool-sync-tests" $ \rdb ->
   withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
-    withInMemoryMempool testInMemCfg blockHeaderDb $ \remoteMempool -> do
+    -- withInMemoryMempool testInMemCfg blockHeaderDb $ \remoteMempool -> do
+    let noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
+    withInMemoryMempool testInMemCfg blockHeaderDb noPayloadDb $ \remoteMempool -> do
+    -- withInMemoryMempool testInMemCfg blockHeaderDb payloadDb $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV

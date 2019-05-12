@@ -31,7 +31,6 @@ import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
-import Data.IORef
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)

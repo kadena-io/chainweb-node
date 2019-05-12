@@ -26,7 +26,6 @@ tests = testGroup "Chainweb.Mempool.InMem"
                   cfg
                   (withTempRocksDb "mempool-socket-tests")
                   (withBlockHeaderDb' toyVersion toyChainId)
-                  TDB-fix
   where
     withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit

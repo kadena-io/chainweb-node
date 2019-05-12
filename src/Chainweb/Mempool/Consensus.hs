@@ -10,7 +10,6 @@ import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.Exception
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Either
 import Data.Foldable (toList)
@@ -24,17 +23,12 @@ import qualified Data.Vector as V
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.Mempool.Mempool
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
-import Chainweb.Store.CAS hiding (casLookup)
 
-import Data.CAS
 ------------------------------------------------------------------------------
-
 processFork
     :: Ord x
     => BlockHeaderDb
@@ -42,6 +36,7 @@ processFork
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
+processFork _ _ Nothing _ = return V.empty
 processFork db newHeader (Just lastHeader) payloadLookup = do
 
     putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)

@@ -65,7 +65,7 @@ import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
 
 -- internal Chainweb modules
 
-import Chainweb.Orphans
+import Chainweb.Orphans ()
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
