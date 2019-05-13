@@ -115,7 +115,7 @@ data TransactionCommand
   = DeployContracts [Sim.ContractName] MeasureTime
   | RunStandardContracts TimingDistribution MeasureTime
   | RunSimpleExpressions TimingDistribution MeasureTime
-  | PollRequestKeys [ByteString] MeasureTime
+  | PollRequestKeys ByteString MeasureTime
   | ListenerRequestKey ByteString MeasureTime
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -127,7 +127,7 @@ transactionCommandToText = T.decodeUtf8 . transactionCommandBytes
 transactionCommandBytes :: TransactionCommand -> B8.ByteString
 transactionCommandBytes t = case t of
     PollRequestKeys bs (MeasureTime mtime) ->
-        "poll [" <> B8.unwords bs <> "] " <> (fromString . map toLower . show $ mtime)
+        "poll [" <> bs <> "] " <> (fromString . map toLower . show $ mtime)
     ListenerRequestKey bytestring (MeasureTime mtime) ->
          "listen " <> bytestring <> " " <> (fromString . map toLower . show $ mtime)
     _ -> error "impossible"
@@ -148,7 +148,7 @@ pollkeys = do
   _constructor <- A.string "poll"
   A.skipSpace
   _open <- A.char '[' >> A.skipSpace
-  bs <- A.sepBy parseRequestKey (A.skipSpace >> A.char ',' >> A.skipSpace)
+  bs <- parseRequestKey
   _close <- A.skipSpace >> A.char ']'
   A.skipSpace
   measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
@@ -548,8 +548,8 @@ sendSimpleExpressions measure config distribution = do
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
-pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKeys -> IO ()
-pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
+pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKey -> IO ()
+pollRequestKeys (MeasureTime mtime) config rkey = do
   (timeTaken, !_action) <- measureDiffTime go
   when mtime (putStrLn $ "" <> show timeTaken)
   where
@@ -562,13 +562,12 @@ pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
       putStrLn "Polling your requestKey"
       TXGConfig _ _ ce v <- mkTXGConfig Nothing config
       -- TODO cid!
-      response <- runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+      response <- runClientM (poll v cid $ Poll [rkey]) ce
       case response of
         Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
         Right (PollResponses a)
           | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
           | otherwise -> print a >> exitSuccess
-pollRequestKeys _ _ _ = error "Need exactly one request key"
 
 listenerRequestKey :: MeasureTime -> ScriptConfig -> ListenerRequest -> IO ()
 listenerRequestKey (MeasureTime mtime) config listenerRequest = do
@@ -616,8 +615,8 @@ work cfg = do
         sendTransactions mtime cfg distribution
       RunSimpleExpressions distribution mtime ->
         sendSimpleExpressions mtime cfg distribution
-      PollRequestKeys rks mtime -> liftIO $
-        pollRequestKeys mtime cfg . RequestKeys $ map (RequestKey . H.Hash) rks
+      PollRequestKeys rk mtime -> liftIO $
+        pollRequestKeys mtime cfg . RequestKey $ H.Hash rk
       ListenerRequestKey rk mtime -> liftIO $
         listenerRequestKey mtime cfg . ListenerRequest . RequestKey $ H.Hash rk
 
