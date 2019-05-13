@@ -92,7 +92,7 @@ import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
 import Chainweb.RestAPI.Utils
 import Chainweb.Simulate.Contracts.CoinContract
-import Chainweb.Simulate.Contracts.Common
+import qualified Chainweb.Simulate.Contracts.Common as Sim
 import Chainweb.Simulate.Contracts.HelloWorld
 import Chainweb.Simulate.Contracts.SimplePayments
 import Chainweb.Simulate.Utils
@@ -112,7 +112,7 @@ instance Default MeasureTime where
   def = MeasureTime False
 
 data TransactionCommand
-  = DeployContracts [ContractName] MeasureTime
+  = DeployContracts [Sim.ContractName] MeasureTime
   | RunStandardContracts TimingDistribution MeasureTime
   | RunSimpleExpressions TimingDistribution MeasureTime
   | PollRequestKeys [ByteString] MeasureTime
@@ -137,7 +137,7 @@ transactionCommandFromText = readTransactionCommandBytes . T.encodeUtf8
 {-# INLINE transactionCommandFromText #-}
 
 readTransactionCommandBytes :: MonadThrow m => B8.ByteString -> m TransactionCommand
-readTransactionCommandBytes = parseBytes "transaction-command" transactionCommandParser
+readTransactionCommandBytes = Sim.parseBytes "transaction-command" transactionCommandParser
 {-# INLINE readTransactionCommandBytes #-}
 
 transactionCommandParser :: A.Parser TransactionCommand
@@ -272,12 +272,12 @@ scriptConfigParser = id
 
 data TXGConfig = TXGConfig
   { _confTimingDist :: !(Maybe TimingDistribution)
-  , _confKeysets    :: !(Map Account (Map ContractName [SomeKeyPair]))
+  , _confKeysets    :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
   , _confClientEnv  :: !ClientEnv
   , _confVersion    :: !ChainwebVersion
   }
 
-confKeysets :: Lens' TXGConfig (Map Account (Map ContractName [SomeKeyPair]))
+confKeysets :: Lens' TXGConfig (Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
 confKeysets f c = (\ks -> c { _confKeysets = ks }) <$> f (_confKeysets c)
 
 generateDelay :: MonadIO m => TXG m Int
@@ -315,7 +315,11 @@ generateSimpleTransaction = do
   kps <- liftIO testSomeKeyPairs
 
 
-  let publicmeta = CM.PublicMeta (CM.ChainId $ chainIdToText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+  let publicmeta = CM.PublicMeta
+                   (CM.ChainId $ chainIdToText cid)
+                   ("sender" <> toText cid)
+                   (ParsedInteger 100)
+                   (ParsedDecimal 0.0001)
       theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
   cmd <- liftIO $ mkExec theCode theData publicmeta kps Nothing
   pure (cid, cmd)
@@ -324,15 +328,11 @@ generateSimpleTransaction = do
 rotate :: NESeq a -> NESeq a
 rotate (h :<|| rest) = rest :||> h
 
--- TODO What is this number?
-numContracts :: Int
-numContracts = 2
-
 generateTransaction
   :: (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, Command Text)
 generateTransaction = do
-  contractIndex <- liftIO $ randomRIO (0, numContracts)
+  contractIndex <- liftIO $ randomRIO @Int (0, 2)
 
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- uses gsChains NES.head
@@ -341,23 +341,28 @@ generateTransaction = do
   sample <- case contractIndex of
     -- COIN CONTRACT
     0 -> do
-      coinaccts <- views confKeysets (M.toList . fmap (^. at (ContractName "coin")))
-      liftIO $ do
-        coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
-        createCoinContractRequest (makeMeta cid) coinContractRequest
+      cks <- view confKeysets
+      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "coin")) of
+        Nothing -> error "A ChainId that should have `Account` entries does not."
+        Just coinaccts -> liftIO $ do
+          coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
+          createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
     1 -> liftIO $ generate fake >>= helloRequest
     2 -> do
-      paymentAccts <- views confKeysets (M.toList . fmap (^. at (ContractName "payment")))
-      liftIO $ do
-        paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
-        case paymentsRequest of
-          SPRequestPay fromAccount _ _ ->
-            let errmsg = "This account does not have an associated keyset!"
-                mkeyset = join (lookup fromAccount paymentAccts) <|> error errmsg
-             in createSimplePaymentRequest (makeMeta cid) paymentsRequest mkeyset
-          SPRequestGetBalance _account ->
-            createSimplePaymentRequest (makeMeta cid) paymentsRequest Nothing
-          _ -> error "SimplePayments.CreateAccount code generation not supported"
+      cks <- view confKeysets
+      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "payment")) of
+        Nothing -> error "A ChainId that should have `Account` entries does not."
+        Just paymentAccts -> liftIO $ do
+          paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
+          case paymentsRequest of
+            SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
+              Nothing ->
+                error "This account does not have an associated keyset!"
+              Just keyset ->
+                createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest $ Just keyset
+            SPRequestGetBalance _account ->
+              createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest Nothing
+            _ -> error "SimplePayments.CreateAccount code generation not supported"
     _ -> error "No contract here"
   delay <- generateDelay
   liftIO $ threadDelay delay
@@ -425,7 +430,7 @@ forkedListens tq bq cid (RequestKeys rks) = do
     forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
     forkedListen ce v rk = do
       void . async $ do
-        (time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
+        (!time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
         atomically $ do
           q <- readTVar bq
           let q' = BQ.cons (floor time) q
@@ -471,14 +476,14 @@ loadContracts (MeasureTime mtime) config contractLoaders = do
     go :: IO ()
     go = do
       TXGConfig _ _ ce v <- mkTXGConfig Nothing config
-      let !cid = NEL.head $ _nodeChainId config -- TODO Not right!
-          !meta = makeMeta cid
-      ts <- testSomeKeyPairs
-      contracts <- traverse (\f -> f meta ts) contractLoaders
-      pollresponse <- runExceptT $ do
-        rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
-        ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-      withConsoleLogger Info . logg Info $ sshow pollresponse
+      forM_ (_nodeChainId config) $ \cid -> do
+        let !meta = Sim.makeMeta cid
+        ts <- testSomeKeyPairs
+        contracts <- traverse (\f -> f meta ts) contractLoaders
+        pollresponse <- runExceptT $ do
+          rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+          ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+        withConsoleLogger Info . logg Info $ sshow pollresponse
 
 sendTransactions
   :: MeasureTime
@@ -488,33 +493,43 @@ sendTransactions
 sendTransactions measure config distribution = do
   cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config
 
-  let !cid = NEL.head $ _nodeChainId config -- TODO Not right!
-      !meta = makeMeta cid
-
-  (paymentKS, paymentAcc) <- liftIO $ unzip <$> createPaymentsAccounts meta
-  (coinKS, coinAcc) <- liftIO $ unzip <$> createCoinAccounts meta
-  pollresponse <- liftIO . runExceptT $ do
-    rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc ++ coinAcc) ce
-    ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-  logg Info $ toLogMessage (sshow pollresponse :: Text)
-  logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+  accountMap <- fmap (M.fromList . toList) . forM (_nodeChainId config) $ \cid -> do
+    let !meta = Sim.makeMeta cid
+    (paymentKS, paymentAcc) <- liftIO $ unzip <$> Sim.createPaymentsAccounts meta
+    (coinKS, coinAcc) <- liftIO $ unzip <$> Sim.createCoinAccounts meta
+    pollresponse <- liftIO . runExceptT $ do
+      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc ++ coinAcc) ce
+      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    logg Info $ toLogMessage (sshow pollresponse :: Text)
+    logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+    let accounts = buildGenAccountsKeysets Sim.accountNames paymentKS coinKS
+    pure (cid, accounts)
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
   bq  <- liftIO . newTVarIO $ BQ.empty 32
   let act = loop generateTransaction tq measure
-      env = set confKeysets (buildGenAccountsKeysets accountNames paymentKS coinKS) cfg
+      env = set confKeysets accountMap cfg
       stt = TXGState gen 0 (NES.fromList $ _nodeChainId config) bq
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
-    buildGenAccountsKeysets :: [Account] -> [a] -> [a] -> Map Account (Map ContractName a)
-    buildGenAccountsKeysets x y z = M.fromList $ zipWith3 go x y z
+    buildGenAccountsKeysets
+      :: [Sim.Account]
+      -> [[SomeKeyPair]]
+      -> [[SomeKeyPair]]
+      -> Map Sim.Account (Map Sim.ContractName [SomeKeyPair])
+    buildGenAccountsKeysets accs pks cks = M.fromList $ zipWith3 go accs pks cks
 
-    go :: a -> b -> b -> (a, Map ContractName b)
-    go name kpayment kcoin =
-      (name, M.fromList [(ContractName "payment", kpayment), (ContractName "coin", kcoin)])
+    go :: Sim.Account
+       -> [SomeKeyPair]
+       -> [SomeKeyPair]
+       -> (Sim.Account, Map Sim.ContractName [SomeKeyPair])
+    go name pks cks = (name, M.fromList [ps, cs])
+      where
+        ps = (Sim.ContractName "payment", pks)
+        cs = (Sim.ContractName "coin", cks)
 
 sendSimpleExpressions
   :: MeasureTime
@@ -540,6 +555,7 @@ pollRequestKeys (MeasureTime mtime) config rkeys@(RequestKeys [_]) = do
   where
     cid :: ChainId
     cid = NEL.head $ _nodeChainId config  -- TODO not right!
+    -- TODO Hit all available chains
 
     go :: IO a
     go = do
@@ -564,6 +580,7 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
   where
     cid :: ChainId
     cid = NEL.head $ _nodeChainId config  -- TODO not right!
+    -- TODO Hit all chains
 
     go :: IO (Either ClientError ApiResult)
     go = do
@@ -619,8 +636,8 @@ main = runWithConfiguration mainInfo $ \config -> do
 
 -- TODO: This function should also incorporate a user's keyset as well
 -- if it is given.
-createLoader :: ContractName -> ContractLoader
-createLoader (ContractName contractName) meta kp = do
+createLoader :: Sim.ContractName -> ContractLoader
+createLoader (Sim.ContractName contractName) meta kp = do
   theCode <- readFile (contractName <> ".pact")
   adminKeyset <- testSomeKeyPairs
   -- TODO: theData may change later
