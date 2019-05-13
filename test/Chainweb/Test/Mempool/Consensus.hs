@@ -279,6 +279,26 @@ frequencyM xs = do
     snd $ ((V.fromList xs) ! n)
 
 ----------------------------------------------------------------------------------------------------
+-- fork
+--     :: BlockHeaderDb
+--     -> BasicHashTable BlockHeader (Set TransactionHash)
+--     -> BlockHeader
+--     -> Set TransactionHash
+--     -> PropertyM IO (Forest BlockTrans)
+-- fork db payloadLookup h avail = do
+--     nextLeft <- header' h
+--     liftIO $ putStrLn $ debugHeader "fork (nextLeft) - inserting to TreeDb" h
+--     liftIO $ TreeDB.insert db nextLeft
+--     nextRight <- header' h
+--     liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
+--     liftIO $ TreeDB.insert db nextRight
+--     (takenNow, theRest) <- takeTrans avail
+--     left <- postForkTrunk db payloadLookup nextLeft theRest
+--     right <- postForkTrunk db payloadLookup nextRight theRest
+--     theNewNode <- newNode payloadLookup
+--                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+--                           (left ++ right)
+--     return [theNewNode]
 fork
     :: BlockHeaderDb
     -> BasicHashTable BlockHeader (Set TransactionHash)
@@ -293,29 +313,59 @@ fork db payloadLookup h avail = do
     liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
     liftIO $ TreeDB.insert db nextRight
     (takenNow, theRest) <- takeTrans avail
-    left <- postForkTrunk db payloadLookup nextLeft theRest
-    right <- postForkTrunk db payloadLookup nextRight theRest
+
+    (lenL, lenR) <- genForkLengths
+
+    left <- postForkTrunk db payloadLookup nextLeft theRest lenL
+    right <- postForkTrunk db payloadLookup nextRight theRest lenR
     theNewNode <- newNode payloadLookup
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           (left ++ right)
     return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------
+genForkLengths :: PropertyM IO (Int, Int)
+genForkLengths = do
+    left <- pick $ choose (1, 5)
+    right <- pick $ choose (1, left + 1)
+    return (left, right)
+
+----------------------------------------------------------------------------------------------------
+-- postForkTrunk
+--     :: BlockHeaderDb
+--     -> BasicHashTable BlockHeader (Set TransactionHash)
+--     -> BlockHeader
+--     -> Set TransactionHash
+--     -> PropertyM IO (Forest BlockTrans)
+-- postForkTrunk db payloadLookup h avail = do
+--     next <- header' h
+--     liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
+--     liftIO $ TreeDB.insert db next
+--     (takenNow, theRest) <- takeTrans avail
+--     listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk db payloadLookup next theRest)]
+--     theNewNode <- newNode payloadLookup
+--                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+--                           listOf0or1
+--     return [theNewNode]
 postForkTrunk
     :: BlockHeaderDb
     -> BasicHashTable BlockHeader (Set TransactionHash)
     -> BlockHeader
     -> Set TransactionHash
+    -> Int
     -> PropertyM IO (Forest BlockTrans)
-postForkTrunk db payloadLookup h avail = do
+postForkTrunk db payloadLookup h avail count = do
     next <- header' h
-    liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
-    liftIO $ TreeDB.insert db next
     (takenNow, theRest) <- takeTrans avail
-    listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk db payloadLookup next theRest)]
+    children <- do
+        if count == 0 then return []
+        else do
+            liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
+            liftIO $ TreeDB.insert db next
+            postForkTrunk db payloadLookup next theRest (count - 1)
     theNewNode <- newNode payloadLookup
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
-                          listOf0or1
+                          children
     return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------

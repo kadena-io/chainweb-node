@@ -41,8 +41,7 @@ processFork db newHeader (Just lastHeader) payloadLookup = do
 
     putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
             ++ "\nlastHeader = " ++ show (_blockHash lastHeader)
-
-    let s = branchDiff db newHeader lastHeader
+    let s = branchDiff db lastHeader newHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
     putStrLn $ "processFork - " ++ show (V.length oldBlocks) ++ " oldBlocks, "
                ++ show (V.length newBlocks) ++ " newBlocks"
