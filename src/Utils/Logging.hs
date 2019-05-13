@@ -92,6 +92,7 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.STM.TVar
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -117,6 +118,8 @@ import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
 import Network.Wai.UrlMap
 
+import Numeric.Natural
+
 import System.IO
 import qualified System.Logger as L
 import System.Logger.Backend.ColorOption
@@ -126,7 +129,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.HostAddress
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 
 import Data.LogMessage
 
@@ -451,6 +454,12 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend
 
+elasticSearchBatchSize :: Natural
+elasticSearchBatchSize = 1000
+
+elasticSearchBatchDelayMs :: Natural
+elasticSearchBatchDelayMs = 1000
+
 -- | A backend for JSON log messags that sends all logs to the given index of an
 -- Elasticsearch server. The index is created at startup if it doesn't exist.
 -- Messages are sent in a fire-and-forget fashion. If a connection fails, the
@@ -476,9 +485,6 @@ withElasticsearchBackend
 withElasticsearchBackend mgr esServer ixName inner = do
     i <- curIxName
     createIndex i
-        -- FIXME Do we need failure handling? If this fails the exeption
-        -- is propagated to the main applcation
-
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
@@ -491,21 +497,36 @@ withElasticsearchBackend mgr esServer ixName inner = do
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
 
+    -- Collect messages. If there is at least one pending message, submit a
+    -- `_bulk` request every second or when the batch size is 1000 messages,
+    -- whatever happens first.
+    --
     processor queue = do
         i <- curIxName
-        (n, msg) <- atomically $ do
+
+        -- set timer to 1 second
+        timer <- registerDelay (int elasticSearchBatchDelayMs)
+
+        -- Fill the batch
+        (remaining, batch) <- atomically $ do
+            -- ensure that there is at least one transaction in every batch
             h <- readTBQueue queue
-            go i (1000 :: Int) (indexAction i h) (1 :: Int)
-        errorLogFun Info $ "send " <> sshow n <> " messages"
+            go i elasticSearchBatchSize (indexAction i h) timer
 
         createIndex i
-        void $ HTTP.httpLbs (putBulgLog msg) mgr
+        errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
+        void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go _ 0 !b !c = return (c, b)
-        go cix i !b !c = tryReadTBQueue queue >>= \case
-            Nothing -> return (c, b)
-            Just x -> do
-                go cix i (b <> indexAction cix x) (pred c)
+        go _ 0 !batch _ = return (0, batch)
+        go i !remaining !batch !timer = isTimeout `orElse` fill
+          where
+            isTimeout = do
+                check =<< readTVar timer
+                return (remaining, batch)
+            fill = tryReadTBQueue queue >>= \case
+                Nothing -> return (remaining, batch)
+                Just x -> do
+                    go i (pred remaining) (batch <> indexAction i x) timer
 
     createIndex i =
         void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
