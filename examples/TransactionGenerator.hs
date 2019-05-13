@@ -186,7 +186,7 @@ instance Default TimingDistribution where
 
 data ScriptConfig = ScriptConfig
   { _scriptCommand       :: !TransactionCommand
-  , _nodeChainId         :: !(NEL.NonEmpty ChainId)
+  , _nodeChainIds        :: ![ChainId]
   , _isChainweb          :: !Bool
   , _chainwebHostAddress :: !HostAddress
   , _nodeVersion         :: !ChainwebVersion
@@ -199,7 +199,7 @@ instance ToJSON ScriptConfig where
   toJSON o =
     object
       [ "scriptCommand"       .= _scriptCommand o
-      , "nodeChainId"         .= _nodeChainId o
+      , "nodeChainIds"        .= _nodeChainIds o
       , "isChainweb"          .= _isChainweb o
       , "chainwebHostAddress" .= _chainwebHostAddress o
       , "chainwebVersion"     .= _nodeVersion o
@@ -209,7 +209,7 @@ instance ToJSON ScriptConfig where
 instance FromJSON (ScriptConfig -> ScriptConfig) where
   parseJSON = withObject "ScriptConfig" $ \o -> id
     <$< scriptCommand       ..: "scriptCommand"       % o
-    <*< nodeChainId         ..: "nodeChainId"         % o
+    <*< nodeChainIds        ..: "nodeChainIds"        % o
     <*< isChainweb          ..: "isChainweb"          % o
     <*< chainwebHostAddress ..: "chainwebHostAddress" % o
     <*< nodeVersion         ..: "chainwebVersion"     % o
@@ -231,7 +231,7 @@ gsChains f s = (\c -> s { _gsChains = c }) <$> f (_gsChains s)
 defaultScriptConfig :: ScriptConfig
 defaultScriptConfig = ScriptConfig
   { _scriptCommand       = RunSimpleExpressions def def
-  , _nodeChainId         = cids
+  , _nodeChainIds        = []
   , _isChainweb          = True
   , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
   , _nodeVersion         = v
@@ -239,14 +239,6 @@ defaultScriptConfig = ScriptConfig
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
-
-    -- TODO There is likely a bug here. Do we really want all available chains
-    -- by default? Setting any on the command-line might just Semigroup them all
-    -- together, instead of overwriting.
-    -- | The set of `ChainId`s of an established `ChainwebVersion` is guaranteed
-    -- to be non-empty.
-    cids :: NEL.NonEmpty ChainId
-    cids = NEL.fromList . HS.toList . graphChainIds $ _chainGraph v
 
 scriptConfigParser :: MParser ScriptConfig
 scriptConfigParser = id
@@ -256,7 +248,7 @@ scriptConfigParser = id
       <> metavar "COMMAND"
       <> help ("The specific command to run: see examples/transaction-generator-help.md for more detail."
                <> "The only commands supported on the commandline are 'poll' and 'listen'.")
-  <*< nodeChainId %:: pLeftSemigroupalUpdate (pure <$> pChainId)
+  <*< nodeChainIds %:: pLeftSemigroupalUpdate (pure <$> pChainId)
   <*< chainwebHostAddress %:: pHostAddress Nothing
   <*< nodeVersion .:: textOption
       % long "chainweb-version"
@@ -476,7 +468,7 @@ loadContracts (MeasureTime mtime) config contractLoaders = do
     go :: IO ()
     go = do
       TXGConfig _ _ ce v <- mkTXGConfig Nothing config
-      forM_ (_nodeChainId config) $ \cid -> do
+      forM_ (_nodeChainIds config) $ \cid -> do
         let !meta = Sim.makeMeta cid
         ts <- testSomeKeyPairs
         contracts <- traverse (\f -> f meta ts) contractLoaders
@@ -493,7 +485,7 @@ sendTransactions
 sendTransactions measure config distribution = do
   cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config
 
-  accountMap <- fmap (M.fromList . toList) . forM (_nodeChainId config) $ \cid -> do
+  accountMap <- fmap (M.fromList . toList) . forM (_nodeChainIds config) $ \cid -> do
     let !meta = Sim.makeMeta cid
     (paymentKS, paymentAcc) <- liftIO $ unzip <$> Sim.createPaymentsAccounts meta
     (coinKS, coinAcc) <- liftIO $ unzip <$> Sim.createCoinAccounts meta
@@ -511,7 +503,10 @@ sendTransactions measure config distribution = do
   bq  <- liftIO . newTVarIO $ BQ.empty 32
   let act = loop generateTransaction tq measure
       env = set confKeysets accountMap cfg
-      stt = TXGState gen 0 (NES.fromList $ _nodeChainId config) bq
+      chs = maybe (versionChains $ _nodeVersion config) NES.fromList
+            . NEL.nonEmpty
+            $ _nodeChainIds config
+      stt = TXGState gen 0 chs bq
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -531,6 +526,9 @@ sendTransactions measure config distribution = do
         ps = (Sim.ContractName "payment", pks)
         cs = (Sim.ContractName "coin", cks)
 
+versionChains :: ChainwebVersion -> NESeq ChainId
+versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
+
 sendSimpleExpressions
   :: MeasureTime
   -> ScriptConfig
@@ -544,7 +542,10 @@ sendSimpleExpressions measure config distribution = do
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
   bq  <- liftIO . newTVarIO $ BQ.empty 32
-  let !stt = TXGState gen 0 (NES.fromList $ _nodeChainId config) bq
+  let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
+             . NEL.nonEmpty
+             $ _nodeChainIds config
+      stt = TXGState gen 0 chs bq
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
@@ -556,7 +557,7 @@ pollRequestKeys (MeasureTime mtime) config rkey = do
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
 
     go :: IO a
     go = do
@@ -580,7 +581,7 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
 
     go :: IO (Either ClientError ApiResult)
     go = do
@@ -624,9 +625,9 @@ work cfg = do
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
   let chains = graphChainIds $ _chainGraph (_nodeVersion config)
-      isMem  = all (`HS.member` chains) $ _nodeChainId config
+      isMem  = all (`HS.member` chains) $ _nodeChainIds config
   unless isMem $ error $
-    printf "Invalid chain %s for given version\n" (show $ _nodeChainId config)
+    printf "Invalid chain %s for given version\n" (show $ _nodeChainIds config)
   pPrintNoColor config
   work config
 
