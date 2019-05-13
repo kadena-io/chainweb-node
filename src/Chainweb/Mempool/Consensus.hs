@@ -10,10 +10,10 @@ import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 
 import Data.Either
 import Data.Foldable (toList)
--- import Data.Sequence (Seq)
 
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -40,16 +40,22 @@ processFork _ _ Nothing _ = return V.empty
 processFork db newHeader (Just lastHeader) payloadLookup = do
 
     putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
-            ++ "lastHeader = " ++ show (_blockHash lastHeader)
+            ++ "\nlastHeader = " ++ show (_blockHash lastHeader)
 
     let s = branchDiff db newHeader lastHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
-    oldTrans <- foldM f mempty oldBlocks
-    newTrans <- foldM f mempty newBlocks
-
-    -- before re-introducing the transactions from the losing fork (aka oldBlocks)
-    -- filter out any transactions that have been included in the winning fork (aka newBlocks)
-    return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+    putStrLn $ "processFork - " ++ show (V.length oldBlocks) ++ " oldBlocks, "
+               ++ show (V.length newBlocks) ++ " newBlocks"
+    case (V.length newBlocks - V.length oldBlocks) of
+        n | n == 1    -> return V.empty -- no fork, no trans to reintroduce
+        n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
+                                      ++ "more than one greater than the previous new block request")
+          | otherwise -> do -- fork occurred, get the transactions to reintroduce
+              oldTrans <- foldM f mempty oldBlocks
+              newTrans <- foldM f mempty newBlocks
+              -- before re-introducing the transactions from the losing fork (aka oldBlocks), filter
+              -- out any transactions that have been included in the winning fork (aka newBlocks)
+              return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
   where
     f trans header = S.union trans <$> payloadLookup header
 
@@ -64,7 +70,10 @@ collectForkBlocks theStream =
     go stream (oldBlocks, newBlocks) = do
         nxt <- S.next stream
         case nxt of
-            Left _ -> return (oldBlocks, newBlocks) -- common branch point of the forks
+            -- end of the stream, last item is common branch point of the forks
+            -- removing the common branch block with tail -- the lists should never be empty
+            Left _ -> return (V.tail oldBlocks, V.tail newBlocks)
+
             Right (LeftD blk, strm) -> go strm (V.cons blk oldBlocks, newBlocks)
             Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
@@ -81,7 +90,6 @@ chainwebTxsFromPWO pwo = do
     return $ S.fromList theRights
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-
 
 newtype MempoolException = MempoolConsensusException String
 

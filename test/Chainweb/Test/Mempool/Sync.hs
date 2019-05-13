@@ -35,11 +35,6 @@ import Chainweb.Version
 import Data.CAS.RocksDB
 
 tests :: TestTree
-{-
-tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
-  where
-    withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg)
--}
 tests = mempoolProperty "Mempool.syncMempools" gen
         propSync
         $ MempoolWithFunc
@@ -75,19 +70,13 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
-    -- :: PayloadCas cas
-    -- => (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
-    -- -> Maybe (PayloadDb cas)
     -> IO (Either String ())
 propSync (txs, missing, later) localMempool =
--- propSync (txs, missing, later) localMempool payloadDb =
   withTempRocksDb "mempool-sync-tests" $ \rdb ->
   withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
-    -- withInMemoryMempool testInMemCfg blockHeaderDb $ \remoteMempool -> do
     let noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
     withInMemoryMempool testInMemCfg blockHeaderDb noPayloadDb $ \remoteMempool -> do
-    -- withInMemoryMempool testInMemCfg blockHeaderDb payloadDb $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV
@@ -128,8 +117,7 @@ propSync (txs, missing, later) localMempool =
 
         maybe (fail "timeout") return m
 
-        -- we synced the right number of transactions. verify they're all
-        -- there.
+        -- we synced the right number of transactions. verify they're all there.
         runExceptT $ do
             liftIO (mempoolLookup localMempool missingHashes) >>=
                 V.mapM_ lookupIsPending

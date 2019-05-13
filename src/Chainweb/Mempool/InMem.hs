@@ -389,37 +389,6 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     shutdown = shutdownInMem broadcaster
     clear = clearInMem lockMVar
 
-
-------------------------------------------------------------------------------
--- TODO: factor out the common code with toMempoolBackend
--- toTestMempoolBackend
---     :: PayloadCas cas
---     => InMemoryMempool t cas
---     -> (BlockHeader -> IO (Set TransactionHash))
---     -> IO (MempoolBackend t TransactionHash)
--- toTestMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _) lockMVar broadcaster
---                          _ blockHeaderDb payloadStore)
---                      payloadLookup = do
-
---     lock <- readMVar lockMVar
---     let lastParentRef = _inmemLastNewBlockParent lock
-
---     return $ MempoolBackend tcfg blockSizeLimit lastParentRef member lookup insert getBlock
---         markValidated markConfirmed processFork reintroduce getPending subscribe shutdown clear
---   where
---     member = memberInMem lockMVar
---     lookup = lookupInMem lockMVar
---     insert = insertInMem broadcaster cfg lockMVar
---     getBlock = getBlockInMem cfg lockMVar
---     markValidated = markValidatedInMem cfg lockMVar
---     markConfirmed = markConfirmedInMem lockMVar
---     processFork = processTestForkInMem lockMVar blockHeaderDb payloadLookup
---     reintroduce = reintroduceInMem broadcaster cfg lockMVar
---     getPending = getPendingInMem cfg lockMVar
---     subscribe = subscribeInMem broadcaster
---     shutdown = shutdownInMem broadcaster
---     clear = clearInMem lockMVar
-
 ------------------------------------------------------------------------------
 inMemPayloadLookup
     :: forall cas . PayloadCas cas
@@ -454,20 +423,6 @@ processForkInMem lock blockHeaderDb payloadStore newHeader = do
     MPCon.processFork blockHeaderDb newHeader lastHeader
         (inMemPayloadLookup payloadStore)
 
-------------------------------------------------------------------------------
--- processTestForkInMem
---     :: MVar (InMemoryMempoolData t)
---     -> BlockHeaderDb
---     -> (BlockHeader -> IO (Set TransactionHash))
---     -> BlockHeader
---     -> IO (Vector TransactionHash)
--- processTestForkInMem lock blockHeaderDb payloadLookup newBlockHeader = do
---     theData <- readMVar lock
---     -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
---     lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
---     MPCon.processFork blockHeaderDb newBlockHeader lastHeader payloadLookup
-
-------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
 withInMemoryMempool :: PayloadCas cas
                     => InMemConfig t
@@ -495,10 +450,9 @@ withTestInMemoryMempool cfg withRocks withBlocks withMempool =
     withTxBroadcaster $ \txB -> do
         let inMemIO = makeInMemPool cfg txB blockHeaderDb (Nothing :: Maybe (PayloadDb RocksDbCas))
             action inMem = do
-              back <- toMempoolBackend inMem -- testPayloadLookup
+              back <- toMempoolBackend inMem
               withMempool back
         bracket inMemIO destroyInMemPool action
-      -- where testPayloadLookup h = TBD
 
 ------------------------------------------------------------------------------
 destroyInMemPool :: InMemoryMempool t cas -> IO ()

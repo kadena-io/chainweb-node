@@ -79,7 +79,6 @@ import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Data.LogMessage (LogFunctionText)
 
 
@@ -147,7 +146,6 @@ data MempoolBackend t = MempoolBackend {
 
     -- | These transactions were on a losing fork. Reintroduce them.
 
-    --   , mempoolReintroduce :: Vector TransactionHash -> IO ()
   , mempoolReintroduce :: Vector t -> IO ()
 
     -- | given a callback function, loops through the pending candidate
@@ -369,8 +367,11 @@ syncMempools log localMempool remoteMempool =
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
 newtype TransactionHash = TransactionHash ByteString
-  deriving stock (Show, Read, Eq, Ord, Generic)
+  deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
+
+instance Show TransactionHash where
+    show = T.unpack . encodeToText
 
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
@@ -443,22 +444,6 @@ data MockTx = MockTx {
     deriving anyclass (FromJSON, ToJSON, NFData)
 
 
--- instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
---     toJSON d = let s = T.pack $ show d
---                in toJSON s
-
--- instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
---     parseJSON v = do
---         s <- T.unpack <$> parseJSON v
---         return $! read s
-
--- -- orphan, needed for mock -- remove once this instance makes it upstream into pact
--- instance ToJSON GasPrice where
---     toJSON (GasPrice d) = toJSON d
-
--- instance FromJSON GasPrice where
---     parseJSON v = GasPrice <$> parseJSON v
-
 mockBlockGasLimit :: Int64
 mockBlockGasLimit = 65535
 
@@ -466,6 +451,7 @@ mockBlockGasLimit = 65535
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
+
 
 mockEncode :: MockTx -> ByteString
 mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do
