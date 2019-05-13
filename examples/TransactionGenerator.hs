@@ -553,15 +553,15 @@ pollRequestKeys (MeasureTime mtime) config rkey = do
   (timeTaken, !_action) <- measureDiffTime go
   when mtime (putStrLn $ "" <> show timeTaken)
   where
+    -- | It is assumed that the user has passed in a single, specific Chain that
+    -- they wish to query.
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config  -- TODO not right!
-    -- TODO Hit all available chains
+    cid = NEL.head $ _nodeChainId config
 
     go :: IO a
     go = do
       putStrLn "Polling your requestKey"
       TXGConfig _ _ ce v <- mkTXGConfig Nothing config
-      -- TODO cid!
       response <- runClientM (poll v cid $ Poll [rkey]) ce
       case response of
         Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
@@ -577,9 +577,10 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print (_arResult r) >> exitSuccess
   where
+    -- | It is assumed that the user has passed in a single, specific Chain that
+    -- they wish to query.
     cid :: ChainId
-    cid = NEL.head $ _nodeChainId config  -- TODO not right!
-    -- TODO Hit all chains
+    cid = NEL.head $ _nodeChainId config
 
     go :: IO (Either ClientError ApiResult)
     go = do
