@@ -9,7 +9,7 @@ import qualified Chain2Gexf
 import qualified Ea
 import qualified RunNodes
 import qualified SlowTests
-import qualified TransactionGenerator
+import qualified TXG
 
 main :: IO ()
 main = do
@@ -57,7 +57,7 @@ topLevelCommands =
   , CommandSpec
       "txg"
       "Generate a random stream of simulated blockchain transactions"
-      TransactionGenerator.main
+      TXG.main
   , CommandSpec
       "run-nodes"
       "Run a local cluster of chainweb-node binaries"

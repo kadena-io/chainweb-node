@@ -29,7 +29,7 @@
 -- TODO
 --
 
-module TransactionGenerator ( main ) where
+module TXG ( main ) where
 
 import BasePrelude hiding ((%), rotate, loop, timeout)
 
@@ -37,6 +37,7 @@ import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Concurrent.Async (async, mapConcurrently_)
 import Control.Concurrent.STM.TQueue
+import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Lens hiding ((.=), (|>), op)
 import Control.Monad.Catch
 import Control.Monad.Except
@@ -217,13 +218,10 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
 
 data TXGState = TXGState
   { _gsGen       :: !(Gen (PrimState IO))
-  , _gsCounter   :: !Int64
+  , _gsCounter   :: !(TVar Int64)
   , _gsChains    :: !(NESeq ChainId)
   , _gsRespTimes :: !(TVar (BQ.BQueue Int))
   }
-
-gsCounter :: Lens' TXGState Int64
-gsCounter f s = (\c -> s { _gsCounter = c }) <$> f (_gsCounter s)
 
 gsChains :: Lens' TXGState (NESeq ChainId)
 gsChains f s = (\c -> s { _gsChains = c }) <$> f (_gsChains s)
@@ -390,8 +388,9 @@ loop
 loop f tq measure@(MeasureTime _) = do
   (cid, transaction) <- f
   (_, requestKeys) <- measureDiffTime $ sendTransaction cid transaction
-  count <- use gsCounter
-  gsCounter += 1
+  countTV <- gets _gsCounter
+  liftIO . atomically $ modifyTVar' countTV (+ 1)
+  count <- liftIO $ readTVarIO countTV
 
   liftIO . atomically $ do
     -- writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
@@ -481,9 +480,10 @@ sendTransactions
   :: MeasureTime
   -> ScriptConfig
   -> HostAddress
+  -> TVar Int64
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendTransactions measure config host distribution = do
+sendTransactions measure config host tv distribution = do
   cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config host
 
   accountMap <- fmap (M.fromList . toList) . forM (_nodeChainIds config) $ \cid -> do
@@ -507,7 +507,7 @@ sendTransactions measure config host distribution = do
       chs = maybe (versionChains $ _nodeVersion config) NES.fromList
             . NEL.nonEmpty
             $ _nodeChainIds config
-      stt = TXGState gen 0 chs bq
+      stt = TXGState gen tv chs bq
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -534,9 +534,10 @@ sendSimpleExpressions
   :: MeasureTime
   -> ScriptConfig
   -> HostAddress
+  -> TVar Int64
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendSimpleExpressions measure config host distribution = do
+sendSimpleExpressions measure config host tv distribution = do
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
@@ -547,7 +548,7 @@ sendSimpleExpressions measure config host distribution = do
   let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
              . NEL.nonEmpty
              $ _nodeChainIds config
-      stt = TXGState gen 0 chs bq
+      stt = TXGState gen tv chs bq
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
@@ -594,11 +595,12 @@ listenerRequestKey (MeasureTime mtime) config host listenerRequest = do
 work :: ScriptConfig -> IO ()
 work cfg = do
   mgr <- newManager defaultManagerSettings
+  tv  <- newTVarIO 0
   withBaseHandleBackend "transaction-generator" mgr (defconfig ^. U.logConfigBackend)
     $ \baseBackend -> do
       let loggerBackend = logHandles [] baseBackend
       withLogger (U._logConfigLogger defconfig) loggerBackend $ \l ->
-        mapConcurrently_ (\host -> runLoggerT (act host) l) $ _hostAddresses cfg
+        mapConcurrently_ (\host -> runLoggerT (act tv host) l) $ _hostAddresses cfg
   where
     transH :: U.HandleConfig
     transH = _logHandleConfig cfg
@@ -610,16 +612,16 @@ work cfg = do
       & U.logConfigBackend . U.backendConfigHandle .~ transH
       & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transH
 
-    act :: HostAddress -> LoggerT SomeLogMessage IO ()
-    act host = case _scriptCommand cfg of
+    act :: TVar Int64 -> HostAddress -> LoggerT SomeLogMessage IO ()
+    act tv host = case _scriptCommand cfg of
       DeployContracts [] mtime -> liftIO $
         loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
       DeployContracts cs mtime -> liftIO $
         loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
       RunStandardContracts distribution mtime ->
-        sendTransactions mtime cfg host distribution
+        sendTransactions mtime cfg host tv distribution
       RunSimpleExpressions distribution mtime ->
-        sendSimpleExpressions mtime cfg host distribution
+        sendSimpleExpressions mtime cfg host tv distribution
       PollRequestKeys rk mtime -> liftIO $
         pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
       ListenerRequestKey rk mtime -> liftIO $
