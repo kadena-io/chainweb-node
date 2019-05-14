@@ -67,9 +67,9 @@ instance Show ForkInfo where
         ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
         ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
         ++ "\n\t"
-        -- ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
+        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
         ++  debugTrans "oldForkTrans" fiOldForkTrans
-        -- ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
+        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
         ++ debugTrans "newForkTrans" fiNewForkTrans
         ++ "\n\t"
         ++ "'head' of old fork:"
@@ -107,14 +107,14 @@ prop_validTxSource
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
     ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
-    fi@ForkInfo{..} <- genFork db ht genBlock
-    liftIO $ putStrLn "ForkInfo from prop_validTxSource:"
-    liftIO $ putStrLn $ show fi
+    ForkInfo{..} <- genFork db ht genBlock
+    -- liftIO $ putStrLn "ForkInfo from prop_validTxSource:"
+    -- liftIO $ putStrLn $ show fi
 
     reIntroTransV <- run $
         processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
-    liftIO $ putStrLn $ debugTrans "processFork (prop_validTxSource)" reIntroTrans
+    -- liftIO $ putStrLn $ debugTrans "processFork (prop_validTxSource)" reIntroTrans
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
            && (reIntroTrans `S.disjoint` fiNewForkTrans)
@@ -130,14 +130,14 @@ prop_noOrphanedTxs
 prop_noOrphanedTxs db genBlock = monadicIO $ do
     ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
 
-    fi@ForkInfo{..} <- genFork db ht genBlock
-    liftIO $ putStrLn "ForkInfo from prop_noOrphanedTxs:"
-    liftIO $ putStrLn $ show fi
+    ForkInfo{..} <- genFork db ht genBlock
+    -- liftIO $ putStrLn "ForkInfo from prop_noOrphanedTxs:"
+    -- liftIO $ putStrLn $ show fi
     reIntroTransV <- run $
         processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
-    liftIO $ putStrLn $ debugTrans "processfork (prop_noOrphanedTxs)" reIntroTrans
+    -- liftIO $ putStrLn $ debugTrans "processfork (prop_noOrphanedTxs)" reIntroTrans
 
     assert $ expectedTrans `S.isSubsetOf` reIntroTrans
 
@@ -160,7 +160,6 @@ runTests :: IO ()
 runTests =
     withTempRocksDb "mempool-consensus-test" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db -> do
-        -- TreeDB.insert db h0 -- is this needed?
         quickCheck (prop_validTxSource db h0)
         quickCheck (prop_noOrphanedTxs db h0)
         return ()
@@ -183,7 +182,7 @@ genFork
     -> BlockHeader
     -> PropertyM IO ForkInfo
 genFork db payloadLookup startHeader = do
-    liftIO $ putStrLn $ debugHeader "genFork - initial header" startHeader
+    -- liftIO $ putStrLn $ debugHeader "genFork - initial header" startHeader
     allTxs <- getTransPool
     theTree <- genTree db payloadLookup startHeader allTxs
     return $ buildForkInfo db payloadLookup theTree
@@ -207,10 +206,7 @@ takeTrans txs = do
 
 ----------------------------------------------------------------------------------------------------
 debugHeader :: String -> BlockHeader -> String
-debugHeader _ _ = ""
-
-debugHeader' :: String -> BlockHeader -> String
-debugHeader' context BlockHeader{..} =
+debugHeader context BlockHeader{..} =
     "\nBlockheader from " ++ context ++ ": "
     ++ "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
     ++ "\n\t\tblockHash: " ++ show _blockHash
@@ -227,7 +223,7 @@ genTree
 genTree db payloadLookup h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    liftIO $ putStrLn $ debugHeader "genTree - inserting to TreeDb" h
+    -- liftIO $ putStrLn $ debugHeader "genTree - inserting to TreeDb" h
     liftIO $ TreeDB.insert db next
     listOfOne <- preForkTrunk db payloadLookup next theRest
     theNewNode <- newNode payloadLookup
@@ -259,7 +255,7 @@ preForkTrunk
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db payloadLookup h avail = do
     next <- header' h
-    liftIO $ putStrLn $ debugHeader "preForkTrunk - inserting to TreeDb" h
+    -- liftIO $ putStrLn $ debugHeader "preForkTrunk - inserting to TreeDb" h
     liftIO $ TreeDB.insert db next
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM [(1, fork db payloadLookup next theRest), (3, preForkTrunk db payloadLookup next theRest)]
@@ -279,26 +275,6 @@ frequencyM xs = do
     snd $ ((V.fromList xs) ! n)
 
 ----------------------------------------------------------------------------------------------------
--- fork
---     :: BlockHeaderDb
---     -> BasicHashTable BlockHeader (Set TransactionHash)
---     -> BlockHeader
---     -> Set TransactionHash
---     -> PropertyM IO (Forest BlockTrans)
--- fork db payloadLookup h avail = do
---     nextLeft <- header' h
---     liftIO $ putStrLn $ debugHeader "fork (nextLeft) - inserting to TreeDb" h
---     liftIO $ TreeDB.insert db nextLeft
---     nextRight <- header' h
---     liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
---     liftIO $ TreeDB.insert db nextRight
---     (takenNow, theRest) <- takeTrans avail
---     left <- postForkTrunk db payloadLookup nextLeft theRest
---     right <- postForkTrunk db payloadLookup nextRight theRest
---     theNewNode <- newNode payloadLookup
---                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
---                           (left ++ right)
---     return [theNewNode]
 fork
     :: BlockHeaderDb
     -> BasicHashTable BlockHeader (Set TransactionHash)
@@ -307,10 +283,10 @@ fork
     -> PropertyM IO (Forest BlockTrans)
 fork db payloadLookup h avail = do
     nextLeft <- header' h
-    liftIO $ putStrLn $ debugHeader "fork (nextLeft) - inserting to TreeDb" h
+    -- liftIO $ putStrLn $ debugHeader "fork (nextLeft) - inserting to TreeDb" h
     liftIO $ TreeDB.insert db nextLeft
     nextRight <- header' h
-    liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
+    -- liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
     liftIO $ TreeDB.insert db nextRight
     (takenNow, theRest) <- takeTrans avail
 
@@ -327,26 +303,10 @@ fork db payloadLookup h avail = do
 genForkLengths :: PropertyM IO (Int, Int)
 genForkLengths = do
     left <- pick $ choose (1, 5)
-    right <- pick $ choose (1, left + 1)
+    right <- pick $ choose (1, left)
     return (left, right)
 
 ----------------------------------------------------------------------------------------------------
--- postForkTrunk
---     :: BlockHeaderDb
---     -> BasicHashTable BlockHeader (Set TransactionHash)
---     -> BlockHeader
---     -> Set TransactionHash
---     -> PropertyM IO (Forest BlockTrans)
--- postForkTrunk db payloadLookup h avail = do
---     next <- header' h
---     liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
---     liftIO $ TreeDB.insert db next
---     (takenNow, theRest) <- takeTrans avail
---     listOf0or1 <- frequencyM [(1, return []), (3, postForkTrunk db payloadLookup next theRest)]
---     theNewNode <- newNode payloadLookup
---                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
---                           listOf0or1
---     return [theNewNode]
 postForkTrunk
     :: BlockHeaderDb
     -> BasicHashTable BlockHeader (Set TransactionHash)
@@ -360,7 +320,7 @@ postForkTrunk db payloadLookup h avail count = do
     children <- do
         if count == 0 then return []
         else do
-            liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
+            -- liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
             liftIO $ TreeDB.insert db next
             postForkTrunk db payloadLookup next theRest (count - 1)
     theNewNode <- newNode payloadLookup

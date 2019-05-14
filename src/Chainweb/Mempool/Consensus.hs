@@ -39,12 +39,12 @@ processFork
 processFork _ _ Nothing _ = return V.empty
 processFork db newHeader (Just lastHeader) payloadLookup = do
 
-    putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
-            ++ "\nlastHeader = " ++ show (_blockHash lastHeader)
+    -- putStrLn $ "Process fork: newHeader = " ++ show ( _blockHash newHeader)
+    --         ++ "\nlastHeader = " ++ show (_blockHash lastHeader)
     let s = branchDiff db lastHeader newHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
-    putStrLn $ "processFork - " ++ show (V.length oldBlocks) ++ " oldBlocks, "
-               ++ show (V.length newBlocks) ++ " newBlocks"
+    -- putStrLn $ "processFork - " ++ show (V.length oldBlocks) ++ " oldBlocks, "
+    --            ++ show (V.length newBlocks) ++ " newBlocks"
     case (V.length newBlocks - V.length oldBlocks) of
         n | n == 1    -> return V.empty -- no fork, no trans to reintroduce
         n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
