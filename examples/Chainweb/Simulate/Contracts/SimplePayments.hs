@@ -1,21 +1,17 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 module Chainweb.Simulate.Contracts.SimplePayments where
 
-import Control.Monad (join)
-
 import Data.Aeson
--- import Data.Char
--- import Data.Decimal
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import Fake
-
--- import GHC.Generics hiding (from, to)
 
 import NeatInterpolation
 
@@ -24,14 +20,12 @@ import System.Random
 import Text.Printf
 
 -- PACT
-
 import Pact.ApiReq (mkExec)
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
-import Pact.Types.ChainMeta (PublicMeta(..))
 
 -- CHAINWEB
-
 import Chainweb.Simulate.Contracts.Common
 import Chainweb.Simulate.Utils
 
@@ -91,27 +85,29 @@ simplePaymentsContractLoader meta adminKeyset = do
 (create-table payments-table)
   |]
 
-mkRandomSimplePaymentRequest :: [(Account, Maybe [SomeKeyPair])] -> IO (FGen SimplePaymentRequest)
-mkRandomSimplePaymentRequest kacts = do
-  request <- randomRIO (0, 1 :: Int)
-  case request of
-    0 -> return $ SPRequestGetBalance <$> fake
-    1 -> return $ do
+mkRandomSimplePaymentRequest
+  :: M.Map Account [SomeKeyPair]
+  -> IO (FGen SimplePaymentRequest)
+mkRandomSimplePaymentRequest _ = do
+  request <- randomRIO @Int (0, 1)
+  pure $ case request of
+    0 -> SPRequestGetBalance <$> fake
+    1 -> do
         (from, to) <- distinctPair
         SPRequestPay from to <$> fake
-    -- Lol, this might be used later. For now, this constructor will
-    -- not be exercised.
-    2 -> return $ do
-           acct <- fake
-           bal <- fake
-           case join (lookup acct kacts) of
-            Nothing -> error (errmsg ++ (getAccount acct) ++ " " ++ show (fst <$> kacts))
-            Just keyset -> return $ SPCreateAccount acct bal keyset
+    -- -- Lol, this might be used later. For now, this constructor will
+    -- -- not be exercised.
+    -- 2 -> return $ do
+    --        acct <- fake
+    --        bal <- fake
+    --        case join (lookup acct kacts) of
+    --         Nothing -> error (errmsg ++ (getAccount acct) ++ " " ++ show (fst <$> kacts))
+    --         Just keyset -> return $ SPCreateAccount acct bal keyset
     _ -> error "mkRandomSimplePaymentRequest: error in case statement."
-  where
-    errmsg =
-           "mkRandomSimplePaymentRequest: something went wrong."
-           ++ " Cannot find account name"
+  -- where
+    -- errmsg =
+    --        "mkRandomSimplePaymentRequest: something went wrong."
+    --        ++ " Cannot find account name"
 
 data SimplePaymentRequest
   = SPRequestGetBalance Account

@@ -670,10 +670,11 @@ instance FromJSON (ObjectEncoded BlockHeader) where
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
 
-
-newtype NewMinedBlock = NewMinedBlock (ObjectEncoded BlockHeader)
-  deriving (Show, Generic)
-  deriving newtype (Eq, ToJSON, NFData)
+data NewMinedBlock = NewMinedBlock
+    { _minedBlockHeader :: ObjectEncoded BlockHeader
+    , _minedBlockTrans :: Int }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

@@ -32,7 +32,7 @@ import Chainweb.Version (ChainwebVersion(..))
 ---
 
 tests :: TestTree
-tests = testGroup "Genesis Block Correctness" $ map blockHash
+tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
     [ Testnet00
     , Testnet01
     ]

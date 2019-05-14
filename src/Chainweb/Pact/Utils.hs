@@ -12,13 +12,11 @@
 module Chainweb.Pact.Utils
     ( toEnv'
     , toEnvPersist'
-    , closePactDb
     ) where
 
 import Control.Concurrent.MVar
 
 import Pact.Interpreter as P
-import Pact.PersistPactDb as P
 
 import Chainweb.Pact.Types
 
@@ -38,11 +36,3 @@ toEnvPersist' (Env' pactDbEnv) = do
           , _pdepEnv = dbEnv
           }
     return $! EnvPersist' pDbEnvPersist
-
--- This is a band-aid solution; We're just going to close the
--- database connection here to be safe.
-closePactDb :: PactDbState -> IO ()
-closePactDb =  go . _pdbsDbEnv
-  where
-    go (EnvPersist' (PactDbEnvPersist _ dbEnv)) =
-      either fail return =<< closeDb (P._db dbEnv)

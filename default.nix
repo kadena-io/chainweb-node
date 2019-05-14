@@ -54,9 +54,9 @@ in
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
+          testTarget = "--test-option=--hide-successes";
         }));
 
-        configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
         yaml = callHackageDirect {
@@ -121,6 +121,24 @@ in
           sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
         };
 
+        bounded-queue = callHackageDirect {
+          pkg = "bounded-queue";
+          ver = "1.0.0";
+          sha256 = "04p9p8n3l75lhc0f4g7q8qwxwcjpv11mqyf46wxnb3s9wd0wyazc";
+        };
+
+        nonempty-containers = callHackageDirect {
+          pkg = "nonempty-containers";
+          ver = "0.1.1.0";
+          sha256 = "09cq35spxppyhyigf2y6fhw4x72hg1jm80agzw8ccq1zbml7pnmv";
+        };
+
+        configuration-tools = dontCheck (callHackageDirect {
+          pkg = "configuration-tools";
+          ver = "0.4.1";
+          sha256 = "1sbn4dbb2y1gwdwjvz5vf6a1g349z0jha5iz4dmp2v67dv86fzs5";
+        });
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
@@ -182,8 +200,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "0cf36de796dc88051fc34469e31a589317631fb9";
-          sha256 = "16k5m6rvj41g8md58gnh9qa9x53c5cyb92ql8xaap8vw2wl87zqf";
+          rev = "d9a35f6edee1a99cd6f864f68fc3b3b44ce0b4cd";
+          sha256 = "0cxy0azlg9p7zljpxv4fc4hcdizhv48q8cgpwh4557zcii1vbqhk";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
