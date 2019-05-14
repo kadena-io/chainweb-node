@@ -49,8 +49,8 @@ import qualified Chainweb.TreeDB as TreeDB
 import Numeric.AffineSpace
 
 ----------------------------------------------------------------------------------------------------
-tests :: [TestTree]
-tests =
+tests :: TestTree
+tests = testGroup "Chainweb.Mempool.Consensus"
     [ testProperty "valid-transactions-source"
           $ ioProperty $ mpConsensusProp "mempool-consensus-valid-txs-source" prop_validTxSource
     , testProperty "no-orphaned-transactions"

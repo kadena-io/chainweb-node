@@ -26,6 +26,7 @@ import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.CoinContract
 import qualified Chainweb.Test.DiGraph
+import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Socket
@@ -86,6 +87,7 @@ suite rdb =
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
+        , Chainweb.Test.Mempool.Consensus.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
