@@ -35,7 +35,7 @@ import BasePrelude hiding ((%), rotate, loop, timeout)
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
-import Control.Concurrent.Async (async)
+import Control.Concurrent.Async (async, mapConcurrently_)
 import Control.Concurrent.STM.TQueue
 import Control.Lens hiding ((.=), (|>), op)
 import Control.Monad.Catch
@@ -62,7 +62,7 @@ import qualified Data.Text.Encoding as T
 
 import Fake (fake, generate)
 
-import Network.HTTP.Client hiding (Proxy)
+import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
 
@@ -121,16 +121,16 @@ data TransactionCommand
   deriving anyclass (FromJSON, ToJSON)
 
 transactionCommandToText :: TransactionCommand -> Text
-transactionCommandToText = T.decodeUtf8 . transactionCommandBytes
+transactionCommandToText = T.decodeUtf8 . fromJuste . transactionCommandBytes
 {-# INLINE transactionCommandToText #-}
 
-transactionCommandBytes :: TransactionCommand -> B8.ByteString
+transactionCommandBytes :: TransactionCommand -> Maybe B8.ByteString
 transactionCommandBytes t = case t of
-    PollRequestKeys bs (MeasureTime mtime) ->
-        "poll [" <> bs <> "] " <> (fromString . map toLower . show $ mtime)
-    ListenerRequestKey bytestring (MeasureTime mtime) ->
-         "listen " <> bytestring <> " " <> (fromString . map toLower . show $ mtime)
-    _ -> error "impossible"
+  PollRequestKeys bs (MeasureTime mtime) ->
+    Just $ "poll [" <> bs <> "] " <> (fromString . map toLower . show $ mtime)
+  ListenerRequestKey bs (MeasureTime mtime) ->
+    Just $ "listen " <> bs <> " " <> (fromString . map toLower . show $ mtime)
+  _ -> Nothing
 
 transactionCommandFromText :: MonadThrow m => Text -> m TransactionCommand
 transactionCommandFromText = readTransactionCommandBytes . T.encodeUtf8
@@ -188,7 +188,7 @@ data ScriptConfig = ScriptConfig
   { _scriptCommand       :: !TransactionCommand
   , _nodeChainIds        :: ![ChainId]
   , _isChainweb          :: !Bool
-  , _chainwebHostAddress :: !HostAddress
+  , _hostAddresses       :: ![HostAddress]
   , _nodeVersion         :: !ChainwebVersion
   , _logHandleConfig     :: !U.HandleConfig }
   deriving (Show, Generic)
@@ -201,7 +201,7 @@ instance ToJSON ScriptConfig where
       [ "scriptCommand"       .= _scriptCommand o
       , "nodeChainIds"        .= _nodeChainIds o
       , "isChainweb"          .= _isChainweb o
-      , "chainwebHostAddress" .= _chainwebHostAddress o
+      , "hostAddresses"       .= _hostAddresses o
       , "chainwebVersion"     .= _nodeVersion o
       , "logHandle"           .= _logHandleConfig o
       ]
@@ -211,7 +211,7 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
     <$< scriptCommand       ..: "scriptCommand"       % o
     <*< nodeChainIds        ..: "nodeChainIds"        % o
     <*< isChainweb          ..: "isChainweb"          % o
-    <*< chainwebHostAddress ..: "chainwebHostAddress" % o
+    <*< hostAddresses       ..: "hostAddresses" % o
     <*< nodeVersion         ..: "chainwebVersion"     % o
     <*< logHandleConfig     ..: "logging"             % o
 
@@ -233,7 +233,7 @@ defaultScriptConfig = ScriptConfig
   { _scriptCommand       = RunSimpleExpressions def def
   , _nodeChainIds        = []
   , _isChainweb          = True
-  , _chainwebHostAddress = unsafeHostAddressFromText "127.0.0.1:1789"
+  , _hostAddresses       = [unsafeHostAddressFromText "127.0.0.1:1789"]
   , _nodeVersion         = v
   , _logHandleConfig     = U.StdOut }
   where
@@ -249,7 +249,7 @@ scriptConfigParser = id
       <> help ("The specific command to run: see examples/transaction-generator-help.md for more detail."
                <> "The only commands supported on the commandline are 'poll' and 'listen'.")
   <*< nodeChainIds %:: pLeftSemigroupalUpdate (pure <$> pChainId)
-  <*< chainwebHostAddress %:: pHostAddress Nothing
+  <*< hostAddresses %:: pLeftSemigroupalUpdate (pure <$> pHostAddress' Nothing)
   <*< nodeVersion .:: textOption
       % long "chainweb-version"
       <> short 'v'
@@ -431,8 +431,8 @@ forkedListens tq bq cid (RequestKeys rks) = do
           -- writeTQueue tq $ sshow res
           -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
-mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> IO TXGConfig
-mkTXGConfig mdistribution config =
+mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> HostAddress -> IO TXGConfig
+mkTXGConfig mdistribution config host =
   TXGConfig mdistribution mempty
   <$> cenv
   <*> pure (_nodeVersion config)
@@ -443,8 +443,8 @@ mkTXGConfig mdistribution config =
        let timeout = responseTimeoutMicro (1000000 * 60 * 4)
        mgr <- newTlsManagerWith (mgrSettings { managerResponseTimeout = timeout })
        let url = BaseUrl Https
-                 (T.unpack . hostnameToText . _hostAddressHost . _chainwebHostAddress $ config)
-                 (fromIntegral . _hostAddressPort . _chainwebHostAddress $ config)
+                 (T.unpack . hostnameToText $ _hostAddressHost host)
+                 (fromIntegral $ _hostAddressPort host)
                  ""
        pure $! mkClientEnv mgr url
 
@@ -457,8 +457,8 @@ mainInfo =
 
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: MeasureTime -> ScriptConfig -> [ContractLoader] -> IO ()
-loadContracts (MeasureTime mtime) config contractLoaders = do
+loadContracts :: MeasureTime -> ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
+loadContracts (MeasureTime mtime) config host contractLoaders = do
   (timeTaken, !_action) <- measureDiffTime go
   when mtime
     . withConsoleLogger Info
@@ -467,7 +467,7 @@ loadContracts (MeasureTime mtime) config contractLoaders = do
   where
     go :: IO ()
     go = do
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
       forM_ (_nodeChainIds config) $ \cid -> do
         let !meta = Sim.makeMeta cid
         ts <- testSomeKeyPairs
@@ -480,10 +480,11 @@ loadContracts (MeasureTime mtime) config contractLoaders = do
 sendTransactions
   :: MeasureTime
   -> ScriptConfig
+  -> HostAddress
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendTransactions measure config distribution = do
-  cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config
+sendTransactions measure config host distribution = do
+  cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config host
 
   accountMap <- fmap (M.fromList . toList) . forM (_nodeChainIds config) $ \cid -> do
     let !meta = Sim.makeMeta cid
@@ -532,11 +533,12 @@ versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chain
 sendSimpleExpressions
   :: MeasureTime
   -> ScriptConfig
+  -> HostAddress
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendSimpleExpressions measure config distribution = do
+sendSimpleExpressions measure config host distribution = do
   logg Info $ toLogMessage ("Transactions are being generated" :: Text)
-  gencfg <- lift $ mkTXGConfig (Just distribution) config
+  gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
@@ -549,8 +551,8 @@ sendSimpleExpressions measure config distribution = do
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
 
-pollRequestKeys :: MeasureTime -> ScriptConfig -> RequestKey -> IO ()
-pollRequestKeys (MeasureTime mtime) config rkey = do
+pollRequestKeys :: MeasureTime -> ScriptConfig -> HostAddress -> RequestKey -> IO ()
+pollRequestKeys (MeasureTime mtime) config host rkey = do
   (timeTaken, !_action) <- measureDiffTime go
   when mtime (putStrLn $ "" <> show timeTaken)
   where
@@ -562,7 +564,7 @@ pollRequestKeys (MeasureTime mtime) config rkey = do
     go :: IO a
     go = do
       putStrLn "Polling your requestKey"
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
       response <- runClientM (poll v cid $ Poll [rkey]) ce
       case response of
         Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
@@ -570,8 +572,8 @@ pollRequestKeys (MeasureTime mtime) config rkey = do
           | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
           | otherwise -> print a >> exitSuccess
 
-listenerRequestKey :: MeasureTime -> ScriptConfig -> ListenerRequest -> IO ()
-listenerRequestKey (MeasureTime mtime) config listenerRequest = do
+listenerRequestKey :: MeasureTime -> ScriptConfig -> HostAddress -> ListenerRequest -> IO ()
+listenerRequestKey (MeasureTime mtime) config host listenerRequest = do
   (timeTaken, response) <- measureDiffTime go
   when mtime (putStrLn $ "" <> show timeTaken)
   case response of
@@ -586,7 +588,7 @@ listenerRequestKey (MeasureTime mtime) config listenerRequest = do
     go :: IO (Either ClientError ApiResult)
     go = do
       putStrLn "Listening..."
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config
+      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
       runClientM (listen v cid listenerRequest) ce
 
 work :: ScriptConfig -> IO ()
@@ -595,7 +597,8 @@ work cfg = do
   withBaseHandleBackend "transaction-generator" mgr (defconfig ^. U.logConfigBackend)
     $ \baseBackend -> do
       let loggerBackend = logHandles [] baseBackend
-      withLogger (U._logConfigLogger defconfig) loggerBackend $ \l -> runLoggerT (act l) l
+      withLogger (U._logConfigLogger defconfig) loggerBackend $ \l ->
+        mapConcurrently_ (\host -> runLoggerT (act host) l) $ _hostAddresses cfg
   where
     transH :: U.HandleConfig
     transH = _logHandleConfig cfg
@@ -607,24 +610,24 @@ work cfg = do
       & U.logConfigBackend . U.backendConfigHandle .~ transH
       & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transH
 
-    act :: Logger SomeLogMessage -> LoggerT SomeLogMessage IO ()
-    act _ = case _scriptCommand cfg of
+    act :: HostAddress -> LoggerT SomeLogMessage IO ()
+    act host = case _scriptCommand cfg of
       DeployContracts [] mtime -> liftIO $
-        loadContracts mtime cfg $ initAdminKeysetContract : defaultContractLoaders
+        loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
       DeployContracts cs mtime -> liftIO $
-        loadContracts mtime cfg $ initAdminKeysetContract : map createLoader cs
+        loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
       RunStandardContracts distribution mtime ->
-        sendTransactions mtime cfg distribution
+        sendTransactions mtime cfg host distribution
       RunSimpleExpressions distribution mtime ->
-        sendSimpleExpressions mtime cfg distribution
+        sendSimpleExpressions mtime cfg host distribution
       PollRequestKeys rk mtime -> liftIO $
-        pollRequestKeys mtime cfg . RequestKey $ H.Hash rk
+        pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
       ListenerRequestKey rk mtime -> liftIO $
-        listenerRequestKey mtime cfg . ListenerRequest . RequestKey $ H.Hash rk
+        listenerRequestKey mtime cfg host . ListenerRequest . RequestKey $ H.Hash rk
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
-  let chains = graphChainIds $ _chainGraph (_nodeVersion config)
+  let chains = graphChainIds . _chainGraph $ _nodeVersion config
       isMem  = all (`HS.member` chains) $ _nodeChainIds config
   unless isMem $ error $
     printf "Invalid chain %s for given version\n" (show $ _nodeChainIds config)
