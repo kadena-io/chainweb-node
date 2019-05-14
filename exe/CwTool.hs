@@ -55,7 +55,7 @@ topLevelCommands =
       "Convert a persisted Chainweb into .gexf format for viewing"
       Chain2Gexf.main
   , CommandSpec
-      "gen-transactions"
+      "txg"
       "Generate a random stream of simulated blockchain transactions"
       TransactionGenerator.main
   , CommandSpec
