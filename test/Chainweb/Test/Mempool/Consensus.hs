@@ -9,6 +9,7 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
+import Control.Exception hiding (assert)
 import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
@@ -27,7 +28,8 @@ import GHC.Generics
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
--- import Test.Tasty
+import Test.Tasty
+import Test.Tasty.QuickCheck
 
 -- internal modules
 import Pact.Types.Gas
@@ -46,57 +48,13 @@ import qualified Chainweb.TreeDB as TreeDB
 
 import Numeric.AffineSpace
 
-data ForkInfo = ForkInfo
-  { fiBlockHeaderDb :: BlockHeaderDb
-  , fiPayloadLookup :: BasicHashTable BlockHeader (Set TransactionHash)
-  , fiOldHeader :: BlockHeader
-  , fiNewHeader :: BlockHeader
-  , fiOldForkTrans :: Set TransactionHash
-  , fiNewForkTrans :: Set TransactionHash
-  , fiForkHeight :: Int
-  , fiLeftBranchHeight :: Int
-  , fiRightBranchHeight :: Int
-  , fiPreForkHeaders :: [BlockHeader]
-  , fiLeftForkHeaders :: [BlockHeader]
-  , fiRightForkHeaders :: [BlockHeader]
-  }
-
-instance Show ForkInfo where
-    show ForkInfo{..} =
-        "ForkInfo - forkHeight: " ++ show fiForkHeight
-        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
-        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
-        ++ "\n\t"
-        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
-        ++  debugTrans "oldForkTrans" fiOldForkTrans
-        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
-        ++ debugTrans "newForkTrans" fiNewForkTrans
-        ++ "\n\t"
-        ++ "'head' of old fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
-        ++ "\n\t"
-        ++ "'head' of new fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
-        ++ concatMap (debugHeader "main trunk headers") fiPreForkHeaders
-        ++ concatMap (debugHeader "left fork headers") fiLeftForkHeaders
-        ++ concatMap (debugHeader "right fork headers") fiRightForkHeaders
-        ++ "\n\n"
-
-debugTrans :: String -> Set TransactionHash -> String
-debugTrans context txs = "\n" ++ show (S.size txs) ++ " TransactionHashes from: " ++ context
-                       ++ concatMap (\t -> "\n\t" ++ show t) txs
-
-data BlockTrans = BlockTrans
-    { btBlockHeader :: BlockHeader
-    , btTransactions :: Set TransactionHash }
-
-data MockPayload = MockPayload
-    { _mplHash :: BlockHash
-    , _mplTxHashes :: [TransactionHash]
-    }
-    deriving (Show, Eq, Ord, Generic, Hashable)
+----------------------------------------------------------------------------------------------------
+tests :: [TestTree]
+tests =
+    [ testProperty "valid-transactions-source"
+          $ ioProperty $ mpConsensusProp "mempool-consensus-valid-txs-source" prop_validTxSource
+    , testProperty "no-orphaned-transactions"
+          $ ioProperty $ mpConsensusProp "mempool-consensus-no-orphaned-txs" prop_noOrphanedTxs ]
 
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
@@ -108,13 +66,10 @@ prop_validTxSource
 prop_validTxSource db genBlock = monadicIO $ do
     ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
     ForkInfo{..} <- genFork db ht genBlock
-    -- liftIO $ putStrLn "ForkInfo from prop_validTxSource:"
-    -- liftIO $ putStrLn $ show fi
 
     reIntroTransV <- run $
         processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
-    -- liftIO $ putStrLn $ debugTrans "processFork (prop_validTxSource)" reIntroTrans
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
            && (reIntroTrans `S.disjoint` fiNewForkTrans)
@@ -131,15 +86,38 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
     ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
 
     ForkInfo{..} <- genFork db ht genBlock
-    -- liftIO $ putStrLn "ForkInfo from prop_noOrphanedTxs:"
-    -- liftIO $ putStrLn $ show fi
     reIntroTransV <- run $
         processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
-    -- liftIO $ putStrLn $ debugTrans "processfork (prop_noOrphanedTxs)" reIntroTrans
 
     assert $ expectedTrans `S.isSubsetOf` reIntroTrans
+
+----------------------------------------------------------------------------------------------------
+data ForkInfo = ForkInfo
+  { fiBlockHeaderDb :: BlockHeaderDb
+  , fiOldHeader :: BlockHeader
+  , fiNewHeader :: BlockHeader
+  , fiOldForkTrans :: Set TransactionHash
+  , fiNewForkTrans :: Set TransactionHash
+    -- for printing debug info...
+  , fiForkHeight :: Int
+  , fiLeftBranchHeight :: Int
+  , fiRightBranchHeight :: Int
+  , fiPreForkHeaders :: [BlockHeader]
+  , fiLeftForkHeaders :: [BlockHeader]
+  , fiRightForkHeaders :: [BlockHeader]
+  }
+
+data BlockTrans = BlockTrans
+    { btBlockHeader :: BlockHeader
+    , btTransactions :: Set TransactionHash }
+
+data MockPayload = MockPayload
+    { _mplHash :: BlockHash
+    , _mplTxHashes :: [TransactionHash]
+    }
+    deriving (Show, Eq, Ord, Generic, Hashable)
 
 ----------------------------------------------------------------------------------------------------
 lookupFunc
@@ -152,18 +130,21 @@ lookupFunc ht h = do
         Nothing -> error "Test/Mempool/Consensus - hashtable lookup failed -- this should not happen"
         Just txs -> return txs
 
--- TODO: revert to [TestTree]
-tests :: IO ()
-tests = runTests
+----------------------------------------------------------------------------------------------------
+mpConsensusProp :: String
+   -> (BlockHeaderDb -> BlockHeader -> Property)
+   -> IO Property
+mpConsensusProp rocksName toProperty =
+    withTempRocksDb rocksName $ \rdb ->
+    withToyDB' rdb toyChainId $ \h0 db -> do
+        return $ toProperty db h0
 
-runTests :: IO ()
-runTests =
-    withTempRocksDb "mempool-consensus-test" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
-        quickCheck (prop_validTxSource db h0)
-        quickCheck (prop_noOrphanedTxs db h0)
-        return ()
+----------------------------------------------------------------------------------------------------
+withToyDB' :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
+withToyDB' db cid
+    = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
 
+----------------------------------------------------------------------------------------------------
 getTransPool :: PropertyM IO (Set TransactionHash)
 getTransPool = do
     S.fromList <$> sequenceA txHashes
@@ -176,16 +157,16 @@ getTransPool = do
 ----------------------------------------------------------------------------------------------------
 -- Fork generation
 ----------------------------------------------------------------------------------------------------
+-- | Generate a tree containing a fork
 genFork
     :: BlockHeaderDb
     -> BasicHashTable BlockHeader (Set TransactionHash)
     -> BlockHeader
     -> PropertyM IO ForkInfo
 genFork db payloadLookup startHeader = do
-    -- liftIO $ putStrLn $ debugHeader "genFork - initial header" startHeader
     allTxs <- getTransPool
     theTree <- genTree db payloadLookup startHeader allTxs
-    return $ buildForkInfo db payloadLookup theTree
+    return $ buildForkInfo db theTree
 
 ----------------------------------------------------------------------------------------------------
 mkMockTx :: Int64 -> PropertyM IO MockTx
@@ -205,15 +186,6 @@ takeTrans txs = do
     return $ S.splitAt n txs
 
 ----------------------------------------------------------------------------------------------------
-debugHeader :: String -> BlockHeader -> String
-debugHeader context BlockHeader{..} =
-    "\nBlockheader from " ++ context ++ ": "
-    ++ "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
-    ++ "\n\t\tblockHash: " ++ show _blockHash
-    ++ "\n\t\tparentHash: " ++ show _blockParent
-    ++ "\n"
-
-----------------------------------------------------------------------------------------------------
 genTree
   :: BlockHeaderDb
   -> BasicHashTable BlockHeader (Set TransactionHash)
@@ -223,7 +195,6 @@ genTree
 genTree db payloadLookup h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    -- liftIO $ putStrLn $ debugHeader "genTree - inserting to TreeDb" h
     liftIO $ TreeDB.insert db next
     listOfOne <- preForkTrunk db payloadLookup next theRest
     theNewNode <- newNode payloadLookup
@@ -255,10 +226,10 @@ preForkTrunk
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db payloadLookup h avail = do
     next <- header' h
-    -- liftIO $ putStrLn $ debugHeader "preForkTrunk - inserting to TreeDb" h
     liftIO $ TreeDB.insert db next
     (takenNow, theRest) <- takeTrans avail
-    children <- frequencyM [(1, fork db payloadLookup next theRest), (3, preForkTrunk db payloadLookup next theRest)]
+    children <- frequencyM
+        [(1, fork db payloadLookup next theRest), (3, preForkTrunk db payloadLookup next theRest)]
     theNewNode <- newNode payloadLookup
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           children
@@ -283,10 +254,8 @@ fork
     -> PropertyM IO (Forest BlockTrans)
 fork db payloadLookup h avail = do
     nextLeft <- header' h
-    -- liftIO $ putStrLn $ debugHeader "fork (nextLeft) - inserting to TreeDb" h
     liftIO $ TreeDB.insert db nextLeft
     nextRight <- header' h
-    -- liftIO $ putStrLn $ debugHeader "fork (nextRight) - inserting to TreeDb" h
     liftIO $ TreeDB.insert db nextRight
     (takenNow, theRest) <- takeTrans avail
 
@@ -320,7 +289,6 @@ postForkTrunk db payloadLookup h avail count = do
     children <- do
         if count == 0 then return []
         else do
-            -- liftIO $ putStrLn $ debugHeader "postForkTrunk - inserting to TreeDb" h
             liftIO $ TreeDB.insert db next
             postForkTrunk db payloadLookup next theRest (count - 1)
     theNewNode <- newNode payloadLookup
@@ -357,10 +325,9 @@ header' h = do
 ----------------------------------------------------------------------------------------------------
 buildForkInfo
     :: BlockHeaderDb
-    -> BasicHashTable BlockHeader (Set TransactionHash)
     -> Tree BlockTrans
     -> ForkInfo
-buildForkInfo blockHeaderDb payloadLookup t =
+buildForkInfo blockHeaderDb t =
     let (preFork, left, right) = splitNodes t
         forkHeight = length preFork
     in if (null preFork || null left || null right)
@@ -368,7 +335,6 @@ buildForkInfo blockHeaderDb payloadLookup t =
         else
             ForkInfo
             { fiBlockHeaderDb = blockHeaderDb
-            , fiPayloadLookup = payloadLookup
             , fiOldHeader = btBlockHeader (head left)
             , fiNewHeader = btBlockHeader (head right)
             , fiOldForkTrans = S.unions (btTransactions <$> left)
@@ -390,14 +356,7 @@ splitNodes t =
         (leftFork, rightFork) = case restOfTree of
             Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
             _someTree -> ([], []) -- should never happen
-    -- in (trunk, leftFork, rightFork)
-    -- remove this:
-    in case (trunk, leftFork, rightFork) of
-        ([], [], []) -> error "all 3 empty"
-        ([], _y, _z) -> error "trunk is empty (maybe others too)"
-        (_x, [], _z) -> error "left is empty (maybe the right as well)"
-        (_x, _y, []) -> error "right is empty (others are not"
-        (x, y, z) -> (x, y, z)
+    in (trunk, leftFork, rightFork)
 
 type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
 
@@ -416,3 +375,52 @@ takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
 takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
 takeFork (Node bt []) xs = bt : xs -- done with the fork
 takeFork _someTree xs = xs -- should never happen
+
+----------------------------------------------------------------------------------------------------
+-- For debuggging
+----------------------------------------------------------------------------------------------------
+instance Show ForkInfo where
+    show ForkInfo{..} =
+        "ForkInfo - forkHeight: " ++ show fiForkHeight
+        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
+        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
+        ++ "\n\t"
+        ++ ", number of old forkTrans: " ++ show (S.size fiOldForkTrans)
+        ++ debugTrans "oldForkTrans" fiOldForkTrans
+        ++ ", number of new forkTrans: " ++ show (S.size fiNewForkTrans)
+        ++ debugTrans "newForkTrans" fiNewForkTrans
+        ++ "\n\t"
+        ++ "'head' of old fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
+        ++ "\n\t"
+        ++ "'head' of new fork:"
+        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
+        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
+        ++ concatMap (debugHeader "main trunk headers") fiPreForkHeaders
+        ++ concatMap (debugHeader "left fork headers") fiLeftForkHeaders
+        ++ concatMap (debugHeader "right fork headers") fiRightForkHeaders
+        ++ "\n\n"
+
+----------------------------------------------------------------------------------------------------
+debugHeader :: String -> BlockHeader -> String
+debugHeader context BlockHeader{..} =
+    "\nBlockheader from " ++ context ++ ": "
+    ++ "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
+    ++ "\n\t\tblockHash: " ++ show _blockHash
+    ++ "\n\t\tparentHash: " ++ show _blockParent
+    ++ "\n"
+
+----------------------------------------------------------------------------------------------------
+debugTrans :: String -> Set TransactionHash -> String
+debugTrans context txs = "\n" ++ show (S.size txs) ++ " TransactionHashes from: " ++ context
+                       ++ concatMap (\t -> "\n\t" ++ show t) txs
+
+----------------------------------------------------------------------------------------------------
+_runGhci :: IO ()
+_runGhci =
+    withTempRocksDb "mempool-consensus-test" $ \rdb ->
+    withToyDB rdb toyChainId $ \h0 db -> do
+        quickCheck (prop_validTxSource db h0)
+        quickCheck (prop_noOrphanedTxs db h0)
+        return ()
