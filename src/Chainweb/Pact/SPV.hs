@@ -1,6 +1,7 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 -- |
@@ -28,13 +29,24 @@ import Data.Default (def)
 
 import Crypto.Hash.Algorithms
 
+import Numeric.Natural
+
+import qualified Streaming.Prelude as S
+
 -- internal chainweb modules
 
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
+import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
+import Chainweb.TreeDB
+
+import Data.CAS
 
 -- internal pact modules
 
@@ -119,3 +131,28 @@ mkSuccess
 --
 spvError :: String -> IO a
 spvError = internalError' . (<>) "spvSupport: "
+
+getTxIdx
+    :: PayloadCas cas
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> TransactionHash
+    -> BlockHeight
+    -> IO Natural
+getTxIdx bdb pdb th bh = do
+    -- get BlockPayloadHash
+    ph <- fmap _blockPayloadHash
+        $ entries bdb Nothing (Just 1) (Just $ fromIntegral bh) Nothing S.head_ >>= \case
+            Nothing -> throwM "TODO"
+            Just x -> return x
+
+    -- Get transactions
+    txs <- fmap fst . _payloadWithOutputsTransactions <$> casLookupM pdb ph
+
+    -- find hash in txs
+    error "TODO"
+
+casLookupM :: IsCas cas => cas -> (CasKeyType cas) -> IO (CasValueType cas)
+casLookupM cas k = casLookup cas k >>= \case
+    Nothing -> throwM $ error "TODO"
+    Just x -> return x
