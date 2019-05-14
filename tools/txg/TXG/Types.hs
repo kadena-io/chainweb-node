@@ -28,8 +28,10 @@ module TXG.Types
   , scriptConfigParser
     -- * TXG Monad
   , TXG(..)
-  , TXGConfig(..), confKeysets
   , TXGState(..), gsChains
+  , TXGConfig(..), confKeysets, mkTXGConfig
+    -- * Misc.
+  , TXCount(..)
   ) where
 
 import BasePrelude hiding (loop, rotate, timeout, (%))
@@ -49,12 +51,16 @@ import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Network.HTTP.Client hiding (Proxy, host)
+import Network.HTTP.Client.TLS
+import Network.X509.SelfSigned hiding (name)
 import Pact.Types.Crypto (SomeKeyPair)
 import Servant.Client
 import System.Random.MWC (Gen)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Queue.Bounded as BQ
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
@@ -228,7 +234,7 @@ instance MonadTrans TXG where
 
 data TXGState = TXGState
   { _gsGen :: !(Gen (PrimState IO))
-  , _gsCounter :: !(TVar Int64)
+  , _gsCounter :: !(TVar TXCount)
   , _gsChains :: !(NESeq ChainId)
   , _gsRespTimes :: !(TVar (BQ.BQueue Int))
   }
@@ -245,3 +251,28 @@ data TXGConfig = TXGConfig
 
 confKeysets :: Lens' TXGConfig (Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
 confKeysets f c = (\ks -> c { _confKeysets = ks }) <$> f (_confKeysets c)
+
+mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> HostAddress -> IO TXGConfig
+mkTXGConfig mdistribution config host =
+  TXGConfig mdistribution mempty
+  <$> cenv
+  <*> pure (_nodeVersion config)
+  where
+    cenv :: IO ClientEnv
+    cenv = do
+       mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+       let timeout = responseTimeoutMicro (1000000 * 60 * 4)
+       mgr <- newTlsManagerWith (mgrSettings { managerResponseTimeout = timeout })
+       let url = BaseUrl Https
+                 (T.unpack . hostnameToText $ _hostAddressHost host)
+                 (fromIntegral $ _hostAddressPort host)
+                 ""
+       pure $! mkClientEnv mgr url
+
+-------
+-- MISC
+-------
+
+-- | A running count of all transactions handles over all threads.
+newtype TXCount = TXCount Word
+  deriving newtype (Num, Show)

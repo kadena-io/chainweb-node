@@ -48,8 +48,6 @@ import qualified Data.Text as T
 import Fake (fake, generate)
 
 import Network.HTTP.Client hiding (Proxy, host)
-import Network.HTTP.Client.TLS
-import Network.X509.SelfSigned hiding (name)
 
 import Servant.API
 import Servant.Client
@@ -239,30 +237,6 @@ forkedListens tq bq cid (RequestKeys rks) = do
         -- writeTQueue tq $ sshow res
         -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
-mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> HostAddress -> IO TXGConfig
-mkTXGConfig mdistribution config host =
-  TXGConfig mdistribution mempty
-  <$> cenv
-  <*> pure (_nodeVersion config)
-  where
-    cenv :: IO ClientEnv
-    cenv = do
-       mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
-       let timeout = responseTimeoutMicro (1000000 * 60 * 4)
-       mgr <- newTlsManagerWith (mgrSettings { managerResponseTimeout = timeout })
-       let url = BaseUrl Https
-                 (T.unpack . hostnameToText $ _hostAddressHost host)
-                 (fromIntegral $ _hostAddressPort host)
-                 ""
-       pure $! mkClientEnv mgr url
-
-mainInfo :: ProgramInfo ScriptConfig
-mainInfo =
-  programInfo
-    "Chainweb-TransactionGenerator"
-    scriptConfigParser
-    defaultScriptConfig
-
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
 loadContracts :: MeasureTime -> ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
@@ -289,7 +263,7 @@ sendTransactions
   :: MeasureTime
   -> ScriptConfig
   -> HostAddress
-  -> TVar Int64
+  -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 sendTransactions measure config host tv distribution = do
@@ -343,7 +317,7 @@ sendSimpleExpressions
   :: MeasureTime
   -> ScriptConfig
   -> HostAddress
-  -> TVar Int64
+  -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 sendSimpleExpressions measure config host tv distribution = do
@@ -421,7 +395,7 @@ work cfg = do
       & U.logConfigBackend . U.backendConfigHandle .~ transH
       & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transH
 
-    act :: TVar Int64 -> HostAddress -> LoggerT SomeLogMessage IO ()
+    act :: TVar TXCount -> HostAddress -> LoggerT SomeLogMessage IO ()
     act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
       case _scriptCommand cfg of
         DeployContracts [] mtime -> liftIO $
@@ -445,6 +419,13 @@ main = runWithConfiguration mainInfo $ \config -> do
     printf "Invalid chain %s for given version\n" (show $ _nodeChainIds config)
   pPrintNoColor config
   work config
+
+mainInfo :: ProgramInfo ScriptConfig
+mainInfo =
+  programInfo
+    "Chainweb-TransactionGenerator"
+    scriptConfigParser
+    defaultScriptConfig
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
