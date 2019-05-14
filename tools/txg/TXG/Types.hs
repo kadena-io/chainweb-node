@@ -1,11 +1,12 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NoImplicitPrelude               #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Module: TXG.Types
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -15,7 +16,6 @@
 --
 -- TODO
 --
-
 module TXG.Types
   ( -- * TransactionCommand
     TransactionCommand(..)
@@ -172,18 +172,18 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
     <$< scriptCommand       ..: "scriptCommand"       % o
     <*< nodeChainIds        ..: "nodeChainIds"        % o
     <*< isChainweb          ..: "isChainweb"          % o
-    <*< hostAddresses       ..: "hostAddresses" % o
+    <*< hostAddresses       ..: "hostAddresses"       % o
     <*< nodeVersion         ..: "chainwebVersion"     % o
     <*< logHandleConfig     ..: "logging"             % o
 
 defaultScriptConfig :: ScriptConfig
 defaultScriptConfig = ScriptConfig
-  { _scriptCommand       = RunSimpleExpressions def def
-  , _nodeChainIds        = []
-  , _isChainweb          = True
-  , _hostAddresses       = [unsafeHostAddressFromText "127.0.0.1:1789"]
-  , _nodeVersion         = v
-  , _logHandleConfig     = U.StdOut }
+  { _scriptCommand   = RunSimpleExpressions def def
+  , _nodeChainIds    = []
+  , _isChainweb      = True
+  , _hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
+  , _nodeVersion     = v
+  , _logHandleConfig = U.StdOut }
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
@@ -218,6 +218,7 @@ scriptConfigParser = id
 -- would have to be patched to add missing instances first. Having `LoggerT`
 -- here would let us remove the `MonadTrans` instance, as well as a number of
 -- `lift` calls.
+
 -- | The principal application Monad for this Transaction Generator.
 newtype TXG m a = TXG { runTXG :: ReaderT TXGConfig (StateT TXGState m) a }
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadState TXGState, MonadReader TXGConfig)

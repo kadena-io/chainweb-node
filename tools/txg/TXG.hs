@@ -1,20 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -238,16 +229,15 @@ forkedListens tq bq cid (RequestKeys rks) = do
   liftIO $ traverse_ (forkedListen ce v) rks
   where
     forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
-    forkedListen ce v rk = do
-      void . async $ do
-        (!time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
-        atomically $ do
-          q <- readTVar bq
-          let q' = BQ.cons (floor time) q
-          writeTVar bq q'
-          writeTQueue tq $ "Average complete result time: " <> sshow (BQ.average q')
-          -- writeTQueue tq $ sshow res
-          -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
+    forkedListen ce v rk = void . async $ do
+      (!time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
+      atomically $ do
+        q <- readTVar bq
+        let q' = BQ.cons (floor time) q
+        writeTVar bq q'
+        writeTQueue tq $ "Average complete result time: " <> sshow (BQ.average q')
+        -- writeTQueue tq $ sshow res
+        -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
 
 mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> HostAddress -> IO TXGConfig
 mkTXGConfig mdistribution config host =
@@ -432,19 +422,20 @@ work cfg = do
       & U.logConfigTelemetryBackend . enableConfigConfig . U.backendConfigHandle .~ transH
 
     act :: TVar Int64 -> HostAddress -> LoggerT SomeLogMessage IO ()
-    act tv host = case _scriptCommand cfg of
-      DeployContracts [] mtime -> liftIO $
-        loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
-      DeployContracts cs mtime -> liftIO $
-        loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
-      RunStandardContracts distribution mtime ->
-        sendTransactions mtime cfg host tv distribution
-      RunSimpleExpressions distribution mtime ->
-        sendSimpleExpressions mtime cfg host tv distribution
-      PollRequestKeys rk mtime -> liftIO $
-        pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
-      ListenerRequestKey rk mtime -> liftIO $
-        listenerRequestKey mtime cfg host . ListenerRequest . RequestKey $ H.Hash rk
+    act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
+      case _scriptCommand cfg of
+        DeployContracts [] mtime -> liftIO $
+          loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
+        DeployContracts cs mtime -> liftIO $
+          loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
+        RunStandardContracts distribution mtime ->
+          sendTransactions mtime cfg host tv distribution
+        RunSimpleExpressions distribution mtime ->
+          sendSimpleExpressions mtime cfg host tv distribution
+        PollRequestKeys rk mtime -> liftIO $
+          pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
+        ListenerRequestKey rk mtime -> liftIO $
+          listenerRequestKey mtime cfg host . ListenerRequest . RequestKey $ H.Hash rk
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
