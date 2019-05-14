@@ -491,11 +491,6 @@ executable cwtool
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
-        Chainweb.Simulate.Contracts.CoinContract
-        Chainweb.Simulate.Contracts.Common
-        Chainweb.Simulate.Contracts.HelloWorld
-        Chainweb.Simulate.Contracts.SimplePayments
-        Chainweb.Simulate.Utils
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -506,6 +501,12 @@ executable cwtool
         RunNodes
         SlowTests
         TXG
+        TXG.Simulate.Contracts.CoinContract
+        TXG.Simulate.Contracts.Common
+        TXG.Simulate.Contracts.HelloWorld
+        TXG.Simulate.Contracts.SimplePayments
+        TXG.Simulate.Utils
+        TXG.Types
     build-depends:
         -- internal
           chainweb

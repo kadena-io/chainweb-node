@@ -11,7 +11,7 @@
 -- TODO
 --
 
-module Chainweb.Simulate.Contracts.HelloWorld where
+module TXG.Simulate.Contracts.HelloWorld where
 
 import Data.Aeson
 import Data.Default
@@ -36,7 +36,7 @@ import Pact.Types.Crypto (SomeKeyPair)
 
 -- chainweb
 
-import Chainweb.Simulate.Utils
+import TXG.Simulate.Utils
 
 helloWorldContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 helloWorldContractLoader meta adminKeyset = do
