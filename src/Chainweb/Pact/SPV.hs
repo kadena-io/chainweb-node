@@ -26,6 +26,7 @@ import Data.Aeson hiding (Object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
+import qualified Data.Sequence as Seq
 
 import Crypto.Hash.Algorithms
 
@@ -108,13 +109,13 @@ pactSPV dbVar = SPVSupport $ \s o -> do
 --
 -- Usage is best with -XTypeApplications, like so:
 --
--- 'proofOf' '@(Transaction SHA512t_256)'
+-- 'mkProof' '@(Transaction SHA512t_256)'
 --
 mkProof :: FromJSON a => Object Name -> IO a
 mkProof o = spvDecode . toJSON $ TObject o def
   where
     spvDecode a = case fromJSON a of
-      Error s -> spvError $ "Unable to decode proof subject: " <> s
+      Error s -> spvError $ "unable to decode proof subject: " <> s
       Success x -> pure x
 
 -- | Produce a Pact 'CommandSuccess' of a transaction proof bytestring.
@@ -125,7 +126,7 @@ mkSuccess
     . decode @(CommandSuccess (Term Name))
     . fromStrict
   where
-    err = "Unable to decode proof object"
+    err = "unable to decode proof object"
 
 -- | Prepend "spvSupport" to any errors so we can differentiate
 --
@@ -143,16 +144,11 @@ getTxIdx bdb pdb th bh = do
     -- get BlockPayloadHash
     ph <- fmap _blockPayloadHash
         $ entries bdb Nothing (Just 1) (Just $ fromIntegral bh) Nothing S.head_ >>= \case
-            Nothing -> throwM "TODO"
+            Nothing -> spvError "unable to find payload associated with transaction hash"
             Just x -> return x
 
     -- Get transactions
     txs <- fmap fst . _payloadWithOutputsTransactions <$> casLookupM pdb ph
 
     -- find hash in txs
-    error "TODO"
-
-casLookupM :: IsCas cas => cas -> (CasKeyType cas) -> IO (CasValueType cas)
-casLookupM cas k = casLookup cas k >>= \case
-    Nothing -> throwM $ error "TODO"
-    Just x -> return x
+    error "todo"

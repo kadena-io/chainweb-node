@@ -1,6 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
-
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module: Data.CAS
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -15,10 +17,15 @@ module Data.CAS
 ( IsCasValue(..)
 , IsCas(..)
 , casMember
+, casLookupM
 ) where
+
+import Control.Exception (Exception)
+import Control.Monad.Catch (throwM)
 
 import Data.Kind
 import Data.Maybe
+import Data.Text (Text)
 
 -- | The casKey function must be morally injective:
 --
@@ -48,3 +55,13 @@ casMember :: IsCas a => a -> CasKeyType (CasValueType a) -> IO Bool
 casMember db = fmap isJust . casLookup db
 {-# INLINE casMember #-}
 
+casLookupM
+    :: IsCas a
+    => a -> CasKeyType (CasValueType a) -> IO (CasValueType a)
+casLookupM cas k = casLookup cas k >>= \case
+    Nothing -> throwM . CasException $
+      "casLookupM: lookup failed for cas key"
+    Just x -> return x
+
+newtype CasException = CasException Text deriving (Eq, Show)
+instance Exception CasException
