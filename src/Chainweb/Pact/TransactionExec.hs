@@ -371,11 +371,6 @@ redeemGas
     -> [TxLog Value]       -- ^ previous txlogs
     -> IO (CommandResult, [TxLog Value])
 redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
-
-    -- let t1 = ContMsg pid 1 False $ object [ "fee" .= feeOf total fee ]
-
-    -- let h = t1 `asTypeOf` _
-
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities [magic_FUND_TX]

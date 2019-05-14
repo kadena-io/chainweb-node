@@ -1,6 +1,5 @@
 -- | Tests and test infrastructure common to all mempool backends.
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -250,7 +249,6 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
 
     markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
 
-    -- reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
     reintroduce = liftIO . mempoolReintroduce mempool . V.fromList
     markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
 

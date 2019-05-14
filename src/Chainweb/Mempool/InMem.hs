@@ -1,8 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -395,7 +393,7 @@ inMemPayloadLookup
     => Maybe (PayloadDb cas)
     -> BlockHeader
     -> IO (Set ChainwebTransaction)
-inMemPayloadLookup payloadStore bh = do
+inMemPayloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
@@ -418,7 +416,7 @@ processForkInMem :: PayloadCas cas
 processForkInMem lock blockHeaderDb payloadStore newHeader = do
     theData <- readMVar lock
     -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
-    lastHeader <- sequence $ fmap readIORef $ _inmemLastNewBlockParent theData
+    lastHeader <- traverse readIORef (_inmemLastNewBlockParent theData)
 
     MPCon.processFork blockHeaderDb newHeader lastHeader
         (inMemPayloadLookup payloadStore)
@@ -494,8 +492,8 @@ lookupInMem lock txs = do
         lookupConfirmed confirmed txHash <|>
         pure Missing
 
-    lookupQ q txHash = (Pending . snd) <$> PSQ.lookup txHash q
-    lookupVal val txHash = fmap Validated $ HashMap.lookup txHash val
+    lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
+    lookupVal val txHash = Validated <$> HashMap.lookup txHash val
     lookupConfirmed confirmed txHash =
         if HashSet.member txHash confirmed
           then Just Confirmed
@@ -517,7 +515,7 @@ insertInMem :: TxBroadcaster t  -- ^ transaction broadcaster
             -> IO ()
 insertInMem broadcaster cfg lock txs = do
     newTxs <- withMVarMasked lock $ \mdata ->
-                  (V.map fst . V.filter ((==True) . snd)) <$>
+                  V.map fst . V.filter ((==True) . snd) <$>
                    V.mapM (insOne mdata) txs
     broadcastTxs newTxs broadcaster
 

@@ -41,7 +41,7 @@ processFork db newHeader (Just lastHeader) payloadLookup = do
 
     let s = branchDiff db lastHeader newHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
-    case (V.length newBlocks - V.length oldBlocks) of
+    case V.length newBlocks - V.length oldBlocks of
         n | n == 1    -> return V.empty -- no fork, no trans to reintroduce
         n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
                                       ++ "more than one greater than the previous new block request")
@@ -84,7 +84,7 @@ chainwebTxsFromPWO pwo = do
     let theRights  =  rights $ toList eithers
     return $ S.fromList theRights
   where
-    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
+    toCWTransaction = codecDecode chainwebPayloadCodec
 
 newtype MempoolException = MempoolConsensusException String
 

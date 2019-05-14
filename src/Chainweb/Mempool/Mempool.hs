@@ -4,7 +4,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -48,8 +47,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import Data.Decimal (Decimal)
-import Data.Decimal (DecimalRaw(..))
+import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (foldl', traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.HashSet (HashSet)

@@ -173,7 +173,7 @@ _toVarString = L.toStrict . Builder.toLazyByteString . encodeVarWord
 _fullyParse :: Parser a -> ByteString -> Maybe a
 _fullyParse p x = f $ Atto.parse p x
   where
-    f (Atto.Fail {}) = Nothing
+    f Atto.Fail {} = Nothing
     f (Atto.Partial c) = f $! c ""
     f (Atto.Done _ r) = Just r
 

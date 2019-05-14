@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -64,7 +62,7 @@ prop_validTxSource
     -> BlockHeader
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
-    ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
+    ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
     ForkInfo{..} <- genFork db ht genBlock
 
     reIntroTransV <- run $
@@ -83,7 +81,7 @@ prop_noOrphanedTxs
     -> BlockHeader
     -> Property
 prop_noOrphanedTxs db genBlock = monadicIO $ do
-    ht <- liftIO $ HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
+    ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
 
     ForkInfo{..} <- genFork db ht genBlock
     reIntroTransV <- run $
@@ -136,7 +134,7 @@ mpConsensusProp :: String
    -> IO Property
 mpConsensusProp rocksName toProperty =
     withTempRocksDb rocksName $ \rdb ->
-    withToyDB' rdb toyChainId $ \h0 db -> do
+    withToyDB' rdb toyChainId $ \h0 db ->
         return $ toProperty db h0
 
 ----------------------------------------------------------------------------------------------------
@@ -146,7 +144,7 @@ withToyDB' db cid
 
 ----------------------------------------------------------------------------------------------------
 getTransPool :: PropertyM IO (Set TransactionHash)
-getTransPool = do
+getTransPool =
     S.fromList <$> sequenceA txHashes
   where
     txHashes = fmap (\n -> do
@@ -197,10 +195,9 @@ genTree db payloadLookup h allTxs = do
     next <- header' h
     liftIO $ TreeDB.insert db next
     listOfOne <- preForkTrunk db payloadLookup next theRest
-    theNewNode <- newNode payloadLookup
-                          BlockTrans { btBlockHeader = h, btTransactions = takenNow }
-                          listOfOne
-    return theNewNode
+    newNode payloadLookup
+            BlockTrans { btBlockHeader = h, btTransactions = takenNow }
+            listOfOne
 
 ----------------------------------------------------------------------------------------------------
 -- | Create a new Tree node
@@ -239,11 +236,11 @@ preForkTrunk db payloadLookup h avail = do
 -- | Version of frequency where the generators are in IO
 frequencyM :: [(Int, PropertyM IO a)] -> PropertyM IO a
 frequencyM xs = do
-    let indexGens = (elements . (:[])) <$> [0..]
+    let indexGens = elements . (:[]) <$> [0..]
     let indexZip = zip (fst <$> xs) indexGens
     -- the original 'frequency' chooses the index of the value:
     n <- pick $ frequency indexZip :: PropertyM IO Int
-    snd $ ((V.fromList xs) ! n)
+    snd (V.fromList xs ! n)
 
 ----------------------------------------------------------------------------------------------------
 fork
@@ -286,7 +283,7 @@ postForkTrunk
 postForkTrunk db payloadLookup h avail count = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
-    children <- do
+    children <-
         if count == 0 then return []
         else do
             liftIO $ TreeDB.insert db next
@@ -330,7 +327,7 @@ buildForkInfo
 buildForkInfo blockHeaderDb t =
     let (preFork, left, right) = splitNodes t
         forkHeight = length preFork
-    in if (null preFork || null left || null right)
+    in if null preFork || null left || null right
         then error "buildForkInfo -- all of the 3 lists must be non-empty"
         else
             ForkInfo
@@ -366,13 +363,13 @@ takePreFork theTree =
     go theTree []
   where
     go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
-    go (Node bt (x : [])) xs = go x (bt : xs) -- continue the trunk
-    go t@(Node bt (_x : _y : [])) xs = (bt : xs, t) -- reached the fork
+    go (Node bt [x]) xs = go x (bt : xs) -- continue the trunk
+    go t@(Node bt [_x, _y]) xs = (bt : xs, t) -- reached the fork
     go someTree xs = (xs, someTree) -- should never happen
 
 ----------------------------------------------------------------------------------------------------
 takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
-takeFork (Node bt (x : [])) xs = takeFork x (bt : xs) -- continue the fork
+takeFork (Node bt [x]) xs = takeFork x (bt : xs) -- continue the fork
 takeFork (Node bt []) xs = bt : xs -- done with the fork
 takeFork _someTree xs = xs -- should never happen
 
