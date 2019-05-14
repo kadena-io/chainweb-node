@@ -80,7 +80,7 @@
           "total-coins-earned":= total-coins-earned,
           "total-coins-returned":= total-coins-returned
           }
-          (format "Address {} had earned {} and returned {}"
+          (format "Address {} has earned {} and returned {}"
             [address, total-coins-earned, total-coins-returned]))))
 
   (defun curr-time:time ()

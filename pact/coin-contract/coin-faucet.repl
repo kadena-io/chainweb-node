@@ -67,5 +67,5 @@
 
 ;;;; TESTING describe-behavior
 
-(expect "Describes k2's behavior" "Address k2 had earned 1.0 and returned 1.0" (describe-behavior 'k2))
-(expect "Describes k1's behavior" "Address k1 had earned 2.0 and returned 0.0" (describe-behavior 'k1))
+(expect "Describes k2's behavior" "Address k2 has earned 1.0 and returned 1.0" (describe-behavior 'k2))
+(expect "Describes k1's behavior" "Address k1 has earned 2.0 and returned 0.0" (describe-behavior 'k1))
