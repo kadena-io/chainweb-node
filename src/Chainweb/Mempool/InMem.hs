@@ -191,7 +191,9 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
     -- new subscriber: add it to the map
     processCmd' hm (Subscribe sid s done) = do
         ref <- newIORef s
-        w <- mkWeakIORef ref (mempoolSubFinal s)
+        w <- mkWeakIORef ref $ do
+            putStrLn "{\"action\": \"finalize\", \"location\": \"Chainweb.Mempool.InMem.broadcasterThread\" }"
+            mempoolSubFinal s
         putMVar done ref
         return $! HashMap.insert sid w hm
     -- unsubscribe: call finalizer and delete from subscriber map
@@ -286,7 +288,9 @@ makeSelfFinalizingInMemPool cfg =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
         mp <- makeInMemPool cfg txb
         ref <- newIORef mp
-        wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
+        wk <- mkWeakIORef ref $ do
+            putStrLn "{\"action\": \"finalize\", \"location\": \"Chainweb.Mempool.InMem.makeSelfFinalizingInMemPool\" }"
+            destroyTxBroadcaster txb
         let back = toMempoolBackend mp
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back

@@ -84,7 +84,9 @@ getPendingHandler mempool = liftIO $ mask_ $ do
         Async.link t
         let d = GpData chan t
         !ref <- newIORef d
-        !wk <- mkWeakIORef ref (Async.uninterruptibleCancel t)
+        !wk <- mkWeakIORef ref $ do
+            putStrLn "{\"action\": \"finalize\", \"location\": \"Chainweb.Mempool.RestAPI.Server.getPendingHandler\" }"
+            Async.uninterruptibleCancel t
         return $! (ref, wk)
 
     chanThread chan restore =

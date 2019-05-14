@@ -107,7 +107,9 @@ toMempool version chain txcfg blocksizeLimit env =
             let finalize = Async.uninterruptibleCancel t
             let sub = Subscription chan finalize
             r <- newIORef sub
-            void $ mkWeakIORef r finalize
+            void $ mkWeakIORef r $ do
+                putStrLn "{\"action\": \"finalize\", \"location\": \"Chainweb.Mempool.RestAPI.Client.toMempool\" }"
+                finalize
             return r
         -- make sure subscription is initialized before returning.
         takeMVar mv
@@ -293,7 +295,7 @@ asIoStream (ResultStream func) withFunc = func $ \popper -> do
 
 
 instance Show a => BuildFromStream a (Streams.InputStream a) where
-  buildFromStream rs = let out = unsafePerformIO go
+  buildFromStream rs = let out = unsafePerformIO go -- TODO cancel chanThead if stream is canceled?
                        in out `seq` out
     where
       createThread = do
@@ -301,7 +303,9 @@ instance Show a => BuildFromStream a (Streams.InputStream a) where
           t <- Async.asyncWithUnmask (chanThread chan)
           Async.link t
           ref <- newIORef (chan, t)
-          wk <- mkWeakIORef ref (Async.uninterruptibleCancel t)
+          wk <- mkWeakIORef ref $ do
+              putStrLn "{\"action\": \"finalize\", \"location\": \"Chainweb.Mempool.RestAPI.Client.BuildFromString\" }"
+              Async.uninterruptibleCancel t
           return $! (ref, wk)
 
       chanThread chan restore =
