@@ -650,10 +650,11 @@ instance FromJSON (ObjectEncoded BlockHeader) where
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
 
-
-newtype NewMinedBlock = NewMinedBlock (ObjectEncoded BlockHeader)
-  deriving (Show, Generic)
-  deriving newtype (Eq, ToJSON, NFData)
+data NewMinedBlock = NewMinedBlock
+    { _minedBlockHeader :: ObjectEncoded BlockHeader
+    , _minedBlockTrans :: Int }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader
@@ -703,7 +704,7 @@ newBlockHeader miner adj pay nonce target t b = fromLog $ newMerkleLog
     :+: target
     :+: pay
     :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty v target)
+    :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
     :+: miner

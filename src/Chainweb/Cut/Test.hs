@@ -250,7 +250,7 @@ arbitraryCut v = T.sized $ \s -> do
         let pay = hashPayload v cid "TEST PAYLOAD"
         return $ createNewCutWithoutTime n target pay nid cid c
 
-    target = genesisBlockTarget v
+    target = genesisBlockTarget
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList $ graphChainIds given)
@@ -288,7 +288,7 @@ arbitraryWebChainCut initialCut = do
         let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ hush <$> testMine n target t pay nid cid c
 
-    target = genesisBlockTarget v
+    target = genesisBlockTarget
     v = Test (_chainGraph @WebBlockHeaderDb given)
 
 arbitraryWebChainCut_
@@ -319,7 +319,7 @@ arbitraryWebChainCut_ initialCut = do
         let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ testMine n target t pay nid cid c
 
-    target = genesisBlockTarget v
+    target = genesisBlockTarget
     v = Test $ _chainGraph @WebBlockHeaderDb given
 
 -- -------------------------------------------------------------------------- --
@@ -623,4 +623,3 @@ ioTest
     -> (Given WebBlockHeaderDb => T.PropertyM IO Bool)
     -> T.Property
 ioTest db v f = T.monadicIO $ giveNewWebChain db v $ f >>= T.assert
-

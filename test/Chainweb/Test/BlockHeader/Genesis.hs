@@ -1,54 +1,49 @@
 -- |
 -- Module: Chainweb.Test.BlockHeader.Genesis
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
 -- TODO
 --
-module Chainweb.Test.BlockHeader.Genesis
-  ( tests
-  ) where
 
-import Control.Monad (zipWithM_)
+module Chainweb.Test.BlockHeader.Genesis ( tests ) where
 
-import Data.Foldable
+import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BL
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (sort, sortBy)
+import Data.List (sortBy)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Tasty (TestTree, testGroup)
 
--- internal imports
+-- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), Nonce(..))
-import Chainweb.BlockHeader.Genesis
-import Chainweb.Miner.Genesis (mineGenesis)
-import Chainweb.Version (ChainwebVersion(..), chainIds)
+import Chainweb.BlockHash (encodeBlockHash)
+import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
+import Chainweb.ChainId (ChainId)
+import Chainweb.Test.Utils (golden)
+import Chainweb.Utils (runPut, sshow)
+import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
 tests :: TestTree
-tests = testGroup "Genesis Blocks"
-    [ testGroup "Testnet00"
-          [ testCase "All blocks parse" allBlocksParse
-          , testCase "Regeneration" $ regeneration Testnet00 testnet00Chains
-          ]
+tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
+    [ Testnet00
+    , Testnet01
     ]
 
-testnet00Chains :: [BlockHeader]
-testnet00Chains = map snd . sortBy (compare `on` fst) $ HM.toList testnet00Geneses
-
-allBlocksParse :: Assertion
-allBlocksParse = map _blockHeight testnet00Chains @?= replicate 10 0
-
--- | Does the Genesis Block mining logic continue to create blocks identical to
--- what was hardcoded?
---
-regeneration :: ChainwebVersion -> [BlockHeader] -> Assertion
-regeneration v bs = zipWithM_ (\cid chain -> mine cid @?= chain) cids bs
+blockHashes :: HM.HashMap ChainId BlockHeader -> BL.ByteString
+blockHashes =
+    BB.toLazyByteString . foldMap (hash . snd) . sortBy (compare `on` fst) . HM.toList
   where
-    cids = sort $ toList $ chainIds v
-    mine c = mineGenesis v c (genesisTime v) (Nonce 0)
+    hash :: BlockHeader -> BB.Builder
+    hash = BB.byteString . B64U.encode . runPut . encodeBlockHash . _blockHash
+
+blockHash :: ChainwebVersion -> TestTree
+blockHash v = golden (sshow v <> "-block-hashes") $
+    pure $ blockHashes $ genesisBlockHeaders v

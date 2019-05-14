@@ -25,9 +25,9 @@ import Control.Concurrent (threadDelay)
 import Control.Lens (view, (^?!))
 
 import Data.Reflection (give)
-import qualified Data.Sequence as S
+import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64)
 
 import Numeric.Natural (Natural)
@@ -152,10 +152,14 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         -- Mine a new block
         --
-        T2 newBh c' <- mine gen nonce0
+        T3 newBh payload c' <- mine gen nonce0
+
+        let !nmb = NewMinedBlock (ObjectEncoded newBh)
+                       . Seq.length
+                       $ _payloadWithOutputsTransactions payload
 
         logg Info $! "created new block" <> sshow i
-        logFun @(JsonLog NewMinedBlock) Info $ JsonLog (NewMinedBlock (ObjectEncoded newBh))
+        logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
@@ -177,7 +181,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
     -- Here we are guarenteed to succeed on our first attempt, so we do it after
     -- waiting, just before computing the POW hash.
     --
-    mine :: MWC.GenIO -> Word64 -> IO (T2 BlockHeader Cut)
+    mine :: MWC.GenIO -> Word64 -> IO (T3 BlockHeader PayloadWithOutputs Cut)
     mine gen !nonce = do
 
         -- Get the current longest cut.
@@ -206,7 +210,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
             False -> _pactNewBlock pact (_configMinerInfo conf) p
             True -> return
                 $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
-                $ S.fromList
+                $ Seq.fromList
                     [ (Transaction "testTransaction", TransactionOutput "testOutput")
                     ]
 
@@ -230,4 +234,4 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
             Left BadAdjacents -> do
                 logg Info "retry test mining because adajencent dependencies are missing"
                 mine gen nonce
-            Right newResult -> pure newResult
+            Right (T2 bh' c') -> pure $ T3 bh' payload c'

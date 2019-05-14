@@ -68,8 +68,7 @@ custom-setup
     setup-depends:
           Cabal
         , base >= 4.11
-        , configuration-tools >= 0.4
-
+        , configuration-tools >= 0.4.1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
@@ -86,9 +85,7 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.Testnet00
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01
         , Chainweb.BlockHeader.Genesis.Testnet01Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
@@ -124,7 +121,6 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
-        , Chainweb.Miner.Genesis
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
@@ -200,9 +196,6 @@ library
         -- pact
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.MemoryDb
-        , Chainweb.Pact.Backend.Orphans
-        , Chainweb.Pact.Backend.SQLiteCheckpointer
-        , Chainweb.Pact.Backend.SqliteDb
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
@@ -239,7 +232,7 @@ library
         , case-insensitive >= 1.2
         , cereal >= 0.5
         , clock >= 0.7
-        , configuration-tools >= 0.4
+        , configuration-tools >= 0.4.1
         , connection >=0.2
         , containers >= 0.5
         , cryptonite >=0.25
@@ -275,7 +268,6 @@ library
         , paths >= 0.2
         , pem >=0.2
         , psqueues >= 0.2.7.0
-        , raw-strings-qq >= 1.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -322,7 +314,6 @@ library
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
-        , xmlgen >= 0.6
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
@@ -385,6 +376,7 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.11
         , base16-bytestring >= 0.1
+        , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , connection >=0.2
@@ -395,7 +387,6 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
-        , filepath >= 1.4
         , extra >= 1.6
         , fgl >= 5.6
         , hashable >= 1.2
@@ -414,12 +405,9 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
-        , raw-strings-qq >= 1.0
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
-        , safe >= 0.3
-        , scientific >= 0.3
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -478,7 +466,7 @@ executable chainweb-node
         , base >= 4.11
         , bytestring >= 0.10
         , case-insensitive >= 1.2
-        , configuration-tools >= 0.4
+        , configuration-tools >= 0.4.1
         , deepseq >= 1.4
         , directory >= 1.3
         , exceptions >= 0.8
@@ -493,69 +481,85 @@ executable chainweb-node
         , text >= 1.2
         , yet-another-logger >= 0.3.1
 
--- -------------------------------------------------------------------------- --
--- Slow Tests
--- -------------------------------------------------------------------------- --
-
--- This is not classified as a test suite because that allows us to do a wider
--- variety of testing such as using the network, etc--things that aren't allowed
--- in a nix build sandbox.
---
-executable slow-tests
+executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: test
-    main-is: SlowTests.hs
+    hs-source-dirs: exe tools/chain2gexf tools/ea tools/run-nodes node examples test
+    main-is: CwTool.hs
     other-modules:
+        Chain2Gexf
+        Chainweb.Simulate.Contracts.CoinContract
+        Chainweb.Simulate.Contracts.Common
+        Chainweb.Simulate.Contracts.HelloWorld
+        Chainweb.Simulate.Contracts.SimplePayments
+        Chainweb.Simulate.Utils
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
+        Ea
+        Gexf
         Network.X509.SelfSigned.Test
-
+        RunNodes
+        SlowTests
+        TransactionGenerator
     build-depends:
         -- internal
           chainweb
 
-        -- Since slow-tests is currently a small subset of the unit tests, not
-        -- all of these deps are being used at the moment. Leaving them in for
-        -- now to make it easier to move tests between the test suite and here.
-
         -- external
         , Decimal >= 0.4.2
         , QuickCheck >= 2.10
-        , aeson >= 1.4.3
+        , aeson >= 1.4
+        , aeson-pretty >= 0.8
+        , ansi-wl-pprint >= 0.6
         , async >= 2.2
+        , attoparsec >= 0.13
         , base >= 4.11
+        , base-prelude >= 1.3
         , base16-bytestring >= 0.1
+        , bounded-queue >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
+        , configuration-tools >= 0.4.1
         , containers >= 0.5
-        , data-default >=0.7
+        , data-default >= 0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
-        , directory >= 1.2
-        , extra >= 1.6
+        , directory >= 1.3
+        , errors >= 2.3
         , exceptions >= 0.8
-        , filepath >= 1.4
         , extra >= 1.6
+        , fake >= 0.1.1.1
         , fgl >= 5.6
+        , filepath >= 1.4
+        , formatting >= 6.3
         , hashable >= 1.2
         , http-client >= 0.5
+        , http-client-tls >=0.3
         , http-types >= 0.12
         , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , massiv >= 0.3
+        , monad-control >= 1.0
+        , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
+        , nonempty-containers >= 0.1
+        , optparse-applicative >= 0.14
+        , optparse-generic >= 1.3
         , pact >= 2.6
         , paths >= 0.2
+        , pretty-simple >= 2.1
+        , primitive >= 0.6
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -564,18 +568,20 @@ executable slow-tests
         , scientific >= 0.3
         , servant >= 0.14.1
         , servant-client >= 0.14
+        , servant-client-core >= 0.14
         , servant-server >= 0.14.1
-        , string-conv >= 0.1
+        , shelly >= 1.8
         , stm
         , stm-chans
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , strict-tuple >= 0.1
+        , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
-        , text >=1.2
+        , text >= 1.2
         , these >= 0.7
         , time >= 1.8
         , tls >=1.4
@@ -585,206 +591,9 @@ executable slow-tests
         , wai >= 3.2
         , warp >= 3.2
         , warp-tls >= 3.2
-
-    if flag(ed25519)
-        cpp-options: -dWITH_ED25519=1
-
--- -------------------------------------------------------------------------- --
--- Examples for BlockHeaderDb usage
--- -------------------------------------------------------------------------- --
-
-executable blockheaderdb-example
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    hs-source-dirs: examples
-    main-is: BlockHeaderChainDb.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , lens >= 4.16
-        , random >= 1.1
-        , streaming >= 0.2.2
-        , temporary >= 1.3
-        , text >= 1.2
-        , yet-another-logger >= 0.3.1
-
--- -------------------------------------------------------------------------- --
--- Single P2P Example
--- -------------------------------------------------------------------------- --
-
-executable p2p-example
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    hs-source-dirs: examples test
-    main-is: P2pExample.hs
-    other-modules:
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base >= 4.11
-        , bytestring >= 0.10
-        , configuration-tools >= 0.4
-        , exceptions >= 0.8
-        , http-client >= 0.5
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mwc-random >= 0.13
-        , text >= 1.2
-        , unordered-containers >= 0.2
+        , xmlgen >= 0.6
+        , yaml >= 0.8
         , yet-another-logger >= 0.3.1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
-
--- -------------------------------------------------------------------------- --
--- Transaction Generator
--- -------------------------------------------------------------------------- --
-
-executable transaction-generator
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    hs-source-dirs: examples
-    main-is: TransactionGenerator.hs
-    other-modules:
-        Chainweb.Simulate.Contracts.CoinContract
-        Chainweb.Simulate.Contracts.Common
-        Chainweb.Simulate.Contracts.HelloWorld
-        Chainweb.Simulate.Contracts.SimplePayments
-        Chainweb.Simulate.Utils
-    build-depends:
-        --internal
-          chainweb
-
-        --external
-        , aeson >= 1.4.3
-        , async >= 2.2
-        , attoparsec >= 0.13
-        , base >= 4.11
-        , base16-bytestring >= 0.1
-        , bytestring >= 0.10
-        , case-insensitive >= 1.2
-        , configuration-tools >= 0.4
-        , containers >= 0.5
-        , data-default >= 0.7
-        , Decimal >= 0.4.2
-        , deepseq >= 1.4
-        , exceptions >= 0.8
-        , fake >= 0.1.1.1
-        , http-client >= 0.5
-        , http-client-tls >=0.3
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , monad-control >= 1.0
-        , mtl >= 2.2
-        , mwc-random >= 0.13
-        , neat-interpolation >= 0.3.2
-        , pact >= 2.6
-        , primitive >= 0.6
-        , random >= 1.1
-        , servant >= 0.14.1
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
-        , stm
-        , stm-chans
-        , text >= 1.2
-        , time >= 1.8
-        , unordered-containers >= 0.2
-        , yet-another-logger >= 0.3.1
-
--- -------------------------------------------------------------------------- --
--- Ea
--- -------------------------------------------------------------------------- --
-
-executable ea
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/ea
-    main-is: Ea.hs
-    build-depends:
-        -- internal
-          chainweb
-        , pact
-
-        -- external
-        , aeson >= 1.4.3
-        , aeson-pretty >= 0.8
-        , base
-        , base-prelude >= 1.3
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , containers >= 0.5
-        , loglevel >= 0.1
-        , optparse-generic >= 1.3
-        , text >= 1.2
-        , vector >= 0.12
-        , yaml >= 0.11
-
--- -------------------------------------------------------------------------- --
--- chain2gexf
--- -------------------------------------------------------------------------- --
-
-executable chain2gexf
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/chain2gexf node
-    main-is: Chain2Gexf.hs
-    other-modules:
-        Gexf
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , aeson >= 1.4.3
-        , base
-        , bytestring
-        , errors >= 2.3
-        , lens >= 4.16
-        , optparse-applicative >= 0.14
-        , paths >= 0.2
-        , resourcet >= 1.2
-        , streaming >= 0.2
-        , text
-        , unordered-containers >= 0.2
-        , xmlgen >= 0.6
-
--- -------------------------------------------------------------------------- --
--- run-nodes
--- -------------------------------------------------------------------------- --
-
-executable run-nodes
-    import: warning-flags
-    default-language: Haskell2010
-    hs-source-dirs: tools/run-nodes
-    main-is: RunNodes.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , async >= 2.2
-        , base
-        , base-prelude >= 1.3
-        , directory >= 1.3
-        , errors >= 2.3
-        , formatting >= 6.3
-        , optparse-applicative >= 0.14
-        , shelly >= 1.8
-        , text >= 1.2

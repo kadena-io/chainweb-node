@@ -83,7 +83,7 @@ data LookupResult t = Missing
                     | Confirmed
                     | Pending t
   deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
+  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
 data TransactionConfig t = TransactionConfig {
@@ -356,7 +356,7 @@ data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Int64)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Int64)
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, NFData)
 
 
 ------------------------------------------------------------------------------
@@ -389,14 +389,14 @@ data ValidationInfo = ValidationInfo {
   , validatedHash :: {-# UNPACK #-} !BlockHash
   }
   deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
+  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 data ValidatedTransaction t = ValidatedTransaction {
     validatedForks :: Vector ValidationInfo
   , validatedTransaction :: t
   }
   deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)     -- TODO: a handwritten instance
+  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 
 ------------------------------------------------------------------------------
@@ -413,7 +413,7 @@ data MockTx = MockTx {
   , mockGasLimit :: {-# UNPACK #-} !Int64
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, NFData)
 
 
 instance (Show i, Integral i) => ToJSON (DecimalRaw i) where

@@ -19,6 +19,8 @@ cabal.sandbox.config
 *.hp
 *.eventlog
 .stack-work/
+stack.yaml.lock
+trans.yaml
 cabal.project.local
 .HTF/
 tags
