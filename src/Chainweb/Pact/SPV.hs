@@ -19,7 +19,6 @@ module Chainweb.Pact.SPV
 
 
 import Control.Concurrent.MVar
-import Control.Lens
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
@@ -39,18 +38,19 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
-import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
+import Chainweb.Utils
 
 import Data.CAS
 
 -- internal pact modules
 
+import Pact.Types.Hash
 import Pact.Types.Command
 import Pact.Types.Runtime
 
@@ -137,18 +137,28 @@ getTxIdx
     :: PayloadCas cas
     => BlockHeaderDb
     -> PayloadDb cas
-    -> TransactionHash
     -> BlockHeight
+    -> PactHash
     -> IO Natural
-getTxIdx bdb pdb th bh = do
+getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap _blockPayloadHash
-        $ entries bdb Nothing (Just 1) (Just $ fromIntegral bh) Nothing S.head_ >>= \case
+        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
             Nothing -> spvError "unable to find payload associated with transaction hash"
             Just x -> return x
 
     -- Get transactions
     txs <- fmap fst . _payloadWithOutputsTransactions <$> casLookupM pdb ph
+    cmds <- traverse toTxHash txs
 
     -- find hash in txs
-    error "todo"
+    case Seq.findIndexL (== th) cmds of
+        Nothing -> spvError "unable to find transaction at the given block height"
+        Just x -> return $ int x
+  where
+    toPactTx :: MonadThrow m => Transaction -> m (Command Text)
+    toPactTx (Transaction b) = decodeStrictOrThrow b
+
+    toTxHash :: MonadThrow m => Transaction -> m PactHash
+    toTxHash = fmap _cmdHash . toPactTx
+

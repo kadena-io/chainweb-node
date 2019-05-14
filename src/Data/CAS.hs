@@ -1,8 +1,11 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Data.CAS
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -20,12 +23,15 @@ module Data.CAS
 , casLookupM
 ) where
 
+import Control.DeepSeq
 import Control.Exception (Exception)
 import Control.Monad.Catch (throwM)
 
 import Data.Kind
 import Data.Maybe
 import Data.Text (Text)
+
+import GHC.Generics
 
 -- | The casKey function must be morally injective:
 --
@@ -63,5 +69,9 @@ casLookupM cas k = casLookup cas k >>= \case
       "casLookupM: lookup failed for cas key"
     Just x -> return x
 
-newtype CasException = CasException Text deriving (Eq, Show)
+newtype CasException = CasException Text
+    deriving (Eq, Show, Generic)
+    deriving newtype (NFData)
+
 instance Exception CasException
+
