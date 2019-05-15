@@ -2,8 +2,10 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -77,7 +79,7 @@ import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-import Data.LogMessage (LogFunctionText)
+import Data.LogMessage
 
 
 ------------------------------------------------------------------------------
@@ -120,6 +122,10 @@ data MempoolBackend t = MempoolBackend {
     --   in the case of forks
   , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
 
+    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
+
+  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
 
@@ -138,9 +144,6 @@ data MempoolBackend t = MempoolBackend {
 
     -- | mark the given hashes as being past confirmation depth.
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
-
-    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-  , mempoolProcessFork :: BlockHeader -> IO (Vector ChainwebTransaction)
 
     -- | These transactions were on a losing fork. Reintroduce them.
 
@@ -164,8 +167,8 @@ data MempoolBackend t = MempoolBackend {
 
 noopMempool :: MempoolBackend t
 noopMempool =
-    MempoolBackend txcfg 1000 Nothing noopMember noopLookup noopInsert noopGetBlock
-                   noopMarkValidated noopMarkConfirmed noopProcessFork noopReintroduce
+    MempoolBackend txcfg 1000 Nothing noopProcessFork noopMember noopLookup noopInsert noopGetBlock
+                   noopMarkValidated noopMarkConfirmed noopReintroduce
                    noopGetPending noopSubscribe noopShutdown noopClear
   where
     unimplemented = fail "unimplemented"
@@ -183,12 +186,16 @@ noopMempool =
     noopGetBlock = const $ return V.empty
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
-    noopProcessFork = const $ return V.empty
     noopReintroduce = const $ return ()
     noopGetPending = const $ return ()
     noopSubscribe = unimplemented
     noopShutdown = return ()
     noopClear = return ()
+
+    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
+    noopProcessFork _l _h = return V.empty
+
+
 
 ------------------------------------------------------------------------------
 chainwebTransactionConfig :: TransactionConfig ChainwebTransaction

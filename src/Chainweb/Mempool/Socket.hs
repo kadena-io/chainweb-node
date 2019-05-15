@@ -74,7 +74,10 @@ import System.Timeout (timeout)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+import Chainweb.Transaction
 import Chainweb.Utils (Codec(..))
+
+import Data.LogMessage
 
 {-# INLINE trace' #-}
 {-# INLINE debug #-}
@@ -707,10 +710,15 @@ sayGoodbye (ClientState cChan _ _ _ _ _ _) = do
         debug $ "client: got response for command " ++ show c
         return v
 
-toBackend :: Show t => ClientConfig t -> ClientState t -> Maybe (IORef BlockHeader) -> MempoolBackend t
+toBackend
+    :: Show t
+    => ClientConfig t
+    -> ClientState t
+    -> Maybe (IORef BlockHeader)
+    -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
-    MempoolBackend txcfg blockSizeLimit lastPar pMember pLookup pInsert
-                   pGetBlock unsupported unsupported unsupported unsupported
+    MempoolBackend txcfg blockSizeLimit lastPar processForkUnSup pMember pLookup pInsert
+                   pGetBlock unsupported unsupported unsupported
                    pGetPending pSubscribe pShutdown pClear
   where
     txcfg = _ccTxCfg config
@@ -765,6 +773,8 @@ toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
     unsupported = const unsupported'
     unsupported' = throwS "operation unsupported on remote mempool"
 
+    processForkUnSup :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+    processForkUnSup _ _ = unsupported'
 
 writeChan :: TBMChan a -> a -> IO ()
 writeChan chan x = do

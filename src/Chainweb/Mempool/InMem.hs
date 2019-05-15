@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -78,6 +79,7 @@ import Chainweb.Utils (fromJuste)
 
 import Data.CAS
 import Data.CAS.RocksDB
+import Data.LogMessage (LogFunction)
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -310,7 +312,14 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back
         let lastPar = mempoolLastNewBlockParent back
-        return $! wrapBackend txcfg bsl (ref, wk) lastPar
+
+        -- let h0 = back `asTypeOf` _  -- :: MempoolBackend t l
+
+        -- h :: l -> BlockHeader -> IO (Vector ChainwebTransaction)
+        -- let h = mempoolProcessFork back `asTypeOf` _ --
+
+        let procFork = mempoolProcessFork back
+        return $! wrapBackend txcfg bsl (ref, wk) lastPar procFork
       where
         withRef (ref, _wk) f = do
             mp <- readIORef ref
@@ -319,9 +328,15 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
 
             writeIORef ref mp
             return x
-
-        wrapBackend txcfg bsl mp lastPar =
-            MempoolBackend txcfg bsl lastPar f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12
+        wrapBackend :: PayloadCas cas
+                    => TransactionConfig t
+                    -> Int64
+                    -> (IORef (InMemoryMempool t cas), b)
+                    -> Maybe (IORef BlockHeader)
+                    -> (LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction))
+                    -> MempoolBackend t
+        wrapBackend txcfg bsl mp lastPar pFork =
+            MempoolBackend txcfg bsl lastPar pFork f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
           where
             f1 = withRef mp . flip mempoolMember
             f2 = withRef mp . flip mempoolLookup
@@ -329,12 +344,11 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
             f4 = withRef mp . flip mempoolGetBlock
             f5 = withRef mp . flip mempoolMarkValidated
             f6 = withRef mp . flip mempoolMarkConfirmed
-            f7 = withRef mp . flip mempoolProcessFork
-            f8 = withRef mp . flip mempoolReintroduce
-            f9 = withRef mp . flip mempoolGetPendingTransactions
-            f10 = withRef mp mempoolSubscribe
-            f11 = withRef mp mempoolShutdown
-            f12 = withRef mp mempoolClear
+            f7 = withRef mp . flip mempoolReintroduce
+            f8 = withRef mp . flip mempoolGetPendingTransactions
+            f9 = withRef mp mempoolSubscribe
+            f10 = withRef mp mempoolShutdown
+            f11 = withRef mp mempoolClear
 
 
 ------------------------------------------------------------------------------
@@ -371,8 +385,8 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     lock <- readMVar lockMVar
     let lastParentRef = _inmemLastNewBlockParent lock
 
-    return $ MempoolBackend tcfg blockSizeLimit lastParentRef member lookup insert getBlock
-        markValidated markConfirmed processFork reintroduce getPending subscribe shutdown clear
+    return $ MempoolBackend tcfg blockSizeLimit lastParentRef processFork member lookup insert getBlock
+        markValidated markConfirmed reintroduce getPending subscribe shutdown clear
   where
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
@@ -411,14 +425,15 @@ processForkInMem :: PayloadCas cas
                  => MVar (InMemoryMempoolData t)
                  -> BlockHeaderDb
                  -> Maybe (PayloadDb cas)
+                 -> LogFunction
                  -> BlockHeader
                  -> IO (Vector ChainwebTransaction)
-processForkInMem lock blockHeaderDb payloadStore newHeader = do
+processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
     theData <- readMVar lock
     -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
     lastHeader <- traverse readIORef (_inmemLastNewBlockParent theData)
 
-    MPCon.processFork blockHeaderDb newHeader lastHeader
+    MPCon.processFork logFun blockHeaderDb newHeader lastHeader
         (inMemPayloadLookup payloadStore)
 
 -- | A 'bracket' function for in-memory mempools.

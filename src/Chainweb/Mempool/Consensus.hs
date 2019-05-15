@@ -1,4 +1,11 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Chainweb.Mempool.Consensus
 ( chainwebTxsFromPWO
 , processFork
@@ -8,18 +15,24 @@ module Chainweb.Mempool.Consensus
 import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S hiding (toList)
 
+import Control.DeepSeq
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Aeson
 import Data.Either
 import Data.Foldable (toList)
 
 import Data.Set (Set)
 import qualified Data.Set as S
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import GHC.Generics
+
+import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -28,16 +41,18 @@ import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
+import Data.LogMessage (JsonLog(..), LogFunction)
 ------------------------------------------------------------------------------
 processFork
     :: Ord x
-    => BlockHeaderDb
+    => LogFunction
+    -> BlockHeaderDb
     -> BlockHeader
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
-processFork _ _ Nothing _ = return V.empty
-processFork db newHeader (Just lastHeader) payloadLookup = do
+processFork _ _ _ Nothing _ = return V.empty
+processFork logFun db newHeader (Just lastHeader) payloadLookup = do
 
     let s = branchDiff db lastHeader newHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
@@ -50,9 +65,32 @@ processFork db newHeader (Just lastHeader) payloadLookup = do
               newTrans <- foldM f mempty newBlocks
               -- before re-introducing the transactions from the losing fork (aka oldBlocks), filter
               -- out any transactions that have been included in the winning fork (aka newBlocks)
-              return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+
+              -- return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+              let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+
+              -- create data for the dashboard showing number or reintroduced transacitons:
+              let !reIntro = ReintroducedTxs
+                    { oldForkHeader = (ObjectEncoded lastHeader)
+                    , newForkHeader = (ObjectEncoded newHeader)
+                    , numReintroduced = V.length results
+                    }
+              logg Info $! "transactions reintroduced" <> sshow (V.length results)
+              logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
+              return results
   where
     f trans header = S.union trans <$> payloadLookup header
+
+    logg :: LogLevel -> T.Text -> IO ()
+    logg = logFun
+
+
+data ReintroducedTxs = ReintroducedTxs
+    { oldForkHeader :: ObjectEncoded BlockHeader
+    , newForkHeader :: ObjectEncoded BlockHeader
+    , numReintroduced :: Int }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
 
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.

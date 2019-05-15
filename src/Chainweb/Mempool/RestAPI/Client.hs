@@ -7,6 +7,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -55,7 +56,10 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
+import Chainweb.Transaction
 import Chainweb.Version
+
+import Data.LogMessage
 ------------------------------------------------------------------------------
 
 -- TODO: all of these operations need timeout support.
@@ -69,8 +73,8 @@ toMempool
     -> ClientEnv
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit lastPar env =
-    MempoolBackend txcfg blocksizeLimit lastPar member lookup insert getBlock
-                   markValidated markConfirmed processFork reintroduce getPending
+    MempoolBackend txcfg blocksizeLimit lastPar processForkUnSup member lookup insert getBlock
+                   markValidated markConfirmed reintroduce getPending
                    subscribe shutdown clear
   where
     go m = runClientM m env >>= either throwIO return
@@ -106,9 +110,12 @@ toMempool version chain txcfg blocksizeLimit lastPar env =
     shutdown = return ()
 
     unsupported = fail "unsupported"
+
+    processForkUnSup :: LogFunction -> BlockHeader -> IO (V.Vector ChainwebTransaction)
+    processForkUnSup _ _ = unsupported
+
     markValidated _ = unsupported
     markConfirmed _ = unsupported
-    processFork _ = unsupported
     reintroduce _ = unsupported
     clear = unsupported
 

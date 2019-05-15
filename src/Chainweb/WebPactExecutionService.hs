@@ -50,7 +50,10 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
           Just p -> act p
           Nothing -> throwM (userError $ "PactExecutionService: Invalid chain ID in header: " ++ show h)
 
-mkPactExecutionService :: MempoolBackend ChainwebTransaction -> TQueue RequestMsg -> PactExecutionService
+mkPactExecutionService
+    :: MempoolBackend ChainwebTransaction
+    -> TQueue RequestMsg
+    -> PactExecutionService
 mkPactExecutionService mempool q = PactExecutionService
   { _pactValidateBlock = \h pd -> do
       mv <- validateBlock h pd q

@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -50,7 +51,7 @@ withPactService
     -> (TQueue RequestMsg -> IO a)
     -> IO a
 withPactService ver cid logger memPool mv action
-    = withPactService' ver cid logger (pactMemPoolAccess memPool) mv action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool logger) mv action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
@@ -75,10 +76,10 @@ withPactService' ver cid logger memPoolAccess mv action = do
 maxBlockSize :: Int64
 maxBlockSize = 10000
 
-pactMemPoolAccess :: MempoolBackend ChainwebTransaction -> MemPoolAccess
-pactMemPoolAccess mempool _height _hash bHeader = do
-    -- TODO: log request with height hash
-    txHashes <- mempoolProcessFork mempool bHeader
+pactMemPoolAccess :: Logger logger => MempoolBackend ChainwebTransaction -> logger -> MemPoolAccess
+pactMemPoolAccess mempool theLogger _height _hash bHeader = do
+    let forkFunc = (mempoolProcessFork mempool) (logFunction theLogger) -- :: BlockHeader -> IO (V.Vector ChainwebTransaction)
+    txHashes <- forkFunc bHeader
     mempoolReintroduce mempool txHashes
     mempoolGetBlock mempool maxBlockSize
 

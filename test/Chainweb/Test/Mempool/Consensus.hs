@@ -7,7 +7,6 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
-import Control.Exception hiding (assert)
 import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
@@ -26,7 +25,6 @@ import GHC.Generics
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
-import Test.Tasty
 import Test.Tasty.QuickCheck
 
 -- internal modules
@@ -44,15 +42,14 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
 
+import Data.LogMessage
 import Numeric.AffineSpace
 
 ----------------------------------------------------------------------------------------------------
-tests :: TestTree
-tests = testGroup "Chainweb.Mempool.Consensus"
-    [ testProperty "valid-transactions-source"
-          $ ioProperty $ mpConsensusProp "mempool-consensus-valid-txs-source" prop_validTxSource
-    , testProperty "no-orphaned-transactions"
-          $ ioProperty $ mpConsensusProp "mempool-consensus-no-orphaned-txs" prop_noOrphanedTxs ]
+tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
+tests db h0 = testGroupSch "mempool-consensus-quickcheck-tests"
+    [ testProperty "valid-transactions-source" (prop_validTxSource db h0)
+    , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0) ]
 
 ----------------------------------------------------------------------------------------------------
 -- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
@@ -65,8 +62,9 @@ prop_validTxSource db genBlock = monadicIO $ do
     ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
     ForkInfo{..} <- genFork db ht genBlock
 
+
     reIntroTransV <- run $
-        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+        processFork (alogFunction aNoLog) fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
@@ -85,7 +83,7 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
 
     ForkInfo{..} <- genFork db ht genBlock
     reIntroTransV <- run $
-        processFork fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+        processFork (alogFunction aNoLog) fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
 
@@ -127,20 +125,6 @@ lookupFunc ht h = do
     case mTxs of
         Nothing -> error "Test/Mempool/Consensus - hashtable lookup failed -- this should not happen"
         Just txs -> return txs
-
-----------------------------------------------------------------------------------------------------
-mpConsensusProp :: String
-   -> (BlockHeaderDb -> BlockHeader -> Property)
-   -> IO Property
-mpConsensusProp rocksName toProperty =
-    withTempRocksDb rocksName $ \rdb ->
-    withToyDB' rdb toyChainId $ \h0 db ->
-        return $ toProperty db h0
-
-----------------------------------------------------------------------------------------------------
-withToyDB' :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
-withToyDB' db cid
-    = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
 
 ----------------------------------------------------------------------------------------------------
 getTransPool :: PropertyM IO (Set TransactionHash)

@@ -17,7 +17,8 @@ import Test.Tasty
 import Test.Tasty.QuickCheck
 
 -- internal modules
-
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import qualified Chainweb.Cut.Test (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
@@ -41,7 +42,7 @@ import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
-import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch)
+import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId, withToyDB)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
@@ -54,10 +55,21 @@ import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
-main = withTempRocksDb "chainweb-tests" $ \rdb ->
-    defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
-        $ pactTestSuite rdb
-        : suite rdb
+-- main = withTempRocksDb "chainweb-tests" $ \rdb ->
+    -- defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+    --     $ pactTestSuite rdb
+    --     : suite rdb
+main =
+    withTempRocksDb "chainweb-tests" $ \rdb ->
+    withToyDB rdb toyChainId $ \h0 db -> do
+        defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+            $ pactTestSuite rdb
+            : mempoolTestSuite db h0
+            : suite rdb
+
+mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
+mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
+    $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
 pactTestSuite :: RocksDb -> ScheduledTest
 pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
@@ -87,7 +99,6 @@ suite rdb =
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
-        , Chainweb.Test.Mempool.Consensus.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
