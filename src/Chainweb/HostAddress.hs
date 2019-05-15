@@ -92,6 +92,7 @@ module Chainweb.HostAddress
 , unsafeHostAddressFromText
 , arbitraryHostAddress
 , pHostAddress
+, pHostAddress'
 
 -- * Arbitrary Values
 , arbitraryPort
@@ -481,6 +482,9 @@ pHostAddress :: Maybe String -> MParser HostAddress
 pHostAddress service = id
     <$< hostAddressHost .:: pHostname service
     <*< hostAddressPort .:: pPort service
+
+pHostAddress' :: Maybe String -> OptionParser HostAddress
+pHostAddress' service = HostAddress <$> pHostname service <*> pPort service
 
 arbitraryHostAddress :: Gen HostAddress
 arbitraryHostAddress = HostAddress <$> arbitrary <*> arbitrary

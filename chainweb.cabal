@@ -487,15 +487,10 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: exe tools/chain2gexf tools/ea tools/run-nodes node examples test
+    hs-source-dirs: exe tools/chain2gexf tools/ea tools/run-nodes tools/txg node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
-        Chainweb.Simulate.Contracts.CoinContract
-        Chainweb.Simulate.Contracts.Common
-        Chainweb.Simulate.Contracts.HelloWorld
-        Chainweb.Simulate.Contracts.SimplePayments
-        Chainweb.Simulate.Utils
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -505,7 +500,13 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        TransactionGenerator
+        TXG
+        TXG.Simulate.Contracts.CoinContract
+        TXG.Simulate.Contracts.Common
+        TXG.Simulate.Contracts.HelloWorld
+        TXG.Simulate.Contracts.SimplePayments
+        TXG.Simulate.Utils
+        TXG.Types
     build-depends:
         -- internal
           chainweb

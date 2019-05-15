@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
-module Chainweb.Simulate.Contracts.CoinContract where
+module TXG.Simulate.Contracts.CoinContract where
 
 import Data.Aeson
 import qualified Data.Map.Strict as M
@@ -22,8 +22,8 @@ import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
 
 -- CHAINWEB
-import Chainweb.Simulate.Contracts.Common
-import Chainweb.Simulate.Utils
+import TXG.Simulate.Contracts.Common
+import TXG.Simulate.Utils
 
 ---
 

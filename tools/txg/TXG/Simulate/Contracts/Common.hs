@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
-module Chainweb.Simulate.Contracts.Common where
+module TXG.Simulate.Contracts.Common where
 
 import Control.Monad.Catch
 
@@ -38,8 +38,8 @@ import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
 -- CHAINWEB
 
 import Chainweb.ChainId
-import Chainweb.Simulate.Utils
 import Chainweb.Utils
+import TXG.Simulate.Utils
 
 createPaymentsAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
 createPaymentsAccount meta name = do
