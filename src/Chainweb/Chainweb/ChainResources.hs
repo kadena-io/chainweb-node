@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Chainweb.ChainResources
@@ -118,14 +119,14 @@ withChainResources
     -> PayloadDb cas
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
+withChainResources v cid rdb peer logger mempoolCfg cdbv pdb inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
+    withPactService v cid (setComponent "pact" logger) mempool cdbv pdb $ \requestQ -> do
     withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
             let pact = pes mempool requestQ
-            replayPact logger pact cdb payloadDb
+            replayPact logger pact cdb pdb
 
             -- run inner
             inner $ ChainResources

@@ -6,7 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -36,36 +36,43 @@ import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion)
 
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: Logger logger
+    :: ( PayloadCas cas
+       , Logger logger
+       )
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolBackend ChainwebTransaction
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger memPool mv action
-    = withPactService' ver cid logger (pactMemPoolAccess memPool) mv action
+withPactService ver cid logger memPool cdbv pdb action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool) cdbv pdb action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
 withPactService'
-    :: Logger logger
+    :: ( PayloadCas cas
+       , Logger logger
+       )
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess mv action = do
+withPactService' ver cid logger memPoolAccess cdbv pdb action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess mv)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv pdb)
     link a
     r <- action reqQ
     closeQueue reqQ

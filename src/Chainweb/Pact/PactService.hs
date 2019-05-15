@@ -6,6 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -64,8 +65,7 @@ import qualified Pact.Types.Runtime as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -78,6 +78,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -113,17 +114,22 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
 
 
 initPactService
-    :: Logger logger
+    :: ( PayloadCas cas
+       , Logger logger
+       )
     => ChainwebVersion
     -> ChainId
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess _cutMV =
-    initPactService' cid chainwebLogger noSPV $
+initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv pdb =
+    initPactService' cid chainwebLogger spv $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
+  where
+    spv = pactSPV cdbv pdb
 
 initPactService'
     :: Logger logger
