@@ -105,6 +105,12 @@ spvBlockHeight = to _spvBlockHeight
 spvPactHash :: Getter SpvResources PactHash
 spvPactHash = to _spvPactHash
 
+fromTransactionProof :: Iso' (Object Name) (TransactionProof SHA512t_256)
+fromTransactionProof = undefined
+
+fromTransactionOutputProof :: Iso' (Object Name) (TransactionOutputProof SHA512t_256)
+fromTransactionOutputProof = undefined
+
 -- -------------------------------------------------------------------------- --
 -- Noop and std pact spv support
 
