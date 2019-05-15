@@ -22,8 +22,12 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
+    , cpeCheckpointerNew
+    , cpeLoggerNew
+    , cpeGasEnvNew
     , Checkpointer(..)
     , CheckpointerNew(..)
+    , CheckpointEnvNew(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -36,9 +40,6 @@ module Chainweb.Pact.Backend.Types
     , pdepEnv
     , pdepPactDb
     , PactDbState(..)
-    -- , PactDbStateNew(..)
-    -- , pdsPactDb
-    -- , pdsdbEnv
     , pdbsDbEnv
     , ReorgVersion(..)
     , BlockVersion(..)
@@ -48,15 +49,16 @@ module Chainweb.Pact.Backend.Types
     , bsBlockVersion
     , bsMode
     , bsTxId
-    , CWDbEnv(..)
-    , cwBlockState
-    , cwDb
+    , BlockEnv(..)
+    , benvBlockState
+    , benvDb
     , SQLiteEnv(..)
     , sConn
     , sConfig
-    , VersionHandler
+    , VersionHandler(..)
     ) where
 
+import Control.Exception.Safe hiding (bracket)
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Lens
@@ -139,28 +141,30 @@ data BlockState = BlockState
 
 makeLenses ''BlockState
 
-data CWDbEnv p = CWDbEnv
-  { _cwDb :: p
-  , _cwBlockState :: !BlockState
+data BlockEnv p = BlockEnv
+  { _benvDb :: p
+  , _benvBlockState :: !BlockState
   }
 
-makeLenses ''CWDbEnv
+makeLenses ''BlockEnv
 
-type VersionHandler p a = ReaderT p (StateT BlockState IO) a
-
--- data PactDbStateNew = PactDbStateNew
---   { _pdsPactDb :: P.PactDb (CWDbEnv SQLiteEnv)
---   , _pdsdbEnv :: CWDbEnv SQLiteEnv
---   }
-
--- makeLenses ''PactDbStateNew
+newtype VersionHandler p a = VersionHandler
+  { runVersionHandler :: ReaderT p (StateT BlockState IO) a
+  } deriving ( Functor
+             , Applicative
+             , Monad
+             , MonadState BlockState
+             , MonadThrow
+             , MonadCatch
+             , MonadIO
+             , MonadReader p
+             )
 
 data CheckpointerNew p = CheckpointerNew
-    { restoreNew :: BlockHeight -> BlockHash -> IO (Either String (p, P.TxId, Maybe P.ExecutionMode))
-    , restoreInitialNew :: IO (Either String (p, P.TxId, Maybe P.ExecutionMode))
-    , saveNew :: BlockHeight -> BlockHash -> (p, P.TxId) -> IO (Either String ())
-    , saveInitialNew :: (p, P.TxId) -> IO (Either String ())
-    , discardNew :: (p, P.TxId) -> IO (Either String ())
+    { restoreNew :: BlockHeight -> BlockHash -> Maybe P.ExecutionMode -> IO (Either String p)
+    , restoreInitialNew :: Maybe P.ExecutionMode -> IO (Either String p)
+    , saveNew :: BlockHeight -> BlockHash -> P.TxId -> IO (Either String ())
+    , discardNew :: IO (Either String ())
     }
 
 data Checkpointer = Checkpointer
@@ -181,3 +185,11 @@ data CheckpointEnv = CheckpointEnv
     }
 
 makeLenses ''CheckpointEnv
+
+data CheckpointEnvNew p = CheckpointEnvNew
+    { _cpeCheckpointerNew :: CheckpointerNew p
+    , _cpeLoggerNew :: P.Logger
+    , _cpeGasEnvNew :: P.GasEnv
+    }
+
+makeLenses ''CheckpointEnvNew

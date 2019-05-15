@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -8,6 +9,8 @@ module Chainweb.Test.Pact.Checkpointer
 
 import Control.Lens (preview, _Just)
 import Control.Monad (void)
+import Control.Monad.Reader
+import Control.Concurrent.MVar
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.Default (def)
@@ -17,14 +20,17 @@ import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv)
+import Pact.Types.Info
 import Pact.Types.Runtime (ExecutionMode(Transactional))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.PactValue
+import Pact.Types.Persistence
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime (noSPVSupport, peStep)
 import Pact.Types.Server (CommandEnv(..))
-import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
+import Pact.Types.SQLite
+import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm, KeySet(..), KeySetName(..), Name(..))
 import Pact.Types.Type (PrimType(..), Type(..))
 
 import Test.Tasty.HUnit
@@ -34,10 +40,11 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
 import Chainweb.BlockHeader (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
+import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.Types
-    (CheckpointEnv(..), Checkpointer(..), Env'(..), PactDbState(..))
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
@@ -46,7 +53,7 @@ import Chainweb.Test.Utils
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-  [ testCase "testInMemory" testInMemory ]
+  [ testCase "testInMemory" testInMemory, testCase "testRelationalKeyset" testKeyset ]
 
 testInMemory :: Assertion
 testInMemory = do
@@ -310,3 +317,102 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
   void $ wrapState s08
     >>= save _cpeCheckpointer bh02 hash02Fork
     >>= assertEitherSuccess "save block 02"
+
+testKeyset :: Assertion
+testKeyset =
+  void $ withTempSQLiteConnection []  $ \sqlenv -> do
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0)
+        loggers = pactTestLogger False
+    msql <- newMVar (BlockEnv sqlenv initBlockState)
+    runBlockEnv msql initSchema
+    cpEnv <- initRelationalCheckpointerNew msql (newLogger loggers "RelationalCheckpointer") freeGasEnv
+    keytestTest msql cpEnv
+
+type Table = [[SType]]
+
+runOnVersionTables ::
+     (MonadReader SQLiteEnv m, MonadIO m)
+  => (Table -> IO ())
+  -> (Table -> IO ())
+  -> (Table -> IO ())
+  -> m ()
+runOnVersionTables f g h = do
+  blocktable <- callDb $ \db -> qry_ db "SELECT * FROM BlockHistory;" [RInt, RBlob]
+  versionhistory <- callDb $ \db -> qry_ db "SELECT * FROM VersionHistory;" [RInt, RInt]
+  vtables <-  callDb $ \db -> qry_ db "SELECT * FROM VersionedTables;" [RText]
+  void $ liftIO $ f blocktable
+  void $ liftIO $ g versionhistory
+  liftIO $ h vtables
+
+keytestTest :: MVar (BlockEnv SQLiteEnv) -> CheckpointEnvNew SQLiteEnv -> Assertion
+keytestTest mvar CheckpointEnvNew {..} = do
+
+  let hash00 = nullBlockHash
+  menv00 <- restoreInitialNew _cpeCheckpointerNew Nothing
+  _ <- liftIO $ assertEitherSuccess "initial restore failed" menv00
+  runBlockEnv mvar $ runOnVersionTables
+    (\blocktable -> assertEqual "block table initialized" blocktable bt00)
+    (\versionhistory -> assertEqual "version history initialized" versionhistory vht00)
+    (\vtables -> assertEqual "versioned tables table initialized" vtables vtt00)
+
+  addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) mvar
+
+  runBlockEnv mvar $ do
+    keysetsTable <- callDb $ \db ->
+        qry_ db ("SELECT * FROM " <> domainTableName KeySets <> ";") [RText, RInt, RInt, RInt, RBlob]
+    liftIO $ assertEqual "keyset table" keysetsTable ks1
+
+  -- next block (blockheight 1, version 0)
+
+  let bh01 = BlockHeight 1
+  hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
+  menv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 Nothing
+  _ <- liftIO $ assertEitherSuccess "restore failed" menv01
+  addKeyset "k2" (KeySet [] (Name ">=" (Info Nothing))) mvar
+
+  runBlockEnv mvar $ do
+    keysetsTable <- callDb $ \db ->
+        qry_ db ("SELECT * FROM " <> domainTableName KeySets <> ";") [RText, RInt, RInt, RInt, RBlob]
+    liftIO $ assertEqual "keyset table" keysetsTable ks2
+
+  saveNew _cpeCheckpointerNew bh01 hash01 0 >>= assertEitherSuccess "save failed"
+
+  runBlockEnv mvar $ runOnVersionTables
+    (\blocktable -> assertEqual "block table " blocktable bt01)
+    (\versionhistory -> assertEqual "version history " versionhistory vht01)
+    (\vtables -> assertEqual "versioned tables table " vtables vtt01)
+
+  -- fork on blockheight = 1
+
+  let bh11 = BlockHeight 1
+
+  hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
+
+  menv11 <- restoreNew _cpeCheckpointerNew bh11 hash00 Nothing
+  _ <- liftIO $ assertEitherSuccess "restore failed" menv11
+
+  addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) mvar
+
+  saveNew _cpeCheckpointerNew bh11 hash11 0 >>= assertEitherSuccess "save failed"
+
+  runBlockEnv mvar $ runOnVersionTables
+    (\blocktable -> assertEqual "block table " blocktable bt11)
+    (\versionhistory -> assertEqual "version history " versionhistory vht11)
+    (\vtables -> assertEqual "versioned tables table " vtables vtt11)
+
+  where
+    bt00 =
+      [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"]]
+    vht00 = [[SInt 0,SInt 0]]
+    vtt00 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
+    ks1 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
+    ks2 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"],[SText "k2",SInt 1,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
+    bt01 = [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"],[SInt 1,SBlob "0000000000000000000000000000001a"]]
+    vht01 = [[SInt 0,SInt 0],[SInt 0,SInt 1]]
+    vtt01 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
+    bt11 = [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"],[SInt 1,SBlob "0000000000000000000000000000001b"]]
+    vht11 = [[SInt 0,SInt 0],[SInt 0,SInt 1],[SInt 1,SInt 1]]
+    vtt11 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
+
+addKeyset :: KeySetName -> KeySet -> Method (BlockEnv SQLiteEnv) ()
+addKeyset = _writeRow chainwebpactdb Insert KeySets

@@ -1,79 +1,64 @@
-{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 --
 
 module Chainweb.Pact.Backend.ChainwebPactDb
-  -- ( SQLiteEnv(..)
-  -- , keysetTest
-  -- , chainwebpactdb
-  -- ) where
   ( chainwebpactdb
-  , createBlockHistoryTable
-  , createVersionHistoryTable
-  , createVersionedTablesTable
-  , createVersionedTable
   , detectVersionChange
   , versionUpdate
-  , VersionUpdate(..)
-  , systemInsert
-  , SystemInsert(..)
+  , blockHistoryInsert
+  , versionHistoryInsert
+  , versionedTablesInsert
   , withSQLiteConnection
   , withTempSQLiteConnection
   , beginSavepoint
   , commitSavepoint
   , rollbackSavepoint
-  , insertDomain
   , initSchema
-  , runCWDb
+  , runBlockEnv
   , callDb
-  , preBlock
+  , withPreBlockSavepoint
+  , domainTableName
   ) where
 
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Exception.Safe hiding (bracket)
--- import Control.Monad.Catch (throwM, tryAny, MonadCatch(..), MonadThrow(..))
 import Control.Monad.Reader
 import Control.Monad.State
 
+import Data.Aeson
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (toStrict, fromStrict)
--- import Data.List (intercalate)
 import Data.Maybe
 import Data.Serialize (encode)
 import Data.String
 import Data.String.Conv
+import qualified Data.Text as T
 
 import Database.SQLite3.Direct as SQ3
-import Data.Aeson
 
 import Prelude hiding (log)
 
 import System.Directory (removeFile)
 import System.IO.Extra
 
--- import Test.Tasty.HUnit
-
 -- pact
 
 import Pact.Persist hiding (beginTx, commitTx, rollbackTx, createTable)
 import Pact.Persist.SQLite
-import Pact.Types.Logger hiding (log)
 import Pact.Types.Persistence
 import Pact.Types.Pretty (prettyString, viaShow)
 import Pact.Types.Runtime (throwDbError)
@@ -85,14 +70,13 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
--- import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.Types
 
 newtype SavepointName = SavepointName BS.ByteString
   deriving (Eq, Ord, IsString)
   deriving newtype Show
 
-chainwebpactdb :: PactDb (CWDbEnv SQLiteEnv)
+chainwebpactdb :: PactDb (BlockEnv SQLiteEnv)
 chainwebpactdb = PactDb
   {
     _readRow = readRow
@@ -107,11 +91,10 @@ chainwebpactdb = PactDb
   , _getTxLog = getTxLog
   }
 
-
 -- MOVE THESE LATER --
 
 domainTableName :: Domain k v -> Utf8
-domainTableName = Utf8 . toS . asString
+domainTableName = Utf8 . toS . (<> "]") . ("[" <>) . asString
 
 convKeySetName :: KeySetName -> Utf8
 convKeySetName (KeySetName name) = Utf8 $ toS name
@@ -130,47 +113,41 @@ convPactId = Utf8 . toS . show
 
 -- MOVE THESE LATER --
 
--- Courtesy of Emily Pillmore!
-type DbConstraints m db = (MonadCatch m, MonadThrow m, MonadIO m, MonadReader db m, MonadState BlockState m)
-
-callDb :: DbConstraints m SQLiteEnv => (Database -> IO b) -> m b
+callDb :: (MonadReader SQLiteEnv m, MonadIO m) => (Database -> IO b) -> m b
 callDb action = do
   c <- view sConn
   liftIO $ action c
 
-readRow :: (IsString k, FromJSON v) => Domain k v -> k -> Method (CWDbEnv SQLiteEnv) (Maybe v)
-readRow d k e = runCWDb e $
+readRow :: (IsString k, FromJSON v) => Domain k v -> k -> Method (BlockEnv SQLiteEnv) (Maybe v)
+readRow d k e = runBlockEnv e $
     case d of
       KeySets -> callDbWithKey (convKeySetName k)
-      -- this is incomplete (the modules case), due to namespace
+      -- TODO: This is incomplete (the modules case), due to namespace
       -- resolution concerns
       Modules -> callDbWithKey (convModuleName k)
       Namespaces -> callDbWithKey (convNamespaceName k)
       (UserTables _) -> callDbWithKey (convRowKey k)
       Pacts -> callDbWithKey (convPactId k)
  where
-   getRow :: DbConstraints m SQLiteEnv => FromJSON v => [[SType]] -> m (Maybe v)
-   getRow =
-     \case
-       [] -> return Nothing
-       [[SBlob a]] -> return $ decode (fromStrict a)
-       err@_ -> throwM $ userError $ "readRow: Expected (at most) single result, but got: " <> show err
-   callDbWithKey :: DbConstraints m SQLiteEnv => FromJSON v => Utf8 -> m (Maybe v)
+   callDbWithKey :: FromJSON v => Utf8 -> VersionHandler SQLiteEnv (Maybe v)
    callDbWithKey kstr = do
      result <- callDb (\db -> qry_ db ("SELECT tabledata FROM " <> domainTableName d <> " WHERE rowkey=" <> kstr) [RBlob])
-     getRow result
+     case result of
+         [] -> return Nothing
+         [[SBlob a]] -> return $ decode $ fromStrict a
+         err -> throwM $ userError $ "readRow: Expected (at most) a single result, but got: " <> show err
 
-runCWDb :: MVar (CWDbEnv SQLiteEnv) -> VersionHandler SQLiteEnv a -> IO a
-runCWDb e m = modifyMVar e $
-  \(CWDbEnv  db bs)  -> do
-    (a,s) <- runStateT (runReaderT m db) bs
-    return (CWDbEnv db s, a)
+runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> VersionHandler SQLiteEnv a -> IO a
+runBlockEnv e m = modifyMVar e $
+  \(BlockEnv  db bs)  -> do
+    (a,s) <- runStateT (runReaderT (runVersionHandler m) db) bs
+    return (BlockEnv db s, a)
 
-writeRow :: ToJSON v => WriteType -> Domain k v -> k -> v -> Method (CWDbEnv SQLiteEnv) ()
+writeRow :: ToJSON v => WriteType -> Domain k v -> k -> v -> Method (BlockEnv SQLiteEnv) ()
 writeRow wt d k v e =
-  runCWDb e $ do
+  runBlockEnv e $ do
     (BlockVersion bh version) <- gets _bsBlockVersion
-    txid <- use bsTxId
+    txid <- gets _bsTxId
     case d of
       KeySets -> callDb (write (convKeySetName k) bh version txid)
       Modules -> callDb (write (convModuleName k) bh version txid)
@@ -179,85 +156,79 @@ writeRow wt d k v e =
       Pacts -> callDb (write (convPactId k) bh version txid)
   where
     write :: Utf8 -> BlockHeight -> ReorgVersion -> TxId -> Database -> IO ()
-    write key@(Utf8 kk) bh (ReorgVersion version) (TxId txid) db =
-      case wt of
+    write key@(Utf8 kk) bh@(BlockHeight innerbh) (ReorgVersion version) (TxId txid) db =
+      let row = [SText key, SInt (fromIntegral bh), SInt (fromIntegral version), SInt (fromIntegral txid), SBlob (toStrict (Data.Aeson.encode v))]
+      in case wt of
         Insert -> do
-          res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key) [RText]
+          res <- qry db
+                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?")
+                 [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
+                 [RText]
           case res of
             [] -> exec' db ("INSERT INTO "
                              <> domainTableName d
                              <> " ('rowkey','blockheight','version','txid','tabledata')\
                                 \ VALUES (?,?,?,?,?);")
-                  [SText key
-                  , SInt (fromIntegral bh)
-                  , SInt (fromIntegral version)
-                  , SInt (fromIntegral txid)
-                  , SBlob (toStrict (Data.Aeson.encode v))]
+                  row
             _ -> throwM $ userError $ "writeRow: key " <>  toS kk <> " was found in table."
         Update -> do
-          res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key) [RText]
+          res <- qry db
+                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?")
+                 [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
+                 [RText]
           case res of
             [] -> throwM $ userError $ "writeRow: key " <>  toS kk <> " was not found in table."
             _ -> exec' db
                  ("UPDATE "
                   <> domainTableName d
                   <> "SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
-                 [SText key
-                  , SInt (fromIntegral bh)
-                  , SInt (fromIntegral version)
-                  , SInt (fromIntegral txid)
-                  , SBlob (toStrict (Data.Aeson.encode v))]
+                 row
         Write -> do
-          res <- qry_ db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey=" <> key <> ";") [RText]
+          res <- qry db
+                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?")
+                 [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
+                 [RText]
           case res of
             [] -> exec' db
                   ("INSERT "
                   <> domainTableName d
                   <> " ('rowkey','blockheight','version','txid','tabledata')\
                      \ VALUES (?,?,?,?,?);")
-                  [SText key
-                  , SInt (fromIntegral bh)
-                  , SInt (fromIntegral version)
-                  , SInt (fromIntegral txid)
-                  , SBlob (toStrict (Data.Aeson.encode v))]
+                  row
             _ -> exec' db
                  ("UPDATE "
                   <> domainTableName d
                   <> "SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
-                 [SText key
-                  , SInt (fromIntegral bh)
-                  , SInt (fromIntegral version)
-                  , SInt (fromIntegral txid)
-                  , SBlob (toStrict (Data.Aeson.encode v))]
+                 row
 
 
-keys :: Domain k v -> Method (CWDbEnv SQLiteEnv) [k]
+keys :: Domain k v -> Method (BlockEnv SQLiteEnv) [k]
 keys = undefined
 
-txids :: TableName -> TxId -> Method (CWDbEnv SQLiteEnv) [TxId]
+txids :: TableName -> TxId -> Method (BlockEnv SQLiteEnv) [TxId]
 txids = undefined
 
-createUserTable :: TableName -> ModuleName -> Method (CWDbEnv SQLiteEnv) ()
+createUserTable :: TableName -> ModuleName -> Method (BlockEnv SQLiteEnv) ()
 createUserTable = undefined
 
 -- getUserTableInfo :: TableName -> Method e ModuleName
 -- getUserTableInfo = undefined
 
-beginTx :: ExecutionMode -> Method (CWDbEnv SQLiteEnv) (Maybe TxId)
+beginTx :: ExecutionMode -> Method (BlockEnv SQLiteEnv) (Maybe TxId)
 beginTx = undefined
 
-commitTx :: Method (CWDbEnv SQLiteEnv) [TxLog Value]
+commitTx :: Method (BlockEnv SQLiteEnv) [TxLog Value]
 commitTx = undefined
 
-rollbackTx :: Method (CWDbEnv SQLiteEnv) ()
+rollbackTx :: Method (BlockEnv SQLiteEnv) ()
 rollbackTx = undefined
 
-getTxLog :: Domain k v -> TxId -> Method (CWDbEnv SQLiteEnv) [TxLog v]
+getTxLog :: Domain k v -> TxId -> Method (BlockEnv SQLiteEnv) [TxLog v]
 getTxLog = undefined
 
 withSQLiteConnection ::
-     BlockHeight -> ReorgVersion -> String -> [Pragma] -> Maybe Logger -> Bool -> (SQLiteEnv -> IO c) -> IO c
-withSQLiteConnection _bh _version file ps _ml todelete action = do
+     BlockHeight -> ReorgVersion -> String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection _bh _version file ps todelete action = do
   result <- bracket opener (close . _sConn) action
   when todelete (removeFile file)
   return result
@@ -271,28 +242,25 @@ withSQLiteConnection _bh _version file ps _ml todelete action = do
     mkSQLiteEnv connection =
       SQLiteEnv connection
       (SQLiteConfig file ps)
-      -- (BlockVersion bh version)
 
-withTempSQLiteConnection :: [Pragma] -> Maybe Logger -> (SQLiteEnv -> IO c) -> IO c
-withTempSQLiteConnection ps ml action =
-  withTempFile (\file -> withSQLiteConnection 0 0 file ps ml False action)
+withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withTempSQLiteConnection ps action =
+  withTempFile (\file -> withSQLiteConnection 0 0 file ps False action)
 
-data SystemInsert
-  = BlockHistory BlockHeight
-                 BlockHash
-  | VersionHistory BlockVersion
-  | VersionedTables TableName BlockVersion
+blockHistoryInsert :: BlockHeight -> BlockHash -> VersionHandler SQLiteEnv ()
+blockHistoryInsert bh hsh = do
+  let s = "INSERT INTO BlockHistory ('blockheight','hash') VALUES (?,?);"
+  callDb $ \db ->
+    exec' db s [SInt (fromIntegral bh), SBlob (Data.Serialize.encode hsh)]
 
-systemInsert  :: DbConstraints m SQLiteEnv => SystemInsert -> m ()
-systemInsert = \case
-    BlockHistory bh hsh -> do
-      let s = "INSERT INTO BlockHistory ('blockheight','hash') VALUES (?,?);"
-      callDb $ \db -> exec' db s [SInt (fromIntegral bh), SBlob (Data.Serialize.encode hsh)]
-    VersionHistory (BlockVersion bh version) -> do
-      let s =
-            "INSERT INTO VersionHistory ('version','blockheight') VALUES (?,?);"
-      callDb $ \db -> exec' db s [SInt (_getReorgVersion version), SInt (fromIntegral bh)]
-    VersionedTables (TableName name) (BlockVersion (BlockHeight bh) (ReorgVersion bv)) -> do
+versionHistoryInsert :: BlockVersion -> VersionHandler SQLiteEnv ()
+versionHistoryInsert (BlockVersion bh version) = do
+  let s = "INSERT INTO VersionHistory ('version','blockheight') VALUES (?,?);"
+  callDb $ \db ->
+    exec' db s [SInt (_getReorgVersion version), SInt (fromIntegral bh)]
+
+versionedTablesInsert :: TableName -> BlockVersion -> VersionHandler SQLiteEnv ()
+versionedTablesInsert (TableName name) (BlockVersion (BlockHeight bh) (ReorgVersion bv)) = do
       let s = "INSERT INTO VersionedTables ('tablename','blockheight','version') VALUES (?,?,?);"
           theTableName = Utf8 (toS name)
       callDb $ \db -> exec' db s
@@ -301,69 +269,57 @@ systemInsert = \case
         , SInt (fromIntegral bv)
         ]
 
-insertDomain :: DbConstraints m SQLiteEnv => RowKey -> TableName -> BlockHeight -> ReorgVersion -> TxId -> Value -> m ()
-insertDomain rowkey (TableName name) (BlockHeight bh) (ReorgVersion v) (TxId txid) tdata = do
-  let s = "INSERT INTO " <> Utf8 (toS name) <> " ('rowkey','blockheight','version','txid','tabledata') VALUES (?,?,?,?,?);"
-      getRowKey (RowKey key) = toS key
-  callDb $ \db -> exec' db s
-    [SText (Utf8 $ getRowKey rowkey)
-    , SInt (fromIntegral bh)
-    , SInt (fromIntegral v)
-    , SInt (fromIntegral txid)
-    , SBlob (toStrict (Data.Aeson.encode tdata))]
-
-createBlockHistoryTable :: DbConstraints m SQLiteEnv => m ()
+createBlockHistoryTable :: VersionHandler SQLiteEnv ()
 createBlockHistoryTable =
   callDb $ \db -> exec_ db
     "CREATE TABLE BlockHistory\
     \(blockheight UNSIGNED BIGINT PRIMARY KEY,\
     \hash BLOB);"
 
-createVersionHistoryTable  :: DbConstraints m SQLiteEnv => m ()
+createVersionHistoryTable  :: VersionHandler SQLiteEnv ()
 createVersionHistoryTable =
   callDb $ \db -> exec_ db
     "CREATE TABLE VersionHistory\
-    \ (version UNSIGNED BIGINT PRIMARY KEY\
-    \,blockheight UNSIGNED BIGINT);"
+    \ (version UNSIGNED BIGINT\
+    \,blockheight UNSIGNED BIGINT\
+    \,CONSTRAINT versionConstraint UNIQUE (version, blockheight));"
 
-createVersionedTablesTable  :: DbConstraints m SQLiteEnv => m ()
+createVersionedTablesTable  :: VersionHandler SQLiteEnv ()
 createVersionedTablesTable =
   callDb $ \db -> exec_ db
     "CREATE TABLE VersionedTables (tablename TEXT PRIMARY KEY\
   \ , blockheight UNSIGNED BIGINT\
   \ , version UNSIGNED BIGINT);"
 
-createVersionedTable :: DbConstraints m SQLiteEnv => TableName -> BlockVersion -> m ()
-createVersionedTable name@(TableName tablename) b = do
-  callDb $ \db -> exec_ db ("CREATE TABLE " <> Utf8 (toS tablename) <> " (rowkey TEXT,\
-    \ blockheight UNSIGNED BIGINT,\
-    \ version UNSIGNED BIGINT,\
-    \txid UNSIGNED BIGINT,\
-    \tabledata BLOB);")
-  systemInsert (VersionedTables name b)
+createVersionedTable :: TableName -> BlockVersion -> VersionHandler SQLiteEnv ()
+createVersionedTable name@(TableName _) b = do
+  callDb $ \db -> exec_ db $ "CREATE TABLE " <> Utf8 (toS $ asString name) <> " (rowkey TEXT,blockheight UNSIGNED BIGINT, version UNSIGNED BIGINT,txid UNSIGNED BIGINT,tabledata BLOB);"
+  versionedTablesInsert name b
 
-detectVersionChange :: DbConstraints m SQLiteEnv => BlockHeight -> BlockHash -> m VersionUpdate
+expectSingleRowCol :: Show a => String -> [[a]] -> IO a
+expectSingleRowCol _ [[s]] = return s
+expectSingleRowCol s v = throwDbError $ prettyString s <> " expected single row and column result, got: " <> viaShow v
+
+detectVersionChange :: BlockHeight -> BlockHash -> VersionHandler SQLiteEnv VersionUpdate
 detectVersionChange bRestore hsh  = do
   bCurrent <- do
     r <- callDb $ \ db -> qry_ db "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
-    case r of
-      [[SInt bh]] -> return $ BlockHeight (fromIntegral bh)
-      _ -> throwDbError $ "detectVersionChange: expected single row int response, got: " <> viaShow r
+    SInt bh <- liftIO $ expectSingleRowCol "detectVersionChange (block):" r
+    return $ BlockHeight (fromIntegral bh)
   vCurrent <- do
     r <- callDb $ \db -> qry_ db "SELECT max(version) AS current_version FROM VersionHistory;" [RInt]
-    case r of
-      [[SInt version]] -> return $ ReorgVersion version
-      _ -> throwDbError $ "detectVersionChange: expected single row int response, got: " <> viaShow r
+    SInt version <- liftIO $ expectSingleRowCol "detectVersionChange (version):" r
+    return $ ReorgVersion version
 
+  -- REWRITE ERROR WITH INTERNALERROR PREFIX
   -- enforce invariant that the history has (B_restore-1,H_parent).
-  historyInvariant <- callDb $ \db ->
-        qry db "SELECT COUNT(*)\
+  historyInvariant <- callDb $ \db -> do
+        res <- qry db "SELECT COUNT(*)\
            \ FROM BlockHistory\
            \ WHERE blockheight = ?\
            \ AND hash = ?;"
-            [SInt $ fromIntegral $ pred bRestore, SBlob (Data.Serialize.encode hsh)] [RInt]
-        >>= expectSing "row"
-        >>= expectSing "column"
+            [SInt $ fromIntegral $ pred bRestore, SBlob (Data.Serialize.encode hsh)] [RInt] >>= expectSingleRowCol "detectVersionChange (historyInvariant):"
+        return res
 
   if historyInvariant /= SInt 1
     then throwDbError "History invariant violation"
@@ -378,62 +334,63 @@ data VersionUpdate
   | SameVersion !BlockVersion
   deriving Show
 
-versionUpdate :: DbConstraints m SQLiteEnv => VersionUpdate -> m ()
-versionUpdate (SameVersion bv) =
-  assign bsBlockVersion bv -- TODO: remove if tests pass since version has not changed.
-  -- beginSavepoint "BLOCK"
-versionUpdate (VersionChange (BlockVersion bRestore vNext)) = do
+versionUpdate :: VersionUpdate -> VersionHandler SQLiteEnv ()
+versionUpdate (SameVersion bv) = assign bsBlockVersion bv
+versionUpdate (VersionChange bvEnv@(BlockVersion bRestore vNext)) = do
   assign bsBlockVersion (BlockVersion bRestore vNext)
-  let bvEnv = BlockVersion bRestore vNext
   tableMaintenanceRowsVersionedTables bvEnv
-  tableMaintenanceVersionedTables bvEnv
+  dropVersionedTables bvEnv
   deleteHistory bvEnv
-  -- beginSavepoint "BLOCK"
 
-tableMaintenanceRowsVersionedTables :: DbConstraints m SQLiteEnv => BlockVersion -> m ()
+tableMaintenanceRowsVersionedTables :: BlockVersion -> VersionHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedTables (BlockVersion (BlockHeight bh) _) = do
   tblNames <- callDb $ \db ->
-    qry_ db ("SELECT tablename FROM VersionedTables WHERE blockheight < " <> Utf8 (toS (show bh))) [RText]
+    qry db "SELECT tablename FROM VersionedTables WHERE blockheight < ?;" [SInt (fromIntegral bh)] [RText]
   forM_ tblNames $ \case
-      [SText t] -> callDb $ \db -> exec_ db $ "DELETE FROM " <> t <> " WHERE blockheight >= " <> Utf8 (toS (show bh))
+      [(SText tblname)] -> do
+        callDb $ \db ->
+          exec' db
+          ("DELETE FROM " <> tblname <> " WHERE blockheight >= ?")
+          [SInt (fromIntegral bh)]
       _ -> throwDbError "An error occured\
                         \ while querying the\
                         \ VersionedTables table for table names."
 
-tableMaintenanceVersionedTables :: DbConstraints m SQLiteEnv => BlockVersion -> m ()
-tableMaintenanceVersionedTables (BlockVersion (BlockHeight bh) _) = do
+dropVersionedTables :: BlockVersion -> VersionHandler SQLiteEnv ()
+dropVersionedTables (BlockVersion (BlockHeight bh) _) = do
   tblNames <- callDb $ \db -> qry db
               "SELECT tablename FROM VersionedTables\
-              \ WHERE blockheight>=?"
+              \ WHERE blockheight >=?"
               [SInt (fromIntegral bh)]
               [RText]
+  -- REWRITE ERROR WITH INTERNALERROR PREFIX
   forM_ tblNames $ \case
-      [name@(SText _)] -> callDb $ \db -> exec' db "DROP TABLE ?" [name]
+      [name@(SText _)] -> do
+        callDb $ \db -> exec' db "DROP TABLE ?" [name]
       _ -> throwDbError "An error occured\
                         \ while querying the\
                         \ VersionedTables table for table names."
 
-deleteHistory :: DbConstraints m SQLiteEnv => BlockVersion -> m ()
-deleteHistory (BlockVersion bh _) =  callDb $ \db ->
-  exec' db
-    "DELETE FROM BlockHistory\
-    \ WHERE BlockHistory.blockheight >= ?"
-    [SInt (fromIntegral bh)]
+deleteHistory :: BlockVersion -> VersionHandler SQLiteEnv ()
+deleteHistory (BlockVersion bh _) = do
+  callDb $ \db -> exec' db "DELETE FROM BlockHistory\
+                           \ WHERE BlockHistory.blockheight >= ?"
+                  [SInt (fromIntegral bh)]
 
-beginSavepoint :: DbConstraints m SQLiteEnv => SavepointName ->  m ()
+beginSavepoint :: SavepointName ->  VersionHandler SQLiteEnv ()
 beginSavepoint (SavepointName name) =
   callDb $ \db -> exec_ db ("SAVEPOINT " <> Utf8 name <> ";")
 
-commitSavepoint :: DbConstraints m SQLiteEnv => SavepointName -> m ()
+commitSavepoint :: SavepointName -> VersionHandler SQLiteEnv ()
 commitSavepoint (SavepointName name) =
   callDb $ \db -> exec_ db ("RELEASE SAVEPOINT " <> Utf8 name <> ";")
 
-rollbackSavepoint :: DbConstraints m SQLiteEnv => SavepointName ->  m ()
+rollbackSavepoint :: SavepointName -> VersionHandler SQLiteEnv ()
 rollbackSavepoint (SavepointName name) =
   callDb $ \db -> exec_ db ("ROLLBACK TRANSACTION TO SAVEPOINT " <> Utf8 name <> ";")
 
-preBlock :: DbConstraints m SQLiteEnv => m a -> m a
-preBlock action = do
+withPreBlockSavepoint :: VersionHandler SQLiteEnv a -> VersionHandler SQLiteEnv a
+withPreBlockSavepoint action = do
   beginSavepoint "PREBLOCK"
   result <- tryAny action
   case result of
@@ -444,89 +401,23 @@ preBlock action = do
       commitSavepoint "PREBLOCK"
       return r
 
-expectSing :: Show a => String -> [a] -> IO a
-expectSing _ [s] = return s
-expectSing desc v = throwDbError $ "Expected single-" <> prettyString desc <> " result, got: " <> viaShow v
-
-_preBlockTest :: IO ()
-_preBlockTest = undefined
-
-initSchema :: DbConstraints m SQLiteEnv => m ()
+initSchema :: VersionHandler SQLiteEnv ()
 initSchema = do
+  let initBlock = BlockVersion (BlockHeight 0) (ReorgVersion 0)
+      toTableName :: Domain k v -> TableName
+      toTableName = TableName . flip T.snoc ']' . T.cons '[' . asString
+      bh00 = BlockHeight 0
+      hash00 = nullBlockHash
   createBlockHistoryTable
   createVersionHistoryTable
   createVersionedTablesTable
-  createVersionedTable "SYS:keysets" (BlockVersion (BlockHeight 0) (ReorgVersion 0))
-  createVersionedTable "SYS:modules" (BlockVersion (BlockHeight 0) (ReorgVersion 0))
-  createVersionedTable "SYS:namespaces" (BlockVersion (BlockHeight 0) (ReorgVersion 0))
-  createVersionedTable "SYS:txid" (BlockVersion (BlockHeight 0) (ReorgVersion 0))
+  {- initSchema records the FIRST BLOCK -}
+  blockHistoryInsert bh00 hash00
+  versionHistoryInsert initBlock
+  createVersionedTable (toTableName KeySets) initBlock
+  createVersionedTable (toTableName Modules) initBlock
+  createVersionedTable (toTableName Namespaces) initBlock
+  createVersionedTable (toTableName Pacts) initBlock
+  -- createVersionedTable "SYS:txid" initBlock -- I think this is an error.
 
--- keysetTest :: IO ()
--- keysetTest = withTempSQLiteConnection [] Nothing $ runReaderT $ do
-
---       initSchema
-
---       let ksData :: Text -> Value
---           ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-
---       -- init block
-
---       let bh00 = BlockHeight 0
---           hash00 = nullBlockHash
---           v0 = ReorgVersion 0
---           bv00 = BlockVersion bh00 v0
-
---       systemInsert (BlockHistory bh00 hash00)
---       systemInsert (VersionHistory bv00)
---       addKeyset "k1" bh00 v0 (TxId 0) (ksData "1")
-
---       -- next block (blockheight 1, version 0)
-
---       let bh01 = BlockHeight 1
---       hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
---       -- let bv01 = BlockVersion bh01 v0
---       mversionchange1 <- detectVersionChange bh01 hash00
---       liftIO $ print mversionchange1
---       bv_change1 <- versionOp mversionchange1
---       addKeyset "k2" bh01 (_bvVersion bv_change1) (TxId 1) (ksData "2")
-
---       commitSavepoint "BLOCK"
---       systemInsert (BlockHistory bh01 hash01)
-
---       -- next block (blockheight 1, version 1) [forking]
-
---       let bh11 = BlockHeight 1
---       hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
---       -- let bv01' = BlockVersion bh11 v0
---       mversionchange2 <- detectVersionChange bh11 hash00
---       liftIO $ print mversionchange2
---       bv_change2 <- versionOp mversionchange2
---       addKeyset "k1" bh11 (_bvVersion bv_change2) (TxId 1) (ksData "1")
---       systemInsert (BlockHistory bh11 hash11)
---       systemInsert (VersionHistory bv_change2)
---       commitSavepoint "BLOCK"
-
-
-
---       bhRes <- callDb $ \db -> qry_ db "SELECT * FROM BlockHistory;" [RInt, RBlob]
---       liftIO $ putStrLn "BlockHistory Table"
---       liftIO $ mapM_ (putStrLn . intercalate "|" . map show) bhRes
-
---       vhRes <- callDb $ \db -> qry_ db "SELECT * FROM VersionHistory;" [RInt, RInt]
---       liftIO $ putStrLn "VersionHistory Table"
---       liftIO $ mapM_ (putStrLn . intercalate "|" . map show) vhRes
-
---       liftIO $ putStrLn "VersionedTables"
---       vNames <- callDb $ \db -> qry_ db "SELECT tablename FROM VersionedTables" [RText]
---       forM_ vNames $ \case
---         [SText name] -> do
---           liftIO $ print name
---           tbl <- callDb $ \db -> qry_ db ("SELECT * FROM " <> name) [RText, RInt, RInt, RInt, RBlob]
---           liftIO $ mapM_ (putStr . (++ "\n") . intercalate "|" . map show) tbl
---         _ ->  throwM $ userError "Somehow did not get a table name."
-
-_addKeyset :: DbConstraints m SQLiteEnv => RowKey -> BlockHeight -> ReorgVersion -> TxId -> Value -> m ()
-_addKeyset keyname = insertDomain keyname (TableName "SYS:keysets")
-
-
-{--- ensure that restore on a new block cannot cause a version change --}
+{-- ensure that restore on a new block cannot cause a version change --}
