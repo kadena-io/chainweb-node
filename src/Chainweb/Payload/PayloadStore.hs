@@ -69,8 +69,6 @@ import Chainweb.Version
 
 import Data.CAS
 
-type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
-
 -- -------------------------------------------------------------------------- --
 -- Transaction Database
 

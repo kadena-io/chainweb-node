@@ -334,7 +334,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer
-        withCutResources cutConfig peer cutLogger webchain payloadDb mgr pact $ \cuts -> do
+        withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
