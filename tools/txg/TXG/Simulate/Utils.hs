@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Chainweb.Simulate.Utils where
+module TXG.Simulate.Utils where
 
 import Control.Monad.IO.Class
 

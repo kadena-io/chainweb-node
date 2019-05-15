@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -21,6 +22,7 @@ module Data.CAS
 , IsCas(..)
 , casMember
 , casLookupM
+, CasConstraint
 ) where
 
 import Control.DeepSeq
@@ -75,3 +77,4 @@ newtype CasException = CasException Text
 
 instance Exception CasException
 
+type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)

@@ -108,12 +108,13 @@ withTestCutDb
 withTestCutDb rdb v n pact logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
+        cutHashesDb = cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore  $ \cutDb -> do
+            withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
 
@@ -203,14 +204,16 @@ startTestPayload
 startTestPayload rdb v logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let payloadDb = newPayloadDb rocksDb
+        cutHashesDb = cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore
+    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
+
 
 stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
 stopTestPayload (pserver, hserver, cutDb, _) = do
@@ -394,4 +397,3 @@ fakePact = WebPactExecutionService $ PactExecutionService
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = toCoinbaseOutput noCoinbase
     fakeMiner = MinerData "fakeMiner"
-
