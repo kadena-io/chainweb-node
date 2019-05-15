@@ -69,13 +69,11 @@ noSPV = noSPVSupport
 --
 pactSPV
     :: HasCallStack
-    => PayloadCas cas
     => MVar (CutDb cas)
       -- ^ a handle to the the cut db to look up tx proofs
-    -> PayloadDb cas
       -- ^ a handle to the payload db to look up tx ixes
     -> SPVSupport
-pactSPV cdbv _pdb =
+pactSPV cdbv =
     -- SPVSupport :: Text -> Object Name -> IO (Either Text (Object Name))
     SPVSupport $ \s o -> readMVar cdbv >>= spv s o
   where
@@ -108,7 +106,7 @@ pactSPV cdbv _pdb =
       in case r of
         Error e -> spvError e
         Success t -> pure t
-        
+
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.

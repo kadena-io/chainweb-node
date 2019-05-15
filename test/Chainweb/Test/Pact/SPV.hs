@@ -68,13 +68,13 @@ import Pact.Types.Exp
 test :: IO ()
 test = do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v Nothing Nothing (return mempty)
+    pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
             -- pact service, that is used to extend the cut data base
-            pact1 <- testWebPactExecutionService v Nothing (Just cdb) txGenerator1
+            pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
             syncPact cutDb pact1
 
             -- get tx output from `(coin.delete-coin ...)` call
@@ -103,7 +103,7 @@ test = do
             void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            pact2 <- testWebPactExecutionService v Nothing (Just cdb) $ txGenerator2 txo1
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 txo1
             syncPact cutDb pact2
 
             void $! S.head_ $ extendTestCutDb cutDb pact2 1

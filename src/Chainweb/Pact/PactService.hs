@@ -78,7 +78,6 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -114,22 +113,19 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
 
 
 initPactService
-    :: ( PayloadCas cas
-       , Logger logger
-       )
+    :: Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
     -> MVar (CutDb cas)
-    -> PayloadDb cas
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv pdb =
+initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv =
     initPactService' cid chainwebLogger spv $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
   where
-    spv = pactSPV cdbv pdb
+    spv = pactSPV cdbv
 
 initPactService'
     :: Logger logger

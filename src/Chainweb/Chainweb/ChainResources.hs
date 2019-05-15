@@ -121,7 +121,7 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv pdb inner =
     Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool cdbv pdb $ \requestQ -> do
+    withPactService v cid (setComponent "pact" logger) mempool cdbv $ \requestQ -> do
     withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
