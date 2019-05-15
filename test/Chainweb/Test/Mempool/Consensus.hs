@@ -62,7 +62,6 @@ prop_validTxSource db genBlock = monadicIO $ do
     ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
     ForkInfo{..} <- genFork db ht genBlock
 
-
     reIntroTransV <- run $
         processFork (alogFunction aNoLog) fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV

@@ -55,10 +55,6 @@ import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
--- main = withTempRocksDb "chainweb-tests" $ \rdb ->
-    -- defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
-    --     $ pactTestSuite rdb
-    --     : suite rdb
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db -> do
