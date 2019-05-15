@@ -20,21 +20,14 @@ module Chainweb.Pact.SPV
 ) where
 
 
-import GHC.Generics hiding (to)
 import GHC.Stack
 
 import Control.Concurrent.MVar
-import Control.DeepSeq
 import Control.Lens hiding (index)
-import Control.Monad (unless)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
-import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
-import Data.Maybe (isJust)
-import Data.Text (unpack)
 
 import Crypto.Hash.Algorithms
 
@@ -44,16 +37,13 @@ import qualified Streaming.Prelude as S
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, cutDbBlockHeaderDb)
+import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
-import Chainweb.SPV.CreateProof
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -62,48 +52,10 @@ import Data.CAS
 
 -- internal pact modules
 
-import Pact.Types.Hash
 import Pact.Types.Command
+import Pact.Types.Hash
 import Pact.Types.Runtime hiding (ChainId)
 
-
--- -------------------------------------------------------------------------- --
--- spv data (internal use only)
-
-newtype DeleteChainId = DeleteChainId { _deleteChainId :: ChainId }
-
-deleteChainId :: Getter DeleteChainId ChainId
-deleteChainId = to _deleteChainId
-
-newtype TargetChainId = TargetChainId { _targetChainId :: ChainId }
-
-targetChainId :: Getter TargetChainId ChainId
-targetChainId = to _targetChainId
-
-data SpvResources = SpvResources
-  { _spvDeleteChainId :: DeleteChainId
-  , _spvTargetChainId :: TargetChainId
-  , _spvBlockHeight :: BlockHeight
-  , _spvPactHash :: PactHash
-  }
-
-spvDeleteChainId :: Getter SpvResources DeleteChainId
-spvDeleteChainId = to _spvDeleteChainId
-
-spvTargetChainId :: Getter SpvResources TargetChainId
-spvTargetChainId = to _spvTargetChainId
-
-spvBlockHeight :: Getter SpvResources BlockHeight
-spvBlockHeight = to _spvBlockHeight
-
-spvPactHash :: Getter SpvResources PactHash
-spvPactHash = to _spvPactHash
-
-fromTransactionProof :: TransactionProof SHA512t_256 -> Object Name
-fromTransactionProof = undefined
-
-fromTransactionOutputProof :: TransactionOutputProof SHA512t_256 -> Object Name
-fromTransactionOutputProof = undefined
 
 -- -------------------------------------------------------------------------- --
 -- Noop and std pact spv support
@@ -123,74 +75,54 @@ pactSPV
     -> PayloadDb cas
       -- ^ a handle to the payload db to look up tx ixes
     -> SPVSupport
-pactSPV cdbv pdb =
+pactSPV cdbv _pdb =
     -- SPVSupport :: Text -> Object Name -> IO (Either Text (Object Name))
     SPVSupport $ \s o -> readMVar cdbv >>= spv s o
   where
     -- extract spv resources from pact object
-    spv s o cdb =
-      withSpvResources cdb pdb o extract $ go s cdb
+    spv s o cdb = case s of
+      "TXOUT" -> do
+        t <- mkProof o
+        u <- verifyTransactionProof cdb t
+        v <- txToJSON u
+        pure $! Right v
+      "TXIN" -> spvError "TXIN is currently unsupported"
 
-    -- create and verify proofs via chainweb api
-    go s cdb (SpvResources cid tid bh _) tix =
-      case s of
-        "TXIN"  ->
-          error "TODO: create TransactionProof pact :: IO (Either Text (Object Name))"
-        "TXOUT" -> do
-          error "TODO: create TransactionOutputProof pact object :: IO (Either Text (Object Name))"
-        t -> pure . Left
-          $ "TXIN/TXOUT must be specified to generate a valid spv: "
-          <> t
+      x -> pure . Left
+        $ "TXIN/TXOUT must be specified to generate a valid spv: "
+        <> x
 
-    extract = error "TODO: extract data from pact object"
+    mkProof :: Object Name -> IO (TransactionProof SHA512t_256)
+    mkProof (Object o a b c) =
+      let
+        r = fromJSON . toJSON
+          $ TObject (Object o a b c) def
+      in case r of
+        Error e -> spvError e
+        Success t -> pure t
 
--- | Handle that allows us to work with the cutdb
--- and the payload db for a given proof subject
---
-withSpvResources
-    :: PayloadCas cas
-    => CutDb cas
-      -- ^ cutdb can retrieve blockheader db and generate spv
-      -- transaction proofs
-    -> PayloadDb cas
-      -- ^ used to look up tx index along with block header db
-    -> Object Name
-      -- ^ the SPV object to verify
-    -> (Object Name -> IO SpvResources)
-      -- ^ the action that extracts relevant data from an object
-    -> (SpvResources -> Int -> IO a)
-      -- ^ the action that produces the final spv result
-    -> IO a
-withSpvResources cdb pdb o extract act = do
-  t <- extract o
-
-  let cid = t ^. spvDeleteChainId . deleteChainId
-      bh  = t ^. spvBlockHeight
-      ph  = t ^. spvPactHash
-
-  bdb <- case cdb ^? cutDbBlockHeaderDb cid of
-    Nothing -> spvError
-      $ "no blockheader db found for chain id: "
-      <> show cid
-    Just a -> pure a
-
-  tix <- getTxIdx bdb pdb bh ph
-
-  act t tix
+    txToJSON :: Transaction -> IO (Object Name)
+    txToJSON tx =
+      let
+        r = fromJSON . toJSON $ tx
+      in case r of
+        Error e -> spvError e
+        Success t -> pure t
+        
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
 --
 -- Note: runs in O(n) - this should be revisited if possible
 --
-getTxIdx
+_getTxIdx
     :: PayloadCas cas
     => BlockHeaderDb
     -> PayloadDb cas
     -> BlockHeight
     -> PactHash
     -> IO Int
-getTxIdx bdb pdb bh th = do
+_getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap _blockPayloadHash
         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
@@ -224,5 +156,5 @@ getTxIdx bdb pdb bh th = do
 
 -- | Prepend "spvSupport" to any errors so we can differentiate
 --
-spvError :: String -> IO a
+spvError :: forall a. String -> IO a
 spvError = internalError' . (<>) "spvSupport: "
