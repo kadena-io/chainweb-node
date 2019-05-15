@@ -25,7 +25,6 @@ import Data.Aeson hiding (Object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
-import qualified Data.Sequence as Seq
 
 import Crypto.Hash.Algorithms
 
@@ -147,18 +146,27 @@ getTxIdx bdb pdb bh th = do
             Nothing -> spvError "unable to find payload associated with transaction hash"
             Just x -> return x
 
-    -- Get transactions
-    txs <- fmap fst . _payloadWithOutputsTransactions <$> casLookupM pdb ph
-    cmds <- traverse toTxHash txs
+    -- Get payload
+    payload <- _payloadWithOutputsTransactions <$> casLookupM pdb ph
 
-    -- find hash in txs
-    case Seq.findIndexL (== th) cmds of
+    r <- S.each payload
+        & S.map fst
+        & S.mapM toTxHash
+        & index (== th)
+
+    case r of
         Nothing -> spvError "unable to find transaction at the given block height"
-        Just x -> return $ int x
+        Just x -> return x
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow b
 
     toTxHash :: MonadThrow m => Transaction -> m PactHash
     toTxHash = fmap _cmdHash . toPactTx
+
+    find :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe a)
+    find p = S.head_ . S.dropWhile (not . p)
+
+    index :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
+    index p s = S.zip (S.each [0..]) s & find (p . snd) & fmap (fmap fst)
 
