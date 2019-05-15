@@ -92,8 +92,10 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.STM.TVar
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control
@@ -104,16 +106,19 @@ import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+import Data.Time
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import Network.Wai (Middleware)
 import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
-import Network.Wai (Middleware)
 import Network.Wai.UrlMap
+
+import Numeric.Natural
 
 import System.IO
 import qualified System.Logger as L
@@ -124,7 +129,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.HostAddress
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 
 import Data.LogMessage
 
@@ -449,6 +454,12 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend
 
+elasticSearchBatchSize :: Natural
+elasticSearchBatchSize = 1000
+
+elasticSearchBatchDelayMs :: Natural
+elasticSearchBatchDelayMs = 1000
+
 -- | A backend for JSON log messags that sends all logs to the given index of an
 -- Elasticsearch server. The index is created at startup if it doesn't exist.
 -- Messages are sent in a fire-and-forget fashion. If a connection fails, the
@@ -472,46 +483,72 @@ withElasticsearchBackend
     -> (Backend a -> IO b)
     -> IO b
 withElasticsearchBackend mgr esServer ixName inner = do
-    void $ HTTP.httpLbs putIndex mgr
-        -- FIXME Do we need failure handling? If this fails the exeption
-        -- is propagated to the main applcation
-
+    i <- curIxName
+    createIndex i
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
+    curIxName = do
+        d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
+        return $ ixName <> "-" <> d
+
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
 
+    -- Collect messages. If there is at least one pending message, submit a
+    -- `_bulk` request every second or when the batch size is 1000 messages,
+    -- whatever happens first.
+    --
     processor queue = do
-        (n, msg) <- atomically $ do
+        i <- curIxName
+
+        -- set timer to 1 second
+        timer <- registerDelay (int elasticSearchBatchDelayMs)
+
+        -- Fill the batch
+        (remaining, batch) <- atomically $ do
+            -- ensure that there is at least one transaction in every batch
             h <- readTBQueue queue
-            go (1000 :: Int) (indexAction h) (1 :: Int)
-        errorLogFun Info $ "send " <> sshow n <> " messages"
+            go i elasticSearchBatchSize (indexAction i h) timer
 
-        void $ HTTP.httpLbs (putBulgLog msg) mgr
+        createIndex i
+        errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
+        void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go 0 !b !c = return (c, b)
-        go i !b !c = tryReadTBQueue queue >>= \case
-            Nothing -> return (c, b)
-            Just x -> go i (b <> indexAction x) (pred c)
+        go _ 0 !batch _ = return (0, batch)
+        go i !remaining !batch !timer = isTimeout `orElse` fill
+          where
+            isTimeout = do
+                check =<< readTVar timer
+                return (remaining, batch)
+            fill = tryReadTBQueue queue >>= \case
+                Nothing -> return (remaining, batch)
+                Just x -> do
+                    go i (pred remaining) (batch <> indexAction i x) timer
 
+    createIndex i =
+        void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
+            `catch` \case
+                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) ->
+                    HTTP.httpLbs (putIndex i) mgr
+                ex -> throwM ex
 
-    putIndex = HTTP.defaultRequest
+    putIndex i = HTTP.defaultRequest
         { HTTP.method = "PUT"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName
+        , HTTP.path = T.encodeUtf8 i
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    _putLog a = HTTP.defaultRequest
+    _putLog i a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName <> "/_doc"
+        , HTTP.path = T.encodeUtf8 i <> "/_doc"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
@@ -528,16 +565,16 @@ withElasticsearchBackend mgr esServer ixName inner = do
         }
 
     e = fromEncoding . toEncoding
-    indexAction a
-        = fromEncoding indexActionHeader
+    indexAction i a
+        = fromEncoding (indexActionHeader i)
         <> BB.char7 '\n'
         <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
         <> BB.char7 '\n'
 
-    indexActionHeader :: Encoding
-    indexActionHeader = pairs
+    indexActionHeader :: T.Text -> Encoding
+    indexActionHeader i = pairs
         $ pair "index" $ pairs
-            $ ("_index" .= (ixName :: T.Text))
+            $ ("_index" .= (i :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
 
 -- -------------------------------------------------------------------------- --

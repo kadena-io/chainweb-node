@@ -132,6 +132,11 @@ mkSuccess
 spvError :: String -> IO a
 spvError = internalError' . (<>) "spvSupport: "
 
+-- | Look up pact tx hash at some block height in the
+-- payload db, and return the tx index for proof creation.
+--
+-- Note: runs in O(n) - this should be revisited if possible
+--
 getTxIdx
     :: PayloadCas cas
     => BlockHeaderDb
@@ -149,6 +154,7 @@ getTxIdx bdb pdb bh th = do
     -- Get payload
     payload <- _payloadWithOutputsTransactions <$> casLookupM pdb ph
 
+    -- Find transaction index
     r <- S.each payload
         & S.map fst
         & S.mapM toTxHash
