@@ -130,6 +130,7 @@ pactSPV
       -- ^ a handle to the payload db to look up tx ixes
     -> SPVSupport
 pactSPV cdbv pdb =
+    -- SPVSupport :: Text -> Object Name -> IO (Either Text (Object Name))
     SPVSupport $ \s o -> readMVar cdbv >>= spv s o
   where
     -- extract spv resources from pact object
@@ -140,14 +141,14 @@ pactSPV cdbv pdb =
     go s cdb (SpvResources cid tid bh _) tix =
       case s of
         "TXIN"  ->
-          undefined
+          error "TODO: create TransactionProof pact :: IO (Either Text (Object Name))"
         "TXOUT" -> do
-          undefined
-        t -> spvError
-          $ "TXIN/TXOUT must be specified to generate a valid spv proof: "
-          <> unpack t
+          error "TODO: create TransactionOutputProof pact object :: IO (Either Text (Object Name))"
+        t -> pure . Left
+          $ "TXIN/TXOUT must be specified to generate a valid spv: "
+          <> t
 
-    extract = undefined
+    extract = error "TODO: extract data from pact object"
 
 -- | Handle that allows us to work with the cutdb
 -- and the payload db for a given proof subject
