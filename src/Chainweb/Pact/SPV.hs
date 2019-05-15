@@ -159,13 +159,13 @@ withSpvResources
       -- ^ cutdb can retrieve blockheader db and generate spv
       -- transaction proofs
     -> PayloadDb cas
-      -- ^ used to look up tx index along with block header
-      -- db
+      -- ^ used to look up tx index along with block header db
     -> Object Name
-      -- the SPV object to verify
+      -- ^ the SPV object to verify
     -> (Object Name -> IO SpvResources)
-      -- the action that extracts relevant data from an object
-    -> (SpvResources -> Natural -> IO a)
+      -- ^ the action that extracts relevant data from an object
+    -> (SpvResources -> Int -> IO a)
+      -- ^ the action that produces the final spv result
     -> IO a
 withSpvResources cdb pdb o extract act = do
   t <- extract o
@@ -182,7 +182,7 @@ withSpvResources cdb pdb o extract act = do
 
   tix <- getTxIdx bdb pdb bh ph
 
-  act t (int tix)
+  act t tix
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
@@ -195,7 +195,7 @@ getTxIdx
     -> PayloadDb cas
     -> BlockHeight
     -> PactHash
-    -> IO Natural
+    -> IO Int
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap _blockPayloadHash
@@ -214,7 +214,7 @@ getTxIdx bdb pdb bh th = do
 
     case r of
         Nothing -> spvError "unable to find transaction at the given block height"
-        Just x -> return x
+        Just x -> return (int x)
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow b
