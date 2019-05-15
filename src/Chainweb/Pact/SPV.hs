@@ -4,9 +4,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -15,7 +12,8 @@
 -- Maintainers: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
--- Pact Service SPV support and utils
+-- Pact Service SPV support and internal resources
+--
 module Chainweb.Pact.SPV
 ( noSPV
 , pactSPV
@@ -73,15 +71,11 @@ import Pact.Types.Runtime hiding (ChainId)
 -- spv data (internal use only)
 
 newtype DeleteChainId = DeleteChainId { _deleteChainId :: ChainId }
-  deriving (Eq, Show, Generic)
-  deriving newtype NFData
 
 deleteChainId :: Getter DeleteChainId ChainId
 deleteChainId = to _deleteChainId
 
 newtype TargetChainId = TargetChainId { _targetChainId :: ChainId }
-  deriving (Eq, Show, Generic)
-  deriving newtype NFData
 
 targetChainId :: Getter TargetChainId ChainId
 targetChainId = to _targetChainId
