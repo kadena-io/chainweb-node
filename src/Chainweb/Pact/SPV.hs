@@ -99,10 +99,10 @@ spvBlockHeight = to _spvBlockHeight
 spvPactHash :: Getter SpvResources PactHash
 spvPactHash = to _spvPactHash
 
-fromTransactionProof :: Iso' (Object Name) (TransactionProof SHA512t_256)
+fromTransactionProof :: TransactionProof SHA512t_256 -> Object Name
 fromTransactionProof = undefined
 
-fromTransactionOutputProof :: Iso' (Object Name) (TransactionOutputProof SHA512t_256)
+fromTransactionOutputProof :: TransactionOutputProof SHA512t_256 -> Object Name
 fromTransactionOutputProof = undefined
 
 -- -------------------------------------------------------------------------- --
