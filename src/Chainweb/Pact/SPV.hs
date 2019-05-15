@@ -19,12 +19,15 @@ module Chainweb.Pact.SPV
 
 
 import Control.Concurrent.MVar
+import Control.Lens
+import Control.Monad (unless)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (fromStrict)
 import Data.Default (def)
+import Data.Maybe (isJust)
 
 import Crypto.Hash.Algorithms
 
@@ -132,6 +135,26 @@ mkSuccess
 spvError :: String -> IO a
 spvError = internalError' . (<>) "spvSupport: "
 
+
+withDbAndObject
+    :: PayloadCas cas
+    => BlockHeaderDb -> PayloadDb cas -> Object Name -> IO Natural
+withDbAndObject bdb pdb (Object (ObjectMap o) _ _ _) = do
+    let bh = o ^. at (FieldKey "delete-block-height")
+        ph = o ^. at (FieldKey "delete-tx-hash")
+
+    unless (isJust bh)
+      $ spvError
+      $ "cannot look up transaction index without a block-height entry: "
+      <> show o
+
+    unless (isJust ph)
+      $ spvError
+      $ "cannot look up transaction index without a tx hash"
+      <> show o
+
+    getTxIdx bdb pdb undefined undefined
+
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
 --
@@ -175,4 +198,3 @@ getTxIdx bdb pdb bh th = do
 
     index :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     index p s = S.zip (S.each [0..]) s & find (p . snd) & fmap (fmap fst)
-
