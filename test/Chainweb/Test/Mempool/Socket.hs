@@ -9,6 +9,7 @@ import Control.Exception
 import qualified Data.Pool as Pool
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
