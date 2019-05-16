@@ -43,6 +43,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -74,11 +75,8 @@ noSPV = noSPVSupport
 pactSPV
     :: HasCallStack
     => MVar (CutDb cas)
-      -- ^ a handle to the the cut db to look up tx proofs
     -> SPVSupport
-pactSPV cdbv =
-    -- SPVSupport :: Text -> Object Name -> IO (Either Text (Object Name))
-    SPVSupport $ \s o -> readMVar cdbv >>= spv s o
+pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
   where
     -- extract spv resources from pact object
     spv s o cdb = case s of
@@ -86,12 +84,11 @@ pactSPV cdbv =
         t <- mkProof o
         case t of
           Left e -> spvError (unpack e)
-          Right u -> txToJSON
-            =<< verifyTransactionOutputProof cdb u
+          Right u -> txToJSON =<< verifyTransactionOutputProof cdb u
       "TXIN" -> spvError "TXIN is currently unsupported"
 
       x -> pure . Left
-        $ "TXIN/TXOUT must be specified to generate a valid spv: "
+        $ "TXIN/TXOUT must be specified to generate valid spv proofs: "
         <> x
 
     mkProof
@@ -102,13 +99,14 @@ pactSPV cdbv =
         k a = case fromJSON . toJSON $ a of
           Error e -> spvError e
           Success u -> pure (Right u)
-
       in either (spvError . unpack) k . toPactValue $ TObject o def
 
     txToJSON :: TransactionOutput -> IO (Either Text (Object Name))
     txToJSON (TransactionOutput t) =
       case decodeStrict @HashedLogTxOutput t of
-        Nothing -> spvError "Unable to decode spv transaction output"
+        Nothing ->
+          -- this should be considered an internal error
+          internalError "Unable to decode spv transaction output"
         Just (HashedLogTxOutput u _) ->
           case fromJSON @(CommandSuccess (Term Name)) u of
             Error e -> spvError e
@@ -117,9 +115,10 @@ pactSPV cdbv =
                 outputs = fromList
                   [ (FieldKey "outputs", TObject o def)
                   ]
-              in
-                pure . Right $ set oObject (ObjectMap outputs) o
-            Success _ -> spvError "Associated pact transaction has wrong format"
+              in pure . Right $ set oObject (ObjectMap outputs) o
+            Success _ -> internalError $
+              -- if we get here, then the proof is corrupted
+              "Associated pact transaction has wrong format"
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
