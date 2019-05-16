@@ -17,10 +17,10 @@
 --
 module Chainweb.Test.Pact.SPV
 ( tests
+, spv
 ) where
 
 
-import Control.Concurrent
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
 import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
@@ -32,7 +32,8 @@ import Data.LogMessage
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
-
+import Test.Tasty
+import Test.Tasty.HUnit
 
 import NeatInterpolation (text)
 
@@ -46,7 +47,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
-import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
@@ -63,8 +63,10 @@ import Data.CAS.RocksDB
 
 import Pact.Types.Term
 
-tests :: ScheduleTest
-tests = testGroupSch "Pact SPV verification round trip" [ spv ]
+tests :: TestTree
+tests = testGroup "Chainweb-Pact SPV support"
+    [ testCase "SPV verification round trip" spv
+    ]
 
 spv :: IO ()
 spv = do

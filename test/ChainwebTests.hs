@@ -66,7 +66,6 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact.SPV.test
         ]
 
 suite :: RocksDb -> [ScheduledTest]
@@ -84,6 +83,7 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests rdb
+        , Chainweb.Test.Pact.SPV.tests
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
