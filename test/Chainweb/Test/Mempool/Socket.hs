@@ -9,7 +9,6 @@ import Control.Exception
 import qualified Data.Pool as Pool
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
-import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
@@ -17,9 +16,8 @@ import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Mempool.Socket as M
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
-import Chainweb.Test.Utils (toyChainId)
+import Chainweb.Test.Utils (toyChainId, toyVersion)
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version
 import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
@@ -45,10 +43,6 @@ data TestServer = TestServer {
   , _tsLocalMempool :: !(MempoolBackend MockTx)
   , _tsServerThread :: !ThreadId
 }
-
--- copied from Chainweb.Test.Utils
-toyVersion :: ChainwebVersion
-toyVersion = Test singletonChainGraph
 
 newTestServer :: InMemConfig MockTx -> IO TestServer
 newTestServer inmemCfg = mask_ $ do

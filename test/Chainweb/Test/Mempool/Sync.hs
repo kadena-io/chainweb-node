@@ -23,15 +23,13 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
-import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
-import Chainweb.Test.Utils (toyChainId)
+import Chainweb.Test.Utils (toyChainId, toyVersion)
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version
 import Data.CAS.RocksDB
 
 tests :: TestTree
@@ -52,10 +50,6 @@ tests = mempoolProperty "Mempool.syncMempools" gen
       let zss = Set.fromList zs `Set.difference` (xss `Set.union` yss)
       pre (not (Set.null xss || Set.null yss || Set.null zss) && length ys < 10000 && length zs < 10000)
       return (xss, yss, zss)
-
--- copied from Chainweb.Test.Utils
-toyVersion :: ChainwebVersion
-toyVersion = Test singletonChainGraph
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)

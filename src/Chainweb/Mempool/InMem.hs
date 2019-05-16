@@ -293,9 +293,9 @@ makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
     return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb payloadDb
   where
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
-                                          <*> newIORef HashMap.empty
-                                          <*> newIORef HashSet.empty
-                                          <*> return Nothing
+                                  <*> newIORef HashMap.empty
+                                  <*> newIORef HashSet.empty
+                                  <*> return Nothing
 
 ------------------------------------------------------------------------------
 makeSelfFinalizingInMemPool :: PayloadCas cas

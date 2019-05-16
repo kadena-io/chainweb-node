@@ -6,15 +6,13 @@ module Chainweb.Test.Mempool.InMem
 import Test.Tasty
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
-import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
-import Chainweb.Test.Utils (toyChainId)
+import Chainweb.Test.Utils (toyChainId, toyVersion)
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version
 import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
@@ -36,7 +34,3 @@ tests = testGroup "Chainweb.Mempool.InMem"
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 ----------------------------------------------------------------------------------------------------
-
--- copied from Chainweb.Test.Utils
-toyVersion :: ChainwebVersion
-toyVersion = Test singletonChainGraph
