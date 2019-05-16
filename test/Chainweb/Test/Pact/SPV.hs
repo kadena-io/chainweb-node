@@ -21,7 +21,7 @@ module Chainweb.Test.Pact.SPV
 
 
 import Control.Lens ((^.), at)
-import Control.Concurrent.MVar (newMVar)
+import Control.Concurrent.MVar (MVar, readMVar, newMVar)
 import Control.Exception (throwIO)
 
 import Data.Aeson (FromJSON, Value, (.=), object)
@@ -36,6 +36,7 @@ import Data.Text (unpack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
+import Crypto.Hash.Algorithms
 
 import NeatInterpolation (text)
 
@@ -47,10 +48,14 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
+import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Pact.SPV
 import Chainweb.Payload
+import Chainweb.SPV
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
@@ -103,7 +108,7 @@ test = do
             void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 txo1
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb txo1
             syncPact cutDb pact2
 
             void $! S.head_ $ extendTestCutDb cutDb pact2 1
@@ -118,12 +123,6 @@ test = do
 
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
-
-type PactSPVProof
-    = TransactionOutput
-
-type PactSPVProofObject
-    = Term Name
 
 -- | Generate burn/create Pact Service commands
 --
@@ -143,11 +142,14 @@ txGenerator1 _cid _bhe _bha =
 -- | Generate the 'create-coin' command in response
 -- to the previous 'delete-coin' call
 --
-txGenerator2 :: PactSPVProof -> TransactionGenerator
-txGenerator2 p _cid _bhe _bha =
-    mkPactTestTransactions' . txs =<< extractHash p
+txGenerator2 :: MVar (CutDb cas) -> TransactionOutput -> TransactionGenerator
+txGenerator2 cdbv p _cid _bhe _bha = do
+    cdb <- readMVar cdbv
+    q <- extractHash p
+    r <- createProofObject cdb (unsafeChainId 0) (unsafeChainId 1) 1
+    mkPactTestTransactions' (txs q r)
   where
-    txs q = fromList
+    txs q _r = fromList
       [ PactTransaction tx1Code (tx1Data q)
       ]
 
@@ -179,6 +181,15 @@ txGenerator2 p _cid _bhe _bha =
          , "delete-hash" .= q
          ]
 
+
+createProofObject
+    :: CutDb cas
+    -> ChainId
+    -> ChainId
+    -> BlockHeight
+    -> IO Value
+createProofObject cdb cid tid bh = undefined
+
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api
 --
@@ -201,33 +212,19 @@ keys = Just $ object [ "sender01-keys" .= k ]
 -- | Given a 'TransactionOutput', we must extract the data yielded
 -- by a successful result, so that we can pass this along to as the
 -- 'coin.create-coin' proof
-extractHash :: PactSPVProof -> IO String
+extractHash :: TransactionOutput -> IO String
 extractHash (TransactionOutput t) = do
     hl <- fromBS @HashedLogTxOutput t _hlCommandResult
     cr <- toResult hl
     o <- toObject cr
     getHash o
-
   where
 
     toResult :: Value -> IO Value
     toResult v = fromValue v _csData
 
-    toObject :: Value -> IO PactSPVProofObject
+    toObject :: Value -> IO (Term Name)
     toObject v = fromValue v $ \o -> TObject o def
-
-    fromValue :: FromJSON a => Value -> (a -> b) -> IO b
-    fromValue v f = case A.fromJSON v of
-        A.Error e -> aesonErr e
-        A.Success s -> pure . f $ s
-
-    fromBS :: FromJSON a => ByteString -> (a -> b) -> IO b
-    fromBS bs f = maybe err (pure . f)
-        . A.decode
-        . fromStrict
-        $ bs
-      where
-        err = internalError "spvTests: could not decode bytes"
 
     getHash o = case o of
       (TObject (Object (ObjectMap m) _ _ _) _) ->
@@ -239,7 +236,20 @@ extractHash (TransactionOutput t) = do
       _ -> aesonErr "extractHash: wrong term type - object required"
 
 
-    aesonErr :: String -> IO a
-    aesonErr s = internalError'
-      $ "spvTests: could not decode proof object: "
-      <> s
+fromValue :: FromJSON a => Value -> (a -> b) -> IO b
+fromValue v f = case A.fromJSON v of
+    A.Error e -> aesonErr e
+    A.Success s -> pure . f $ s
+
+fromBS :: FromJSON a => ByteString -> (a -> b) -> IO b
+fromBS bs f = maybe err (pure . f)
+    . A.decode
+    . fromStrict
+    $ bs
+  where
+    err = internalError "spvTests: could not decode bytes"
+
+aesonErr :: String -> IO a
+aesonErr s = internalError'
+  $ "spvTests: could not decode proof object: "
+  <> s

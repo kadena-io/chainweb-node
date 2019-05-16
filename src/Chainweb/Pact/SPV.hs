@@ -17,7 +17,6 @@
 module Chainweb.Pact.SPV
 ( noSPV
 , pactSPV
-, getTxIdx
 ) where
 
 
