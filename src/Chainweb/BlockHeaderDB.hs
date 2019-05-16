@@ -78,12 +78,6 @@ import Numeric.Additive
 
 type E = BlockHeader
 
-encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeightBe (BlockHeight r) = putWord64be r
-
-decodeBlockHeightBe :: MonadGet m => m BlockHeight
-decodeBlockHeightBe = BlockHeight <$> getWord64be
-
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Header
 

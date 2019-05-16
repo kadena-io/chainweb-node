@@ -16,8 +16,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.Payload.PayloadStore
 (
 -- * Transaction Database
@@ -78,8 +76,6 @@ import Chainweb.Payload
 import Chainweb.Version
 
 import Data.CAS
-
-type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
 
 newtype PayloadNotFoundException = PayloadNotFoundException BlockPayloadHash
     deriving (Show, Eq, Ord, Generic)

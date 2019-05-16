@@ -762,10 +762,10 @@ reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 
 -- | TODO: maybe use Put/Get ?
-data Codec t = Codec {
-    codecEncode :: t -> ByteString
-  , codecDecode :: ByteString -> Either String t
-}
+data Codec t = Codec
+    { codecEncode :: t -> ByteString
+    , codecDecode :: ByteString -> Either String t
+    }
 
 -- | Perform an action over a random path under @/tmp@. Example path:
 --
