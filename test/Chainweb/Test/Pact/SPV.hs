@@ -149,8 +149,8 @@ txGenerator2 cdbv p _cid _bhe _bha = do
     r <- createProofObject cdb (unsafeChainId 0) (unsafeChainId 1) 1
     mkPactTestTransactions' (txs q r)
   where
-    txs q _r = fromList
-      [ PactTransaction tx1Code (tx1Data q)
+    txs q r = fromList
+      [ PactTransaction tx1Code (tx1Data q r)
       ]
 
     tx1Code =
@@ -163,15 +163,11 @@ txGenerator2 cdbv p _cid _bhe _bha = do
           , "quantity": 1.0
           , "create-account-guard": (read-keyset 'sender01-keys)
           , "delete-chain-id": 0
-          , "outputs" :
-            { "chain" : ...
-            , "quantify" : ...
-            , "blah" : ...
-            }
+          , "outputs" : (read-msg 'r)
           })
         |]
 
-    tx1Data q =
+    tx1Data q r =
       let k = KeySet
             [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
             ( Name "keys-all" def )
@@ -179,6 +175,7 @@ txGenerator2 cdbv p _cid _bhe _bha = do
       in Just $ object
          [ "sender01-keys" .= k
          , "delete-hash" .= q
+         , "outputs" .= r
          ]
 
 
