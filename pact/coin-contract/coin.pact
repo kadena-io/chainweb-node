@@ -200,8 +200,7 @@
 
   (defun create-coin (proof)
     (let ((outputs (at 'outputs (verify-spv "TXOUT" proof)))
-      (enforce (= 1 (length outputs)) "only one tx in outputs")
-      (bind (at 0 outputs)
+      (bind outputs
         { "create-chain-id":= create-chain-id
         , "create-account" := create-account
         , "create-account-guard" := create-account-guard
@@ -209,13 +208,20 @@
         , "delete-tx-hash" := delete-tx-hash
         , "delete-chain-id" := delete-chain-id
         }
-        (enforce (= (at "chain-id" (chain-data)) create-chain-id "enforce correct create chain ID"))
+
+        (enforce
+          (= (at "chain-id" (chain-data))
+            create-chain-id "enforce correct create chain ID"))
+
         (let ((create-id (format "%:%" [delete-tx-hash delete-chain-id])))
           (with-default-read create-id creates-table
             { "exists": false }
             { "exists":= exists }
+
             (enforce (not exists) (format "enforce unique usage of %" [create-id]))
+
             (insert creates-table create-id { "exists": true })
+
             (with-capability (TRANSFER)
               (credit create-account create-account-guard quantity)))
           )))

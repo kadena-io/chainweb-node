@@ -16,11 +16,14 @@
 -- TODO
 --
 module Chainweb.Test.Pact.SPV
-( test
+( tests
 ) where
 
 
+import Control.Concurrent
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
+import Control.Concurrent.STM
+import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.Default (def)
@@ -43,12 +46,14 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
+import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Data.CAS.RocksDB
@@ -58,8 +63,11 @@ import Data.CAS.RocksDB
 
 import Pact.Types.Term
 
-test :: IO ()
-test = do
+tests :: ScheduleTest
+tests = testGroupSch "Pact SPV verification round trip" [ spv ]
+
+spv :: IO ()
+spv = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -70,8 +78,17 @@ test = do
             pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
             syncPact cutDb pact1
 
+            c0 <- _cut cutDb
+
             -- get tx output from `(coin.delete-coin ...)` call
-            void . S.head_ $ extendTestCutDb cutDb pact1 1
+            (_, cid1, _) <- fmap fromJuste . S.head_ $ extendTestCutDb cutDb pact1 1
+
+            c <- atomically $ do
+              c1 <- _cutStm cutDb
+              check (c0 /= c1)
+              return c1
+
+            let bh1 = _blockHeight (c ^?! ixg cid1)
 
             -- A proof can only be constructed if the block hash of the source block
             -- is included in the block hash of the target. Extending the cut db with
@@ -94,7 +111,7 @@ test = do
             void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb cid1 bh1
             syncPact cutDb pact2
 
             void $! S.head_ $ extendTestCutDb cutDb pact2 1
@@ -131,12 +148,14 @@ txGenerator1 _cid _bhe _bha = do
 txGenerator2
     :: PayloadCas cas
     => MVar (CutDb cas)
+    -> ChainId
+    -> BlockHeight
     -> TransactionGenerator
-txGenerator2 cdbv _cid _bhe _bha = do
+txGenerator2 cdbv cid bhe _cid _bhe _bha = do
     cdb <- readMVar cdbv
 
     q <- fmap toJSON
-      $ createTransactionOutputProof cdb (unsafeChainId 1) (unsafeChainId 0) 0 0
+      $ createTransactionOutputProof cdb (unsafeChainId 1) cid bhe 0
 
     mkPactTestTransactions' (txs q)
   where

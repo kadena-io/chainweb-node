@@ -29,6 +29,7 @@ import Control.Monad.Catch
 import Data.Aeson hiding (Object, (.=))
 import Data.ByteString hiding (unpack, pack)
 import Data.Default (def)
+import Data.Map (fromList)
 import Data.Text (unpack, pack)
 
 import Crypto.Hash.Algorithms
@@ -113,8 +114,13 @@ pactSPV cdbv =
         Just (HashedLogTxOutput u _) ->
           case fromJSON @(CommandSuccess (Term Name)) u of
             Error e -> spvError e
-            Success (CommandSuccess (TObject o _)) -> pure (Right o)
-            Success v -> spvError $ show v
+            Success (CommandSuccess (TObject o@(Object _ a b c) _)) ->
+              let
+                outputs = fromList
+                  [ (FieldKey "outputs", TObject o def)
+                  ]
+              in pure . Right $ Object (ObjectMap outputs) a b c
+            Success v -> spvError "Associated pact transaction has wrong format"
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
