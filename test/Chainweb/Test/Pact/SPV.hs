@@ -81,10 +81,11 @@ spv = do
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
-
             -- get tx output from `(coin.delete-coin ...)` call
             (_, cid1, _) <- fmap fromJuste . S.head_ $ extendTestCutDb cutDb pact1 1
 
+            -- in order to ensure that the cutdb has a chance to establic consensus
+            -- we must enforce a wait time.
             c <- atomically $ do
               c1 <- _cutStm cutDb
               check (c0 /= c1)
@@ -113,11 +114,12 @@ spv = do
             void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
+            -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb cid1 bh1
             syncPact cutDb pact2
 
+            -- if we get this far, we have succeeded
             void $! S.head_ $ extendTestCutDb cutDb pact2 1
-
 
   where
     v = TimedCPM petersonChainGraph
@@ -155,14 +157,14 @@ txGenerator2
     -> TransactionGenerator
 txGenerator2 cdbv cid bhe tid _bhe _bha =
     if tid == unsafeChainId 1
-    then  return mempty
-    else do
+    then do
       cdb <- readMVar cdbv
 
       q <- fmap toJSON
         $ createTransactionOutputProof cdb tid cid bhe 0
 
       mkPactTestTransactions' (txs q)
+    else return mempty
   where
     txs q = fromList
       [ PactTransaction tx1Code (tx1Data q)

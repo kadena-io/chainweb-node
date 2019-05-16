@@ -39,6 +39,7 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 import Control.Concurrent.MVar
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
@@ -72,6 +73,7 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
+import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
 import Chainweb.Pact.PactService
@@ -220,7 +222,7 @@ testPactCtx v cid cdbv = do
     void $ saveInitial (_cpeCheckpointer cpe) dbSt
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv def)
+        <*> pure (PactServiceEnv Nothing cpe spv pd)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -228,6 +230,8 @@ testPactCtx v cid cdbv = do
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPV pactSPV cdbv
+    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+
 
 -- | A test PactExecutionService for a single chain
 --

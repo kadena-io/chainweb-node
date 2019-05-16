@@ -17,6 +17,7 @@
 module Chainweb.Pact.SPV
 ( noSPV
 , pactSPV
+, getTxIdx
 ) where
 
 
@@ -27,7 +28,6 @@ import Control.Lens hiding (index)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
-import Data.ByteString hiding (unpack, pack)
 import Data.Default (def)
 import Data.Map (fromList)
 import Data.Text (unpack, pack)
@@ -43,13 +43,11 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
-import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
@@ -60,9 +58,7 @@ import Data.CAS
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
-import Pact.Types.RPC
 import Pact.Types.Runtime hiding (ChainId)
-import Pact.Types.Term
 
 
 -- -------------------------------------------------------------------------- --
@@ -89,7 +85,7 @@ pactSPV cdbv =
       "TXOUT" -> do
         t <- mkProof o
         case t of
-          Left s -> spvError (unpack s)
+          Left e -> spvError (unpack e)
           Right u -> txToJSON
             =<< verifyTransactionOutputProof cdb u
       "TXIN" -> spvError "TXIN is currently unsupported"
@@ -98,7 +94,9 @@ pactSPV cdbv =
         $ "TXIN/TXOUT must be specified to generate a valid spv: "
         <> x
 
-    mkProof :: Object Name -> IO (Either Text (TransactionOutputProof SHA512t_256))
+    mkProof
+      :: Object Name
+      -> IO (Either Text (TransactionOutputProof SHA512t_256))
     mkProof o =
       let
         k a = case fromJSON . toJSON $ a of
@@ -114,61 +112,64 @@ pactSPV cdbv =
         Just (HashedLogTxOutput u _) ->
           case fromJSON @(CommandSuccess (Term Name)) u of
             Error e -> spvError e
-            Success (CommandSuccess (TObject o@(Object _ a b c) _)) ->
+            Success (CommandSuccess (TObject o _)) ->
               let
                 outputs = fromList
                   [ (FieldKey "outputs", TObject o def)
                   ]
-              in pure . Right $ Object (ObjectMap outputs) a b c
-            Success v -> spvError "Associated pact transaction has wrong format"
+              in
+                pure . Right $ set oObject (ObjectMap outputs) o
+            Success _ -> spvError "Associated pact transaction has wrong format"
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
 --
 -- Note: runs in O(n) - this should be revisited if possible
 --
--- getTxIdx
---     :: HasCallStack
---     => PayloadCas cas
---     => BlockHeaderDb
---     -> PayloadDb cas
---     -> BlockHeight
---     -> PactHash
---     -> IO Int
--- getTxIdx bdb pdb bh th = do
---     -- get BlockPayloadHash
---     ph <- fmap _blockPayloadHash
---         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
---             Nothing -> throwM . userError $
---               "unable to find payload associated with transaction hash"
---             Just x -> return x
+getTxIdx
+    :: HasCallStack
+    => PayloadCas cas
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> BlockHeight
+    -> PactHash
+    -> IO (Either Text Int)
+getTxIdx bdb pdb bh th = do
+    -- get BlockPayloadHash
+    ph <- fmap (fmap _blockPayloadHash)
+        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
+            Nothing -> spvError "unable to find payload associated with transaction hash"
+            Just x -> pure . Right $ x
 
---     -- Get payload
---     payload <- Right . _payloadWithOutputsTransactions <$> casLookupM pdb ph
+    case ph of
+      Left s -> pure . Left $ s
+      Right a -> do
+        -- get payload
+        payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
 
---     -- Find transaction index
---     r <- S.each payload
---         & S.map fst
---         & S.mapM toTxHash
---         & index (== th)
+      -- Find transaction index
+        r <- S.each payload
+          & S.map fst
+          & S.mapM toTxHash
+          & sindex (== th)
 
---     case r of
---         Nothing -> spvError "unable to find transaction at the given block height"
---         Just x -> return (int x)
---   where
---     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
---     toPactTx (Transaction b) = decodeStrictOrThrow b
+        case r of
+          Nothing -> spvError "unable to find transaction at the given block height"
+          Just x -> return . Right $ int x
+  where
+    toPactTx :: MonadThrow m => Transaction -> m (Command Text)
+    toPactTx (Transaction b) = decodeStrictOrThrow b
 
---     toTxHash :: MonadThrow m => Transaction -> m PactHash
---     toTxHash = fmap _cmdHash . toPactTx
+    toTxHash :: MonadThrow m => Transaction -> m PactHash
+    toTxHash = fmap _cmdHash . toPactTx
 
---     find :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe a)
---     find p = S.head_ . S.dropWhile (not . p)
+    sfind :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe a)
+    sfind p = S.head_ . S.dropWhile (not . p)
 
---     index :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
---     index p s = S.zip (S.each [0..]) s & find (p . snd) & fmap (fmap fst)
+    sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
+    sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
 -- | Prepend "spvSupport" to any errors so we can differentiate
 --
-spvError :: forall a. String -> IO (Either Text a)
+spvError :: String -> IO (Either Text a)
 spvError = pure . Left . (<>) "spvSupport: " . pack
