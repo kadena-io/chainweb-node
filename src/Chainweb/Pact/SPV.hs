@@ -54,7 +54,9 @@ import Data.CAS
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.PactValue
 import Pact.Types.Runtime hiding (ChainId)
+import Pact.Types.Term
 
 
 -- -------------------------------------------------------------------------- --
@@ -65,21 +67,32 @@ import Pact.Types.Runtime hiding (ChainId)
 noSPV :: SPVSupport
 noSPV = noSPVSupport
 
+fromRight :: Either a b -> IO b
+fromRight (Right b) = pure b
+fromRight (Left a) = spvError "REEEEEE"
+
 -- | Spv support for pact
 --
 pactSPV
     :: HasCallStack
     => MVar (CutDb cas)
       -- ^ a handle to the the cut db to look up tx proofs
-      -- ^ a handle to the payload db to look up tx ixes
     -> SPVSupport
 pactSPV cdbv =
     -- SPVSupport :: Text -> Object Name -> IO (Either Text (Object Name))
     SPVSupport $ \s o -> readMVar cdbv >>= spv s o
   where
     -- extract spv resources from pact object
-    spv s o cdb = case s of
+    spv s (Object (ObjectMap om) _ _ _) cdb = case s of
       "TXOUT" -> do
+
+        o <- case om ^. at (FieldKey "spv-proof") of
+          Nothing -> spvError "no proof object found"
+          Just (TObject a _) -> pure a
+          Just t -> spvError
+            $ "proof object is wrong format: "
+            <> show t
+
         t <- mkProof o
         u <- verifyTransactionProof cdb t
         v <- txToJSON u
@@ -91,13 +104,12 @@ pactSPV cdbv =
         <> x
 
     mkProof :: Object Name -> IO (TransactionProof SHA512t_256)
-    mkProof (Object o a b c) =
-      let
-        r = fromJSON . toJSON
-          $ TObject (Object o a b c) def
-      in case r of
+    mkProof o = do
+      t <- fromRight . toPactValue $ TObject o def
+      let r = fromJSON . toJSON $ t
+      case r of
         Error e -> spvError e
-        Success t -> pure t
+        Success u -> pure u
 
     txToJSON :: Transaction -> IO (Object Name)
     txToJSON tx =
@@ -114,7 +126,8 @@ pactSPV cdbv =
 -- Note: runs in O(n) - this should be revisited if possible
 --
 getTxIdx
-    :: PayloadCas cas
+    :: HasCallStack
+    => PayloadCas cas
     => BlockHeaderDb
     -> PayloadDb cas
     -> BlockHeight

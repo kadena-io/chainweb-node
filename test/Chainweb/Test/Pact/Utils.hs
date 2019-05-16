@@ -197,7 +197,7 @@ data TestPactCtx = TestPactCtx
 data PactTransaction = PactTransaction
   { _pactCode :: Text
   , _pactData :: Maybe Value
-  }
+  } deriving (Eq, Show)
 
 
 evalPactServiceM :: TestPactCtx -> PactServiceM a -> IO a

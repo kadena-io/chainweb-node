@@ -32,7 +32,7 @@ import Data.Default (def)
 import Data.Foldable (toList)
 import Data.Functor (void)
 import Data.LogMessage
-import Data.Text (unpack)
+import Data.Text (Text, unpack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -55,12 +55,15 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.SPV
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
+import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Version
 
+import Data.CAS
 import Data.CAS.RocksDB
 
 
@@ -102,7 +105,6 @@ test = do
             -- The idea behind the `2 * diameter(graph) * order(graph)` corrective is that, the
             -- block heights between any two chains can be at most `diameter(graph)` apart.
 
-            --
             -- 'S.effects' forces the stream here. It -must- occur so that we evaluate the stream
             --
             void $! S.effects $ extendTestCutDb cutDb pact1 60
@@ -142,11 +144,17 @@ txGenerator1 _cid _bhe _bha =
 -- | Generate the 'create-coin' command in response
 -- to the previous 'delete-coin' call
 --
-txGenerator2 :: MVar (CutDb cas) -> TransactionOutput -> TransactionGenerator
+txGenerator2
+    :: PayloadCas cas
+    => MVar (CutDb cas)
+    -> TransactionOutput
+    -> TransactionGenerator
 txGenerator2 cdbv p _cid _bhe _bha = do
     cdb <- readMVar cdbv
     q <- extractHash p
-    r <- createProofObject cdb (unsafeChainId 0) (unsafeChainId 1) 1
+    r <- fmap A.toJSON
+      $ createTransactionProof cdb (unsafeChainId 1) (unsafeChainId 0) 0 0
+    print $ txs q r
     mkPactTestTransactions' (txs q r)
   where
     txs q r = fromList
@@ -163,7 +171,7 @@ txGenerator2 cdbv p _cid _bhe _bha = do
           , "quantity": 1.0
           , "create-account-guard": (read-keyset 'sender01-keys)
           , "delete-chain-id": 0
-          , "outputs" : (read-msg 'r)
+          , "spv-proof" : (read-msg 'proof)
           })
         |]
 
@@ -174,18 +182,9 @@ txGenerator2 cdbv p _cid _bhe _bha = do
 
       in Just $ object
          [ "sender01-keys" .= k
-         , "delete-hash" .= q
-         , "outputs" .= r
+         , "delete-hash"   .= q
+         , "proof"         .= r
          ]
-
-
-createProofObject
-    :: CutDb cas
-    -> ChainId
-    -> ChainId
-    -> BlockHeight
-    -> IO Value
-createProofObject cdb cid tid bh = undefined
 
 -- | Unwrap a 'PayloadWithOutputs' and retrieve just the information
 -- we need in order to execute an SPV request to the api

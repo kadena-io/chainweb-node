@@ -199,7 +199,7 @@
     )
 
   (defun create-coin (proof)
-    (let ((outputs (at 'outputs (verify-spv "TXOUT" proof))))
+    (let ((outputs (at 'outputs (verify-spv "TXOUT" proof)))
       (enforce (= 1 (length outputs)) "only one tx in outputs")
       (bind (at 0 outputs)
         { "create-chain-id":= create-chain-id
