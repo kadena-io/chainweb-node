@@ -20,7 +20,6 @@ module TXG.Types
   ( -- * TransactionCommand
     TransactionCommand(..)
     -- * Timing
-  , MeasureTime(..)
   , TimingDistribution(..)
     -- * ScriptConfig
   , ScriptConfig(..)
@@ -59,20 +58,12 @@ import Servant.Client
 import System.Random.MWC (Gen)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
-import qualified Data.Queue.Bounded as BQ
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
 
 ---
-
-newtype MeasureTime = MeasureTime { measureTime :: Bool }
-  deriving (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-instance Default MeasureTime where
-  def = MeasureTime False
 
 data TimingDistribution
   = Gaussian { mean  :: !Double, var   :: !Double }
@@ -84,11 +75,11 @@ instance Default TimingDistribution where
   def = Gaussian 1000000 (1000000 / 16)
 
 data TransactionCommand
-  = DeployContracts [Sim.ContractName] MeasureTime
-  | RunStandardContracts TimingDistribution MeasureTime
-  | RunSimpleExpressions TimingDistribution MeasureTime
-  | PollRequestKeys ByteString MeasureTime
-  | ListenerRequestKey ByteString MeasureTime
+  = DeployContracts [Sim.ContractName]
+  | RunStandardContracts TimingDistribution
+  | RunSimpleExpressions TimingDistribution
+  | PollRequestKeys ByteString
+  | ListenerRequestKey ByteString
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
@@ -98,10 +89,8 @@ transactionCommandToText = T.decodeUtf8 . fromJuste . transactionCommandBytes
 
 transactionCommandBytes :: TransactionCommand -> Maybe B8.ByteString
 transactionCommandBytes t = case t of
-  PollRequestKeys bs (MeasureTime mtime) ->
-    Just $ "poll [" <> bs <> "] " <> (fromString . map toLower . show $ mtime)
-  ListenerRequestKey bs (MeasureTime mtime) ->
-    Just $ "listen " <> bs <> " " <> (fromString . map toLower . show $ mtime)
+  PollRequestKeys bs -> Just $ "poll [" <> bs <> "]"
+  ListenerRequestKey bs -> Just $ "listen " <> bs
   _ -> Nothing
 
 transactionCommandFromText :: MonadThrow m => Text -> m TransactionCommand
@@ -122,9 +111,7 @@ pollkeys = do
   _open <- A.char '[' >> A.skipSpace
   bs <- parseRequestKey
   _close <- A.skipSpace >> A.char ']'
-  A.skipSpace
-  measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  pure $ PollRequestKeys bs measure
+  pure $ PollRequestKeys bs
 
 parseRequestKey :: A.Parser ByteString
 parseRequestKey = B8.pack <$> A.count 128 (A.satisfy (A.inClass "abcdef0123456789"))
@@ -134,9 +121,7 @@ listenkeys = do
   _constructor <- A.string "listen"
   A.skipSpace
   bytestring <- parseRequestKey
-  A.skipSpace
-  measure <- MeasureTime <$> ((False <$ A.string "false") <|> (True <$ A.string "true"))
-  pure $ ListenerRequestKey bytestring measure
+  pure $ ListenerRequestKey bytestring
 
 instance HasTextRepresentation TransactionCommand where
   toText = transactionCommandToText
@@ -145,7 +130,7 @@ instance HasTextRepresentation TransactionCommand where
   {-# INLINE fromText #-}
 
 instance Default TransactionCommand where
-  def = RunSimpleExpressions def def
+  def = RunSimpleExpressions def
 
 ---------------
 -- ScriptConfig
@@ -184,7 +169,7 @@ instance FromJSON (ScriptConfig -> ScriptConfig) where
 
 defaultScriptConfig :: ScriptConfig
 defaultScriptConfig = ScriptConfig
-  { _scriptCommand   = RunSimpleExpressions def def
+  { _scriptCommand   = RunSimpleExpressions def
   , _nodeChainIds    = []
   , _isChainweb      = True
   , _hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
@@ -236,7 +221,6 @@ data TXGState = TXGState
   { _gsGen :: !(Gen (PrimState IO))
   , _gsCounter :: !(TVar TXCount)
   , _gsChains :: !(NESeq ChainId)
-  , _gsRespTimes :: !(TVar (BQ.BQueue Int))
   }
 
 gsChains :: Lens' TXGState (NESeq ChainId)

@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -26,7 +27,7 @@ import BasePrelude hiding (loop, rotate, timeout, (%))
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
-import Control.Concurrent.Async (async, mapConcurrently_)
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Lens hiding (op, (.=), (|>))
@@ -39,7 +40,6 @@ import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map as M
-import qualified Data.Queue.Bounded as BQ
 import Data.Sequence.NonEmpty (NESeq(..))
 import qualified Data.Sequence.NonEmpty as NES
 import Data.Text (Text)
@@ -203,82 +203,44 @@ loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, Command Text)
   -> TQueue Text
-  -> MeasureTime
   -> TXG m ()
-loop f tq measure@(MeasureTime _) = do
+loop f tq = do
   (cid, transaction) <- f
-  (_, requestKeys) <- measureDiffTime $ sendTransaction cid transaction
+  requestKeys <- sendTransaction cid transaction
   countTV <- gets _gsCounter
   liftIO . atomically $ modifyTVar' countTV (+ 1)
   count <- liftIO $ readTVarIO countTV
-
-  liftIO . atomically $ do
-    -- writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
-    -- when mtime $ writeTQueue tq $ "Sending it took: " <> sshow timeTaken
-    writeTQueue tq $ "Transaction count: " <> sshow count
+  liftIO . atomically . writeTQueue tq $ "Transaction count: " <> sshow count
 
   case requestKeys of
     Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
-    Right rks -> do
-      bq <- gets _gsRespTimes
-      forkedListens tq bq cid rks
+    Right _ -> pure ()
 
   logs <- liftIO . atomically $ flushTQueue tq
   lift $ traverse_ (logg Info . toLogMessage) logs
-  loop f tq measure
-
-forkedListens
-  :: MonadIO m
-  => TQueue Text
-  -> TVar (BQ.BQueue Int)
-  -> ChainId
-  -> RequestKeys
-  -> TXG m ()
-forkedListens tq bq cid (RequestKeys rks) = do
-  TXGConfig _ _ ce v <- ask
-  liftIO $ traverse_ (forkedListen ce v) rks
-  where
-    forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
-    forkedListen ce v rk = void . async $ do
-      (!time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
-      atomically $ do
-        q <- readTVar bq
-        let q' = BQ.cons (floor time) q
-        writeTVar bq q'
-        writeTQueue tq $ "Average complete result time: " <> sshow (BQ.average q')
-        -- writeTQueue tq $ sshow res
-        -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
+  loop f tq
 
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: MeasureTime -> ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
-loadContracts (MeasureTime mtime) config host contractLoaders = do
-  (timeTaken, !_action) <- measureDiffTime go
-  when mtime
-    . withConsoleLogger Info
-    . logg Info
-    $ "Loading supplied contracts took: " <> sshow timeTaken
-  where
-    go :: IO ()
-    go = do
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      forM_ (_nodeChainIds config) $ \cid -> do
-        let !meta = Sim.makeMeta cid
-        ts <- testSomeKeyPairs
-        contracts <- traverse (\f -> f meta ts) contractLoaders
-        pollresponse <- runExceptT $ do
-          rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
-          ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-        withConsoleLogger Info . logg Info $ sshow pollresponse
+loadContracts :: ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
+loadContracts config host contractLoaders = do
+  TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
+  forM_ (_nodeChainIds config) $ \cid -> do
+    let !meta = Sim.makeMeta cid
+    ts <- testSomeKeyPairs
+    contracts <- traverse (\f -> f meta ts) contractLoaders
+    pollresponse <- runExceptT $ do
+      rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    withConsoleLogger Info . logg Info $ sshow pollresponse
 
 sendTransactions
-  :: MeasureTime
-  -> ScriptConfig
+  :: ScriptConfig
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendTransactions measure config host tv distribution = do
+sendTransactions config host tv distribution = do
   cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ _nodeVersion config) NES.fromList
@@ -303,10 +265,9 @@ sendTransactions measure config host tv distribution = do
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
-  bq  <- liftIO . newTVarIO $ BQ.empty 32
-  let act = loop generateTransaction tq measure
+  let act = loop generateTransaction tq
       env = set confKeysets accountMap cfg
-      stt = TXGState gen tv chains bq
+      stt = TXGState gen tv chains
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -330,53 +291,44 @@ versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
 
 sendSimpleExpressions
-  :: MeasureTime
-  -> ScriptConfig
+  :: ScriptConfig
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendSimpleExpressions measure config host tv distribution = do
+sendSimpleExpressions config host tv distribution = do
   logg Info $ toLogMessage ("Simple Expressions: Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   tq  <- liftIO newTQueueIO
-  bq  <- liftIO . newTVarIO $ BQ.empty 32
   let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
              . NEL.nonEmpty
              $ _nodeChainIds config
-      stt = TXGState gen tv chs bq
+      stt = TXGState gen tv chs
 
-  evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
+  evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq)) gencfg) stt
 
-pollRequestKeys :: MeasureTime -> ScriptConfig -> HostAddress -> RequestKey -> IO ()
-pollRequestKeys (MeasureTime mtime) config host rkey = do
-  (timeTaken, !_action) <- measureDiffTime go
-  when mtime (putStrLn $ "" <> show timeTaken)
-  where
+pollRequestKeys :: ScriptConfig -> HostAddress -> RequestKey -> IO ()
+pollRequestKeys config host rkey = do
+  TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
+  response <- runClientM (poll v cid $ Poll [rkey]) ce
+  case response of
+    Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
+    Right (PollResponses a)
+      | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
+      | otherwise -> print a >> exitSuccess
+ where
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
     cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
 
-    go :: IO a
-    go = do
-      putStrLn "Polling your requestKey"
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      response <- runClientM (poll v cid $ Poll [rkey]) ce
-      case response of
-        Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
-        Right (PollResponses a)
-          | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
-          | otherwise -> print a >> exitSuccess
-
-listenerRequestKey :: MeasureTime -> ScriptConfig -> HostAddress -> ListenerRequest -> IO ()
-listenerRequestKey (MeasureTime mtime) config host listenerRequest = do
-  (timeTaken, response) <- measureDiffTime go
-  when mtime (putStrLn $ "" <> show timeTaken)
-  case response of
+listenerRequestKey :: ScriptConfig -> HostAddress -> ListenerRequest -> IO ()
+listenerRequestKey config host listenerRequest = do
+  TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
+  runClientM (listen v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print (_arResult r) >> exitSuccess
   where
@@ -384,12 +336,6 @@ listenerRequestKey (MeasureTime mtime) config host listenerRequest = do
     -- they wish to query.
     cid :: ChainId
     cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
-
-    go :: IO (Either ClientError ApiResult)
-    go = do
-      putStrLn "Listening..."
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      runClientM (listen v cid listenerRequest) ce
 
 work :: ScriptConfig -> IO ()
 work cfg = do
@@ -414,18 +360,18 @@ work cfg = do
     act :: TVar TXCount -> HostAddress -> LoggerT SomeLogMessage IO ()
     act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
       case _scriptCommand cfg of
-        DeployContracts [] mtime -> liftIO $
-          loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
-        DeployContracts cs mtime -> liftIO $
-          loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
-        RunStandardContracts distribution mtime ->
-          sendTransactions mtime cfg host tv distribution
-        RunSimpleExpressions distribution mtime ->
-          sendSimpleExpressions mtime cfg host tv distribution
-        PollRequestKeys rk mtime -> liftIO $
-          pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
-        ListenerRequestKey rk mtime -> liftIO $
-          listenerRequestKey mtime cfg host . ListenerRequest . RequestKey $ H.Hash rk
+        DeployContracts [] -> liftIO $
+          loadContracts cfg host $ initAdminKeysetContract : defaultContractLoaders
+        DeployContracts cs -> liftIO $
+          loadContracts cfg host $ initAdminKeysetContract : map createLoader cs
+        RunStandardContracts distribution ->
+          sendTransactions cfg host tv distribution
+        RunSimpleExpressions distribution ->
+          sendSimpleExpressions cfg host tv distribution
+        PollRequestKeys rk -> liftIO $
+          pollRequestKeys cfg host . RequestKey $ H.Hash rk
+        ListenerRequestKey rk -> liftIO $
+          listenerRequestKey cfg host . ListenerRequest . RequestKey $ H.Hash rk
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
