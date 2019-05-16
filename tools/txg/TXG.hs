@@ -138,29 +138,45 @@ rotate :: NESeq a -> NESeq a
 rotate (h :<|| rest) = rest :||> h
 
 generateTransaction
-  :: (MonadIO m, MonadLog SomeLogMessage m)
+  :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, Command Text)
 generateTransaction = do
-  contractIndex <- liftIO $ randomRIO @Int (0, 2)
+  contractIndex <- liftIO $ randomRIO @Int (0, 0)
 
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- uses gsChains NES.head
   gsChains %= rotate
 
-  sample <- case contractIndex of
-    -- COIN CONTRACT
-    0 -> do
-      cks <- view confKeysets
-      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "coin")) of
-        Nothing -> error "A ChainId that should have `Account` entries does not."
+  cks <- view confKeysets
+  case M.lookup cid cks of
+    Nothing -> error $ printf "%s is missing Accounts!" (show cid)
+    Just accs -> do
+      sample <- case contractIndex of
+        0 -> coinContract cid accs
+        1 -> liftIO $ generate fake >>= helloRequest
+        2 -> payments cid accs
+        _ -> error "No contract here"
+      generateDelay >>= liftIO . threadDelay
+      pure (cid, sample)
+  where
+    coinContract
+      :: ChainId
+      -> Map Sim.Account (Map Sim.ContractName [SomeKeyPair])
+      -> TXG m (Command Text)
+    coinContract cid accs = do
+      case traverse (M.lookup (Sim.ContractName "coin")) accs of
+        Nothing -> error "Some `Account` is missing a Coin Contract"
         Just coinaccts -> liftIO $ do
           coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
           createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
-    1 -> liftIO $ generate fake >>= helloRequest
-    2 -> do
-      cks <- view confKeysets
-      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "payment")) of
-        Nothing -> error "A ChainId that should have `Account` entries does not."
+
+    payments
+      :: ChainId
+      -> Map Sim.Account (Map Sim.ContractName [SomeKeyPair])
+      -> TXG m (Command Text)
+    payments cid accs = do
+      case traverse (M.lookup (Sim.ContractName "payment")) accs of
+        Nothing -> error "Some `Account` is missing Payment contracts"
         Just paymentAccts -> liftIO $ do
           paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
           case paymentsRequest of
@@ -172,11 +188,7 @@ generateTransaction = do
             SPRequestGetBalance _account ->
               createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest Nothing
             _ -> error "SimplePayments.CreateAccount code generation not supported"
-    _ -> error "No contract here"
-  delay <- generateDelay
-  liftIO $ threadDelay delay
-  lift $ logg Info (toLogMessage $ T.pack $ "The delay was " ++ show delay ++ " seconds.")
-  pure (cid, sample)
+
 
 sendTransaction
   :: MonadIO m
@@ -269,17 +281,24 @@ sendTransactions
 sendTransactions measure config host tv distribution = do
   cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config host
 
-  accountMap <- fmap (M.fromList . toList) . forM (_nodeChainIds config) $ \cid -> do
+  let chains = maybe (versionChains $ _nodeVersion config) NES.fromList
+               . NEL.nonEmpty
+               $ _nodeChainIds config
+
+  accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let !meta = Sim.makeMeta cid
     (paymentKS, paymentAcc) <- liftIO $ unzip <$> Sim.createPaymentsAccounts meta
     (coinKS, coinAcc) <- liftIO $ unzip <$> Sim.createCoinAccounts meta
     pollresponse <- liftIO . runExceptT $ do
       rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc ++ coinAcc) ce
       ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-    logg Info $ toLogMessage (sshow pollresponse :: Text)
-    logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+    case pollresponse of
+      Left e -> logg Error $ toLogMessage (sshow e :: Text)
+      Right _ -> pure ()
     let accounts = buildGenAccountsKeysets Sim.accountNames paymentKS coinKS
     pure (cid, accounts)
+
+  logg Info $ toLogMessage ("Real Transactions: Transactions are being generated" :: Text)
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
@@ -287,10 +306,7 @@ sendTransactions measure config host tv distribution = do
   bq  <- liftIO . newTVarIO $ BQ.empty 32
   let act = loop generateTransaction tq measure
       env = set confKeysets accountMap cfg
-      chs = maybe (versionChains $ _nodeVersion config) NES.fromList
-            . NEL.nonEmpty
-            $ _nodeChainIds config
-      stt = TXGState gen tv chs bq
+      stt = TXGState gen tv chains bq
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -321,7 +337,7 @@ sendSimpleExpressions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 sendSimpleExpressions measure config host tv distribution = do
-  logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+  logg Info $ toLogMessage ("Simple Expressions: Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
   -- Set up values for running the effect stack.
