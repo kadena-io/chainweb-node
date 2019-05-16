@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Test.Pact.Checkpointer
-  ( tests
+  ( tests, testKeyset
   ) where
 
 import Control.Lens (preview, _Just)
@@ -353,13 +353,13 @@ keytestTest mvar CheckpointEnvNew {..} = do
   runBlockEnv mvar $ runOnVersionTables
     (\blocktable -> assertEqual "block table initialized" blocktable bt00)
     (\versionhistory -> assertEqual "version history initialized" versionhistory vht00)
-    (\vtables -> assertEqual "versioned tables table initialized" vtables vtt00)
+    (\vtables -> assertEqual "versioned tables table initialized" vtables vtt)
 
   addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) mvar
 
   runBlockEnv mvar $ do
     keysetsTable <- callDb $ \db ->
-        qry_ db ("SELECT * FROM " <> domainTableName KeySets <> ";") [RText, RInt, RInt, RInt, RBlob]
+        qry_ db ("SELECT * FROM " <> domainTableName KeySets) [RText, RInt, RInt, RInt, RBlob]
     liftIO $ assertEqual "keyset table" keysetsTable ks1
 
   -- next block (blockheight 1, version 0)
@@ -372,7 +372,7 @@ keytestTest mvar CheckpointEnvNew {..} = do
 
   runBlockEnv mvar $ do
     keysetsTable <- callDb $ \db ->
-        qry_ db ("SELECT * FROM " <> domainTableName KeySets <> ";") [RText, RInt, RInt, RInt, RBlob]
+        qry_ db ("SELECT * FROM " <> domainTableName KeySets) [RText, RInt, RInt, RInt, RBlob]
     liftIO $ assertEqual "keyset table" keysetsTable ks2
 
   saveNew _cpeCheckpointerNew bh01 hash01 0 >>= assertEitherSuccess "save failed"
@@ -380,7 +380,7 @@ keytestTest mvar CheckpointEnvNew {..} = do
   runBlockEnv mvar $ runOnVersionTables
     (\blocktable -> assertEqual "block table " blocktable bt01)
     (\versionhistory -> assertEqual "version history " versionhistory vht01)
-    (\vtables -> assertEqual "versioned tables table " vtables vtt01)
+    (\vtables -> assertEqual "versioned tables table " vtables vtt)
 
   -- fork on blockheight = 1
 
@@ -398,21 +398,19 @@ keytestTest mvar CheckpointEnvNew {..} = do
   runBlockEnv mvar $ runOnVersionTables
     (\blocktable -> assertEqual "block table " blocktable bt11)
     (\versionhistory -> assertEqual "version history " versionhistory vht11)
-    (\vtables -> assertEqual "versioned tables table " vtables vtt11)
+    (\vtables -> assertEqual "versioned tables table " vtables vtt)
 
   where
     bt00 =
       [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"]]
     vht00 = [[SInt 0,SInt 0]]
-    vtt00 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
+    vtt = [[SText "SYSKeySets"],[SText "SYSModules"],[SText "SYSNamespaces"],[SText "SYSPacts"]]
     ks1 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
     ks2 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"],[SText "k2",SInt 1,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
     bt01 = [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"],[SInt 1,SBlob "0000000000000000000000000000001a"]]
     vht01 = [[SInt 0,SInt 0],[SInt 0,SInt 1]]
-    vtt01 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
     bt11 = [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"],[SInt 1,SBlob "0000000000000000000000000000001b"]]
     vht11 = [[SInt 0,SInt 0],[SInt 0,SInt 1],[SInt 1,SInt 1]]
-    vtt11 = [[SText "[SYS:KeySets]"],[SText "[SYS:Modules]"],[SText "[SYS:Namespaces]"],[SText "[SYS:Pacts]"]]
 
 addKeyset :: KeySetName -> KeySet -> Method (BlockEnv SQLiteEnv) ()
 addKeyset = _writeRow chainwebpactdb Insert KeySets

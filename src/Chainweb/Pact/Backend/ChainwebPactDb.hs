@@ -94,7 +94,9 @@ chainwebpactdb = PactDb
 -- MOVE THESE LATER --
 
 domainTableName :: Domain k v -> Utf8
-domainTableName = Utf8 . toS . (<> "]") . ("[" <>) . asString
+domainTableName = Utf8 . toS . T.filter accept . asString
+  where
+    accept = (`elem` (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']))
 
 convKeySetName :: KeySetName -> Utf8
 convKeySetName (KeySetName name) = Utf8 $ toS name
@@ -131,7 +133,10 @@ readRow d k e = runBlockEnv e $
  where
    callDbWithKey :: FromJSON v => Utf8 -> VersionHandler SQLiteEnv (Maybe v)
    callDbWithKey kstr = do
-     result <- callDb (\db -> qry_ db ("SELECT tabledata FROM " <> domainTableName d <> " WHERE rowkey=" <> kstr) [RBlob])
+     BlockVersion (BlockHeight bh) (ReorgVersion version)  <- gets _bsBlockVersion
+     result <- callDb (\db -> qry db
+                        "SELECT tabledata FROM ? WHERE rowkey = ? AND blockheight = ? AND version = ?"
+                        [SText kstr, SInt (fromIntegral bh), SInt (fromIntegral version)] [RBlob])
      case result of
          [] -> return Nothing
          [[SBlob a]] -> return $ decode $ fromStrict a
@@ -160,28 +165,23 @@ writeRow wt d k v e =
       let row = [SText key, SInt (fromIntegral bh), SInt (fromIntegral version), SInt (fromIntegral txid), SBlob (toStrict (Data.Aeson.encode v))]
       in case wt of
         Insert -> do
-          res <- qry db
-                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?")
-                 [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
-                 [RText]
+          res <- qry db ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ? ;")
+            [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
+            [RText]
           case res of
-            [] -> exec' db ("INSERT INTO "
-                             <> domainTableName d
-                             <> " ('rowkey','blockheight','version','txid','tabledata')\
-                                \ VALUES (?,?,?,?,?);")
-                  row
+            [] -> exec' db
+                  ("INSERT INTO " <> domainTableName d <> " ('rowkey','blockheight','version','txid','tabledata') VALUES (?,?,?,?,?);")
+                   row
             _ -> throwM $ userError $ "writeRow: key " <>  toS kk <> " was found in table."
         Update -> do
           res <- qry db
-                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?")
+                 ("SELECT rowkey FROM " <> domainTableName d <> " WHERE rowkey = ? AND blockheight = ? AND version = ?;")
                  [SText key, SInt (fromIntegral innerbh), SInt (fromIntegral version)]
                  [RText]
           case res of
             [] -> throwM $ userError $ "writeRow: key " <>  toS kk <> " was not found in table."
             _ -> exec' db
-                 ("UPDATE "
-                  <> domainTableName d
-                  <> "SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
+                 ("UPDATE " <> domainTableName d <> " SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
                  row
         Write -> do
           res <- qry db
@@ -190,17 +190,11 @@ writeRow wt d k v e =
                  [RText]
           case res of
             [] -> exec' db
-                  ("INSERT "
-                  <> domainTableName d
-                  <> " ('rowkey','blockheight','version','txid','tabledata')\
-                     \ VALUES (?,?,?,?,?);")
+                  ("INSERT INTO " <> domainTableName d <> " ('rowkey','blockheight','version','txid','tabledata') VALUES (?,?,?,?,?);")
                   row
             _ -> exec' db
-                 ("UPDATE "
-                  <> domainTableName d
-                  <> "SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
+                 ("UPDATE " <> domainTableName d <> " SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, tabledata = ?")
                  row
-
 
 keys :: Domain k v -> Method (BlockEnv SQLiteEnv) [k]
 keys = undefined
@@ -293,7 +287,10 @@ createVersionedTablesTable =
 
 createVersionedTable :: TableName -> BlockVersion -> VersionHandler SQLiteEnv ()
 createVersionedTable name@(TableName _) b = do
-  callDb $ \db -> exec_ db $ "CREATE TABLE " <> Utf8 (toS $ asString name) <> " (rowkey TEXT,blockheight UNSIGNED BIGINT, version UNSIGNED BIGINT,txid UNSIGNED BIGINT,tabledata BLOB);"
+  callDb $ \db -> exec_ db $
+                  "CREATE TABLE "
+                   <> Utf8 (toS (asString name))
+                   <> " (rowkey TEXT,blockheight UNSIGNED BIGINT, version UNSIGNED BIGINT,txid UNSIGNED BIGINT,tabledata BLOB)"
   versionedTablesInsert name b
 
 expectSingleRowCol :: Show a => String -> [[a]] -> IO a
@@ -347,10 +344,10 @@ tableMaintenanceRowsVersionedTables (BlockVersion (BlockHeight bh) _) = do
   tblNames <- callDb $ \db ->
     qry db "SELECT tablename FROM VersionedTables WHERE blockheight < ?;" [SInt (fromIntegral bh)] [RText]
   forM_ tblNames $ \case
-      [(SText tblname)] -> do
+      [SText tbl] -> do
         callDb $ \db ->
           exec' db
-          ("DELETE FROM " <> tblname <> " WHERE blockheight >= ?")
+          ("DELETE FROM " <> sanitize tbl <> " WHERE blockheight >= ?")
           [SInt (fromIntegral bh)]
       _ -> throwDbError "An error occured\
                         \ while querying the\
@@ -365,8 +362,8 @@ dropVersionedTables (BlockVersion (BlockHeight bh) _) = do
               [RText]
   -- REWRITE ERROR WITH INTERNALERROR PREFIX
   forM_ tblNames $ \case
-      [name@(SText _)] -> do
-        callDb $ \db -> exec' db "DROP TABLE ?" [name]
+      [SText name] -> do
+        callDb $ \db -> exec_ db $ "DROP TABLE " <> sanitize name
       _ -> throwDbError "An error occured\
                         \ while querying the\
                         \ VersionedTables table for table names."
@@ -379,15 +376,15 @@ deleteHistory (BlockVersion bh _) = do
 
 beginSavepoint :: SavepointName ->  VersionHandler SQLiteEnv ()
 beginSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db ("SAVEPOINT " <> Utf8 name <> ";")
+  callDb $ \db -> exec_ db $ "SAVEPOINT " <>  sanitize (Utf8 name)
 
 commitSavepoint :: SavepointName -> VersionHandler SQLiteEnv ()
 commitSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db ("RELEASE SAVEPOINT " <> Utf8 name <> ";")
+  callDb $ \db -> exec_ db $ "RELEASE SAVEPOINT " <> sanitize (Utf8 name)
 
 rollbackSavepoint :: SavepointName -> VersionHandler SQLiteEnv ()
 rollbackSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db ("ROLLBACK TRANSACTION TO SAVEPOINT " <> Utf8 name <> ";")
+  callDb $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT " <> sanitize (Utf8 name)
 
 withPreBlockSavepoint :: VersionHandler SQLiteEnv a -> VersionHandler SQLiteEnv a
 withPreBlockSavepoint action = do
@@ -405,7 +402,9 @@ initSchema :: VersionHandler SQLiteEnv ()
 initSchema = do
   let initBlock = BlockVersion (BlockHeight 0) (ReorgVersion 0)
       toTableName :: Domain k v -> TableName
-      toTableName = TableName . flip T.snoc ']' . T.cons '[' . asString
+      toTableName = TableName . T.filter accept . asString
+        where
+          accept = (`elem` (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']))
       bh00 = BlockHeight 0
       hash00 = nullBlockHash
   createBlockHistoryTable
@@ -421,3 +420,8 @@ initSchema = do
   -- createVersionedTable "SYS:txid" initBlock -- I think this is an error.
 
 {-- ensure that restore on a new block cannot cause a version change --}
+
+sanitize :: Utf8 -> Utf8
+sanitize (Utf8 string) = Utf8 $ BS.filter accept string
+  where
+    accept = flip BS.elem ("abcdefghijklmnopqrstuvwxyz" <> "ABCDEFGHIJKLMNOPQRSTUVWXYZ" <> "0123456789")
