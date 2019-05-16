@@ -161,8 +161,8 @@ newtype VersionHandler p a = VersionHandler
              )
 
 data CheckpointerNew p = CheckpointerNew
-    { restoreNew :: BlockHeight -> BlockHash -> Maybe P.ExecutionMode -> IO (Either String p)
-    , restoreInitialNew :: Maybe P.ExecutionMode -> IO (Either String p)
+    { restoreNew :: BlockHeight -> BlockHash -> Maybe P.ExecutionMode -> IO (Either String (BlockEnv p))
+    , restoreInitialNew :: Maybe P.ExecutionMode -> IO (Either String (BlockEnv p))
     , saveNew :: BlockHeight -> BlockHash -> P.TxId -> IO (Either String ())
     , discardNew :: IO (Either String ())
     }

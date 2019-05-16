@@ -30,6 +30,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
   , callDb
   , withPreBlockSavepoint
   , domainTableName
+  , withBlockEnv
   ) where
 
 import Control.Concurrent.MVar
@@ -425,3 +426,6 @@ sanitize :: Utf8 -> Utf8
 sanitize (Utf8 string) = Utf8 $ BS.filter accept string
   where
     accept = flip BS.elem ("abcdefghijklmnopqrstuvwxyz" <> "ABCDEFGHIJKLMNOPQRSTUVWXYZ" <> "0123456789")
+
+withBlockEnv :: a -> (MVar a -> IO b) -> IO b
+withBlockEnv blockenv f = newMVar blockenv >>= f

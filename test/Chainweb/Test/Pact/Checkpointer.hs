@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Test.Pact.Checkpointer
-  ( tests, testKeyset
+  ( tests, testKeyset, testRelational
   ) where
 
 import Control.Lens (preview, _Just)
@@ -19,7 +19,7 @@ import Data.Text (Text)
 import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
-import Pact.Interpreter (EvalResult(..), mkPureEnv)
+import Pact.Interpreter (EvalResult(..), mkPureEnv, PactDbEnv(..))
 import Pact.Types.Info
 import Pact.Types.Runtime (ExecutionMode(Transactional))
 import qualified Pact.Types.Hash as H
@@ -326,7 +326,7 @@ testKeyset =
     msql <- newMVar (BlockEnv sqlenv initBlockState)
     runBlockEnv msql initSchema
     cpEnv <- initRelationalCheckpointerNew msql (newLogger loggers "RelationalCheckpointer") freeGasEnv
-    keytestTest msql cpEnv
+    keytestTest cpEnv
 
 type Table = [[SType]]
 
@@ -344,43 +344,39 @@ runOnVersionTables f g h = do
   void $ liftIO $ g versionhistory
   liftIO $ h vtables
 
-keytestTest :: MVar (BlockEnv SQLiteEnv) -> CheckpointEnvNew SQLiteEnv -> Assertion
-keytestTest mvar CheckpointEnvNew {..} = do
+keytestTest :: CheckpointEnvNew SQLiteEnv -> Assertion
+keytestTest CheckpointEnvNew {..} = do
 
   let hash00 = nullBlockHash
-  menv00 <- restoreInitialNew _cpeCheckpointerNew Nothing
-  _ <- liftIO $ assertEitherSuccess "initial restore failed" menv00
-  runBlockEnv mvar $ runOnVersionTables
-    (\blocktable -> assertEqual "block table initialized" blocktable bt00)
-    (\versionhistory -> assertEqual "version history initialized" versionhistory vht00)
-    (\vtables -> assertEqual "versioned tables table initialized" vtables vtt)
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew Nothing >>= assertEitherSuccess "initial restore failed"
 
-  addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) mvar
-
-  runBlockEnv mvar $ do
-    keysetsTable <- callDb $ \db ->
-        qry_ db ("SELECT * FROM " <> domainTableName KeySets) [RText, RInt, RInt, RInt, RBlob]
-    liftIO $ assertEqual "keyset table" keysetsTable ks1
+  withBlockEnv blockenv00 $ \benv -> do
+    addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) benv
+    runBlockEnv benv $ do
+      keysetsTable <- callDb $
+        \db -> qry_ db ("SELECT * FROM " <> domainTableName KeySets)
+               [RText, RInt, RInt, RInt, RBlob]
+      liftIO $ assertEqual "keyset table" keysetsTable ks1
 
   -- next block (blockheight 1, version 0)
 
   let bh01 = BlockHeight 1
   hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
-  menv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 Nothing
-  _ <- liftIO $ assertEitherSuccess "restore failed" menv01
-  addKeyset "k2" (KeySet [] (Name ">=" (Info Nothing))) mvar
+  blockenv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 Nothing >>= assertEitherSuccess "restore failed"
+  withBlockEnv blockenv01 $ \benv -> do
+    addKeyset "k2" (KeySet [] (Name ">=" (Info Nothing))) benv
+    runBlockEnv benv $ do
+      keysetsTable <- callDb $
+        \db -> qry_ db ("SELECT * FROM " <> domainTableName KeySets)
+               [RText, RInt, RInt, RInt, RBlob]
+      liftIO $ assertEqual "keyset table" keysetsTable ks2
 
-  runBlockEnv mvar $ do
-    keysetsTable <- callDb $ \db ->
-        qry_ db ("SELECT * FROM " <> domainTableName KeySets) [RText, RInt, RInt, RInt, RBlob]
-    liftIO $ assertEqual "keyset table" keysetsTable ks2
+      liftIO $ saveNew _cpeCheckpointerNew bh01 hash01 0 >>= assertEitherSuccess "save failed"
 
-  saveNew _cpeCheckpointerNew bh01 hash01 0 >>= assertEitherSuccess "save failed"
-
-  runBlockEnv mvar $ runOnVersionTables
-    (\blocktable -> assertEqual "block table " blocktable bt01)
-    (\versionhistory -> assertEqual "version history " versionhistory vht01)
-    (\vtables -> assertEqual "versioned tables table " vtables vtt)
+      runOnVersionTables
+        (\blocktable -> assertEqual "block table " blocktable bt01)
+        (\versionhistory -> assertEqual "version history " versionhistory vht01)
+        (\vtables -> assertEqual "versioned tables table " vtables vtt)
 
   -- fork on blockheight = 1
 
@@ -388,17 +384,18 @@ keytestTest mvar CheckpointEnvNew {..} = do
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
 
-  menv11 <- restoreNew _cpeCheckpointerNew bh11 hash00 Nothing
-  _ <- liftIO $ assertEitherSuccess "restore failed" menv11
+  blockenv11 <- restoreNew _cpeCheckpointerNew bh11 hash00 Nothing >>= assertEitherSuccess "restore failed"
 
-  addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) mvar
+  withBlockEnv blockenv11 $ \benv -> do
 
-  saveNew _cpeCheckpointerNew bh11 hash11 0 >>= assertEitherSuccess "save failed"
+    addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) benv
 
-  runBlockEnv mvar $ runOnVersionTables
-    (\blocktable -> assertEqual "block table " blocktable bt11)
-    (\versionhistory -> assertEqual "version history " versionhistory vht11)
-    (\vtables -> assertEqual "versioned tables table " vtables vtt)
+    runBlockEnv benv $ do
+      liftIO $ saveNew _cpeCheckpointerNew bh11 hash11 0 >>= assertEitherSuccess "save failed"
+      runOnVersionTables
+        (\blocktable -> assertEqual "block table " blocktable bt11)
+        (\versionhistory -> assertEqual "version history " versionhistory vht11)
+        (\vtables -> assertEqual "versioned tables table " vtables vtt)
 
   where
     bt00 =
@@ -414,3 +411,49 @@ keytestTest mvar CheckpointEnvNew {..} = do
 
 addKeyset :: KeySetName -> KeySet -> Method (BlockEnv SQLiteEnv) ()
 addKeyset = _writeRow chainwebpactdb Insert KeySets
+
+testRelational :: Assertion
+testRelational =
+  void $ withTempSQLiteConnection []  $ \sqlenv -> do
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0)
+        loggers = pactTestLogger False
+    msql <- newMVar (BlockEnv sqlenv initBlockState)
+    runBlockEnv msql initSchema
+    cpEnv <- initRelationalCheckpointerNew msql (newLogger loggers "RelationalCheckpointer") freeGasEnv
+    relationalTest cpEnv
+
+relationalTest :: CheckpointEnvNew SQLiteEnv -> Assertion
+relationalTest CheckpointEnvNew {..} = do
+  let ksData :: Text -> Value
+      ksData idx =
+          object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+
+      runExec :: PactDb (BlockEnv SQLiteEnv) -> MVar (BlockEnv SQLiteEnv) -> Maybe Value -> Text -> IO EvalResult
+      runExec pactdb blockenv eData eCode = do
+        let cmdenv = CommandEnv Nothing Transactional (PactDbEnv  pactdb blockenv) _cpeLoggerNew _cpeGasEnvNew def
+        execMsg <- buildExecParsedCode eData eCode
+        applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+
+      runCont :: PactDb (BlockEnv SQLiteEnv) -> MVar (BlockEnv SQLiteEnv) -> PactId -> Int -> IO EvalResult
+      runCont pactdb blockenv pactId step = do
+        let contMsg = ContMsg pactId step False Null
+            cmdenv = CommandEnv Nothing Transactional (PactDbEnv pactdb blockenv) _cpeLoggerNew _cpeGasEnvNew def
+        applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+
+  ------------------------------------------------------------------
+  -- s01 : new block workflow (restore -> discard), genesis
+  ------------------------------------------------------------------
+
+  let bh00 = BlockHeight 0
+      hash00 = nullBlockHash
+
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew Nothing >>= assertEitherSuccess "restoreInitial (new block)"
+
+  withBlockEnv blockenv00 $ \benv -> do
+    void $ runExec chainwebpactdb benv (Just $ ksData "1") $ defModule "1"
+    runExec chainwebpactdb benv Nothing "(m1.readTbl)"
+      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    liftIO $ discardNew _cpeCheckpointerNew >>= assertEitherSuccess "discard (initial) (new block)"
+
+  undefined
+  -- void $ runExec blockenv00
