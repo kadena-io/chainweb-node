@@ -31,6 +31,7 @@ module TXG.Types
   , TXGConfig(..), confKeysets, mkTXGConfig
     -- * Misc.
   , TXCount(..)
+  , BatchSize(..)
   ) where
 
 import BasePrelude hiding (loop, option, rotate, timeout, (%))
@@ -258,6 +259,7 @@ data TXGConfig = TXGConfig
   , _confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
   , _confClientEnv :: !ClientEnv
   , _confVersion :: !ChainwebVersion
+  , _confBatchSize :: !BatchSize
   }
 
 confKeysets :: Lens' TXGConfig (Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
@@ -268,6 +270,7 @@ mkTXGConfig mdistribution config host =
   TXGConfig mdistribution mempty
   <$> cenv
   <*> pure (_nodeVersion config)
+  <*> pure (_batchSize config)
   where
     cenv :: IO ClientEnv
     cenv = do
@@ -289,4 +292,4 @@ newtype TXCount = TXCount Word
   deriving newtype (Num, Show)
 
 newtype BatchSize = BatchSize Word
-  deriving newtype (Read, Show, ToJSON, FromJSON)
+  deriving newtype (Integral, Real, Num, Enum, Ord, Eq, Read, Show, ToJSON, FromJSON)
