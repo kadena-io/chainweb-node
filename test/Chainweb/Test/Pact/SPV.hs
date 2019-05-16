@@ -153,13 +153,16 @@ txGenerator2
     -> ChainId
     -> BlockHeight
     -> TransactionGenerator
-txGenerator2 cdbv cid bhe _cid _bhe _bha = do
-    cdb <- readMVar cdbv
+txGenerator2 cdbv cid bhe tid _bhe _bha =
+    if tid == unsafeChainId 1
+    then  return mempty
+    else do
+      cdb <- readMVar cdbv
 
-    q <- fmap toJSON
-      $ createTransactionOutputProof cdb (unsafeChainId 1) cid bhe 0
+      q <- fmap toJSON
+        $ createTransactionOutputProof cdb tid cid bhe 0
 
-    mkPactTestTransactions' (txs q)
+      mkPactTestTransactions' (txs q)
   where
     txs q = fromList
       [ PactTransaction tx1Code (tx1Data q)
