@@ -8,6 +8,7 @@ module Chainweb.Transaction
   , PayloadWithText(..)
   , chainwebTransactionConfig
   , chainwebPayloadCodec
+  , chainwebPayloadDecode
   , gasLimitOf
   , gasPriceOf
   ) where
