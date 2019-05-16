@@ -17,13 +17,13 @@
 -- TODO
 --
 module TXG.Types
-  ( -- * TransactionCommand
-    TransactionCommand(..)
+  ( -- * TXCmd
+    TXCmd(..)
     -- * Timing
   , TimingDistribution(..)
-    -- * ScriptConfig
-  , ScriptConfig(..)
-  , defaultScriptConfig
+    -- * Args
+  , Args(..)
+  , defaultArgs
   , scriptConfigParser
     -- * TXG Monad
   , TXG(..)
@@ -33,7 +33,7 @@ module TXG.Types
   , TXCount(..)
   ) where
 
-import BasePrelude hiding (loop, rotate, timeout, (%))
+import BasePrelude hiding (loop, option, rotate, timeout, (%))
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
@@ -74,7 +74,7 @@ data TimingDistribution
 instance Default TimingDistribution where
   def = Gaussian 1000000 (1000000 / 16)
 
-data TransactionCommand
+data TXCmd
   = DeployContracts [Sim.ContractName]
   | RunStandardContracts TimingDistribution
   | RunSimpleExpressions TimingDistribution
@@ -83,28 +83,28 @@ data TransactionCommand
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-transactionCommandToText :: TransactionCommand -> Text
+transactionCommandToText :: TXCmd -> Text
 transactionCommandToText = T.decodeUtf8 . fromJuste . transactionCommandBytes
 {-# INLINE transactionCommandToText #-}
 
-transactionCommandBytes :: TransactionCommand -> Maybe B8.ByteString
+transactionCommandBytes :: TXCmd -> Maybe B8.ByteString
 transactionCommandBytes t = case t of
   PollRequestKeys bs -> Just $ "poll [" <> bs <> "]"
   ListenerRequestKey bs -> Just $ "listen " <> bs
   _ -> Nothing
 
-transactionCommandFromText :: MonadThrow m => Text -> m TransactionCommand
-transactionCommandFromText = readTransactionCommandBytes . T.encodeUtf8
+transactionCommandFromText :: MonadThrow m => Text -> m TXCmd
+transactionCommandFromText = readTXCmdBytes . T.encodeUtf8
 {-# INLINE transactionCommandFromText #-}
 
-readTransactionCommandBytes :: MonadThrow m => B8.ByteString -> m TransactionCommand
-readTransactionCommandBytes = Sim.parseBytes "transaction-command" transactionCommandParser
-{-# INLINE readTransactionCommandBytes #-}
+readTXCmdBytes :: MonadThrow m => B8.ByteString -> m TXCmd
+readTXCmdBytes = Sim.parseBytes "transaction-command" transactionCommandParser
+{-# INLINE readTXCmdBytes #-}
 
-transactionCommandParser :: A.Parser TransactionCommand
+transactionCommandParser :: A.Parser TXCmd
 transactionCommandParser = pollkeys <|> listenkeys
 
-pollkeys :: A.Parser TransactionCommand
+pollkeys :: A.Parser TXCmd
 pollkeys = do
   _constructor <- A.string "poll"
   A.skipSpace
@@ -116,70 +116,92 @@ pollkeys = do
 parseRequestKey :: A.Parser ByteString
 parseRequestKey = B8.pack <$> A.count 128 (A.satisfy (A.inClass "abcdef0123456789"))
 
-listenkeys :: A.Parser TransactionCommand
+listenkeys :: A.Parser TXCmd
 listenkeys = do
   _constructor <- A.string "listen"
   A.skipSpace
   bytestring <- parseRequestKey
   pure $ ListenerRequestKey bytestring
 
-instance HasTextRepresentation TransactionCommand where
+instance HasTextRepresentation TXCmd where
   toText = transactionCommandToText
   {-# INLINE toText #-}
   fromText = transactionCommandFromText
   {-# INLINE fromText #-}
 
-instance Default TransactionCommand where
+instance Default TXCmd where
   def = RunSimpleExpressions def
 
----------------
--- ScriptConfig
----------------
+-------
+-- Args
+-------
 
-data ScriptConfig = ScriptConfig
-  { _scriptCommand :: !TransactionCommand
+data Args = Args
+  { _scriptCommand :: !TXCmd
   , _nodeChainIds :: ![ChainId]
   , _isChainweb :: !Bool
   , _hostAddresses :: ![HostAddress]
   , _nodeVersion :: !ChainwebVersion
-  , _logHandleConfig :: !U.HandleConfig }
-  deriving (Show, Generic)
+  , _logHandleConfig :: !U.HandleConfig
+  , _batchSize :: !BatchSize
+  } deriving (Show, Generic)
 
-makeLenses ''ScriptConfig
+scriptCommand :: Functor f => (TXCmd -> f TXCmd) -> Args -> f Args
+scriptCommand f sc = (\tc -> sc { _scriptCommand = tc }) <$> f (_scriptCommand sc)
 
-instance ToJSON ScriptConfig where
-  toJSON o =
-    object
-      [ "scriptCommand"       .= _scriptCommand o
-      , "nodeChainIds"        .= _nodeChainIds o
-      , "isChainweb"          .= _isChainweb o
-      , "hostAddresses"       .= _hostAddresses o
-      , "chainwebVersion"     .= _nodeVersion o
-      , "logHandle"           .= _logHandleConfig o
-      ]
+nodeChainIds :: Functor f => ([ChainId] -> f [ChainId]) -> Args -> f Args
+nodeChainIds f sc = (\tc -> sc { _nodeChainIds = tc }) <$> f (_nodeChainIds sc)
 
-instance FromJSON (ScriptConfig -> ScriptConfig) where
-  parseJSON = withObject "ScriptConfig" $ \o -> id
-    <$< scriptCommand       ..: "scriptCommand"       % o
-    <*< nodeChainIds        ..: "nodeChainIds"        % o
-    <*< isChainweb          ..: "isChainweb"          % o
-    <*< hostAddresses       ..: "hostAddresses"       % o
-    <*< nodeVersion         ..: "chainwebVersion"     % o
-    <*< logHandleConfig     ..: "logging"             % o
+isChainweb :: Functor f => (Bool -> f Bool) -> Args -> f Args
+isChainweb f sc = (\tc -> sc { _isChainweb = tc }) <$> f (_isChainweb sc)
 
-defaultScriptConfig :: ScriptConfig
-defaultScriptConfig = ScriptConfig
+hostAddresses :: Functor f => ([HostAddress] -> f [HostAddress]) -> Args -> f Args
+hostAddresses f sc = (\tc -> sc { _hostAddresses = tc }) <$> f (_hostAddresses sc)
+
+nodeVersion :: Functor f => (ChainwebVersion -> f ChainwebVersion) -> Args -> f Args
+nodeVersion f sc = (\tc -> sc { _nodeVersion = tc }) <$> f (_nodeVersion sc)
+
+logHandleConfig :: Functor f => (U.HandleConfig -> f U.HandleConfig) -> Args -> f Args
+logHandleConfig f sc = (\tc -> sc { _logHandleConfig = tc }) <$> f (_logHandleConfig sc)
+
+batchSize :: Functor f => (BatchSize -> f BatchSize) -> Args -> f Args
+batchSize f sc = (\tc -> sc { _batchSize = tc }) <$> f (_batchSize sc)
+
+instance ToJSON Args where
+  toJSON o = object
+    [ "scriptCommand"   .= _scriptCommand o
+    , "nodeChainIds"    .= _nodeChainIds o
+    , "isChainweb"      .= _isChainweb o
+    , "hostAddresses"   .= _hostAddresses o
+    , "chainwebVersion" .= _nodeVersion o
+    , "logHandle"       .= _logHandleConfig o
+    , "batchSize"       .= _batchSize o
+    ]
+
+instance FromJSON (Args -> Args) where
+  parseJSON = withObject "Args" $ \o -> id
+    <$< scriptCommand   ..: "scriptCommand"   % o
+    <*< nodeChainIds    ..: "nodeChainIds"    % o
+    <*< isChainweb      ..: "isChainweb"      % o
+    <*< hostAddresses   ..: "hostAddresses"   % o
+    <*< nodeVersion     ..: "chainwebVersion" % o
+    <*< logHandleConfig ..: "logging"         % o
+    <*< batchSize       ..: "batchSize"       % o
+
+defaultArgs :: Args
+defaultArgs = Args
   { _scriptCommand   = RunSimpleExpressions def
   , _nodeChainIds    = []
   , _isChainweb      = True
   , _hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
   , _nodeVersion     = v
-  , _logHandleConfig = U.StdOut }
+  , _logHandleConfig = U.StdOut
+  , _batchSize       = BatchSize 1 }
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
 
-scriptConfigParser :: MParser ScriptConfig
+scriptConfigParser :: MParser Args
 scriptConfigParser = id
   <$< scriptCommand .:: textOption
       % long "script-command"
@@ -194,6 +216,11 @@ scriptConfigParser = id
       <> short 'v'
       <> metavar "VERSION"
       <> help "Chainweb Version"
+  <*< batchSize .:: option auto
+      % long "batch-size"
+      <> short 'b'
+      <> metavar "COUNT"
+      <> help "Number of transactions to bundle into a single 'send' call"
   where
     pChainId = textOption
       % long "node-chain-id"
@@ -236,7 +263,7 @@ data TXGConfig = TXGConfig
 confKeysets :: Lens' TXGConfig (Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
 confKeysets f c = (\ks -> c { _confKeysets = ks }) <$> f (_confKeysets c)
 
-mkTXGConfig :: Maybe TimingDistribution -> ScriptConfig -> HostAddress -> IO TXGConfig
+mkTXGConfig :: Maybe TimingDistribution -> Args -> HostAddress -> IO TXGConfig
 mkTXGConfig mdistribution config host =
   TXGConfig mdistribution mempty
   <$> cenv
@@ -260,3 +287,6 @@ mkTXGConfig mdistribution config host =
 -- | A running count of all transactions handles over all threads.
 newtype TXCount = TXCount Word
   deriving newtype (Num, Show)
+
+newtype BatchSize = BatchSize Word
+  deriving newtype (Read, Show, ToJSON, FromJSON)

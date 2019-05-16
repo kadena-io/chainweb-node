@@ -123,7 +123,6 @@ generateSimpleTransaction = do
   lift . logg Info . toLogMessage . T.pack $ printf "Sending expression %s to %s" theCode (show cid)
   kps <- liftIO testSomeKeyPairs
 
-
   let publicmeta = CM.PublicMeta
                    (CM.ChainId $ chainIdToText cid)
                    ("sender" <> toText cid)
@@ -222,7 +221,7 @@ loop f tq = do
 
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
+loadContracts :: Args -> HostAddress -> [ContractLoader] -> IO ()
 loadContracts config host contractLoaders = do
   TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
   forM_ (_nodeChainIds config) $ \cid -> do
@@ -235,7 +234,7 @@ loadContracts config host contractLoaders = do
     withConsoleLogger Info . logg Info $ sshow pollresponse
 
 sendTransactions
-  :: ScriptConfig
+  :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
@@ -291,7 +290,7 @@ versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
 
 sendSimpleExpressions
-  :: ScriptConfig
+  :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
@@ -310,7 +309,7 @@ sendSimpleExpressions config host tv distribution = do
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq)) gencfg) stt
 
-pollRequestKeys :: ScriptConfig -> HostAddress -> RequestKey -> IO ()
+pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
   TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
   response <- runClientM (poll v cid $ Poll [rkey]) ce
@@ -325,7 +324,7 @@ pollRequestKeys config host rkey = do
     cid :: ChainId
     cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
 
-listenerRequestKey :: ScriptConfig -> HostAddress -> ListenerRequest -> IO ()
+listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
   TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
   runClientM (listen v cid listenerRequest) ce >>= \case
@@ -337,7 +336,7 @@ listenerRequestKey config host listenerRequest = do
     cid :: ChainId
     cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
 
-work :: ScriptConfig -> IO ()
+work :: Args -> IO ()
 work cfg = do
   mgr <- newManager defaultManagerSettings
   tv  <- newTVarIO 0
@@ -382,12 +381,12 @@ main = runWithConfiguration mainInfo $ \config -> do
   pPrintNoColor config
   work config
 
-mainInfo :: ProgramInfo ScriptConfig
+mainInfo :: ProgramInfo Args
 mainInfo =
   programInfo
     "Chainweb-TransactionGenerator"
     scriptConfigParser
-    defaultScriptConfig
+    defaultArgs
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
