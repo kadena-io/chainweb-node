@@ -161,6 +161,11 @@ txGenerator2 p _cid _bhe _bha =
           , "quantity": 1.0
           , "create-account-guard": (read-keyset 'sender01-keys)
           , "delete-chain-id": 0
+          , "outputs" :
+            { "chain" : ...
+            , "quantify" : ...
+            , "blah" : ...
+            }
           })
         |]
 

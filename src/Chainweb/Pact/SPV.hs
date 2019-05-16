@@ -17,6 +17,7 @@
 module Chainweb.Pact.SPV
 ( noSPV
 , pactSPV
+, getTxIdx
 ) where
 
 
@@ -113,14 +114,14 @@ pactSPV cdbv =
 --
 -- Note: runs in O(n) - this should be revisited if possible
 --
-_getTxIdx
+getTxIdx
     :: PayloadCas cas
     => BlockHeaderDb
     -> PayloadDb cas
     -> BlockHeight
     -> PactHash
     -> IO Int
-_getTxIdx bdb pdb bh th = do
+getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap _blockPayloadHash
         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
