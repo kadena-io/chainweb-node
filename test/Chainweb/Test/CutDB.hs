@@ -24,6 +24,7 @@ module Chainweb.Test.CutDB
 , withTestPayloadResource
 , awaitCutSync
 , awaitCutSync'
+, awaitBlockHeight
 , randomTransaction
 , randomBlockHeader
 , fakePact
@@ -183,6 +184,17 @@ awaitCutSync'
     -> Cut
     -> IO Cut
 awaitCutSync' cdb c0 = awaitCutSync cdb c0 (/=)
+
+awaitBlockHeight
+    :: CutDb cas
+    -> BlockHeight
+    -> ChainId
+    -> IO Cut
+awaitBlockHeight cdb bh cid = atomically $ do
+    c <- _cutStm cdb
+    let bh2 = _blockHeight $ c ^?! ixg cid
+    STM.check $ bh < bh2
+    return c
 
 -- | This function calls 'withTestCutDb' with a fake pact execution service. It
 -- can be used in tests where the semantics of pact transactions isn't

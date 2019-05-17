@@ -21,7 +21,6 @@ module Chainweb.Test.Pact.SPV
 ) where
 
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
-import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
 
 import Data.Aeson
@@ -45,7 +44,6 @@ import System.LogLevel
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
@@ -82,9 +80,12 @@ spv = do
 
             -- extract cut db so we can extract blockheight of source chain id
             c0 <- _cut cutDb
+            cid <- mkChainId v (0 :: Int)
+            let bh0 = _blockHeight $ c0 ^?! ixg cid
 
             -- get tx output from `(coin.delete-coin ...)` call
-            (_, sid, _) <- fmap fromJuste . S.head_ $! extendTestCutDb cutDb pact1 1
+            void $! S.effects $! extendTestCutDb cutDb pact1 $ diam * gorder
+            void $! awaitBlockHeight cutDb (succ bh0) cid
 
             -- in order to ensure that the cutdb has a chance to establic consensus
             -- we must enforce a wait time.
@@ -108,20 +109,22 @@ spv = do
 
             -- 'S.effects' forces the stream here. It -must- occur so that we evaluate the stream
             --
-            void $! S.effects $ extendTestCutDb cutDb pact1 60
+            void $! S.effects $! extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            -- waits must occur after each cutdb extension
-            c2 <- awaitCutSync' cutDb c1
+            let bh1 = _blockHeight $ c1 ^?! ixg cid
+            tid <- mkChainId cutDb (1 :: Int)
 
-            let bh1 = _blockHeight $ c2 ^?! ixg sid
+            -- waits must occur after each cutdb extension
+            void $! awaitBlockHeight cutDb (diam + bh1) tid
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            pact2 <- testWebPactExecutionService v (Just cdb) $! txGenerator2 cdb sid bh1
+            pact2 <- testWebPactExecutionService v (Just cdb) $! txGenerator2 cdb cid bh1
             syncPact cutDb pact2
 
             -- if we get this far, we have succeeded
-            void $! S.head_ $ extendTestCutDb cutDb pact2 1
+            void $! S.effects $! extendTestCutDb cutDb pact2 $ diam * gorder
+
 
   where
     v = TimedCPM petersonChainGraph
@@ -129,6 +132,11 @@ spv = do
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
 
+    diam :: Num a => a
+    diam = int . diameter . _chainGraph $ v
+
+    gorder :: Num a => a
+    gorder = int . order . _chainGraph $ v
 
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
@@ -136,18 +144,18 @@ type TransactionGenerator
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
-txGenerator1 cid _bhe _bha = do
-    if cid == unsafeChainId 1
-    then return mempty
-    else mkPactTestTransactions' txs
+txGenerator1 _cid _bhe _bha =
+    mkPactTestTransactions' txs
   where
     txs =
       let c =
             [text|
-              (coin.delete-coin 'sender00 1 'sender01 (read-keyset 'sender01-keys) 1.0)
+              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keys) 1.0)
               |]
 
       in fromList [ PactTransaction c keys ]
+
+
 
 
 -- | Generate the 'create-coin' command in response
@@ -160,15 +168,15 @@ txGenerator2
     -> BlockHeight
     -> TransactionGenerator
 txGenerator2 cdbv cid bhe tid _bhe _bha =
-    if tid == unsafeChainId 1
-    then do
+    if tid /= unsafeChainId 0
+    then mkPactTestTransactions' mempty
+    else do
       cdb <- readMVar cdbv
 
       q <- fmap toJSON
         $ createTransactionOutputProof cdb tid cid bhe 0
 
       mkPactTestTransactions' (txs q)
-    else return mempty
   where
     txs q = fromList
       [ PactTransaction tx1Code (tx1Data q)
@@ -178,7 +186,6 @@ txGenerator2 cdbv cid bhe tid _bhe _bha =
       [text|
         (coin.create-coin (read-msg 'proof))
         |]
-
     tx1Data q = Just $ object [ "proof" .= q ]
 
 -- | Test admin keys (see 'Chainweb.Test.Pact.Utils')

@@ -110,7 +110,7 @@ pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
           case fromJSON @(CommandSuccess (Term Name)) u of
             Error e -> spvMessage' e
             Success (CommandSuccess (TObject o _)) ->
-              let
+               let
                 outputs = fromList
                   [ (FieldKey "outputs", TObject o def)
                   ]

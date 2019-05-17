@@ -16,7 +16,7 @@
   (deftable coin-table:{coin-schema})
 
   (defschema creates-schema
-    exists:string
+    exists:bool
     )
   (deftable creates-table:{creates-schema})
 
@@ -171,7 +171,8 @@
         { "balance" : 0.0, "guard" : guard }
         { "balance" := balance, "guard" := retg }
           ; we don't want to overwrite an existing guard with the user-supplied one
-        (enforce (= retg guard) "account guards do not match")
+        (enforce (= retg guard)
+          (format "account guards do not match {} vs {}" [retg guard]))
 
         (write coin-table account
           { "balance" : (+ balance amount)
@@ -206,15 +207,16 @@
         }
 
         (enforce
-          (= (at "chain-id" (chain-data))
-            create-chain-id "enforce correct create chain ID"))
+          (= create-chain-id (at "chain-id" (chain-data)))
+          "enforce correct create chain ID")
 
-        (let ((create-id (format "%:%" [delete-tx-hash delete-chain-id])))
-          (with-default-read create-id creates-table
+        (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
+          (with-default-read creates-table create-id
             { "exists": false }
             { "exists":= exists }
 
-            (enforce (not exists) (format "enforce unique usage of %" [create-id]))
+            (enforce (not exists)
+              (format "enforce unique usage of {}" [create-id]))
 
             (insert creates-table create-id { "exists": true })
 
