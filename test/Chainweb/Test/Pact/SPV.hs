@@ -102,7 +102,7 @@ spv = do
 
             -- 'S.effects' forces the stream here. It -must- occur so that we evaluate the stream
             --
-            void $! S.effects $ extendTestCutDb cutDb pact1 60
+            void $! S.effects $ extendTestCutDb cutDb pact1 66
             syncPact cutDb pact1
 
             -- in order to ensure that the cutdb has a chance to establic consensus
