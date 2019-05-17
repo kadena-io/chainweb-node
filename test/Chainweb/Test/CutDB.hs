@@ -22,12 +22,15 @@ module Chainweb.Test.CutDB
 , syncPact
 , withTestCutDbWithoutPact
 , withTestPayloadResource
+, awaitCutDbSync
+, awaitCutSync
 , randomTransaction
 , randomBlockHeader
 , fakePact
 ) where
 
 import Control.Concurrent.Async
+import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
 import Control.Monad
 
@@ -75,7 +78,7 @@ import Data.LogMessage
 import Data.TaskMap
 
 -- -------------------------------------------------------------------------- --
--- Create a random Cut DB with the respetive Payload Store
+-- Create a random Cut DB with the respective Payload Store
 
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
@@ -158,6 +161,28 @@ syncPact cutDb pact =
     payload h = casLookup pdb (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
+
+-- Atomically await for a 'CutDb' instance to synchronize cuts according to some
+-- predicate for a given 'Cut' and the results of '_cutStm'.
+--
+awaitCutDbSync
+    :: CutDb cas
+    -> Cut
+    -> (Cut -> Cut -> Bool)
+    -> IO Cut
+awaitCutDbSync cdb c0 k = atomically $ do
+  c <- _cutStm cdb
+  STM.check $ k c0 c
+  pure c
+
+-- Await for a 'CutDb' instance to synchronize to a given 'Cut' on inequality
+-- with the results of '_cutStm'.
+--
+awaitCutSync
+    :: CutDb cas
+    -> Cut
+    -> IO Cut
+awaitCutSync cdb c0 = awaitCutDbSync cdb c0 (/=)
 
 -- | This function calls 'withTestCutDb' with a fake pact execution service. It
 -- can be used in tests where the semantics of pact transactions isn't
@@ -319,6 +344,7 @@ tryMine miner pact cutDb c cid = do
 
             -- add cut to db
             addCutHashes cutDb (cutToCutHashes Nothing c')
+
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where

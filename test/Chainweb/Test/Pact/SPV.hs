@@ -133,26 +133,6 @@ spv = do
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
--- Atomically await cutdb to sync according to some cut predicate
---
-awaitSync
-    :: CutDb cas
-    -> Cut
-    -> (Cut -> Cut -> Bool)
-    -> IO Cut
-awaitSync cdb c0 k = atomically $ do
-  c <- _cutStm cdb
-  check $ k c0 c
-  pure c
-
--- Wait for cuts to synchronize in the cutdb
---
-awaitCutSync
-    :: CutDb cas
-    -> Cut
-    -> IO Cut
-awaitCutSync cdb c0 = awaitSync cdb c0 (/=)
-
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
