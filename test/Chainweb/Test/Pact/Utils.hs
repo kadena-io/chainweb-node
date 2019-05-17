@@ -88,7 +88,7 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
-
+import Pact.Types.Term hiding (Object(..))
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -140,18 +140,34 @@ mkPactTestTransactions cmdStrs = do
     traverse (mkPactTransaction kps theData "1") cmdStrs
 
 mkPactTestTransactions'
-    :: Vector PactTransaction
+    :: Text
+    -> ChainId
+    -> Vector PactTransaction
     -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions' txs =
-    testKeyPairs >>= \ks -> traverse (go ks) txs
+mkPactTestTransactions' sender cid txs =
+    testKeyPairs >>= forM txs . go
   where
     -- merge tx data and create pact command
     go ks (PactTransaction c d) =
-      let pd = mergeObjects $ [keys ks] <> singletonOf d
-      in mkPactTransaction ks pd "1" (unpack c)
+      let d' = mergeObjects $ [keys] <> singletonOf d
+      in mkTx ks d' c
 
     -- create public test admin keys from test keyset
-    keys ks = object ["test-admin-keyset" .= fmap formatB16PubKey ks]
+    keys =
+      let
+        ks = KeySet
+          [ "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+          (Name "keys-all" def)
+      in object ["sender01-keys" .= ks]
+
+    mkTx ks d c = do
+      let pm = PublicMeta cid sender (ParsedInteger 100) (ParsedDecimal 0.0001)
+      cmd <- mkCommand ks pm "1" $ Exec (ExecMsg c d)
+      case verifyCommand cmd of
+        ProcSucc t -> return $
+          fmap (\bs -> PayloadWithText bs (_cmdPayload t)) cmd
+        ProcFail e -> throwM . userError $ e
+
 
 mkPactTransaction
   :: [SomeKeyPair]
@@ -226,7 +242,7 @@ testPactCtx v cid cdbv = do
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger True
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPV pactSPV cdbv

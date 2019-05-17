@@ -52,13 +52,14 @@ import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
-import Chainweb.Version
+import Chainweb.Version as Chainweb
 
 import Data.CAS.RocksDB
 
 
 -- internal pact modules
 
+import Pact.Types.ChainMeta as Pact
 import Pact.Types.Term
 
 tests :: TestTree
@@ -139,13 +140,13 @@ spv = do
     gorder = int . order . _chainGraph $ v
 
 type TransactionGenerator
-    = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+    = Chainweb.ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
-txGenerator1 _cid _bhe _bha =
-    mkPactTestTransactions' txs
+txGenerator1 cid _bhe _bha =
+    mkPactTestTransactions' "sender00" (Pact.ChainId $ chainIdToText cid) txs
   where
     txs =
       let c =
@@ -153,10 +154,7 @@ txGenerator1 _cid _bhe _bha =
               (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keys) 1.0)
               |]
 
-      in fromList [ PactTransaction c keys ]
-
-
-
+      in fromList [ PactTransaction c Nothing ]
 
 -- | Generate the 'create-coin' command in response
 -- to the previous 'delete-coin' call
@@ -164,19 +162,19 @@ txGenerator1 _cid _bhe _bha =
 txGenerator2
     :: PayloadCas cas
     => MVar (CutDb cas)
-    -> ChainId
+    -> Chainweb.ChainId
     -> BlockHeight
     -> TransactionGenerator
 txGenerator2 cdbv cid bhe tid _bhe _bha =
-    if tid /= unsafeChainId 0
-    then mkPactTestTransactions' mempty
+    if tid /= unsafeChainId 1
+    then return mempty
     else do
       cdb <- readMVar cdbv
 
       q <- fmap toJSON
         $ createTransactionOutputProof cdb tid cid bhe 0
 
-      mkPactTestTransactions' (txs q)
+      mkPactTestTransactions' "sender01" (Pact.ChainId $ chainIdToText tid) (txs q)
   where
     txs q = fromList
       [ PactTransaction tx1Code (tx1Data q)
@@ -187,12 +185,3 @@ txGenerator2 cdbv cid bhe tid _bhe _bha =
         (coin.create-coin (read-msg 'proof))
         |]
     tx1Data q = Just $ object [ "proof" .= q ]
-
--- | Test admin keys (see 'Chainweb.Test.Pact.Utils')
---
-keys :: Maybe Value
-keys = Just $ object [ "sender01-keys" .= k ]
-  where
-    k = KeySet
-      [ PublicKey "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
-      ( Name "keys-all" def )
