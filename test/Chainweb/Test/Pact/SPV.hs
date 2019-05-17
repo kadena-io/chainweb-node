@@ -90,7 +90,7 @@ spv = do
               check (c0 /= c)
               return c
             -- get tx output from `(coin.delete-coin ...)` call
-            (_, sid, _) <- fmap fromJuste . S.head_ $ extendTestCutDb cutDb pact1 1
+            (_, sid, _) <- fmap fromJuste . S.head_ $! extendTestCutDb cutDb pact1 1
 
             -- A proof can only be constructed if the block hash of the source block
             -- is included in the block hash of the target. Extending the cut db with
@@ -123,7 +123,7 @@ spv = do
             let bh1 = _blockHeight $ c2 ^?! ixg sid
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb sid bh1
+            pact2 <- testWebPactExecutionService v (Just cdb) $! txGenerator2 cdb sid bh1
             syncPact cutDb pact2
 
             -- if we get this far, we have succeeded
