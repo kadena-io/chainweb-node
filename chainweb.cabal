@@ -117,7 +117,6 @@ library
         , Chainweb.Mempool.RestAPI
         , Chainweb.Mempool.RestAPI.Client
         , Chainweb.Mempool.RestAPI.Server
-        , Chainweb.Mempool.Socket
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
@@ -345,7 +344,6 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
-        Chainweb.Test.Mempool.Socket
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
