@@ -717,9 +717,23 @@ toBackend
     -> Maybe (IORef BlockHeader)
     -> MempoolBackend t
 toBackend config (ClientState cChan _ _ _ _ _ _) lastPar =
-    MempoolBackend txcfg blockSizeLimit lastPar processForkUnSup pMember pLookup pInsert
-                   pGetBlock unsupported unsupported unsupported
-                   pGetPending pSubscribe pShutdown pClear
+    MempoolBackend
+    { mempoolTxConfig = txcfg
+    , mempoolBlockGasLimit = blockSizeLimit
+    , mempoolLastNewBlockParent = lastPar
+    , mempoolProcessFork = processForkUnSup
+    , mempoolMember = pMember
+    , mempoolLookup = pLookup
+    , mempoolInsert = pInsert
+    , mempoolGetBlock = pGetBlock
+    , mempoolMarkValidated = unsupported
+    , mempoolMarkConfirmed = unsupported
+    , mempoolReintroduce = unsupported
+    , mempoolGetPendingTransactions = pGetPending
+    , mempoolSubscribe = pSubscribe
+    , mempoolShutdown = pShutdown
+    , mempoolClear = pClear
+    }
   where
     txcfg = _ccTxCfg config
     blockSizeLimit = 100000              -- FIXME: move into transaction config!
