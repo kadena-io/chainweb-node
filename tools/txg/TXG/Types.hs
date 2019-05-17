@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,7 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Module: TXG.Types
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -27,8 +28,8 @@ module TXG.Types
   , scriptConfigParser
     -- * TXG Monad
   , TXG(..)
-  , TXGState(..), gsChains
-  , TXGConfig(..), confKeysets, mkTXGConfig
+  , TXGState(..)
+  , TXGConfig(..), mkTXGConfig
     -- * Misc.
   , TXCount(..)
   , BatchSize(..)
@@ -40,13 +41,12 @@ import Chainweb.HostAddress
 import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
 import Chainweb.Version
 import Configuration.Utils hiding (Error, Lens', (<.>))
-import Control.Lens hiding (op, (.=), (|>))
 import Control.Monad.Catch (MonadThrow(..))
 import Control.Monad.Primitive
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 import Data.ByteString (ByteString)
-import Data.Default
+import Data.Generics.Product.Fields (field)
 import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Text (Text)
@@ -72,8 +72,8 @@ data TimingDistribution
   deriving (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-instance Default TimingDistribution where
-  def = Gaussian 1000000 (1000000 / 16)
+defaultTimingDist :: TimingDistribution
+defaultTimingDist = Gaussian 1000000 (1000000 / 16)
 
 data TXCmd
   = DeployContracts [Sim.ContractName]
@@ -130,94 +130,70 @@ instance HasTextRepresentation TXCmd where
   fromText = transactionCommandFromText
   {-# INLINE fromText #-}
 
-instance Default TXCmd where
-  def = RunSimpleExpressions def
-
 -------
 -- Args
 -------
 
 data Args = Args
-  { _scriptCommand :: !TXCmd
-  , _nodeChainIds :: ![ChainId]
-  , _isChainweb :: !Bool
-  , _hostAddresses :: ![HostAddress]
-  , _nodeVersion :: !ChainwebVersion
-  , _logHandleConfig :: !U.HandleConfig
-  , _batchSize :: !BatchSize
+  { scriptCommand :: !TXCmd
+  , nodeChainIds :: ![ChainId]
+  , isChainweb :: !Bool
+  , hostAddresses :: ![HostAddress]
+  , nodeVersion :: !ChainwebVersion
+  , logHandleConfig :: !U.HandleConfig
+  , batchSize :: !BatchSize
   } deriving (Show, Generic)
-
-scriptCommand :: Functor f => (TXCmd -> f TXCmd) -> Args -> f Args
-scriptCommand f sc = (\tc -> sc { _scriptCommand = tc }) <$> f (_scriptCommand sc)
-
-nodeChainIds :: Functor f => ([ChainId] -> f [ChainId]) -> Args -> f Args
-nodeChainIds f sc = (\tc -> sc { _nodeChainIds = tc }) <$> f (_nodeChainIds sc)
-
-isChainweb :: Functor f => (Bool -> f Bool) -> Args -> f Args
-isChainweb f sc = (\tc -> sc { _isChainweb = tc }) <$> f (_isChainweb sc)
-
-hostAddresses :: Functor f => ([HostAddress] -> f [HostAddress]) -> Args -> f Args
-hostAddresses f sc = (\tc -> sc { _hostAddresses = tc }) <$> f (_hostAddresses sc)
-
-nodeVersion :: Functor f => (ChainwebVersion -> f ChainwebVersion) -> Args -> f Args
-nodeVersion f sc = (\tc -> sc { _nodeVersion = tc }) <$> f (_nodeVersion sc)
-
-logHandleConfig :: Functor f => (U.HandleConfig -> f U.HandleConfig) -> Args -> f Args
-logHandleConfig f sc = (\tc -> sc { _logHandleConfig = tc }) <$> f (_logHandleConfig sc)
-
-batchSize :: Functor f => (BatchSize -> f BatchSize) -> Args -> f Args
-batchSize f sc = (\tc -> sc { _batchSize = tc }) <$> f (_batchSize sc)
 
 instance ToJSON Args where
   toJSON o = object
-    [ "scriptCommand"   .= _scriptCommand o
-    , "nodeChainIds"    .= _nodeChainIds o
-    , "isChainweb"      .= _isChainweb o
-    , "hostAddresses"   .= _hostAddresses o
-    , "chainwebVersion" .= _nodeVersion o
-    , "logHandle"       .= _logHandleConfig o
-    , "batchSize"       .= _batchSize o
+    [ "scriptCommand"   .= scriptCommand o
+    , "nodeChainIds"    .= nodeChainIds o
+    , "isChainweb"      .= isChainweb o
+    , "hostAddresses"   .= hostAddresses o
+    , "chainwebVersion" .= nodeVersion o
+    , "logHandle"       .= logHandleConfig o
+    , "batchSize"       .= batchSize o
     ]
 
 instance FromJSON (Args -> Args) where
   parseJSON = withObject "Args" $ \o -> id
-    <$< scriptCommand   ..: "scriptCommand"   % o
-    <*< nodeChainIds    ..: "nodeChainIds"    % o
-    <*< isChainweb      ..: "isChainweb"      % o
-    <*< hostAddresses   ..: "hostAddresses"   % o
-    <*< nodeVersion     ..: "chainwebVersion" % o
-    <*< logHandleConfig ..: "logging"         % o
-    <*< batchSize       ..: "batchSize"       % o
+    <$< field @"scriptCommand"   ..: "scriptCommand"   % o
+    <*< field @"nodeChainIds"    ..: "nodeChainIds"    % o
+    <*< field @"isChainweb"      ..: "isChainweb"      % o
+    <*< field @"hostAddresses"   ..: "hostAddresses"   % o
+    <*< field @"nodeVersion"     ..: "chainwebVersion" % o
+    <*< field @"logHandleConfig" ..: "logging"         % o
+    <*< field @"batchSize"       ..: "batchSize"       % o
 
 defaultArgs :: Args
 defaultArgs = Args
-  { _scriptCommand   = RunSimpleExpressions def
-  , _nodeChainIds    = []
-  , _isChainweb      = True
-  , _hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
-  , _nodeVersion     = v
-  , _logHandleConfig = U.StdOut
-  , _batchSize       = BatchSize 1 }
+  { scriptCommand   = RunSimpleExpressions defaultTimingDist
+  , nodeChainIds    = []
+  , isChainweb      = True
+  , hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
+  , nodeVersion     = v
+  , logHandleConfig = U.StdOut
+  , batchSize       = BatchSize 1 }
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
 
 scriptConfigParser :: MParser Args
 scriptConfigParser = id
-  <$< scriptCommand .:: textOption
+  <$< field @"scriptCommand" .:: textOption
       % long "script-command"
       <> short 'c'
       <> metavar "COMMAND"
       <> help ("The specific command to run: see examples/transaction-generator-help.md for more detail."
                <> "The only commands supported on the commandline are 'poll' and 'listen'.")
-  <*< nodeChainIds %:: pLeftSemigroupalUpdate (pure <$> pChainId)
-  <*< hostAddresses %:: pLeftSemigroupalUpdate (pure <$> pHostAddress' Nothing)
-  <*< nodeVersion .:: textOption
+  <*< field @"nodeChainIds" %:: pLeftSemigroupalUpdate (pure <$> pChainId)
+  <*< field @"hostAddresses" %:: pLeftSemigroupalUpdate (pure <$> pHostAddress' Nothing)
+  <*< field @"nodeVersion" .:: textOption
       % long "chainweb-version"
       <> short 'v'
       <> metavar "VERSION"
       <> help "Chainweb Version"
-  <*< batchSize .:: option auto
+  <*< field @"batchSize" .:: option auto
       % long "batch-size"
       <> short 'b'
       <> metavar "COUNT"
@@ -246,31 +222,25 @@ instance MonadTrans TXG where
   lift = TXG . lift . lift
 
 data TXGState = TXGState
-  { _gsGen :: !(Gen (PrimState IO))
-  , _gsCounter :: !(TVar TXCount)
-  , _gsChains :: !(NESeq ChainId)
-  }
-
-gsChains :: Lens' TXGState (NESeq ChainId)
-gsChains f s = (\c -> s { _gsChains = c }) <$> f (_gsChains s)
+  { gsGen :: !(Gen (PrimState IO))
+  , gsCounter :: !(TVar TXCount)
+  , gsChains :: !(NESeq ChainId)
+  } deriving (Generic)
 
 data TXGConfig = TXGConfig
-  { _confTimingDist :: !(Maybe TimingDistribution)
-  , _confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
-  , _confClientEnv :: !ClientEnv
-  , _confVersion :: !ChainwebVersion
-  , _confBatchSize :: !BatchSize
-  }
-
-confKeysets :: Lens' TXGConfig (Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
-confKeysets f c = (\ks -> c { _confKeysets = ks }) <$> f (_confKeysets c)
+  { confTimingDist :: !(Maybe TimingDistribution)
+  , confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
+  , confClientEnv :: !ClientEnv
+  , confVersion :: !ChainwebVersion
+  , confBatchSize :: !BatchSize
+  } deriving (Generic)
 
 mkTXGConfig :: Maybe TimingDistribution -> Args -> HostAddress -> IO TXGConfig
 mkTXGConfig mdistribution config host =
   TXGConfig mdistribution mempty
   <$> cenv
-  <*> pure (_nodeVersion config)
-  <*> pure (_batchSize config)
+  <*> pure (nodeVersion config)
+  <*> pure (batchSize config)
   where
     cenv :: IO ClientEnv
     cenv = do

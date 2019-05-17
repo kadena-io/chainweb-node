@@ -34,6 +34,7 @@ import Control.Monad.Except
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
+import Data.Generics.Product.Fields (field)
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
@@ -90,8 +91,8 @@ import qualified Utils.Logging.Config as U
 
 generateDelay :: MonadIO m => TXG m Int
 generateDelay = do
-  distribution <- asks _confTimingDist
-  gen <- gets _gsGen
+  distribution <- asks confTimingDist
+  gen <- gets gsGen
   case distribution of
     Just (Gaussian gmean gvar) -> liftIO (truncate <$> normal gmean gvar gen)
     Just (Uniform ulow uhigh) -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
@@ -102,11 +103,11 @@ generateSimpleTransactions
   => TXG m (ChainId, [Command Text])
 generateSimpleTransactions = do
   -- Choose a Chain to send these transactions to, and cycle the state.
-  cid <- uses gsChains NES.head
-  gsChains %= rotate
+  cid <- NES.head <$> gets gsChains
+  field @"gsChains" %= rotate
   -- Generate a batch of transactions
   stdgen <- liftIO newStdGen
-  batch <- asks _confBatchSize
+  batch <- asks confBatchSize
   cmds <- liftIO . sequenceA . replicate (fromIntegral batch) $ f cid stdgen
   -- Delay, so as not to hammer the network.
   delay <- generateDelay
@@ -150,14 +151,14 @@ generateTransactions = do
   contractIndex <- liftIO randomEnum
 
   -- Choose a Chain to send this transaction to, and cycle the state.
-  cid <- uses gsChains NES.head
-  gsChains %= rotate
+  cid <- NES.head <$> gets gsChains
+  field @"gsChains" %= rotate
 
-  cks <- view confKeysets
+  cks <- asks confKeysets
   case M.lookup cid cks of
     Nothing -> error $ printf "%s is missing Accounts!" (show cid)
     Just accs -> do
-      batch <- asks _confBatchSize
+      batch <- asks confBatchSize
       cmds <- liftIO . sequenceA . replicate (fromIntegral batch) $
         case contractIndex of
           CoinContract -> coinContract cid $ accounts "coin" accs
@@ -208,8 +209,8 @@ loop f = do
     Left servantError ->
       lift . logg Error $ toLogMessage (sshow servantError :: Text)
     Right _ -> do
-      countTV <- gets _gsCounter
-      batch <- asks _confBatchSize
+      countTV <- gets gsCounter
+      batch <- asks confBatchSize
       liftIO . atomically $ modifyTVar' countTV (+ fromIntegral batch)
       count <- liftIO $ readTVarIO countTV
       lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
@@ -221,7 +222,7 @@ type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 loadContracts :: Args -> HostAddress -> [ContractLoader] -> IO ()
 loadContracts config host contractLoaders = do
   TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
-  forM_ (_nodeChainIds config) $ \cid -> do
+  forM_ (nodeChainIds config) $ \cid -> do
     let !meta = Sim.makeMeta cid
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
@@ -239,9 +240,9 @@ realTransactions
 realTransactions config host tv distribution = do
   cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
 
-  let chains = maybe (versionChains $ _nodeVersion config) NES.fromList
+  let chains = maybe (versionChains $ nodeVersion config) NES.fromList
                . NEL.nonEmpty
-               $ _nodeChainIds config
+               $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let !meta = Sim.makeMeta cid
@@ -261,7 +262,7 @@ realTransactions config host tv distribution = do
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
   let act = loop generateTransactions
-      env = set confKeysets accountMap cfg
+      env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
   evalStateT (runReaderT (runTXG act) env) stt
@@ -297,9 +298,9 @@ simpleExpressions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
+  let chs = maybe (versionChains $ nodeVersion config) NES.fromList
              . NEL.nonEmpty
-             $ _nodeChainIds config
+             $ nodeChainIds config
       stt = TXGState gen tv chs
 
   evalStateT (runReaderT (runTXG (loop generateSimpleTransactions)) gencfg) stt
@@ -317,7 +318,7 @@ pollRequestKeys config host rkey = do
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ nodeChainIds config
 
 listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
@@ -329,7 +330,7 @@ listenerRequestKey config host listenerRequest = do
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ nodeChainIds config
 
 work :: Args -> IO ()
 work cfg = do
@@ -339,10 +340,10 @@ work cfg = do
     $ \baseBackend -> do
       let loggerBackend = logHandles [] baseBackend
       withLogger (U._logConfigLogger defconfig) loggerBackend $ \l ->
-        mapConcurrently_ (\host -> runLoggerT (act tv host) l) $ _hostAddresses cfg
+        mapConcurrently_ (\host -> runLoggerT (act tv host) l) $ hostAddresses cfg
   where
     transH :: U.HandleConfig
-    transH = _logHandleConfig cfg
+    transH = logHandleConfig cfg
 
     defconfig :: U.LogConfig
     defconfig =
@@ -353,7 +354,7 @@ work cfg = do
 
     act :: TVar TXCount -> HostAddress -> LoggerT SomeLogMessage IO ()
     act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
-      case _scriptCommand cfg of
+      case scriptCommand cfg of
         DeployContracts [] -> liftIO $
           loadContracts cfg host $ initAdminKeysetContract : defaultContractLoaders
         DeployContracts cs -> liftIO $
@@ -369,10 +370,10 @@ work cfg = do
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
-  let chains = graphChainIds . _chainGraph $ _nodeVersion config
-      isMem  = all (`HS.member` chains) $ _nodeChainIds config
+  let chains = graphChainIds . _chainGraph $ nodeVersion config
+      isMem  = all (`HS.member` chains) $ nodeChainIds config
   unless isMem $ error $
-    printf "Invalid chain %s for given version\n" (show $ _nodeChainIds config)
+    printf "Invalid chain %s for given version\n" (show $ nodeChainIds config)
   pPrintNoColor config
   work config
 
@@ -429,11 +430,11 @@ listen version chainid = go
 ---------------------------
 -- FOR DEBUGGING IN GHCI --
 ---------------------------
-_genapi2 :: ChainwebVersion -> ChainId -> Text
-_genapi2 version chainid =
-  case someChainwebVersionVal version of
-    SomeChainwebVersionT (_ :: Proxy cv) ->
-      case someChainIdVal chainid of
-        SomeChainIdT (_ :: Proxy cid) ->
-          let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
-          in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
+-- genapi2 :: ChainwebVersion -> ChainId -> Text
+-- genapi2 version chainid =
+--   case someChainwebVersionVal version of
+--     SomeChainwebVersionT (_ :: Proxy cv) ->
+--       case someChainIdVal chainid of
+--         SomeChainIdT (_ :: Proxy cid) ->
+--           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
+--           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
