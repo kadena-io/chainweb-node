@@ -46,6 +46,7 @@ import System.LogLevel
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
@@ -83,14 +84,12 @@ spv = do
             -- extract cut db so we can extract blockheight of source chain id
             c0 <- _cut cutDb
 
-            -- in order to ensure that the cutdb has a chance to establic consensus
-            -- we must enforce a wait time.
-            c1 <- atomically $ do
-              c <- _cutStm cutDb
-              check (c0 /= c)
-              return c
             -- get tx output from `(coin.delete-coin ...)` call
             (_, sid, _) <- fmap fromJuste . S.head_ $! extendTestCutDb cutDb pact1 1
+
+            -- in order to ensure that the cutdb has a chance to establic consensus
+            -- we must enforce a wait time.
+            c1 <- awaitCutSync cutDb c0
 
             -- A proof can only be constructed if the block hash of the source block
             -- is included in the block hash of the target. Extending the cut db with
@@ -110,15 +109,11 @@ spv = do
 
             -- 'S.effects' forces the stream here. It -must- occur so that we evaluate the stream
             --
-            void $! S.effects $ extendTestCutDb cutDb pact1 66
+            void $! S.effects $ extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            -- in order to ensure that the cutdb has a chance to establic consensus
-            -- we must enforce a wait time.
-            c2 <- atomically $ do
-              c <- _cutStm cutDb
-              check (c1 /= c)
-              return c
+            -- waits must occur after each cutdb extension
+            c2 <- awaitCutSync cutDb c1
 
             let bh1 = _blockHeight $ c2 ^?! ixg sid
 
@@ -138,6 +133,26 @@ spv = do
 
 type TransactionGenerator
     = ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+
+-- Atomically await cutdb to sync according to some cut predicate
+--
+awaitSync
+    :: CutDb cas
+    -> Cut
+    -> (Cut -> Cut -> Bool)
+    -> IO Cut
+awaitSync cdb c0 k = atomically $ do
+  c <- _cutStm cdb
+  check $ k c0 c
+  pure c
+
+-- Wait for cuts to synchronize in the cutdb
+--
+awaitCutSync
+    :: CutDb cas
+    -> Cut
+    -> IO Cut
+awaitCutSync cdb c0 = awaitSync cdb c0 (/=)
 
 -- | Generate burn/create Pact Service commands
 --
