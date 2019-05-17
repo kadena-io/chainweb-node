@@ -252,12 +252,13 @@ data SyncState = SyncState {
 syncMempools'
     :: Show t
     => LogFunctionText
-    -> MempoolBackend t   -- ^ local mempool
-    -> MempoolBackend t   -- ^ remote mempool
-    -> IO ()              -- ^ on initial sync complete
+    -> Int                  -- ^ polling interval in microseconds
+    -> MempoolBackend t     -- ^ local mempool
+    -> MempoolBackend t     -- ^ remote mempool
+    -> IO ()                -- ^ on initial sync complete
     -> IO ()
-syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
-    runForever log0 "mempool-sync-session" $ sync >> threadDelay 10000000
+syncMempools' log0 us localMempool remoteMempool onInitialSyncComplete =
+    runForever log0 "mempool-sync-session" $ sync >> threadDelay us
 
   where
     maxCnt = 10000   -- don't pull more than this many new transactions from a
@@ -347,11 +348,12 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
 syncMempools
     :: Show t
     => LogFunctionText
-    -> MempoolBackend t   -- ^ local mempool
-    -> MempoolBackend t   -- ^ remote mempool
+    -> Int                  -- ^ polling interval in microseconds
+    -> MempoolBackend t     -- ^ local mempool
+    -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
-syncMempools log localMempool remoteMempool =
-    syncMempools' log localMempool remoteMempool (return ())
+syncMempools log us localMempool remoteMempool =
+    syncMempools' log us localMempool remoteMempool (return ())
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

@@ -30,7 +30,6 @@ import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
-import qualified Chainweb.Test.Mempool.Socket
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
@@ -92,7 +91,6 @@ suite rdb =
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Mempool.InMem.tests
-        , Chainweb.Test.Mempool.Socket.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.BlockHeader.Genesis.tests

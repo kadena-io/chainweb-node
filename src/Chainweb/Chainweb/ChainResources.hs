@@ -205,13 +205,13 @@ runMempoolSyncClient mgr chain = bracket create destroy go
 mempoolSyncP2pSession :: ChainResources logger -> P2pSession
 mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
   where
-    go ref =
-        flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
-            logg Debug "mempool sync session starting"
-            peerMp <-  peerMempool
-            Mempool.syncMempools' logg pool peerMp (writeIORef ref True)
-            logg Debug "mempool sync session finished"
-            readIORef ref
+    syncIntervalUs = 10000000
+    go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
+             logg Debug "mempool sync session starting"
+             peerMp <-  peerMempool
+             Mempool.syncMempools' logg syncIntervalUs pool peerMp (writeIORef ref True)
+             logg Debug "mempool sync session finished"
+             readIORef ref
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
