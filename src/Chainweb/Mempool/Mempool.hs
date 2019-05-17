@@ -30,14 +30,11 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent (myThreadId)
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM.TBMChan (TBMChan)
-import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Monad (replicateM, unless, when)
+import Control.Monad (replicateM, when)
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson
@@ -61,7 +58,6 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import Foreign.StablePtr
 import GHC.Generics
 import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (log)
@@ -75,6 +71,7 @@ import qualified Chainweb.Time as Time
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Data.LogMessage (LogFunctionText)
+import Chainweb.Utils (runForever)
 
 
 ------------------------------------------------------------------------------
@@ -220,30 +217,9 @@ syncMempools'
     -> IO ()                -- ^ on initial sync complete
     -> IO ()
 syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
-    bracket startSubscription cleanupSubscription sync
+    runForever log0 "mempool-sync-session" $ sync >> threadDelay 10000000
 
   where
-    startSubscription = do
-        sub <- mempoolSubscribe remoteMempool
-        th <- readIORef sub >>= Async.async . subThread
-        Async.link th
-        p <- myThreadId >>= newStablePtr  -- otherwise we will get "blocked
-                                          -- indefinitely on mvar" during sync
-        return (sub, th, p)
-
-    cleanupSubscription (sub, th, p) = do
-      Async.uninterruptibleCancel th
-      freeStablePtr p
-      mempoolSubFinal <$> readIORef sub
-
-    -- TODO: update a counter and bug out if too many new txs read
-    subThread sub =
-        let chan = mempoolSubChan sub
-            go = do
-                m <- atomically (TBMChan.readTBMChan chan)
-                maybe (return ()) (\v -> mempoolInsert localMempool v >> go) m
-        in go
-
     maxCnt = 10000   -- don't pull more than this many new transactions from a
                      -- single peer in a session.
 
@@ -280,13 +256,12 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync _ = flip finally (log "sync finished") $ do
-        deb "subscription started, getting pending hashes from remote"
+    sync = flip finally (log "sync finished") $ do
+        deb "Get pending hashes from remote"
         missing <- newIORef $! SyncState 0 [] HashSet.empty False
         mempoolGetPendingTransactions remoteMempool $ syncChunk missing
-        (SyncState _ missingChunks presentHashes tooMany) <- readIORef missing
+        (SyncState _ missingChunks presentHashes _) <- readIORef missing
 
-        deb "subscription started, getting pending hashes from remote"
         let numMissingFromLocal = foldl' (+) 0 (map V.length missingChunks)
         let numPresentAtRemote = HashSet.size presentHashes
 
@@ -313,8 +288,7 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
         -- indefinitely waiting for the p2p session to kill us (and slurping
         -- from the remote subscription queue).
         onInitialSyncComplete
-        log "initial sync complete, sleeping"
-        unless tooMany $ atomically retry
+        log "sync complete, sleeping"
 
     push presentHashes = do
         ref <- newIORef 0
