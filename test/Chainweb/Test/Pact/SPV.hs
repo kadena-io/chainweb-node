@@ -88,7 +88,7 @@ spv = do
 
             -- in order to ensure that the cutdb has a chance to establic consensus
             -- we must enforce a wait time.
-            c1 <- awaitCutSync cutDb c0
+            c1 <- awaitCutSync' cutDb c0
 
             -- A proof can only be constructed if the block hash of the source block
             -- is included in the block hash of the target. Extending the cut db with
@@ -112,7 +112,7 @@ spv = do
             syncPact cutDb pact1
 
             -- waits must occur after each cutdb extension
-            c2 <- awaitCutSync cutDb c1
+            c2 <- awaitCutSync' cutDb c1
 
             let bh1 = _blockHeight $ c2 ^?! ixg sid
 

@@ -22,8 +22,8 @@ module Chainweb.Test.CutDB
 , syncPact
 , withTestCutDbWithoutPact
 , withTestPayloadResource
-, awaitCutDbSync
 , awaitCutSync
+, awaitCutSync'
 , randomTransaction
 , randomBlockHeader
 , fakePact
@@ -165,12 +165,12 @@ syncPact cutDb pact =
 -- Atomically await for a 'CutDb' instance to synchronize cuts according to some
 -- predicate for a given 'Cut' and the results of '_cutStm'.
 --
-awaitCutDbSync
+awaitCutSync
     :: CutDb cas
     -> Cut
     -> (Cut -> Cut -> Bool)
     -> IO Cut
-awaitCutDbSync cdb c0 k = atomically $ do
+awaitCutSync cdb c0 k = atomically $ do
   c <- _cutStm cdb
   STM.check $ k c0 c
   pure c
@@ -178,11 +178,11 @@ awaitCutDbSync cdb c0 k = atomically $ do
 -- Await for a 'CutDb' instance to synchronize to a given 'Cut' on inequality
 -- with the results of '_cutStm'.
 --
-awaitCutSync
+awaitCutSync'
     :: CutDb cas
     -> Cut
     -> IO Cut
-awaitCutSync cdb c0 = awaitCutDbSync cdb c0 (/=)
+awaitCutSync' cdb c0 = awaitCutSync cdb c0 (/=)
 
 -- | This function calls 'withTestCutDb' with a fake pact execution service. It
 -- can be used in tests where the semantics of pact transactions isn't
