@@ -20,7 +20,6 @@ module Chainweb.Test.Pact.SPV
 , spv
 ) where
 
-
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
 import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
@@ -157,8 +156,10 @@ awaitCutSync cdb c0 = awaitSync cdb c0 (/=)
 -- | Generate burn/create Pact Service commands
 --
 txGenerator1 :: TransactionGenerator
-txGenerator1 _cid _bhe _bha = do
-    mkPactTestTransactions' txs
+txGenerator1 cid _bhe _bha = do
+    if cid == unsafeChainId 1
+    then return mempty
+    else mkPactTestTransactions' txs
   where
     txs =
       let c =
