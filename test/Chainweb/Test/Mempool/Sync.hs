@@ -113,7 +113,7 @@ propSync (txs, missing, later) localMempool =
 
     noLog = const $ const $ return ()
     syncThread remoteMempool =
-        eatExceptions $ syncMempools noLog localMempool remoteMempool
+        eatExceptions $ syncMempools noLog 10 localMempool remoteMempool
 
     -- a thread that reads from a mempool subscription and calls a handler for
     -- each element that comes through the channel.
