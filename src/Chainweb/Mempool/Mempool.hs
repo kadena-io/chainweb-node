@@ -151,9 +151,22 @@ data MempoolBackend t = MempoolBackend {
 
 
 noopMempool :: MempoolBackend t
-noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
-                             noopMarkValidated noopMarkConfirmed noopReintroduce
-                             noopGetPending noopSubscribe noopShutdown noopClear
+noopMempool =
+  MempoolBackend
+    { mempoolTxConfig = txcfg
+    , mempoolBlockGasLimit = 1000
+    , mempoolMember = noopMember
+    , mempoolLookup = noopLookup
+    , mempoolInsert = noopInsert
+    , mempoolGetBlock = noopGetBlock
+    , mempoolMarkValidated = noopMarkValidated
+    , mempoolMarkConfirmed = noopMarkConfirmed
+    , mempoolReintroduce = noopReintroduce
+    , mempoolGetPendingTransactions = noopGetPending
+    , mempoolSubscribe = noopSubscribe
+    , mempoolShutdown = noopShutdown
+    , mempoolClear = noopClear
+    }
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")

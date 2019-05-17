@@ -300,19 +300,21 @@ makeSelfFinalizingInMemPool cfg =
         return x
 
     wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
-      where
-        f1 = withRef mp . flip mempoolMember
-        f2 = withRef mp . flip mempoolLookup
-        f3 = withRef mp . flip mempoolInsert
-        f4 = withRef mp . flip mempoolGetBlock
-        f5 = withRef mp . flip mempoolMarkValidated
-        f6 = withRef mp . flip mempoolMarkConfirmed
-        f7 = withRef mp . flip mempoolReintroduce
-        f8 = withRef mp . flip mempoolGetPendingTransactions
-        f9 = withRef mp mempoolSubscribe
-        f10 = withRef mp mempoolShutdown
-        f11 = withRef mp mempoolClear
+      MempoolBackend
+      { mempoolTxConfig = txcfg
+      , mempoolBlockGasLimit = bsl
+      , mempoolMember = withRef mp . flip mempoolMember
+      , mempoolLookup = withRef mp . flip mempoolLookup
+      , mempoolInsert = withRef mp . flip mempoolInsert
+      , mempoolGetBlock = withRef mp . flip mempoolGetBlock
+      , mempoolMarkValidated = withRef mp . flip mempoolMarkValidated
+      , mempoolMarkConfirmed = withRef mp . flip mempoolMarkConfirmed
+      , mempoolReintroduce = withRef mp . flip mempoolReintroduce
+      , mempoolGetPendingTransactions = withRef mp . flip mempoolGetPendingTransactions
+      , mempoolSubscribe = withRef mp mempoolSubscribe
+      , mempoolShutdown = withRef mp mempoolShutdown
+      , mempoolClear = withRef mp mempoolClear
+      }
 
 
 ------------------------------------------------------------------------------
@@ -343,8 +345,22 @@ reaperThread cfg dataLock restore = forever $ do
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
 toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
                                   lock broadcaster _) =
-    MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe shutdown clear
+  MempoolBackend
+    { mempoolTxConfig = tcfg
+    , mempoolBlockGasLimit = blockSizeLimit
+    , mempoolMember = member
+    , mempoolLookup = lookup
+    , mempoolInsert = insert
+    , mempoolGetBlock = getBlock
+    , mempoolMarkValidated = markValidated
+    , mempoolMarkConfirmed = markConfirmed
+    , mempoolReintroduce = reintroduce
+    , mempoolGetPendingTransactions = getPending
+    , mempoolSubscribe = subscribe
+    , mempoolShutdown = shutdown
+    , mempoolClear = clear
+    }
+
   where
     member = memberInMem lock
     lookup = lookupInMem lock
