@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.

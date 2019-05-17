@@ -8,7 +8,6 @@
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
-  ; --------------------------------------------------------------------------
 
   (defschema coin-schema
     balance:decimal
@@ -23,7 +22,6 @@
 
   ; --------------------------------------------------------------------------
   ; Capabilities
-  ; --------------------------------------------------------------------------
 
   (defcap GOVERNANCE ()
     "upgrade disabled"
@@ -49,10 +47,8 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
 
-
   ; --------------------------------------------------------------------------
   ; Coin Contract
-  ; --------------------------------------------------------------------------
 
   (defun buy-gas:string (sender:string total:decimal)
     @doc "This function describes the main 'gas buy' operation. At this point \
@@ -226,9 +222,6 @@
               (credit create-account create-account-guard quantity)))
           )))
     )
-
-
-
 )
 
 (create-table coin-table)

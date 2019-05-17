@@ -86,7 +86,6 @@ pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
           Left e -> spvError (unpack e)
           Right u -> txToJSON =<< verifyTransactionOutputProof cdb u
       "TXIN" -> spvError "TXIN is currently unsupported"
-
       x -> pure . Left
         $ "TXIN/TXOUT must be specified to generate valid spv proofs: "
         <> x
@@ -146,7 +145,7 @@ getTxIdx bdb pdb bh th = do
         -- get payload
         payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
 
-      -- Find transaction index
+        -- Find transaction index
         r <- S.each payload
           & S.map fst
           & S.mapM toTxHash
