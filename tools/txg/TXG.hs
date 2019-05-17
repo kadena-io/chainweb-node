@@ -28,7 +28,6 @@ import BasePrelude hiding (loop, rotate, timeout, (%))
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Concurrent.Async (mapConcurrently_)
-import Control.Concurrent.STM.TQueue
 import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Lens hiding (op, (.=), (|>))
 import Control.Monad.Except
@@ -98,10 +97,10 @@ generateDelay = do
     Just (Uniform ulow uhigh) -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
     Nothing -> error "generateDelay: impossible"
 
-generateSimpleTransaction
+generateSimpleTransactions
   :: (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, [Command Text])
-generateSimpleTransaction = do
+generateSimpleTransactions = do
   -- Choose a Chain to send these transactions to, and cycle the state.
   cid <- uses gsChains NES.head
   gsChains %= rotate
@@ -138,11 +137,17 @@ generateSimpleTransaction = do
 rotate :: NESeq a -> NESeq a
 rotate (h :<|| rest) = rest :||> h
 
-generateTransaction
+data CmdChoice = CoinContract | HelloWorld | Payments
+  deriving (Show, Eq, Ord, Bounded, Enum)
+
+randomEnum :: forall a. (Enum a, Bounded a) => IO a
+randomEnum = toEnum <$> randomRIO @Int (0, fromEnum $ maxBound @a)
+
+generateTransactions
   :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, [Command Text])
-generateTransaction = do
-  contractIndex <- liftIO $ randomRIO @Int (0, 0)
+generateTransactions = do
+  contractIndex <- liftIO randomEnum
 
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- uses gsChains NES.head
@@ -155,10 +160,9 @@ generateTransaction = do
       batch <- asks _confBatchSize
       cmds <- liftIO . sequenceA . replicate (fromIntegral batch) $
         case contractIndex of
-          0 -> coinContract cid $ accounts "coin" accs
-          1 -> generate fake >>= helloRequest
-          2 -> payments cid $ accounts "payment" accs
-          _ -> error "No contract here"
+          CoinContract -> coinContract cid $ accounts "coin" accs
+          HelloWorld -> generate fake >>= helloRequest
+          Payments -> payments cid $ accounts "payment" accs
       generateDelay >>= liftIO . threadDelay
       pure (cid, cmds)
   where
@@ -183,36 +187,34 @@ generateTransaction = do
           createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest Nothing
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
-sendTransaction
+sendTransactions
   :: MonadIO m
   => ChainId
   -> [Command Text]
   -> TXG m (Either ClientError RequestKeys)
-sendTransaction cid cmds = do
+sendTransactions cid cmds = do
   TXGConfig _ _ cenv v _ <- ask
   liftIO $ runClientM (send v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
   => TXG m (ChainId, [Command Text])
-  -> TQueue Text
   -> TXG m ()
-loop f tq = do
+loop f = do
   (cid, transactions) <- f
-  requestKeys <- sendTransaction cid transactions
-  countTV <- gets _gsCounter
-  batch <- asks _confBatchSize
-  liftIO . atomically $ modifyTVar' countTV (+ fromIntegral batch)
-  count <- liftIO $ readTVarIO countTV
-  liftIO . atomically . writeTQueue tq $ "Transaction count: " <> sshow count
+  requestKeys <- sendTransactions cid transactions
 
   case requestKeys of
-    Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
-    Right _ -> pure ()
+    Left servantError ->
+      lift . logg Error $ toLogMessage (sshow servantError :: Text)
+    Right _ -> do
+      countTV <- gets _gsCounter
+      batch <- asks _confBatchSize
+      liftIO . atomically $ modifyTVar' countTV (+ fromIntegral batch)
+      count <- liftIO $ readTVarIO countTV
+      lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
 
-  logs <- liftIO . atomically $ flushTQueue tq
-  lift $ traverse_ (logg Info . toLogMessage) logs
-  loop f tq
+  loop f
 
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
@@ -228,13 +230,13 @@ loadContracts config host contractLoaders = do
       ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
     withConsoleLogger Info . logg Info $ sshow pollresponse
 
-sendTransactions
+realTransactions
   :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendTransactions config host tv distribution = do
+realTransactions config host tv distribution = do
   cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ _nodeVersion config) NES.fromList
@@ -258,8 +260,7 @@ sendTransactions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  tq  <- liftIO newTQueueIO
-  let act = loop generateTransaction tq
+  let act = loop generateTransactions
       env = set confKeysets accountMap cfg
       stt = TXGState gen tv chains
 
@@ -284,25 +285,24 @@ sendTransactions config host tv distribution = do
 versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
 
-sendSimpleExpressions
+simpleExpressions
   :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendSimpleExpressions config host tv distribution = do
+simpleExpressions config host tv distribution = do
   logg Info $ toLogMessage ("Simple Expressions: Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  tq  <- liftIO newTQueueIO
   let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
              . NEL.nonEmpty
              $ _nodeChainIds config
       stt = TXGState gen tv chs
 
-  evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq)) gencfg) stt
+  evalStateT (runReaderT (runTXG (loop generateSimpleTransactions)) gencfg) stt
 
 pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
@@ -359,9 +359,9 @@ work cfg = do
         DeployContracts cs -> liftIO $
           loadContracts cfg host $ initAdminKeysetContract : map createLoader cs
         RunStandardContracts distribution ->
-          sendTransactions cfg host tv distribution
+          realTransactions cfg host tv distribution
         RunSimpleExpressions distribution ->
-          sendSimpleExpressions cfg host tv distribution
+          simpleExpressions cfg host tv distribution
         PollRequestKeys rk -> liftIO $
           pollRequestKeys cfg host . RequestKey $ H.Hash rk
         ListenerRequestKey rk -> liftIO $
