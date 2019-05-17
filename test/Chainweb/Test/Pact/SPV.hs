@@ -80,9 +80,17 @@ spv = do
             pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
             syncPact cutDb pact1
 
+            -- extract cut db so we can extract blockheight of source chain id
             c0 <- _cut cutDb
+
+            -- in order to ensure that the cutdb has a chance to establic consensus
+            -- we must enforce a wait time.
+            c1 <- atomically $ do
+              c <- _cutStm cutDb
+              check (c0 /= c)
+              return c
             -- get tx output from `(coin.delete-coin ...)` call
-            (_, cid1, _) <- fmap fromJuste . S.head_ $ extendTestCutDb cutDb pact1 1
+            (_, sid, _) <- fmap fromJuste . S.head_ $ extendTestCutDb cutDb pact1 1
 
             -- A proof can only be constructed if the block hash of the source block
             -- is included in the block hash of the target. Extending the cut db with
@@ -107,15 +115,15 @@ spv = do
 
             -- in order to ensure that the cutdb has a chance to establic consensus
             -- we must enforce a wait time.
-            c <- atomically $ do
-              c1 <- _cutStm cutDb
-              check (c0 /= c1)
-              return c1
+            c2 <- atomically $ do
+              c <- _cutStm cutDb
+              check (c1 /= c)
+              return c
 
-            let bh1 = _blockHeight $ c ^?! ixg cid1
+            let bh1 = _blockHeight $ c2 ^?! ixg sid
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb cid1 bh1
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb sid bh1
             syncPact cutDb pact2
 
             -- if we get this far, we have succeeded
