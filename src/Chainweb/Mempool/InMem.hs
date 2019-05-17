@@ -452,8 +452,7 @@ insertInMem :: TxBroadcaster t  -- ^ transaction broadcaster
             -> IO ()
 insertInMem broadcaster cfg lock txs = do
     newTxs <- withMVarMasked lock $ \mdata ->
-                  ((V.map fst . V.filter ((==True) . snd)) <$>
-                   V.mapM (insOne mdata) txs)
+        (V.map fst . V.filter ((==True) . snd)) <$> V.mapM (insOne mdata) txs
     broadcastTxs newTxs broadcaster
 
   where
