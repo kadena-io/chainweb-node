@@ -67,9 +67,21 @@ toMempool
     -> ClientEnv
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit env =
-    MempoolBackend txcfg blocksizeLimit member lookup insert getBlock
-                   markValidated markConfirmed reintroduce getPending
-                   subscribe shutdown clear
+    MempoolBackend
+    { mempoolTxConfig = txcfg
+    , mempoolBlockGasLimit = blocksizeLimit
+    , mempoolMember = member
+    , mempoolLookup = lookup
+    , mempoolInsert = insert
+    , mempoolGetBlock = getBlock
+    , mempoolMarkValidated = markValidated
+    , mempoolMarkConfirmed = markConfirmed
+    , mempoolReintroduce = reintroduce
+    , mempoolGetPendingTransactions = getPending
+    , mempoolSubscribe = subscribe
+    , mempoolShutdown = shutdown
+    , mempoolClear = clear
+    }
   where
     go m = runClientM m env >>= either throwIO return
 
