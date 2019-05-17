@@ -313,13 +313,7 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
         let bsl = mempoolBlockGasLimit back
         let lastPar = mempoolLastNewBlockParent back
         let procFork = mempoolProcessFork back
-        return $! wrapBackend txcfg bsl (ref, wk) lastPar procFork
-      where
-        withRef (ref, _wk) f = do
-            mp <- readIORef ref
-            x <- f (toMempoolBackend mp)
-            writeIORef ref mp
-            return x
+        return $ wrapBackend txcfg bsl (ref, wk) lastPar procFork
 
 ----------------------------------------------------------------------------------------------------
 wrapBackend :: PayloadCas cas
@@ -347,6 +341,13 @@ wrapBackend txcfg bsl mp lastPar pFork =
       , mempoolShutdown = withRef mp mempoolShutdown
       , mempoolClear = withRef mp mempoolClear
       }
+    where
+      withRef (ref, _wk) f = do
+            mpl <- readIORef ref
+            mb <- toMempoolBackend mpl
+            x <- f mb
+            writeIORef ref mpl
+            return x
 
 ------------------------------------------------------------------------------
 reaperThread :: InMemConfig t

@@ -75,8 +75,8 @@ import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Data.LogMessage (LogFunctionText)
-import Chainweb.Utils (runForever)
+import Data.LogMessage (LogFunction, LogFunctionText)
+import Chainweb.Utils (encodeToText, runForever)
 
 
 ------------------------------------------------------------------------------
