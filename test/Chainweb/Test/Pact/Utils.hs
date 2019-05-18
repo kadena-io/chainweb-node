@@ -55,7 +55,7 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.Text (Text, unpack, pack)
+import Data.Text (Text, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import Data.Vector (Vector)
@@ -80,14 +80,11 @@ import Pact.Types.Util (toB16Text)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId (chainIdToText)
-import Chainweb.CutDB (CutDb)
-import Chainweb.Pact.Backend.InMemoryCheckpointer
+import Chainweb.CutDB
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
-import Chainweb.Pact.Service.PactQueue (getNextRequest)
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -104,7 +101,7 @@ import Pact.Interpreter
 import Pact.Types.Gas
 import Pact.Types.Runtime hiding (Object(..))
 import Pact.Types.Server
-import Pact.Types.Term hiding (Object(..))
+
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -165,11 +162,11 @@ mkPactTestTransactions' sender cid txs =
   where
     -- merge tx data and create pact command
     go ks (PactTransaction c d) =
-      let d' = mergeObjects $ [keys] <> singletonOf d
+      let d' = mergeObjects $ [keys0] <> singletonOf d
       in mkTx ks d' c
 
     -- create public test admin keys from test keyset
-    keys =
+    keys0 =
       let
         ks = KeySet
           [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
@@ -399,15 +396,14 @@ testApplyCmd (Env' dbe) txs = do
     env <- ask
 
     let l = env ^. psCheckpointEnv . cpeLogger
-        gm = env ^. psCheckpointEnv . cpeGasEnv . geGasModel
         pd = env ^. psPublicData
         spv = env ^. psSpvSupport
         cmd = fmap payloadObj txs
 
-    (r, logs) <- liftIO $ applyTestCmd l dbe pd spv cmd
+    (r, logs) <- liftIO $ applyTestCmd l pd spv cmd
     pure $ FullLogTxOutput (_crResult r) logs
   where
-    applyTestCmd l env pd spv cmd = do
+    applyTestCmd l pd spv cmd = do
 
       let pd' = set pdPublicMeta (publicMetaOf cmd) pd
       let cenv = CommandEnv Nothing Transactional dbe l freeGasEnv pd'

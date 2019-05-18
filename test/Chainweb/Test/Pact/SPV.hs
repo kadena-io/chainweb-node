@@ -24,10 +24,8 @@ import Control.Concurrent.MVar (MVar, readMVar, newMVar)
 import Control.Lens hiding ((.=))
 
 import Data.Aeson
-import Data.Default (def)
 import Data.Functor (void)
 import Data.LogMessage
-import qualified Data.Sequence as Seq
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -47,7 +45,6 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
@@ -62,7 +59,6 @@ import Data.CAS.RocksDB
 -- internal pact modules
 
 import Pact.Types.ChainMeta as Pact
-import Pact.Types.Term
 
 tests :: TestTree
 tests = testGroup "Chainweb-Pact SPV support"
