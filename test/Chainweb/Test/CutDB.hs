@@ -22,9 +22,10 @@ module Chainweb.Test.CutDB
 , syncPact
 , withTestCutDbWithoutPact
 , withTestPayloadResource
-, awaitCutSync
-, awaitCutSync'
+, awaitCut
+, awaitNewCut
 , awaitBlockHeight
+, extendAwait
 , randomTransaction
 , randomBlockHeader
 , fakePact
@@ -35,7 +36,7 @@ import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
 import Control.Monad
 
-import Data.Reflection (give)
+import Data.Function
 import qualified Data.Sequence as Seq
 import Data.Tuple.Strict
 
@@ -163,27 +164,48 @@ syncPact cutDb pact =
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
 
--- Atomically await for a 'CutDb' instance to synchronize cuts according to some
+-- | Atomically await for a 'CutDb' instance to synchronize cuts according to some
 -- predicate for a given 'Cut' and the results of '_cutStm'.
 --
-awaitCutSync
+awaitCut
     :: CutDb cas
-    -> Cut
-    -> (Cut -> Cut -> Bool)
+    -> (Cut -> Bool)
     -> IO Cut
-awaitCutSync cdb c0 k = atomically $ do
+awaitCut cdb k = atomically $ do
   c <- _cutStm cdb
-  STM.check $ k c0 c
+  STM.check $ k c
   pure c
 
--- Await for a 'CutDb' instance to synchronize to a given 'Cut' on inequality
--- with the results of '_cutStm'.
+-- | Extend the cut db until either a cut that meeting some condition is
+-- encountered or the given number of cuts is mined. In the former case just the
+-- cut that fullfills the condition is returned. In the latter case 'Nothing' is
+-- returned.
 --
-awaitCutSync'
+-- Note that the await cut may skip over some cuts when checking the predicate.
+-- So, for instance, instead of checking for a particular cut height, one should
+-- check for a cut height that is large or equal than the expected height.
+--
+extendAwait
+    :: PayloadCas cas
+    => CutDb cas
+    -> WebPactExecutionService
+    -> Natural
+    -> (Cut -> Bool)
+    -> IO (Maybe Cut)
+extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
+    Left _ -> return Nothing
+    Right c -> return (Just c)
+  where
+    gen = void $! S.effects $ extendTestCutDb cdb pact i
+
+-- | Wait for the cutdb to produce at least one new cut, that is different from
+-- the given cut.
+--
+awaitNewCut
     :: CutDb cas
     -> Cut
     -> IO Cut
-awaitCutSync' cdb c0 = awaitCutSync cdb c0 (/=)
+awaitNewCut cdb = awaitCut cdb . (/=)
 
 awaitBlockHeight
     :: CutDb cas
@@ -303,7 +325,6 @@ mine
     => PayloadCas cas
     => MinerInfo
         -- ^ The miner. For testing you may use 'defaultMiner'.
-        -- miner.
     -> WebPactExecutionService
         -- ^ only the new-block generator is used. For testing you may use
         -- 'fakePact'.
@@ -316,13 +337,16 @@ mine miner pact cutDb c = do
 
     tryMine miner pact cutDb c cid >>= \case
         Left _ -> mine miner pact cutDb c
-        Right x -> return x
+        Right x -> do
+            void $ awaitCut cutDb $ ((>=) `on` _cutHeight) (view _1 x)
+            return x
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
 --
 tryMine
-    :: HasCallStack
+    :: forall cas
+    . HasCallStack
     => PayloadCas cas
     => MinerInfo
         -- ^ The miner. For testing you may use 'defaultMiner'.
@@ -334,34 +358,21 @@ tryMine
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
-tryMine miner pact cutDb c cid = do
-    -- The parent block to mine on.
-    let parent = c ^?! ixg cid
-
-    -- No difficulty adjustment
-    let target = _blockTarget parent
-
-    -- compute payloadHash
-    outputs <- _webPactNewBlock pact miner parent
-    let payloadHash = _payloadWithOutputsPayloadHash outputs
-
-    -- mine new block
+tryMine miner webPact cutDb c cid = do
+    outputs <- _webPactNewBlock webPact miner parent
     t <- getCurrentTimeIntegral
-    give webDb (testMine (Nonce 0) target t payloadHash (NodeId 0) cid c) >>= \case
-        Right (T2 h c') -> do
-            void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData outputs)
-
-            -- add payload to db
-            addNewPayload payloadDb outputs
-
-            -- add cut to db
+    x <- testMineWithPayload webDb payloadDb (Nonce 0) target t outputs (NodeId 0) cid c pact
+    case x of
+        Right (T2 _ c') -> do
             addCutHashes cutDb (cutToCutHashes Nothing c')
-
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
+    parent = c ^?! ixg cid -- parent to mine on
+    target = _blockTarget parent -- No difficulty adjustment
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb
+    pact = _webPactExecutionService webPact
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.

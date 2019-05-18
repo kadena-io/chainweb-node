@@ -24,7 +24,6 @@ module Chainweb.Miner.Test ( testMiner ) where
 import Control.Concurrent (threadDelay)
 import Control.Lens (view, (^?!))
 
-import Data.Reflection (give)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -224,8 +223,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        result <- give payloadDb $ give wcdb
-            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
+        result <- testMineWithPayload wcdb payloadDb (Nonce nonce) target ct payload nid cid c pact
 
         case result of
             Left BadNonce -> do
