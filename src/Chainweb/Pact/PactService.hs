@@ -27,6 +27,13 @@ module Chainweb.Pact.PactService
     , createCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
+    , transactionsFromPayload
+    , restoreCheckpointer
+    , finalizeCheckpointer
+    , toPayloadWithOutputs
+    , toTransactionBytes
+    , runCoinbase
+    , discardCheckpointer
     ) where
 
 import Control.Concurrent

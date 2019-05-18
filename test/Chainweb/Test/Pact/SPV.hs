@@ -27,6 +27,7 @@ import Data.Aeson
 import Data.Default (def)
 import Data.Functor (void)
 import Data.LogMessage
+import qualified Data.Sequence as Seq
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -46,6 +47,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
@@ -82,10 +84,10 @@ spv = do
             -- extract cut db so we can extract blockheight of source chain id
             c0 <- _cut cutDb
             cid <- mkChainId v (0 :: Int)
-            let bh0 = _blockHeight $ c0 ^?! ixg cid
+            let !bh0 = _blockHeight $ c0 ^?! ixg cid
 
             -- get tx output from `(coin.delete-coin ...)` call
-            void $! S.effects $! extendTestCutDb cutDb pact1 $ diam * gorder
+            void $! S.effects $ extendTestCutDb cutDb pact1 $ diam * gorder
             void $! awaitBlockHeight cutDb (succ bh0) cid
 
             -- in order to ensure that the cutdb has a chance to establic consensus
@@ -113,18 +115,18 @@ spv = do
             void $! S.effects $! extendTestCutDb cutDb pact1 60
             syncPact cutDb pact1
 
-            let bh1 = _blockHeight $ c1 ^?! ixg cid
+            let !bh1 = _blockHeight $ c1 ^?! ixg cid
             tid <- mkChainId cutDb (1 :: Int)
 
             -- waits must occur after each cutdb extension
             void $! awaitBlockHeight cutDb (diam + bh1) tid
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            pact2 <- testWebPactExecutionService v (Just cdb) $! txGenerator2 cdb cid bh1
+            pact2 <- testWebPactExecutionService v (Just cdb) $ txGenerator2 cdb cid bh1
             syncPact cutDb pact2
 
             -- if we get this far, we have succeeded
-            void $! S.effects $! extendTestCutDb cutDb pact2 $ diam * gorder
+            void $ S.effects $ extendTestCutDb cutDb pact2 $ diam * gorder
 
 
   where
@@ -153,7 +155,6 @@ txGenerator1 cid _bhe _bha =
             [text|
               (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keys) 1.0)
               |]
-
       in fromList [ PactTransaction c Nothing ]
 
 -- | Generate the 'create-coin' command in response
@@ -166,11 +167,10 @@ txGenerator2
     -> BlockHeight
     -> TransactionGenerator
 txGenerator2 cdbv cid bhe tid _bhe _bha =
-    if tid /= unsafeChainId 1
+    if tid /= unsafeChainId 0
     then return mempty
     else do
       cdb <- readMVar cdbv
-
       q <- fmap toJSON
         $ createTransactionOutputProof cdb tid cid bhe 0
 

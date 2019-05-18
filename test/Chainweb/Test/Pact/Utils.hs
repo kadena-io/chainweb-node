@@ -39,12 +39,15 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 import Control.Concurrent.MVar
+import Control.Exception.Safe (tryAny)
 import Control.Lens hiding ((.=))
+import qualified Control.Lens as L
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
@@ -56,6 +59,7 @@ import Data.Text (Text, unpack, pack)
 import Data.Text.Encoding
 import Data.Time.Clock
 import Data.Vector (Vector)
+import qualified Data.Vector as Vector
 
 import Test.Tasty
 
@@ -73,12 +77,22 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Backend.InMemoryCheckpointer
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+import Chainweb.Pact.Service.PactQueue (getNextRequest)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
+import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils
+import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId, chainIds)
@@ -88,6 +102,8 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
+import Pact.Types.Runtime hiding (Object(..))
+import Pact.Types.Server
 import Pact.Types.Term hiding (Object(..))
 
 testKeyPairs :: IO [SomeKeyPair]
@@ -262,9 +278,9 @@ testPactExecutionService v cid cutDB mempoolAccess = do
     ctx <- testPactCtx v cid cutDB
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
-            evalPactServiceM ctx $ execNewBlock mempoolAccess p m
+            evalPactServiceM ctx $ testExecNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock False h d
+            evalPactServiceM ctx $ testExecValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -299,3 +315,111 @@ withPactCtx v cutDB f
         evalPactServiceM ctx pact
   where
     start = testPactCtx v (someChainId v)
+
+
+-- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
+testExecNewBlock
+    :: MemPoolAccess
+    -> BlockHeader
+    -> MinerInfo
+    -> PactServiceM PayloadWithOutputs
+testExecNewBlock mpa h m = do
+    let bhe@(BlockHeight bh) = _blockHeight h
+        bha = _blockHash h
+
+    tx <- liftIO $! mpa bhe bha
+
+    restoreCheckpointer $ Just (bhe, bha)
+
+    -- locally run 'execTransactions' with updated blockheight data
+    r <- locally (psPublicData . pdBlockHeight) (\_ -> bh) $
+      testExecTransactions (Just bha) m tx
+
+    discardCheckpointer
+
+    return $! toPayloadWithOutputs m r
+
+testExecValidateBlock
+    :: BlockHeader
+    -- ^ current header
+    -> PayloadData
+    -- ^ payload data for miner
+    -> PactServiceM PayloadWithOutputs
+testExecValidateBlock ch d = do
+    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner d)
+
+    let bhe@(BlockHeight bh) = _blockHeight ch
+        bpa = _blockParent ch
+        bha = _blockHash ch
+
+    t <- liftIO $ transactionsFromPayload d
+    restoreCheckpointer $ Just (pred bhe, bpa)
+
+    rs <- locally (psPublicData . pdBlockHeight) (\_ -> bh) $
+      testExecTransactions (Just bpa) miner t
+
+    finalizeCheckpointer $ \cp s -> save cp bhe bha s
+    psStateValidated L..= Just ch
+    return $! toPayloadWithOutputs miner rs
+
+testExecTransactions
+    :: Maybe BlockHash
+    -> MinerInfo
+    -> Vector ChainwebTransaction
+    -> PactServiceM Transactions
+testExecTransactions bha m txs = do
+    st0 <- use psStateDb
+
+    dbe <- liftIO . toEnv' $ _pdbsDbEnv st0
+    coin <- runCoinbase bha dbe m
+    txos <- testApplyCmds dbe txs
+
+    penv <- liftIO $ toEnvPersist' dbe
+
+    let st1 = PactDbState penv
+        outs = Vector.zipWith k txs txos
+
+    psStateDb L..= st1
+
+    return (Transactions outs coin)
+  where
+    k = curry $ first (toTransactionBytes . fmap payloadBytes)
+
+testApplyCmds
+    :: Env'
+    -> Vector (Command PayloadWithText)
+    -> PactServiceM (Vector FullLogTxOutput)
+testApplyCmds = Vector.mapM . testApplyCmd
+
+testApplyCmd
+    :: Env'
+    -> Command (PayloadWithText)
+    -> PactServiceM FullLogTxOutput
+testApplyCmd (Env' dbe) txs = do
+    env <- ask
+
+    let l = env ^. psCheckpointEnv . cpeLogger
+        gm = env ^. psCheckpointEnv . cpeGasEnv . geGasModel
+        pd = env ^. psPublicData
+        spv = env ^. psSpvSupport
+        cmd = fmap payloadObj txs
+
+    (r, logs) <- liftIO $ applyTestCmd l dbe pd spv cmd
+    pure $ FullLogTxOutput (_crResult r) logs
+  where
+    applyTestCmd l env pd spv cmd = do
+
+      let pd' = set pdPublicMeta (publicMetaOf cmd) pd
+      let cenv = CommandEnv Nothing Transactional dbe l freeGasEnv pd'
+          rk = cmdToRequestKey cmd
+          pst0 = set (evalCapabilities . capGranted) [mkMagicCap "FUND_TX", mkMagicCap "COINBASE"] def
+
+      resultE <- tryAny $! runPayload cenv pst0 cmd spv []
+      case resultE of
+        Left e -> jsonErrorResult cenv rk e [] (Gas 0) $
+          "test tx failure for request key while running genesis"
+        Right r -> do
+          logDebugRequestKey l rk "successful test tx for request key"
+          pure r
+
+    mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []

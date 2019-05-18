@@ -61,7 +61,7 @@
 
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
-       (debit sender total))
+      (debit sender total))
     )
 
   (defun redeem-gas:string (miner:string miner-guard:guard sender:string total:decimal)
@@ -167,17 +167,17 @@
     @model [(property (> amount 0.0))]
 
     (require-capability (TRANSFER))
-      (with-default-read coin-table account
-        { "balance" : 0.0, "guard" : guard }
-        { "balance" := balance, "guard" := retg }
-          ; we don't want to overwrite an existing guard with the user-supplied one
-        (enforce (= retg guard)
-          (format "account guards do not match {} vs {}" [retg guard]))
+    (with-default-read coin-table account
+      { "balance" : 0.0, "guard" : guard }
+      { "balance" := balance, "guard" := retg }
+      ; we don't want to overwrite an existing guard with the user-supplied one
+      (enforce (= retg guard)
+        (format "account guards do not match {} vs {}" [retg guard]))
 
-        (write coin-table account
-          { "balance" : (+ balance amount)
-          , "guard"   : retg
-          }))
+      (write coin-table account
+        { "balance" : (+ balance amount)
+        , "guard"   : retg
+        })
       )
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)

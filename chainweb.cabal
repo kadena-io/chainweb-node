@@ -409,6 +409,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
