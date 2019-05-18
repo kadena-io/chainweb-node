@@ -110,11 +110,7 @@ pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
           case fromJSON @(CommandSuccess (Term Name)) u of
             Error e -> spvMessage' e
             Success (CommandSuccess (TObject o _)) ->
-               let
-                outputs = fromList
-                  [ (FieldKey "outputs", TObject o def)
-                  ]
-              in pure . Right $ set oObject (ObjectMap outputs) o
+              pure . Right $ o
             Success _ -> internalError $
               -- if we get here, then the proof is corrupted
               "Associated pact transaction has wrong format"

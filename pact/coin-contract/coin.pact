@@ -196,7 +196,7 @@
     )
 
   (defun create-coin (proof)
-    (let ((outputs (at 'outputs (verify-spv "TXOUT" proof))))
+    (let ((outputs (verify-spv "TXOUT" proof)))
       (bind outputs
         { "create-chain-id":= create-chain-id
         , "create-account" := create-account
