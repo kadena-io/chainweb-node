@@ -293,7 +293,7 @@ syncMempools' log0 us localMempool remoteMempool =
         (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
 
         deb $ T.concat
-            [ sshow (fromIntegral $ HashSet.size remoteHashes)
+            [ sshow (HashSet.size remoteHashes)
             , " hashes at remote ("
             , sshow numMissingFromLocal
             , " need to be fetched)"

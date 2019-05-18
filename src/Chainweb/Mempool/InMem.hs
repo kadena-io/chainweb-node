@@ -343,8 +343,7 @@ reaperThread cfg dataLock restore = forever $ do
 
 ------------------------------------------------------------------------------
 toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
-                                  lock broadcaster _) =
+toMempoolBackend (InMemoryMempool cfg lock broadcaster _) =
   MempoolBackend
     { mempoolTxConfig = tcfg
     , mempoolBlockGasLimit = blockSizeLimit
@@ -362,6 +361,7 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
     }
 
   where
+    InMemConfig tcfg blockSizeLimit _ = cfg
     member = memberInMem lock
     lookup = lookupInMem lock
     insert = insertInMem broadcaster cfg lock
