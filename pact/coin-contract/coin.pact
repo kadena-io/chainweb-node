@@ -178,7 +178,7 @@
         { "balance" : (+ balance amount)
         , "guard"   : retg
         })
-      )
+      ))
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
     (with-capability (TRANSFER)
