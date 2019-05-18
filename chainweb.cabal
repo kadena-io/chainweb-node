@@ -116,6 +116,7 @@ library
         , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
+        , Chainweb.Mempool.P2pConfig
         , Chainweb.Mempool.RestAPI
         , Chainweb.Mempool.RestAPI.Client
         , Chainweb.Mempool.RestAPI.Server

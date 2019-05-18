@@ -377,9 +377,7 @@ toMempoolBackend
     :: PayloadCas cas
     => InMemoryMempool t cas
     -> IO (MempoolBackend t)
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
-                                  lockMVar
-                                  broadcaster _ blockHeaderDb payloadStore) = do
+toMempoolBackend mempool = do
     lock <- readMVar lockMVar
     let lastParentRef = _inmemLastNewBlockParent lock
     return $ MempoolBackend
@@ -400,6 +398,13 @@ toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
       , mempoolClear = clear
       }
   where
+    cfg = _inmemCfg mempool
+    lockMVar = _inmemDataLock mempool
+    blockHeaderDb = _inmemBlockHeaderDb mempool
+    payloadStore = _inmemPayloadStore mempool
+    broadcaster = _inmemBroadcaster mempool
+
+    InMemConfig tcfg blockSizeLimit _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem broadcaster cfg lockMVar
