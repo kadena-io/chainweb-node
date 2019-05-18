@@ -29,7 +29,6 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Default (def)
-import Data.Map (fromList)
 import Data.Text (Text, pack)
 
 import Crypto.Hash.Algorithms

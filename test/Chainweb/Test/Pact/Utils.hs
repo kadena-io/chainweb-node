@@ -412,8 +412,7 @@ testApplyCmd (Env' dbe) txs = do
 
       resultE <- tryAny $! runPayload cenv pst0 cmd spv []
       case resultE of
-        Left e -> jsonErrorResult cenv rk e [] (Gas 0) $
-          "test tx failure for request key while running genesis"
+        Left e -> jsonErrorResult cenv rk e [] (Gas 0) "test tx failure for request key"
         Right r -> do
           logDebugRequestKey l rk "successful test tx for request key"
           pure r
