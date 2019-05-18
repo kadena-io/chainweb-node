@@ -172,7 +172,7 @@ mkPactTestTransactions' sender cid txs =
     keys =
       let
         ks = KeySet
-          [ "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" ]
+          [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
           (Name "keys-all" def)
       in object ["sender01-keys" .= ks]
 
