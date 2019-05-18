@@ -172,7 +172,7 @@
       { "balance" := balance, "guard" := retg }
       ; we don't want to overwrite an existing guard with the user-supplied one
       (enforce (= retg guard)
-        (format "account guards do not match {} vs {}" [retg guard]))
+        "account guards do not match")
 
       (write coin-table account
         { "balance" : (+ balance amount)
