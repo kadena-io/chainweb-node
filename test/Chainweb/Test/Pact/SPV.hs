@@ -148,7 +148,7 @@ txGenerator1 cid _bhe _bha =
     txs =
       let c =
             [text|
-              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keys) 1.0)
+              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'test-admin-keyset) 1.0)
               |]
       in fromList [ PactTransaction c Nothing ]
 

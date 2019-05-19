@@ -133,17 +133,14 @@ getByteString = fst . B16.decode
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
--- | Merge a list of JSON Objects together. This will defer to 'Null' if any other values
--- are found. Beware.
+-- | Merge a list of JSON Objects together. Note: this will yield an empty
+-- object in the case that there are no objects in the list of values.
+--
 mergeObjects :: [Value] -> Value
 mergeObjects = Object . HM.unions . foldr unwrap []
   where
     unwrap (Object o) = (:) o
     unwrap _ = id
-
--- | Lift a Maybe into a singleton List
-singletonOf :: Maybe a -> [a]
-singletonOf = toList
 
 mkPactTestTransactions :: Vector String -> IO (Vector ChainwebTransaction)
 mkPactTestTransactions cmdStrs = do
@@ -152,6 +149,10 @@ mkPactTestTransactions cmdStrs = do
     -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
     traverse (mkPactTransaction kps theData "1") cmdStrs
 
+-- A variation 'mkPactTestTransactions' that allows a user to specify the sender
+-- and chain id metadata for a given transaction. The onus is on the caller to
+-- enforce that they are indeed calling this on the correct chain.
+--
 mkPactTestTransactions'
     :: Text
     -> ChainId
@@ -162,7 +163,7 @@ mkPactTestTransactions' sender cid txs =
   where
     -- merge tx data and create pact command
     go ks (PactTransaction c d) =
-      let d' = mergeObjects $ [keys0] <> singletonOf d
+      let d' = mergeObjects $ [keys0] <> toList d
       in mkTx ks d' c
 
     -- create public test admin keys from test keyset
@@ -171,7 +172,7 @@ mkPactTestTransactions' sender cid txs =
         ks = KeySet
           [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
           (Name "keys-all" def)
-      in object ["sender01-keys" .= ks]
+      in object ["test-admin-keyset" .= ks]
 
     mkTx ks d c = do
       let pm = PublicMeta cid sender (ParsedInteger 100) (ParsedDecimal 0.0001)
