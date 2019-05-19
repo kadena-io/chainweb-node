@@ -331,12 +331,12 @@ testExecNewBlock mpa h m = do
     restoreCheckpointer $ Just (bhe, bha)
     -- locally run 'execTransactions' with updated blockheight data
     r <- testExecTransactions (Just bha) m tx
-      & locally (psPublicData . pdBlockHeight) (const $ bhe ^. from coerced)
+      & locally (psPublicData . pdBlockHeight) (const bh)
 
     discardCheckpointer
     return $! toPayloadWithOutputs m r
   where
-    bhe = _blockHeight h
+    bhe@(BlockHeight bh) = _blockHeight h
     bha = _blockHash h
 
 -- | Validate blocks and run commands via 'testApplyCmds' to bypass buy/redeem gas
@@ -357,19 +357,19 @@ testExecValidateBlock ch d = do
     restoreCheckpointer $ Just (bhe - 1, bpa)
 
     rs <- testExecTransactions (Just bpa) miner t
-      & locally (psPublicData . pdBlockHeight) (const $ bhe ^. from coerced)
+      & locally (psPublicData . pdBlockHeight) (const bh)
 
     finalizeCheckpointer $ \cp s -> save cp bhe bha s
     psStateValidated L..= Just ch
     return $! toPayloadWithOutputs miner rs
   where
-    bhe = _blockHeight ch
+    bhe@(BlockHeight bh) = _blockHeight ch
     bpa = _blockParent ch
     bha = _blockHash ch
 
 -- | Execute transactions via 'testApplyCmds' while still "mining" a transaction
 -- and returning tx outputs. Runs without buy/redeem gas, and still coinbases miner
--- 
+--
 testExecTransactions
     :: Maybe BlockHash
     -> MinerInfo

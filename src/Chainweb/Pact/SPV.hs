@@ -12,11 +12,13 @@
 -- Maintainers: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
--- Pact Service SPV support and internal resources
+-- Pact Service SPV support
 --
 module Chainweb.Pact.SPV
-( noSPV
+( -- * SPV Support
+  noSPV
 , pactSPV
+  -- * SPV Api Utilities
 , getTxIdx
 ) where
 
@@ -31,8 +33,6 @@ import Data.Aeson hiding (Object, (.=))
 import Data.Default (def)
 import Data.Text (Text, pack)
 
-import Crypto.Hash.Algorithms
-
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
@@ -46,7 +46,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -83,33 +82,28 @@ pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
         t <- mkProof o
         case t of
           Left e -> spvMessage e
-          Right u -> txToJSON =<< verifyTransactionOutputProof cdb u
+          Right u -> verifyTransactionOutputProof cdb u >>= txToJson
       "TXIN" -> spvMessage "TXIN is currently unsupported"
       x -> spvMessage
         $ "TXIN/TXOUT must be specified to generate valid spv proofs: "
         <> x
 
-    mkProof
-      :: Object Name
-      -> IO (Either Text (TransactionOutputProof SHA512t_256))
     mkProof o =
       let
         k a = case fromJSON . toJSON $ a of
           Error e -> spvMessage' e
-          Success u -> pure (Right u)
+          Success u -> pure $ Right u
       in either spvMessage k . toPactValue $ TObject o def
 
-    txToJSON :: TransactionOutput -> IO (Either Text (Object Name))
-    txToJSON (TransactionOutput t) =
-      case decodeStrict @HashedLogTxOutput t of
+    txToJson (TransactionOutput t) =
+      case decodeStrict t of
         Nothing ->
           -- this should be considered an internal error
           internalError "Unable to decode spv transaction output"
         Just (HashedLogTxOutput u _) ->
-          case fromJSON @(CommandSuccess (Term Name)) u of
+          case fromJSON u of
             Error e -> spvMessage' e
-            Success (CommandSuccess (TObject o _)) ->
-              pure . Right $ o
+            Success (CommandSuccess (TObject o _)) -> pure $ Right o
             Success _ -> internalError $
               -- if we get here, then the proof is corrupted
               "Associated pact transaction has wrong format"

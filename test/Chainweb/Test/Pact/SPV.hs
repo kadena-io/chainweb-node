@@ -84,7 +84,10 @@ spv = do
             c0 <- _cut cutDb
             cid <- mkChainId v (0 :: Int)
 
-            -- get tx output from `(coin.delete-coin ...)` call
+
+            -- get tx output from `(coin.delete-coin ...)` call.
+            -- Note: we must mine at least (diam + 1) * graph order many blocks
+            -- to ensure we synchronize the cutdb across all chains
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height cid) c0
 
@@ -116,7 +119,7 @@ spv = do
             pact2 <- testWebPactExecutionService v (Just cdb) txGen2
             syncPact cutDb pact2
 
-            -- if we get this far, we have succeeded
+            -- consume the stream and mine second batch of transactions
             void $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
