@@ -314,16 +314,19 @@ withPactCtx v cutDB f
     start = testPactCtx v (someChainId v)
 
 
--- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
+-- | Run Genesis blocks through 'testApplyCmds'. This function is morally equivalent to
+-- the 'execNewBlock' from Pact Service.
+--
+-- Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
+--
 testExecNewBlock
     :: MemPoolAccess
     -> BlockHeader
+    -- ^ parent header of the block-to-be
     -> MinerInfo
+    -- ^ some miner
     -> PactServiceM PayloadWithOutputs
 testExecNewBlock mpa h m = do
-    let bhe = _blockHeight h
-        bha = _blockHash h
-
     tx <- liftIO $! mpa bhe bha
     restoreCheckpointer $ Just (bhe, bha)
     -- locally run 'execTransactions' with updated blockheight data
@@ -332,7 +335,15 @@ testExecNewBlock mpa h m = do
 
     discardCheckpointer
     return $! toPayloadWithOutputs m r
+  where
+    bhe = _blockHeight h
+    bha = _blockHash h
 
+-- | Validate blocks and run commands via 'testApplyCmds' to bypass buy/redeem gas
+-- phases of the transaction lifecycle. This function is equivalent to 'execValidateBlock'
+-- without the 'buy/redeem' gas in the sense that it is mined and the miner receives
+-- a coinbase.
+--
 testExecValidateBlock
     :: BlockHeader
     -- ^ current header
@@ -341,20 +352,24 @@ testExecValidateBlock
     -> PactServiceM PayloadWithOutputs
 testExecValidateBlock ch d = do
     miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner d)
-
-    let bhe = _blockHeight ch
-        bpa = _blockParent ch
-        bha = _blockHash ch
-
     t <- liftIO $ transactionsFromPayload d
-    restoreCheckpointer $ Just (pred bhe, bpa)
+    -- restore to previous blockheader
+    restoreCheckpointer $ Just (bhe - 1, bpa)
+
     rs <- testExecTransactions (Just bpa) miner t
       & locally (psPublicData . pdBlockHeight) (const $ bhe ^. from coerced)
 
     finalizeCheckpointer $ \cp s -> save cp bhe bha s
     psStateValidated L..= Just ch
     return $! toPayloadWithOutputs miner rs
+  where
+    bhe = _blockHeight ch
+    bpa = _blockParent ch
+    bha = _blockHash ch
 
+-- | Execute transactions via 'testApplyCmds' while still "mining" a transaction
+-- and returning tx outputs. Runs without buy/redeem gas, and still coinbases miner
+-- 
 testExecTransactions
     :: Maybe BlockHash
     -> MinerInfo
@@ -365,7 +380,7 @@ testExecTransactions bha m txs = do
     dbe <- liftIO . toEnv' $ _pdbsDbEnv st0
 
     coin <- runCoinbase bha dbe m
-    txos <- testApplyCmds dbe txs
+    txos <- traverse (fmap toOutputs . testApplyCmd dbe) txs
 
     penv <- liftIO $ toEnvPersist' dbe
     let st1 = PactDbState penv
@@ -376,26 +391,14 @@ testExecTransactions bha m txs = do
   where
     k = curry $ first (toTransactionBytes . fmap payloadBytes)
 
-testApplyCmds
-    :: Env'
-    -> Vector (Command PayloadWithText)
-    -> PactServiceM (Vector FullLogTxOutput)
-testApplyCmds = Vector.mapM . testApplyCmd
-
-testApplyCmd
-    :: Env'
-    -> Command (PayloadWithText)
-    -> PactServiceM FullLogTxOutput
-testApplyCmd (Env' dbe) txs = fmap outs applyTestCmd
-  where
-    applyTestCmd = do
+    testApplyCmd (Env' dbe') txs' = do
       env <- ask
 
       let l = env ^. psCheckpointEnv . cpeLogger
-          cmd = fmap payloadObj txs
+          cmd = fmap payloadObj txs'
 
       let pd' = set pdPublicMeta (publicMetaOf cmd) (_psPublicData env)
-      let cenv = CommandEnv Nothing Transactional dbe l freeGasEnv pd'
+      let cenv = CommandEnv Nothing Transactional dbe' l freeGasEnv pd'
           rk = cmdToRequestKey cmd
           pst0 = set (evalCapabilities . capGranted) caps def
 
@@ -410,5 +413,7 @@ testApplyCmd (Env' dbe) txs = fmap outs applyTestCmd
           pure r
 
     mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+
     caps = mkMagicCap <$> ["FUND_TX", "COINBASE", "TRANSFER"]
-    outs (r, logs) = FullLogTxOutput (_crResult r) logs
+
+    toOutputs (r, logs) = FullLogTxOutput (_crResult r) logs

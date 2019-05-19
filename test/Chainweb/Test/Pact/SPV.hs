@@ -14,7 +14,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Pact Service SPV Support roundtrip tests
 --
 module Chainweb.Test.Pact.SPV
 ( tests
@@ -65,6 +65,9 @@ tests :: TestTree
 tests = testGroup "Chainweb-Pact SPV support"
     [ testCase "SPV verification round trip" spv
     ]
+
+v :: ChainwebVersion
+v = TimedCPM petersonChainGraph
 
 spv :: IO ()
 spv = do
@@ -118,7 +121,6 @@ spv = do
                 $ ((<) `on` height tid) c2
 
   where
-    v = TimedCPM petersonChainGraph
     logg l
         | l <= Warn = T.putStrLn . logText
         | otherwise = const $ return ()
@@ -134,7 +136,7 @@ spv = do
 type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
--- | Generate burn/create Pact Service commands
+-- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: TransactionGenerator
 txGenerator1 cid _bhe _bha =
@@ -147,8 +149,9 @@ txGenerator1 cid _bhe _bha =
               |]
       in fromList [ PactTransaction c Nothing ]
 
--- | Generate the 'create-coin' command in response
--- to the previous 'delete-coin' call
+-- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
+-- Note that we maintain an atomic update to make sure that if a given chain id
+-- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
 txGenerator2
     :: PayloadCas cas
@@ -158,10 +161,11 @@ txGenerator2
     -> IO TransactionGenerator
 txGenerator2 cdbv cid bhe = do
     ref <- newIORef False
-    return $ go ref
+    cid' <- mkChainId v (0 :: Int)
+    return $ go ref cid'
   where
-    go ref tid _bhe _bha
-        | tid /= unsafeChainId 0 = return mempty
+    go ref cid' tid _bhe _bha
+        | tid /= cid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
@@ -179,4 +183,5 @@ txGenerator2 cdbv cid bhe = do
       [text|
         (coin.create-coin (read-msg 'proof))
         |]
+
     tx1Data q = Just $ object [ "proof" .= q ]
