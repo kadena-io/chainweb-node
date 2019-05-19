@@ -255,7 +255,7 @@ testPactCtx v cid cdbv = do
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger True
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPV pactSPV cdbv
@@ -321,19 +321,16 @@ testExecNewBlock
     -> MinerInfo
     -> PactServiceM PayloadWithOutputs
 testExecNewBlock mpa h m = do
-    let bhe@(BlockHeight bh) = _blockHeight h
+    let bhe = _blockHeight h
         bha = _blockHash h
 
     tx <- liftIO $! mpa bhe bha
-
     restoreCheckpointer $ Just (bhe, bha)
-
     -- locally run 'execTransactions' with updated blockheight data
-    r <- locally (psPublicData . pdBlockHeight) (\_ -> bh) $
-      testExecTransactions (Just bha) m tx
+    r <- testExecTransactions (Just bha) m tx
+      & locally (psPublicData . pdBlockHeight) (const $ bhe ^. from coerced)
 
     discardCheckpointer
-
     return $! toPayloadWithOutputs m r
 
 testExecValidateBlock
@@ -345,15 +342,14 @@ testExecValidateBlock
 testExecValidateBlock ch d = do
     miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner d)
 
-    let bhe@(BlockHeight bh) = _blockHeight ch
+    let bhe = _blockHeight ch
         bpa = _blockParent ch
         bha = _blockHash ch
 
     t <- liftIO $ transactionsFromPayload d
     restoreCheckpointer $ Just (pred bhe, bpa)
-
-    rs <- locally (psPublicData . pdBlockHeight) (\_ -> bh) $
-      testExecTransactions (Just bpa) miner t
+    rs <- testExecTransactions (Just bpa) miner t
+      & locally (psPublicData . pdBlockHeight) (const $ bhe ^. from coerced)
 
     finalizeCheckpointer $ \cp s -> save cp bhe bha s
     psStateValidated L..= Just ch
@@ -366,18 +362,16 @@ testExecTransactions
     -> PactServiceM Transactions
 testExecTransactions bha m txs = do
     st0 <- use psStateDb
-
     dbe <- liftIO . toEnv' $ _pdbsDbEnv st0
+
     coin <- runCoinbase bha dbe m
     txos <- testApplyCmds dbe txs
 
     penv <- liftIO $ toEnvPersist' dbe
-
     let st1 = PactDbState penv
         outs = Vector.zipWith k txs txos
 
     psStateDb L..= st1
-
     return (Transactions outs coin)
   where
     k = curry $ first (toTransactionBytes . fmap payloadBytes)
@@ -392,29 +386,29 @@ testApplyCmd
     :: Env'
     -> Command (PayloadWithText)
     -> PactServiceM FullLogTxOutput
-testApplyCmd (Env' dbe) txs = do
-    env <- ask
-
-    let l = env ^. psCheckpointEnv . cpeLogger
-        pd = env ^. psPublicData
-        spv = env ^. psSpvSupport
-        cmd = fmap payloadObj txs
-
-    (r, logs) <- liftIO $ applyTestCmd l pd spv cmd
-    pure $ FullLogTxOutput (_crResult r) logs
+testApplyCmd (Env' dbe) txs = fmap outs applyTestCmd
   where
-    applyTestCmd l pd spv cmd = do
+    applyTestCmd = do
+      env <- ask
 
-      let pd' = set pdPublicMeta (publicMetaOf cmd) pd
+      let l = env ^. psCheckpointEnv . cpeLogger
+          cmd = fmap payloadObj txs
+
+      let pd' = set pdPublicMeta (publicMetaOf cmd) (_psPublicData env)
       let cenv = CommandEnv Nothing Transactional dbe l freeGasEnv pd'
           rk = cmdToRequestKey cmd
-          pst0 = set (evalCapabilities . capGranted) [mkMagicCap "FUND_TX", mkMagicCap "COINBASE"] def
+          pst0 = set (evalCapabilities . capGranted) caps def
 
-      resultE <- tryAny $! runPayload cenv pst0 cmd spv []
-      case resultE of
-        Left e -> jsonErrorResult cenv rk e [] (Gas 0) "test tx failure for request key"
+      resultE <- liftIO $! tryAny $
+        runPayload cenv pst0 cmd (_psSpvSupport env) []
+
+      liftIO $! case resultE of
+        Left e ->
+          jsonErrorResult cenv rk e [] (Gas 0) "test tx failure for request key"
         Right r -> do
           logDebugRequestKey l rk "successful test tx for request key"
           pure r
 
     mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+    caps = mkMagicCap <$> ["FUND_TX", "COINBASE", "TRANSFER"]
+    outs (r, logs) = FullLogTxOutput (_crResult r) logs
