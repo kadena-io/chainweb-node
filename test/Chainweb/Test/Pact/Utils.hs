@@ -19,7 +19,6 @@ module Chainweb.Test.Pact.Utils
   -- * helper functions
 , getByteString
 , mergeObjects
-, singletonOf
 , formatB16PubKey
 , mkPactTestTransactions
 , mkPactTestTransactions'
