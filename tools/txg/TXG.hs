@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -26,20 +27,19 @@ import BasePrelude hiding (loop, rotate, timeout, (%))
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
-import Control.Concurrent.Async (async, mapConcurrently_)
-import Control.Concurrent.STM.TQueue
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Lens hiding (op, (.=), (|>))
 import Control.Monad.Except
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
+import Data.Generics.Product.Fields (field)
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map as M
-import qualified Data.Queue.Bounded as BQ
 import Data.Sequence.NonEmpty (NESeq(..))
 import qualified Data.Sequence.NonEmpty as NES
 import Data.Text (Text)
@@ -91,206 +91,179 @@ import qualified Utils.Logging.Config as U
 
 generateDelay :: MonadIO m => TXG m Int
 generateDelay = do
-  distribution <- asks _confTimingDist
-  gen <- gets _gsGen
+  distribution <- asks confTimingDist
+  gen <- gets gsGen
   case distribution of
     Just (Gaussian gmean gvar) -> liftIO (truncate <$> normal gmean gvar gen)
     Just (Uniform ulow uhigh) -> liftIO (truncate <$> uniformR (ulow, uhigh) gen)
     Nothing -> error "generateDelay: impossible"
 
-generateSimpleTransaction
+generateSimpleTransactions
   :: (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, Command Text)
-generateSimpleTransaction = do
-  delay <- generateDelay
+  => TXG m (ChainId, [Command Text])
+generateSimpleTransactions = do
+  -- Choose a Chain to send these transactions to, and cycle the state.
+  cid <- NES.head <$> gets gsChains
+  field @"gsChains" %= rotate
+  -- Generate a batch of transactions
   stdgen <- liftIO newStdGen
-  let (operandA, operandB, op) =
-        flip evalState stdgen $ do
+  batch <- asks confBatchSize
+  cmds <- liftIO . sequenceA . replicate (fromIntegral batch) $ f cid stdgen
+  -- Delay, so as not to hammer the network.
+  delay <- generateDelay
+  liftIO $ threadDelay delay
+  pure (cid, cmds)
+  where
+    f :: ChainId -> StdGen -> IO (Command Text)
+    f cid stdgen = do
+      let (operandA, operandB, op) = flip evalState stdgen $ do
             a <- state $ randomR (1, 100 :: Integer)
             b <- state $ randomR (1, 100 :: Integer)
             ind <- state $ randomR (0, 2 :: Int)
             let operation = "+-*" !! ind
             pure (a, b, operation)
-      theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
+          theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
 
-  -- Choose a Chain to send this transaction to, and cycle the state.
-  cid <- uses gsChains NES.head
-  gsChains %= rotate
+      kps <- testSomeKeyPairs
 
-  -- Delay, so as not to hammer the network.
-  liftIO $ threadDelay delay
-  -- lift . logg Info . toLogMessage . T.pack $ "The delay is " ++ show delay ++ " seconds."
-  lift . logg Info . toLogMessage . T.pack $ printf "Sending expression %s to %s" theCode (show cid)
-  kps <- liftIO testSomeKeyPairs
-
-
-  let publicmeta = CM.PublicMeta
-                   (CM.ChainId $ chainIdToText cid)
-                   ("sender" <> toText cid)
-                   (ParsedInteger 100)
-                   (ParsedDecimal 0.0001)
-      theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-  cmd <- liftIO $ mkExec theCode theData publicmeta kps Nothing
-  pure (cid, cmd)
+      let publicmeta = CM.PublicMeta
+                       (CM.ChainId $ chainIdToText cid)
+                       ("sender" <> toText cid)
+                       (ParsedInteger 10)
+                       (ParsedDecimal 0.0001)
+          theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+      mkExec theCode theData publicmeta kps Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a
 rotate (h :<|| rest) = rest :||> h
 
-generateTransaction
-  :: (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, Command Text)
-generateTransaction = do
-  contractIndex <- liftIO $ randomRIO @Int (0, 2)
+data CmdChoice = CoinContract | HelloWorld | Payments
+  deriving (Show, Eq, Ord, Bounded, Enum)
+
+randomEnum :: forall a. (Enum a, Bounded a) => IO a
+randomEnum = toEnum <$> randomRIO @Int (0, fromEnum $ maxBound @a)
+
+generateTransactions
+  :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
+  => TXG m (ChainId, [Command Text])
+generateTransactions = do
+  contractIndex <- liftIO randomEnum
 
   -- Choose a Chain to send this transaction to, and cycle the state.
-  cid <- uses gsChains NES.head
-  gsChains %= rotate
+  cid <- NES.head <$> gets gsChains
+  field @"gsChains" %= rotate
 
-  sample <- case contractIndex of
-    -- COIN CONTRACT
-    0 -> do
-      cks <- view confKeysets
-      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "coin")) of
-        Nothing -> error "A ChainId that should have `Account` entries does not."
-        Just coinaccts -> liftIO $ do
-          coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
-          createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
-    1 -> liftIO $ generate fake >>= helloRequest
-    2 -> do
-      cks <- view confKeysets
-      case M.lookup cid cks >>= traverse (M.lookup (Sim.ContractName "payment")) of
-        Nothing -> error "A ChainId that should have `Account` entries does not."
-        Just paymentAccts -> liftIO $ do
-          paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
-          case paymentsRequest of
-            SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
-              Nothing ->
-                error "This account does not have an associated keyset!"
-              Just keyset ->
-                createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest $ Just keyset
-            SPRequestGetBalance _account ->
-              createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest Nothing
-            _ -> error "SimplePayments.CreateAccount code generation not supported"
-    _ -> error "No contract here"
-  delay <- generateDelay
-  liftIO $ threadDelay delay
-  lift $ logg Info (toLogMessage $ T.pack $ "The delay was " ++ show delay ++ " seconds.")
-  pure (cid, sample)
+  cks <- asks confKeysets
+  case M.lookup cid cks of
+    Nothing -> error $ printf "%s is missing Accounts!" (show cid)
+    Just accs -> do
+      batch <- asks confBatchSize
+      cmds <- liftIO . sequenceA . replicate (fromIntegral batch) $
+        case contractIndex of
+          CoinContract -> coinContract cid $ accounts "coin" accs
+          HelloWorld -> generate fake >>= helloRequest
+          Payments -> payments cid $ accounts "payment" accs
+      generateDelay >>= liftIO . threadDelay
+      pure (cid, cmds)
+  where
+    accounts :: String -> Map Sim.Account (Map Sim.ContractName a) -> Map Sim.Account a
+    accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
-sendTransaction
+    coinContract :: ChainId -> Map Sim.Account [SomeKeyPair] -> IO (Command Text)
+    coinContract cid coinaccts = do
+      coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
+      createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
+
+    payments :: ChainId -> Map Sim.Account [SomeKeyPair] -> IO (Command Text)
+    payments cid paymentAccts = do
+      paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
+      case paymentsRequest of
+        SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
+          Nothing ->
+            error "This account does not have an associated keyset!"
+          Just keyset ->
+            createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest $ Just keyset
+        SPRequestGetBalance _account ->
+          createSimplePaymentRequest (Sim.makeMeta cid) paymentsRequest Nothing
+        _ -> error "SimplePayments.CreateAccount code generation not supported"
+
+sendTransactions
   :: MonadIO m
   => ChainId
-  -> Command Text
+  -> [Command Text]
   -> TXG m (Either ClientError RequestKeys)
-sendTransaction cid cmd = do
-  TXGConfig _ _ cenv v <- ask
-  liftIO $ runClientM (send v cid $ SubmitBatch [cmd]) cenv
+sendTransactions cid cmds = do
+  TXGConfig _ _ cenv v _ <- ask
+  liftIO $ runClientM (send v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, Command Text)
-  -> TQueue Text
-  -> MeasureTime
+  => TXG m (ChainId, [Command Text])
   -> TXG m ()
-loop f tq measure@(MeasureTime _) = do
-  (cid, transaction) <- f
-  (_, requestKeys) <- measureDiffTime $ sendTransaction cid transaction
-  countTV <- gets _gsCounter
-  liftIO . atomically $ modifyTVar' countTV (+ 1)
-  count <- liftIO $ readTVarIO countTV
-
-  liftIO . atomically $ do
-    -- writeTQueue tq $ "Sent transaction with request keys: " <> sshow requestKeys
-    -- when mtime $ writeTQueue tq $ "Sending it took: " <> sshow timeTaken
-    writeTQueue tq $ "Transaction count: " <> sshow count
+loop f = do
+  (cid, transactions) <- f
+  requestKeys <- sendTransactions cid transactions
 
   case requestKeys of
-    Left servantError -> lift . logg Error $ toLogMessage (sshow servantError :: Text)
-    Right rks -> do
-      bq <- gets _gsRespTimes
-      forkedListens tq bq cid rks
+    Left servantError ->
+      lift . logg Error $ toLogMessage (sshow servantError :: Text)
+    Right _ -> do
+      countTV <- gets gsCounter
+      batch <- asks confBatchSize
+      liftIO . atomically $ modifyTVar' countTV (+ fromIntegral batch)
+      count <- liftIO $ readTVarIO countTV
+      lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
 
-  logs <- liftIO . atomically $ flushTQueue tq
-  lift $ traverse_ (logg Info . toLogMessage) logs
-  loop f tq measure
-
-forkedListens
-  :: MonadIO m
-  => TQueue Text
-  -> TVar (BQ.BQueue Int)
-  -> ChainId
-  -> RequestKeys
-  -> TXG m ()
-forkedListens tq bq cid (RequestKeys rks) = do
-  TXGConfig _ _ ce v <- ask
-  liftIO $ traverse_ (forkedListen ce v) rks
-  where
-    forkedListen :: ClientEnv -> ChainwebVersion -> RequestKey -> IO ()
-    forkedListen ce v rk = void . async $ do
-      (!time, _) <- measureDiffTime $ runClientM (listen v cid $ ListenerRequest rk) ce
-      atomically $ do
-        q <- readTVar bq
-        let q' = BQ.cons (floor time) q
-        writeTVar bq q'
-        writeTQueue tq $ "Average complete result time: " <> sshow (BQ.average q')
-        -- writeTQueue tq $ sshow res
-        -- writeTQueue tq $ "The associated request is " <> sshow rk <> "\n" <> sshow res
+  loop f
 
 type ContractLoader = CM.PublicMeta -> [SomeKeyPair] -> IO (Command Text)
 
-loadContracts :: MeasureTime -> ScriptConfig -> HostAddress -> [ContractLoader] -> IO ()
-loadContracts (MeasureTime mtime) config host contractLoaders = do
-  (timeTaken, !_action) <- measureDiffTime go
-  when mtime
-    . withConsoleLogger Info
-    . logg Info
-    $ "Loading supplied contracts took: " <> sshow timeTaken
-  where
-    go :: IO ()
-    go = do
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      forM_ (_nodeChainIds config) $ \cid -> do
-        let !meta = Sim.makeMeta cid
-        ts <- testSomeKeyPairs
-        contracts <- traverse (\f -> f meta ts) contractLoaders
-        pollresponse <- runExceptT $ do
-          rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
-          ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-        withConsoleLogger Info . logg Info $ sshow pollresponse
+loadContracts :: Args -> HostAddress -> [ContractLoader] -> IO ()
+loadContracts config host contractLoaders = do
+  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  forM_ (nodeChainIds config) $ \cid -> do
+    let !meta = Sim.makeMeta cid
+    ts <- testSomeKeyPairs
+    contracts <- traverse (\f -> f meta ts) contractLoaders
+    pollresponse <- runExceptT $ do
+      rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    withConsoleLogger Info . logg Info $ sshow pollresponse
 
-sendTransactions
-  :: MeasureTime
-  -> ScriptConfig
+realTransactions
+  :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendTransactions measure config host tv distribution = do
-  cfg@(TXGConfig _ _ ce v) <- liftIO $ mkTXGConfig (Just distribution) config host
+realTransactions config host tv distribution = do
+  cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
 
-  accountMap <- fmap (M.fromList . toList) . forM (_nodeChainIds config) $ \cid -> do
+  let chains = maybe (versionChains $ nodeVersion config) NES.fromList
+               . NEL.nonEmpty
+               $ nodeChainIds config
+
+  accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let !meta = Sim.makeMeta cid
     (paymentKS, paymentAcc) <- liftIO $ unzip <$> Sim.createPaymentsAccounts meta
     (coinKS, coinAcc) <- liftIO $ unzip <$> Sim.createCoinAccounts meta
     pollresponse <- liftIO . runExceptT $ do
       rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc ++ coinAcc) ce
       ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-    logg Info $ toLogMessage (sshow pollresponse :: Text)
-    logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+    case pollresponse of
+      Left e -> logg Error $ toLogMessage (sshow e :: Text)
+      Right _ -> pure ()
     let accounts = buildGenAccountsKeysets Sim.accountNames paymentKS coinKS
     pure (cid, accounts)
 
+  logg Info $ toLogMessage ("Real Transactions: Transactions are being generated" :: Text)
+
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  tq  <- liftIO newTQueueIO
-  bq  <- liftIO . newTVarIO $ BQ.empty 32
-  let act = loop generateTransaction tq measure
-      env = set confKeysets accountMap cfg
-      chs = maybe (versionChains $ _nodeVersion config) NES.fromList
-            . NEL.nonEmpty
-            $ _nodeChainIds config
-      stt = TXGState gen tv chs bq
+  let act = loop generateTransactions
+      env = set (field @"confKeysets") accountMap cfg
+      stt = TXGState gen tv chains
 
   evalStateT (runReaderT (runTXG act) env) stt
   where
@@ -313,69 +286,53 @@ sendTransactions measure config host tv distribution = do
 versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
 
-sendSimpleExpressions
-  :: MeasureTime
-  -> ScriptConfig
+simpleExpressions
+  :: Args
   -> HostAddress
   -> TVar TXCount
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
-sendSimpleExpressions measure config host tv distribution = do
-  logg Info $ toLogMessage ("Transactions are being generated" :: Text)
+simpleExpressions config host tv distribution = do
+  logg Info $ toLogMessage ("Simple Expressions: Transactions are being generated" :: Text)
   gencfg <- lift $ mkTXGConfig (Just distribution) config host
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  tq  <- liftIO newTQueueIO
-  bq  <- liftIO . newTVarIO $ BQ.empty 32
-  let chs = maybe (versionChains $ _nodeVersion config) NES.fromList
+  let chs = maybe (versionChains $ nodeVersion config) NES.fromList
              . NEL.nonEmpty
-             $ _nodeChainIds config
-      stt = TXGState gen tv chs bq
+             $ nodeChainIds config
+      stt = TXGState gen tv chs
 
-  evalStateT (runReaderT (runTXG (loop generateSimpleTransaction tq measure)) gencfg) stt
+  evalStateT (runReaderT (runTXG (loop generateSimpleTransactions)) gencfg) stt
 
-pollRequestKeys :: MeasureTime -> ScriptConfig -> HostAddress -> RequestKey -> IO ()
-pollRequestKeys (MeasureTime mtime) config host rkey = do
-  (timeTaken, !_action) <- measureDiffTime go
-  when mtime (putStrLn $ "" <> show timeTaken)
-  where
+pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
+pollRequestKeys config host rkey = do
+  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  response <- runClientM (poll v cid $ Poll [rkey]) ce
+  case response of
+    Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
+    Right (PollResponses a)
+      | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
+      | otherwise -> print a >> exitSuccess
+ where
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ nodeChainIds config
 
-    go :: IO a
-    go = do
-      putStrLn "Polling your requestKey"
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      response <- runClientM (poll v cid $ Poll [rkey]) ce
-      case response of
-        Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
-        Right (PollResponses a)
-          | null a -> putStrLn "Failure no result returned" >> exitWith (ExitFailure 1)
-          | otherwise -> print a >> exitSuccess
-
-listenerRequestKey :: MeasureTime -> ScriptConfig -> HostAddress -> ListenerRequest -> IO ()
-listenerRequestKey (MeasureTime mtime) config host listenerRequest = do
-  (timeTaken, response) <- measureDiffTime go
-  when mtime (putStrLn $ "" <> show timeTaken)
-  case response of
+listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
+listenerRequestKey config host listenerRequest = do
+  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  runClientM (listen v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print (_arResult r) >> exitSuccess
   where
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
     cid :: ChainId
-    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ _nodeChainIds config
+    cid = fromMaybe (unsafeChainId 0) . listToMaybe $ nodeChainIds config
 
-    go :: IO (Either ClientError ApiResult)
-    go = do
-      putStrLn "Listening..."
-      TXGConfig _ _ ce v <- mkTXGConfig Nothing config host
-      runClientM (listen v cid listenerRequest) ce
-
-work :: ScriptConfig -> IO ()
+work :: Args -> IO ()
 work cfg = do
   mgr <- newManager defaultManagerSettings
   tv  <- newTVarIO 0
@@ -383,10 +340,10 @@ work cfg = do
     $ \baseBackend -> do
       let loggerBackend = logHandles [] baseBackend
       withLogger (U._logConfigLogger defconfig) loggerBackend $ \l ->
-        mapConcurrently_ (\host -> runLoggerT (act tv host) l) $ _hostAddresses cfg
+        mapConcurrently_ (\host -> runLoggerT (act tv host) l) $ hostAddresses cfg
   where
     transH :: U.HandleConfig
-    transH = _logHandleConfig cfg
+    transH = logHandleConfig cfg
 
     defconfig :: U.LogConfig
     defconfig =
@@ -397,35 +354,35 @@ work cfg = do
 
     act :: TVar TXCount -> HostAddress -> LoggerT SomeLogMessage IO ()
     act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
-      case _scriptCommand cfg of
-        DeployContracts [] mtime -> liftIO $
-          loadContracts mtime cfg host $ initAdminKeysetContract : defaultContractLoaders
-        DeployContracts cs mtime -> liftIO $
-          loadContracts mtime cfg host $ initAdminKeysetContract : map createLoader cs
-        RunStandardContracts distribution mtime ->
-          sendTransactions mtime cfg host tv distribution
-        RunSimpleExpressions distribution mtime ->
-          sendSimpleExpressions mtime cfg host tv distribution
-        PollRequestKeys rk mtime -> liftIO $
-          pollRequestKeys mtime cfg host . RequestKey $ H.Hash rk
-        ListenerRequestKey rk mtime -> liftIO $
-          listenerRequestKey mtime cfg host . ListenerRequest . RequestKey $ H.Hash rk
+      case scriptCommand cfg of
+        DeployContracts [] -> liftIO $
+          loadContracts cfg host $ initAdminKeysetContract : defaultContractLoaders
+        DeployContracts cs -> liftIO $
+          loadContracts cfg host $ initAdminKeysetContract : map createLoader cs
+        RunStandardContracts distribution ->
+          realTransactions cfg host tv distribution
+        RunSimpleExpressions distribution ->
+          simpleExpressions cfg host tv distribution
+        PollRequestKeys rk -> liftIO $
+          pollRequestKeys cfg host . RequestKey $ H.Hash rk
+        ListenerRequestKey rk -> liftIO $
+          listenerRequestKey cfg host . ListenerRequest . RequestKey $ H.Hash rk
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
-  let chains = graphChainIds . _chainGraph $ _nodeVersion config
-      isMem  = all (`HS.member` chains) $ _nodeChainIds config
+  let chains = graphChainIds . _chainGraph $ nodeVersion config
+      isMem  = all (`HS.member` chains) $ nodeChainIds config
   unless isMem $ error $
-    printf "Invalid chain %s for given version\n" (show $ _nodeChainIds config)
+    printf "Invalid chain %s for given version\n" (show $ nodeChainIds config)
   pPrintNoColor config
   work config
 
-mainInfo :: ProgramInfo ScriptConfig
+mainInfo :: ProgramInfo Args
 mainInfo =
   programInfo
     "Chainweb-TransactionGenerator"
     scriptConfigParser
-    defaultScriptConfig
+    defaultArgs
 
 -- TODO: This is here for when a user wishes to deploy their own
 -- contract to chainweb. We will have to carefully consider which
@@ -473,11 +430,11 @@ listen version chainid = go
 ---------------------------
 -- FOR DEBUGGING IN GHCI --
 ---------------------------
-_genapi2 :: ChainwebVersion -> ChainId -> Text
-_genapi2 version chainid =
-  case someChainwebVersionVal version of
-    SomeChainwebVersionT (_ :: Proxy cv) ->
-      case someChainIdVal chainid of
-        SomeChainIdT (_ :: Proxy cid) ->
-          let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
-          in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
+-- genapi2 :: ChainwebVersion -> ChainId -> Text
+-- genapi2 version chainid =
+--   case someChainwebVersionVal version of
+--     SomeChainwebVersionT (_ :: Proxy cv) ->
+--       case someChainIdVal chainid of
+--         SomeChainIdT (_ :: Proxy cid) ->
+--           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
+--           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
