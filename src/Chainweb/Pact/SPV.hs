@@ -15,10 +15,10 @@
 -- Pact Service SPV support
 --
 module Chainweb.Pact.SPV
-( -- * SPV Support
+( -- * spv supports
   noSPV
 , pactSPV
-  -- * SPV Api Utilities
+  -- * spv api utilities
 , getTxIdx
 ) where
 
@@ -74,39 +74,36 @@ pactSPV
     :: HasCallStack
     => MVar (CutDb cas)
     -> SPVSupport
-pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= spv s o
+pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= go s o
   where
     -- extract spv resources from pact object
-    spv s o cdb = case s of
-      "TXOUT" -> do
-        t <- mkProof o
-        case t of
+    go s o cdb = case s of
+      "TXOUT" -> txOutputProofOf o >>= \case
           Left e -> spvMessage e
-          Right u -> verifyTransactionOutputProof cdb u >>= txToJson
+          Right t -> verifyTransactionOutputProof cdb t
+            >>= extractOutputs
       "TXIN" -> spvMessage "TXIN is currently unsupported"
       x -> spvMessage
-        $ "TXIN/TXOUT must be specified to generate valid spv proofs: "
+        $ "TXIN or TXOUT must be specified to generate valid spv proofs: "
         <> x
 
-    mkProof o =
-      let
-        k a = case fromJSON . toJSON $ a of
+    txOutputProofOf o =
+      case toPactValue $ TObject o def of
+        Left e -> spvMessage e
+        Right t -> case fromJSON . toJSON $ t of
           Error e -> spvMessage' e
-          Success u -> pure $ Right u
-      in either spvMessage k . toPactValue $ TObject o def
+          Success u -> return $ Right u
 
-    txToJson (TransactionOutput t) =
+    extractOutputs (TransactionOutput t) =
       case decodeStrict t of
-        Nothing ->
-          -- this should be considered an internal error
-          internalError "Unable to decode spv transaction output"
+        Nothing -> internalError $
+          "unable to decode spv transaction output"
         Just (HashedLogTxOutput u _) ->
           case fromJSON u of
             Error e -> spvMessage' e
-            Success (CommandSuccess (TObject o _)) -> pure $ Right o
+            Success (CommandSuccess (TObject o _)) -> return $ Right o
             Success _ -> internalError $
-              -- if we get here, then the proof is corrupted
-              "Associated pact transaction has wrong format"
+              "associated pact transaction outputs have wrong format"
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
@@ -126,10 +123,10 @@ getTxIdx bdb pdb bh th = do
     ph <- fmap (fmap _blockPayloadHash)
         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
             Nothing -> spvMessage "unable to find payload associated with transaction hash"
-            Just x -> pure . Right $ x
+            Just x -> return $ Right x
 
     case ph of
-      Left s -> pure . Left $ s
+      Left s -> return $ Left s
       Right a -> do
         -- get payload
         payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
@@ -142,7 +139,7 @@ getTxIdx bdb pdb bh th = do
 
         case r of
           Nothing -> spvMessage "unable to find transaction at the given block height"
-          Just x -> return . Right $ int x
+          Just x -> return $ Right (int x)
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow b
@@ -162,7 +159,7 @@ getTxIdx bdb pdb bh th = do
 -- | Prepend "spvSupport" to any errors so we can differentiate messages
 --
 spvMessage :: Text -> IO (Either Text a)
-spvMessage = pure . Left . (<>) "spvSupport: "
+spvMessage = return . Left . (<>) "spvSupport: "
 
 spvMessage' :: String -> IO (Either Text a)
 spvMessage' = spvMessage . pack
