@@ -14,6 +14,7 @@ extra-deps:
   - fake-0.1.1.1@sha256:a551fed1dbdd2ce3629cb843597d24793562cdd136e1252ae2febe0b91d239a8
   - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
   - FloatingHex-0.4
+  - generic-lens-1.1.0.0
   - hspec-2.5.8
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
