@@ -171,7 +171,7 @@ mkPactTestTransactions' sender cid txs =
         ks = KeySet
           [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
           (Name "keys-all" def)
-      in object ["test-admin-keyset" .= ks]
+      in object ["sender01-keyset" .= ks]
 
     mkTx ks d c = do
       let pm = PublicMeta cid sender (ParsedInteger 100) (ParsedDecimal 0.0001)
@@ -275,9 +275,9 @@ testPactExecutionService v cid cutDB mempoolAccess = do
     ctx <- testPactCtx v cid cutDB
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
-            evalPactServiceM ctx $ testExecNewBlock mempoolAccess p m
+            evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ testExecValidateBlock h d
+            evalPactServiceM ctx $ execValidateBlock False h  d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -312,108 +312,3 @@ withPactCtx v cutDB f
         evalPactServiceM ctx pact
   where
     start = testPactCtx v (someChainId v)
-
-
--- | Run Genesis blocks through 'testApplyCmds'. This function is morally equivalent to
--- the 'execNewBlock' from Pact Service.
---
--- Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
---
-testExecNewBlock
-    :: MemPoolAccess
-    -> BlockHeader
-    -- ^ parent header of the block-to-be
-    -> MinerInfo
-    -- ^ some miner
-    -> PactServiceM PayloadWithOutputs
-testExecNewBlock mpa h m = do
-    tx <- liftIO $! mpa bhe bha
-    restoreCheckpointer $ Just (bhe, bha)
-    -- locally run 'execTransactions' with updated blockheight data
-    r <- testExecTransactions (Just bha) m tx
-      & locally (psPublicData . pdBlockHeight) (const bh)
-
-    discardCheckpointer
-    return $! toPayloadWithOutputs m r
-  where
-    bhe@(BlockHeight bh) = _blockHeight h
-    bha = _blockHash h
-
--- | Validate blocks and run commands via 'testApplyCmds' to bypass buy/redeem gas
--- phases of the transaction lifecycle. This function is equivalent to 'execValidateBlock'
--- without the 'buy/redeem' gas in the sense that it is mined and the miner receives
--- a coinbase.
---
-testExecValidateBlock
-    :: BlockHeader
-    -- ^ current header
-    -> PayloadData
-    -- ^ payload data for miner
-    -> PactServiceM PayloadWithOutputs
-testExecValidateBlock ch d = do
-    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner d)
-    t <- liftIO $ transactionsFromPayload d
-    -- restore to previous blockheader
-    restoreCheckpointer $ Just (bhe - 1, bpa)
-
-    rs <- testExecTransactions (Just bpa) miner t
-      & locally (psPublicData . pdBlockHeight) (const bh)
-
-    finalizeCheckpointer $ \cp s -> save cp bhe bha s
-    psStateValidated L..= Just ch
-    return $! toPayloadWithOutputs miner rs
-  where
-    bhe@(BlockHeight bh) = _blockHeight ch
-    bpa = _blockParent ch
-    bha = _blockHash ch
-
--- | Execute transactions via 'testApplyCmds' while still "mining" a transaction
--- and returning tx outputs. Runs without buy/redeem gas, and still coinbases miner
---
-testExecTransactions
-    :: Maybe BlockHash
-    -> MinerInfo
-    -> Vector ChainwebTransaction
-    -> PactServiceM Transactions
-testExecTransactions bha m txs = do
-    st0 <- use psStateDb
-    dbe <- liftIO . toEnv' $ _pdbsDbEnv st0
-
-    coin <- runCoinbase bha dbe m
-    txos <- traverse (fmap toOutputs . testApplyCmd dbe) txs
-
-    penv <- liftIO $ toEnvPersist' dbe
-    let st1 = PactDbState penv
-        outs = Vector.zipWith k txs txos
-
-    psStateDb L..= st1
-    return (Transactions outs coin)
-  where
-    k = curry $ first (toTransactionBytes . fmap payloadBytes)
-
-    testApplyCmd (Env' dbe') txs' = do
-      env <- ask
-
-      let l = env ^. psCheckpointEnv . cpeLogger
-          cmd = fmap payloadObj txs'
-
-      let pd' = set pdPublicMeta (publicMetaOf cmd) (_psPublicData env)
-      let cenv = CommandEnv Nothing Transactional dbe' l freeGasEnv pd'
-          rk = cmdToRequestKey cmd
-          pst0 = set (evalCapabilities . capGranted) caps def
-
-      resultE <- liftIO $! tryAny $
-        runPayload cenv pst0 cmd (_psSpvSupport env) []
-
-      liftIO $! case resultE of
-        Left e ->
-          jsonErrorResult cenv rk e [] (Gas 0) "test tx failure for request key"
-        Right r -> do
-          logDebugRequestKey l rk "successful test tx for request key"
-          pure r
-
-    mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []
-
-    caps = mkMagicCap <$> ["FUND_TX", "COINBASE", "TRANSFER"]
-
-    toOutputs (r, logs) = FullLogTxOutput (_crResult r) logs

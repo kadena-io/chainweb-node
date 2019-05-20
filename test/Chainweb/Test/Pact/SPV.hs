@@ -148,7 +148,7 @@ txGenerator1 cid _bhe _bha =
     txs =
       let c =
             [text|
-              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'test-admin-keyset) 1.0)
+              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keyset) 1.0)
               |]
       in fromList [ PactTransaction c Nothing ]
 
@@ -175,7 +175,7 @@ txGenerator2 cdbv cid bhe = do
                 cdb <- readMVar cdbv
                 q <- fmap toJSON
                     $ createTransactionOutputProof cdb tid cid bhe 0
-                mkPactTestTransactions' "sender01" (Pact.ChainId $ chainIdToText tid) (txs q)
+                mkPactTestTransactions' "sender00" (Pact.ChainId $ chainIdToText tid) (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
