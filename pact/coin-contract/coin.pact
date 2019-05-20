@@ -1,10 +1,11 @@
 (module coin GOVERNANCE
 
-  "'coin' represents the Kadena Coin Contract."
+  "'coin' represents the Kadena Coin Contract. This contract provides both the \
+  \buy/redeem gas support in the form of 'fund-tx', as well as transfer,       \
+  \credit, debit, coinbase, account creation and query, as well as SPV burn    \
+  \create. To access the coin contract, you may use its fully-qualified name,  \
+  \or issue the '(use coin)' command in the body of a module declaration."
 
-
-  ; (implements coin-sig)
-  ; (implements spv-sig)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -140,10 +141,6 @@
     (step (redeem-gas miner miner-guard sender total))
     )
 
-  ; --------------------------------------------------------------------------
-  ; Helpers
-  ; --------------------------------------------------------------------------
-
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
 
@@ -181,6 +178,14 @@
       ))
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
+    @doc "Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
+         \produce an SPV receipt which may be manually redeemed for an SPV      \
+         \proof. Once a proof is obtained, the user may call 'create-coin' and  \
+         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT        \
+         \QUANTITY-many coins."
+
+    @model [(property (> amount 0.0))]
+
     (with-capability (TRANSFER)
       (debit delete-account quantity)
 
@@ -196,6 +201,11 @@
     )
 
   (defun create-coin (proof)
+    @doc "Consume an SPV proof for a number of coins, and credit the account   \
+         \associated with the proof the quantify of coins burned on the source \
+         \chain by the burn account. Note: must be called on the correct chain \
+         \id as specified in the proof."
+
     (let ((outputs (verify-spv "TXOUT" proof)))
       (bind outputs
         { "create-chain-id":= create-chain-id
