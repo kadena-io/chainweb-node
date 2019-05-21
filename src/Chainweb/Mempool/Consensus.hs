@@ -63,13 +63,15 @@ processFork logFun db newHeader (Just lastHeader) payloadLookup = do
         n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
                                       ++ "more than one greater than the previous new block request")
           | otherwise -> do -- fork occurred, get the transactions to reintroduce
+              logg Info $! "processFork - fork height difference: " <> sshow (- n)
               oldTrans <- foldM f mempty oldBlocks
               newTrans <- foldM f mempty newBlocks
               -- before re-introducing the transactions from the losing fork (aka oldBlocks), filter
               -- out any transactions that have been included in the winning fork (aka newBlocks)
 
-              -- return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
               let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+              logg Info $! "processFork: " <> sshow (length oldTrans) <> " transactions in the old fork"
+              logg Info $! "processFork: " <> sshow (length newTrans) <> " transactions in the new fork"
 
               -- create data for the dashboard showing number or reintroduced transacitons:
               let !reIntro = ReintroducedTxs
