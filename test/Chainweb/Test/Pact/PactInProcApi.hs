@@ -21,7 +21,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception (Exception)
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T

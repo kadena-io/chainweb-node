@@ -61,7 +61,7 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
-import Pact.Types.Runtime (noSpvSupport)
+import Pact.Types.Runtime (noSPVSupport)
 import Pact.Types.Util (toB16Text)
 
 -- internal modules
@@ -223,7 +223,7 @@ testPactCtx v cid cdbv = do
     loggers = pactTestLogger False
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
-    spv = maybe noSpvSupport pactSPV cdbv
+    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 
