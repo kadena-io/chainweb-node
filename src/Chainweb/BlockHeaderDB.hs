@@ -24,7 +24,7 @@ module Chainweb.BlockHeaderDB
 (
 -- * Chain Database Handle
   Configuration(..)
-, BlockHeaderDb(..)
+, BlockHeaderDb
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
