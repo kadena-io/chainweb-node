@@ -7,6 +7,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -18,12 +20,12 @@
 --
 module Chainweb.Test.Pact.SPV
 ( tests
-, spv
 ) where
 
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
-import Control.Exception (finally)
+import Control.Exception (SomeException, finally)
 import Control.Lens hiding ((.=))
+import Control.Monad.Catch (catch)
 
 import Data.Aeson
 import Data.Default
@@ -51,9 +53,9 @@ import Pact.Types.Term
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
@@ -64,35 +66,93 @@ import Chainweb.Version as Chainweb
 import Data.CAS.RocksDB
 import Data.LogMessage
 
+
 tests :: TestTree
-tests = testGroup "Chainweb-Pact SPV support"
-    [ testCase "SPV verification round trip" spv
+tests = testGroup "Chainweb-Pact SPV integration"
+    [ testCase "standard SPV verification round trip" standard
+    , testCase "double spends fail" doublespend
+    , testCase "wrong chain execution fails" wrongchain
+    , testCase "invalid proof formats fail" badproof
     ]
 
 v :: ChainwebVersion
 v = TimedCPM petersonChainGraph
 
-spv :: IO ()
-spv = do
+logg :: LogMessage a => LogLevel -> a -> IO ()
+logg l
+  | l <= Warn = T.putStrLn . logText
+  | otherwise = const $ return ()
+
+diam :: Num a => a
+diam = int . diameter . _chainGraph $ v
+
+gorder :: Num a => a
+gorder = int . order . _chainGraph $ v
+
+height :: Chainweb.ChainId -> Cut -> BlockHeight
+height cid c = _blockHeight $ c ^?! ixg cid
+
+handle :: SomeException -> IO Bool
+handle _ = return False
+
+-- expected failures take this form
+expectedFailure :: IO Bool -> String -> Assertion
+expectedFailure test msg = do
+    b <- catch test handle
+    assertBool ("Unexpected success: " <> msg <> " should fail") (not b)
+
+expectedSuccess :: IO Bool -> String -> Assertion
+expectedSuccess test msg = do
+    b <- catch test handle
+    assertBool ("Unexpected failure: " <> msg <> " should succeed") b
+
+-- -------------------------------------------------------------------------- --
+-- tests
+
+standard :: Assertion
+standard = expectedSuccess (roundtrip 0 1 txGenerator1 txGenerator2) "round trip"
+
+doublespend :: Assertion
+doublespend = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator3) "double spend"
+
+
+wrongchain :: Assertion
+wrongchain = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator4) "wrong chain execution"
+
+badproof :: Assertion
+badproof = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator5) "wrong proof format"
+
+roundtrip
+    :: Int
+      -- ^ source chain id
+    -> Int
+      -- ^ target chain id
+    -> BurnGenerator
+      -- ^ burn tx generator
+    -> CreatesGenerator
+      -- ^ create tx generator
+    -> IO Bool
+roundtrip _sid _tid burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
+            sid <- mkChainId v _sid
+            tid <- mkChainId v _tid
+
             -- pact service, that is used to extend the cut data base
-            pact1 <- testWebPactExecutionService v (Just cdb) txGenerator1
+            pact1 <- testWebPactExecutionService v (Just cdb) $ burn tid
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
-            cid <- mkChainId v (0 :: Int)
-
 
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
-                ((<) `on` height cid) c0
+                ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
             -- block is included in the block hash of the target. Extending the
@@ -113,12 +173,11 @@ spv = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            tid <- mkChainId cutDb (1 :: Int)
             c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
                 height tid c > diam + height tid c0
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            txGen2 <- txGenerator2 cdb cid (height cid c1)
+            txGen2 <- create cdb sid tid (height sid c1)
             pact2 <- testWebPactExecutionService v (Just cdb) txGen2
             syncPact cutDb pact2
 
@@ -126,29 +185,27 @@ spv = do
             void $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
-  where
-    logg l
-        | l <= Warn = T.putStrLn . logText
-        | otherwise = const $ return ()
+            return True
 
-    diam :: Num a => a
-    diam = int . diameter . _chainGraph $ v
-
-    gorder :: Num a => a
-    gorder = int . order . _chainGraph $ v
-
-    height cid c = _blockHeight $ c ^?! ixg cid
+-- -------------------------------------------------------------------------- --
+-- transaction generators
 
 type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
 
+type BurnGenerator
+    = Chainweb.ChainId -> TransactionGenerator
+
+type CreatesGenerator
+    = MVar (CutDb RocksDbCas) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
+
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
-txGenerator1 :: TransactionGenerator
-txGenerator1 cid _bhe _bha = do
+txGenerator1 :: BurnGenerator
+txGenerator1 tid _cid _bhe _bha = do
     ks <- testKeyPairs
 
-    let pcid = Pact.ChainId $ chainIdToText cid
+    let pcid = Pact.ChainId $ chainIdToText _cid
         g = ParsedInteger 100
         gr = ParsedDecimal 0.0001
 
@@ -158,7 +215,11 @@ txGenerator1 cid _bhe _bha = do
 
     tx1Code =
       [text|
-        (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keyset) 1.0)
+        (coin.delete-coin 'sender00
+          (read-msg 'target-chain-id)
+          'sender01
+          (read-keyset 'sender01-keyset)
+          1.0)
         |]
 
     tx1Data =
@@ -167,31 +228,27 @@ txGenerator1 cid _bhe _bha = do
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
             (Name "keys-all" def)
 
-      in Just $ object ["sender01-keyset" .= ks]
+      in Just $ object
+         [ "sender01-keyset" .= ks
+         , "target-chain-id" .= chainIdToText tid ]
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
-txGenerator2
-    :: PayloadCas cas
-    => MVar (CutDb cas)
-    -> Chainweb.ChainId
-    -> BlockHeight
-    -> IO TransactionGenerator
-txGenerator2 cdbv cid bhe = do
+txGenerator2 :: CreatesGenerator
+txGenerator2 cdbv sid tid bhe = do
     ref <- newIORef False
-    cid' <- mkChainId v (0 :: Int)
-    return $ go ref cid'
+    return $ go ref
   where
-    go ref cid' tid _bhe _bha
-        | tid /= cid' = return mempty
+    go ref tid' _bhe _bha
+        | tid /= tid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
                 cdb <- readMVar cdbv
                 q <- fmap toJSON
-                    $ createTransactionOutputProof cdb tid cid bhe 0
+                    $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
                     g = ParsedInteger 100
@@ -212,3 +269,102 @@ txGenerator2 cdbv cid bhe = do
         |]
 
     tx1Data q = Just $ object [ "proof" .= q ]
+
+-- | Double spend transaction which calls the coin-create
+-- function twice
+txGenerator3 :: CreatesGenerator
+txGenerator3 cdbv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref tid' _bhe _bha
+        | tid /= tid' = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                cdb <- readMVar cdbv
+                q <- fmap toJSON
+                    $ createTransactionOutputProof cdb tid sid bhe 0
+
+                let pcid = Pact.ChainId (chainIdToText tid)
+                    g = ParsedInteger 100
+                    gr = ParsedDecimal 0.0001
+
+                ks <- testKeyPairs
+                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                    `finally` writeIORef ref True
+
+    txs q = fromList
+      [ PactTransaction tx1Code (tx1Data q)
+      ]
+
+    tx1Code =
+      [text|
+        (coin.create-coin (read-msg 'proof))
+        (coin.create-coin (read-msg 'proof))
+        |]
+
+    tx1Data q = Just $ object [ "proof" .= q ]
+
+-- | Execute on the create-coin command on the wrong target chain
+txGenerator4 :: CreatesGenerator
+txGenerator4 cdbv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref tid' _bhe _bha
+        | tid /= tid' = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                cdb <- readMVar cdbv
+                q <- fmap toJSON
+                    $ createTransactionOutputProof cdb tid sid bhe 0
+
+                let pcid = Pact.ChainId (chainIdToText sid)
+                    g = ParsedInteger 100
+                    gr = ParsedDecimal 0.0001
+
+                ks <- testKeyPairs
+                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                    `finally` writeIORef ref True
+
+    txs q = fromList
+      [ PactTransaction tx1Code (tx1Data q)
+      ]
+
+    tx1Code =
+      [text|
+        (coin.create-coin (read-msg 'proof))
+        |]
+
+    tx1Data q = Just $ object [ "proof" .= q ]
+
+-- | Execute create-coin command with invalid proof
+txGenerator5 :: CreatesGenerator
+txGenerator5 _cdbv _ tid _ = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref tid' _bhe _bha
+        | tid /= tid' = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+
+                let pcid = Pact.ChainId (chainIdToText tid)
+                    g = ParsedInteger 100
+                    gr = ParsedDecimal 0.0001
+
+                ks <- testKeyPairs
+                mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+                    `finally` writeIORef ref True
+
+    txs = fromList
+      [ PactTransaction tx1Code Nothing
+      ]
+
+    tx1Code =
+      [text|
+        (coin.create-coin { "invalid" : "proof" })
+        |]
