@@ -115,7 +115,6 @@ standard = expectedSuccess (roundtrip 0 1 txGenerator1 txGenerator2) "round trip
 doublespend :: Assertion
 doublespend = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator3) "double spend"
 
-
 wrongchain :: Assertion
 wrongchain = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator4) "wrong chain execution"
 
@@ -191,7 +190,7 @@ roundtrip _sid _tid burn create = do
 -- transaction generators
 
 type TransactionGenerator
-    = Chainweb.ChainId -> BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+    = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
     = Chainweb.ChainId -> TransactionGenerator
@@ -202,7 +201,7 @@ type CreatesGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 tid _cid _bhe _bha = do
+txGenerator1 tid _cid _bhe _bha _ = do
     ks <- testKeyPairs
 
     let pcid = Pact.ChainId $ chainIdToText _cid
@@ -241,7 +240,7 @@ txGenerator2 cdbv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha
+    go ref tid' _bhe _bha _
         | tid /= tid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
@@ -277,7 +276,7 @@ txGenerator3 cdbv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha
+    go ref tid' _bhe _bha _
         | tid /= tid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
@@ -312,7 +311,7 @@ txGenerator4 cdbv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha
+    go ref tid' _bhe _bha _
         | tid /= tid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
@@ -346,7 +345,7 @@ txGenerator5 _cdbv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha
+    go ref tid' _bhe _bha _
         | tid /= tid' = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
