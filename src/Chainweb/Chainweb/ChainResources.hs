@@ -35,6 +35,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.IORef
+import Data.Maybe
 import qualified Data.Text as T
 
 import GHC.Stack
@@ -115,17 +116,18 @@ withChainResources
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
-    -> PayloadDb cas
+    -> Maybe (PayloadDb cas)
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
-    Mempool.withInMemoryMempool mempoolCfg $ \mempool ->
+    withBlockHeaderDb rdb v cid $ \cdb ->
+    Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
     withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
-    withBlockHeaderDb rdb v cid $ \cdb -> do
 
             -- replay pact
             let pact = pes mempool requestQ
-            replayPact logger pact cdb payloadDb
+            -- payloadStore is only 'Nothing' in some unit tests not using this code
+            replayPact logger pact cdb $ fromJust payloadDb
 
             -- run inner
             inner $ ChainResources
@@ -206,7 +208,8 @@ mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
     syncIntervalUs = 10000000
     go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"
-             Mempool.syncMempools' logg syncIntervalUs pool peerMempool (writeIORef ref True)
+             peerMp <-  peerMempool
+             Mempool.syncMempools' logg syncIntervalUs pool peerMp (writeIORef ref True)
              logg Debug "mempool sync session finished"
              readIORef ref
 
@@ -221,8 +224,10 @@ mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-
-    peerMempool = MPC.toMempool v cid txcfg gaslimit env
+    peerMempool = do
+        -- no sync needed / wanted for lastNewBlockParent attribute:
+        let noLastPar = Nothing
+        return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool

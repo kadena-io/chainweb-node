@@ -2,9 +2,10 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -16,11 +17,12 @@ module Chainweb.Mempool.Mempool
   , TransactionMetadata(..)
   , HashMeta(..)
   , Subscription(..)
-  , ValidationInfo(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
+  , chainwebTransactionConfig
   , mockCodec
+  , mockEncode
   , mockBlockGasLimit
   , finalizeSubscriptionImmediately
   , chainwebTestHasher
@@ -44,8 +46,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import Data.Decimal (Decimal)
-import Data.Decimal (DecimalRaw(..))
+import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (foldl', traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.HashSet (HashSet)
@@ -59,19 +60,23 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import GHC.Generics
+import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..))
+import qualified Pact.Types.Hash as H
 import Prelude hiding (log)
 import System.LogLevel
 
 ------------------------------------------------------------------------------
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Orphans ()
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
-import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Data.LogMessage (LogFunctionText)
-import Chainweb.Utils (runForever)
+import Chainweb.Transaction
+import Chainweb.Utils (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
+import Data.LogMessage (LogFunction, LogFunctionText)
+import Chainweb.Utils (encodeToText, runForever)
 
 
 ------------------------------------------------------------------------------
@@ -110,6 +115,14 @@ data MempoolBackend t = MempoolBackend {
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
 
+    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
+    --   in the case of forks
+  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
+
+    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
+
+  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
 
@@ -130,7 +143,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | These transactions were on a losing fork. Reintroduce them.
-  , mempoolReintroduce :: Vector TransactionHash -> IO ()
+
+  , mempoolReintroduce :: Vector t -> IO ()
 
     -- | given a callback function, loops through the pending candidate
     -- transactions and supplies the hashes to the callback in chunks. No
@@ -139,6 +153,7 @@ data MempoolBackend t = MempoolBackend {
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
   , mempoolSubscribe :: IO (IORef (Subscription t))
+
   , mempoolShutdown :: IO ()
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
@@ -152,6 +167,8 @@ noopMempool =
   MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
+    , mempoolLastNewBlockParent = Nothing
+    , mempoolProcessFork = noopProcessFork
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
@@ -174,7 +191,6 @@ noopMempool =
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta (const $ return True)
-
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
@@ -187,6 +203,30 @@ noopMempool =
     noopShutdown = return ()
     noopClear = return ()
 
+    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
+    noopProcessFork _l _h = return V.empty
+
+
+
+------------------------------------------------------------------------------
+chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
+chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
+    commandHash
+    chainwebTestHashMeta
+    getGasPrice
+    getGasLimit
+    (const txmeta)
+    (const $ return True)       -- TODO: insert extra transaction validation here
+
+  where
+    getGasPrice = gasPriceOf . fmap payloadObj
+    getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
+    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
+                    in TransactionHash h
+
+    -- TODO: plumb through origination + expiry time from pact once it makes it
+    -- into PublicMeta
+    txmeta = TransactionMetadata Time.minTime Time.maxTime
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {
@@ -322,8 +362,11 @@ syncMempools log us localMempool remoteMempool =
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
 newtype TransactionHash = TransactionHash ByteString
-  deriving stock (Show, Read, Eq, Ord, Generic)
+  deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
+
+instance Show TransactionHash where
+    show = T.unpack . encodeToText
 
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
@@ -371,22 +414,13 @@ data Subscription t = Subscription {
   -- TODO: activity timer
 }
 
-
-------------------------------------------------------------------------------
-data ValidationInfo = ValidationInfo {
-    validatedHeight :: {-# UNPACK #-} !BlockHeight
-  , validatedHash :: {-# UNPACK #-} !BlockHash
-  }
+data ValidatedTransaction t = ValidatedTransaction
+    { validatedHeight :: {-# UNPACK #-} !BlockHeight
+    , validatedHash :: {-# UNPACK #-} !BlockHash
+    , validatedTransaction :: t
+    }
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
-
-data ValidatedTransaction t = ValidatedTransaction {
-    validatedForks :: Vector ValidationInfo
-  , validatedTransaction :: t
-  }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
-
 
 ------------------------------------------------------------------------------
 finalizeSubscriptionImmediately :: Subscription t -> IO ()
@@ -405,22 +439,6 @@ data MockTx = MockTx {
     deriving anyclass (FromJSON, ToJSON, NFData)
 
 
-instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
-    toJSON d = let s = T.pack $ show d
-               in toJSON s
-
-instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
-    parseJSON v = do
-        s <- T.unpack <$> parseJSON v
-        return $! read s
-
--- orphan, needed for mock -- remove once this instance makes it upstream into pact
-instance ToJSON GasPrice where
-    toJSON (GasPrice d) = toJSON d
-
-instance FromJSON GasPrice where
-    parseJSON v = GasPrice <$> parseJSON v
-
 mockBlockGasLimit :: Int64
 mockBlockGasLimit = 65535
 
@@ -428,6 +446,7 @@ mockBlockGasLimit = 65535
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
+
 
 mockEncode :: MockTx -> ByteString
 mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do

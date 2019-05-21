@@ -16,6 +16,7 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -49,13 +50,16 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
           Just p -> act p
           Nothing -> throwM (userError $ "PactExecutionService: Invalid chain ID in header: " ++ show h)
 
-mkPactExecutionService :: MempoolBackend ChainwebTransaction -> TQueue RequestMsg -> PactExecutionService
+mkPactExecutionService
+    :: MempoolBackend ChainwebTransaction
+    -> TQueue RequestMsg
+    -> PactExecutionService
 mkPactExecutionService mempool q = PactExecutionService
   { _pactValidateBlock = \h pd -> do
       mv <- validateBlock h pd q
       r <- takeMVar mv
       case r of
-        Right pdo -> markAllConfirmed mempool pdo >> return pdo
+        Right pdo -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h) >> return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
@@ -78,17 +82,20 @@ emptyPactExecutionService = PactExecutionService
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     }
 
--- TODO: to support mempool transaction reintroduction we need to hook into
--- consensus instead of just killing every tx that ever made it into a valid
--- block
-markAllConfirmed
+markAllValidated
     :: MempoolBackend ChainwebTransaction
     -> PayloadWithOutputs
+    -> BlockHeight
+    -> BlockHash
     -> IO ()
-markAllConfirmed mempool payload = mempoolMarkConfirmed mempool txHashes
+markAllValidated mempool payload height hash = mempoolMarkValidated mempool validatedTxs
   where
     txcfg = mempoolTxConfig mempool
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    !txHashes = V.fromList $ map (txHasher txcfg) decodedTxs
+    validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
+                                        { validatedHeight = height
+                                        , validatedHash = hash
+                                        , validatedTransaction = t }
+                                    ) decodedTxs

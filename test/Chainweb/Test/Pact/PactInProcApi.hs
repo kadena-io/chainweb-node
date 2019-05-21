@@ -141,7 +141,7 @@ getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess _bHeight _bHash = do
+testMemPoolAccess _bHeight _bHash _bHeader = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     let cmdStrs = V.fromList
           [ moduleStr
@@ -152,7 +152,7 @@ testMemPoolAccess _bHeight _bHash = do
     mkPactTestTransactions cmdStrs
 
 testEmptyMemPool :: MemPoolAccess
-testEmptyMemPool _bHeight _bHash = mkPactTestTransactions V.empty
+testEmptyMemPool _bHeight _bHash _bHeader= mkPactTestTransactions V.empty
 
 testLocal :: IO ChainwebTransaction
 testLocal = fmap (head . V.toList) $ mkPactTestTransactions $ V.fromList

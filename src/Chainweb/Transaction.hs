@@ -6,14 +6,11 @@
 module Chainweb.Transaction
   ( ChainwebTransaction
   , PayloadWithText(..)
-  , chainwebTransactionConfig
   , chainwebPayloadCodec
   , gasLimitOf
   , gasPriceOf
   ) where
 
-import qualified Chainweb.Mempool.Mempool as Mempool
-import qualified Chainweb.Time as Time
 import Chainweb.Utils (Codec(..))
 
 import Control.DeepSeq
@@ -30,7 +27,6 @@ import Pact.Parse (ParsedDecimal(..), ParsedInteger(..), parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import qualified Pact.Types.Hash as H
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -41,6 +37,9 @@ data PayloadWithText = PayloadWithText
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+instance Ord PayloadWithText where
+    compare x y = compare (payloadBytes x) (payloadBytes y)
 
 instance ToJSON PayloadWithText where
     toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 bs)
@@ -56,27 +55,6 @@ instance FromJSON PayloadWithText where
         parsePact code = ParsedCode code <$> parseExprs code
 
 type ChainwebTransaction = Command PayloadWithText
-
-chainwebTransactionConfig :: Mempool.TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = Mempool.TransactionConfig chainwebPayloadCodec
-    commandHash
-    Mempool.chainwebTestHashMeta
-    getGasPrice
-    getGasLimit
-    (const txmeta)
-    (const $ return True)       -- TODO: insert extra transaction validation here
-
-  where
-    getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
-    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
-                    in Mempool.TransactionHash h
-
-    -- TODO: plumb through origination + expiry time from pact once it makes it
-    -- into PublicMeta
-    txmeta = Mempool.TransactionMetadata Time.minTime Time.maxTime
-
-
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)

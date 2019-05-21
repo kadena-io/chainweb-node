@@ -132,7 +132,8 @@ mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
+    let lastPar = Nothing
+    let mPool = toMempool version cid tConfig 10000 lastPar cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
   where
     tConfig = mempoolTxConfig noopMempool
