@@ -38,6 +38,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -128,20 +129,18 @@ testReq6 = TestRequest
 execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
-    ks <- testKeyPairs
+    d <- adminData
     trans <- goldenTestTransactions
       $ V.fromList
-      $ fmap (k ks) cmdStrs
+      $ fmap (k d) cmdStrs
 
     results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) outputs)
         (_transactionCoinbase results)
-
   where
-    d ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
-    k ks c = PactTransaction c (d ks)
+    k d c = PactTransaction c d
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)

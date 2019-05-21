@@ -15,7 +15,7 @@ module Chainweb.Test.Pact.Utils
   someED25519Pair
 , testPactFilesDir
 , testKeyPairs
-
+, adminData
   -- * helper functions
 , getByteString
 , mergeObjects
@@ -23,8 +23,6 @@ module Chainweb.Test.Pact.Utils
 , goldenTestTransactions
 , mkPactTestTransactions
 , pactTestLogger
-
-
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -37,27 +35,20 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 import Control.Concurrent.MVar
-import Control.Exception.Safe (tryAny)
 import Control.Lens hiding ((.=))
-import qualified Control.Lens as L
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
-import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Char8 as BS
 import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.Text (Text, pack)
-import Data.Text.Encoding
-import Data.Time.Clock
+import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
 
 import Test.Tasty
 
@@ -65,7 +56,6 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
-import Pact.Types.API
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -75,8 +65,6 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Pact.Backend.Types
@@ -84,12 +72,8 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.SPV
-import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
-import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId, chainIds)
 import qualified Chainweb.Version as V
 import Chainweb.WebPactExecutionService
@@ -97,8 +81,6 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
-import Pact.Types.Runtime hiding (Object(..))
-import Pact.Types.Server
 
 
 testKeyPairs :: IO [SomeKeyPair]
@@ -121,9 +103,8 @@ someED25519Pair =
     , ED25519
     )
 
-------------------------------------------------------------------------------
+-- ----------------------------------------------------------------------- --
 -- helper logic
-------------------------------------------------------------------------------
 
 getByteString :: ByteString -> ByteString
 getByteString = fst . B16.decode
@@ -140,11 +121,20 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap (Object o) = (:) o
     unwrap _ = id
 
+adminData :: IO (Maybe Value)
+adminData = fmap k testKeyPairs
+  where
+    k ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
 goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-    mkPactTestTransactions "sender00" "0" ks "1" (ParsedInteger 100) (ParsedDecimal 0.0001) txs
+
+    let g = ParsedInteger 100
+        r = ParsedDecimal 0.0001
+
+    mkPactTestTransactions "sender00" "0" ks "1" g r txs
 
 -- Make pact transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -166,7 +156,7 @@ mkPactTestTransactions
     -> Vector PactTransaction
     -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions sender cid keys nonce gas gasrate txs =
+mkPactTestTransactions sender cid ks nonce gas gasrate txs =
     traverse go txs
   where
     go (PactTransaction c d) = do
@@ -174,7 +164,7 @@ mkPactTestTransactions sender cid keys nonce gas gasrate txs =
           pm = PublicMeta cid sender gas gasrate
           msg = Exec (ExecMsg c dd)
 
-      cmd <- mkCommand keys pm nonce msg
+      cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
         ProcSucc t -> return $ fmap (k t) cmd
         ProcFail e -> throwM $ userError e

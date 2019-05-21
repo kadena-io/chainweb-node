@@ -21,7 +21,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception (Exception)
 
-import Data.Aeson (object, (.=))
+import Data.Aeson (Value, object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -44,7 +44,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -145,17 +144,13 @@ getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess _bHeight _bHash = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-
-    ks <- testKeyPairs
-
-    let d = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    d <- adminData
     let txs = V.fromList
           [ PactTransaction (T.pack moduleStr) d
           , PactTransaction "(create-table test1.accounts)" d
           , PactTransaction "(test1.create-global-accounts)" d
           , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
           ]
-
     goldenTestTransactions txs
 
 
@@ -164,12 +159,10 @@ testEmptyMemPool _bHeight _bHash = goldenTestTransactions V.empty
 
 testLocal :: IO ChainwebTransaction
 testLocal = do
-    ks <- testKeyPairs
-    fmap (head . V.toList) $ goldenTestTransactions $ V.fromList
-      [ PactTransaction "(test1.read-account \"Acct1\")" (d ks)
-      ]
-  where
-    d ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    d <- adminData
+    fmap (head . V.toList)
+      $ goldenTestTransactions
+      $ V.fromList [ PactTransaction "(test1.read-account \"Acct1\")" d ]
 {-
 cmdBlocks :: Vector (Vector String)
 cmdBlocks =  V.fromList
