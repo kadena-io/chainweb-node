@@ -129,16 +129,14 @@ initPactService
     -> MVar (CutDb cas)
     -> IO ()
 initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv =
-    initPactService' cid chainwebLogger spv $
+    initPactService' cid chainwebLogger (pactSPV cdbv) $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
-  where
-    spv = pactSPV cdbv
 
 initPactService'
     :: Logger logger
     => ChainId
     -> logger
-    -> P.SPVSupport
+    -> (P.Logger -> P.SPVSupport)
     -> PactServiceM a
     -> IO a
 initPactService' cid chainwebLogger spv act = do
@@ -157,7 +155,7 @@ initPactService' cid chainwebLogger spv act = do
         Right _ -> return ()
 
     let !pd = P.PublicData def def def
-    let !pse = PactServiceEnv Nothing checkpointEnv spv pd
+    let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
 

@@ -177,7 +177,7 @@ pactTestLogger showAll = initLoggers putStrLn f def
   where
     f _ b "ERROR" d = doLog error b "ERROR" d
     f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
-    f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
+    f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "INFO" d
     f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
 

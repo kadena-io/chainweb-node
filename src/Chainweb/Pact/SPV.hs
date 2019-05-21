@@ -15,9 +15,8 @@
 -- Pact Service SPV support
 --
 module Chainweb.Pact.SPV
-( -- * spv supports
-  noSPV
-, pactSPV
+( -- * spv support
+  pactSPV
   -- * spv api utilities
 , getTxIdx
 ) where
@@ -33,6 +32,8 @@ import Data.Aeson hiding (Object, (.=))
 import Data.Default (def)
 import Data.Text (Text, pack)
 
+import Crypto.Hash.Algorithms
+
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
@@ -46,6 +47,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -56,6 +58,7 @@ import Data.CAS
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Runtime hiding (ChainId)
 
@@ -63,47 +66,43 @@ import Pact.Types.Runtime hiding (ChainId)
 -- -------------------------------------------------------------------------- --
 -- Noop and std pact spv support
 
--- | No-op SPV support (used for testing and stubs)
---
-noSPV :: SPVSupport
-noSPV = noSPVSupport
-
 -- | Spv support for pact
 --
-pactSPV
-    :: HasCallStack
-    => MVar (CutDb cas)
-    -> SPVSupport
-pactSPV cdbv = SPVSupport $ \s o -> readMVar cdbv >>= go s o
+pactSPV :: MVar (CutDb cas) -> Logger -> SPVSupport
+pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
   where
     -- extract spv resources from pact object
     go s o cdb = case s of
       "TXOUT" -> txOutputProofOf o >>= \case
-          Left e -> spvMessage e
+          Left e -> spvError e
           Right t -> verifyTransactionOutputProof cdb t
             >>= extractOutputs
-      "TXIN" -> spvMessage "TXIN is currently unsupported"
-      x -> spvMessage
+      "TXIN" -> spvError "TXIN is currently unsupported"
+      x -> spvError
         $ "TXIN or TXOUT must be specified to generate valid spv proofs: "
         <> x
 
+    txOutputProofOf :: Object Name -> IO (Either Text (TransactionOutputProof SHA512t_256))
     txOutputProofOf o =
       case toPactValue $ TObject o def of
-        Left e -> spvMessage e
+        Left e -> spvError e
         Right t -> case fromJSON . toJSON $ t of
-          Error e -> spvMessage' e
+          Error e -> spvError' e
           Success u -> return $ Right u
 
+    extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
       case decodeStrict t of
         Nothing -> internalError $
           "unable to decode spv transaction output"
         Just (HashedLogTxOutput u _) ->
           case fromJSON u of
-            Error e -> spvMessage' e
+            Error e -> spvError' e
             Success (CommandSuccess (TObject o _)) -> return $ Right o
-            Success _ -> internalError $
-              "associated pact transaction outputs have wrong format"
+            Success o -> do
+              logLog l "ERROR" $ show o
+              internalError "associated pact transaction outputs have wrong format"
+
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
@@ -122,7 +121,7 @@ getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap (fmap _blockPayloadHash)
         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
-            Nothing -> spvMessage "unable to find payload associated with transaction hash"
+            Nothing -> spvError "unable to find payload associated with transaction hash"
             Just x -> return $ Right x
 
     case ph of
@@ -138,7 +137,7 @@ getTxIdx bdb pdb bh th = do
           & sindex (== th)
 
         case r of
-          Nothing -> spvMessage "unable to find transaction at the given block height"
+          Nothing -> spvError "unable to find transaction at the given block height"
           Just x -> return $ Right (int x)
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
@@ -158,8 +157,8 @@ getTxIdx bdb pdb bh th = do
 
 -- | Prepend "spvSupport" to any errors so we can differentiate messages
 --
-spvMessage :: Text -> IO (Either Text a)
-spvMessage = return . Left . (<>) "spvSupport: "
+spvError :: Text -> IO (Either Text a)
+spvError = return . Left . (<>) "spvSupport: "
 
-spvMessage' :: String -> IO (Either Text a)
-spvMessage' = spvMessage . pack
+spvError' :: String -> IO (Either Text a)
+spvError' = spvError . pack
