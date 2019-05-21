@@ -479,7 +479,7 @@ runChainweb cw = do
             clients = concat
                 [ miner
                 , cutNetworks mgr (_chainwebCutResources cw)
-                , map (runMempoolSyncClient mempoolMgr mempoolP2pConfig) chainVals
+                -- , map (runMempoolSyncClient mempoolMgr mempoolP2pConfig) chainVals
                 ]
 
         mapConcurrently_ id clients
