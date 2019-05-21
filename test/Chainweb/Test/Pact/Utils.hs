@@ -20,9 +20,8 @@ module Chainweb.Test.Pact.Utils
 , getByteString
 , mergeObjects
 , formatB16PubKey
+, goldenTestTransactions
 , mkPactTestTransactions
-, mkPactTestTransactions'
-, mkPactTransaction
 , pactTestLogger
 
 
@@ -141,72 +140,47 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap (Object o) = (:) o
     unwrap _ = id
 
-mkPactTestTransactions :: Vector String -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions cmdStrs = do
-    kps <- testKeyPairs
-    let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-    -- using 1 as the nonce here so the hashes match for the same commands (for testing only)
-    traverse (mkPactTransaction kps theData "1") cmdStrs
+-- | Shim for 'PactExec' and 'PactInProcApi' tests
+goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+goldenTestTransactions txs = do
+    ks <- testKeyPairs
+    mkPactTestTransactions "sender00" "0" ks "1" (ParsedInteger 100) (ParsedDecimal 0.0001) txs
 
--- A variation 'mkPactTestTransactions' that allows a user to specify the sender
--- and chain id metadata for a given transaction. The onus is on the caller to
--- enforce that they are indeed calling this on the correct chain.
+-- Make pact transactions specifying sender, chain id of the signer,
+-- signer keys, nonce, gas rate, gas limit, and the transactions
+-- (with data) to execute.
 --
-mkPactTestTransactions'
+mkPactTestTransactions
     :: Text
+    -- ^ sender
     -> ChainId
+    -- ^ chain id of execution
+    -> [SomeKeyPair]
+    -- ^ signer keys
+    -> Text
+    -- ^ nonce
+    -> ParsedInteger
+    -- ^ starting gas
+    -> ParsedDecimal
+    -- ^ gas rate
     -> Vector PactTransaction
+    -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions' sender cid txs =
-    testKeyPairs >>= forM txs . go
+mkPactTestTransactions sender cid keys nonce gas gasrate txs =
+    traverse go txs
   where
-    -- merge tx data and create pact command
-    go ks (PactTransaction c d) =
-      let d' = mergeObjects $ [keys0] <> toList d
-      in mkTx ks d' c
+    go (PactTransaction c d) = do
+      let dd = mergeObjects (toList d)
+          pm = PublicMeta cid sender gas gasrate
+          msg = Exec (ExecMsg c dd)
 
-    -- create public test admin keys from test keyset
-    keys0 =
-      let
-        ks = KeySet
-          [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-          (Name "keys-all" def)
-      in object ["sender01-keyset" .= ks]
-
-    mkTx ks d c = do
-      let pm = PublicMeta cid sender (ParsedInteger 100) (ParsedDecimal 0.0001)
-      cmd <- mkCommand ks pm "1" $ Exec (ExecMsg c d)
+      cmd <- mkCommand keys pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $
-          fmap (\bs -> PayloadWithText bs (_cmdPayload t)) cmd
-        ProcFail e -> throwM . userError $ e
+        ProcSucc t -> return $ fmap (k t) cmd
+        ProcFail e -> throwM $ userError e
 
+    k t bs = PayloadWithText bs (_cmdPayload t)
 
-mkPactTransaction
-  :: [SomeKeyPair]
-  -> Value
-  -> Text
-  -> String
-  -> IO ChainwebTransaction
-mkPactTransaction keyPairs theData nonce theCode = do
-    let pubMeta = PublicMeta "0" "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
-    cmdBS <- mkCommand keyPairs pubMeta nonce $
-        Exec (ExecMsg (pack theCode) theData)
-    case verifyCommand cmdBS of
-        ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
-        ProcFail err -> throwM . userError $ err
-
-
--- | testKeyPairs >>= _mkPactTransaction' Null "(+ 1 2")
-_mkPactTransaction'
-  :: Value
-  -> String
-  -> [SomeKeyPair]
-  -> IO ()
-_mkPactTransaction' theData theCode kps = do
-  nonce <- pack . show <$> getCurrentTime
-  t <- fmap (decodeUtf8 . payloadBytes) <$> mkPactTransaction kps theData nonce theCode
-  BS.putStrLn $ encodeToByteString $ SubmitBatch [t]
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def

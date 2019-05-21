@@ -24,6 +24,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.String.Conv (toS)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
+import Data.Text (Text, pack)
 
 import GHC.Generics (Generic)
 
@@ -37,7 +38,6 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -128,16 +128,24 @@ testReq6 = TestRequest
 execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
-    trans <- mkPactTestTransactions $ V.fromList cmdStrs
+    ks <- testKeyPairs
+    trans <- goldenTestTransactions
+      $ V.fromList
+      $ fmap (k ks) cmdStrs
+
     results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) outputs)
         (_transactionCoinbase results)
 
-getPactCode :: TestSource -> IO String
-getPactCode (Code str) = return str
-getPactCode (File filePath) = readFile' $ testPactFilesDir ++ filePath
+  where
+    d ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    k ks c = PactTransaction c (d ks)
+
+getPactCode :: TestSource -> IO Text
+getPactCode (Code str) = return (pack str)
+getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
 checkSuccessOnly :: FullLogTxOutput -> Assertion
 checkSuccessOnly resp =

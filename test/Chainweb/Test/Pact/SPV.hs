@@ -26,6 +26,7 @@ import Control.Exception (finally)
 import Control.Lens hiding ((.=))
 
 import Data.Aeson
+import Data.Default
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
@@ -41,7 +42,9 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
+import Pact.Parse
 import Pact.Types.ChainMeta as Pact
+import Pact.Types.Term
 
 -- internal chainweb modules
 
@@ -142,15 +145,29 @@ type TransactionGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: TransactionGenerator
-txGenerator1 cid _bhe _bha =
-    mkPactTestTransactions' "sender00" (Pact.ChainId $ chainIdToText cid) txs
+txGenerator1 cid _bhe _bha = do
+    ks <- testKeyPairs
+
+    let pcid = Pact.ChainId $ chainIdToText cid
+        g = ParsedInteger 100
+        gr = ParsedDecimal 0.0001
+
+    mkPactTestTransactions "sender00" pcid ks "1" g gr txs
   where
-    txs =
-      let c =
-            [text|
-              (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keyset) 1.0)
-              |]
-      in fromList [ PactTransaction c Nothing ]
+    txs = fromList [ PactTransaction tx1Code tx1Data ]
+
+    tx1Code =
+      [text|
+        (coin.delete-coin 'sender00 "0" 'sender01 (read-keyset 'sender01-keyset) 1.0)
+        |]
+
+    tx1Data =
+      -- sender01 keyset guard
+      let ks = KeySet
+            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
+            (Name "keys-all" def)
+
+      in Just $ object ["sender01-keyset" .= ks]
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
@@ -175,7 +192,14 @@ txGenerator2 cdbv cid bhe = do
                 cdb <- readMVar cdbv
                 q <- fmap toJSON
                     $ createTransactionOutputProof cdb tid cid bhe 0
-                mkPactTestTransactions' "sender00" (Pact.ChainId $ chainIdToText tid) (txs q)
+
+                let pcid = Pact.ChainId (chainIdToText tid)
+                    g = ParsedInteger 100
+                    gr = ParsedDecimal 0.0001
+
+                ks <- testKeyPairs
+
+                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
