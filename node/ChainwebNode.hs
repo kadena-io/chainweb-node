@@ -70,6 +70,7 @@ import System.LogLevel
 import Chainweb.BlockHeader (NewMinedBlock)
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
+import Chainweb.Mempool.Consensus (ReintroducedTxs)
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -266,6 +267,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
     queueStatsBackend <- managed
         $ mkTelemetryLogger @QueueStats mgr teleLogConfig
+    reintroBackend <- managed
+        $ mkTelemetryLogger @ReintroducedTxs mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -276,6 +279,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler newBlockBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
+            , logHandler reintroBackend
             ] baseBackend
 
     liftIO $ f
@@ -309,4 +313,3 @@ main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node conf
-

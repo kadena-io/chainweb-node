@@ -9,6 +9,7 @@
 module Chainweb.Mempool.Consensus
 ( chainwebTxsFromPWO
 , processFork
+, ReintroducedTxs (..)
 ) where
 
 ------------------------------------------------------------------------------
