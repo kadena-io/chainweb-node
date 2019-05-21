@@ -71,7 +71,7 @@ module Chainweb.Chainweb
 
 -- ** Mempool integration
 , ChainwebTransaction
-, chainwebTransactionConfig
+, Mempool.chainwebTransactionConfig
 
 , withChainweb
 , runChainweb
@@ -122,6 +122,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import qualified Chainweb.Pact.BloomCache as Bloom
@@ -296,7 +297,7 @@ withChainweb c logger rocksDb inner =
 
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
-    chainwebTransactionConfig
+    Mempool.chainwebTransactionConfig
     blockGasLimit
     mempoolReapInterval
   where
@@ -325,7 +326,8 @@ withChainwebInternal conf logger peer rocksDb inner = do
 
     -- Initialize chain resources
     go cs (cid : t) cdbv =
-        withChainResources v cid rocksDb peer (chainLogger cid) mempoolConfig cdbv payloadDb $ \c ->
+        withChainResources v cid rocksDb peer (chainLogger cid)
+        mempoolConfig cdbv (Just payloadDb) $ \c ->
             go (HM.insert cid c cs) t cdbv
 
     -- Initialize global resources

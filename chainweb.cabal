@@ -112,6 +112,7 @@ library
         , Chainweb.Graph
         , Chainweb.HostAddress
         , Chainweb.Logger
+        , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.RestAPI
@@ -123,6 +124,7 @@ library
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
+        , Chainweb.Orphans
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.RocksDB
@@ -213,6 +215,7 @@ library
         -- utils
         , Utils.Logging
         , Utils.Logging.Config
+
     build-depends:
           Decimal >= 0.4.2
         , QuickCheck >= 2.10
@@ -343,6 +346,7 @@ test-suite chainweb-tests
         Chainweb.Test.CutDB
         Chainweb.Test.DiGraph
         Chainweb.Test.Mempool
+        Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
@@ -389,6 +393,7 @@ test-suite chainweb-tests
         , extra >= 1.6
         , fgl >= 5.6
         , hashable >= 1.2
+        , hashtables >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16

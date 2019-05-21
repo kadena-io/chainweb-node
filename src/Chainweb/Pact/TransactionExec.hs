@@ -71,6 +71,7 @@ import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
 
 -- internal Chainweb modules
 
+import Chainweb.Orphans ()
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
@@ -383,6 +384,7 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv prevLogs
   where
+    redeemGasCmd :: Int64 -> Decimal -> PactId -> ContMsg
     redeemGasCmd fee total pid = ContMsg pid 1 False $ object
       [ "fee" .= feeOf total fee
       ]

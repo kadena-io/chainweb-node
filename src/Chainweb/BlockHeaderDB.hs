@@ -408,4 +408,3 @@ insertBlockHeaderDb db es = do
     mapM_ (dbAddChecked db) rankedAdditions
   where
     rankedAdditions = L.sortOn rank es
-

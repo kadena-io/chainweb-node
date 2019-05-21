@@ -30,6 +30,7 @@ module Chainweb.Test.Utils
 , toyBlockHeaderDb
 , toyChainId
 , toyGenesis
+, toyVersion
 , genesisBlockHeaderForChain
 , withToyDB
 , insertN

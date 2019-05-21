@@ -1,6 +1,5 @@
 -- | Tests and test infrastructure common to all mempool backends.
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -46,7 +45,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
 
+import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+import Chainweb.Test.Utils (toyChainId, toyGenesis)
 import qualified Chainweb.Time as Time
 import qualified Numeric.AffineSpace as AF
 
@@ -245,12 +246,18 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
     hash = txHasher $ mempoolTxConfig mempool
     insert = liftIO . mempoolInsert mempool . V.fromList
     lookup = liftIO . mempoolLookup mempool . V.fromList . map hash
+
     markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
-    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
+
+    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList
     markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
 
-    -- TODO: empty forks here
-    validate = ValidatedTransaction V.empty
+    -- BlockHash and BlockHeight don't matter for this test...
+    validate = ValidatedTransaction (_blockHeight someBlockHeader) (_blockHash someBlockHeader)
+
+
+someBlockHeader :: BlockHeader
+someBlockHeader = head $ testBlockHeaders (toyGenesis toyChainId)
 
 lookupIsPending :: Monad m => LookupResult t -> m ()
 lookupIsPending (Pending _) = return ()
@@ -354,4 +361,3 @@ propSubscriptions txs0 mempool = runExceptT $ do
     runSubscribers mvs subscriptions =
         Concurrently $ Async.forConcurrently (subscriptions `zip` mvs)
                      $ \(s,mv) -> mockSubscriber (length txChunks) s mv
-

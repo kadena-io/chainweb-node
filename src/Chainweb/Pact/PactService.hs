@@ -76,6 +76,7 @@ import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHea
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
+import Chainweb.Orphans ()
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
@@ -279,7 +280,7 @@ execNewBlock memPoolAccess header miner = do
     let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
-    newTrans <- liftIO $! memPoolAccess bHeight bHash
+    newTrans <- liftIO $! memPoolAccess bHeight bHash header
 
     restoreCheckpointer $ Just (bHeight, bHash)
 

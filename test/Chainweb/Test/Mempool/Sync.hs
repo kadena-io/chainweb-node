@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 module Chainweb.Test.Mempool.Sync (tests) where
 
 ------------------------------------------------------------------------------
@@ -21,16 +22,27 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
+import Chainweb.Test.Utils (toyChainId, toyVersion)
 import Chainweb.Utils (Codec(..))
+import Data.CAS.RocksDB
 
 tests :: TestTree
-tests = mempoolProperty "Mempool.syncMempools" gen propSync withFunc
+tests = mempoolProperty "Mempool.syncMempools" gen
+        propSync
+        $ MempoolWithFunc
+        $ withTestInMemoryMempool
+            testInMemCfg
+            (withTempRocksDb "mempool-sync-tests")
+            (withBlockHeaderDb' toyVersion toyChainId)
   where
-    withFunc = MempoolWithFunc (withInMemoryMempool testInMemCfg)
+    withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
+    gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
       let xss = Set.fromList xs
@@ -50,9 +62,15 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 
-propSync :: (Set MockTx, Set MockTx, Set MockTx) -> MempoolBackend MockTx -> IO (Either String ())
+propSync
+    :: (Set MockTx, Set MockTx , Set MockTx)
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
 propSync (txs, missing, later) localMempool =
-    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
+  withTempRocksDb "mempool-sync-tests" $ \rdb ->
+  withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
+    let noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
+    withInMemoryMempool testInMemCfg blockHeaderDb noPayloadDb $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV
@@ -93,8 +111,7 @@ propSync (txs, missing, later) localMempool =
 
         maybe (fail "timeout") return m
 
-        -- we synced the right number of transactions. verify they're all
-        -- there.
+        -- we synced the right number of transactions. verify they're all there.
         runExceptT $ do
             liftIO (mempoolLookup localMempool missingHashes) >>=
                 V.mapM_ lookupIsPending
