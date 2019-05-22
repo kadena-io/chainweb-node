@@ -61,6 +61,7 @@ common debugging-flags
 common warning-flags
     ghc-options:
         -Wall
+        -Werror
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
 
