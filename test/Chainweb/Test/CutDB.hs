@@ -176,7 +176,7 @@ awaitCut cdb k = atomically $ do
   STM.check $ k c
   pure c
 
--- | Extend the cut db until either a cut that meeting some condition is
+-- | Extend the cut db until either a cut that meets some condition is
 -- encountered or the given number of cuts is mined. In the former case just the
 -- cut that fullfills the condition is returned. In the latter case 'Nothing' is
 -- returned.
