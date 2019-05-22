@@ -181,7 +181,7 @@ awaitCut cdb k = atomically $ do
 -- cut that fullfills the condition is returned. In the latter case 'Nothing' is
 -- returned.
 --
--- Note that the await cut may skip over some cuts when checking the predicate.
+-- Note that the this function may skip over some cuts when waiting for a cut that satisfies the predicate.
 -- So, for instance, instead of checking for a particular cut height, one should
 -- check for a cut height that is larger or equal than the expected height.
 --
