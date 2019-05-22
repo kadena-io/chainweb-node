@@ -69,9 +69,10 @@ initRelationalCheckpointerNew db loggr gasEnv = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 innerRestore :: Db -> BlockHeight -> BlockHash -> Maybe ExecutionMode -> IO (Either String (BlockEnv SQLiteEnv))
-innerRestore dbenv bh hsh _mmode = runBlockEnv dbenv $ do
+innerRestore dbenv bh hsh mmode = runBlockEnv dbenv $ do
   e <- tryAny $ do
     withPreBlockSavepoint $ do
+      bsMode .= mmode
       v <- detectVersionChange bh hsh
       versionUpdate v
     beginSavepoint "BLOCK"
@@ -92,9 +93,10 @@ innerRestoreInitial dbenv _mmode = runBlockEnv dbenv $ do
               [RInt])
     single <- liftIO $ expectSingle "row" r
     case single of
-      [SInt 1] -> Right <$> do
+      [SInt 0] -> Right <$> do
         senv <- ask
         bs <- get
+        beginSavepoint "BLOCK"
         return $ BlockEnv senv bs
       _ -> return $ Left $ "restoreInitial: The genesis state cannot be recovered!"
 

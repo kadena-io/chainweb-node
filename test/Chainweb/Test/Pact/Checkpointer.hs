@@ -15,6 +15,7 @@ import Control.Concurrent.MVar
 import Data.Aeson (Value(..), object, (.=))
 import Data.Default (def)
 import Data.Text (Text)
+import qualified Data.Set as Set
 
 import NeatInterpolation (text)
 
@@ -321,7 +322,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 testKeyset :: Assertion
 testKeyset =
   void $ withTempSQLiteConnection []  $ \sqlenv -> do
-    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0)
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) Set.empty (newLogger loggers "BlockEnvironment")
         loggers = pactTestLogger False
     msql <- newMVar (BlockEnv sqlenv initBlockState)
     runBlockEnv msql initSchema
@@ -348,7 +349,7 @@ keytestTest :: CheckpointEnvNew SQLiteEnv -> Assertion
 keytestTest CheckpointEnvNew {..} = do
 
   let hash00 = nullBlockHash
-  blockenv00 <- restoreInitialNew _cpeCheckpointerNew Nothing >>= assertEitherSuccess "initial restore failed"
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "initial restore failed"
 
   withBlockEnv blockenv00 $ \benv -> do
     addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) benv
@@ -362,7 +363,7 @@ keytestTest CheckpointEnvNew {..} = do
 
   let bh01 = BlockHeight 1
   hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
-  blockenv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 Nothing >>= assertEitherSuccess "restore failed"
+  blockenv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 (Just Transactional) >>= assertEitherSuccess "restore failed"
   withBlockEnv blockenv01 $ \benv -> do
     addKeyset "k2" (KeySet [] (Name ">=" (Info Nothing))) benv
     runBlockEnv benv $ do
@@ -398,9 +399,6 @@ keytestTest CheckpointEnvNew {..} = do
         (\vtables -> assertEqual "versioned tables table " vtables vtt)
 
   where
-    bt00 =
-      [[SInt 0,SBlob "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL"]]
-    vht00 = [[SInt 0,SInt 0]]
     vtt = [[SText "SYSKeySets"],[SText "SYSModules"],[SText "SYSNamespaces"],[SText "SYSPacts"]]
     ks1 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
     ks2 = [[SText "k1",SInt 0,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"],[SText "k2",SInt 1,SInt 0,SInt 0,SBlob "{\"pred\":\">=\",\"keys\":[]}"]]
@@ -414,8 +412,8 @@ addKeyset = _writeRow chainwebpactdb Insert KeySets
 
 testRelational :: Assertion
 testRelational =
-  void $ withTempSQLiteConnection []  $ \sqlenv -> do
-    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0)
+  withTempSQLiteConnection []  $ \sqlenv -> do
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) Set.empty (newLogger loggers "BlockEnvironment")
         loggers = pactTestLogger False
     msql <- newMVar (BlockEnv sqlenv initBlockState)
     runBlockEnv msql initSchema
@@ -434,8 +432,8 @@ relationalTest CheckpointEnvNew {..} = do
         execMsg <- buildExecParsedCode eData eCode
         applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
 
-      runCont :: PactDb (BlockEnv SQLiteEnv) -> MVar (BlockEnv SQLiteEnv) -> PactId -> Int -> IO EvalResult
-      runCont pactdb blockenv pactId step = do
+      _runCont :: PactDb (BlockEnv SQLiteEnv) -> MVar (BlockEnv SQLiteEnv) -> PactId -> Int -> IO EvalResult
+      _runCont pactdb blockenv pactId step = do
         let contMsg = ContMsg pactId step False Null
             cmdenv = CommandEnv Nothing Transactional (PactDbEnv pactdb blockenv) _cpeLoggerNew _cpeGasEnvNew def
         applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
@@ -447,13 +445,48 @@ relationalTest CheckpointEnvNew {..} = do
   let bh00 = BlockHeight 0
       hash00 = nullBlockHash
 
-  blockenv00 <- restoreInitialNew _cpeCheckpointerNew Nothing >>= assertEitherSuccess "restoreInitial (new block)"
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "restoreInitial (new block)"
 
   withBlockEnv blockenv00 $ \benv -> do
     void $ runExec chainwebpactdb benv (Just $ ksData "1") $ defModule "1"
-    runExec chainwebpactdb benv Nothing "(m1.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    liftIO $ discardNew _cpeCheckpointerNew >>= assertEitherSuccess "discard (initial) (new block)"
+    runExec chainwebpactdb benv Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    discardNew _cpeCheckpointerNew >>= assertEitherSuccess "discard (initial) (new block)"
 
-  undefined
-  -- void $ runExec blockenv00
+  -----------------------------------------------------------
+  -- s02 : validate block workflow (restore -> save), genesis
+  -----------------------------------------------------------
+  blockenv01 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "restoreInitial (validate)"
+
+  withBlockEnv blockenv01 $ \benv -> do
+
+    void $ runExec chainwebpactdb benv (Just $ ksData "1") $ defModule "1"
+
+    runExec chainwebpactdb benv Nothing "(m1.readTbl)"
+      >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
+    txid <- readBlockEnv (_bsTxId . _benvBlockState)  benv
+    liftIO $ saveNew _cpeCheckpointerNew bh00 hash00 txid >>= assertEitherSuccess "save (validate)"
+
+    ------------------------------------------------------------------
+  -- s03 : new block 01
+  ------------------------------------------------------------------
+
+  blockenv10 <- restoreNew _cpeCheckpointerNew bh00 hash00 (Just Transactional) >>= assertEitherSuccess "restore for new block 01"
+
+  withBlockEnv blockenv10 $ \benv -> do
+
+    void $ runExec chainwebpactdb benv Nothing "(m1.insertTbl 'b 2)"
+
+    runExec chainwebpactdb benv Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+
+    -- start a pact
+    -- test is that exec comes back with proper step
+    let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
+        pactCheckStep = preview (_Just . peStep) . _erExec
+
+    runExec chainwebpactdb benv Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
+
+
+  discardNew _cpeCheckpointerNew >>= assertEitherSuccess "discard for block 01"
+
+  putStrLn "You, I mean you, managed to get a passing test... we weren't sure."

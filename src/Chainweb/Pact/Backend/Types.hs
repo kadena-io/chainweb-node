@@ -47,6 +47,7 @@ module Chainweb.Pact.Backend.Types
     , bvBlock
     , BlockState(..)
     , bsBlockVersion
+    , bsTxRecord
     , bsMode
     , bsTxId
     , BlockEnv(..)
@@ -55,7 +56,7 @@ module Chainweb.Pact.Backend.Types
     , SQLiteEnv(..)
     , sConn
     , sConfig
-    , VersionHandler(..)
+    , BlockHandler(..)
     ) where
 
 import Control.Exception.Safe hiding (bracket)
@@ -65,6 +66,8 @@ import Control.Lens
 
 import qualified Data.Aeson as A
 import Data.Int
+import Data.Set (Set)
+import Data.Text (Text)
 
 import Database.SQLite3.Direct as SQ3
 
@@ -73,7 +76,6 @@ import GHC.Generics
 import qualified Pact.Interpreter as P
 import qualified Pact.Persist.SQLite as P
 import qualified Pact.PersistPactDb as P
-import Pact.Persist.SQLite
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Persistence as P
 import qualified Pact.Types.Runtime as P
@@ -114,7 +116,7 @@ makeLenses ''PactDbConfig
 
 data SQLiteEnv = SQLiteEnv
   { _sConn :: Database
-  , _sConfig :: !SQLiteConfig
+  , _sConfig :: !P.SQLiteConfig
   }
 
 makeLenses ''SQLiteEnv
@@ -122,7 +124,7 @@ makeLenses ''SQLiteEnv
 newtype ReorgVersion = ReorgVersion
   { _getReorgVersion :: Int64
   }
-  deriving newtype Num
+  deriving newtype (Num, Integral, Enum, Real, Ord, Eq)
   deriving stock Show
 
 data BlockVersion = BlockVersion
@@ -137,6 +139,8 @@ data BlockState = BlockState
   { _bsTxId :: !P.TxId
   , _bsMode :: Maybe P.ExecutionMode
   , _bsBlockVersion :: !BlockVersion
+  , _bsTxRecord :: Set (P.TableName, Text)
+  , _logger :: P.Logger
   }
 
 makeLenses ''BlockState
@@ -148,8 +152,8 @@ data BlockEnv p = BlockEnv
 
 makeLenses ''BlockEnv
 
-newtype VersionHandler p a = VersionHandler
-  { runVersionHandler :: ReaderT p (StateT BlockState IO) a
+newtype BlockHandler p a = BlockHandler
+  { runBlockHandler :: ReaderT p (StateT BlockState IO) a
   } deriving ( Functor
              , Applicative
              , Monad
@@ -159,6 +163,9 @@ newtype VersionHandler p a = VersionHandler
              , MonadIO
              , MonadReader p
              )
+
+instance P.Logging (BlockHandler p) where
+  log c s = use logger >>= \l -> liftIO $ P.logLog l c s
 
 data CheckpointerNew p = CheckpointerNew
     { restoreNew :: BlockHeight -> BlockHash -> Maybe P.ExecutionMode -> IO (Either String (BlockEnv p))
