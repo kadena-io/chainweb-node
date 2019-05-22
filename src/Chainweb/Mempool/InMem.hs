@@ -423,10 +423,10 @@ inMemPayloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
-            pwo <- casLookupM s (_blockPayloadHash bh)
+            pwo <- casLookupM' s (_blockPayloadHash bh)
             MPCon.chainwebTxsFromPWO pwo
   where
-    casLookupM s h = do
+    casLookupM' s h = do
         x <- casLookup s h
         case x of
             Nothing -> throwIO $ PayloadNotFoundException h

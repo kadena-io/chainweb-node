@@ -154,6 +154,8 @@ testMemPoolAccess _bHeight _bHash _bHeader = do
     goldenTestTransactions txs
 
 
+testEmptyMemPool
+  :: p1 -> p2 -> p3 -> IO (V.Vector ChainwebTransaction)
 testEmptyMemPool _bHeight _bHash _bHeader = goldenTestTransactions V.empty
 
 testLocal :: IO ChainwebTransaction
