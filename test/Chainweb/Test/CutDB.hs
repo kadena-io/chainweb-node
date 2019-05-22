@@ -183,7 +183,7 @@ awaitCut cdb k = atomically $ do
 --
 -- Note that the await cut may skip over some cuts when checking the predicate.
 -- So, for instance, instead of checking for a particular cut height, one should
--- check for a cut height that is large or equal than the expected height.
+-- check for a cut height that is larger or equal than the expected height.
 --
 extendAwait
     :: PayloadCas cas
