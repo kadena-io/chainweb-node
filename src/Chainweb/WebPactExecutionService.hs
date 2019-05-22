@@ -2,6 +2,8 @@
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
+  , _webPactNewBlock
+  , _webPactValidateBlock
   , PactExecutionService(..)
   , mkWebPactExecutionService
   , mkPactExecutionService
@@ -39,6 +41,14 @@ data PactExecutionService = PactExecutionService
 newtype WebPactExecutionService = WebPactExecutionService
   { _webPactExecutionService :: PactExecutionService
   }
+
+_webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
+_webPactNewBlock = _pactNewBlock . _webPactExecutionService
+{-# INLINE _webPactNewBlock #-}
+
+_webPactValidateBlock :: WebPactExecutionService -> BlockHeader -> PayloadData -> IO PayloadWithOutputs
+_webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
+{-# INLINE _webPactValidateBlock #-}
 
 mkWebPactExecutionService :: HM.HashMap ChainId PactExecutionService -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService

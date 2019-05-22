@@ -23,6 +23,7 @@ module Chainweb.Pact.TransactionExec
 , applyExec'
 , applyContinuation
 , applyContinuation'
+, runPayload
   -- * coin contract api
 , buyGas
 , coinbase
@@ -31,6 +32,11 @@ module Chainweb.Pact.TransactionExec
 , mkCoinbaseCmd
   -- * code parsing utils
 , buildExecParsedCode
+  -- * utilities
+, jsonErrorResult
+, logDebugRequestKey
+, logErrorRequestKey
+, publicMetaOf
 ) where
 
 import Control.Exception.Safe (SomeException(..), tryAny)

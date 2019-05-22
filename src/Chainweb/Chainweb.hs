@@ -318,20 +318,20 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logger peer rocksDb inner = do
     initializePayloadDb v payloadDb
-    cutMV <- newEmptyMVar
-    go mempty (toList cids) cutMV
+    cdbv <- newEmptyMVar
+    go mempty (toList cids) cdbv
   where
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go cs (cid : t) mv =
+    go cs (cid : t) cdbv =
         withChainResources v cid rocksDb peer (chainLogger cid)
-        mempoolConfig mv (Just payloadDb) $ \c ->
-            go (HM.insert cid c cs) t mv
+        mempoolConfig cdbv (Just payloadDb) $ \c ->
+            go (HM.insert cid c cs) t cdbv
 
     -- Initialize global resources
-    go cs [] mv = do
+    go cs [] cdbv = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -357,7 +357,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
                 }
 
             -- update the cutdb mvar used by pact service with cutdb
-            void $! putMVar mv mCutDb
+            void $! putMVar cdbv mCutDb
 
             withPactData cs cuts $ \pactData ->
                 withMinerResources mLogger mConf cwnid mCutDb $ \m ->

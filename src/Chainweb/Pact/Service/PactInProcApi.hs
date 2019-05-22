@@ -7,7 +7,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -50,8 +49,8 @@ withPactService
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger memPool mv action
-    = withPactService' ver cid logger (pactMemPoolAccess memPool logger) mv action
+withPactService ver cid logger memPool cdbv action
+    = withPactService' ver cid logger (pactMemPoolAccess memPool logger) cdbv action
 
 -- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
 --   with test transactions
@@ -64,9 +63,9 @@ withPactService'
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess mv action = do
+withPactService' ver cid logger memPoolAccess cdbv action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess mv)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv)
     link a
     r <- action reqQ
     closeQueue reqQ

@@ -119,10 +119,10 @@ withChainResources
     -> Maybe (PayloadDb cas)
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg mv payloadDb inner =
+withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-    Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
-    withPactService v cid (setComponent "pact" logger) mempool mv $ \requestQ -> do
+      Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
+        withPactService v cid (setComponent "pact" logger) mempool cdbv $ \requestQ -> do
 
             -- replay pact
             let pact = pes mempool requestQ

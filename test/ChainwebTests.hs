@@ -35,6 +35,7 @@ import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.RemotePactTest
+import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -90,6 +91,7 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests rdb
+        , Chainweb.Test.Pact.SPV.tests
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests

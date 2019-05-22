@@ -42,6 +42,7 @@ module Chainweb.CutDB
 , CutDb
 , cutDbWebBlockHeaderDb
 , cutDbWebBlockHeaderStore
+, cutDbBlockHeaderDb
 , cutDbPayloadCas
 , cutDbPayloadStore
 , cutDbStore
@@ -225,6 +226,11 @@ cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
 cutDbWebBlockHeaderStore :: Getter (CutDb cas) WebBlockHeaderStore
 cutDbWebBlockHeaderStore = to _cutDbHeaderStore
 {-# INLINE cutDbWebBlockHeaderStore #-}
+
+-- | Access the blockerheaderdb via the cutdb for a given chain id
+--
+cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold (CutDb cas) BlockHeaderDb
+cutDbBlockHeaderDb cid = cutDbWebBlockHeaderDb . ixg (_chainId cid)
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --

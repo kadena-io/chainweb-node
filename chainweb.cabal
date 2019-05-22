@@ -200,13 +200,14 @@ library
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
+        , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.Orphans
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.RestAPI
-        , Chainweb.Pact.RestAPI.Orphans
-        , Chainweb.Pact.RestAPI.Server
+        , Chainweb.Pact.SPV
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
@@ -237,7 +238,7 @@ library
         , configuration-tools >= 0.4.1
         , connection >=0.2
         , containers >= 0.5
-        , cryptonite >=0.25
+        , cryptonite >= 0.25
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4

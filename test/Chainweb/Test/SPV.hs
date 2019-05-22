@@ -107,7 +107,7 @@ targetChain c srcBlock = do
 spvTransactionRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTransactionRoundtripTest rdb v step = do
     step "setup cut db"
-    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
         step "pick random transaction"
         (h, txIx, tx, _) <- randomTransaction cutDb
 
@@ -142,7 +142,7 @@ spvTransactionRoundtripTest rdb v step = do
 spvTransactionOutputRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTransactionOutputRoundtripTest rdb v step = do
     step "setup cut db"
-    withTestCutDb rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
 
         step "pick random transaction output"
         (h, outIx, _, out) <- randomTransaction cutDb

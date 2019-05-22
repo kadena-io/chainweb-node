@@ -6,6 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -26,7 +27,13 @@ module Chainweb.Pact.PactService
     , createCoinContract
     , toHashedLogTxOutput
     , initialPayloadState
-    , pactSpvSupport
+    , transactionsFromPayload
+    , restoreCheckpointer
+    , finalizeCheckpointer
+    , toPayloadWithOutputs
+    , toTransactionBytes
+    , runCoinbase
+    , discardCheckpointer
     ) where
 
 import Control.Concurrent
@@ -37,8 +44,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
-import Crypto.Hash.Algorithms
 
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
@@ -67,8 +72,7 @@ import qualified Pact.Types.Runtime as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -77,12 +81,11 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 import Chainweb.Payload
-import Chainweb.SPV
-import Chainweb.SPV.VerifyProof
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -126,17 +129,15 @@ initPactService
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess _cutMV =
-    initPactService' cid chainwebLogger spv $
+initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv =
+    initPactService' cid chainwebLogger (pactSPV cdbv) $
       initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
-  where
-    spv = P.noSPVSupport -- pactSpvSupport cutMV
 
 initPactService'
     :: Logger logger
     => ChainId
     -> logger
-    -> P.SPVSupport
+    -> (P.Logger -> P.SPVSupport)
     -> PactServiceM a
     -> IO a
 initPactService' cid chainwebLogger spv act = do
@@ -155,47 +156,10 @@ initPactService' cid chainwebLogger spv act = do
         Right _ -> return ()
 
     let !pd = P.PublicData def def def
-    let !pse = PactServiceEnv Nothing checkpointEnv spv pd
+    let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
 
-
-pactSpvSupport
-    :: MVar (CutDb cas) -> P.SPVSupport
-pactSpvSupport mv = P.SPVSupport $ \s o -> do
-    cdb <- readMVar mv
-    case s of
-      "TXOUT" -> do
-        t <- outputProofOf o
-        (TransactionOutput u) <- verifyTransactionOutputProof cdb t
-        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right $! P._tObject . P._csData $ v
-      "TXIN" -> do
-        t <- inputProofOf o
-        (Transaction u) <- verifyTransactionProof cdb t
-        v <- psDecode' @(P.CommandSuccess (P.Term P.Name)) u
-        pure $! Right . P._tObject . P._csData $ v
-      _ -> pure $! Left "spvSupport: Unsupported SPV mode"
-  where
-    -- serialize pact object and produce an
-    -- spv proof (either in or outgoing)
-    outputProofOf o = psDecode @(TransactionOutputProof SHA512t_256)
-      . A.toJSON
-      $ P.TObject o def
-
-    inputProofOf o = psDecode @(TransactionProof SHA512t_256)
-      . A.toJSON
-      $ P.TObject o def
-
-    psDecode :: (A.FromJSON a) => A.Value -> IO a
-    psDecode a = case A.fromJSON a of
-      A.Error s -> internalError' s
-      A.Success x -> pure x
-
-    psDecode' :: (A.FromJSON a) => ByteString -> IO a
-    psDecode' b = case A.decode (b ^. lazy) of
-      Nothing -> internalError' "spvSupport: Unable to decode tx output"
-      Just x -> pure x
 
 initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
 initialPayloadState Test{} _ = pure ()

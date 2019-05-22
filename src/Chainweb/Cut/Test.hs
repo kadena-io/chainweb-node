@@ -129,9 +129,9 @@ testMineWithPayload
     :: forall cas cid
     . HasChainId cid
     => PayloadCas cas
-    => Given WebBlockHeaderDb
-    => Given (PayloadDb cas)
-    => Nonce
+    => WebBlockHeaderDb
+    -> PayloadDb cas
+    -> Nonce
     -> HashTarget
     -> Time Int64
     -> PayloadWithOutputs
@@ -140,11 +140,11 @@ testMineWithPayload
     -> Cut
     -> PactExecutionService
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayload n target t payload nid i c pact =
+testMineWithPayload wbdb payloadDb n target t payload nid i c pact =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> do
         validatePayload h payload
-        addNewPayload (given @(PayloadDb cas)) payload
-        insertWebBlockHeaderDb h
+        addNewPayload payloadDb payload
+        give wbdb (insertWebBlockHeaderDb h)
         return p
   where
     payloadHash = _payloadWithOutputsPayloadHash payload
