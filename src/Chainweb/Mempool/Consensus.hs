@@ -53,7 +53,11 @@ processFork
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
-processFork _ _ _ Nothing _ = return V.empty
+processFork logFun _ _ Nothing _ = do
+    let logg = logFun :: LogLevel -> T.Text -> IO ()
+    logg Info $! "processFork called WITH NOTHING"
+    -- putStrLn "processFork called WITH NOTHING"
+    return V.empty
 processFork logFun db newHeader (Just lastHeader) payloadLookup = do
     logg Info $! "processFork called "
     -- putStrLn "processFork called"
