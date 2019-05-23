@@ -74,9 +74,10 @@ import Chainweb.Orphans ()
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
-import Chainweb.Utils (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Data.LogMessage (LogFunction, LogFunctionText)
+import Chainweb.Utils
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Chainweb.Utils (encodeToText, runForever)
+import Data.LogMessage (LogFunction, LogFunctionText)
 
 
 ------------------------------------------------------------------------------
@@ -290,14 +291,10 @@ syncMempools' log0 us localMempool remoteMempool onInitialSyncComplete =
         let !newTxs = V.map fromPending $ V.filter isPending res
         mempoolInsert localMempool newTxs
 
-    log :: Text -> IO ()
-    log = log0 Info             -- TODO: some of these messages should be
-                                -- "debug" but we're ok with overlogging for
-                                -- now.
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = flip finally (log "sync finished") $ do
+    sync = flip finally (deb "sync finished") $ do
         deb "Get pending hashes from remote"
         missing <- newIORef $! SyncState 0 [] HashSet.empty False
         mempoolGetPendingTransactions remoteMempool $ syncChunk missing
@@ -329,7 +326,7 @@ syncMempools' log0 us localMempool remoteMempool onInitialSyncComplete =
         -- indefinitely waiting for the p2p session to kill us (and slurping
         -- from the remote subscription queue).
         onInitialSyncComplete
-        log "sync complete, sleeping"
+        deb "sync complete, sleeping"
 
     push presentHashes = do
         ref <- newIORef 0
