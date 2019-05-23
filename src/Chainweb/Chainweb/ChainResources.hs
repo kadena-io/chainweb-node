@@ -188,10 +188,10 @@ runMempoolSyncClient mgr chain = bracket create destroy go
             mempoolSyncP2pSession chain
     go n = do
         -- Run P2P client node
-        logg Info "mempool sync p2p node initialized, starting session"
+        logg Debug "mempool sync p2p node initialized, starting session"
         p2pStartNode p2pConfig n
 
-    destroy n = p2pStopNode n `finally` logg Info "mempool sync p2p node stopped"
+    destroy n = p2pStopNode n `finally` logg Debug "mempool sync p2p node stopped"
 
     v = _chainwebVersion chain
     peer = _peerResPeer $ _chainResPeer chain
@@ -208,7 +208,7 @@ mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
     syncIntervalUs = 10000000
     go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
              logg Debug "mempool sync session starting"
-             peerMp <-  peerMempool
+             peerMp <- peerMempool
              Mempool.syncMempools' logg syncIntervalUs pool peerMp (writeIORef ref True)
              logg Debug "mempool sync session finished"
              readIORef ref
