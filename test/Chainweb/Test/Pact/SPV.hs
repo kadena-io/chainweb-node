@@ -68,8 +68,8 @@ import Data.LogMessage
 
 
 tests :: TestTree
-tests = testGroup "Chainweb-Pact SPV integration"
-    [ testCase "standard SPV verification round trip" standard
+tests = testGroup "Chainweb.Test.Pact.SPV"
+    [ testCase "SPV round trip" standard
     , testCase "double spends fail" doublespend
     , testCase "wrong chain execution fails" wrongchain
     , testCase "invalid proof formats fail" badproof
@@ -131,15 +131,15 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO Bool
-roundtrip _sid _tid burn create = do
+roundtrip isid itid burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
-            sid <- mkChainId v _sid
-            tid <- mkChainId v _tid
+            sid <- mkChainId v isid
+            tid <- mkChainId v itid
 
             -- pact service, that is used to extend the cut data base
             pact1 <- testWebPactExecutionService v (Just cdb) $ burn tid
@@ -150,7 +150,7 @@ roundtrip _sid _tid burn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (3 * (diam + 1) * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -173,7 +173,7 @@ roundtrip _sid _tid burn create = do
             -- `diameter(graph)` apart.
 
             c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
-                height tid c > diam + height tid c0
+                height tid c > (2 * diam) + height tid c0
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)
@@ -181,7 +181,7 @@ roundtrip _sid _tid burn create = do
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ extendAwait cutDb pact2 (diam * gorder)
+            void $ extendAwait cutDb pact2 (3 * (diam + 1) * gorder)
                 $ ((<) `on` height tid) c2
 
             return True

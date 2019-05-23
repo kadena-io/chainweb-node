@@ -37,6 +37,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHash 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
@@ -155,7 +156,10 @@ testMemPoolAccess _bHeight _bHash _bHeader = do
 
 
 testEmptyMemPool
-  :: p1 -> p2 -> p3 -> IO (V.Vector ChainwebTransaction)
+    :: BlockHeight
+    -> BlockHash
+    -> BlockHeader
+    -> IO (V.Vector ChainwebTransaction)
 testEmptyMemPool _bHeight _bHash _bHeader = goldenTestTransactions V.empty
 
 testLocal :: IO ChainwebTransaction
