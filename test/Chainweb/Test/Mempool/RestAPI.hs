@@ -5,6 +5,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 
+import Data.IORef
 import qualified Data.Pool as Pool
 
 import qualified Network.HTTP.Client as HTTP
@@ -15,8 +16,9 @@ import Test.Tasty
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId)
 import Chainweb.Graph
-import Chainweb.Mempool.InMem (InMemConfig(..))
+import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
+import qualified Chainweb.Mempool.InMemTypes as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MClient
 import Chainweb.Payload.PayloadStore
@@ -64,7 +66,7 @@ newTestServer inMemCfg = mask_ $ do
     tid <- forkIOWithUnmask $ server inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let lastPar = Nothing
+    lastPar <- newIORef Nothing
     let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit lastPar env
     return $! TestServer remoteMp inmem tid
 

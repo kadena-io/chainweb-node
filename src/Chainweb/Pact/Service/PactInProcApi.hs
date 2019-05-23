@@ -84,7 +84,8 @@ pactMemPoolAccess :: Logger logger => MempoolBackend ChainwebTransaction -> logg
 pactMemPoolAccess mempool theLogger _height _hash bHeader = do
     let forkFunc = (mempoolProcessFork mempool) (logFunction theLogger) -- :: BlockHeader -> IO (V.Vector ChainwebTransaction)
     txHashes <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes) <> " transactions to reintroduce"
+    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes)
+                              <> " transactions to reintroduce"
     mempoolReintroduce mempool txHashes
     mempoolGetBlock mempool maxBlockSize
   where

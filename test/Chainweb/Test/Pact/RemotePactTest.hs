@@ -29,6 +29,7 @@ import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
+import Data.IORef
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
@@ -130,11 +131,11 @@ mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    let lastPar = Nothing
+    lastPar <- newIORef Nothing
+    noopPool <- noopMempool
+    let tConfig = mempoolTxConfig noopPool
     let mPool = toMempool version cid tConfig 10000 lastPar cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
-  where
-    tConfig = mempoolTxConfig noopMempool
 
 -- -------------------------------------------------------------------------- --
 -- Utils

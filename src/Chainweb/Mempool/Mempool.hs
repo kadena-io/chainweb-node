@@ -119,7 +119,7 @@ data MempoolBackend t = MempoolBackend {
 
     -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
     --   in the case of forks
-  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
+  , mempoolLastNewBlockParent :: IORef (Maybe BlockHeader)
 
     -- | check for a fork, and re-introduce transactions from the losing branch if necessary
 
@@ -164,12 +164,13 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
-noopMempool :: MempoolBackend t
-noopMempool =
-  MempoolBackend
+noopMempool :: IO (MempoolBackend t)
+noopMempool = do
+  noLastParent <- newIORef Nothing
+  return $ MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
-    , mempoolLastNewBlockParent = Nothing
+    , mempoolLastNewBlockParent = noLastParent
     , mempoolProcessFork = noopProcessFork
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup

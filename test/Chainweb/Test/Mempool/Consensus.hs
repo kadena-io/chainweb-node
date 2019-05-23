@@ -7,6 +7,7 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
+import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
@@ -37,6 +38,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
+import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -62,8 +64,10 @@ prop_validTxSource db genBlock = monadicIO $ do
     ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
     ForkInfo{..} <- genFork db ht genBlock
 
-    reIntroTransV <- run $
-        processFork (alogFunction aNoLog) fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+    mpData <- liftIO $ newInMemMempoolData
+    mpDataMVar <- liftIO $ newMVar mpData
+    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb mpDataMVar
+                           fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
@@ -81,8 +85,10 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
     ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
 
     ForkInfo{..} <- genFork db ht genBlock
-    reIntroTransV <- run $
-        processFork (alogFunction aNoLog) fiBlockHeaderDb fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+    mpData <- liftIO $ newInMemMempoolData
+    mpDataMVar <- liftIO $ newMVar mpData
+    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb mpDataMVar
+                           fiNewHeader (Just fiOldHeader) (lookupFunc ht)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
 

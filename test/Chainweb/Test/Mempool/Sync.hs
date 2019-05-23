@@ -24,6 +24,7 @@ import Test.Tasty
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.InMem
+import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Mempool
