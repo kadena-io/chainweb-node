@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
@@ -42,6 +43,7 @@ import qualified GHC.Event as Ev
 import qualified Pact.Types.Hash as H
 import Pact.Types.API
 import Pact.Types.Command
+import Pact.Types.Hash
 import Prelude hiding (init, lookup)
 import Servant
 
@@ -154,25 +156,26 @@ listenHandler
     -> ChainResources logger
     -> TransactionBloomCache
     -> ListenerRequest
-    -> Handler ApiResult
+    -> Handler (CommandResult Hash)
 listenHandler cutR cid chain bloomCache (ListenerRequest key) =
-    liftIO $ handleTimeout runListen
+    liftIO (handleTimeout runListen) >>= handleResult
   where
-    nullResponse = ApiResult (object []) Nothing Nothing
+    handleResult (Right r) = return r
+    handleResult _ = throwError $ err400 { errBody = "Timeout" }
 
     runListen timedOut = go Nothing
       where
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
-                Nothing -> return nullResponse      -- timeout
+                Nothing -> return $ Left ()      -- timeout
                 (Just cut) -> poll cut
 
         poll cut = do
             hm <- internalPoll cutR cid chain bloomCache cut [key]
             if HashMap.null hm
               then go (Just cut)
-              else return $! snd $ head $ HashMap.toList hm
+              else return $! Right $ snd $ head $ HashMap.toList hm
 
         waitForNewCut lastCut = atomically $ do
              -- TODO: we should compute greatest common ancestor here to bound the
@@ -206,7 +209,7 @@ localHandler
     -> ChainId
     -> ChainResources logger
     -> Command Text
-    -> Handler (CommandSuccess Value)
+    -> Handler (CommandResult Hash)
 localHandler _ _ cr cmd = do
   cmd' <- case validateCommand cmd of
     Right c -> return c
@@ -229,11 +232,11 @@ internalPoll
     -> TransactionBloomCache
     -> Cut
     -> [RequestKey]
-    -> IO (HashMap RequestKey ApiResult)
+    -> IO (HashMap RequestKey (CommandResult Hash))
 internalPoll cutR cid chain bloomCache cut requestKeys =
     toHashMap <$> mapM lookup requestKeys
   where
-    lookup :: RequestKey -> IO (Maybe (RequestKey, ApiResult))
+    lookup :: RequestKey -> IO (Maybe (RequestKey, CommandResult Hash))
     lookup key =
         fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
     toHashMap = HashMap.fromList . catMaybes
@@ -247,7 +250,7 @@ lookupRequestKey
     -> ChainResources logger
     -> TransactionBloomCache
     -> RequestKey
-    -> IO (Maybe ApiResult)
+    -> IO (Maybe (CommandResult Hash))
 lookupRequestKey cid cut cutResources chain bloomCache key = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
@@ -273,7 +276,7 @@ lookupRequestKeyInBlock
     -> RequestKey               -- ^ key to search
     -> BlockHeight              -- ^ lowest block to search
     -> BlockHeader              -- ^ search starts here
-    -> MaybeT IO ApiResult
+    -> MaybeT IO (CommandResult Hash)
 lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
   where
     keyHash :: H.Hash
@@ -298,12 +301,8 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
         case find matchingHash txs of
             (Just (_cmd, (TransactionOutput output))) -> do
 
-                -- this will be a HashedTxLogOutput containing a Value of
-                -- of `CommandSuccess` or `CommandFailure`.
-                -- The metadata could be used to track request time, chain metadata etc.
-
                 val <- MaybeT $ return $ decodeStrict output
-                return $! ApiResult val Nothing Nothing
+                return $! val
 
             Nothing -> lookupParent blockHeader
 

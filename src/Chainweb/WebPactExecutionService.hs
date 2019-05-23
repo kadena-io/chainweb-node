@@ -32,7 +32,7 @@ import Chainweb.Utils (codecDecode)
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
   , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
-  , _pactLocal :: ChainwebTransaction -> IO HashCommandResult
+  , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
   }
 
 newtype WebPactExecutionService = WebPactExecutionService
@@ -76,10 +76,7 @@ mkPactExecutionService mempool q = PactExecutionService
         Left e -> throwM e
   , _pactLocal = \ct -> do
       mv <- local ct q
-      r <- takeMVar mv
-      case r of
-        Right pdo -> return pdo
-        Left e -> throwM e
+      takeMVar mv
   }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's

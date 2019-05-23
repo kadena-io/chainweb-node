@@ -412,7 +412,7 @@ runCoinbase
     -> MinerInfo
     -> PactServiceM HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
+runCoinbase (Just _parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
