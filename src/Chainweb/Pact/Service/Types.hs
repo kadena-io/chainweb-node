@@ -11,7 +11,6 @@
 
 module Chainweb.Pact.Service.Types where
 
-import Data.Aeson (Value)
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 import Data.Aeson (FromJSON,ToJSON)
@@ -22,8 +21,6 @@ import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-
-import Pact.Types.Command
 
 
 data PactException
@@ -66,6 +63,6 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
-    , _localResultVar :: MVar (Either SomeException (CommandSuccess Value))
+    , _localResultVar :: MVar (Either SomeException HashCommandResult)
     }
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
