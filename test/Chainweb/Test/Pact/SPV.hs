@@ -19,7 +19,9 @@
 -- Pact Service SPV Support roundtrip tests
 --
 module Chainweb.Test.Pact.SPV
-( tests
+( -- * test suite
+  tests
+  -- * repl tests
 , standard
 , wrongchain
 , badproof
@@ -140,7 +142,7 @@ roundtrip isid itid burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
-        withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
+        withTestCutDb rdb v 1 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
             sid <- mkChainId v isid
@@ -155,7 +157,7 @@ roundtrip isid itid burn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -177,8 +179,8 @@ roundtrip isid itid burn create = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
-                height tid c > (diam * gorder) + height tid c0
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 (3 * (diam + 1) * gorder) $ \c ->
+                height tid c > diam + height tid c0
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)

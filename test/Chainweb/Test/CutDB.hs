@@ -207,15 +207,17 @@ awaitNewCut
     -> IO Cut
 awaitNewCut cdb = awaitCut cdb . (/=)
 
+-- | Wait for a given chain id to reach a certin block height
+--
 awaitBlockHeight
     :: CutDb cas
     -> BlockHeight
     -> ChainId
     -> IO Cut
-awaitBlockHeight cdb bh cid = atomically $ do
+awaitBlockHeight cdb bh0 cid = atomically $ do
     c <- _cutStm cdb
-    let bh2 = _blockHeight $ c ^?! ixg cid
-    STM.check $ bh < bh2
+    let bh1 = _blockHeight $ c ^?! ixg cid
+    STM.check $ bh0 < bh1
     return c
 
 -- | This function calls 'withTestCutDb' with a fake pact execution service. It
