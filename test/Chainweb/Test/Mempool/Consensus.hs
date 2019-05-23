@@ -12,7 +12,9 @@ import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
 import Data.Hashable
-import Data.HashTable.IO (BasicHashTable)
+import Data.HashMap.Strict (HashMap)
+import Data.IORef
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashTable.IO as HT
 import Data.Int
 import Data.Set (Set)
@@ -61,8 +63,9 @@ prop_validTxSource
     -> BlockHeader
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
-    ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
-    ForkInfo{..} <- genFork db ht genBlock
+    ht <- liftIO HM.empty -- :: HasmMap BlockHeader (Set TransactionHash)
+    mapRef <- newIORef ht
+    ForkInfo{..} <- genFork db mapRef genBlock
 
     mpData <- liftIO $ newInMemMempoolData
     mpDataMVar <- liftIO $ newMVar mpData
@@ -122,11 +125,12 @@ data MockPayload = MockPayload
 
 ----------------------------------------------------------------------------------------------------
 lookupFunc
-  :: BasicHashTable BlockHeader (Set TransactionHash)
+  :: IORef (HashMap BlockHeader (Set TransactionHash))
   -> BlockHeader
   -> IO (Set TransactionHash)
-lookupFunc ht h = do
-    mTxs <- HT.lookup ht h
+lookupFunc mapRef h = do
+    hm <- readIORef
+    mTxs <- HT.lookup hm h
     case mTxs of
         Nothing -> error "Test/Mempool/Consensus - hashtable lookup failed -- this should not happen"
         Just txs -> return txs
@@ -147,12 +151,12 @@ getTransPool =
 -- | Generate a tree containing a fork
 genFork
     :: BlockHeaderDb
-    -> BasicHashTable BlockHeader (Set TransactionHash)
+    -> IORef (HashMap BlockHeader (Set TransactionHash))
     -> BlockHeader
     -> PropertyM IO ForkInfo
-genFork db payloadLookup startHeader = do
+genFork db mapRef startHeader = do
     allTxs <- getTransPool
-    theTree <- genTree db payloadLookup startHeader allTxs
+    theTree <- genTree db mapRef startHeader allTxs
     return $ buildForkInfo db theTree
 
 ----------------------------------------------------------------------------------------------------
@@ -175,48 +179,48 @@ takeTrans txs = do
 ----------------------------------------------------------------------------------------------------
 genTree
   :: BlockHeaderDb
-  -> BasicHashTable BlockHeader (Set TransactionHash)
+  -> IORef (HashMap BlockHeader (Set TransactionHash))
   -> BlockHeader
   -> Set TransactionHash
   -> PropertyM IO (Tree BlockTrans)
-genTree db payloadLookup h allTxs = do
+genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
     liftIO $ TreeDB.insert db next
-    listOfOne <- preForkTrunk db payloadLookup next theRest
-    newNode payloadLookup
+    listOfOne <- preForkTrunk db mapRef next theRest
+    newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
             listOfOne
 
 ----------------------------------------------------------------------------------------------------
 -- | Create a new Tree node
 newNode
-    :: BasicHashTable BlockHeader (Set TransactionHash)
+    :: IORef (HashMap BlockHeader (Set TransactionHash))
     -> BlockTrans
     -> [Tree BlockTrans]
     -> PropertyM IO (Tree BlockTrans)
-newNode payloadLookup blockTrans children = do
+newNode mapRef blockTrans children = do
     let h = btBlockHeader blockTrans
     let theNewNode = Node blockTrans children
 
     -- insert to mock payload store -- key is blockHash, value is list of tx hashes
-    liftIO $ HT.insert payloadLookup h (btTransactions blockTrans)
+    liftIO $ writeIORef $ HM.insert payloadLookup h (btTransactions blockTrans)
     return theNewNode
 
 ----------------------------------------------------------------------------------------------------
 preForkTrunk
     :: BlockHeaderDb
-    -> BasicHashTable BlockHeader (Set TransactionHash)
+    -> IORef (HashMap BlockHeader (Set TransactionHash))
     -> BlockHeader
     -> Set TransactionHash
     -> PropertyM IO (Forest BlockTrans)
-preForkTrunk db payloadLookup h avail = do
+preForkTrunk db mapRef h avail = do
     next <- header' h
     liftIO $ TreeDB.insert db next
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
-        [(1, fork db payloadLookup next theRest), (3, preForkTrunk db payloadLookup next theRest)]
-    theNewNode <- newNode payloadLookup
+        [(1, fork db mapRef next theRest), (3, preForkTrunk db mapRef next theRest)]
+    theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           children
     return [theNewNode]
@@ -234,11 +238,11 @@ frequencyM xs = do
 ----------------------------------------------------------------------------------------------------
 fork
     :: BlockHeaderDb
-    -> BasicHashTable BlockHeader (Set TransactionHash)
+    -> IORef (HashMap BlockHeader (Set TransactionHash))
     -> BlockHeader
     -> Set TransactionHash
     -> PropertyM IO (Forest BlockTrans)
-fork db payloadLookup h avail = do
+fork db mapRef h avail = do
     nextLeft <- header' h
     liftIO $ TreeDB.insert db nextLeft
     nextRight <- header' h
@@ -247,9 +251,9 @@ fork db payloadLookup h avail = do
 
     (lenL, lenR) <- genForkLengths
 
-    left <- postForkTrunk db payloadLookup nextLeft theRest lenL
-    right <- postForkTrunk db payloadLookup nextRight theRest lenR
-    theNewNode <- newNode payloadLookup
+    left <- postForkTrunk db mapRef nextLeft theRest lenL
+    right <- postForkTrunk db mapRef nextRight theRest lenR
+    theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           (left ++ right)
     return [theNewNode]
@@ -264,20 +268,20 @@ genForkLengths = do
 ----------------------------------------------------------------------------------------------------
 postForkTrunk
     :: BlockHeaderDb
-    -> BasicHashTable BlockHeader (Set TransactionHash)
+    -> IORef (HashMap BlockHeader (Set TransactionHash))
     -> BlockHeader
     -> Set TransactionHash
     -> Int
     -> PropertyM IO (Forest BlockTrans)
-postForkTrunk db payloadLookup h avail count = do
+postForkTrunk db mapRef h avail count = do
     next <- header' h
     (takenNow, theRest) <- takeTrans avail
     children <-
         if count == 0 then return []
         else do
             liftIO $ TreeDB.insert db next
-            postForkTrunk db payloadLookup next theRest (count - 1)
-    theNewNode <- newNode payloadLookup
+            postForkTrunk db mapRef next theRest (count - 1)
+    theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           children
     return [theNewNode]
