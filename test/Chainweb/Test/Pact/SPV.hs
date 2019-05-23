@@ -20,6 +20,10 @@
 --
 module Chainweb.Test.Pact.SPV
 ( tests
+, standard
+, wrongchain
+, badproof
+, doublespend
 ) where
 
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
@@ -32,6 +36,7 @@ import Data.Default
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
+import Data.Text (pack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -93,7 +98,7 @@ height :: Chainweb.ChainId -> Cut -> BlockHeight
 height cid c = _blockHeight $ c ^?! ixg cid
 
 handle :: SomeException -> IO Bool
-handle _ = return False
+handle e = logg System.LogLevel.Error (pack $ show e) >> return False
 
 -- expected failures take this form
 expectedFailure :: IO Bool -> String -> Assertion
@@ -150,7 +155,7 @@ roundtrip isid itid burn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (3 * (diam + 1) * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -173,7 +178,7 @@ roundtrip isid itid burn create = do
             -- `diameter(graph)` apart.
 
             c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
-                height tid c > (2 * diam) + height tid c0
+                height tid c > (diam * gorder) + height tid c0
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)
@@ -181,7 +186,7 @@ roundtrip isid itid burn create = do
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ extendAwait cutDb pact2 (3 * (diam + 1) * gorder)
+            void $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
             return True
