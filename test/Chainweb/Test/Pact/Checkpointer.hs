@@ -105,7 +105,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
       runCont :: Env' -> PactId -> Int -> IO EvalResult
       runCont (Env' pactDbEnv) pactId step = do
-          let contMsg = ContMsg pactId step False Null
+          let contMsg = ContMsg pactId step False Null Nothing
               cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
           applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
 

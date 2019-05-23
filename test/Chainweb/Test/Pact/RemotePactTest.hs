@@ -125,7 +125,7 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
     let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _arResult <$> catMaybes mays
+    let values = _crResult <$> catMaybes mays
     return $! toS $! foldMap A.encode values
 
 mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
@@ -258,8 +258,8 @@ testBatch = do
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
     :<|> ((Poll -> ClientM PollResponses)
-    :<|> ((ListenerRequest -> ClientM ApiResult)
-    :<|> (Command Text -> ClientM (CommandSuccess A.Value))))
+    :<|> ((ListenerRequest -> ClientM (CommandResult H.Hash))
+    :<|> (Command Text -> ClientM (CommandResult H.Hash))))
 
 generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
 generatePactApi cwVersion chainid =

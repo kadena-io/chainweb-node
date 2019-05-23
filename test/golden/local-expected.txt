@@ -1,23 +1,16 @@
 test-group: local
 results:
-  status: success
-  data:
-    obj:
-      amount:
-        i: null
-        lit: -1
+  gas: 0
+  result:
+    status: success
+    data:
+      amount: -1
       data:
-        obj:
-          transfer-to:
-            i: null
-            lit: Acct2
-        type: '*'
-        i: null
-      balance:
-        i: null
-        lit: 999999
-      account:
-        i: null
-        lit: Acct1
-    type: '*'
-    i: null
+        transfer-to: Acct2
+      balance: 999999
+      account: Acct1
+  reqKey: sJcgrbkD-jEXnZth6mpDIcMi8E3dGr8CKw9g849FnDc
+  logs: wsATyGqckuIvlm89hhd2j4t6RMkCrcwJe_oeCYr7Th8
+  metaData: null
+  continuation: null
+  txId: null
