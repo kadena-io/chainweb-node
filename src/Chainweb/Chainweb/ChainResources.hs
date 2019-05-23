@@ -60,6 +60,7 @@ import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
+import qualified Chainweb.Mempool.InMemTypes as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -226,11 +227,10 @@ mempoolSyncP2pSession chain pollInterval logg0 env _ =
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
 
-    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
-      where
-        -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar = Nothing
+    -- no sync needed / wanted for lastNewBlockParent attribute:
+    noLastPar <- newIORef Nothing
 
+    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool

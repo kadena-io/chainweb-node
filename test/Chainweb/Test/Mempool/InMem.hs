@@ -6,7 +6,7 @@ module Chainweb.Test.Mempool.InMem
 import Test.Tasty
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeaderDB
-import Chainweb.Mempool.InMem (InMemConfig(..))
+import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (MempoolWithFunc(..))

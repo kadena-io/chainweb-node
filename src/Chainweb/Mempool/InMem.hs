@@ -9,31 +9,26 @@
 -- | A mock in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMem
   (
-    -- * Types
-    InMemoryMempool
-  , InMemConfig(..)
-
-    -- * Initialization functions
-  , withInMemoryMempool
+   -- * Initialization functions
+    withInMemoryMempool
   , withTestInMemoryMempool
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
   , makeSelfFinalizingInMemPool
   , makeInMemPool
+  , newInMemMempoolData
   , createTxBroadcaster
   , destroyTxBroadcaster
   ) where
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
-import Control.Concurrent
-    (ThreadId, forkIOWithUnmask, killThread, threadDelay, withMVar)
+import Control.Concurrent (forkIOWithUnmask, killThread, threadDelay, withMVar)
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
     takeMVar, withMVarMasked)
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
@@ -41,11 +36,8 @@ import Control.Exception
 import Control.Monad (forever, join, void, (>=>))
 
 import Data.Foldable (foldl', foldlM, traverse_)
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-import Data.HashPSQ (HashPSQ)
 import qualified Data.HashPSQ as PSQ
-import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
@@ -56,13 +48,11 @@ import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word64)
 
 import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup)
 
-import System.Mem.Weak (Weak)
 import qualified System.Mem.Weak as Weak
 import System.Timeout (timeout)
 
@@ -71,6 +61,7 @@ import System.Timeout (timeout)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Mempool.Consensus as MPCon
+import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Time as Time
@@ -81,47 +72,20 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage (LogFunction)
 
-------------------------------------------------------------------------------
--- | Priority for the search queue
-type Priority = (Down GasPrice, Int64)
 
+------------------------------------------------------------------------------
 toPriority :: GasPrice -> Int64 -> Priority
 toPriority r s = (Down r, s)
 
-------------------------------------------------------------------------------
--- | Priority search queue -- search by transaction hash in /O(log n)/ like a
--- tree, find-min in /O(1)/ like a heap
-type PSQ t = HashPSQ TransactionHash Priority t
-
-type SubscriptionId = Word64
 
 ------------------------------------------------------------------------------
--- | Transaction edits -- these commands will be sent to the broadcast thread
--- over an STM channel.
-data TxEdit t = Subscribe !SubscriptionId (Subscription t) (MVar (IORef (Subscription t)))
-              | Unsubscribe !SubscriptionId
-              | Transactions (Vector t)
-              | Close
-type TxSubscriberMap t = HashMap SubscriptionId (Weak (IORef (Subscription t)))
-
--- | The 'TxBroadcaster' is responsible for broadcasting new transactions out
--- to any readers. Commands are posted to the channel and are executed by a
--- helper thread.
-data TxBroadcaster t = TxBroadcaster {
-    _txbSubIdgen :: {-# UNPACK #-} !(IORef SubscriptionId)
-  , _txbThread :: {-# UNPACK #-} !(MVar ThreadId)
-  , _txbQueue :: {-# UNPACK #-} !(TBMChan (TxEdit t))
-  , _txbThreadDone :: {-# UNPACK #-} !(MVar ())
-}
-
 -- | Runs a user computation with a newly-created transaction broadcaster. The
 -- broadcaster is destroyed after the user function runs.
 withTxBroadcaster :: (TxBroadcaster t -> IO a) -> IO a
 withTxBroadcaster = bracket createTxBroadcaster destroyTxBroadcaster
 
-_defaultTxQueueLen :: Int
-_defaultTxQueueLen = 64
 
+------------------------------------------------------------------------------
 -- | Creates a 'TxBroadcaster' object. Normally 'withTxBroadcaster' should be
 -- used instead. Care should be taken in 'bracket'-style initialization
 -- functions to get the exception handling right; if 'destroyTxBroadcaster' is
@@ -136,6 +100,8 @@ createTxBroadcaster = mask_ $ do
     forkIOWithUnmask (broadcasterThread tx) >>= putMVar threadMV
     return tx
 
+
+------------------------------------------------------------------------------
 -- | Destroys a 'TxBroadcaster' object.
 destroyTxBroadcaster :: TxBroadcaster t -> IO ()
 destroyTxBroadcaster (TxBroadcaster _ _ q doneMV) = do
@@ -247,40 +213,6 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
 
 
 ------------------------------------------------------------------------------
--- | Configuration for in-memory mempool.
-data InMemConfig t = InMemConfig {
-    _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
-  , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
-  , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
-}
-
-
-------------------------------------------------------------------------------
-data InMemoryMempool t cas = InMemoryMempool {
-    _inmemCfg :: InMemConfig t
-  , _inmemDataLock :: MVar (InMemoryMempoolData t)
-  , _inmemBroadcaster :: TxBroadcaster t
-  , _inmemReaper :: ThreadId
-  , _inmemBlockHeaderDb :: BlockHeaderDb
-  , _inmemPayloadStore :: Maybe (PayloadDb cas)
-  -- TODO: reap expired transactions
-}
-
-------------------------------------------------------------------------------
-data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemPending :: IORef (PSQ t)
-    -- | We've seen this in a valid block, but if it gets forked and loses
-    -- we'll have to replay it.
-    --
-    -- N.B. atomic access to these IORefs is not necessary -- we hold the lock
-    -- here.
-  , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
-  , _inmemConfirmed :: IORef (HashSet TransactionHash)
-  , _inmemLastNewBlockParent :: Maybe (IORef BlockHeader)
-}
-
-
-------------------------------------------------------------------------------
 makeInMemPool
     :: InMemConfig t
     -> TxBroadcaster t
@@ -288,14 +220,16 @@ makeInMemPool
     -> Maybe (PayloadDb cas)
     -> IO (InMemoryMempool t cas)
 makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
-    dataLock <- newData  >>= newMVar
+    dataLock <- newInMemMempoolData >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
     return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb payloadDb
-  where
-    newData = InMemoryMempoolData <$> newIORef PSQ.empty
-                                  <*> newIORef HashMap.empty
-                                  <*> newIORef HashSet.empty
-                                  <*> return Nothing
+
+------------------------------------------------------------------------------
+newInMemMempoolData :: IO (InMemoryMempoolData t)
+newInMemMempoolData = InMemoryMempoolData <$> newIORef PSQ.empty
+                           <*> newIORef HashMap.empty
+                           <*> newIORef HashSet.empty
+                           <*> newIORef Nothing
 
 ------------------------------------------------------------------------------
 makeSelfFinalizingInMemPool :: PayloadCas cas
@@ -320,7 +254,7 @@ wrapBackend :: PayloadCas cas
             => TransactionConfig t
             -> Int64
             -> (IORef (InMemoryMempool t cas), b)
-            -> Maybe (IORef BlockHeader)
+            -> IORef (Maybe BlockHeader)
             -> (LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction))
             -> MempoolBackend t
 wrapBackend txcfg bsl mp lastPar pFork =
@@ -447,10 +381,9 @@ processForkInMem :: PayloadCas cas
                  -> IO (Vector ChainwebTransaction)
 processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
     theData <- readMVar lock
-    -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
-    lastHeader <- traverse readIORef (_inmemLastNewBlockParent theData)
+    lastHeader <- readIORef (_inmemLastNewBlockParent theData)
 
-    MPCon.processFork logFun blockHeaderDb newHeader lastHeader
+    MPCon.processFork logFun blockHeaderDb lock newHeader lastHeader
         (inMemPayloadLookup payloadStore)
 
 -- | A 'bracket' function for in-memory mempools.
