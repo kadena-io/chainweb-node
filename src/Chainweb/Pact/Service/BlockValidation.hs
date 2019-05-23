@@ -53,7 +53,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar HashCommandResult)
+local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     resultVar <- newEmptyMVar
     let msg = LocalMsg LocalReq

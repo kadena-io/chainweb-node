@@ -39,7 +39,6 @@ module Chainweb.Pact.TransactionExec
 , publicMetaOf
 ) where
 
-import Control.Exception.Safe (SomeException(..), tryAny)
 import Control.Lens hiding ((.=))
 import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
@@ -64,11 +63,10 @@ import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
-import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
+import Pact.Types.Term (DefName(..), ModuleName(..))
 
 -- internal Chainweb modules
 
@@ -269,11 +267,6 @@ runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload o
     Continuation ym ->
       applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
 
-mkSuccess :: EvalResult -> IO PactValue
-mkSuccess er = case _erOutput er of
-  [] -> throwCmdEx "unexpected empty results"
-  outs -> return $ last outs
-
 applyExec
     :: CommandEnv p
     -> EvalState
@@ -285,7 +278,7 @@ applyExec
     -> [TxLog Value]
     -> IO (CommandResult [TxLog Value])
 applyExec env@CommandEnv{..} initState rk em senderSigs hsh spv prevLogs = do
-    er@EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
+    EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
     -- applyExec enforces non-empty expression set so `last` ok
     return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
@@ -324,7 +317,7 @@ applyContinuation
     -> [TxLog Value]
     -> IO (CommandResult [TxLog Value])
 applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hsh spv prevLogs = do
-  er@EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
+  EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
   -- last safe here because cont msg is guaranteed one exp
   return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata

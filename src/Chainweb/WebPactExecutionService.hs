@@ -76,7 +76,10 @@ mkPactExecutionService mempool q = PactExecutionService
         Left e -> throwM e
   , _pactLocal = \ct -> do
       mv <- local ct q
-      takeMVar mv
+      r <- takeMVar mv
+      case r of
+        Right pdo -> return pdo
+        Left e -> throwM e
   }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's

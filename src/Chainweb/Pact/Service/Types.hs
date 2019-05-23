@@ -63,6 +63,6 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
-    , _localResultVar :: MVar HashCommandResult
+    , _localResultVar :: MVar (Either PactException HashCommandResult)
     }
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
