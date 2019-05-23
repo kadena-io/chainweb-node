@@ -125,7 +125,7 @@ fromMinerData = decodeStrictOrThrow . _minerData
 toCoinbaseOutput :: HashCommandResult -> CoinbaseOutput
 toCoinbaseOutput = CoinbaseOutput . encodeToByteString
 
-fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m (HashCommandResult)
+fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m HashCommandResult
 fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
 
 -- Keyset taken from cp examples in Pact

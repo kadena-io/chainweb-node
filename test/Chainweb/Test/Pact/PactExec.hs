@@ -1,11 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -47,7 +44,7 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "Simple pact execution tests"
+tests = testGroupSch "Chainweb.Test.Pact.PactExec"
     [ withPactCtx testVersion Nothing $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2

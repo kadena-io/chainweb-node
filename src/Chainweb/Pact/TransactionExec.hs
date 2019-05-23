@@ -221,7 +221,7 @@ applyLocal
 applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   -- cmd env with permissive gas model
-  let pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
+  let pd' = set pdPublicMeta (publicMetaOf cmd) pd
       cmdEnv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd'
       requestKey = cmdToRequestKey cmd
 

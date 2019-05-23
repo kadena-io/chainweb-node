@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
