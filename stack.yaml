@@ -1,4 +1,4 @@
-resolver: lts-12.26
+resolver: lts-13.26
 
 extra-deps:
   # --- Missing from Stackage --- #
@@ -10,39 +10,27 @@ extra-deps:
   - loglevel-0.1.0.0
   - merkle-log-0.1.0.0
   - paths-0.2.0.0
-  - rocksdb-haskell-1.0.1
   - strict-tuple-0.1.2
-  - wai-middleware-throttle-0.3.0.0
   - yet-another-logger-0.3.1
 
-  # --- Forced Dependencies --- #
-  - base-compat-batteries-0.10.5 # Due to swagger2
-  - contravariant-1.5.2  # Due to base-compat-batteries
-  - ed25519-donna-0.1.1  # Due to Pact
-  - hspec-2.7.0          # Due to QuickCheck
-  - hspec-core-2.7.0     # Due to QuickCheck
-  - hspec-discover-2.7.0 # Due to QuickCheck
-  - libyaml-0.1.1.0      # Due to yaml
-  - massiv-0.3.3.0       # Due to digraph
-  - mwc-random-0.14.0.0  # Due to digraph
-  - sbv-8.2              # Due to Pact
-  - scheduler-1.3.0      # Due to massiv
-  - swagger2-2.3.1.1     # Due to Pact
-  - token-bucket-0.1.0.1 # Due to wai-middleware-throttle
+  # --- Transitive Pact Dependencies --- #
+  - prettyprinter-convert-ansi-wl-pprint-1.1
+  - ed25519-donna-0.1.1
+  - megaparsec-6.5.0
+
+  # --- Other Transitive Dependencies --- #
+  - massiv-0.3.5.0             # Due to digraph
+  - scheduler-1.4.0            # Due to massiv
+  - neat-interpolation-0.3.2.2 # Due to megaparsec
 
   # --- Forced Upgrades --- #
-  - QuickCheck-2.12.6.1
   - aeson-1.4.3.0
-  - configuration-tools-0.4.1
-  - generic-lens-1.1.0.0
   - nonempty-containers-0.2.0.0
-  - tasty-1.2
+  - sbv-8.2
   - tls-1.5.0
-  - vector-algorithms-0.8.0.1
-  - yaml-0.11.0.0
 
   # --- Custom Pins --- #
-  - git: https://github.com/kadena-io/pact.git
+  - github: kadena-io/pact
     commit: d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3
-  - git: https://github.com/kadena-io/thyme.git
+  - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
