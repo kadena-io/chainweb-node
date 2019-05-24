@@ -38,7 +38,6 @@ import Data.Default
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
-import Data.Text (pack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -99,34 +98,34 @@ gorder = int . order . _chainGraph $ v
 height :: Chainweb.ChainId -> Cut -> BlockHeight
 height cid c = _blockHeight $ c ^?! ixg cid
 
-handle :: SomeException -> IO Bool
-handle e = logg System.LogLevel.Error (pack $ show e) >> return False
+handle :: SomeException -> IO (Bool, String)
+handle e = return (False, show e)
 
 -- expected failures take this form
-expectedFailure :: IO Bool -> String -> Assertion
-expectedFailure test msg = do
-    b <- catch test handle
-    assertBool ("Unexpected success: " <> msg <> " should fail") (not b)
+expectedFailure :: String -> IO (Bool, String) -> Assertion
+expectedFailure msg test = do
+    (b, s) <- catch test handle
+    assertBool ("Unexpected success: " <> msg <> " should fail: " <> s) (not b)
 
-expectedSuccess :: IO Bool -> String -> Assertion
-expectedSuccess test msg = do
-    b <- catch test handle
-    assertBool ("Unexpected failure: " <> msg <> " should succeed") b
+expectedSuccess :: String -> IO (Bool, String) -> Assertion
+expectedSuccess msg test = do
+    (b, s) <- catch test handle
+    assertBool ("Unexpected failure: " <> msg <> " should succeed: " <> s) b
 
 -- -------------------------------------------------------------------------- --
 -- tests
 
 standard :: Assertion
-standard = expectedSuccess (roundtrip 0 1 txGenerator1 txGenerator2) "round trip"
+standard = expectedSuccess "round trip" (roundtrip 0 1 txGenerator1 txGenerator2)
 
 doublespend :: Assertion
-doublespend = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator3) "double spend"
+doublespend = expectedFailure "double spend" (roundtrip 0 1 txGenerator1 txGenerator3)
 
 wrongchain :: Assertion
-wrongchain = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator4) "wrong chain execution"
+wrongchain = expectedFailure  "wrong chain execution" (roundtrip 0 1 txGenerator1 txGenerator4)
 
 badproof :: Assertion
-badproof = expectedFailure (roundtrip 0 1 txGenerator1 txGenerator5) "wrong proof format"
+badproof = expectedFailure "wrong proof format" (roundtrip 0 1 txGenerator1 txGenerator5)
 
 roundtrip
     :: Int
@@ -137,12 +136,12 @@ roundtrip
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
-    -> IO Bool
+    -> IO (Bool, String)
 roundtrip isid itid burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
-        withTestCutDb rdb v 1 pact0 logg $ \cutDb -> do
+        withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
             sid <- mkChainId v isid
@@ -179,8 +178,8 @@ roundtrip isid itid burn create = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 (3 * (diam + 1) * gorder) $ \c ->
-                height tid c > diam + height tid c0
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
+                height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)
@@ -191,7 +190,7 @@ roundtrip isid itid burn create = do
             void $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
-            return True
+            return (True, "success")
 
 -- -------------------------------------------------------------------------- --
 -- transaction generators
