@@ -96,10 +96,10 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
           (TObject o _) -> return $ Right o
           o -> do
             logLog l "ERROR" $ show o
-            spvError' "associated pact transaction outputs have wrong format"
+            spvError' "type error in associated pact transaction, should be object"
         Just o -> do
           logLog l "ERROR" $ show o
-          spvError' "associated pact transaction outputs have wrong format"
+          spvError' "Invalid command result in associated pact output"
 
 
 -- | Look up pact tx hash at some block height in the

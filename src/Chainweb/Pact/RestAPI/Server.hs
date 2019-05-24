@@ -46,6 +46,7 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Prelude hiding (init, lookup)
 import Servant
+import Servant.Server.Internal.ServantErr (ServantErr(..))
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -149,6 +150,8 @@ pollHandler cutR cid chain bloomCache (Poll request) = liftIO $ do
     PollResponses <$> internalPoll cutR cid chain bloomCache cut request
 
 
+
+
 listenHandler
     :: PayloadCas cas
     => CutResources logger cas
@@ -161,7 +164,16 @@ listenHandler cutR cid chain bloomCache (ListenerRequest key) =
     liftIO (handleTimeout runListen) >>= handleResult
   where
     handleResult (Right r) = return r
-    handleResult _ = throwError $ err400 { errBody = "Timeout" }
+    -- TODO nasty hack here, should make Pact API be 'Either Timeout (CommandResult Hash)'
+    handleResult _ = throwError $ ServantErr
+      { errHTTPCode = 200
+      , errBody = encode timeoutBody
+      , errReasonPhrase = "Timeout"
+      , errHeaders = [("Content-Type", "application/json")]
+      }
+
+    timeoutBody = object [ "status" .= ("timeout" :: String)
+                         , "timeout-micros" .= defaultTimeout ]
 
     runListen timedOut = go Nothing
       where
