@@ -2,9 +2,10 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -16,11 +17,12 @@ module Chainweb.Mempool.Mempool
   , TransactionMetadata(..)
   , HashMeta(..)
   , Subscription(..)
-  , ValidationInfo(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
+  , chainwebTransactionConfig
   , mockCodec
+  , mockEncode
   , mockBlockGasLimit
   , finalizeSubscriptionImmediately
   , chainwebTestHasher
@@ -30,14 +32,12 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent (myThreadId)
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.STM.TBMChan (TBMChan)
-import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Monad (replicateM, unless, when)
+import Control.Monad (replicateM, when)
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson
@@ -47,9 +47,8 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import Data.Decimal (Decimal)
-import Data.Decimal (DecimalRaw(..))
-import Data.Foldable (foldl', traverse_)
+import Data.Decimal (Decimal, DecimalRaw(..))
+import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -61,20 +60,25 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import Foreign.StablePtr
 import GHC.Generics
+import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..))
+import qualified Pact.Types.Hash as H
 import Prelude hiding (log)
 import System.LogLevel
 
 ------------------------------------------------------------------------------
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Orphans ()
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
+import Chainweb.Transaction
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Data.LogMessage (LogFunctionText)
+import Chainweb.Utils (encodeToText, runForever)
+import Data.LogMessage (LogFunction, LogFunctionText)
 
 
 ------------------------------------------------------------------------------
@@ -113,6 +117,14 @@ data MempoolBackend t = MempoolBackend {
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
 
+    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
+    --   in the case of forks
+  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
+
+    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
+
+  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
 
@@ -133,7 +145,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
 
     -- | These transactions were on a losing fork. Reintroduce them.
-  , mempoolReintroduce :: Vector TransactionHash -> IO ()
+
+  , mempoolReintroduce :: Vector t -> IO ()
 
     -- | given a callback function, loops through the pending candidate
     -- transactions and supplies the hashes to the callback in chunks. No
@@ -142,6 +155,7 @@ data MempoolBackend t = MempoolBackend {
       :: (Vector TransactionHash -> IO ()) -> IO ()
 
   , mempoolSubscribe :: IO (IORef (Subscription t))
+
   , mempoolShutdown :: IO ()
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
@@ -151,9 +165,24 @@ data MempoolBackend t = MempoolBackend {
 
 
 noopMempool :: MempoolBackend t
-noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGetBlock
-                             noopMarkValidated noopMarkConfirmed noopReintroduce
-                             noopGetPending noopSubscribe noopShutdown noopClear
+noopMempool =
+  MempoolBackend
+    { mempoolTxConfig = txcfg
+    , mempoolBlockGasLimit = 1000
+    , mempoolLastNewBlockParent = Nothing
+    , mempoolProcessFork = noopProcessFork
+    , mempoolMember = noopMember
+    , mempoolLookup = noopLookup
+    , mempoolInsert = noopInsert
+    , mempoolGetBlock = noopGetBlock
+    , mempoolMarkValidated = noopMarkValidated
+    , mempoolMarkConfirmed = noopMarkConfirmed
+    , mempoolReintroduce = noopReintroduce
+    , mempoolGetPendingTransactions = noopGetPending
+    , mempoolSubscribe = noopSubscribe
+    , mempoolShutdown = noopShutdown
+    , mempoolClear = noopClear
+    }
   where
     unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
@@ -164,7 +193,6 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta (const $ return True)
-
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
@@ -177,6 +205,30 @@ noopMempool = MempoolBackend txcfg 1000 noopMember noopLookup noopInsert noopGet
     noopShutdown = return ()
     noopClear = return ()
 
+    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
+    noopProcessFork _l _h = return V.empty
+
+
+
+------------------------------------------------------------------------------
+chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
+chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
+    commandHash
+    chainwebTestHashMeta
+    getGasPrice
+    getGasLimit
+    (const txmeta)
+    (const $ return True)       -- TODO: insert extra transaction validation here
+
+  where
+    getGasPrice = gasPriceOf . fmap payloadObj
+    getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
+    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
+                    in TransactionHash h
+
+    -- TODO: plumb through origination + expiry time from pact once it makes it
+    -- into PublicMeta
+    txmeta = TransactionMetadata Time.minTime Time.maxTime
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {
@@ -190,64 +242,69 @@ data SyncState = SyncState {
 --
 -- The sync procedure:
 --
---    1. begin subscription with remote's mempool
---    2. get the list of pending transaction hashes from remote.
---    3. lookup any hashes that are missing, and insert them into local
---    4. push any hashes remote is missing
---    5. block forever, waiting to be killed (subscription will still be active.)
+--    1. get the list of pending transaction hashes from remote,
+--    2. lookup any hashes that are missing, and insert them into local,
+--    3. push any hashes remote is missing,
+--    4. sleep the given number of microseconds.
 --
--- Blocks until killed, or until the underlying mempool connection throws an
+-- Loops until killed, or until the underlying mempool connection throws an
 -- exception.
-
+--
 syncMempools'
     :: Show t
     => LogFunctionText
-    -> MempoolBackend t     -- ^ local mempool
-    -> MempoolBackend t     -- ^ remote mempool
-    -> IO ()                -- ^ on initial sync complete
+    -> Int
+        -- ^ polling interval in microseconds
+    -> MempoolBackend t
+        -- ^ local mempool
+    -> MempoolBackend t
+        -- ^ remote mempool
     -> IO ()
-syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
-    bracket startSubscription cleanupSubscription sync
+syncMempools' log0 us localMempool remoteMempool =
+    runForever log0 "mempool-sync-session" $ sync >> threadDelay us
 
   where
-    startSubscription = do
-        sub <- mempoolSubscribe remoteMempool
-        th <- readIORef sub >>= Async.async . subThread
-        Async.link th
-        p <- myThreadId >>= newStablePtr  -- otherwise we will get "blocked
-                                          -- indefinitely on mvar" during sync
-        return (sub, th, p)
+    maxCnt = 10000
+        -- don't pull more than this many new transactions from a single peer in
+        -- a session.
 
-    cleanupSubscription (sub, th, p) = do
-      Async.uninterruptibleCancel th
-      freeStablePtr p
-      mempoolSubFinal <$> readIORef sub
+    -- This function is called for each chunk of pending hashes in the the remote mempool.
+    --
+    -- The 'SyncState' collects
+    -- * the total count of hashes that are missing from the local pool,
+    -- * chunks of hashes that are missing from the local pool,
+    -- * the set of hashes that is available locally but missing from the remote pool, and
+    -- * whether there are @tooMany@ missing hashes.
+    --
+    -- When we already collected @tooMany@ missing hashes we stop updating the sync state
+    --
+    -- TODO: would it help if 'mempoolGetPendingTransactions' would provide an option for early
+    -- termination in case we got @tooMany@ missing hashes?
+    --
+    syncChunk syncState hashes = do
+        (SyncState cnt chunks remoteHashes tooMany) <- readIORef syncState
 
-    -- TODO: update a counter and bug out if too many new txs read
-    subThread sub =
-        let chan = mempoolSubChan sub
-            go = do
-                m <- atomically (TBMChan.readTBMChan chan)
-                maybe (return ()) (\v -> mempoolInsert localMempool v >> go) m
-        in go
-
-    maxCnt = 10000   -- don't pull more than this many new transactions from a
-                     -- single peer in a session.
-
-    syncChunk missing hashes = do
-        (SyncState cnt chunks presentAtRemote tooMany) <- readIORef missing
-        res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
-        let !newMissing = V.map snd $ V.filter (not . fst) res
-        let !newMissingCnt = V.length newMissing
+        -- If there are too many missing hashes we stop collecting
+        --
         when (not tooMany) $ do
-            let !presentAtRemote' = V.foldl' (flip HashSet.insert) presentAtRemote hashes
-            let !newCnt = cnt + fromIntegral newMissingCnt
-            let !tooMany' = (newCnt >= maxCnt)
 
-            writeIORef missing $!
+            -- Collect remote hashes that are missing from the local pool
+            res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
+            let !newMissing = V.map snd $ V.filter (not . fst) res
+            let !newMissingCnt = V.length newMissing
+
+            -- Collect set of all remote hashes
+            let !remoteHashes' = V.foldl' (flip HashSet.insert) remoteHashes hashes
+
+            -- Count number of missing hashes and decide if there @tooMany@
+            let !newCnt = cnt + fromIntegral newMissingCnt
+            let !tooMany' = newCnt >= maxCnt
+
+            -- Update the SyncState
+            writeIORef syncState $!
                 if tooMany'
-                    then SyncState cnt chunks presentAtRemote True
-                    else SyncState newCnt (newMissing : chunks) presentAtRemote' False
+                    then SyncState cnt chunks remoteHashes True
+                    else SyncState newCnt (newMissing : chunks) remoteHashes' False
 
     fromPending (Pending t) = t
     fromPending _ = error "impossible"
@@ -260,58 +317,49 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
         let !newTxs = V.map fromPending $ V.filter isPending res
         mempoolInsert localMempool newTxs
 
-    log :: Text -> IO ()
-    log = log0 Info             -- TODO: some of these messages should be
-                                -- "debug" but we're ok with overlogging for
-                                -- now.
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync _ = flip finally (log "sync finished") $ do
-        deb "subscription started, getting pending hashes from remote"
-        missing <- newIORef $! SyncState 0 [] HashSet.empty False
-        mempoolGetPendingTransactions remoteMempool $ syncChunk missing
-        (SyncState _ missingChunks presentHashes tooMany) <- readIORef missing
+    sync = flip finally (deb "sync finished") $ do
+        deb "Get pending hashes from remote"
 
-        deb "subscription started, getting pending hashes from remote"
-        let numMissingFromLocal = foldl' (+) 0 (map V.length missingChunks)
-        let numPresentAtRemote = HashSet.size presentHashes
+        -- Intialize and collect SyncState
+        syncState <- newIORef $! SyncState 0 [] HashSet.empty False
+        mempoolGetPendingTransactions remoteMempool $ syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
 
-        deb $ T.concat [
-            sshow (numMissingFromLocal + numPresentAtRemote)
-          , " hashes at remote ("
-          , sshow numMissingFromLocal
-          , " need to be fetched)"
-          ]
+        deb $ T.concat
+            [ sshow (HashSet.size remoteHashes)
+            , " hashes at remote ("
+            , sshow numMissingFromLocal
+            , " need to be fetched)"
+            ]
 
-        -- Go fetch missing transactions from remote
-        traverse_ fetchMissing missingChunks
+        numPushed <- snd <$> concurrently
 
-        -- Push our missing txs to remote.
-        numPushed <- push presentHashes
-        deb $ T.concat [
-            "pushed "
-          , sshow numPushed
-          , " new transactions to remote."
-          ]
+            -- Go fetch missing transactions from remote
+            (traverse_ fetchMissing missingChunks)
 
-        -- We're done syncing. If we cut off the sync session because of too
-        -- many remote txs, we are free to go now, but otherwise we'll block
-        -- indefinitely waiting for the p2p session to kill us (and slurping
-        -- from the remote subscription queue).
-        onInitialSyncComplete
-        log "initial sync complete, sleeping"
-        unless tooMany $ atomically retry
+            -- Push our missing txs to remote.
+            (push remoteHashes)
 
-    push presentHashes = do
+        deb $ "pushed " <> sshow numPushed <> " new transactions to remote."
+        deb "sync complete, sleeping"
+
+    -- Push transactions that are available locally but are missing from the
+    -- remote pool to the remote pool.
+    --
+    push remoteHashes = do
         ref <- newIORef 0
         mempoolGetPendingTransactions localMempool $ \chunk -> do
-            let chunk' = V.filter (not . flip HashSet.member presentHashes) chunk
+            let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
             when (not $ V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
         readIORef ref
 
+    -- Send a chunk of tranactions to the remote pool.
+    --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
         when (not $ V.null v) $ mempoolInsert remoteMempool v
@@ -320,11 +368,12 @@ syncMempools' log0 localMempool remoteMempool onInitialSyncComplete =
 syncMempools
     :: Show t
     => LogFunctionText
+    -> Int                  -- ^ polling interval in microseconds
     -> MempoolBackend t     -- ^ local mempool
     -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
-syncMempools log localMempool remoteMempool =
-    syncMempools' log localMempool remoteMempool (return ())
+syncMempools log us localMempool remoteMempool =
+    syncMempools' log us localMempool remoteMempool
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.
@@ -333,8 +382,11 @@ syncMempools log localMempool remoteMempool =
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
 newtype TransactionHash = TransactionHash ByteString
-  deriving stock (Show, Read, Eq, Ord, Generic)
+  deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
+
+instance Show TransactionHash where
+    show = T.unpack . encodeToText
 
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
@@ -382,22 +434,13 @@ data Subscription t = Subscription {
   -- TODO: activity timer
 }
 
-
-------------------------------------------------------------------------------
-data ValidationInfo = ValidationInfo {
-    validatedHeight :: {-# UNPACK #-} !BlockHeight
-  , validatedHash :: {-# UNPACK #-} !BlockHash
-  }
+data ValidatedTransaction t = ValidatedTransaction
+    { validatedHeight :: {-# UNPACK #-} !BlockHeight
+    , validatedHash :: {-# UNPACK #-} !BlockHash
+    , validatedTransaction :: t
+    }
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
-
-data ValidatedTransaction t = ValidatedTransaction {
-    validatedForks :: Vector ValidationInfo
-  , validatedTransaction :: t
-  }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
-
 
 ------------------------------------------------------------------------------
 finalizeSubscriptionImmediately :: Subscription t -> IO ()
@@ -416,22 +459,6 @@ data MockTx = MockTx {
     deriving anyclass (FromJSON, ToJSON, NFData)
 
 
-instance (Show i, Integral i) => ToJSON (DecimalRaw i) where
-    toJSON d = let s = T.pack $ show d
-               in toJSON s
-
-instance (Read i, Integral i) => FromJSON (DecimalRaw i) where
-    parseJSON v = do
-        s <- T.unpack <$> parseJSON v
-        return $! read s
-
--- orphan, needed for mock -- remove once this instance makes it upstream into pact
-instance ToJSON GasPrice where
-    toJSON (GasPrice d) = toJSON d
-
-instance FromJSON GasPrice where
-    parseJSON v = GasPrice <$> parseJSON v
-
 mockBlockGasLimit :: Int64
 mockBlockGasLimit = 65535
 
@@ -439,6 +466,7 @@ mockBlockGasLimit = 65535
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
 mockCodec = Codec mockEncode mockDecode
+
 
 mockEncode :: MockTx -> ByteString
 mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do

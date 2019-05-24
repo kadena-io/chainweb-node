@@ -48,6 +48,8 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
+import Data.CAS.RocksDB
+
 import P2P.Node
 import P2P.Peer
 import P2P.Session
@@ -85,13 +87,14 @@ withCutResources
     => CutDbConfig
     -> PeerResources logger
     -> logger
+    -> RocksDb
     -> WebBlockHeaderDb
     -> PayloadDb cas
     -> HTTP.Manager
     -> WebPactExecutionService
     -> (CutResources logger cas -> IO a)
     -> IO a
-withCutResources cutDbConfig peer logger webchain payloadDb mgr pact f = do
+withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
@@ -99,7 +102,10 @@ withCutResources cutDbConfig peer logger webchain payloadDb mgr pact f = do
     -- initialize payload store
     payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
 
-    withCutDb cutDbConfig (logFunction logger) headerStore payloadStore $ \cutDb ->
+    -- initialize cutHashes store
+    let cutHashesStore = cutHashesTable rdb
+
+    withCutDb cutDbConfig (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
         f $ CutResources
             { _cutResCutConfig  = cutDbConfig
             , _cutResPeer = peer

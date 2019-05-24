@@ -1,4 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -13,8 +15,6 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
--- TODO
 --
 module Chainweb.Payload.PayloadStore
 (
@@ -53,13 +53,21 @@ module Chainweb.Payload.PayloadStore
 
 , addPayload
 , addNewPayload
+
+-- * Exceptions
+, PayloadNotFoundException(..)
 ) where
 
+import Control.DeepSeq
+import Control.Exception
 import Control.Lens
 import Control.Monad.Trans.Maybe
 
 import Data.Foldable
+import Data.Hashable
 import qualified Data.Sequence as S
+
+import GHC.Generics
 
 -- internal modules
 
@@ -69,7 +77,11 @@ import Chainweb.Version
 
 import Data.CAS
 
-type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
+newtype PayloadNotFoundException = PayloadNotFoundException BlockPayloadHash
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData, Hashable)
+
+instance Exception PayloadNotFoundException
 
 -- -------------------------------------------------------------------------- --
 -- Transaction Database

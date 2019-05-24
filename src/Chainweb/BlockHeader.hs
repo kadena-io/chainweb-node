@@ -36,11 +36,15 @@ module Chainweb.BlockHeader
   BlockHeight(..)
 , encodeBlockHeight
 , decodeBlockHeight
+, encodeBlockHeightBe
+, decodeBlockHeightBe
 
 -- * Block Weight
 , BlockWeight(..)
 , encodeBlockWeight
 , decodeBlockWeight
+, encodeBlockWeightBe
+, decodeBlockWeightBe
 
 -- * Block Payload Hash
 , BlockPayloadHash(..)
@@ -180,6 +184,12 @@ encodeBlockHeight (BlockHeight h) = putWord64le h
 decodeBlockHeight :: MonadGet m => m BlockHeight
 decodeBlockHeight = BlockHeight <$> getWord64le
 
+encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
+encodeBlockHeightBe (BlockHeight r) = putWord64be r
+
+decodeBlockHeightBe :: MonadGet m => m BlockHeight
+decodeBlockHeightBe = BlockHeight <$> getWord64be
+
 -- -------------------------------------------------------------------------- --
 -- Block Weight
 --
@@ -204,9 +214,19 @@ instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
 
 encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
+{-# INLINE encodeBlockWeight #-}
 
 decodeBlockWeight :: MonadGet m => m BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
+{-# INLINE decodeBlockWeight #-}
+
+encodeBlockWeightBe :: MonadPut m => BlockWeight -> m ()
+encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
+{-# INLINE encodeBlockWeightBe #-}
+
+decodeBlockWeightBe :: MonadGet m => m BlockWeight
+decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
+{-# INLINE decodeBlockWeightBe #-}
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -650,10 +670,11 @@ instance FromJSON (ObjectEncoded BlockHeader) where
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
 
-
-newtype NewMinedBlock = NewMinedBlock (ObjectEncoded BlockHeader)
-  deriving (Show, Generic)
-  deriving newtype (Eq, ToJSON, NFData)
+data NewMinedBlock = NewMinedBlock
+    { _minedBlockHeader :: ObjectEncoded BlockHeader
+    , _minedBlockTrans :: Int }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

@@ -1,7 +1,10 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMem
@@ -12,6 +15,7 @@ module Chainweb.Mempool.InMem
 
     -- * Initialization functions
   , withInMemoryMempool
+  , withTestInMemoryMempool
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
@@ -28,7 +32,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar
     (MVar, modifyMVarMasked_, newEmptyMVar, newMVar, putMVar, readMVar,
     takeMVar, withMVarMasked)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
@@ -49,6 +53,7 @@ import Data.IORef
     writeIORef)
 import Data.Maybe (isJust)
 import Data.Ord (Down(..))
+import Data.Set (Set)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -63,10 +68,18 @@ import System.Timeout (timeout)
 
 -- internal imports
 
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
+import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Time as Time
+import Chainweb.Transaction
 import Chainweb.Utils (fromJuste)
 
+import Data.CAS
+import Data.CAS.RocksDB
+import Data.LogMessage (LogFunction)
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -74,7 +87,6 @@ type Priority = (Down GasPrice, Int64)
 
 toPriority :: GasPrice -> Int64 -> Priority
 toPriority r s = (Down r, s)
-
 
 ------------------------------------------------------------------------------
 -- | Priority search queue -- search by transaction hash in /O(log n)/ like a
@@ -136,7 +148,6 @@ broadcastTxs :: Vector t -> TxBroadcaster t -> IO ()
 broadcastTxs txs (TxBroadcaster _ _ q _) =
     -- TODO: timeout here?
     atomically $ void $ TBMChan.writeTBMChan q (Transactions txs)
-
 
 -- FIXME: read this from config
 tout :: TxBroadcaster t -> IO a -> IO (Maybe a)
@@ -245,14 +256,15 @@ data InMemConfig t = InMemConfig {
 
 
 ------------------------------------------------------------------------------
-data InMemoryMempool t = InMemoryMempool {
+data InMemoryMempool t cas = InMemoryMempool {
     _inmemCfg :: InMemConfig t
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
+  , _inmemBlockHeaderDb :: BlockHeaderDb
+  , _inmemPayloadStore :: Maybe (PayloadDb cas)
   -- TODO: reap expired transactions
 }
-
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
@@ -264,56 +276,78 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- here.
   , _inmemValidated :: IORef (HashMap TransactionHash (ValidatedTransaction t))
   , _inmemConfirmed :: IORef (HashSet TransactionHash)
+  , _inmemLastNewBlockParent :: Maybe (IORef BlockHeader)
 }
 
 
 ------------------------------------------------------------------------------
-makeInMemPool :: InMemConfig t -> TxBroadcaster t -> IO (InMemoryMempool t)
-makeInMemPool cfg txB = mask_ $ do
-    dataLock <- newData >>= newMVar
+makeInMemPool
+    :: InMemConfig t
+    -> TxBroadcaster t
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IO (InMemoryMempool t cas)
+makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
+    dataLock <- newData  >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid
-
+    return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb payloadDb
   where
     newData = InMemoryMempoolData <$> newIORef PSQ.empty
                                   <*> newIORef HashMap.empty
                                   <*> newIORef HashSet.empty
-
+                                  <*> return Nothing
 
 ------------------------------------------------------------------------------
-makeSelfFinalizingInMemPool :: InMemConfig t -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg =
+makeSelfFinalizingInMemPool :: PayloadCas cas
+                            => InMemConfig t
+                            -> BlockHeaderDb
+                            -> Maybe (PayloadDb cas)
+                            -> IO (MempoolBackend t)
+makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
-        mp <- makeInMemPool cfg txb
-        ref <- newIORef mp
+        mpool <- makeInMemPool cfg txb blockHeaderDb payloadStore
+        ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
-        let back = toMempoolBackend mp
+        back <- toMempoolBackend mpool
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back
-        return $! wrapBackend txcfg bsl (ref, wk)
+        let lastPar = mempoolLastNewBlockParent back
+        let procFork = mempoolProcessFork back
+        return $ wrapBackend txcfg bsl (ref, wk) lastPar procFork
 
-  where
-    withRef (ref, _wk) f = do
-        mp <- readIORef ref
-        x <- f (toMempoolBackend mp)
-        writeIORef ref mp
-        return x
-
-    wrapBackend txcfg bsl mp =
-        MempoolBackend txcfg bsl f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11
-      where
-        f1 = withRef mp . flip mempoolMember
-        f2 = withRef mp . flip mempoolLookup
-        f3 = withRef mp . flip mempoolInsert
-        f4 = withRef mp . flip mempoolGetBlock
-        f5 = withRef mp . flip mempoolMarkValidated
-        f6 = withRef mp . flip mempoolMarkConfirmed
-        f7 = withRef mp . flip mempoolReintroduce
-        f8 = withRef mp . flip mempoolGetPendingTransactions
-        f9 = withRef mp mempoolSubscribe
-        f10 = withRef mp mempoolShutdown
-        f11 = withRef mp mempoolClear
-
+----------------------------------------------------------------------------------------------------
+wrapBackend :: PayloadCas cas
+            => TransactionConfig t
+            -> Int64
+            -> (IORef (InMemoryMempool t cas), b)
+            -> Maybe (IORef BlockHeader)
+            -> (LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction))
+            -> MempoolBackend t
+wrapBackend txcfg bsl mp lastPar pFork =
+      MempoolBackend
+      { mempoolTxConfig = txcfg
+      , mempoolBlockGasLimit = bsl
+      , mempoolLastNewBlockParent = lastPar
+      , mempoolProcessFork = pFork
+      , mempoolMember = withRef mp . flip mempoolMember
+      , mempoolLookup = withRef mp . flip mempoolLookup
+      , mempoolInsert = withRef mp . flip mempoolInsert
+      , mempoolGetBlock = withRef mp . flip mempoolGetBlock
+      , mempoolMarkValidated = withRef mp . flip mempoolMarkValidated
+      , mempoolMarkConfirmed = withRef mp . flip mempoolMarkConfirmed
+      , mempoolReintroduce = withRef mp . flip mempoolReintroduce
+      , mempoolGetPendingTransactions = withRef mp . flip mempoolGetPendingTransactions
+      , mempoolSubscribe = withRef mp mempoolSubscribe
+      , mempoolShutdown = withRef mp mempoolShutdown
+      , mempoolClear = withRef mp mempoolClear
+      }
+    where
+      withRef (ref, _wk) f = do
+            mpl <- readIORef ref
+            mb <- toMempoolBackend mpl
+            x <- f mb
+            writeIORef ref mpl
+            return x
 
 ------------------------------------------------------------------------------
 reaperThread :: InMemConfig t
@@ -328,7 +362,7 @@ reaperThread cfg dataLock restore = forever $ do
     txcfg = _inmemTxCfg cfg
     expiryTime = txMetaExpiryTime . (txMetadata txcfg)
     interval = _inmemReaperIntervalMicros cfg
-    reap (InMemoryMempoolData pendingRef _ _) = do
+    reap (InMemoryMempoolData pendingRef _ _ _) = do
         now <- Time.getCurrentTimeIntegral
         modifyIORef' pendingRef $ reapPending now
 
@@ -338,45 +372,123 @@ reaperThread cfg dataLock restore = forever $ do
             tooOld = PSQ.fold' agg [] pending
         in foldl' (flip PSQ.delete) pending tooOld
 
-
 ------------------------------------------------------------------------------
-toMempoolBackend :: InMemoryMempool t -> MempoolBackend t
-toMempoolBackend (InMemoryMempool cfg@(InMemConfig tcfg blockSizeLimit _)
-                                  lock broadcaster _) =
-    MempoolBackend tcfg blockSizeLimit member lookup insert getBlock markValidated
-                   markConfirmed reintroduce getPending subscribe shutdown clear
+toMempoolBackend
+    :: PayloadCas cas
+    => InMemoryMempool t cas
+    -> IO (MempoolBackend t)
+toMempoolBackend mempool = do
+    lock <- readMVar lockMVar
+    let lastParentRef = _inmemLastNewBlockParent lock
+    return $ MempoolBackend
+      { mempoolTxConfig = tcfg
+      , mempoolBlockGasLimit = blockSizeLimit
+      , mempoolLastNewBlockParent = lastParentRef
+      , mempoolProcessFork = processFork
+      , mempoolMember = member
+      , mempoolLookup = lookup
+      , mempoolInsert = insert
+      , mempoolGetBlock = getBlock
+      , mempoolMarkValidated = markValidated
+      , mempoolMarkConfirmed = markConfirmed
+      , mempoolReintroduce = reintroduce
+      , mempoolGetPendingTransactions = getPending
+      , mempoolSubscribe = subscribe
+      , mempoolShutdown = shutdown
+      , mempoolClear = clear
+      }
   where
-    member = memberInMem lock
-    lookup = lookupInMem lock
-    insert = insertInMem broadcaster cfg lock
-    getBlock = getBlockInMem cfg lock
-    markValidated = markValidatedInMem cfg lock
-    markConfirmed = markConfirmedInMem lock
-    reintroduce = reintroduceInMem broadcaster cfg lock
-    getPending = getPendingInMem cfg lock
+    cfg = _inmemCfg mempool
+    lockMVar = _inmemDataLock mempool
+    blockHeaderDb = _inmemBlockHeaderDb mempool
+    payloadStore = _inmemPayloadStore mempool
+    broadcaster = _inmemBroadcaster mempool
+
+    InMemConfig tcfg blockSizeLimit _ = cfg
+    member = memberInMem lockMVar
+    lookup = lookupInMem lockMVar
+    insert = insertInMem broadcaster cfg lockMVar
+    getBlock = getBlockInMem cfg lockMVar
+    markValidated = markValidatedInMem cfg lockMVar
+    markConfirmed = markConfirmedInMem lockMVar
+    processFork = processForkInMem lockMVar blockHeaderDb payloadStore
+    reintroduce = reintroduceInMem broadcaster cfg lockMVar
+    getPending = getPendingInMem cfg lockMVar
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
-    clear = clearInMem lock
-
+    clear = clearInMem lockMVar
 
 ------------------------------------------------------------------------------
+inMemPayloadLookup
+    :: forall cas . PayloadCas cas
+    => Maybe (PayloadDb cas)
+    -> BlockHeader
+    -> IO (Set ChainwebTransaction)
+inMemPayloadLookup payloadStore bh =
+    case payloadStore of
+        Nothing -> return mempty
+        Just s -> do
+            pwo <- casLookupM' s (_blockPayloadHash bh)
+            MPCon.chainwebTxsFromPWO pwo
+  where
+    casLookupM' s h = do
+        x <- casLookup s h
+        case x of
+            Nothing -> throwIO $ PayloadNotFoundException h
+            Just pwo -> return pwo
+
+------------------------------------------------------------------------------
+processForkInMem :: PayloadCas cas
+                 => MVar (InMemoryMempoolData t)
+                 -> BlockHeaderDb
+                 -> Maybe (PayloadDb cas)
+                 -> LogFunction
+                 -> BlockHeader
+                 -> IO (Vector ChainwebTransaction)
+processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
+    theData <- readMVar lock
+    -- convert: Maybe (IORef BlockHeader) -> Maybe BlockHeader
+    lastHeader <- traverse readIORef (_inmemLastNewBlockParent theData)
+
+    MPCon.processFork logFun blockHeaderDb newHeader lastHeader
+        (inMemPayloadLookup payloadStore)
+
 -- | A 'bracket' function for in-memory mempools.
-withInMemoryMempool :: InMemConfig t
+withInMemoryMempool :: PayloadCas cas
+                    => InMemConfig t
+                    -> BlockHeaderDb
+                    -> Maybe (PayloadDb cas)
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg f = withTxBroadcaster $ \txB ->
-                            bracket (init txB) destroyInMemPool go
-  where
-    init = makeInMemPool cfg
-    go = f . toMempoolBackend
-
-
-------------------------------------------------------------------------------
-destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
-
+withInMemoryMempool cfg blockHeaderDb payloadDb f =
+    withTxBroadcaster $ \txB -> do
+        let inMemIO = makeInMemPool cfg txB blockHeaderDb payloadDb
+        let action inMem = do
+              back <- toMempoolBackend inMem
+              f back
+        bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
+withTestInMemoryMempool
+    :: forall a t . InMemConfig t
+    -> ((RocksDb -> IO a) -> IO a)
+    -> (RocksDb -> (BlockHeaderDb -> IO a) -> IO a)
+    -> (MempoolBackend t -> IO a) -> IO a
+withTestInMemoryMempool cfg withRocks withBlocks withMempool =
+    withRocks $ \rocksDb ->
+    withBlocks rocksDb $ \blockHeaderDb ->
+    withTxBroadcaster $ \txB -> do
+        let inMemIO = makeInMemPool cfg txB blockHeaderDb (Nothing :: Maybe (PayloadDb RocksDbCas))
+            action inMem = do
+              back <- toMempoolBackend inMem
+              withMempool back
+        bracket inMemIO destroyInMemPool action
+
+------------------------------------------------------------------------------
+destroyInMemPool :: InMemoryMempool t cas -> IO ()
+destroyInMemPool (InMemoryMempool _ _ _ tid _ _) = killThread tid
+
+-------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector Bool)
@@ -393,7 +505,6 @@ memberInMem lock txs = do
         PSQ.member txHash q ||
         HashMap.member txHash validated ||
         HashSet.member txHash confirmed
-
 
 ------------------------------------------------------------------------------
 lookupInMem :: MVar (InMemoryMempoolData t)
@@ -413,8 +524,8 @@ lookupInMem lock txs = do
         lookupConfirmed confirmed txHash <|>
         pure Missing
 
-    lookupQ q txHash = fmap (Pending . snd) $ PSQ.lookup txHash q
-    lookupVal val txHash = fmap Validated $ HashMap.lookup txHash val
+    lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
+    lookupVal val txHash = Validated <$> HashMap.lookup txHash val
     lookupConfirmed confirmed txHash =
         if HashSet.member txHash confirmed
           then Just Confirmed
@@ -436,10 +547,8 @@ insertInMem :: TxBroadcaster t  -- ^ transaction broadcaster
             -> IO ()
 insertInMem broadcaster cfg lock txs = do
     newTxs <- withMVarMasked lock $ \mdata ->
-                  ((V.map fst . V.filter ((==True) . snd)) <$>
-                   V.mapM (insOne mdata) txs)
+        V.map fst . V.filter ((==True) . snd) <$> V.mapM (insOne mdata) txs
     broadcastTxs newTxs broadcaster
-
   where
     txcfg = _inmemTxCfg cfg
     validateTx = txValidate txcfg
@@ -501,7 +610,7 @@ markValidatedInMem :: InMemConfig t
                    -> MVar (InMemoryMempoolData t)
                    -> Vector (ValidatedTransaction t)
                    -> IO ()
-markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata -> do
+markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata ->
     V.mapM_ (validateOne mdata) txs
   where
     hash = txHasher $ _inmemTxCfg cfg
@@ -553,16 +662,15 @@ getPendingInMem cfg lock callback = do
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $ V.fromList $ dl []
 
-
 ------------------------------------------------------------------------------
-reintroduceInMem :: TxBroadcaster t
+reintroduceInMem' :: TxBroadcaster t
                  -> InMemConfig t
                  -> MVar (InMemoryMempoolData t)
                  -> Vector TransactionHash
                  -> IO ()
-reintroduceInMem broadcaster cfg lock txhashes = do
+reintroduceInMem' broadcaster cfg lock txhashes = do
     newOnes <- withMVarMasked lock $ \mdata ->
-                   (V.map fromJuste . V.filter isJust) <$>
+                   V.map fromJuste . V.filter isJust <$>
                    V.mapM (reintroduceOne mdata) txhashes
     -- we'll rebroadcast reintroduced transactions, clients can filter.
     broadcastTxs newOnes broadcaster
@@ -577,19 +685,29 @@ reintroduceInMem broadcaster cfg lock txhashes = do
     reintroduceOne mdata txhash = do
         m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
         maybe (return Nothing) (reintroduceIt mdata txhash) m
-    reintroduceIt mdata txhash (ValidatedTransaction _ tx) = do
+    reintroduceIt mdata txhash (ValidatedTransaction _ _ tx) = do
         modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
         modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
         return $! Just tx
 
+------------------------------------------------------------------------------
+reintroduceInMem :: TxBroadcaster t
+                 -> InMemConfig t
+                 -> MVar (InMemoryMempoolData t)
+                 -> Vector t
+                 -> IO ()
+reintroduceInMem broadcaster cfg lock txs =
+    reintroduceInMem' broadcaster cfg lock (V.map hashIt txs)
+  where
+    hashIt = txHasher $ _inmemTxCfg cfg
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
 clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) $ PSQ.empty
-        writeIORef (_inmemValidated mdata) $ HashMap.empty
-        writeIORef (_inmemConfirmed mdata) $ HashSet.empty
+        writeIORef (_inmemPending mdata) PSQ.empty
+        writeIORef (_inmemValidated mdata) HashMap.empty
+        writeIORef (_inmemConfirmed mdata) HashSet.empty
         -- we won't reset the broadcaster but that's ok, the same one can be
         -- re-used
 

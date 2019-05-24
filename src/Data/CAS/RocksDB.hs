@@ -74,6 +74,14 @@ module Data.CAS.RocksDB
 , iterToValueStream
 , iterToKeyStream
 
+-- ** Extremal Table Entries
+, tableMaxKey
+, tableMaxValue
+, tableMaxEntry
+, tableMinKey
+, tableMinValue
+, tableMinEntry
+
 -- * RocksDbCas
 , RocksDbCas(..)
 , newCas
@@ -302,6 +310,32 @@ iterToKeyStream it = liftIO (tableIterKey it) >>= \case
     Just x -> S.yield x >> tableIterNext it >> iterToKeyStream it
 {-# INLINE iterToKeyStream #-}
 
+-- Extremal Table Entries
+
+tableMaxKey :: RocksDbTable k v -> IO (Maybe k)
+tableMaxKey = flip withTableIter $ \i -> tableIterLast i *> tableIterKey i
+{-# INLINE tableMaxKey #-}
+
+tableMaxValue :: RocksDbTable k v -> IO (Maybe v)
+tableMaxValue = flip withTableIter $ \i -> tableIterLast i *> tableIterValue i
+{-# INLINE tableMaxValue #-}
+
+tableMaxEntry :: RocksDbTable k v -> IO (Maybe (k, v))
+tableMaxEntry = flip withTableIter $ \i -> tableIterLast i *> tableIterEntry i
+{-# INLINE tableMaxEntry #-}
+
+tableMinKey :: RocksDbTable k v -> IO (Maybe k)
+tableMinKey = flip withTableIter $ \i -> tableIterFirst i *> tableIterKey i
+{-# INLINE tableMinKey #-}
+
+tableMinValue :: RocksDbTable k v -> IO (Maybe v)
+tableMinValue = flip withTableIter $ \i -> tableIterFirst i *> tableIterValue i
+{-# INLINE tableMinValue #-}
+
+tableMinEntry :: RocksDbTable k v -> IO (Maybe (k, v))
+tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
+{-# INLINE tableMinEntry #-}
+
 -- -------------------------------------------------------------------------- --
 -- CAS
 
@@ -321,7 +355,7 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 -- is required. A type synonym isn't doesn't work in this situation because
 -- type synonyms must be fully applied.
 --
-newtype RocksDbCas v = RocksDbCas (RocksDbTable (CasKeyType v) v)
+newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
 
 instance IsCasValue v => IsCas (RocksDbCas v) where
     type instance CasValueType (RocksDbCas v) = v

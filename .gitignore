@@ -19,6 +19,8 @@ cabal.sandbox.config
 *.hp
 *.eventlog
 .stack-work/
+stack.yaml.lock
+trans.yaml
 cabal.project.local
 .HTF/
 tags
@@ -27,6 +29,7 @@ codex.tags
 result
 result-*
 .ghc.environment.*
+.ghci
 *~
 \#*
 .stylish-haskell.yaml
@@ -34,6 +37,7 @@ public
 log
 report.html
 .hlint.yaml
+hlint.hs
 *.svg
 *.png
 *.graphml
