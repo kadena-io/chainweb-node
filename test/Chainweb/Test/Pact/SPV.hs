@@ -116,16 +116,20 @@ expectedSuccess msg test = do
 -- tests
 
 standard :: Assertion
-standard = expectedSuccess "round trip" (roundtrip 0 1 txGenerator1 txGenerator2)
+standard = expectedSuccess "round trip" $
+    roundtrip 0 1 txGenerator1 txGenerator2
 
 doublespend :: Assertion
-doublespend = expectedFailure "double spend" (roundtrip 0 1 txGenerator1 txGenerator3)
+doublespend = expectedFailure "double spend" $
+    roundtrip 0 1 txGenerator1 txGenerator3
 
 wrongchain :: Assertion
-wrongchain = expectedFailure  "wrong chain execution" (roundtrip 0 1 txGenerator1 txGenerator4)
+wrongchain = expectedFailure "wrong chain execution" $
+    roundtrip 0 1 txGenerator1 txGenerator4
 
 badproof :: Assertion
-badproof = expectedFailure "wrong proof format" (roundtrip 0 1 txGenerator1 txGenerator5)
+badproof = expectedFailure "wrong proof format" $
+    roundtrip 0 1 txGenerator1 txGenerator5
 
 roundtrip
     :: Int
@@ -137,18 +141,19 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip isid itid burn create = do
+roundtrip sid0 tid0 getBurn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
-            sid <- mkChainId v isid
-            tid <- mkChainId v itid
+            sid <- mkChainId v sid0
+            tid <- mkChainId v tid0
 
             -- pact service, that is used to extend the cut data base
-            pact1 <- testWebPactExecutionService v (Just cdb) $ burn tid
+            burn <- getBurn tid
+            pact1 <- testWebPactExecutionService v (Just cdb) burn
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
@@ -156,7 +161,7 @@ roundtrip isid itid burn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -190,7 +195,7 @@ roundtrip isid itid burn create = do
             void $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
-            return (True, "success")
+            return (True, "test succeeded")
 
 -- -------------------------------------------------------------------------- --
 -- transaction generators
@@ -199,7 +204,7 @@ type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Chainweb.ChainId -> TransactionGenerator
+    = Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
     = MVar (CutDb RocksDbCas) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
@@ -207,15 +212,22 @@ type CreatesGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 tid _cid _bhe _bha _ = do
-    ks <- testKeyPairs
-
-    let pcid = Pact.ChainId $ chainIdToText _cid
-        g = ParsedInteger 100
-        gr = ParsedDecimal 0.0001
-
-    mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+txGenerator1 tid = do
+    ref <- newIORef False
+    return $ go ref
   where
+    go ref _cid _bhe _bha _ = readIORef ref >>= \case
+        True -> return mempty
+        False -> do
+            ks <- testKeyPairs
+
+            let pcid = Pact.ChainId $ chainIdToText _cid
+                g = ParsedInteger 100
+                gr = ParsedDecimal 0.0001
+
+            mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+                `finally` writeIORef ref True
+
     txs = fromList [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =
