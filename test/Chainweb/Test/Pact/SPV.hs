@@ -38,6 +38,7 @@ import Data.Default
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
+import Data.Text (pack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 
@@ -98,19 +99,25 @@ gorder = int . order . _chainGraph $ v
 height :: Chainweb.ChainId -> Cut -> BlockHeight
 height cid c = _blockHeight $ c ^?! ixg cid
 
-handle :: SomeException -> IO (Bool, String)
-handle e = return (False, show e)
+_handle :: SomeException -> IO (Bool, String)
+_handle e = return (False, show e)
+
+handle' :: SomeException -> IO (Bool, String)
+handle' e =
+    let
+      s = show e
+    in logg System.LogLevel.Error (pack s) >> return (False, s)
 
 -- expected failures take this form
 expectedFailure :: String -> IO (Bool, String) -> Assertion
 expectedFailure msg test = do
-    (b, s) <- catch test handle
-    assertBool ("Unexpected success: " <> msg <> " should fail: " <> s) (not b)
+    (b, s) <- catch test handle'
+    assertBool ("Unexpected success [" <> msg <> "]: " <> s) (not b)
 
 expectedSuccess :: String -> IO (Bool, String) -> Assertion
 expectedSuccess msg test = do
-    (b, s) <- catch test handle
-    assertBool ("Unexpected failure: " <> msg <> " should succeed: " <> s) b
+    (b, s) <- catch test handle'
+    assertBool ("Unexpected failure [" <> msg <> "]: " <> s) b
 
 -- -------------------------------------------------------------------------- --
 -- tests

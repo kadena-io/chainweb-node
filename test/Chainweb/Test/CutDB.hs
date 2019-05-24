@@ -205,7 +205,7 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
 
     checkCut prev cur = do
         unless (prev < cur) $ error
-            "New cut is not larger that previous one. This is but in Chainweb.Test.CutDB"
+            "New cut is not larger that previous one. This is in Chainweb.Test.CutDB"
         return cur
 
 -- | Wait for the cutdb to produce at least one new cut, that is different from
