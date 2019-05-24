@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -28,13 +30,13 @@ module Chainweb.Chainweb.ChainResources
 , runMempoolSyncClient
 ) where
 
+import Chainweb.Time
+
 import Control.Concurrent.MVar (MVar)
-import Control.Exception (SomeAsyncException)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.IORef
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -60,6 +62,7 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Payload
@@ -75,6 +78,7 @@ import Data.CAS
 import Data.CAS.RocksDB
 
 import P2P.Node
+import P2P.Node.Configuration
 import P2P.Session
 
 import qualified Servant.Client as Sv
@@ -177,57 +181,56 @@ runMempoolSyncClient
     :: Logger logger
     => HTTP.Manager
         -- ^ HTTP connection pool
+    -> MempoolP2pConfig
     -> ChainResources logger
         -- ^ chain resources
     -> IO ()
-runMempoolSyncClient mgr chain = bracket create destroy go
+runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
   where
     create = do
         logg Debug "starting mempool p2p sync"
         p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr $
-            mempoolSyncP2pSession chain
+            mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
     go n = do
         -- Run P2P client node
-        logg Info "mempool sync p2p node initialized, starting session"
+        logg Debug "mempool sync p2p node initialized, starting session"
         p2pStartNode p2pConfig n
 
-    destroy n = p2pStopNode n `finally` logg Info "mempool sync p2p node stopped"
+    destroy n = p2pStopNode n `finally` logg Debug "mempool sync p2p node stopped"
 
     v = _chainwebVersion chain
     peer = _peerResPeer $ _chainResPeer chain
-    p2pConfig = _peerResConfig $ _chainResPeer chain
+    p2pConfig = _peerResConfig (_chainResPeer chain)
+        & set p2pConfigMaxSessionCount (_mempoolP2pConfigMaxSessionCount memP2pConfig)
+        & set p2pConfigSessionTimeout (_mempoolP2pConfigSessionTimeout memP2pConfig)
     peerDb = _peerResDb $ _chainResPeer chain
     netId = ChainNetwork $ _chainId chain
 
     logg = logFunctionText syncLogger
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
-mempoolSyncP2pSession :: ChainResources logger -> P2pSession
-mempoolSyncP2pSession chain logg0 env _ = newIORef False >>= go
+mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
+mempoolSyncP2pSession chain pollInterval logg0 env _ =
+    flip catches [ Handler errorHandler ] $ do
+        logg Debug "mempool sync session starting"
+        Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+        logg Debug "mempool sync session finished"
+        return True
   where
-    syncIntervalUs = 10000000
-    go ref = flip catches [ Handler (asyncHandler ref) , Handler errorHandler ] $ do
-             logg Debug "mempool sync session starting"
-             peerMp <-  peerMempool
-             Mempool.syncMempools' logg syncIntervalUs pool peerMp (writeIORef ref True)
-             logg Debug "mempool sync session finished"
-             readIORef ref
+    syncIntervalUs = int pollInterval * 1000000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
-    asyncHandler ref (_ :: SomeAsyncException) = do
-        logg Debug "mempool sync session cancelled"
-        -- We return True (ok) iff the mempool successfully finished initial sync.
-        readIORef ref
-
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-    peerMempool = do
+
+    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
+      where
         -- no sync needed / wanted for lastNewBlockParent attribute:
-        let noLastPar = Nothing
-        return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
+        noLastPar = Nothing
+
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool
