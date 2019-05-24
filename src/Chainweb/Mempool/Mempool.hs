@@ -298,7 +298,7 @@ syncMempools' log0 us localMempool remoteMempool =
 
             -- Count number of missing hashes and decide if there @tooMany@
             let !newCnt = cnt + fromIntegral newMissingCnt
-            let !tooMany' = (newCnt >= maxCnt)
+            let !tooMany' = newCnt >= maxCnt
 
             -- Update the SyncState
             writeIORef syncState $!
@@ -335,7 +335,7 @@ syncMempools' log0 us localMempool remoteMempool =
             , " need to be fetched)"
             ]
 
-        numPushed <- fmap snd $ concurrently
+        numPushed <- snd <$> concurrently
 
             -- Go fetch missing transactions from remote
             (traverse_ fetchMissing missingChunks)
