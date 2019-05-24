@@ -131,7 +131,7 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO Bool
-roundtrip _sid _tid burn create = do
+roundtrip _sid _tid getBurn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -142,7 +142,8 @@ roundtrip _sid _tid burn create = do
             tid <- mkChainId v _tid
 
             -- pact service, that is used to extend the cut data base
-            pact1 <- testWebPactExecutionService v (Just cdb) $ burn tid
+            burn <- getBurn tid
+            pact1 <- testWebPactExecutionService v (Just cdb) burn
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
@@ -150,7 +151,7 @@ roundtrip _sid _tid burn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -173,7 +174,7 @@ roundtrip _sid _tid burn create = do
             -- `diameter(graph)` apart.
 
             c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
-                height tid c > diam + height tid c0
+                height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)
@@ -193,7 +194,7 @@ type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Chainweb.ChainId -> TransactionGenerator
+    = Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
     = MVar (CutDb RocksDbCas) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
@@ -201,15 +202,22 @@ type CreatesGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 tid _cid _bhe _bha _ = do
-    ks <- testKeyPairs
-
-    let pcid = Pact.ChainId $ chainIdToText _cid
-        g = ParsedInteger 100
-        gr = ParsedDecimal 0.0001
-
-    mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+txGenerator1 tid = do
+    ref <- newIORef False
+    return $ go ref
   where
+    go ref _cid _bhe _bha _ = readIORef ref >>= \case
+        True -> return mempty
+        False -> do
+            ks <- testKeyPairs
+
+            let pcid = Pact.ChainId $ chainIdToText _cid
+                g = ParsedInteger 100
+                gr = ParsedDecimal 0.0001
+
+            mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+                `finally` writeIORef ref True
+
     txs = fromList [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =

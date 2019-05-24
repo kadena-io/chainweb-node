@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -36,6 +37,7 @@ import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
 import Control.Monad
 
+import Data.Foldable
 import Data.Function
 import qualified Data.Sequence as Seq
 import Data.Tuple.Strict
@@ -196,7 +198,15 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
     Left _ -> return Nothing
     Right c -> return (Just c)
   where
-    gen = void $! S.effects $ extendTestCutDb cdb pact i
+    gen = void
+        $ S.foldM_ checkCut (return (-1)) return
+        $ S.map (view (_1 . cutHeight))
+        $ extendTestCutDb cdb pact i
+
+    checkCut prev cur = do
+        unless (prev < cur) $ error
+            "New cut is not larger that previous one. This is but in Chainweb.Test.CutDB"
+        return cur
 
 -- | Wait for the cutdb to produce at least one new cut, that is different from
 -- the given cut.
@@ -317,8 +327,8 @@ startLocalPayloadStore mgr payloadDb = do
     mem <- new
     return $ (server, WebBlockPayloadStore payloadDb mem queue (\_ _ -> return ()) mgr fakePact)
 
--- | Build a linear chainweb (no forks). No POW or poison delay is applied.
--- Block times are real times.
+-- | Build a linear chainweb (no forks, assuming single threaded use of the
+-- cutDb). No POW or poison delay is applied. Block times are real times.
 --
 mine
     :: HasCallStack
@@ -332,14 +342,38 @@ mine
     -> Cut
     -> IO (Cut, ChainId, PayloadWithOutputs)
 mine miner pact cutDb c = do
-    -- pick chain
-    cid <- randomChainId cutDb
+
+    -- Pick a chain that isn't blocked. With that mining is guaranteed to
+    -- succeed if
+    --
+    -- * there are no other writers to the cut db,
+    -- * the chainweb is in a consistent state,
+    -- * the pact execution service is synced with the cutdb, and
+    -- * the transaction generator produces valid blocks.
+    cid <- getRandomUnblockedChain c
 
     tryMine miner pact cutDb c cid >>= \case
-        Left _ -> mine miner pact cutDb c
+        Left _ -> error
+            "Failed to create new cut. This is a bug in Test.Chainweb.CutDB or one of it's users"
         Right x -> do
-            void $ awaitCut cutDb $ ((>=) `on` _cutHeight) (view _1 x)
+            void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
+
+-- | Return a random chain id from a cut that is not blocked.
+--
+getRandomUnblockedChain :: Cut -> IO ChainId
+getRandomUnblockedChain c = do
+    shuffled <- generate $ shuffle $ toList $ _cutMap c
+    S.each shuffled
+        & S.filter isUnblocked
+        & S.map _blockChainId
+        & S.head_
+        & fmap fromJuste
+  where
+    isUnblocked h =
+        let bh = _blockHeight h
+            cid = _blockChainId h
+        in all (>= bh) $ fmap _blockHeight $ toList $ cutAdjs c cid
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
