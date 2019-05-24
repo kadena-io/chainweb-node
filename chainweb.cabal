@@ -195,6 +195,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.MemoryDb
         , Chainweb.Pact.Backend.RelationalCheckpointer

@@ -24,7 +24,6 @@ import Pact.Types.Logger (Logger(..))
 
 -- pact
 import Pact.Types.SQLite
-import Pact.Types.Pretty
 import Pact.Types.Runtime
 
 -- chainweb
@@ -32,6 +31,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 
 initRelationalCheckpointer ::
      Db -> Logger -> GasEnv -> IO CheckpointEnv
@@ -69,12 +69,10 @@ initRelationalCheckpointerNew db loggr gasEnv = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 innerRestore :: Db -> BlockHeight -> BlockHash -> Maybe ExecutionMode -> IO (Either String (BlockEnv SQLiteEnv))
-innerRestore dbenv bh hsh mmode = runBlockEnv dbenv $ do
+innerRestore dbenv bh hsh _mmode = runBlockEnv dbenv $ do
   e <- tryAny $ do
     withPreBlockSavepoint $ do
-      bsMode .= mmode
-      v <- detectVersionChange bh hsh
-      versionUpdate v
+      handleVersion bh hsh
     beginSavepoint "BLOCK"
   case e of
     Left err -> return $ Left ("restore :" <> show err)
@@ -120,7 +118,3 @@ innerDiscard dbenv = do
   return $ case result of
     Left err -> Left $ "discard: " <> show err
     Right _ -> Right ()
-
-expectSingle :: Show a => String -> [a] -> IO a
-expectSingle _ [s] = return s
-expectSingle desc v = throwDbError $ "Expected single-" <> prettyString desc <> " result, got: " <> viaShow v
