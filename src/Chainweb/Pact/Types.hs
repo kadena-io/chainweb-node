@@ -14,9 +14,7 @@
 --
 -- Pact Types module for Chainweb
 module Chainweb.Pact.Types
-  ( FullLogTxOutput(..)
-  , HashedLogTxOutput(..)
-  , PactDbStatePersist(..)
+  ( PactDbStatePersist(..)
   , Transactions(..)
   , MemPoolAccess
   , MinerInfo(..)
@@ -28,10 +26,6 @@ module Chainweb.Pact.Types
     -- * types
   , PactServiceM
     -- * optics
-  , flCommandResult
-  , flTxLogs
-  , hlCommandResult
-  , hlTxLogHash
   , minerAccount
   , minerKeys
   , pdbspRestoreFile
@@ -47,9 +41,9 @@ module Chainweb.Pact.Types
   , emptyPayload
   , noMiner
   , noCoinbase
+  , HashCommandResult
     -- * module exports
   , module Chainweb.Pact.Backend.Types
-  , toHashedLogTxOutput
   ) where
 
 import Control.Lens hiding ((.=))
@@ -66,11 +60,12 @@ import Data.Vector (Vector)
 -- internal pact modules
 
 import Pact.Types.ChainMeta (PublicData(..))
-import Pact.Types.Command (CommandSuccess(..))
+import Pact.Types.Command
 import qualified Pact.Types.Hash as H
-import Pact.Types.Persistence (TxLog(..))
+import Pact.Types.PactValue
+import Pact.Types.Exp
 import Pact.Types.Runtime (SPVSupport(..))
-import Pact.Types.Term (KeySet(..), Name(..), Term, tStr)
+import Pact.Types.Term (KeySet(..), Name(..))
 
 -- internal chainweb modules
 
@@ -81,53 +76,12 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
+type HashCommandResult = CommandResult H.Hash
+
 data Transactions = Transactions
-    { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
-    , _transactionCoinbase :: FullLogTxOutput
+    { _transactionPairs :: Vector (Transaction, HashCommandResult)
+    , _transactionCoinbase :: HashCommandResult
     } deriving (Eq,Show)
-
-data FullLogTxOutput = FullLogTxOutput
-    { _flCommandResult :: Value
-    , _flTxLogs :: [TxLog Value]
-    } deriving (Show, Eq)
-
-instance FromJSON FullLogTxOutput where
-    parseJSON = withObject "TransactionOutput" $ \o -> FullLogTxOutput
-        <$> o .: "flCommandResult"
-        <*> o .: "flTxLogs"
-    {-# INLINE parseJSON #-}
-
-instance ToJSON FullLogTxOutput where
-    toJSON o = object
-        [ "flCommandResult" .= _flCommandResult o
-        , "flTxLogs" .= _flTxLogs o]
-    {-# INLINE toJSON #-}
-
-data HashedLogTxOutput = HashedLogTxOutput
-    { _hlCommandResult :: Value
-    , _hlTxLogHash :: H.Hash
-    } deriving (Eq, Show)
-
-instance FromJSON HashedLogTxOutput where
-    parseJSON = withObject "TransactionOutput" $ \o -> HashedLogTxOutput
-        <$> o .: "hlCommandResult"
-        <*> o .: "hlTxLogs"
-    {-# INLINE parseJSON #-}
-
-instance ToJSON HashedLogTxOutput where
-    toJSON o = object
-        [ "hlCommandResult" .= _hlCommandResult o
-        , "hlTxLogs" .= _hlTxLogHash o]
-    {-# INLINE toJSON #-}
-
-toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
-toHashedLogTxOutput FullLogTxOutput{..} =
-    HashedLogTxOutput
-        { _hlCommandResult = _flCommandResult
-        , _hlTxLogHash = H.toUntypedHash hashed }
-  where
-    hashed :: H.PactHash
-    hashed = H.hash $ encodeToByteString _flTxLogs
 
 type MinerKeys = KeySet
 
@@ -157,8 +111,10 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 noMiner :: MinerInfo
 noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
 
-noCoinbase :: FullLogTxOutput
-noCoinbase = FullLogTxOutput (toJSON $ CommandSuccess (tStr "NO_COINBASE" :: Term Name)) []
+noCoinbase :: CommandResult a
+noCoinbase = CommandResult (RequestKey H.pactInitialHash) Nothing
+             (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
+             0 Nothing Nothing Nothing
 
 toMinerData :: MinerInfo -> MinerData
 toMinerData = MinerData . encodeToByteString
@@ -166,10 +122,10 @@ toMinerData = MinerData . encodeToByteString
 fromMinerData :: MonadThrow m => MinerData -> m MinerInfo
 fromMinerData = decodeStrictOrThrow . _minerData
 
-toCoinbaseOutput :: FullLogTxOutput -> CoinbaseOutput
-toCoinbaseOutput = CoinbaseOutput . encodeToByteString . toHashedLogTxOutput
+toCoinbaseOutput :: HashCommandResult -> CoinbaseOutput
+toCoinbaseOutput = CoinbaseOutput . encodeToByteString
 
-fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m  HashedLogTxOutput
+fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m HashCommandResult
 fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
 
 -- Keyset taken from cp examples in Pact
@@ -204,7 +160,5 @@ type MemPoolAccess = BlockHeight -> BlockHash -> BlockHeader -> IO (Vector Chain
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
-makeLenses ''FullLogTxOutput
-makeLenses ''HashedLogTxOutput
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState

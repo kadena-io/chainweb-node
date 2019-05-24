@@ -25,13 +25,11 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Pact.Types.Command
-import Data.Aeson (Value)
-import Control.Exception
 import Chainweb.Transaction
 
 
-newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg -> IO (MVar (Either PactException PayloadWithOutputs))
+newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg ->
+            IO (MVar (Either PactException PayloadWithOutputs))
 newBlock mi bHeader reqQ = do
     resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let msg = NewBlockMsg NewBlockReq
@@ -55,7 +53,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either SomeException (CommandSuccess Value)))
+local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     resultVar <- newEmptyMVar
     let msg = LocalMsg LocalReq

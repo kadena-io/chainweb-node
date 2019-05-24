@@ -1,11 +1,6 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -25,7 +20,6 @@ module Chainweb.Pact.PactService
     , mkPureState
     , serviceRequests
     , createCoinContract
-    , toHashedLogTxOutput
     , initialPayloadState
     , transactionsFromPayload
     , restoreCheckpointer
@@ -196,15 +190,15 @@ serviceRequests memPoolAccess reqQ = do
             LocalMsg LocalReq{..} -> do
                 r <- try $ execLocal _localRequest
                 case r of
-                  Left e -> liftIO $ putMVar _localResultVar $ Left e
-                  Right r' -> liftIO $ putMVar _localResultVar r'
+                  Left (SomeException e) -> liftIO $ putMVar _localResultVar $ toPactInternalError e
+                  Right r' -> liftIO $ putMVar _localResultVar $ Right r'
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
-                    liftIO $ putMVar _newResultVar $ Left $ PactInternalError $ T.pack $ show e
+                    liftIO $ putMVar _newResultVar $ toPactInternalError e
                   Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
@@ -212,10 +206,11 @@ serviceRequests memPoolAccess reqQ = do
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
-                    liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
+                    liftIO $ putMVar _valResultVar $ toPactInternalError e
                   Right r ->
                     liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
+    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
 
 toTransactionBytes :: P.Command ByteString -> Transaction
@@ -223,11 +218,13 @@ toTransactionBytes cwTrans =
     let plBytes = encodeToByteString cwTrans
     in Transaction { _transactionBytes = plBytes }
 
-toOutputBytes :: FullLogTxOutput -> TransactionOutput
-toOutputBytes flOut =
-    let hashedLogOut = toHashedLogTxOutput flOut
-        outBytes = A.encode hashedLogOut
+
+toOutputBytes :: HashCommandResult -> TransactionOutput
+toOutputBytes cr =
+    let outBytes = A.encode cr
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
+
+
 
 toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
@@ -243,6 +240,7 @@ toPayloadWithOutputs mi ts =
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
+
 
 validateHashes :: PayloadWithOutputs -> BlockHeader -> Either PactException PayloadWithOutputs
 validateHashes pwo bHeader =
@@ -308,7 +306,7 @@ execNewGenesisBlock miner newTrans = do
 
 
 execLocal :: ChainwebTransaction ->
-             PactServiceM (Either SomeException (P.CommandSuccess A.Value))
+             PactServiceM HashCommandResult
 execLocal cmd = do
 
   bh <- use psStateValidated >>= \v -> case v of
@@ -330,7 +328,7 @@ execLocal cmd = do
 
   discardCheckpointer
 
-  return (fmap (\(P.CommandSuccess t) -> P.CommandSuccess (A.toJSON t)) r)
+  return $! toHashCommandResult r
 
 
 
@@ -407,20 +405,17 @@ runCoinbase
     :: Maybe BlockHash
     -> Env'
     -> MinerInfo
-    -> PactServiceM FullLogTxOutput
+    -> PactServiceM HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
+runCoinbase (Just _parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
       pd = _psPublicData psEnv
       logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  (result, txLogs) <- liftIO $ applyCoinbase logger dbEnv mi reward pd
+  toHashCommandResult <$> liftIO (applyCoinbase logger dbEnv mi reward pd)
 
-  let output = A.object [ "result" A..= P._crResult result, "parentHash" A..= parentHash]
-
-  pure $! FullLogTxOutput output txLogs
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
@@ -428,7 +423,7 @@ applyPactCmds
     -> Env'
     -> Vector (P.Command PayloadWithText)
     -> MinerInfo
-    -> PactServiceM (Vector FullLogTxOutput)
+    -> PactServiceM (Vector HashCommandResult)
 applyPactCmds isGenesis env' cmds miner = V.mapM f cmds
   where
       f cmd = applyPactCmd isGenesis env' cmd miner
@@ -439,7 +434,7 @@ applyPactCmd
     -> Env'
     -> P.Command PayloadWithText
     -> MinerInfo
-    -> PactServiceM FullLogTxOutput
+    -> PactServiceM HashCommandResult
 applyPactCmd isGenesis (Env' dbEnv) cmdIn miner = do
     psEnv <- ask
     let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
@@ -449,11 +444,14 @@ applyPactCmd isGenesis (Env' dbEnv) cmdIn miner = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let cmd = payloadObj <$> cmdIn
-    (result, txLogs) <- liftIO $! if isGenesis
+    result <- liftIO $! if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd
 
-    pure $! FullLogTxOutput (P._crResult result) txLogs
+    pure $! toHashCommandResult result
+
+toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
+toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)
 
 updateState :: PactDbState  -> PactServiceM ()
 updateState = assign psStateDb
