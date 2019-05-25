@@ -154,6 +154,8 @@ roundtrip _sid _tid getBurn create = do
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
 
+
+
             -- A proof can only be constructed if the block hash of the source
             -- block is included in the block hash of the target. Extending the
             -- cut db with `distance(source, target) * order(graph) + 2 *
@@ -216,7 +218,7 @@ txGenerator1 tid = do
                 gr = ParsedDecimal 0.0001
 
             mkPactTestTransactions "sender00" pcid ks "1" g gr txs
-                `finally` writeIORef ref True
+                `finally` writeIORef ref False
 
     txs = fromList [ PactTransaction tx1Code tx1Data ]
 
