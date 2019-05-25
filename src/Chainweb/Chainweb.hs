@@ -68,6 +68,7 @@ module Chainweb.Chainweb
 , chainwebPayloadDb
 , chainwebPactData
 , chainwebThrottler
+, chainwebConfig
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -123,6 +124,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import qualified Chainweb.Pact.BloomCache as Bloom
@@ -173,6 +175,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
     , _configThrottleRate :: !Natural
+    , _configMempoolP2p :: !MempoolP2pConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -195,6 +198,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
     , _configThrottleRate = 1000
+    , _configMempoolP2p = defaultMempoolP2pConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -206,6 +210,7 @@ instance ToJSON ChainwebConfiguration where
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
         , "throttleRate" .= _configThrottleRate o
+        , "mempoolP2p" .= _configMempoolP2p o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -217,6 +222,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottleRate ..: "throttleRate" % o
+        <*< configMempoolP2p %.: "mempoolP2p" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -238,6 +244,7 @@ pChainwebConfiguration = id
     <*< configThrottleRate .:: option auto
         % long "throttle-rate"
         <> help "how many requests per second are accepted from another node before it is being throttled"
+    <*< configMempoolP2p %:: pMempoolP2pConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -254,6 +261,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
+    , _chainwebConfig :: !ChainwebConfiguration
     }
 
 makeLenses ''Chainweb
@@ -295,6 +303,11 @@ withChainweb c logger rocksDb inner =
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
+-- TODO: The type InMempoolConfig contains parameters that should be
+-- configurable as well as parameters that are determined by the chainweb
+-- version or the chainweb protocol. These should be separated in to two
+-- different types.
+--
 mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
 mempoolConfig = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
@@ -373,6 +386,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
                     , _chainwebManager = mgr
                     , _chainwebPactData = pactData
                     , _chainwebThrottler = throttler
+                    , _chainwebConfig = conf
                     }
 
     withPactData cs cuts m
@@ -466,16 +480,12 @@ runChainweb cw = do
         let clients :: [IO ()]
             clients = concat
                 [ miner
-                    -- FIXME: should we start mining with some delay, so
-                    -- that the block header base is up to date?
                 , cutNetworks mgr (_chainwebCutResources cw)
-                -- , map (runChainSyncClient mgr) chainVals
-                    -- TODO: reenable once full payload and adjacent parent validation
-                    -- is implemented for ChainSyncClient
-                , map (runMempoolSyncClient mempoolMgr) chainVals
+                , map (runMempoolSyncClient mempoolMgr mempoolP2pConfig) chainVals
                 ]
 
         mapConcurrently_ id clients
         wait server
   where
     logg = logFunctionText $ _chainwebLogger cw
+    mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw

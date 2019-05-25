@@ -1,11 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -20,7 +17,6 @@ module Chainweb.Test.Pact.PactExec
 ) where
 
 import Data.Aeson
-import qualified Data.HashMap.Strict as HM
 import Data.String.Conv (toS)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -42,11 +38,13 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
+import Pact.Types.Command
+
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "Simple pact execution tests"
+tests = testGroupSch "Chainweb.Test.Pact.PactExec"
     [ withPactCtx testVersion Nothing $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2
@@ -74,8 +72,8 @@ data TestSource = File FilePath | Code String
   deriving (Show, Generic, ToJSON)
 
 data TestResponse = TestResponse
-    { _trOutputs :: ![(TestSource, FullLogTxOutput)]
-    , _trCoinBaseOutput :: !FullLogTxOutput
+    { _trOutputs :: ![(TestSource, HashCommandResult)]
+    , _trCoinBaseOutput :: !HashCommandResult
     }
     deriving (Generic, ToJSON)
 
@@ -146,11 +144,10 @@ getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
-checkSuccessOnly :: FullLogTxOutput -> Assertion
-checkSuccessOnly resp =
-    case _flCommandResult resp of
-        (Object o) -> HM.lookup "status" o @?= Just "success"
-        _ -> assertFailure "Status returned does not equal \"success\""
+checkSuccessOnly :: HashCommandResult -> Assertion
+checkSuccessOnly CommandResult{..} = case _crResult of
+  PactResult (Right _) -> return ()
+  r -> assertFailure $ "Failure status returned: " ++ show r
 
 checkSuccessOnly' :: String -> IO TestResponse -> ScheduledTest
 checkSuccessOnly' msg f = testCaseSch msg $ do
@@ -170,10 +167,10 @@ fileCompareTxLogs label respIO = goldenSch label $ do
         : (result <$> _trOutputs resp)
   where
     result (cmd, out) = object
-        [ "output" .= _flTxLogs out
+        [ "output" .= _crLogs out
         , "cmd" .= cmd
         ]
     coinbase out = object
-        [ "output" .= _flTxLogs out
+        [ "output" .= _crLogs out
         , "cmd" .= ("coinbase" :: String)
         ]

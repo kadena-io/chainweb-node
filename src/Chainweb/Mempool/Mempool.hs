@@ -33,6 +33,7 @@ module Chainweb.Mempool.Mempool
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
 import Control.Exception
@@ -47,7 +48,7 @@ import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Decimal (Decimal, DecimalRaw(..))
-import Data.Foldable (foldl', traverse_)
+import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -241,44 +242,69 @@ data SyncState = SyncState {
 --
 -- The sync procedure:
 --
---    1. begin subscription with remote's mempool
---    2. get the list of pending transaction hashes from remote.
---    3. lookup any hashes that are missing, and insert them into local
---    4. push any hashes remote is missing
---    5. block forever, waiting to be killed (subscription will still be active.)
+--    1. get the list of pending transaction hashes from remote,
+--    2. lookup any hashes that are missing, and insert them into local,
+--    3. push any hashes remote is missing,
+--    4. sleep the given number of microseconds.
 --
--- Blocks until killed, or until the underlying mempool connection throws an
+-- Loops until killed, or until the underlying mempool connection throws an
 -- exception.
-
+--
 syncMempools'
     :: Show t
     => LogFunctionText
-    -> Int                  -- ^ polling interval in microseconds
-    -> MempoolBackend t     -- ^ local mempool
-    -> MempoolBackend t     -- ^ remote mempool
-    -> IO ()                -- ^ on initial sync complete
+    -> Int
+        -- ^ polling interval in microseconds
+    -> MempoolBackend t
+        -- ^ local mempool
+    -> MempoolBackend t
+        -- ^ remote mempool
     -> IO ()
-syncMempools' log0 us localMempool remoteMempool onInitialSyncComplete =
+syncMempools' log0 us localMempool remoteMempool =
     runForever log0 "mempool-sync-session" $ sync >> threadDelay us
 
   where
-    maxCnt = 10000   -- don't pull more than this many new transactions from a
-                     -- single peer in a session.
+    maxCnt = 10000
+        -- don't pull more than this many new transactions from a single peer in
+        -- a session.
 
-    syncChunk missing hashes = do
-        (SyncState cnt chunks presentAtRemote tooMany) <- readIORef missing
-        res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
-        let !newMissing = V.map snd $ V.filter (not . fst) res
-        let !newMissingCnt = V.length newMissing
+    -- This function is called for each chunk of pending hashes in the the remote mempool.
+    --
+    -- The 'SyncState' collects
+    -- * the total count of hashes that are missing from the local pool,
+    -- * chunks of hashes that are missing from the local pool,
+    -- * the set of hashes that is available locally but missing from the remote pool, and
+    -- * whether there are @tooMany@ missing hashes.
+    --
+    -- When we already collected @tooMany@ missing hashes we stop updating the sync state
+    --
+    -- TODO: would it help if 'mempoolGetPendingTransactions' would provide an option for early
+    -- termination in case we got @tooMany@ missing hashes?
+    --
+    syncChunk syncState hashes = do
+        (SyncState cnt chunks remoteHashes tooMany) <- readIORef syncState
+
+        -- If there are too many missing hashes we stop collecting
+        --
         when (not tooMany) $ do
-            let !presentAtRemote' = V.foldl' (flip HashSet.insert) presentAtRemote hashes
-            let !newCnt = cnt + fromIntegral newMissingCnt
-            let !tooMany' = (newCnt >= maxCnt)
 
-            writeIORef missing $!
+            -- Collect remote hashes that are missing from the local pool
+            res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
+            let !newMissing = V.map snd $ V.filter (not . fst) res
+            let !newMissingCnt = V.length newMissing
+
+            -- Collect set of all remote hashes
+            let !remoteHashes' = V.foldl' (flip HashSet.insert) remoteHashes hashes
+
+            -- Count number of missing hashes and decide if there @tooMany@
+            let !newCnt = cnt + fromIntegral newMissingCnt
+            let !tooMany' = newCnt >= maxCnt
+
+            -- Update the SyncState
+            writeIORef syncState $!
                 if tooMany'
-                    then SyncState cnt chunks presentAtRemote True
-                    else SyncState newCnt (newMissing : chunks) presentAtRemote' False
+                    then SyncState cnt chunks remoteHashes True
+                    else SyncState newCnt (newMissing : chunks) remoteHashes' False
 
     fromPending (Pending t) = t
     fromPending _ = error "impossible"
@@ -296,47 +322,44 @@ syncMempools' log0 us localMempool remoteMempool onInitialSyncComplete =
 
     sync = flip finally (deb "sync finished") $ do
         deb "Get pending hashes from remote"
-        missing <- newIORef $! SyncState 0 [] HashSet.empty False
-        mempoolGetPendingTransactions remoteMempool $ syncChunk missing
-        (SyncState _ missingChunks presentHashes _) <- readIORef missing
 
-        let numMissingFromLocal = foldl' (+) 0 (map V.length missingChunks)
-        let numPresentAtRemote = HashSet.size presentHashes
+        -- Intialize and collect SyncState
+        syncState <- newIORef $! SyncState 0 [] HashSet.empty False
+        mempoolGetPendingTransactions remoteMempool $ syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
 
-        deb $ T.concat [
-            sshow (numMissingFromLocal + numPresentAtRemote)
-          , " hashes at remote ("
-          , sshow numMissingFromLocal
-          , " need to be fetched)"
-          ]
+        deb $ T.concat
+            [ sshow (HashSet.size remoteHashes)
+            , " hashes at remote ("
+            , sshow numMissingFromLocal
+            , " need to be fetched)"
+            ]
 
-        -- Go fetch missing transactions from remote
-        traverse_ fetchMissing missingChunks
+        numPushed <- snd <$> concurrently
 
-        -- Push our missing txs to remote.
-        numPushed <- push presentHashes
-        deb $ T.concat [
-            "pushed "
-          , sshow numPushed
-          , " new transactions to remote."
-          ]
+            -- Go fetch missing transactions from remote
+            (traverse_ fetchMissing missingChunks)
 
-        -- We're done syncing. If we cut off the sync session because of too
-        -- many remote txs, we are free to go now, but otherwise we'll block
-        -- indefinitely waiting for the p2p session to kill us (and slurping
-        -- from the remote subscription queue).
-        onInitialSyncComplete
+            -- Push our missing txs to remote.
+            (push remoteHashes)
+
+        deb $ "pushed " <> sshow numPushed <> " new transactions to remote."
         deb "sync complete, sleeping"
 
-    push presentHashes = do
+    -- Push transactions that are available locally but are missing from the
+    -- remote pool to the remote pool.
+    --
+    push remoteHashes = do
         ref <- newIORef 0
         mempoolGetPendingTransactions localMempool $ \chunk -> do
-            let chunk' = V.filter (not . flip HashSet.member presentHashes) chunk
+            let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
             when (not $ V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
         readIORef ref
 
+    -- Send a chunk of tranactions to the remote pool.
+    --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
         when (not $ V.null v) $ mempoolInsert remoteMempool v
@@ -350,7 +373,7 @@ syncMempools
     -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
 syncMempools log us localMempool remoteMempool =
-    syncMempools' log us localMempool remoteMempool (return ())
+    syncMempools' log us localMempool remoteMempool
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.
