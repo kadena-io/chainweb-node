@@ -61,7 +61,6 @@ import Text.Pretty.Simple (pPrintNoColor)
 
 -- PACT
 import Pact.ApiReq
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
@@ -128,9 +127,7 @@ generateSimpleTransactions = do
 
       let publicmeta = CM.PublicMeta
                        (CM.ChainId $ chainIdToText cid)
-                       ("sender" <> toText cid)
-                       (ParsedInteger 10)
-                       (ParsedDecimal 0.0001)
+                       ("sender" <> toText cid) 10 0.0001
           theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
       mkExec theCode theData publicmeta kps Nothing
 
@@ -325,7 +322,7 @@ listenerRequestKey config host listenerRequest = do
   TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
   runClientM (listen v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
-    Right r -> print (_crResult r) >> exitSuccess
+    Right r -> print r >> exitSuccess
   where
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
@@ -422,7 +419,7 @@ poll version chainid = go
   where
     _ :<|> go :<|> _ :<|> _ = api version chainid
 
-listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM (CommandResult H.Hash)
+listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ListenResponse
 listen version chainid = go
   where
     _ :<|> _ :<|> go :<|> _ = api version chainid

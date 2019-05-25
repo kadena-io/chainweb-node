@@ -55,7 +55,6 @@ import Test.Tasty
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -132,10 +131,7 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    let g = ParsedInteger 100
-        r = ParsedDecimal 0.0001
-
-    mkPactTestTransactions "sender00" "0" ks "1" g r txs
+    mkPactTestTransactions "sender00" "0" ks "1" 100 0.0001 txs
 
 -- Make pact transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -150,9 +146,9 @@ mkPactTestTransactions
     -- ^ signer keys
     -> Text
     -- ^ nonce
-    -> ParsedInteger
+    -> GasLimit
     -- ^ starting gas
-    -> ParsedDecimal
+    -> GasPrice
     -- ^ gas rate
     -> Vector PactTransaction
     -- ^ the pact transactions with data to run

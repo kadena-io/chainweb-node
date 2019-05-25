@@ -44,7 +44,6 @@ import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
-import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Int (Int64)
@@ -67,10 +66,10 @@ import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
 import Pact.Types.Term (DefName(..), ModuleName(..))
+import Pact.Parse (ParsedDecimal)
 
 -- internal Chainweb modules
 
-import Chainweb.Orphans ()
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
@@ -188,7 +187,7 @@ applyCoinbase
     :: Logger
     -> PactDbEnv p
     -> MinerInfo
-    -> Decimal
+    -> ParsedDecimal
     -> PublicData
     -> IO (CommandResult [TxLog Value])
 applyCoinbase logger dbEnv minerInfo reward pd = do
@@ -390,12 +389,12 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv prevLogs
   where
-    redeemGasCmd :: Int64 -> Decimal -> PactId -> ContMsg
+    redeemGasCmd :: Int64 -> GasPrice -> PactId -> ContMsg
     redeemGasCmd fee total pid = ContMsg pid 1 False (object
       [ "fee" .= feeOf total fee
       ]) Nothing
 
-    feeOf total fee = total - fromIntegral @Int64 @Decimal fee
+    feeOf total fee = total - fromIntegral @Int64 @GasPrice fee
 
 -- | The miner reward function (i.e. 'coinbase'). Miners are rewarded
 -- on a per-block, rather than a per-transaction basis.
@@ -405,7 +404,7 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
 coinbase
     :: CommandEnv p
     -> MinerInfo  -- ^ Account to associate reward
-    -> Decimal    -- ^ Reward amount
+    -> ParsedDecimal    -- ^ Reward amount
     -> RequestKey -- ^ Hash for exec, request key
     -> IO (CommandResult [TxLog Value])
 coinbase env (MinerInfo minerId minerKeys) reward rk@(RequestKey h) = do
@@ -424,7 +423,7 @@ mkBuyGasCmd
     :: Text    -- ^ Id of the miner to fund
     -> KeySet  -- ^ Miner keyset
     -> Text    -- ^ Address of the sender from the command
-    -> Decimal -- ^ The gas limit total * price
+    -> GasPrice -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd minerId minerKeys sender total =
     buildExecParsedCode buyGasData
@@ -438,7 +437,7 @@ mkBuyGasCmd minerId minerKeys sender total =
       ]
 {-# INLINABLE mkBuyGasCmd #-}
 
-mkCoinbaseCmd :: Text -> KeySet -> Decimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd :: Text -> KeySet -> ParsedDecimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd minerId minerKeys reward =
     buildExecParsedCode coinbaseData
       [text|
@@ -491,8 +490,8 @@ publicMetaOf = _pMeta . _cmdPayload
 gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
 gasSupplyOf cmd =
   let (GasLimit l) = gasLimitOf cmd
-      (GasPrice p) = gasPriceOf cmd
-  in GasSupply $ (fromIntegral @Word64 @Decimal l) * p
+      p = gasPriceOf cmd
+  in GasSupply $ (fromIntegral @Word64 @GasPrice l) * p
 {-# INLINABLE gasSupplyOf #-}
 
 -- | Log request keys at DEBUG when successful

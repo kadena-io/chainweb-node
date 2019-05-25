@@ -126,7 +126,6 @@ library
         , Chainweb.Miner.POW
         , Chainweb.Miner.Test
         , Chainweb.NodeId
-        , Chainweb.Orphans
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.RocksDB
@@ -203,7 +202,6 @@ library
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
-        , Chainweb.Pact.RestAPI.Orphans
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi

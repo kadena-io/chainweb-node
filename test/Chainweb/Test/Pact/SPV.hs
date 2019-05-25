@@ -44,7 +44,6 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import Pact.Parse
 import Pact.Types.ChainMeta as Pact
 import Pact.Types.Term
 
@@ -205,10 +204,8 @@ txGenerator1 tid _cid _bhe _bha _ = do
     ks <- testKeyPairs
 
     let pcid = Pact.ChainId $ chainIdToText _cid
-        g = ParsedInteger 100
-        gr = ParsedDecimal 0.0001
 
-    mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+    mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
   where
     txs = fromList [ PactTransaction tx1Code tx1Data ]
 
@@ -250,12 +247,10 @@ txGenerator2 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
 
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -286,11 +281,9 @@ txGenerator3 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -321,11 +314,9 @@ txGenerator4 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -352,11 +343,9 @@ txGenerator5 _cdbv _ tid _ = do
             False -> do
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
                     `finally` writeIORef ref True
 
     txs = fromList

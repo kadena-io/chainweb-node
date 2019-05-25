@@ -52,7 +52,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson
-import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -66,6 +65,7 @@ import Pact.Types.PactValue
 import Pact.Types.Exp
 import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Gas
 
 -- internal chainweb modules
 
@@ -140,7 +140,7 @@ data PactDbStatePersist = PactDbStatePersist
     , _pdbspPactDbState :: PactDbState
     }
 
-newtype GasSupply = GasSupply { _gasSupply :: Decimal }
+newtype GasSupply = GasSupply { _gasSupply :: GasPrice }
 
 data PactServiceEnv = PactServiceEnv
   { _psMempoolAccess :: Maybe MemPoolAccess
