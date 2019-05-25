@@ -29,7 +29,7 @@ module Chainweb.Test.Pact.SPV
 ) where
 
 import Control.Concurrent.MVar (MVar, readMVar, newMVar)
-import Control.Exception (SomeException, finally)
+import Control.Exception (SomeException, finally, throwIO)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
@@ -38,6 +38,7 @@ import Data.Default
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
+import Data.List (isInfixOf)
 import Data.Text (pack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
@@ -99,43 +100,49 @@ gorder = int . order . _chainGraph $ v
 height :: Chainweb.ChainId -> Cut -> BlockHeight
 height cid c = _blockHeight $ c ^?! ixg cid
 
-_handle :: SomeException -> IO (Bool, String)
-_handle e = return (False, show e)
+handle :: SomeException -> IO (Bool, String)
+handle e = return (False, show e)
 
-handle' :: SomeException -> IO (Bool, String)
-handle' e =
+-- debugging
+_handle' :: SomeException -> IO (Bool, String)
+_handle' e =
     let
       s = show e
     in logg System.LogLevel.Error (pack s) >> return (False, s)
 
--- expected failures take this form
-expectedFailure :: String -> IO (Bool, String) -> Assertion
-expectedFailure msg test = do
-    (b, s) <- catch test handle'
-    assertBool ("Unexpected success [" <> msg <> "]: " <> s) (not b)
+-- | expected failures take this form.
+--
+expectFailure :: String -> IO (Bool, String) -> Assertion
+expectFailure err test = do
+    (b, s) <- catch test handle
+    if err `isInfixOf` s then
+      assertBool "Unexpected success" $ not b
+    else throwIO $ userError s
 
-expectedSuccess :: String -> IO (Bool, String) -> Assertion
-expectedSuccess msg test = do
-    (b, s) <- catch test handle'
-    assertBool ("Unexpected failure [" <> msg <> "]: " <> s) b
+
+-- | expected successes take this form
+--
+expectSuccess :: IO (Bool, String) -> Assertion
+expectSuccess test = do
+    (b, s) <- catch test handle
+    assertBool ("Unexpected failure: " <> s) b
 
 -- -------------------------------------------------------------------------- --
 -- tests
 
 standard :: Assertion
-standard = expectedSuccess "round trip" $
-    roundtrip 0 1 txGenerator1 txGenerator2
+standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
 
 doublespend :: Assertion
-doublespend = expectedFailure "double spend" $
+doublespend = expectFailure "Tx Failed: enforce unique usage" $
     roundtrip 0 1 txGenerator1 txGenerator3
 
 wrongchain :: Assertion
-wrongchain = expectedFailure "wrong chain execution" $
+wrongchain = expectFailure "Tx Failed: enforce correct create chain ID" $
     roundtrip 0 1 txGenerator1 txGenerator4
 
 badproof :: Assertion
-badproof = expectedFailure "wrong proof format" $
+badproof = expectFailure "SPV verify failed: key \"chain\" not present" $
     roundtrip 0 1 txGenerator1 txGenerator5
 
 roundtrip
@@ -168,10 +175,9 @@ roundtrip sid0 tid0 getBurn create = do
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
+
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
-
-
 
             -- A proof can only be constructed if the block hash of the source
             -- block is included in the block hash of the target. Extending the
@@ -256,7 +262,8 @@ txGenerator1 tid = do
 
       in Just $ object
          [ "sender01-keyset" .= ks
-         , "target-chain-id" .= chainIdToText tid ]
+         , "target-chain-id" .= chainIdToText tid
+         ]
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
@@ -285,9 +292,7 @@ txGenerator2 cdbv sid tid bhe = do
                 mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
                     `finally` writeIORef ref True
 
-    txs q = fromList
-      [ PactTransaction tx1Code (tx1Data q)
-      ]
+    txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
 
     tx1Code =
       [text|
@@ -386,9 +391,7 @@ txGenerator5 _cdbv _ tid _ = do
                 mkPactTestTransactions "sender00" pcid ks "1" g gr txs
                     `finally` writeIORef ref True
 
-    txs = fromList
-      [ PactTransaction tx1Code Nothing
-      ]
+    txs = fromList [ PactTransaction tx1Code Nothing ]
 
     tx1Code =
       [text|

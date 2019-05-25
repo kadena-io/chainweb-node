@@ -71,20 +71,20 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
     -- extract spv resources from pact object
     go s o cdb = case s of
       "TXOUT" -> txOutputProofOf o >>= \case
-          Left e -> spvError e
+          Left e -> return $ Left e
           Right t -> verifyTransactionOutputProof cdb t
             >>= extractOutputs
-      "TXIN" -> spvError "TXIN is currently unsupported"
-      x -> spvError
+      "TXIN" -> return $ Left "TXIN is currently unsupported"
+      x -> return . Left
         $ "TXIN or TXOUT must be specified to generate valid spv proofs: "
         <> x
 
     txOutputProofOf :: Object Name -> IO (Either Text (TransactionOutputProof SHA512t_256))
     txOutputProofOf o =
       case toPactValue $ TObject o def of
-        Left e -> spvError e
+        Left e -> return $ Left e
         Right t -> case fromJSON . toJSON $ t of
-          Error e -> spvError' e
+          Error e -> return . Left $ pack e
           Success u -> return $ Right u
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
@@ -96,10 +96,10 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
           (TObject o _) -> return $ Right o
           o -> do
             logLog l "ERROR" $ show o
-            spvError' "type error in associated pact transaction, should be object"
+            return . Left $ pack "type error in associated pact transaction, should be object"
         Just o -> do
           logLog l "ERROR" $ show o
-          spvError' "Invalid command result in associated pact output"
+          return . Left $ pack "Invalid command result in associated pact output"
 
 
 -- | Look up pact tx hash at some block height in the
@@ -119,7 +119,7 @@ getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap (fmap _blockPayloadHash)
         $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
-            Nothing -> spvError "unable to find payload associated with transaction hash"
+            Nothing -> return $ Left "unable to find payload associated with transaction hash"
             Just x -> return $ Right x
 
     case ph of
@@ -135,7 +135,7 @@ getTxIdx bdb pdb bh th = do
           & sindex (== th)
 
         case r of
-          Nothing -> spvError "unable to find transaction at the given block height"
+          Nothing -> return $ Left "unable to find transaction at the given block height"
           Just x -> return $ Right (int x)
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
@@ -149,14 +149,3 @@ getTxIdx bdb pdb bh th = do
 
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
-
--- -------------------------------------------------------------------------- --
--- utilities
-
--- | Prepend "spvSupport" to any errors so we can differentiate messages
---
-spvError :: Text -> IO (Either Text a)
-spvError = return . Left . (<>) "spvSupport: "
-
-spvError' :: String -> IO (Either Text a)
-spvError' = spvError . pack
