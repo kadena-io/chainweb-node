@@ -226,7 +226,7 @@ extendAwaitRetryN
 extendAwaitRetryN _ _ _ 0 _ = throwM $
     userError "Cut extension retry limit exceeded. This is a bug in Chainweb.Test.CutDb"
 extendAwaitRetryN cdb pact i n p = extendAwait cdb pact i p >>= \case
-    Nothing -> extendAwaitRetryN cdb pact i (pred n) p
+    Nothing -> extendAwaitRetryN cdb pact 1 (pred n) p
     Just c -> return c
 
 -- | Wait for the cutdb to produce at least one new cut, that is different from
