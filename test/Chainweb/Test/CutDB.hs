@@ -36,6 +36,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
 import Control.Monad
+import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
@@ -199,13 +200,15 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
     Right c -> return (Just c)
   where
     gen = void
-        $ S.foldM_ checkCut (return (-1)) return
+        $ S.foldM_ checkCut (return 0) return
         $ S.map (view (_1 . cutHeight))
         $ extendTestCutDb cdb pact i
 
     checkCut prev cur = do
-        unless (prev < cur) $ error
-            "New cut is not larger that previous one. This is in Chainweb.Test.CutDB"
+        unless (prev < cur) $ throwM $ InternalInvariantViolation $ unexpectedMsg
+            "New cut is not larger than the previous one. This is bug in Chainweb.Test.CutDB"
+            (Expected prev)
+            (Actual cur)
         return cur
 
 -- | Wait for the cutdb to produce at least one new cut, that is different from
@@ -353,7 +356,7 @@ mine miner pact cutDb c = do
     cid <- getRandomUnblockedChain c
 
     tryMine miner pact cutDb c cid >>= \case
-        Left _ -> error
+        Left _ -> throwM $ InternalInvariantViolation
             "Failed to create new cut. This is a bug in Test.Chainweb.CutDB or one of it's users"
         Right x -> do
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
