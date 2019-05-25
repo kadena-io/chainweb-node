@@ -45,6 +45,8 @@ import Data.Vector (Vector, fromList)
 
 import NeatInterpolation (text)
 
+import Numeric.Natural
+
 import System.LogLevel
 
 import Test.Tasty
@@ -131,31 +133,33 @@ expectSuccess test = do
 -- tests
 
 standard :: Assertion
-standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
+standard = expectSuccess $ roundtrip 0 1 10 txGenerator1 txGenerator2
 
 doublespend :: Assertion
 doublespend = expectFailure "Tx Failed: enforce unique usage" $
-    roundtrip 0 1 txGenerator1 txGenerator3
+    roundtrip 0 1 10 txGenerator1 txGenerator3
 
 wrongchain :: Assertion
 wrongchain = expectFailure "Tx Failed: enforce correct create chain ID" $
-    roundtrip 0 1 txGenerator1 txGenerator4
+    roundtrip 0 1 10 txGenerator1 txGenerator4
 
 badproof :: Assertion
 badproof = expectFailure "SPV verify failed: key \"chain\" not present" $
-    roundtrip 0 1 txGenerator1 txGenerator5
+    roundtrip 0 1 10 txGenerator1 txGenerator5
 
 roundtrip
     :: Int
       -- ^ source chain id
     -> Int
       -- ^ target chain id
+    -> Natural
+      -- ^ # of retries if cut db extensions fail
     -> BurnGenerator
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip sid0 tid0 burn create = do
+roundtrip sid0 tid0 retries burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -176,7 +180,7 @@ roundtrip sid0 tid0 burn create = do
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
 
-            c1 <- fmap fromJuste $ extendAwait cutDb pact1 (diam * gorder) $
+            c1 <- retryMaybeN retries $ extendAwait cutDb pact1 (diam * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -198,7 +202,7 @@ roundtrip sid0 tid0 burn create = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 60 $ \c ->
+            c2 <- retryMaybeN retries $ extendAwait cutDb pact1 60 $ \c ->
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
@@ -207,10 +211,14 @@ roundtrip sid0 tid0 burn create = do
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ extendAwait cutDb pact2 (diam * gorder)
+            void $ retryMaybeN retries $ extendAwait cutDb pact2 (diam * gorder)
                 $ ((<) `on` height tid) c2
 
             return (True, "test succeeded")
+  where
+      retryMaybeN :: Natural -> IO (Maybe a) -> IO a
+      retryMaybeN 0 _ = throwIO $ userError "Retries exceeded while extending cut db"
+      retryMaybeN n action = action >>= maybe (retryMaybeN (pred n) action) return
 
 -- -------------------------------------------------------------------------- --
 -- transaction generators
