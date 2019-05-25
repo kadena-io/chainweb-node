@@ -155,7 +155,7 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip sid0 tid0 getBurn create = do
+roundtrip sid0 tid0 burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -166,8 +166,8 @@ roundtrip sid0 tid0 getBurn create = do
             tid <- mkChainId v tid0
 
             -- pact service, that is used to extend the cut data base
-            burn <- getBurn tid
-            pact1 <- testWebPactExecutionService v (Just cdb) burn
+            txGen1 <- burn sid tid
+            pact1 <- testWebPactExecutionService v (Just cdb) txGen1
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
@@ -219,19 +219,22 @@ type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Chainweb.ChainId -> IO TransactionGenerator
+    = Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
     = MVar (CutDb RocksDbCas) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
 
+
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 tid = do
+txGenerator1 sid tid = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref _cid _bhe _bha _ = readIORef ref >>= \case
+    go ref _cid _bhe _bha _
+      | sid /= _cid = return mempty
+      | otherwise = readIORef ref >>= \case
         True -> return mempty
         False -> do
             ks <- testKeyPairs
