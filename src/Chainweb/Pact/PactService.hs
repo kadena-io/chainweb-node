@@ -172,7 +172,7 @@ createCoinContract v cid mpa = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader v cid
-    txs <- execValidateBlock (mpaSetLastHeader mpa) True genesisHeader inputPayloadData
+    txs <- execValidateBlock mpa True genesisHeader inputPayloadData
     bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
@@ -197,7 +197,7 @@ serviceRequests memPoolAccess reqQ = do
                   Right r' -> liftIO $ putMVar _localResultVar $ Right r'
                 go
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- try $ execNewBlock (mpaGetBlock memPoolAccess) _newBlockHeader _newMiner
+                txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
@@ -205,7 +205,7 @@ serviceRequests memPoolAccess reqQ = do
                   Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock (mpaSetLastHeader memPoolAccess)
+                txs <- try $ execValidateBlock memPoolAccess
                              False _valBlockHeader _valPayloadData
                 case txs of
                   Left (SomeException e) -> do
@@ -278,16 +278,23 @@ liftCPErr = either internalError' return
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
 execNewBlock
-    :: (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
+    :: MemPoolAccess
     -> BlockHeader
     -> MinerInfo
     -> PactServiceM PayloadWithOutputs
-execNewBlock mpGetBlock header miner = do
+execNewBlock mpAccess header miner = do
     let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
-    logInfo "execNewBlock, about to call memPoolAccess"
-    newTrans <- liftIO $! mpGetBlock bHeight bHash header
+    logInfo $ "execNewBlock, about to get call processFork: "
+           <> " (height = " <> sshow bHeight <> ")"
+           <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaProcessFork mpAccess header
+
+    logInfo $ "execNewBlock, about to get new block from mempool: "
+           <> " (height = " <> sshow bHeight <> ")"
+           <> " (hash = " <> sshow bHash <> ")"
+    newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
 
     restoreCheckpointer $ Just (bHeight, bHash)
 
@@ -296,7 +303,6 @@ execNewBlock mpGetBlock header miner = do
       execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer
-
     return $! toPayloadWithOutputs miner results
 
 
@@ -359,19 +365,28 @@ logDebug = logg "DEBUG"
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
 execValidateBlock
-    :: (BlockHeader -> IO ())
+    :: MemPoolAccess
     -> Bool
     -> BlockHeader
     -> PayloadData
     -> PactServiceM PayloadWithOutputs
-execValidateBlock setLastHeader loadingGenesis currHeader plData = do
-    liftIO $ setLastHeader currHeader
-    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
-
+execValidateBlock mpAccess loadingGenesis currHeader plData = do
     let bHeight@(BlockHeight bh) = _blockHeight currHeader
-        bParent = _blockParent currHeader
         bHash = _blockHash currHeader
+        bParent = _blockParent currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
+
+    logInfo $ "execValidateBlock, about to get call processFork (height = "
+        <> sshow bHeight <> ")"
+        <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaProcessFork mpAccess currHeader
+
+    logInfo $ "execValidateBlock, about to get call setLastHeader: "
+        <> " (height = " <> sshow bHeight <> ")"
+        <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaSetLastHeader mpAccess currHeader
+
+    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
 
     unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
       ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++
