@@ -17,7 +17,6 @@ module Chainweb.Mempool.Consensus
 import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S hiding (toList)
 
-import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
@@ -26,7 +25,6 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Either
 import Data.Foldable (toList)
-import Data.IORef
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -39,7 +37,6 @@ import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.Mempool.InMemTypes
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -51,15 +48,11 @@ processFork
     :: Ord x
     => LogFunction
     -> BlockHeaderDb
-    -> MVar (InMemoryMempoolData t)
     -> BlockHeader
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
-processFork logFun db lock newHeader lastHeaderM payloadLookup = do
-    --save newHeader as the "lastHeader" for the next time through
-    theData <- readMVar lock
-    atomicWriteIORef (_inmemLastNewBlockParent theData) (Just newHeader)
+processFork logFun db newHeader lastHeaderM payloadLookup = do
     case lastHeaderM of
         Nothing -> do
             let logg = logFun :: LogLevel -> T.Text -> IO ()
@@ -92,8 +85,8 @@ processFork logFun db lock newHeader lastHeaderM payloadLookup = do
 
                       -- create data for the dashboard showing number or reintroduced transacitons:
                       let !reIntro = ReintroducedTxs
-                            { oldForkHeader = (ObjectEncoded lastHeader)
-                            , newForkHeader = (ObjectEncoded newHeader)
+                            { oldForkHeader = ObjectEncoded lastHeader
+                            , newForkHeader = ObjectEncoded newHeader
                             , numReintroduced = V.length results
                             }
                       logg Info $! "transactions reintroducedi: " <> sshow (V.length results)

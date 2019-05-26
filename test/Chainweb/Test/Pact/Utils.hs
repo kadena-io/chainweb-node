@@ -217,7 +217,7 @@ testPactCtx v cid cdbv = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
-    evalPactServiceM ctx (initialPayloadState v cid)
+    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where
     loggers = pactTestLogger False
@@ -240,9 +240,9 @@ testPactExecutionService v cid cutDB mempoolAccess = do
     ctx <- testPactCtx v cid cutDB
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
-            evalPactServiceM ctx $ execNewBlock mempoolAccess p m
+            evalPactServiceM ctx $ execNewBlock (mpaGetBlock mempoolAccess) p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock False h d
+            evalPactServiceM ctx $ execValidateBlock (mpaSetLastHeader mempoolAccess) False h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
