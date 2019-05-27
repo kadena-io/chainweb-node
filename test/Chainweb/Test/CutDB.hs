@@ -238,6 +238,9 @@ awaitNewCut
     -> IO Cut
 awaitNewCut cdb = awaitCut cdb . (/=)
 
+-- | Wait for the cutdb to synchronize on a given blockheight for a given chain
+-- id
+--
 awaitBlockHeight
     :: CutDb cas
     -> BlockHeight
