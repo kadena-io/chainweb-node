@@ -49,7 +49,6 @@ import Data.Foldable (for_)
 import Data.Int (Int64)
 import Data.Maybe
 import Data.Text (Text, pack)
-import Data.Word (Word64)
 
 import NeatInterpolation (text)
 
@@ -356,7 +355,7 @@ buyGas
     -> MinerInfo
     -> GasSupply
     -> IO (Either Text (PactId, [TxLog Value]))
-buyGas env cmd spv (MinerInfo minerId minerKeys) (GasSupply supply) = do
+buyGas env cmd spv (MinerInfo minerId minerKeys) supply = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = initCapabilities [magic_FUND_TX]
 
@@ -381,7 +380,7 @@ redeemGas
     -> SPVSupport
     -> [TxLog Value]       -- ^ previous txlogs
     -> IO (CommandResult [TxLog Value])
-redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
+redeemGas env cmd cmdResult pactId supply spv prevLogs = do
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities [magic_FUND_TX]
@@ -389,12 +388,12 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
     applyContinuation env initState rk (redeemGasCmd fee supply pactId)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv prevLogs
   where
-    redeemGasCmd :: Int64 -> GasPrice -> PactId -> ContMsg
+    redeemGasCmd :: Int64 -> GasSupply -> PactId -> ContMsg
     redeemGasCmd fee total pid = ContMsg pid 1 False (object
       [ "fee" .= feeOf total fee
       ]) Nothing
 
-    feeOf total fee = total - fromIntegral @Int64 @GasPrice fee
+    feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
 
 -- | The miner reward function (i.e. 'coinbase'). Miners are rewarded
 -- on a per-block, rather than a per-transaction basis.
@@ -423,7 +422,7 @@ mkBuyGasCmd
     :: Text    -- ^ Id of the miner to fund
     -> KeySet  -- ^ Miner keyset
     -> Text    -- ^ Address of the sender from the command
-    -> GasPrice -- ^ The gas limit total * price
+    -> GasSupply -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd minerId minerKeys sender total =
     buildExecParsedCode buyGasData
@@ -488,10 +487,10 @@ publicMetaOf :: Command(Payload PublicMeta c) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
 
 gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
-gasSupplyOf cmd =
-  let (GasLimit l) = gasLimitOf cmd
-      p = gasPriceOf cmd
-  in GasSupply $ (fromIntegral @Word64 @GasPrice l) * p
+gasSupplyOf cmd = l * p
+  where
+    l :: GasSupply = fromIntegral @GasLimit @GasSupply $ gasLimitOf cmd
+    p :: GasSupply = fromRational $ toRational $ gasPriceOf cmd
 {-# INLINABLE gasSupplyOf #-}
 
 -- | Log request keys at DEBUG when successful

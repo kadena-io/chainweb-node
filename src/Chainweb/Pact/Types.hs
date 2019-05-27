@@ -58,6 +58,7 @@ import Data.Vector (Vector)
 
 -- internal pact modules
 
+import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
@@ -65,7 +66,6 @@ import Pact.Types.PactValue
 import Pact.Types.Exp
 import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Term (KeySet(..), Name(..))
-import Pact.Types.Gas
 
 -- internal chainweb modules
 
@@ -140,7 +140,9 @@ data PactDbStatePersist = PactDbStatePersist
     , _pdbspPactDbState :: PactDbState
     }
 
-newtype GasSupply = GasSupply { _gasSupply :: GasPrice }
+-- | Indicates a computed gas charge (gas amount * gas price)
+newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
+   deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
 data PactServiceEnv = PactServiceEnv
   { _psMempoolAccess :: Maybe MemPoolAccess
