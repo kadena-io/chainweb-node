@@ -64,7 +64,7 @@ import Pact.ApiReq
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
-import Pact.Types.Command (Command(..), RequestKey(..))
+import Pact.Types.Command
 import Pact.Types.Crypto
 import qualified Pact.Types.Hash as H
 
@@ -325,7 +325,7 @@ listenerRequestKey config host listenerRequest = do
   TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
   runClientM (listen v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
-    Right r -> print (_arResult r) >> exitSuccess
+    Right r -> print (_crResult r) >> exitSuccess
   where
     -- | It is assumed that the user has passed in a single, specific Chain that
     -- they wish to query.
@@ -422,7 +422,7 @@ poll version chainid = go
   where
     _ :<|> go :<|> _ :<|> _ = api version chainid
 
-listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ApiResult
+listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM (CommandResult H.Hash)
 listen version chainid = go
   where
     _ :<|> _ :<|> go :<|> _ = api version chainid

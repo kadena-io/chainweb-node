@@ -39,7 +39,6 @@ module Chainweb.Pact.TransactionExec
 , publicMetaOf
 ) where
 
-import Control.Exception.Safe (SomeException(..), tryAny)
 import Control.Lens hiding ((.=))
 import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
@@ -49,6 +48,7 @@ import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Int (Int64)
+import Data.Maybe
 import Data.Text (Text, pack)
 import Data.Word (Word64)
 
@@ -63,11 +63,10 @@ import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
-import Pact.Types.Term (DefName(..), ModuleName(..), Name(..), Term(..))
+import Pact.Types.Term (DefName(..), ModuleName(..))
 
 -- internal Chainweb modules
 
@@ -94,7 +93,7 @@ applyCmd
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
@@ -104,7 +103,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
 
     let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd'
 
-    buyGasResultE <- tryAny $! buyGas buyGasEnv cmd spv minerInfo supply
+    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd spv minerInfo supply
 
     case buyGasResultE of
 
@@ -122,7 +121,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
         let payloadEnv = set ceGasEnv userGasEnv
               $ set cePublicData pd' buyGasEnv
 
-        cmdResultE <- tryAny $! runPayload payloadEnv def cmd spv buyGasLogs
+        cmdResultE <- catchesPactError $! runPayload payloadEnv def cmd spv buyGasLogs
 
         case cmdResultE of
 
@@ -131,12 +130,14 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0)
               "tx failure for request key when running cmd"
 
-          Right (cmdResult, cmdLogs) -> do
+          Right cmdResult -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
 
             let redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
-            redeemResultE <- tryAny $! redeemGas redeemGasEnv cmd cmdResult pactId supply spv cmdLogs
+                cmdLogs = fromMaybe [] $ _crLogs cmdResult
+            redeemResultE <- catchesPactError $!
+              redeemGas redeemGasEnv cmd cmdResult pactId supply spv cmdLogs
 
             case redeemResultE of
 
@@ -145,10 +146,13 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
                   "tx failure for request key while redeeming gas"
 
-              Right (_, redeemLogs) -> do
+              Right redeemResult -> do
+
+                let redeemLogs = fromMaybe [] $ _crLogs redeemResult
+                    finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
 
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure (cmdResult, cmdLogs <> redeemLogs)
+                pure finalResult
 
 
 applyGenesisCmd
@@ -157,7 +161,7 @@ applyGenesisCmd
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 applyGenesisCmd logger dbEnv pd spv cmd = do
     -- cmd env with permissive gas model
 
@@ -167,7 +171,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     -- when calling genesis commands, we bring all magic capabilities in scope
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
 
-    resultE <- tryAny $! runPayload cmdEnv initState cmd spv []
+    resultE <- catchesPactError $! runPayload cmdEnv initState cmd spv []
     case resultE of
 
       Left e ->
@@ -186,14 +190,14 @@ applyCoinbase
     -> MinerInfo
     -> Decimal
     -> PublicData
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 applyCoinbase logger dbEnv minerInfo reward pd = do
 
     -- cmd env with permissive gas model
     let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd
         coinbaseReq = RequestKey $ H.toUntypedHash (H.hash "COINBASE" :: H.PactHash)
 
-    resultE <- tryAny $ coinbase cmdEnv minerInfo reward coinbaseReq
+    resultE <- catchesPactError $ coinbase cmdEnv minerInfo reward coinbaseReq
 
     case resultE of
 
@@ -213,38 +217,42 @@ applyLocal
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
-    -> IO (Either SomeException (CommandSuccess (Term Name)))
+    -> IO (CommandResult [TxLog Value])
 applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   -- cmd env with permissive gas model
-  let pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
+  let pd' = set pdPublicMeta (publicMetaOf cmd) pd
       cmdEnv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd'
+      requestKey = cmdToRequestKey cmd
+
 
   exec <- case _pPayload _cmdPayload of
     Exec pm -> return pm
     _ -> throwCmdEx "local continuations not supported"
 
-  r <- tryAny $! applyExec' cmdEnv def exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv
+  r <- catchesPactError $! applyExec cmdEnv def requestKey
+       exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv []
 
-  traverse mkSuccess r
+  either
+    (\e -> jsonErrorResult cmdEnv requestKey e [] 0 "applyLocal")
+    return r
+
+
+
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
     :: CommandEnv a
     -> RequestKey
-    -> SomeException
+    -> PactError
     -> [TxLog Value]
     -> Gas
     -> String
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 jsonErrorResult cmdEnv reqKey err txLogs gas msg = do
     logErrorRequestKey (_ceLogger cmdEnv) reqKey err msg
-    return ( jsonResult Nothing reqKey gas $
-             CommandError "Command execution failed" (Just . show $ err)
-           , txLogs)
-
-jsonResult :: ToJSON a => Maybe TxId -> RequestKey -> Gas -> a -> CommandResult
-jsonResult txId cmd gas a = CommandResult cmd txId (toJSON a) gas
+    return $ CommandResult reqKey Nothing (PactResult (Left err))
+      gas (Just txLogs) Nothing Nothing
 
 runPayload
     :: CommandEnv p
@@ -252,17 +260,12 @@ runPayload
     -> Command (Payload PublicMeta ParsedCode)
     -> SPVSupport
     -> [TxLog Value] -- log state
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 runPayload env initState c@Command{..} spv txLogs = case _pPayload _cmdPayload of
     Exec pm ->
       applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
     Continuation ym ->
       applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv txLogs
-
-mkSuccess :: EvalResult -> IO (CommandSuccess (Term Name))
-mkSuccess er = case _erOutput er of
-  [] -> throwCmdEx "unexpected empty results"
-  outs -> return . CommandSuccess . fromPactValue $ last outs
 
 applyExec
     :: CommandEnv p
@@ -273,11 +276,12 @@ applyExec
     -> Hash
     -> SPVSupport
     -> [TxLog Value]
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 applyExec env@CommandEnv{..} initState rk em senderSigs hsh spv prevLogs = do
-    er@EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
-    mkSuccess er >>= \s ->
-      return (jsonResult _erTxId rk _erGas s, prevLogs <> _erLogs)
+    EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
+    -- applyExec enforces non-empty expression set so `last` ok
+    return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -311,11 +315,13 @@ applyContinuation
     -> Hash
     -> SPVSupport
     -> [TxLog Value]
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hsh spv prevLogs = do
-  er@EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
-  mkSuccess er >>= \s ->
-    pure $! (jsonResult _erTxId rk _erGas s, prevLogs <> _erLogs)
+  EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
+  -- last safe here because cont msg is guaranteed one exp
+  return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
+
 
 applyContinuation'
     :: CommandEnv p
@@ -370,12 +376,12 @@ buyGas env cmd spv (MinerInfo minerId minerKeys) (GasSupply supply) = do
 redeemGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
-    -> CommandResult -- ^ result from the user command payload
+    -> CommandResult a -- ^ result from the user command payload
     -> PactId        -- ^ result of the buy-gas continuation
     -> GasSupply     -- ^ the total calculated supply of gas (as Decimal)
     -> SPVSupport
     -> [TxLog Value]       -- ^ previous txlogs
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
@@ -385,9 +391,9 @@ redeemGas env cmd cmdResult pactId (GasSupply supply) spv prevLogs = do
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) spv prevLogs
   where
     redeemGasCmd :: Int64 -> Decimal -> PactId -> ContMsg
-    redeemGasCmd fee total pid = ContMsg pid 1 False $ object
+    redeemGasCmd fee total pid = ContMsg pid 1 False (object
       [ "fee" .= feeOf total fee
-      ]
+      ]) Nothing
 
     feeOf total fee = total - fromIntegral @Int64 @Decimal fee
 
@@ -401,7 +407,7 @@ coinbase
     -> MinerInfo  -- ^ Account to associate reward
     -> Decimal    -- ^ Reward amount
     -> RequestKey -- ^ Hash for exec, request key
-    -> IO (CommandResult, [TxLog Value])
+    -> IO (CommandResult [TxLog Value])
 coinbase env (MinerInfo minerId minerKeys) reward rk@(RequestKey h) = do
     let initState = initCapabilities [magic_COINBASE]
 

@@ -68,7 +68,7 @@ import Data.LogMessage
 
 
 tests :: TestTree
-tests = testGroup "Chainweb-Pact SPV integration"
+tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCase "standard SPV verification round trip" standard
     , testCase "double spends fail" doublespend
     , testCase "wrong chain execution fails" wrongchain

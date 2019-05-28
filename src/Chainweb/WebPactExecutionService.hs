@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -29,13 +28,10 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 
-import Data.Aeson (Value)
-import Pact.Types.Command
-
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
   , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
-  , _pactLocal :: ChainwebTransaction -> IO (Either SomeException (CommandSuccess Value))
+  , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
   }
 
 newtype WebPactExecutionService = WebPactExecutionService

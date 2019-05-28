@@ -9,10 +9,7 @@ module Chainweb.Pact.RestAPI where
 
 ------------------------------------------------------------------------------
 import Control.Monad.Identity
-import Data.Aeson.Types
-import Data.Text (Text)
-import Pact.Types.API
-import Pact.Types.Command
+import Pact.Server.API as API
 import Servant
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
@@ -23,14 +20,7 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
-type ApiV1API = SendApi :<|> PollApi :<|> ListenApi :<|> LocalApi
-
-type SendApi = "send" :> ReqBody '[JSON] SubmitBatch :> Post '[JSON] RequestKeys
-type PollApi = "poll" :> ReqBody '[JSON] Poll :> Post '[JSON] PollResponses
-type ListenApi = "listen" :> ReqBody '[JSON] ListenerRequest :> Post '[JSON] ApiResult
-type LocalApi = "local" :> ReqBody '[JSON] (Command Text) :> Post '[JSON] (CommandSuccess Value)
-
-type PactApi_ = "pact" :> ApiV1API
+type PactApi_ = "pact" :> API.ApiV1API -- TODO unify with Pact versioning
 
 type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_

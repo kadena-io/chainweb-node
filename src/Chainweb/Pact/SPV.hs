@@ -1,9 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -92,16 +89,17 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
-      case decodeStrict t of
+      case decodeStrict t :: Maybe HashCommandResult of
         Nothing -> internalError $
           "unable to decode spv transaction output"
-        Just (HashedLogTxOutput u _) ->
-          case fromJSON u of
-            Error e -> spvError' e
-            Success (CommandSuccess (TObject o _)) -> return $ Right o
-            Success o -> do
-              logLog l "ERROR" $ show o
-              internalError "associated pact transaction outputs have wrong format"
+        Just (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) -> case fromPactValue pv of
+          (TObject o _) -> return $ Right o
+          o -> do
+            logLog l "ERROR" $ show o
+            spvError' "type error in associated pact transaction, should be object"
+        Just o -> do
+          logLog l "ERROR" $ show o
+          spvError' "Invalid command result in associated pact output"
 
 
 -- | Look up pact tx hash at some block height in the
