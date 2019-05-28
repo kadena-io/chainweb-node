@@ -1,7 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -46,7 +46,6 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Prelude hiding (init, lookup)
 import Servant
-import Servant.Server.Internal.ServantErr (ServantErr(..))
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
