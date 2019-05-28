@@ -9,6 +9,7 @@
 
 module Chainweb.Mempool.Consensus
 ( chainwebTxsFromPWO
+, MempoolConsensus(..)
 , processFork
 , ReintroducedTxs (..)
 ) where
@@ -25,6 +26,7 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Either
 import Data.Foldable (toList)
+import Data.IORef
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -37,12 +39,21 @@ import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
+------------------------------------------------------------------------------
+data MempoolConsensus t = MempoolConsensus
+    { mpcMempool :: MempoolBackend t
+    , mpcLastNewBlockParent :: IORef (Maybe BlockHeader)
+    , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+    }
+
 ------------------------------------------------------------------------------
 processFork
     :: Ord x

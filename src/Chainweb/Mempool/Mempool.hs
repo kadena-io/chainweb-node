@@ -117,14 +117,6 @@ data MempoolBackend t = MempoolBackend {
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
 
-    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
-    --   in the case of forks
-  , mempoolLastNewBlockParent :: IORef (Maybe BlockHeader)
-
-    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-
-  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
-
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
 
@@ -170,8 +162,6 @@ noopMempool = do
   return $ MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
-    , mempoolLastNewBlockParent = noLastParent
-    , mempoolProcessFork = noopProcessFork
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert

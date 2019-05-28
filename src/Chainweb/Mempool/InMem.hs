@@ -245,24 +245,18 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
         back <- toMempoolBackend mpool
         let txcfg = mempoolTxConfig back
         let bsl = mempoolBlockGasLimit back
-        let lastPar = mempoolLastNewBlockParent back
-        let procFork = mempoolProcessFork back
-        return $ wrapBackend txcfg bsl (ref, wk) lastPar procFork
+        return $ wrapBackend txcfg bsl (ref, wk)
 
 ----------------------------------------------------------------------------------------------------
 wrapBackend :: PayloadCas cas
             => TransactionConfig t
             -> Int64
             -> (IORef (InMemoryMempool t cas), b)
-            -> IORef (Maybe BlockHeader)
-            -> (LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction))
             -> MempoolBackend t
-wrapBackend txcfg bsl mp lastPar pFork =
+wrapBackend txcfg bsl mp =
       MempoolBackend
       { mempoolTxConfig = txcfg
       , mempoolBlockGasLimit = bsl
-      , mempoolLastNewBlockParent = lastPar
-      , mempoolProcessFork = pFork
       , mempoolMember = withRef mp . flip mempoolMember
       , mempoolLookup = withRef mp . flip mempoolLookup
       , mempoolInsert = withRef mp . flip mempoolInsert
@@ -317,8 +311,6 @@ toMempoolBackend mempool = do
     return $ MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolBlockGasLimit = blockSizeLimit
-      , mempoolLastNewBlockParent = lastParentRef
-      , mempoolProcessFork = processFork
       , mempoolMember = member
       , mempoolLookup = lookup
       , mempoolInsert = insert

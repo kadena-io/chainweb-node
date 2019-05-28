@@ -36,6 +36,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
@@ -57,10 +58,14 @@ withPactService
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger memPool cdbv action
-    = withPactService' ver cid logger (pactMemPoolAccess memPool logger) cdbv action
+withPactService ver cid logger mpc cdbv action
+    = let mpc = MempoolConsensus
+            {
+            }
 
--- | Alternate Initialization for Pact (in process) Api, used only in tests to provide memPool
+  withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
+
+-- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions
 withPactService'
     :: Logger logger
@@ -85,50 +90,50 @@ maxBlockSize = 10000
 
 pactMemPoolAccess
     :: Logger logger
-    => MempoolBackend ChainwebTransaction
+    => MempoolConsensus ChainwebTransaction
     -> logger
     -> MemPoolAccess
-pactMemPoolAccess mempool logger = MemPoolAccess
-    { mpaGetBlock = pactMemPoolGetBlock mempool logger
-    , mpaSetLastHeader = pactMempoolSetLastHeader mempool logger
-    , mpaProcessFork = pactMemPoolProcessFork mempool logger
+pactMemPoolAccess mpc logger = MemPoolAccess
+    { mpaGetBlock = pactMemPoolGetBlock mpc logger
+    , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
+    , mpaProcessFork = pactProcessFork mpc logger
     }
 
 pactMemPoolGetBlock
     :: Logger logger
-    => MempoolBackend ChainwebTransaction
+    => MempoolConsensus ChainwebTransaction
     -> logger
     -> (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mempool theLogger height hash _bHeader = do
+pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock mempool maxBlockSize
+    mempoolGetBlock (mpcMempool mpc) maxBlockSize
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction
 
-pactMemPoolProcessFork
+pactProcessFork
     :: Logger logger
-    => MempoolBackend ChainwebTransaction
+    => MempoolConsensus ChainwebTransaction
     -> logger
     -> (BlockHeader -> IO ())
-pactMemPoolProcessFork mempool theLogger bHeader = do
-    let forkFunc = (mempoolProcessFork mempool) (logFunction theLogger)
+pactProcessFork mpc theLogger bHeader = do
+    let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
     txHashes <- forkFunc bHeader
     (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes)
                            <> " transactions to reintroduce"
-    mempoolReintroduce mempool txHashes
+    mempoolReintroduce (mpcMempool mpc) txHashes
   where
    logFn :: Logger l => l -> LogFunctionText
    logFn lg = logFunction lg
 
 pactMempoolSetLastHeader
     :: Logger logger
-    => MempoolBackend ChainwebTransaction
+    => MempoolConsensus ChainwebTransaction
     -> logger
     -> (BlockHeader -> IO ())
-pactMempoolSetLastHeader mempool _theLogger bHeader = do
-    let headerRef = mempoolLastNewBlockParent mempool
+pactMempoolSetLastHeader mpc _theLogger bHeader = do
+    let headerRef = mpcLastNewBlockParent mpc
     atomicWriteIORef headerRef (Just bHeader)
 
 closeQueue :: TQueue RequestMsg -> IO ()

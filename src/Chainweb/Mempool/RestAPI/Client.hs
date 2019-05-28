@@ -69,15 +69,12 @@ toMempool
     -> ChainId
     -> TransactionConfig t
     -> Int64
-    -> IORef (Maybe BlockHeader)
     -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg blocksizeLimit lastPar env =
+toMempool version chain txcfg blocksizeLimit env =
     MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = blocksizeLimit
-    , mempoolLastNewBlockParent = lastPar
-    , mempoolProcessFork = processForkUnSup
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
