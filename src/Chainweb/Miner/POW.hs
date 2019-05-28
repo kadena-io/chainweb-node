@@ -120,11 +120,11 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
                     Right !r -> return r
             go2 c
 
-        let bytes = BL.length $ encode payload
+        let bytes = BL.length . encode $ payloadWithOutputsToPayloadData payload
             !nmb = NewMinedBlock
-                       (ObjectEncoded newBh)
-                       (Seq.length $ _payloadWithOutputsTransactions payload)
-                       bytes
+                   (ObjectEncoded newBh)
+                   (Seq.length $ _payloadWithOutputsTransactions payload)
+                   bytes
 
         logg Info $! "POW Miner: created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
