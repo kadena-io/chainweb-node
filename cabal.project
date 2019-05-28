@@ -9,7 +9,7 @@ package aeson
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 9456a750f67b62d48bed5ef2e60fbc7e9d2a4396
+    tag: 0915aff9eed762b2ee58c648d900bc619e6fff96
 
 source-repository-package
     type: git
