@@ -34,11 +34,11 @@ import Control.Monad.STM
 import Crypto.Hash.Algorithms
 import Crypto.Hash.IO
 
-import Data.Aeson (encode)
 import qualified Data.ByteArray as BA
 import Data.Bytes.Put
+import qualified Data.ByteString as BS
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
+import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.Proxy
@@ -120,7 +120,8 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
                     Right !r -> return r
             go2 c
 
-        let bytes = BL.length . encode $ payloadWithOutputsToPayloadData payload
+        let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
                    (Seq.length $ _payloadWithOutputsTransactions payload)
