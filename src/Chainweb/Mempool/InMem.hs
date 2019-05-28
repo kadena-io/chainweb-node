@@ -383,7 +383,7 @@ processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
     theData <- readMVar lock
     lastHeader <- readIORef (_inmemLastNewBlockParent theData)
 
-    MPCon.processFork logFun blockHeaderDb lock newHeader lastHeader
+    MPCon.processFork logFun blockHeaderDb newHeader lastHeader
         (inMemPayloadLookup payloadStore)
 
 

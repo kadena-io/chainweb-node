@@ -7,7 +7,6 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
-import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
@@ -15,7 +14,6 @@ import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashTable.IO as HT
 import Data.Int
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -40,7 +38,6 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
-import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -63,14 +60,11 @@ prop_validTxSource
     -> BlockHeader
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
-    ht <- liftIO HM.empty -- :: HasmMap BlockHeader (Set TransactionHash)
-    mapRef <- newIORef ht
+    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (Set TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
-    mpData <- liftIO $ newInMemMempoolData
-    mpDataMVar <- liftIO $ newMVar mpData
-    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb mpDataMVar
-                           fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb
+                           fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `S.isSubsetOf` fiOldForkTrans)
@@ -85,14 +79,11 @@ prop_noOrphanedTxs
     -> BlockHeader
     -> Property
 prop_noOrphanedTxs db genBlock = monadicIO $ do
-    ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
+    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (Set TransactionHash))
+    ForkInfo{..} <- genFork db mapRef genBlock
 
-    ForkInfo{..} <- genFork db ht genBlock
-
-    mpData <- liftIO $ newInMemMempoolData
-    mpDataMVar <- liftIO $ newMVar mpData
-    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb mpDataMVar
-                           fiNewHeader (Just fiOldHeader) (lookupFunc ht)
+    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb
+                           fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans
 
@@ -130,9 +121,8 @@ lookupFunc
   -> BlockHeader
   -> IO (Set TransactionHash)
 lookupFunc mapRef h = do
-    hm <- readIORef
-    mTxs <- HT.lookup hm h
-    case mTxs of
+    hm <- readIORef mapRef
+    case HM.lookup h hm of
         Nothing -> error "Test/Mempool/Consensus - hashtable lookup failed -- this should not happen"
         Just txs -> return txs
 
@@ -201,11 +191,13 @@ newNode
     -> [Tree BlockTrans]
     -> PropertyM IO (Tree BlockTrans)
 newNode mapRef blockTrans children = do
+    startMap <- liftIO $ readIORef mapRef
     let h = btBlockHeader blockTrans
     let theNewNode = Node blockTrans children
 
     -- insert to mock payload store -- key is blockHash, value is list of tx hashes
-    liftIO $ writeIORef $ HM.insert payloadLookup h (btTransactions blockTrans)
+    let newMap = HM.insert h (btTransactions blockTrans) startMap
+    liftIO $ writeIORef mapRef newMap
     return theNewNode
 
 ----------------------------------------------------------------------------------------------------
