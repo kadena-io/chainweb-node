@@ -22,6 +22,7 @@ module Chainweb.Pact.SPV
 import GHC.Stack
 
 import Control.Concurrent.MVar
+import Control.Error
 import Control.Lens hiding (index)
 import Control.Monad.Catch
 
@@ -42,6 +43,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -70,22 +72,20 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
   where
     -- extract spv resources from pact object
     go s o cdb = case s of
-      "TXOUT" -> txOutputProofOf o >>= \case
-          Left e -> return $ Left e
-          Right t -> verifyTransactionOutputProof cdb t
-            >>= extractOutputs
+      "TXOUT" -> case txOutputProofOf o of
+        Left u -> return $ Left u
+        Right t -> extractOutputs =<< verifyTransactionOutputProof cdb t
       "TXIN" -> return $ Left "TXIN is currently unsupported"
       x -> return . Left
         $ "TXIN or TXOUT must be specified to generate valid spv proofs: "
         <> x
 
-    txOutputProofOf :: Object Name -> IO (Either Text (TransactionOutputProof SHA512t_256))
-    txOutputProofOf o =
-      case toPactValue $ TObject o def of
-        Left e -> return $ Left e
-        Right t -> case fromJSON . toJSON $ t of
-          Error e -> return . Left $ pack e
-          Success u -> return $ Right u
+    txOutputProofOf
+        :: Object Name
+        -> Either Text (TransactionOutputProof SHA512t_256)
+    txOutputProofOf o = k =<< toPactValue (TObject o def)
+      where
+        k = aeson (Left . pack) Right . fromJSON . toJSON
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
@@ -118,9 +118,8 @@ getTxIdx
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap (fmap _blockPayloadHash)
-        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
-            Nothing -> return $ Left "unable to find payload associated with transaction hash"
-            Just x -> return $ Right x
+        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_
+        >>= pure . note "unable to find payload associated with transaction hash"
 
     case ph of
       Left s -> return $ Left s

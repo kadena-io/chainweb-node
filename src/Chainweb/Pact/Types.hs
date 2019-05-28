@@ -52,13 +52,13 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson
-import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
 
 -- internal pact modules
 
+import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
@@ -140,7 +140,9 @@ data PactDbStatePersist = PactDbStatePersist
     , _pdbspPactDbState :: PactDbState
     }
 
-newtype GasSupply = GasSupply { _gasSupply :: Decimal }
+-- | Indicates a computed gas charge (gas amount * gas price)
+newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
+   deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
 data PactServiceEnv = PactServiceEnv
   { _psMempoolAccess :: Maybe MemPoolAccess

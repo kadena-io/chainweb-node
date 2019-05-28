@@ -200,8 +200,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "9456a750f67b62d48bed5ef2e60fbc7e9d2a4396";
-          sha256 = "039fmgb5d4p524vagmkmmp3gajmvrly7r3iwy9mcdg6j7a6vqj9w";
+          rev = "0915aff9eed762b2ee58c648d900bc619e6fff96";
+          sha256 = "073r55g62mv652q2nypvdrnwgf8ixpbkpssb9ii11wfzdwv2hpri";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {

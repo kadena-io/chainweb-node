@@ -45,8 +45,6 @@ import Data.Vector (Vector, fromList)
 
 import NeatInterpolation (text)
 
-import Numeric.Natural
-
 import System.LogLevel
 
 import Test.Tasty
@@ -54,7 +52,6 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import Pact.Parse
 import Pact.Types.ChainMeta as Pact
 import Pact.Types.Term
 
@@ -133,33 +130,31 @@ expectSuccess test = do
 -- tests
 
 standard :: Assertion
-standard = expectSuccess $ roundtrip 0 1 10 txGenerator1 txGenerator2
+standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
 
 doublespend :: Assertion
 doublespend = expectFailure "Tx Failed: enforce unique usage" $
-    roundtrip 0 1 10 txGenerator1 txGenerator3
+    roundtrip 0 1 txGenerator1 txGenerator3
 
 wrongchain :: Assertion
 wrongchain = expectFailure "Tx Failed: enforce correct create chain ID" $
-    roundtrip 0 1 10 txGenerator1 txGenerator4
+    roundtrip 0 1 txGenerator1 txGenerator4
 
 badproof :: Assertion
 badproof = expectFailure "SPV verify failed: key \"chain\" not present" $
-    roundtrip 0 1 10 txGenerator1 txGenerator5
+    roundtrip 0 1 txGenerator1 txGenerator5
 
 roundtrip
     :: Int
       -- ^ source chain id
     -> Int
       -- ^ target chain id
-    -> Natural
-      -- ^ # of retries if cut db extensions fail
     -> BurnGenerator
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip sid0 tid0 n burn create = do
+roundtrip sid0 tid0 burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -180,7 +175,7 @@ roundtrip sid0 tid0 n burn create = do
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
 
-            c1 <- extendAwaitRetryN cutDb pact1 (diam * gorder) n $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -194,7 +189,7 @@ roundtrip sid0 tid0 n burn create = do
             -- randomly you mine another 2 * diameter(graph) * 10 = 40 blocks to
             -- make up for uneven height distribution.
 
-            -- So in total you would add 60 blocks which would guarantee that
+            -- So in total you would add 60 + 2 blocks which would guarantee that
             -- all chains advanced by at least 2 blocks. This is probably an
             -- over-approximation, I guess the formula could be made a little
             -- more tight, but the that’s the overall idea. The idea behind the
@@ -202,7 +197,7 @@ roundtrip sid0 tid0 n burn create = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- extendAwaitRetryN cutDb pact1 60 n $ \c ->
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 80 $ \c ->
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
@@ -211,7 +206,7 @@ roundtrip sid0 tid0 n burn create = do
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ extendAwaitRetryN cutDb pact2 (diam * gorder) n $
+            void $ fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
                 ((<) `on` height tid) c2
 
             return (True, "test succeeded")
@@ -244,10 +239,9 @@ txGenerator1 sid tid = do
             ks <- testKeyPairs
 
             let pcid = Pact.ChainId $ chainIdToText _cid
-                g = ParsedInteger 100
-                gr = ParsedDecimal 0.0001
 
-            mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+
+            mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
                 `finally` writeIORef ref False
 
     txs = fromList [ PactTransaction tx1Code tx1Data ]
@@ -291,12 +285,10 @@ txGenerator2 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
 
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
@@ -325,11 +317,9 @@ txGenerator3 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -360,11 +350,9 @@ txGenerator4 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr (txs q)
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -391,11 +379,9 @@ txGenerator5 _cdbv _ tid _ = do
             False -> do
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    g = ParsedInteger 100
-                    gr = ParsedDecimal 0.0001
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" g gr txs
+                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
                     `finally` writeIORef ref True
 
     txs = fromList [ PactTransaction tx1Code Nothing ]

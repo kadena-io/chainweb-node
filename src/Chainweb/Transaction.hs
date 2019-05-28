@@ -24,7 +24,7 @@ import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..), parseExprs)
+import Pact.Parse (parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
@@ -68,12 +68,10 @@ chainwebPayloadDecode bs = case Aeson.decodeStrict' bs of
 
 -- | Get the gas limit/supply of a public chain command payload
 gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit
-gasLimitOf cmd = case _pmGasLimit . _pMeta . _cmdPayload $ cmd of
-    ParsedInteger limit -> GasLimit . fromIntegral $ limit
+gasLimitOf = _pmGasLimit . _pMeta . _cmdPayload
 {-# INLINE gasLimitOf #-}
 
 -- | Get the gas price of a public chain command payload
 gasPriceOf :: forall c. Command (Payload PublicMeta c) -> GasPrice
-gasPriceOf cmd = case _pmGasPrice . _pMeta . _cmdPayload $ cmd of
-    ParsedDecimal price -> GasPrice price
+gasPriceOf = _pmGasPrice . _pMeta . _cmdPayload
 {-# INLINE gasPriceOf #-}
