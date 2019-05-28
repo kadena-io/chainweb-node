@@ -376,11 +376,6 @@ execValidateBlock mpAccess loadingGenesis currHeader plData = do
         bParent = _blockParent currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
 
-    logInfo $ "execValidateBlock, about to get call processFork (height = "
-        <> sshow bHeight <> ")"
-        <> " (hash = " <> sshow bHash <> ")"
-    liftIO $ mpaProcessFork mpAccess currHeader
-
     logInfo $ "execValidateBlock, about to get call setLastHeader: "
         <> " (height = " <> sshow bHeight <> ")"
         <> " (hash = " <> sshow bHash <> ")"
