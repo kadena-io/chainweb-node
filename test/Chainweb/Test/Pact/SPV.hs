@@ -159,7 +159,7 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip sid0 tid0 retries burn create = do
+roundtrip sid0 tid0 n burn create = do
     -- Pact service that is used to initialize the cut data base
     pact0 <- testWebPactExecutionService v Nothing (return mempty)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
@@ -180,7 +180,7 @@ roundtrip sid0 tid0 retries burn create = do
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
 
-            c1 <- extendAwaitRetryN cutDb pact1 (diam * gorder) retries $
+            c1 <- extendAwaitRetryN cutDb pact1 (diam * gorder) n $
                 ((<) `on` height sid) c0
 
             -- A proof can only be constructed if the block hash of the source
@@ -202,7 +202,7 @@ roundtrip sid0 tid0 retries burn create = do
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- extendAwaitRetryN cutDb pact1 60 retries $ \c ->
+            c2 <- extendAwaitRetryN cutDb pact1 60 n $ \c ->
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
@@ -211,8 +211,8 @@ roundtrip sid0 tid0 retries burn create = do
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ extendAwaitRetryN cutDb pact2 (diam * gorder) retries
-                $ ((<) `on` height tid) c2
+            void $ extendAwaitRetryN cutDb pact2 (diam * gorder) n $
+                ((<) `on` height tid) c2
 
             return (True, "test succeeded")
 
