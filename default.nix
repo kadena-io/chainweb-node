@@ -237,12 +237,11 @@ in
           sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
         }) {});
 
-        merkle-log = dontCheck (self.callCabal2nix "merkle-log" (pkgs.fetchFromGitHub {
-          owner = "kadena-io";
-          repo = "merkle-log";
-          rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
-          sha256 = "05132bqc6724a58kidrqs1xq68d1bmfqsdy7yk5j83ddinw7yvp1";
-        }) {});
+        merkle-log = callHackageDirect {
+            pkg = "merkle-log";
+            ver = "0.1.0.0";
+            sha256 = "10jk274sbvsrr7varxa72jvh54n22qpw7d4p2wy7415bmij3y81p";
+        };
 
         ######################################################################
         # Dependencies from pact
