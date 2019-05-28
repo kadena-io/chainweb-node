@@ -133,9 +133,9 @@ getTxIdx bdb pdb bh th = do
           & S.mapM toTxHash
           & sindex (== th)
 
-        case r of
-          Nothing -> return $ Left "unable to find transaction at the given block height"
-          Just x -> return $ Right (int x)
+        r & note "unable to find transaction at the given block height"
+          & fmap int
+          & return
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow b
