@@ -672,7 +672,8 @@ instance FromJSON (ObjectEncoded BlockHeader) where
 
 data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: ObjectEncoded BlockHeader
-    , _minedBlockTrans :: Int }
+    , _minedBlockTrans :: Int
+    , _minedBlockSize :: Int }  -- ^ Bytes
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 
