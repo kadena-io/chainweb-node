@@ -37,6 +37,7 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.IORef
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -213,6 +214,11 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
 mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
 mempoolSyncP2pSession chain pollInterval logg0 env _ =
     flip catches [ Handler errorHandler ] $ do
+
+        -- no sync needed / wanted for lastNewBlockParent attribute:
+        noLastPar <- newIORef Nothing
+        let peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
+
         logg Debug "mempool sync session starting"
         Mempool.syncMempools' logg syncIntervalUs pool peerMempool
         logg Debug "mempool sync session finished"
@@ -227,11 +233,6 @@ mempoolSyncP2pSession chain pollInterval logg0 env _ =
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
 
-    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
-      where
-        -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar <- newIORef Nothing
-        return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool
