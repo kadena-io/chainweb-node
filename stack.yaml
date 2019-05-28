@@ -36,9 +36,8 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yaml-0.11.0.0
   - yet-another-logger-0.3.1
+  - merkle-log-0.1.0.0
 
-  - git: https://github.com/kadena-io/merkle-log.git
-    commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
   - git: https://github.com/kadena-io/pact.git
     commit: 0915aff9eed762b2ee58c648d900bc619e6fff96
   - git: https://github.com/kadena-io/thyme.git
