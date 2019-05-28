@@ -88,6 +88,7 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
     ht <- liftIO HT.new -- :: BasicHashTable BlockHeader (Set TransactionHash)
 
     ForkInfo{..} <- genFork db ht genBlock
+
     mpData <- liftIO $ newInMemMempoolData
     mpDataMVar <- liftIO $ newMVar mpData
     reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb mpDataMVar

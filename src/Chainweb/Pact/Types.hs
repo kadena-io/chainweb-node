@@ -16,7 +16,7 @@
 module Chainweb.Pact.Types
   ( PactDbStatePersist(..)
   , Transactions(..)
-  , MemPoolAccess
+  , MemPoolAccess(..)
   , MinerInfo(..)
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
@@ -28,6 +28,7 @@ module Chainweb.Pact.Types
     -- * optics
   , minerAccount
   , minerKeys
+  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
   , psMempoolAccess
@@ -56,6 +57,7 @@ import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -156,7 +158,18 @@ data PactServiceState = PactServiceState
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
 
-type MemPoolAccess = BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+data MemPoolAccess = MemPoolAccess
+  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  , mpaSetLastHeader :: BlockHeader -> IO ()
+  , mpaProcessFork :: BlockHeader -> IO ()
+  }
+
+noopMemPoolAccess :: MemPoolAccess
+noopMemPoolAccess = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> return V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

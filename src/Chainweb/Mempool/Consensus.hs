@@ -56,10 +56,7 @@ processFork
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
-processFork logFun db lock newHeader lastHeaderM payloadLookup = do
-    --save newHeader as the "lastHeader" for the next time through
-    theData <- readMVar lock
-    atomicWriteIORef (_inmemLastNewBlockParent theData) (Just newHeader)
+processFork logFun db newHeader lastHeaderM payloadLookup = do
     case lastHeaderM of
         Nothing -> do
             let logg = logFun :: LogLevel -> T.Text -> IO ()
@@ -92,8 +89,8 @@ processFork logFun db lock newHeader lastHeaderM payloadLookup = do
 
                       -- create data for the dashboard showing number or reintroduced transacitons:
                       let !reIntro = ReintroducedTxs
-                            { oldForkHeader = (ObjectEncoded lastHeader)
-                            , newForkHeader = (ObjectEncoded newHeader)
+                            { oldForkHeader = ObjectEncoded lastHeader
+                            , newForkHeader = ObjectEncoded newHeader
                             , numReintroduced = V.length results
                             }
                       logg Info $! "transactions reintroducedi: " <> sshow (V.length results)

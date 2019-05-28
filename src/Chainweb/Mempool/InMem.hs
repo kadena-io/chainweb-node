@@ -386,6 +386,8 @@ processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
     MPCon.processFork logFun blockHeaderDb lock newHeader lastHeader
         (inMemPayloadLookup payloadStore)
 
+
+------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
 withInMemoryMempool :: PayloadCas cas
                     => InMemConfig t

@@ -226,11 +226,11 @@ mempoolSyncP2pSession chain pollInterval logg0 env _ =
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-
-    -- no sync needed / wanted for lastNewBlockParent attribute:
-    noLastPar <- newIORef Nothing
-
     peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
+      where
+        -- no sync needed / wanted for lastNewBlockParent attribute:
+        noLastPar <- newIORef Nothing
+        return $ MPC.toMempool v cid txcfg gaslimit noLastPar env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     gaslimit = Mempool.mempoolBlockGasLimit pool
