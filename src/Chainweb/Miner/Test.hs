@@ -24,6 +24,8 @@ module Chainweb.Miner.Test ( testMiner ) where
 import Control.Concurrent (threadDelay)
 import Control.Lens (view, (^?!))
 
+import qualified Data.ByteString as BS
+import Data.Foldable (foldl')
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -153,11 +155,14 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         --
         T3 newBh payload c' <- mine gen nonce0
 
-        let !nmb = NewMinedBlock (ObjectEncoded newBh)
-                       . Seq.length
-                       $ _payloadWithOutputsTransactions payload
+        let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions payload
+            !nmb = NewMinedBlock
+                   (ObjectEncoded newBh)
+                   (Seq.length $ _payloadWithOutputsTransactions payload)
+                   bytes
 
-        logg Info $! "created new block" <> sshow i
+        logg Info $! "Test Miner: created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).

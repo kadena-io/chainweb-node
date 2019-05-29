@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -70,7 +71,6 @@ import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHea
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
-import Chainweb.Orphans ()
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)

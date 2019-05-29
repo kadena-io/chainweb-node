@@ -1,8 +1,5 @@
 resolver: lts-12.26
 
-packages:
-  - .
-
 extra-deps:
   - aeson-1.4.3.0
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
@@ -36,10 +33,9 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yaml-0.11.0.0
   - yet-another-logger-0.3.1
+  - merkle-log-0.1.0.0
 
-  - git: https://github.com/kadena-io/merkle-log.git
-    commit: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
   - git: https://github.com/kadena-io/pact.git
-    commit: 9456a750f67b62d48bed5ef2e60fbc7e9d2a4396
+    commit: f880d34850b5aa4bd538a23029a74777e1f83a5d
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9

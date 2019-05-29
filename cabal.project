@@ -9,17 +9,12 @@ package aeson
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 9456a750f67b62d48bed5ef2e60fbc7e9d2a4396
+    tag: f880d34850b5aa4bd538a23029a74777e1f83a5d
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/thyme.git
     tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/merkle-log.git
-    tag: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
 
 constraints:
       megaparsec <7.0

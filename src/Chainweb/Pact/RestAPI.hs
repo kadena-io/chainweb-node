@@ -13,7 +13,6 @@ import Pact.Server.API as API
 import Servant
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
-import Chainweb.Pact.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 

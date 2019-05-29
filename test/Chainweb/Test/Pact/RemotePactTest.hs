@@ -55,7 +55,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
@@ -250,12 +249,12 @@ testBatch = do
     pure $ SubmitBatch [c]
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.0001
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
     :<|> ((Poll -> ClientM PollResponses)
-    :<|> ((ListenerRequest -> ClientM (CommandResult H.Hash))
+    :<|> ((ListenerRequest -> ClientM ListenResponse)
     :<|> (Command Text -> ClientM (CommandResult H.Hash))))
 
 generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi

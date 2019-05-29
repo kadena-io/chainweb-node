@@ -22,6 +22,7 @@ module Chainweb.Pact.SPV
 import GHC.Stack
 
 import Control.Concurrent.MVar
+import Control.Error
 import Control.Lens hiding (index)
 import Control.Monad.Catch
 
@@ -42,6 +43,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -70,22 +72,20 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
   where
     -- extract spv resources from pact object
     go s o cdb = case s of
-      "TXOUT" -> txOutputProofOf o >>= \case
-          Left e -> spvError e
-          Right t -> verifyTransactionOutputProof cdb t
-            >>= extractOutputs
-      "TXIN" -> spvError "TXIN is currently unsupported"
-      x -> spvError
+      "TXOUT" -> case txOutputProofOf o of
+        Left u -> return $ Left u
+        Right t -> extractOutputs =<< verifyTransactionOutputProof cdb t
+      "TXIN" -> return $ Left "TXIN is currently unsupported"
+      x -> return . Left
         $ "TXIN or TXOUT must be specified to generate valid spv proofs: "
         <> x
 
-    txOutputProofOf :: Object Name -> IO (Either Text (TransactionOutputProof SHA512t_256))
-    txOutputProofOf o =
-      case toPactValue $ TObject o def of
-        Left e -> spvError e
-        Right t -> case fromJSON . toJSON $ t of
-          Error e -> spvError' e
-          Success u -> return $ Right u
+    txOutputProofOf
+        :: Object Name
+        -> Either Text (TransactionOutputProof SHA512t_256)
+    txOutputProofOf o = k =<< toPactValue (TObject o def)
+      where
+        k = aeson (Left . pack) Right . fromJSON . toJSON
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
@@ -96,10 +96,10 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
           (TObject o _) -> return $ Right o
           o -> do
             logLog l "ERROR" $ show o
-            spvError' "type error in associated pact transaction, should be object"
+            return . Left $ pack "type error in associated pact transaction, should be object"
         Just o -> do
           logLog l "ERROR" $ show o
-          spvError' "Invalid command result in associated pact output"
+          return . Left $ pack "Invalid command result in associated pact output"
 
 
 -- | Look up pact tx hash at some block height in the
@@ -118,9 +118,8 @@ getTxIdx
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     ph <- fmap (fmap _blockPayloadHash)
-        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_ >>= \case
-            Nothing -> spvError "unable to find payload associated with transaction hash"
-            Just x -> return $ Right x
+        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_
+        >>= pure . note "unable to find payload associated with transaction hash"
 
     case ph of
       Left s -> return $ Left s
@@ -134,9 +133,9 @@ getTxIdx bdb pdb bh th = do
           & S.mapM toTxHash
           & sindex (== th)
 
-        case r of
-          Nothing -> spvError "unable to find transaction at the given block height"
-          Just x -> return $ Right (int x)
+        r & note "unable to find transaction at the given block height"
+          & fmap int
+          & return
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow b
@@ -149,14 +148,3 @@ getTxIdx bdb pdb bh th = do
 
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
-
--- -------------------------------------------------------------------------- --
--- utilities
-
--- | Prepend "spvSupport" to any errors so we can differentiate messages
---
-spvError :: Text -> IO (Either Text a)
-spvError = return . Left . (<>) "spvSupport: "
-
-spvError' :: String -> IO (Either Text a)
-spvError' = spvError . pack

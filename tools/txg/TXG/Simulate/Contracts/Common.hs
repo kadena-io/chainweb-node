@@ -30,7 +30,6 @@ import Text.Printf
 -- PACT
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
@@ -112,7 +111,7 @@ parens s = "(" ++ s ++ ")"
 
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> CM.PublicMeta
-makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 0.0001
 
 newtype ContractName = ContractName { getContractName :: String}
   deriving (Eq, Ord, Show, Generic)

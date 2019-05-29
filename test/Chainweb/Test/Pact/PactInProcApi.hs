@@ -37,6 +37,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId

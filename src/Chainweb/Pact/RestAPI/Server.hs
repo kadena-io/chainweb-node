@@ -1,7 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -46,7 +46,6 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Prelude hiding (init, lookup)
 import Servant
-import Servant.Server.Internal.ServantErr (ServantErr(..))
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -159,35 +158,24 @@ listenHandler
     -> ChainResources logger
     -> TransactionBloomCache
     -> ListenerRequest
-    -> Handler (CommandResult Hash)
+    -> Handler ListenResponse
 listenHandler cutR cid chain bloomCache (ListenerRequest key) =
-    liftIO (handleTimeout runListen) >>= handleResult
+    liftIO (handleTimeout runListen)
   where
-    handleResult (Right r) = return r
-    -- TODO nasty hack here, should make Pact API be 'Either Timeout (CommandResult Hash)'
-    handleResult _ = throwError $ ServantErr
-      { errHTTPCode = 200
-      , errBody = encode timeoutBody
-      , errReasonPhrase = "Timeout"
-      , errHeaders = [("Content-Type", "application/json")]
-      }
-
-    timeoutBody = object [ "status" .= ("timeout" :: String)
-                         , "timeout-micros" .= defaultTimeout ]
 
     runListen timedOut = go Nothing
       where
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
-                Nothing -> return $ Left ()      -- timeout
+                Nothing -> return $ ListenTimeout defaultTimeout
                 (Just cut) -> poll cut
 
         poll cut = do
             hm <- internalPoll cutR cid chain bloomCache cut [key]
             if HashMap.null hm
               then go (Just cut)
-              else return $! Right $ snd $ head $ HashMap.toList hm
+              else return $! ListenResponse $ snd $ head $ HashMap.toList hm
 
         waitForNewCut lastCut = atomically $ do
              -- TODO: we should compute greatest common ancestor here to bound the
