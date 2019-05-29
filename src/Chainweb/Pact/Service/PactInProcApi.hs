@@ -28,8 +28,6 @@ import Control.Monad.STM
 
 import Data.Int
 
-import System.LogLevel
-
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Logger
@@ -39,10 +37,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Transaction
-import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
-
-import Data.LogMessage
 
 -- | Initialization for Pact (in process) Api
 withPactService
@@ -84,12 +79,8 @@ pactMemPoolAccess :: Logger logger => MempoolBackend ChainwebTransaction -> logg
 pactMemPoolAccess mempool theLogger _height _hash bHeader = do
     let forkFunc = (mempoolProcessFork mempool) (logFunction theLogger) -- :: BlockHeader -> IO (V.Vector ChainwebTransaction)
     txHashes <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes) <> " transactions to reintroduce"
     mempoolReintroduce mempool txHashes
     mempoolGetBlock mempool maxBlockSize
-  where
-   logFn :: Logger l => l -> LogFunctionText
-   logFn lg = logFunction lg
 
 closeQueue :: TQueue RequestMsg -> IO ()
 closeQueue = sendCloseMsg

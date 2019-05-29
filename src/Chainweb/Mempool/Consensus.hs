@@ -28,7 +28,6 @@ import Data.Foldable (toList)
 
 import Data.Set (Set)
 import qualified Data.Set as S
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -53,14 +52,8 @@ processFork
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (S.Set x))
     -> IO (V.Vector x)
-processFork logFun _ _ Nothing _ = do
-    let logg = logFun :: LogLevel -> T.Text -> IO ()
-    logg Info $! "processFork called WITH NOTHING"
-    -- putStrLn "processFork called WITH NOTHING"
-    return V.empty
+processFork _ _ _ Nothing _ = return V.empty
 processFork logFun db newHeader (Just lastHeader) payloadLookup = do
-    logg Info $! "processFork called "
-    -- putStrLn "processFork called"
     let s = branchDiff db lastHeader newHeader
     (oldBlocks, newBlocks) <- collectForkBlocks s
     case V.length newBlocks - V.length oldBlocks of
@@ -68,18 +61,11 @@ processFork logFun db newHeader (Just lastHeader) payloadLookup = do
         n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
                                       ++ "more than one greater than the previous new block request")
           | otherwise -> do -- fork occurred, get the transactions to reintroduce
-              logg Info $! "processFork - fork height difference: " <> sshow (- n)
-              -- putStrLn $ "processFork - fork height difference: " ++ show (- n)
               oldTrans <- foldM f mempty oldBlocks
               newTrans <- foldM f mempty newBlocks
               -- before re-introducing the transactions from the losing fork (aka oldBlocks), filter
               -- out any transactions that have been included in the winning fork (aka newBlocks)
-
               let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
-              logg Info $! "processFork: " <> sshow (length oldTrans) <> " transactions in the old fork"
-              logg Info $! "processFork: " <> sshow (length newTrans) <> " transactions in the new fork"
-              -- putStrLn $ "processFork: " ++ show (length oldTrans) ++ " transactions in the old fork"
-              -- putStrLn $ "processFork: " ++ show (length newTrans) ++ " transactions in the new fork"
 
               -- create data for the dashboard showing number or reintroduced transacitons:
               let !reIntro = ReintroducedTxs
@@ -87,16 +73,10 @@ processFork logFun db newHeader (Just lastHeader) payloadLookup = do
                     , newForkHeader = (ObjectEncoded newHeader)
                     , numReintroduced = V.length results
                     }
-              logg Info $! "transactions reintroducedi: " <> sshow (V.length results)
-              -- putStrLn $ "transactions reintroduced: " ++  show (V.length results)
               logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
               return results
   where
     f trans header = S.union trans <$> payloadLookup header
-
-    logg :: LogLevel -> T.Text -> IO ()
-    logg = logFun
-
 
 data ReintroducedTxs = ReintroducedTxs
     { oldForkHeader :: ObjectEncoded BlockHeader
