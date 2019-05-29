@@ -78,8 +78,8 @@ import Chainweb.Transaction
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Chainweb.Utils (encodeToText, runForever)
-import Data.LogMessage (LogFunction, LogFunctionText)
 
+import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -158,7 +158,6 @@ data MempoolBackend t = MempoolBackend {
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
-  noLastParent <- newIORef Nothing
   return $ MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
@@ -195,9 +194,6 @@ noopMempool = do
     noopSubscribe = unimplemented
     noopShutdown = return ()
     noopClear = return ()
-
-    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
-    noopProcessFork _l _h = return V.empty
 
 
 

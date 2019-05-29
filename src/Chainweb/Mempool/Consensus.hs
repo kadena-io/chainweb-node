@@ -6,11 +6,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Mempool.Consensus
 ( chainwebTxsFromPWO
 , MempoolConsensus(..)
+, mkMempoolConsensus
 , processFork
+, processFork'
 , ReintroducedTxs (..)
 ) where
 
@@ -29,87 +32,32 @@ import Data.Foldable (toList)
 import Data.IORef
 import Data.Set (Set)
 import qualified Data.Set as S
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import GHC.Generics
 
 import System.LogLevel
-------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
+
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import Data.CAS
 
-------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
 data MempoolConsensus t = MempoolConsensus
     { mpcMempool :: MempoolBackend t
     , mpcLastNewBlockParent :: IORef (Maybe BlockHeader)
     , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
     }
-
-------------------------------------------------------------------------------
-processFork
-    :: Ord x
-    => LogFunction
-    -> BlockHeaderDb
-    -> BlockHeader
-    -> Maybe BlockHeader
-    -> (BlockHeader -> IO (S.Set x))
-    -> IO (V.Vector x)
-processFork logFun db newHeader lastHeaderM payloadLookup = do
-    case lastHeaderM of
-        Nothing -> do
-            let logg = logFun :: LogLevel -> T.Text -> IO ()
-            logg Info $! "processFork called WITH NOTHING"
-            -- putStrLn "processFork called WITH NOTHING"
-            return V.empty
-        Just lastHeader -> do
-            logg Info $! "processFork called "
-            -- putStrLn "processFork called"
-            let s = branchDiff db lastHeader newHeader
-            (oldBlocks, newBlocks) <- collectForkBlocks s
-            case V.length newBlocks - V.length oldBlocks of
-                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
-                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
-                           ++ "block is more than one greater than the previous new block request")
-                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
-                      logg Info $! "processFork - fork height difference: " <> sshow (- n)
-                      -- putStrLn $ "processFork - fork height difference: " ++ show (- n)
-                      oldTrans <- foldM f mempty oldBlocks
-                      newTrans <- foldM f mempty newBlocks
-
-                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
-                      -- filterout any transactions that have been included in the
-                      -- winning fork (aka newBlocks):
-                      let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
-                      logg Info $! "processFork: " <> sshow (length oldTrans) <> " transactions in the old fork"
-                      logg Info $! "processFork: " <> sshow (length newTrans) <> " transactions in the new fork"
-                      -- putStrLn $ "processFork: " ++ show (length oldTrans) ++ " transactions in the old fork"
-                      -- putStrLn $ "processFork: " ++ show (length newTrans) ++ " transactions in the new fork"
-
-                      -- create data for the dashboard showing number or reintroduced transacitons:
-                      let !reIntro = ReintroducedTxs
-                            { oldForkHeader = ObjectEncoded lastHeader
-                            , newForkHeader = ObjectEncoded newHeader
-                            , numReintroduced = V.length results
-                            }
-                      logg Info $! "transactions reintroducedi: " <> sshow (V.length results)
-                      -- putStrLn $ "transactions reintroduced: " ++  show (V.length results)
-                      logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
-                      return results
-          where
-            f trans header = S.union trans <$> payloadLookup header
-
-            logg :: LogLevel -> T.Text -> IO ()
-            logg = logFun
-
 
 data ReintroducedTxs = ReintroducedTxs
     { oldForkHeader :: ObjectEncoded BlockHeader
@@ -118,6 +66,95 @@ data ReintroducedTxs = ReintroducedTxs
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 
+newtype MempoolException = MempoolConsensusException String
+
+instance Show MempoolException where
+    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
+
+instance Exception MempoolException
+
+----------------------------------------------------------------------------------------------------
+mkMempoolConsensus :: PayloadCas cas => MempoolBackend t -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO (MempoolConsensus t)
+mkMempoolConsensus mempool blockHeaderDb payloadStore = do
+              lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
+              return MempoolConsensus
+                  { mpcMempool = mempool
+                  , mpcLastNewBlockParent = lastParentRef
+                  , mpcProcessFork = processFork blockHeaderDb payloadStore lastParentRef
+                  }
+
+----------------------------------------------------------------------------------------------------
+processFork :: PayloadCas cas
+                 => BlockHeaderDb
+                 -> Maybe (PayloadDb cas)
+                 -> IORef (Maybe BlockHeader)
+                 -> LogFunction
+                 -> BlockHeader
+                 -> IO (Vector ChainwebTransaction)
+processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
+    lastHeader <- readIORef lastHeaderRef
+    processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
+
+----------------------------------------------------------------------------------------------------
+-- called directly from some unit tests...
+processFork'
+    :: Ord x
+    => LogFunction
+    -> BlockHeaderDb
+    -> BlockHeader
+    -> Maybe BlockHeader
+    -> (BlockHeader -> IO (S.Set x))
+    -> IO (V.Vector x)
+processFork' logFun db newHeader lastHeaderM plLookup = do
+    case lastHeaderM of
+        Nothing -> return V.empty
+        Just lastHeader -> do
+            let s = branchDiff db lastHeader newHeader
+            (oldBlocks, newBlocks) <- collectForkBlocks s
+            case V.length newBlocks - V.length oldBlocks of
+                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
+                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
+                           ++ "block is more than one greater than the previous new block request")
+                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
+                      oldTrans <- foldM f mempty oldBlocks
+                      newTrans <- foldM f mempty newBlocks
+
+                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
+                      -- filterout any transactions that have been included in the
+                      -- winning fork (aka newBlocks):
+                      let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+
+                      -- create data for the dashboard showing number or reintroduced transacitons:
+                      let !reIntro = ReintroducedTxs
+                            { oldForkHeader = ObjectEncoded lastHeader
+                            , newForkHeader = ObjectEncoded newHeader
+                            , numReintroduced = V.length results
+                            }
+                      logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
+                      return results
+          where
+            f trans header = S.union trans <$> plLookup header
+
+----------------------------------------------------------------------------------------------------
+payloadLookup
+    :: forall cas . PayloadCas cas
+    => Maybe (PayloadDb cas)
+    -> BlockHeader
+    -> IO (Set ChainwebTransaction)
+payloadLookup payloadStore bh =
+    case payloadStore of
+        Nothing -> return mempty
+        Just s -> do
+            pwo <- casLookupM' s (_blockPayloadHash bh)
+            chainwebTxsFromPWO pwo
+  where
+    casLookupM' s h = do
+        x <- casLookup s h
+        case x of
+            Nothing -> throwIO $ PayloadNotFoundException h
+            Just pwo -> return pwo
+
+----------------------------------------------------------------------------------------------------
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.
 collectForkBlocks
@@ -138,6 +175,7 @@ collectForkBlocks theStream =
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
 
+----------------------------------------------------------------------------------------------------
 chainwebTxsFromPWO :: PayloadWithOutputs -> IO (Set ChainwebTransaction)
 chainwebTxsFromPWO pwo = do
     let transSeq = fst <$> _payloadWithOutputsTransactions pwo
@@ -149,10 +187,3 @@ chainwebTxsFromPWO pwo = do
     return $ S.fromList theRights
   where
     toCWTransaction = codecDecode chainwebPayloadCodec
-
-newtype MempoolException = MempoolConsensusException String
-
-instance Show MempoolException where
-    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
-
-instance Exception MempoolException

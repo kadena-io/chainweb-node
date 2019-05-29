@@ -63,7 +63,7 @@ prop_validTxSource db genBlock = monadicIO $ do
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (Set TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
-    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb
+    reIntroTransV <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                            fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
 
@@ -82,7 +82,7 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (Set TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
-    reIntroTransV <- run $ processFork (alogFunction aNoLog) fiBlockHeaderDb
+    reIntroTransV <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                            fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = S.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `S.difference` fiNewForkTrans

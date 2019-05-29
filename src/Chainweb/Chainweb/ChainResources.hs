@@ -37,7 +37,6 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.IORef
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -60,6 +59,7 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
+import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.InMemTypes as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
@@ -127,8 +127,9 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
-        withPactService v cid (setComponent "pact" logger) mempool cdbv $ \requestQ -> do
+      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        mpc <- MPCon.mkMempoolConsensus mempool cdb payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
 
             -- replay pact
             let pact = pes mempool requestQ
@@ -215,9 +216,7 @@ mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
 mempoolSyncP2pSession chain pollInterval logg0 env _ =
     flip catches [ Handler errorHandler ] $ do
 
-        -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar <- newIORef Nothing
-        let peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
+        let peerMempool = MPC.toMempool v cid txcfg gaslimit env
 
         logg Debug "mempool sync session starting"
         Mempool.syncMempools' logg syncIntervalUs pool peerMempool

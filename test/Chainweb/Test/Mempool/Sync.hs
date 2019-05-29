@@ -22,27 +22,20 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
-import Chainweb.Test.Utils (toyChainId, toyVersion)
 import Chainweb.Utils (Codec(..))
-import Data.CAS.RocksDB
 
 tests :: TestTree
 tests = mempoolProperty "Mempool.syncMempools" gen
         propSync
         $ MempoolWithFunc
-        $ withTestInMemoryMempool
+        $ withInMemoryMempool
             testInMemCfg
-            (withTempRocksDb "mempool-sync-tests")
-            (withBlockHeaderDb' toyVersion toyChainId)
   where
-    withBlockHeaderDb' v cid rdb f = withBlockHeaderDb rdb v cid f
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
@@ -68,10 +61,7 @@ propSync
     -> MempoolBackend MockTx
     -> IO (Either String ())
 propSync (txs, missing, later) localMempool =
-  withTempRocksDb "mempool-sync-tests" $ \rdb ->
-  withBlockHeaderDb rdb toyVersion toyChainId $ \blockHeaderDb -> do
-    let noPayloadDb = Nothing :: Maybe (PayloadDb RocksDbCas)
-    withInMemoryMempool testInMemCfg blockHeaderDb noPayloadDb $ \remoteMempool -> do
+    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
         mempoolInsert localMempool txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV

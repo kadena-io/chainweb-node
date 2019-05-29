@@ -54,16 +54,12 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv action
-    = let mpc = MempoolConsensus
-            {
-            }
-
-  withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
+withPactService ver cid logger mpc cdbv action = do
+    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions

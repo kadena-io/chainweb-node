@@ -11,7 +11,6 @@ module Chainweb.Mempool.InMem
   (
    -- * Initialization functions
     withInMemoryMempool
-  , withTestInMemoryMempool
   , withTxBroadcaster
 
     -- * Low-level create/destroy functions
@@ -45,7 +44,6 @@ import Data.IORef
     writeIORef)
 import Data.Maybe (isJust)
 import Data.Ord (Down(..))
-import Data.Set (Set)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -58,19 +56,10 @@ import System.Timeout (timeout)
 
 -- internal imports
 
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import qualified Chainweb.Mempool.Consensus as MPCon
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Payload.PayloadStore
 import qualified Chainweb.Time as Time
-import Chainweb.Transaction
 import Chainweb.Utils (fromJuste)
-
-import Data.CAS
-import Data.CAS.RocksDB
-import Data.LogMessage (LogFunction)
 
 
 ------------------------------------------------------------------------------
@@ -213,16 +202,13 @@ broadcasterThread broadcaster@(TxBroadcaster _ _ q doneMV) restore =
 
 
 ------------------------------------------------------------------------------
-makeInMemPool
-    :: InMemConfig t
-    -> TxBroadcaster t
-    -> BlockHeaderDb
-    -> Maybe (PayloadDb cas)
-    -> IO (InMemoryMempool t cas)
-makeInMemPool cfg txB blockHeaderDb payloadDb = mask_ $ do
+makeInMemPool :: InMemConfig t
+              -> TxBroadcaster t
+              -> IO (InMemoryMempool t)
+makeInMemPool cfg txB = mask_ $ do
     dataLock <- newInMemMempoolData >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock txB tid blockHeaderDb payloadDb
+    return $! InMemoryMempool cfg dataLock txB tid
 
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
@@ -232,14 +218,11 @@ newInMemMempoolData = InMemoryMempoolData <$> newIORef PSQ.empty
                            <*> newIORef Nothing
 
 ------------------------------------------------------------------------------
-makeSelfFinalizingInMemPool :: PayloadCas cas
-                            => InMemConfig t
-                            -> BlockHeaderDb
-                            -> Maybe (PayloadDb cas)
+makeSelfFinalizingInMemPool :: InMemConfig t
                             -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
+makeSelfFinalizingInMemPool cfg =
     mask_ $ bracketOnError createTxBroadcaster destroyTxBroadcaster $ \txb -> do
-        mpool <- makeInMemPool cfg txb blockHeaderDb payloadStore
+        mpool <- makeInMemPool cfg txb
         ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyTxBroadcaster txb)
         back <- toMempoolBackend mpool
@@ -248,10 +231,9 @@ makeSelfFinalizingInMemPool cfg blockHeaderDb payloadStore =
         return $ wrapBackend txcfg bsl (ref, wk)
 
 ----------------------------------------------------------------------------------------------------
-wrapBackend :: PayloadCas cas
-            => TransactionConfig t
+wrapBackend :: TransactionConfig t
             -> Int64
-            -> (IORef (InMemoryMempool t cas), b)
+            -> (IORef (InMemoryMempool t), b)
             -> MempoolBackend t
 wrapBackend txcfg bsl mp =
       MempoolBackend
@@ -302,12 +284,9 @@ reaperThread cfg dataLock restore = forever $ do
 
 ------------------------------------------------------------------------------
 toMempoolBackend
-    :: PayloadCas cas
-    => InMemoryMempool t cas
+    :: InMemoryMempool t
     -> IO (MempoolBackend t)
 toMempoolBackend mempool = do
-    lock <- readMVar lockMVar
-    let lastParentRef = _inmemLastNewBlockParent lock
     return $ MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolBlockGasLimit = blockSizeLimit
@@ -326,8 +305,6 @@ toMempoolBackend mempool = do
   where
     cfg = _inmemCfg mempool
     lockMVar = _inmemDataLock mempool
-    blockHeaderDb = _inmemBlockHeaderDb mempool
-    payloadStore = _inmemPayloadStore mempool
     broadcaster = _inmemBroadcaster mempool
 
     InMemConfig tcfg blockSizeLimit _ = cfg
@@ -337,83 +314,29 @@ toMempoolBackend mempool = do
     getBlock = getBlockInMem cfg lockMVar
     markValidated = markValidatedInMem cfg lockMVar
     markConfirmed = markConfirmedInMem lockMVar
-    processFork = processForkInMem lockMVar blockHeaderDb payloadStore
     reintroduce = reintroduceInMem broadcaster cfg lockMVar
     getPending = getPendingInMem cfg lockMVar
     subscribe = subscribeInMem broadcaster
     shutdown = shutdownInMem broadcaster
     clear = clearInMem lockMVar
 
-------------------------------------------------------------------------------
-inMemPayloadLookup
-    :: forall cas . PayloadCas cas
-    => Maybe (PayloadDb cas)
-    -> BlockHeader
-    -> IO (Set ChainwebTransaction)
-inMemPayloadLookup payloadStore bh =
-    case payloadStore of
-        Nothing -> return mempty
-        Just s -> do
-            pwo <- casLookupM' s (_blockPayloadHash bh)
-            MPCon.chainwebTxsFromPWO pwo
-  where
-    casLookupM' s h = do
-        x <- casLookup s h
-        case x of
-            Nothing -> throwIO $ PayloadNotFoundException h
-            Just pwo -> return pwo
-
-------------------------------------------------------------------------------
-processForkInMem :: PayloadCas cas
-                 => MVar (InMemoryMempoolData t)
-                 -> BlockHeaderDb
-                 -> Maybe (PayloadDb cas)
-                 -> LogFunction
-                 -> BlockHeader
-                 -> IO (Vector ChainwebTransaction)
-processForkInMem lock blockHeaderDb payloadStore logFun newHeader = do
-    theData <- readMVar lock
-    lastHeader <- readIORef (_inmemLastNewBlockParent theData)
-
-    MPCon.processFork logFun blockHeaderDb newHeader lastHeader
-        (inMemPayloadLookup payloadStore)
-
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
-withInMemoryMempool :: PayloadCas cas
-                    => InMemConfig t
-                    -> BlockHeaderDb
-                    -> Maybe (PayloadDb cas)
+withInMemoryMempool :: InMemConfig t
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg blockHeaderDb payloadDb f =
+withInMemoryMempool cfg f =
     withTxBroadcaster $ \txB -> do
-        let inMemIO = makeInMemPool cfg txB blockHeaderDb payloadDb
+        let inMemIO = makeInMemPool cfg txB
         let action inMem = do
               back <- toMempoolBackend inMem
               f back
         bracket inMemIO destroyInMemPool action
 
 ------------------------------------------------------------------------------
-withTestInMemoryMempool
-    :: forall a t . InMemConfig t
-    -> ((RocksDb -> IO a) -> IO a)
-    -> (RocksDb -> (BlockHeaderDb -> IO a) -> IO a)
-    -> (MempoolBackend t -> IO a) -> IO a
-withTestInMemoryMempool cfg withRocks withBlocks withMempool =
-    withRocks $ \rocksDb ->
-    withBlocks rocksDb $ \blockHeaderDb ->
-    withTxBroadcaster $ \txB -> do
-        let inMemIO = makeInMemPool cfg txB blockHeaderDb (Nothing :: Maybe (PayloadDb RocksDbCas))
-            action inMem = do
-              back <- toMempoolBackend inMem
-              withMempool back
-        bracket inMemIO destroyInMemPool action
-
-------------------------------------------------------------------------------
-destroyInMemPool :: InMemoryMempool t cas -> IO ()
-destroyInMemPool (InMemoryMempool _ _ _ tid _ _) = killThread tid
+destroyInMemPool :: InMemoryMempool t -> IO ()
+destroyInMemPool (InMemoryMempool _ _ _ tid) = killThread tid
 
 -------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)

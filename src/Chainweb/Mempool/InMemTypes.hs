@@ -41,9 +41,7 @@ import System.Mem.Weak (Weak)
 -- internal imports
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
-import Chainweb.Payload.PayloadStore
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -89,13 +87,11 @@ data InMemConfig t = InMemConfig {
 }
 
 ------------------------------------------------------------------------------
-data InMemoryMempool t cas = InMemoryMempool {
+data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: InMemConfig t
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemBroadcaster :: TxBroadcaster t
   , _inmemReaper :: ThreadId
-  , _inmemBlockHeaderDb :: BlockHeaderDb
-  , _inmemPayloadStore :: Maybe (PayloadDb cas)
   -- TODO: reap expired transactions
 }
 
