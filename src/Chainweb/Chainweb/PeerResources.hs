@@ -29,6 +29,7 @@ module Chainweb.Chainweb.PeerResources
 -- * Internal Utils
 , withSocket
 , withPeerDb
+, withConnectionManger'
 , withConnectionManger
 ) where
 
@@ -45,9 +46,11 @@ import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 
 import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Client.OpenSSL
 import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
+import OpenSSL.Session
 import Prelude hiding (log)
 
 import System.LogLevel
@@ -161,7 +164,7 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 
 -- Connection Manager
 --
-withConnectionManger
+withConnectionManger'
     :: Logger logger
     => logger
     -> X509CertChainPem
@@ -169,7 +172,7 @@ withConnectionManger
     -> PeerDb
     -> (HTTP.Manager -> IO a)
     -> IO a
-withConnectionManger logger certs key peerDb runInner = do
+withConnectionManger' logger certs key peerDb runInner = do
     let cred = unsafeMakeCredential certs key
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
@@ -229,3 +232,86 @@ withConnectionManger logger certs key peerDb runInner = do
     serviceIdToHostAddress (h, p) = HostAddress
         <$> readHostnameBytes (B8.pack h)
         <*> readPortBytes p
+
+-- -------------------------------------------------------------------------- --
+-- OpenSSL
+
+
+-- Connection Manager
+--
+withConnectionManger
+    :: Logger logger
+    => logger
+    -> X509CertChainPem
+    -> X509KeyPem
+    -> PeerDb
+    -> (HTTP.Manager -> IO a)
+    -> IO a
+withConnectionManger logger _certs _key _peerDb runInner = withOpenSSL $ do
+    -- let cred = unsafeMakeCredential certs key
+    -- settings <- certificateCacheManagerSettings
+    --     (TlsSecure True certCacheLookup)
+    --     (Just cred)
+
+    ctx <- context
+    -- ctx1 <- contextSetPrivateKey ctx cred
+    -- ctx1 <- contextSetPrivateKey ctx
+
+    contextSetVerificationMode ctx VerifyNone
+    let settings = opensslManagerSettings (return ctx)
+
+    let settings' = settings
+            { HTTP.managerConnCount = 5
+                -- keep only 5 connections alive
+            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 10000000
+                -- timeout connection-attempts after 10 sec instead of the default of 30 sec
+            , HTTP.managerIdleConnectionCount = 512
+                -- total number of connections to keep alive. 512 is the default
+            }
+
+    connCountRef <- newCounter @"connection-count"
+    reqCountRef <- newCounter @"request-count"
+    -- urlStats <- newCounterMap @"url-counts"
+    mgr <- HTTP.newManager settings'
+        { HTTP.managerTlsConnection = do
+            mk <- HTTP.managerTlsConnection settings'
+            return $ \a b c -> inc connCountRef >> mk a b c
+
+        , HTTP.managerModifyRequest = \req -> do
+            inc reqCountRef
+            -- incKey urlStats (sshow $ HTTP.getUri req)
+            HTTP.managerModifyRequest settings req
+                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+                    -- overwrite the explicit connection timeout from servant-client
+                    -- (If the request has a timeout configured, the global timeout of
+                    -- the manager is ignored)
+                }
+        }
+
+    let logClientConnections = forever $ do
+            threadDelay 60000000 {- 1 minute -}
+            logFunctionCounter logger Info =<< sequence
+                [ roll connCountRef
+                , roll reqCountRef
+                -- , roll urlStats
+                ]
+
+    let runLogClientConnections umask = do
+            umask logClientConnections `catchAllSynchronous` \e -> do
+                logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
+            logFunctionText logger Info "Restarting connection manager logger"
+            runLogClientConnections umask
+
+    withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
+
+  where
+    -- certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
+    -- certCacheLookup si = do
+    --     ha <- serviceIdToHostAddress si
+    --     pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
+    --     return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
+
+    -- serviceIdToHostAddress (h, p) = HostAddress
+    --     <$> readHostnameBytes (B8.pack h)
+    --     <*> readPortBytes p
+
