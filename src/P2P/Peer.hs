@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -122,13 +123,13 @@ shortPeerId = T.take 6 . toText
 
 peerIdFromText :: MonadThrow m => T.Text -> m PeerId
 peerIdFromText t = do
-    bytes <- decodeB64UrlNoPaddingText t
+    !bytes <- decodeB64UrlNoPaddingText t
     unless (B.length bytes == int fingerprintByteCount) $ throwM
         $ TextFormatException
         $ "wrong peer-id length: expected "
         <> sshow fingerprintByteCount <> " bytes, got "
         <> sshow (B.length bytes) <> " bytes."
-    return $ PeerId bytes
+    return $! PeerId bytes
 {-# INLINE peerIdFromText #-}
 
 unsafePeerIdFromText :: HasCallStack => String -> PeerId

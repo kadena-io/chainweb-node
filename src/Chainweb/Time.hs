@@ -68,6 +68,7 @@ module Chainweb.Time
 ) where
 
 import Control.DeepSeq
+import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -118,7 +119,7 @@ encodeTimeSpanToWord64 (TimeSpan a) = BA.unLE . BA.toLE $ unsigned a
 {-# INLINE encodeTimeSpanToWord64 #-}
 
 decodeTimeSpan :: MonadGet m => m (TimeSpan Int64)
-decodeTimeSpan = TimeSpan . signed <$> getWord64le
+decodeTimeSpan = TimeSpan . signed <$!> getWord64le
 {-# INLINE decodeTimeSpan #-}
 
 castTimeSpan :: NumCast a b => TimeSpan a -> TimeSpan b
@@ -126,7 +127,7 @@ castTimeSpan (TimeSpan a) = TimeSpan $ numCast a
 {-# INLINE castTimeSpan #-}
 
 maybeCastTimeSpan :: MaybeNumCast a b => TimeSpan a -> Maybe (TimeSpan b)
-maybeCastTimeSpan (TimeSpan a) = TimeSpan <$> maybeNumCast a
+maybeCastTimeSpan (TimeSpan a) = TimeSpan <$!> maybeNumCast a
 {-# INLINE maybeCastTimeSpan #-}
 
 ceilingTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
@@ -184,7 +185,7 @@ encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
 {-# INLINE encodeTimeToWord64 #-}
 
 decodeTime :: MonadGet m => m (Time Int64)
-decodeTime  = Time <$> decodeTimeSpan
+decodeTime  = Time <$!> decodeTimeSpan
 {-# INLINE decodeTime #-}
 
 castTime :: NumCast a b => Time a -> Time b
@@ -192,7 +193,7 @@ castTime (Time a) = Time $ castTimeSpan a
 {-# INLINE castTime #-}
 
 maybeCastTime :: MaybeNumCast a b => Time a -> Maybe (Time b)
-maybeCastTime (Time a) = Time <$> maybeCastTimeSpan a
+maybeCastTime (Time a) = Time <$!> maybeCastTimeSpan a
 {-# INLINE maybeCastTime #-}
 
 ceilingTime :: RealFrac a => Integral b => Time a -> Time b

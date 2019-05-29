@@ -107,7 +107,7 @@ encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
 decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
-decodeRankedBlockHeader = RankedBlockHeader <$> decodeBlockHeader
+decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
 
 -- -------------------------------------------------------------------------- --
@@ -128,7 +128,7 @@ encodeRankedBlockHash (RankedBlockHash r bh) = do
 
 decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
-    <$> decodeBlockHeightBe
+    <$!> decodeBlockHeightBe
     <*> decodeBlockHash
 {-# INLINE decodeRankedBlockHash #-}
 
@@ -402,7 +402,7 @@ insertBlockHeaderDb :: BlockHeaderDb -> [E] -> IO ()
 insertBlockHeaderDb db es = do
 
     -- Validate set of additions
-    validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$> es
+    validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$!> es
 
     -- add set of additions to database
     mapM_ (dbAddChecked db) rankedAdditions

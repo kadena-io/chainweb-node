@@ -160,7 +160,7 @@ encodePowHashNat (PowHashNat n) = encodeWordLe n
 {-# INLINE encodePowHashNat #-}
 
 decodePowHashNat :: MonadGet m => m PowHashNat
-decodePowHashNat = PowHashNat <$> decodeWordLe
+decodePowHashNat = PowHashNat <$!> decodeWordLe
 {-# INLINE decodePowHashNat #-}
 
 encodePowHashNatBe :: MonadPut m => PowHashNat -> m ()
@@ -168,7 +168,7 @@ encodePowHashNatBe (PowHashNat n) = encodeWordBe n
 {-# INLINE encodePowHashNatBe #-}
 
 decodePowHashNatBe :: MonadGet m => m PowHashNat
-decodePowHashNatBe = PowHashNat <$> decodeWordBe
+decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 {-# INLINE decodePowHashNatBe #-}
 
 instance ToJSON PowHashNat where
@@ -210,7 +210,7 @@ encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 {-# INLINE encodeHashDifficulty #-}
 
 decodeHashDifficulty :: MonadGet m => m HashDifficulty
-decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
+decodeHashDifficulty = HashDifficulty <$!> decodePowHashNat
 {-# INLINE decodeHashDifficulty #-}
 
 encodeHashDifficultyBe :: MonadPut m => HashDifficulty -> m ()
@@ -218,7 +218,7 @@ encodeHashDifficultyBe (HashDifficulty x) = encodePowHashNatBe x
 {-# INLINE encodeHashDifficultyBe #-}
 
 decodeHashDifficultyBe :: MonadGet m => m HashDifficulty
-decodeHashDifficultyBe = HashDifficulty <$> decodePowHashNatBe
+decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 {-# INLINE decodeHashDifficultyBe #-}
 
 -- -------------------------------------------------------------------------- --
@@ -301,7 +301,7 @@ encodeHashTarget = encodePowHashNat . coerce
 {-# INLINE encodeHashTarget #-}
 
 decodeHashTarget :: MonadGet m => m HashTarget
-decodeHashTarget = HashTarget <$> decodePowHashNat
+decodeHashTarget = HashTarget <$!> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
 
 -- -------------------------------------------------------------------------- --

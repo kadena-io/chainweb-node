@@ -229,4 +229,4 @@ bloomFalsePositiveRate :: Double
 bloomFalsePositiveRate = 0.08
 
 toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict b
+toPactTx (Transaction b) = decodeStrict' b

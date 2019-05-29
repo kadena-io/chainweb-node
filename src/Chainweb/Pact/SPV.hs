@@ -89,7 +89,7 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
-      case decodeStrict t :: Maybe HashCommandResult of
+      case decodeStrict' t :: Maybe HashCommandResult of
         Nothing -> internalError $
           "unable to decode spv transaction output"
         Just (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) -> case fromPactValue pv of
@@ -138,7 +138,7 @@ getTxIdx bdb pdb bh th = do
           & return
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
-    toPactTx (Transaction b) = decodeStrictOrThrow b
+    toPactTx (Transaction b) = decodeStrictOrThrow' b
 
     toTxHash :: MonadThrow m => Transaction -> m PactHash
     toTxHash = fmap _cmdHash . toPactTx

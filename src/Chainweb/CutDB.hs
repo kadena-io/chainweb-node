@@ -179,7 +179,7 @@ cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
     keyCodec = Codec
         (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
         (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
-    valueCodec = Codec encodeToByteString decodeStrictOrThrow
+    valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB

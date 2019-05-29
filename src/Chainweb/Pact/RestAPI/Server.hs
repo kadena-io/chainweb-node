@@ -283,7 +283,7 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     keyHash = unRequestKey key
 
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
-    go blockHeader = do
+    go !blockHeader = do
         -- bloom reports false positives, so if it says "no" we're sure the
         -- transaction is not in this block and we can skip decoding it.
         needToLook <- liftIO $ Bloom.member keyHash
@@ -296,17 +296,15 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
-        txs <- mapM fromTx txsBs
+        !txs <- mapM fromTx txsBs
 
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) -> do
-
-                val <- MaybeT $ return $ decodeStrict output
-                return $! val
+            (Just (_cmd, (TransactionOutput output))) ->
+                MaybeT $ return $! decodeStrict' output
 
             Nothing -> lookupParent blockHeader
 
-    fromTx (tx, out) = do
+    fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
     matchingHash (cmd, _) = H.toUntypedHash (_cmdHash cmd) == keyHash
@@ -322,7 +320,7 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
 
 toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict b
+toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -100,8 +101,8 @@ markAllValidated mempool payload height hash = mempoolMarkValidated mempool vali
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
-                                        { validatedHeight = height
-                                        , validatedHash = hash
-                                        , validatedTransaction = t }
-                                    ) decodedTxs
+    !validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
+                                         { validatedHeight = height
+                                         , validatedHash = hash
+                                         , validatedTransaction = t }
+                                     ) decodedTxs

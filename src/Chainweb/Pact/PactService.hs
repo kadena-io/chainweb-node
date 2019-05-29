@@ -67,7 +67,8 @@ import qualified Pact.Types.Runtime as P
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader
+    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -351,55 +352,49 @@ logDebug = logg "DEBUG"
 -- | Note: The BlockHeader here is the header of the block being validated
 execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactServiceM PayloadWithOutputs
 execValidateBlock loadingGenesis currHeader plData = do
+    !miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
-    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
-
-    let bHeight@(BlockHeight bh) = _blockHeight currHeader
-        bParent = _blockParent currHeader
-        bHash = _blockHash currHeader
-        isGenesisBlock = isGenesisBlockHeader currHeader
+    let bHeight@(BlockHeight !bh) = _blockHeight currHeader
+        !bParent = _blockParent currHeader
+        !bHash = _blockHash currHeader
+        !isGenesisBlock = isGenesisBlockHeader currHeader
 
     unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
       ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++
       ", payloadHash=" ++ show (_blockPayloadHash currHeader)
 
     trans <- liftIO $ transactionsFromPayload plData
+    restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (pred bHeight, bParent)
 
-    restoreCheckpointer $ if loadingGenesis then Nothing else Just (pred bHeight, bParent)
-
-    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
       execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans
 
     finalizeCheckpointer $ \cp s -> save cp bHeight bHash s
-
     psStateValidated .= Just currHeader
-
     return $! toPayloadWithOutputs miner results
 
 
 execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction ->
                     PactServiceM Transactions
 execTransactions nonGenesisParentHash miner ctxs = do
+    !currentState <- use psStateDb
 
-    currentState <- use psStateDb
+    let !isGenesis = isNothing nonGenesisParentHash
+        !dbEnvPersist' = _pdbsDbEnv $! currentState
 
-    let isGenesis = isNothing nonGenesisParentHash
-        dbEnvPersist' = _pdbsDbEnv $! currentState
+    !dbEnv' <- liftIO $ toEnv' dbEnvPersist'
 
-    dbEnv' <- liftIO $ toEnv' dbEnvPersist'
+    !coinOut <- runCoinbase nonGenesisParentHash dbEnv' miner
+    !txOuts <- applyPactCmds isGenesis dbEnv' ctxs miner
 
-    coinOut <- runCoinbase nonGenesisParentHash dbEnv' miner
-    txOuts <- applyPactCmds isGenesis dbEnv' ctxs miner
+    !newEnvPersist' <- liftIO $ toEnvPersist' dbEnv'
 
-    newEnvPersist' <- liftIO $! toEnvPersist' dbEnv'
-
-    let updatedState = PactDbState newEnvPersist'
-        cmdBSToTx = toTransactionBytes . fmap payloadBytes
-        paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
+    let !updatedState = PactDbState newEnvPersist'
+        !cmdBSToTx = toTransactionBytes . fmap payloadBytes
+        !paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
 
     psStateDb .= updatedState
-
-    return (Transactions paired coinOut)
+    return $! Transactions paired coinOut
 
 runCoinbase
     :: Maybe BlockHash
@@ -414,7 +409,7 @@ runCoinbase (Just _parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
       pd = _psPublicData psEnv
       logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  toHashCommandResult <$> liftIO (applyCoinbase logger dbEnv mi reward pd)
+  toHashCommandResult <$!> liftIO (applyCoinbase logger dbEnv mi reward pd)
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
@@ -437,17 +432,16 @@ applyPactCmd
     -> PactServiceM HashCommandResult
 applyPactCmd isGenesis (Env' dbEnv) cmdIn miner = do
     psEnv <- ask
-    let logger   = _cpeLogger . _psCheckpointEnv $ psEnv
-        gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
-        pd       = _psPublicData psEnv
-        spv      = _psSpvSupport psEnv
+    let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
+        !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
+        !pd       = _psPublicData psEnv
+        !spv      = _psSpvSupport psEnv
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
-    let cmd = payloadObj <$> cmdIn
-    result <- liftIO $! if isGenesis
+    let !cmd = payloadObj <$> cmdIn
+    result <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd
-
     pure $! toHashCommandResult result
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
@@ -458,13 +452,13 @@ updateState = assign psStateDb
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
-    let transSeq = _payloadDataTransactions plData
-    let transList = toList transSeq
-    let bytes = _transactionBytes <$> transList
-    let eithers = toCWTransaction <$> bytes
+    let !transSeq = _payloadDataTransactions plData
+    let !transList = toList transSeq
+    let !bytes = _transactionBytes <$!> transList
+    let !eithers = toCWTransaction <$!> bytes
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
-    let theRights  =  rights eithers
-    return $ V.fromList theRights
+    let theRights = rights eithers
+    return $! V.fromList theRights
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
