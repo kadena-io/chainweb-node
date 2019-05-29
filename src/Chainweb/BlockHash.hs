@@ -210,7 +210,7 @@ decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
     hashes <- mapM (const decodeBlockHashWithChainId) [1 .. l]
-    return $ BlockHashRecord $ HM.fromList $ hashes
+    return $! BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: MonadGet m
@@ -234,7 +234,7 @@ decodeBlockHashRecordChecked ps = do
     (l :: Natural) <- int <$!> getWord16le
     void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
-    return $ BlockHashRecord $ HM.fromList $ hashes
+    return $! BlockHashRecord $! HM.fromList hashes
 
 blockHashRecordToSequence :: BlockHashRecord -> S.Seq BlockHash
 blockHashRecordToSequence = S.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord

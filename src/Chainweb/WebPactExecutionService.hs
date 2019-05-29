@@ -66,13 +66,14 @@ mkPactExecutionService mempool q = PactExecutionService
       mv <- validateBlock h pd q
       r <- takeMVar mv
       case r of
-        Right pdo -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h) >> return pdo
+        (Right !pdo) -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h)
+                          >> return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
       r <- takeMVar mv
       case r of
-        Right pdo -> return pdo
+        (Right !pdo) -> return pdo
         Left e -> throwM e
   , _pactLocal = \ct -> do
       mv <- local ct q

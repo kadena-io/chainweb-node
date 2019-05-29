@@ -221,8 +221,8 @@ maybeLogHandle
     -> GenericBackend b
     -> GenericBackend b
 maybeLogHandle f = genericLogHandle $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> f msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> f msg
 {-# INLINEABLE maybeLogHandle #-}
 
 -- | This is most the powerful handle function that allows to implement generic
@@ -236,9 +236,9 @@ genericLogHandle
     -> GenericBackend b
 genericLogHandle f b msg = case fromBackendLogMessage msg of
     Nothing -> b msg
-    Just amsg -> f amsg >>= \case
+    (Just !amsg) -> f amsg >>= \case
         Nothing -> return mempty
-        Just msg' -> b msg'
+        (Just !msg') -> b msg'
 {-# INLINEABLE genericLogHandle #-}
 
 -- -------------------------------------------------------------------------- --
@@ -259,8 +259,8 @@ maybeLogHandler
     => (L.LogMessage a -> IO (Maybe (L.LogMessage SomeLogMessage)))
     -> LogHandler
 maybeLogHandler b = LogHandler $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> b msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
 
 logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
@@ -492,7 +492,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
   where
     curIxName = do
         d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
-        return $ ixName <> "-" <> d
+        return $! ixName <> "-" <> d
 
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
@@ -517,14 +517,14 @@ withElasticsearchBackend mgr esServer ixName inner = do
         errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
         void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go _ 0 !batch _ = return (0, batch)
+        go _ 0 !batch _ = return $! (0, batch)
         go i !remaining !batch !timer = isTimeout `orElse` fill
           where
             isTimeout = do
                 check =<< readTVar timer
-                return (remaining, batch)
+                return $! (remaining, batch)
             fill = tryReadTBQueue queue >>= \case
-                Nothing -> return (remaining, batch)
+                Nothing -> return $! (remaining, batch)
                 Just x -> do
                     go i (pred remaining) (batch <> indexAction i x) timer
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -65,7 +66,7 @@ checkKey
     => db
     -> DbKey db
     -> m (DbKey db)
-checkKey db k = liftIO (lookup db k) >>= \case
+checkKey !db !k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= (sshow k :: String)

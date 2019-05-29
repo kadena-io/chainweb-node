@@ -312,7 +312,7 @@ execLocal cmd = do
 
   bh <- use psStateValidated >>= \v -> case v of
     Nothing -> throwM NoBlockValidatedYet
-    Just p -> return p
+    (Just !p) -> return p
 
   restoreCheckpointer $ Just (_blockHeight bh,_blockHash bh)
 

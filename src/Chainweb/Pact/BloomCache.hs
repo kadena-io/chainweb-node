@@ -223,7 +223,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             return $! HashMap.insert hkey bloom mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
-    fromTx (tx, _) = MaybeT (return (toPactTx tx))
+    fromTx (tx, _) = MaybeT (return $! toPactTx tx)
 
 bloomFalsePositiveRate :: Double
 bloomFalsePositiveRate = 0.08

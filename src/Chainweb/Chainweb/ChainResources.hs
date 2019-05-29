@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -168,7 +169,7 @@ replayPact logger pact cdb pdb = do
   where
     payload h = casLookup pdb (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-        Just p -> return $ payloadWithOutputsToPayloadData p
+        (Just !p) -> return $! payloadWithOutputsToPayloadData p
 
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
 

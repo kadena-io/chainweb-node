@@ -174,7 +174,7 @@ getCurrentTimeIntegral :: Integral a => IO (Time a)
 getCurrentTimeIntegral = do
     -- returns POSIX seconds with picosecond precision
     t <- getPOSIXTime
-    return $ Time $ TimeSpan (round $ t * 1000000)
+    return $! Time $! TimeSpan $! round $ t * 1000000
 
 encodeTime :: MonadPut m => Time Int64 -> m ()
 encodeTime (Time a) = encodeTimeSpan a

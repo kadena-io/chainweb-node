@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -69,7 +70,7 @@ casLookupM
 casLookupM cas k = casLookup cas k >>= \case
     Nothing -> throwM . CasException $
       "casLookupM: lookup failed for cas key"
-    Just x -> return x
+    (Just !x) -> return x
 
 newtype CasException = CasException Text
     deriving (Eq, Show, Generic)

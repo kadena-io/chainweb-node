@@ -27,7 +27,7 @@ import Chainweb.Pact.Backend.Types
 initInMemoryCheckpointEnv :: P.Logger -> P.GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv logger gasEnv = do
     inmem <- newMVar mempty
-    return $
+    return $!
         CheckpointEnv
             { _cpeCheckpointer =
                   Checkpointer
@@ -47,8 +47,8 @@ restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbSt
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just dbstate -> return (Right dbstate)
-            Nothing -> return $ Left $
+            Just dbstate -> return $! Right $! dbstate
+            Nothing -> return $! Left $!
               "InMemoryCheckpointer: Restore not found: height=" <> show height
               <> ", hash=" <> show hash
               <> ", known=" <> show (HMS.keys store)

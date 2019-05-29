@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -81,14 +82,14 @@ peerGetHandler
     -> Maybe (NextItem Int)
     -> Handler (Page (NextItem Int) PeerInfo)
 peerGetHandler db nid limit next = do
-    sn <- liftIO $ peerDbSnapshot db
-    page <- seekFiniteStreamToPage fst next effectiveLimit
+    !sn <- liftIO $ peerDbSnapshot db
+    !page <- seekFiniteStreamToPage fst next effectiveLimit
         . SP.map (second _peerEntryInfo)
         . SP.zip (SP.each [0..])
         . SP.each
         . toList
         $ getEQ nid sn
-    return $ over pageItems (fmap snd) page
+    return $! over pageItems (fmap snd) page
   where
     effectiveLimit = limit <|> Just defaultPeerInfoLimit
 

@@ -168,7 +168,7 @@ listenHandler cutR cid chain bloomCache (ListenerRequest key) =
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
-                Nothing -> return $ ListenTimeout defaultTimeout
+                Nothing -> return $! ListenTimeout defaultTimeout
                 (Just cut) -> poll cut
 
         poll cut = do
@@ -212,14 +212,14 @@ localHandler
     -> Handler (CommandResult Hash)
 localHandler _ _ cr cmd = do
   cmd' <- case validateCommand cmd of
-    Right c -> return c
+    (Right !c) -> return c
     Left err ->
       throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
   r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
   case r of
     Left err ->
       throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-    Right r' -> return r'
+    (Right !r') -> return r'
 
 
 
@@ -326,5 +326,5 @@ validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err

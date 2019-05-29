@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -309,7 +310,7 @@ syncFromPeer node info = runClientM sync env >>= \case
     v = _p2pNodeChainwebVersion node
     nid = _p2pNodeNetworkId node
     sync = do
-        p <- peerGetClient v nid Nothing Nothing
+        !p <- peerGetClient v nid Nothing Nothing
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
         void $ peerPutClient v nid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
@@ -351,7 +352,7 @@ findNextPeer conf node = do
     -- sessions:
 
     let checkPeer (n :: PeerEntry) = do
-            let pid = _peerId $ _peerEntryInfo n
+            let !pid = _peerId $ _peerEntryInfo n
             -- can this check be moved out of the fold?
             check (int sessionCount < _p2pConfigMaxSessionCount conf)
             check (M.notMember (_peerEntryInfo n) sessions)
@@ -367,7 +368,7 @@ findNextPeer conf node = do
 
         shiftR s = do
             i <- randomR node (0, size s - 1)
-            return $ shift i s
+            return $! shift i s
 
     -- Classify the peers by priority
     --
@@ -416,11 +417,11 @@ newSession conf node = do
                     ( round (0.9 * timeoutMs)
                     , round (1.1 * timeoutMs)
                     )
-                newSes <- async $ restore $ timeout t
+                !newSes <- async $ restore $ timeout t
                     $ _p2pNodeClientSession node (loggFun node) env newPeerInfo
                 incrementActiveSessionCount peerDb newPeerInfo
-                info <- atomically $ addSession node newPeerInfo newSes now
-                return (info, newSes)
+                !info <- atomically $ addSession node newPeerInfo newSes now
+                return $! (info, newSes)
             logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
@@ -432,14 +433,14 @@ newSession conf node = do
 awaitSessions :: P2pNode -> IO ()
 awaitSessions node = do
     (pId, info, ses, result) <- atomically $ do
-        (p, i, a, r) <- waitAnySession node
+        (!p, !i, !a, r) <- waitAnySession node
         removeSession node p
-        result <- case r of
+        !result <- case r of
             Right Nothing -> P2pSessionTimeout <$ countTimeout node
             Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
             Right (Just False) -> P2pSessionResultFailure <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
-        return (p, i, a, result)
+        return $! (p, i, a, result)
 
     -- update peer db entry
     --
@@ -509,7 +510,7 @@ startPeerDb
     -> P2pConfiguration
     -> IO PeerDb
 startPeerDb nids conf = do
-    peerDb <- newEmptyPeerDb
+    !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
         peerDbInsertPeerInfoList nid (_p2pConfigKnownPeers conf) peerDb
     case _p2pConfigPeerDbFilePath conf of
@@ -551,7 +552,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
-    let s = P2pNode
+    let !s = P2pNode
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
