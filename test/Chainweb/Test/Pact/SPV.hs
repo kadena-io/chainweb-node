@@ -167,7 +167,7 @@ roundtrip sid0 tid0 burn create = do
 
             -- pact service, that is used to extend the cut data base
             txGen1 <- burn sid tid
-            pact1 <- testWebPactExecutionService v (Just cdb) (chainToMpa txGen1)
+            pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1)
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
