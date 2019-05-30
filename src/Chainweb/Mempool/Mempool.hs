@@ -494,7 +494,7 @@ putDecimal (Decimal places mantissa) = do
 
 getDecimal :: MonadGet m => m Decimal
 getDecimal = do
-    !places <- fromIntegral <$> getWord8
+    !places <- getWord8
     !negative <- getWord8
     numWords <- fromIntegral <$> getWord16le
     mantissaWords <- replicateM numWords getWord64le
