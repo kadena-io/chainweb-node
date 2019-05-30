@@ -86,7 +86,7 @@ import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
-import Chainweb.Time (Seconds)
+import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -275,7 +275,7 @@ runNodesForSeconds
     -> (T.Text -> IO ())
         -- ^ logging backend callback
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel v n seconds write = do
+runNodesForSeconds loglevel v n (Seconds seconds) write = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1000000)
         $ runNodes loglevel write stateVar v n
@@ -414,18 +414,18 @@ consensusStateSummary s
     medHeight = median $ HM.elems cutHeights
 
 expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
-expectedBlockCount v seconds = round ebc
+expectedBlockCount v (Seconds seconds) = round ebc
   where
     ebc :: Double
     ebc = int seconds * int (order $ _chainGraph v) / int br
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> int n
+        Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "expectedBlockCount: ChainwebVersion with no BlockRate given: " <> show v
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
-lowerStats v seconds = Stats
+lowerStats v (Seconds seconds) = Stats
     { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
     , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
     , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
@@ -438,11 +438,11 @@ lowerStats v seconds = Stats
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> int n
+        Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "lowerStats: ChainwebVersion with no BlockRate given: " <> show v
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
-upperStats v seconds = Stats
+upperStats v (Seconds seconds) = Stats
     { _statBlockCount = round $ ebc * 1.2
     , _statMaxHeight = round $ ebc * 1.2
     , _statMinHeight = round $ ebc * 1.2
@@ -455,5 +455,5 @@ upperStats v seconds = Stats
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate n) -> int n
+        Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v

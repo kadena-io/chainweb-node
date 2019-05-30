@@ -64,6 +64,7 @@ common warning-flags
         -Werror
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
+        -Widentities
 
 custom-setup
     setup-depends:

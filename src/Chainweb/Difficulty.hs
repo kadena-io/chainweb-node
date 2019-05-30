@@ -105,7 +105,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Seconds, TimeSpan(..))
+import Chainweb.Time (Seconds(..), TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -518,7 +518,7 @@ adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
   where
     br :: Natural
     br = case blockRate ver of
-        Just (BlockRate n) -> int n
+        Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     minAdj :: PowHashNat
