@@ -53,7 +53,7 @@ import Chainweb.NodeId (NodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (getCurrentTimeIntegral)
+import Chainweb.Time (Seconds(..), getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -173,7 +173,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
       where
         meanBlockTime :: Double
         meanBlockTime = case blockRate ver of
-            Just (BlockRate n) -> int n
+            Just (BlockRate (Seconds n)) -> int n
             Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
     -- | Assemble the new block.
