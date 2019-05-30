@@ -29,9 +29,10 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Either
 import Data.Foldable (toList)
+import Data.Hashable
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
 import Data.IORef
-import Data.Set (Set)
-import qualified Data.Set as S
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -93,17 +94,17 @@ processFork :: PayloadCas cas
                  -> IO (Vector ChainwebTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
-    processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
-
+    hashTxs <- processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
+    return $ V.map unHashable hashTxs
 ----------------------------------------------------------------------------------------------------
 -- called directly from some unit tests...
 processFork'
-    :: Ord x
+  :: (Eq x, Hashable x)
     => LogFunction
     -> BlockHeaderDb
     -> BlockHeader
     -> Maybe BlockHeader
-    -> (BlockHeader -> IO (S.Set x))
+    -> (BlockHeader -> IO (HashSet x))
     -> IO (V.Vector x)
 processFork' logFun db newHeader lastHeaderM plLookup = do
     case lastHeaderM of
@@ -122,7 +123,7 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
                       -- before re-introducing the transactions from the losing fork (aka oldBlocks),
                       -- filterout any transactions that have been included in the
                       -- winning fork (aka newBlocks):
-                      let !results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+                      let !results = V.fromList $ HS.toList $ oldTrans `HS.difference` newTrans
 
                       unless (V.null results) $ do
                           -- create data for the dashboard showing number or reintroduced transacitons:
@@ -134,14 +135,14 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
                           logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
                       return results
           where
-            f trans header = S.union trans <$> plLookup header
+            f trans header = HS.union trans <$> plLookup header
 
 ----------------------------------------------------------------------------------------------------
 payloadLookup
     :: forall cas . PayloadCas cas
     => Maybe (PayloadDb cas)
     -> BlockHeader
-    -> IO (Set ChainwebTransaction)
+    -> IO (HashSet (HashableTrans PayloadWithText))
 payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
@@ -177,7 +178,7 @@ collectForkBlocks theStream =
                                                        V.cons rBlk newBlocks )
 
 ----------------------------------------------------------------------------------------------------
-chainwebTxsFromPWO :: PayloadWithOutputs -> IO (Set ChainwebTransaction)
+chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
 chainwebTxsFromPWO pwo = do
     let transSeq = fst <$> _payloadWithOutputsTransactions pwo
     let bytes = _transactionBytes <$> transSeq
@@ -185,6 +186,6 @@ chainwebTxsFromPWO pwo = do
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
     let theRights  =  rights $ toList eithers
-    return $ S.fromList theRights
+    return $ HS.fromList $ HashableTrans <$> theRights
   where
     toCWTransaction = codecDecode chainwebPayloadCodec
