@@ -3,22 +3,29 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Chainweb.Test.Pact.Checkpointer (tests) where
+module Chainweb.Test.Pact.Checkpointer (tests, _testRegress) where
 
-import Control.Lens (preview, _Just)
+import Control.Concurrent.MVar
+import Control.DeepSeq
+import Control.Exception
+import Control.Lens hiding ((.=))
 import Control.Monad (void)
 import Control.Monad.Reader
-import Control.Concurrent.MVar
 
-import Data.Aeson (Value(..), object, (.=))
+import Data.Aeson (Value(..), object, (.=), toJSON)
 import Data.Default (def)
+import Data.Function
+import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
-import qualified Data.Set as Set
+import qualified Data.Map.Strict as M
 
 import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv, PactDbEnv(..))
+import Pact.Native (nativeDefs)
+import Pact.Repl
+import Pact.Repl.Types
 import Pact.Types.Info
 import Pact.Types.Runtime (ExecutionMode(Transactional))
 import qualified Pact.Types.Hash as H
@@ -26,11 +33,12 @@ import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (noSPVSupport, peStep)
+import Pact.Types.Runtime
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.SQLite
-import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm, KeySet(..), KeySetName(..), Name(..))
 import Pact.Types.Type (PrimType(..), Type(..))
+import Pact.Types.Exp (Literal(..))
+
 
 import Test.Tasty.HUnit
 
@@ -322,7 +330,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 testKeyset :: Assertion
 testKeyset =
   void $ withTempSQLiteConnection []  $ \sqlenv -> do
-    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) Set.empty (newLogger loggers "BlockEnvironment")
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty (newLogger loggers "BlockEnvironment")
         loggers = pactTestLogger False
     msql <- newMVar (BlockEnv sqlenv initBlockState)
     runBlockEnv msql initSchema
@@ -349,7 +357,7 @@ keysetTest :: CheckpointEnvNew SQLiteEnv -> Assertion
 keysetTest CheckpointEnvNew {..} = do
 
   let hash00 = nullBlockHash
-  blockenv00 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "initial restore failed"
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew >>= assertEitherSuccess "initial restore failed"
 
   withBlockEnv blockenv00 $ \benv -> do
     addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) benv
@@ -359,13 +367,13 @@ keysetTest CheckpointEnvNew {..} = do
                [RText, RInt, RInt, RInt, RBlob]
       liftIO $ assertEqual "keyset table" keysetsTable ks1
 
-  saveNew _cpeCheckpointerNew (BlockHeight 0) hash00 0 >>= assertEitherSuccess "save failed"
+  saveNew _cpeCheckpointerNew (BlockHeight 0) hash00 >>= assertEitherSuccess "save failed"
 
   -- next block (blockheight 1, version 0)
 
   let bh01 = BlockHeight 1
   hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
-  blockenv01 <- restoreNew _cpeCheckpointerNew bh01 hash00 (Just Transactional) >>= assertEitherSuccess "restore failed"
+  blockenv01 <- restoreNew _cpeCheckpointerNew bh01 (Just hash00) >>= assertEitherSuccess "restore failed"
   withBlockEnv blockenv01 $ \benv -> do
     addKeyset "k2" (KeySet [] (Name ">=" (Info Nothing))) benv
     runBlockEnv benv $ do
@@ -374,7 +382,7 @@ keysetTest CheckpointEnvNew {..} = do
                [RText, RInt, RInt, RInt, RBlob]
       liftIO $ assertEqual "keyset table" keysetsTable ks2
 
-      liftIO $ saveNew _cpeCheckpointerNew bh01 hash01 1 >>= assertEitherSuccess "save failed"
+      liftIO $ saveNew _cpeCheckpointerNew bh01 hash01 >>= assertEitherSuccess "save failed"
       runOnVersionTables
         (\blocktable -> assertEqual "block table " blocktable bt01)
         (\versionhistory -> assertEqual "version history " versionhistory vht01)
@@ -386,14 +394,14 @@ keysetTest CheckpointEnvNew {..} = do
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
 
-  blockenv11 <- restoreNew _cpeCheckpointerNew bh11 hash00 Nothing >>= assertEitherSuccess "restore failed"
+  blockenv11 <- restoreNew _cpeCheckpointerNew bh11 (Just hash00) >>= assertEitherSuccess "restore failed"
 
   withBlockEnv blockenv11 $ \benv -> do
 
     addKeyset "k1" (KeySet [] (Name ">=" (Info Nothing))) benv
 
     runBlockEnv benv $ do
-      liftIO $ saveNew _cpeCheckpointerNew bh11 hash11 2 >>= assertEitherSuccess "save failed"
+      liftIO $ saveNew _cpeCheckpointerNew bh11 hash11 >>= assertEitherSuccess "save failed"
       runOnVersionTables
         (\blocktable -> assertEqual "block table " blocktable bt11)
         (\versionhistory -> assertEqual "version history " versionhistory vht11)
@@ -414,7 +422,7 @@ addKeyset = _writeRow chainwebpactdb Insert KeySets
 testRelational :: Assertion
 testRelational =
   withTempSQLiteConnection []  $ \sqlenv -> do
-    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) Set.empty (newLogger loggers "BlockEnvironment")
+    let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty (newLogger loggers "BlockEnvironment")
         loggers = pactTestLogger False
     msql <- newMVar (BlockEnv sqlenv initBlockState)
     runBlockEnv msql initSchema
@@ -446,7 +454,7 @@ relationalTest CheckpointEnvNew {..} = do
   let bh00 = BlockHeight 0
       hash00 = nullBlockHash
 
-  blockenv00 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "restoreInitial (new block)"
+  blockenv00 <- restoreInitialNew _cpeCheckpointerNew >>= assertEitherSuccess "restoreInitial (new block)"
 
   withBlockEnv blockenv00 $ \benv -> do
 
@@ -458,7 +466,7 @@ relationalTest CheckpointEnvNew {..} = do
   -- s02 : validate block workflow (restore -> save), genesis
   -----------------------------------------------------------
 
-  blockenv01 <- restoreInitialNew _cpeCheckpointerNew (Just Transactional) >>= assertEitherSuccess "restoreInitial (validate)"
+  blockenv01 <- restoreInitialNew _cpeCheckpointerNew >>= assertEitherSuccess "restoreInitial (validate)"
 
   withBlockEnv blockenv01 $ \benv -> do
 
@@ -467,8 +475,7 @@ relationalTest CheckpointEnvNew {..} = do
     runExec chainwebpactdb benv Nothing "(m1.readTbl)"
       >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
-    txid <- readBlockEnv (_bsTxId . _benvBlockState)  benv
-    liftIO $ saveNew _cpeCheckpointerNew bh00 hash00 txid >>= assertEitherSuccess "save (validate)"
+    liftIO $ saveNew _cpeCheckpointerNew bh00 hash00 >>= assertEitherSuccess "save (validate)"
 
   ------------------------------------------------------------------
   -- s03 : new block 01
@@ -476,7 +483,7 @@ relationalTest CheckpointEnvNew {..} = do
 
   let bh01 = BlockHeight 1
 
-  blockenv10 <- restoreNew _cpeCheckpointerNew bh01 hash00 (Just Transactional) >>= assertEitherSuccess "restore for new block 01"
+  blockenv10 <- restoreNew _cpeCheckpointerNew bh01 (Just hash00) >>= assertEitherSuccess "restore for new block 01"
 
   -- start a pact
   -- test is that exec comes back with proper step
@@ -499,7 +506,7 @@ relationalTest CheckpointEnvNew {..} = do
 
   hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
-  blockenv11 <- restoreNew _cpeCheckpointerNew bh01 hash00 (Just Transactional) >>= assertEitherSuccess "restore for validate block 01"
+  blockenv11 <- restoreNew _cpeCheckpointerNew bh01 (Just hash00) >>= assertEitherSuccess "restore for validate block 01"
 
   withBlockEnv blockenv11 $ \benv -> do
 
@@ -511,8 +518,7 @@ relationalTest CheckpointEnvNew {..} = do
     runExec chainwebpactdb benv Nothing "(m1.dopact 'pactA)"
       >>= ((Just 0 @=?) . pactCheckStep)
 
-    txid <- readBlockEnv (_bsTxId . _benvBlockState) benv
-    saveNew _cpeCheckpointerNew bh01 hash01 txid >>= assertEitherSuccess "save block 01"
+    saveNew _cpeCheckpointerNew bh01 hash01 >>= assertEitherSuccess "save block 01"
 
   ------------------------------------------------------------------
   -- s05: validate block 02
@@ -523,7 +529,7 @@ relationalTest CheckpointEnvNew {..} = do
   let bh02 = BlockHeight 2
   hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
 
-  blockenv02 <- restoreNew _cpeCheckpointerNew bh02 hash01 (Just Transactional) >>= assertEitherSuccess "restore for validate block 02"
+  blockenv02 <- restoreNew _cpeCheckpointerNew bh02 (Just hash01) >>= assertEitherSuccess "restore for validate block 02"
 
   withBlockEnv blockenv02 $ \benv -> do
 
@@ -534,8 +540,7 @@ relationalTest CheckpointEnvNew {..} = do
 
     runCont chainwebpactdb benv pactId 1
       >>= ((Just 1 @=?) . pactCheckStep)
-    txid <- readBlockEnv (_bsTxId . _benvBlockState) benv
-    saveNew _cpeCheckpointerNew bh02 hash02 txid >>= assertEitherSuccess "save block 02"
+    saveNew _cpeCheckpointerNew bh02 hash02 >>= assertEitherSuccess "save block 02"
 
   ------------------------------------------------------------------
   -- s06 : new block 03
@@ -543,7 +548,7 @@ relationalTest CheckpointEnvNew {..} = do
 
   let bh03 = BlockHeight 3
 
-  blockenv03 <- restoreNew _cpeCheckpointerNew bh03 hash02 (Just Transactional) >>= assertEitherSuccess "restore for new block 03"
+  blockenv03 <- restoreNew _cpeCheckpointerNew bh03 (Just hash02) >>= assertEitherSuccess "restore for new block 03"
 
   withBlockEnv blockenv03 $ \benv -> do
 
@@ -561,7 +566,7 @@ relationalTest CheckpointEnvNew {..} = do
 
   hash03 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003a"
 
-  blockenv13 <- restoreNew _cpeCheckpointerNew bh03 hash02 (Just Transactional) >>= assertEitherSuccess "restore for validate block 03"
+  blockenv13 <- restoreNew _cpeCheckpointerNew bh03 (Just hash02) >>= assertEitherSuccess "restore for validate block 03"
 
   withBlockEnv blockenv13 $ \benv -> do
 
@@ -572,8 +577,7 @@ relationalTest CheckpointEnvNew {..} = do
       >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
 
-    txid <- readBlockEnv (_bsTxId . _benvBlockState) benv
-    saveNew _cpeCheckpointerNew bh03 hash03 txid >>= assertEitherSuccess "save block 01"
+    saveNew _cpeCheckpointerNew bh03 hash03 >>= assertEitherSuccess "save block 01"
 
 ------------------------------------------------------------------
   -- s08: FORK! block 02, new hash
@@ -583,7 +587,7 @@ relationalTest CheckpointEnvNew {..} = do
 
   hash02Fork <- BlockHash <$> merkleLogHash "0000000000000000000000000000002b"
 
-  blockenv02Fork <- restoreNew _cpeCheckpointerNew bh02 hash01 (Just Transactional) >>= assertEitherSuccess "restore for validate block 02"
+  blockenv02Fork <- restoreNew _cpeCheckpointerNew bh02 (Just hash01) >>= assertEitherSuccess "restore for validate block 02"
 
   withBlockEnv blockenv02Fork $ \benv -> do
 
@@ -594,5 +598,137 @@ relationalTest CheckpointEnvNew {..} = do
     -- this would fail if not a fork
     runCont chainwebpactdb benv pactId 1 >>= ((Just 1 @=?) . pactCheckStep)
 
-    txid <- readBlockEnv (_bsTxId . _benvBlockState) benv
-    saveNew _cpeCheckpointerNew bh02 hash02Fork txid >>= assertEitherSuccess "save block 02"
+    saveNew _cpeCheckpointerNew bh02 hash02Fork >>= assertEitherSuccess "save block 02"
+
+toTerm' :: ToTerm a => a -> Term Name
+toTerm' = toTerm
+
+{- You should probably think about the orphan, their name is
+ ExecutionMode, that you are leaving behind. They deserve a home! -}
+_testRegress :: Assertion
+_testRegress =
+  regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=
+  assertEquals "The final block state is" finalBlockState
+  where
+    finalBlockState = (2, BlockVersion 0 0, M.empty)
+    toTup (BlockState txid _ blockVersion txRecord _) =
+      (txid, blockVersion, txRecord)
+
+regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
+regressChainwebPactDb = do
+ withTempSQLiteConnection []  $ \sqlenv -> do
+        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty (newLogger loggers "BlockEnvironment")
+            loggers = pactTestLogger False
+        runRegression chainwebpactdb
+          (BlockEnv sqlenv initBlockState)
+          (\v -> runBlockEnv v initSchema)
+
+begin :: PactDb e -> Method e (Maybe TxId)
+begin pactdb = _beginTx pactdb Transactional
+
+commit :: PactDb e -> Method e [TxLog Value]
+commit pactdb = _commitTx pactdb
+
+runRegression ::
+  PactDb e -- your pactdb instance
+  -> e -- ambient environment
+  -> (MVar e -> IO ()) -- schema "creator"
+  -> IO (MVar e) -- the final state of the environment
+runRegression pactdb e schemaInit = do
+  v <- newMVar e
+  schemaInit v
+  Just t1 <- begin pactdb v
+  let user1 = "user1"
+      usert = UserTables user1
+      toPV :: ToTerm a => a -> PactValue
+      toPV = toPactValueLenient . toTerm'
+  _createUserTable pactdb user1 "someModule" v
+  assertEquals' "output of commit2"
+    [TxLog "SYS:usertables" "user1" $
+      object [ ("utModule" .= object [ ("name" .= String "someModule"), ("namespace" .= Null)])
+             ]
+    ]
+    (commit pactdb v)
+  void $ begin pactdb v
+  {- the below line is commented out because we no longer support _getUserTableInfo -}
+  -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 v
+  let row = ObjectMap $ M.fromList [("gah", PLiteral (LDecimal 123.454345))]
+  _writeRow pactdb Insert usert "key1" row v
+  assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" v)
+  let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
+  _writeRow pactdb Update usert "key1" row' v
+  assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" v)
+  let ks = KeySet [PublicKey "skdjhfskj"] (Name "predfun" def)
+  _writeRow pactdb Write KeySets "ks1" ks v
+  assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" v
+  (modName,modRef,mod') <- loadModule
+  _writeRow pactdb Write Modules modName mod' v
+  assertEquals' "module write" (Just mod') $ _readRow pactdb Modules modName v
+  assertEquals "module native repopulation" (Right modRef) $
+    traverse (traverse (fromPersistDirect nativeLookup)) mod'
+  assertEquals' "result of commit 3"
+
+    [ TxLog { _txDomain = "SYS:KeySets"
+            , _txKey = "ks1"
+            , _txValue = toJSON ks
+            }
+    , TxLog { _txDomain = "SYS:Modules"
+            , _txKey = asString modName
+            , _txValue = toJSON mod'
+            }
+    , TxLog { _txDomain = "user1"
+            , _txKey = "key1"
+            , _txValue = toJSON row
+            }
+    , TxLog { _txDomain = "user1"
+            , _txKey = "key1"
+            , _txValue = toJSON row'
+            }
+    ]
+    (commit pactdb v)
+  void $ begin pactdb v
+  tids <- _txids pactdb user1 t1 v
+  assertEquals "user txids" [1] tids
+  -- assertEquals' "user txlogs"
+  --   [TxLog "user1" "key1" row,
+  --    TxLog "user1" "key1" row'] $
+  --   _getTxLog chainwebpactdb usert (head tids) v
+  assertEquals' "user txlogs" [TxLog "user1" "key1" (ObjectMap $ on M.union _objectMap row' row)] $
+    _getTxLog pactdb usert (head tids) v
+  _writeRow pactdb Insert usert "key2" row v
+  assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" v)
+  assertEquals' "keys pre-rollback" ["key1","key2"] $ _keys pactdb (UserTables user1) v
+  _rollbackTx pactdb v
+  assertEquals' "rollback erases key2" Nothing $ _readRow pactdb usert "key2" v
+  assertEquals' "keys" ["key1"] $ _keys pactdb (UserTables user1) v
+  return v
+
+assertEquals' :: (Eq a, Show a, NFData a) => String -> a -> IO a -> IO ()
+assertEquals' msg a b = assertEquals msg a =<< b
+
+assertEquals :: (Eq a,Show a,NFData a) => String -> a -> a -> IO ()
+assertEquals msg a b | [a,b] `deepseq` a == b = return ()
+                     | otherwise =
+                         throwFail $ "FAILURE: " ++ msg ++ ": expected \n  " ++ show a ++ "\n got \n  " ++ show b
+
+throwFail :: String -> IO a
+throwFail = throwIO . userError
+
+loadModule :: IO (ModuleName, ModuleData Ref, PersistModuleData)
+loadModule = do
+  let fn = "test/pact/simple.repl"
+  (r,s) <- execScript' (Script False fn) fn
+  let mn = ModuleName "simple" Nothing
+  case r of
+    Left a -> throwFail $ "module load failed: " ++ show a
+    Right _ -> case preview (rEvalState . evalRefs . rsLoadedModules . ix mn) s of
+      Just (md,_) -> case traverse (traverse toPersistDirect) md of
+        Right md' -> return (mn,md,md')
+        Left e -> throwFail $ "toPersistDirect failed: " ++ show e
+      Nothing -> throwFail $ "Failed to find module 'simple': " ++
+        show (view (rEvalState . evalRefs . rsLoadedModules) s)
+
+nativeLookup :: NativeDefName -> Maybe (Term Name)
+nativeLookup (NativeDefName n) = case HM.lookup (Name n def) nativeDefs of
+  Just (Direct t) -> Just t
+  _ -> Nothing

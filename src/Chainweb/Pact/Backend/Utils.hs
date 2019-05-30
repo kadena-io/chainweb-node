@@ -1,7 +1,11 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -20,9 +24,10 @@ import Control.Lens
 import Control.Monad.State
 import Control.Monad.Reader
 
-import qualified Data.ByteString as BS
 import Data.String
 import Data.String.Conv
+import Data.ByteString
+import Data.Text (pack, Text)
 import Database.SQLite3.Direct as SQ3
 
 import System.Directory (removeFile)
@@ -32,8 +37,6 @@ import System.IO.Extra
 
 
 import Pact.Types.Persistence
-import Pact.Types.Pretty (prettyString, viaShow)
-import Pact.Types.Runtime (throwDbError)
 import Pact.Types.SQLite
 import Pact.Types.Term(KeySetName(..), NamespaceName(..), ModuleName(..), PactId(..))
 import Pact.Types.Util (AsString(..))
@@ -41,7 +44,7 @@ import Pact.Types.Util (AsString(..))
 -- chainweb
 
 import Chainweb.Pact.Backend.Types
-
+import Chainweb.Pact.Service.Types (internalError)
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
@@ -54,41 +57,42 @@ callDb action = do
   c <- view sConn
   liftIO $ action c
 
-withPreBlockSavepoint :: BlockHandler SQLiteEnv a -> BlockHandler SQLiteEnv a
-withPreBlockSavepoint action = do
-  beginSavepoint "PREBLOCK"
+withSavepoint :: SavepointName -> BlockHandler SQLiteEnv a -> BlockHandler SQLiteEnv a
+withSavepoint name action = do
+  beginSavepoint name
   result <- tryAny action
   case result of
     Left (SomeException err) -> do
-      rollbackSavepoint "PREBLOCK"
-      throwM err
+      rollbackSavepoint name
+      internalError $
+        "withSavepoint (" <> asString name <> "): " <> (toS $ show err)
     Right r -> do
-      commitSavepoint "PREBLOCK"
+      commitSavepoint name
       return r
 
-beginSavepoint :: SavepointName ->  BlockHandler SQLiteEnv ()
-beginSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db $ "SAVEPOINT " <> (Utf8 name)
+beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+beginSavepoint name =
+  callDb $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "]"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
-commitSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db $ "RELEASE SAVEPOINT " <> Utf8 name
+commitSavepoint name =
+  callDb $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "]"
 
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
-rollbackSavepoint (SavepointName name) =
-  callDb $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT " <> Utf8 name
+rollbackSavepoint name =
+  callDb $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "]"
 
-newtype SavepointName = SavepointName BS.ByteString
-  deriving (Eq, Ord, IsString)
-  deriving newtype Show
+data SavepointName = Block | Transaction |  PreBlock
+  deriving (Eq, Ord, Show, Enum)
+
+instance AsString SavepointName where
+  asString = Data.Text.pack . show
 
 withBlockEnv :: a -> (MVar a -> IO b) -> IO b
 withBlockEnv blockenv f = newMVar blockenv >>= f
 
 readBlockEnv :: (a -> b) -> MVar a -> IO b
-readBlockEnv f mvar = do
-  a <- readMVar mvar
-  return (f a)
+readBlockEnv f = fmap f . readMVar
 
 withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
 withSQLiteConnection file ps todelete action = do
@@ -99,8 +103,10 @@ withSQLiteConnection file ps todelete action = do
     opener = do
       e <- open $ fromString file
       case e of
-        Left (err,msg) ->
-          throwM $ userError $ "PactInternalError: Can't open db with "  <> show err <> ": " <> show msg
+        Left (err, msg) ->
+          internalError $
+            "Can't open db with "
+            <> asString (show err) <> ": " <> asString (show msg)
         Right r -> return $ mkSQLiteEnv r
     mkSQLiteEnv connection =
       SQLiteEnv connection
@@ -130,8 +136,33 @@ convPactId = Utf8 . toS . show
 
 expectSingleRowCol :: Show a => String -> [[a]] -> IO a
 expectSingleRowCol _ [[s]] = return s
-expectSingleRowCol s v = throwDbError $ "PactInternalError: " <> prettyString s <> " expected single row and column result, got: " <> viaShow v
+expectSingleRowCol s v =
+  internalError $
+  asString s <> " expected single row and column result, got: " <>
+  asString (show v)
 
 expectSingle :: Show a => String -> [a] -> IO a
 expectSingle _ [s] = return s
-expectSingle desc v = throwDbError $ "Expected single-" <> prettyString desc <> " result, got: " <> viaShow v
+expectSingle desc v =
+  internalError $
+  "Expected single-" <> asString (show desc) <> " result, got: " <>
+  asString (show v)
+
+
+instance StringConv Text Utf8 where
+  strConv l = Utf8 . strConv l
+
+instance StringConv Utf8 Text where
+  strConv l (Utf8 bytestring) = strConv l bytestring
+
+instance StringConv ByteString Utf8 where
+  strConv l = Utf8 . strConv l
+
+instance StringConv Utf8 ByteString where
+  strConv l (Utf8 bytestring) = strConv l bytestring
+
+instance StringConv String Utf8 where
+  strConv l = Utf8 . strConv l
+
+instance StringConv Utf8 String where
+  strConv l (Utf8 bytestring) = strConv l bytestring

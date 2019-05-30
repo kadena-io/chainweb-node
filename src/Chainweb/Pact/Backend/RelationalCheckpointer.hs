@@ -12,10 +12,9 @@ module Chainweb.Pact.Backend.RelationalCheckpointer where
 
 import Control.Concurrent.MVar
 import Control.Exception.Safe
-import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 import Data.Serialize hiding (get)
 
@@ -24,7 +23,6 @@ import Pact.Types.Logger (Logger(..))
 
 -- pact
 import Pact.Types.SQLite
-import Pact.Types.Runtime
 
 -- chainweb
 import Chainweb.BlockHash
@@ -33,9 +31,9 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 
-initRelationalCheckpointer ::
+initRelationalCheckpointerEnv ::
      Db -> Logger -> GasEnv -> IO CheckpointEnv
-initRelationalCheckpointer db loggr gasEnv = do
+initRelationalCheckpointerEnv db loggr gasEnv = do
   let checkpointer =
         CheckpointerNew
           { restoreNew = innerRestore db
@@ -68,12 +66,13 @@ initRelationalCheckpointerNew db loggr gasEnv = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-innerRestore :: Db -> BlockHeight -> BlockHash -> Maybe ExecutionMode -> IO (Either String (BlockEnv SQLiteEnv))
-innerRestore dbenv bh hsh _mmode = runBlockEnv dbenv $ do
+type ParentHash = BlockHash
+
+innerRestore :: Db -> BlockHeight -> Maybe ParentHash -> IO (Either String (BlockEnv SQLiteEnv))
+innerRestore dbenv bh hsh = runBlockEnv dbenv $ do
   e <- tryAny $ do
-    withPreBlockSavepoint $ do
-      handleVersion bh hsh
-    beginSavepoint "BLOCK"
+    withSavepoint PreBlock (handleVersion bh hsh)
+    beginSavepoint Block
   case e of
     Left err -> return $ Left ("restore :" <> show err)
     Right _ -> Right <$> do
@@ -82,8 +81,8 @@ innerRestore dbenv bh hsh _mmode = runBlockEnv dbenv $ do
       return $ BlockEnv senv bs
 
 -- Assumes that BlockState has been initialized properly.
-innerRestoreInitial :: Db -> Maybe ExecutionMode -> IO (Either String (BlockEnv SQLiteEnv))
-innerRestoreInitial dbenv _mmode = runBlockEnv dbenv $ do
+innerRestoreInitial :: Db -> IO (Either String (BlockEnv SQLiteEnv))
+innerRestoreInitial dbenv = runBlockEnv dbenv $ do
     r <- callDb (\db ->
               qry db
               "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
@@ -94,19 +93,20 @@ innerRestoreInitial dbenv _mmode = runBlockEnv dbenv $ do
       [SInt 0] -> Right <$> do
         senv <- ask
         bs <- get
-        beginSavepoint "BLOCK"
+        beginSavepoint Block
         return $ BlockEnv senv bs
       _ -> return $ Left $ "restoreInitial: The genesis state cannot be recovered!"
 
 innerSave ::
-     Db -> BlockHeight -> BlockHash -> TxId -> IO (Either String ())
-innerSave dbenv bh hsh txid = do
-    modifyMVar_ dbenv (pure . set (benvBlockState . bsTxId) txid)
+     Db -> BlockHeight -> BlockHash -> IO (Either String ())
+innerSave dbenv bh hsh = do
     result <- tryAny $ runBlockEnv dbenv $ do
-      commitSavepoint "BLOCK"
+      commitSavepoint Block
       blockHistoryInsert bh hsh
+      {- move to version maintenance -}
       bs <- gets _bsBlockVersion
       versionHistoryInsert bs
+      {- move to version maintenance -}
     return $ case result of
       Left err -> Left $ "save: " <> show err
       Right _ -> Right ()
@@ -114,7 +114,7 @@ innerSave dbenv bh hsh txid = do
 innerDiscard :: Db -> IO (Either String ())
 innerDiscard dbenv = do
   result <- tryAny $ runBlockEnv dbenv $ do
-    rollbackSavepoint "BLOCK"
+    rollbackSavepoint Block
   return $ case result of
     Left err -> Left $ "discard: " <> show err
     Right _ -> Right ()

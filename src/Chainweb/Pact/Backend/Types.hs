@@ -63,11 +63,11 @@ import Control.Exception.Safe hiding (bracket)
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Lens
+import Control.DeepSeq
 
-import qualified Data.Aeson as A
 import Data.Int
-import Data.Set (Set)
-import Data.Text (Text)
+import qualified Data.Aeson as A
+import Data.Map.Strict (Map)
 
 import Database.SQLite3.Direct as SQ3
 
@@ -127,11 +127,17 @@ newtype ReorgVersion = ReorgVersion
   deriving newtype (Num, Integral, Enum, Real, Ord, Eq)
   deriving stock Show
 
+instance NFData ReorgVersion where
+  rnf (ReorgVersion v) = rnf v
+
 data BlockVersion = BlockVersion
   { _bvBlock :: !BlockHeight
   , _bvVersion :: !ReorgVersion
   }
-  deriving Show
+  deriving (Eq, Show)
+
+instance NFData BlockVersion where
+  rnf (BlockVersion bvBlock bvVersion) = rnf bvBlock `seq` rnf bvVersion
 
 makeLenses ''BlockVersion
 
@@ -139,7 +145,7 @@ data BlockState = BlockState
   { _bsTxId :: !P.TxId
   , _bsMode :: Maybe P.ExecutionMode
   , _bsBlockVersion :: !BlockVersion
-  , _bsTxRecord :: Set (P.TableName, Text)
+  , _bsTxRecord :: Map P.TableName [P.TxLog A.Value]
   , _logger :: P.Logger
   }
 
@@ -167,12 +173,22 @@ newtype BlockHandler p a = BlockHandler
 instance P.Logging (BlockHandler p) where
   log c s = use logger >>= \l -> liftIO $ P.logLog l c s
 
+{- change to either pacterror <result> -}
+{- use catch and throw util for pactError (in TransactionExec) -}
+
 data CheckpointerNew p = CheckpointerNew
-    { restoreNew :: BlockHeight -> BlockHash -> Maybe P.ExecutionMode -> IO (Either String (BlockEnv p))
-    , restoreInitialNew :: Maybe P.ExecutionMode -> IO (Either String (BlockEnv p))
-    , saveNew :: BlockHeight -> BlockHash -> P.TxId -> IO (Either String ())
+    { restoreNew :: BlockHeight -> Maybe ParentHash -> IO (Either String (BlockEnv p))
+    , restoreInitialNew :: IO (Either String (BlockEnv p))
+    , saveNew :: BlockHeight -> BlockHash -> IO (Either String ())
     , discardNew :: IO (Either String ())
     }
+
+
+type ParentHash = BlockHash
+
+-- TODO: pass (Maybe blockHash) (only populated on validateblock) to
+-- restore instead of to save make save a noarg function, move history
+-- updates to restore
 
 data Checkpointer = Checkpointer
     { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
