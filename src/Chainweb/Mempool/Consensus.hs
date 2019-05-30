@@ -54,8 +54,8 @@ import Data.CAS
 
 ----------------------------------------------------------------------------------------------------
 data MempoolConsensus t = MempoolConsensus
-    { mpcMempool :: MempoolBackend t
-    , mpcLastNewBlockParent :: IORef (Maybe BlockHeader)
+    { mpcMempool :: !(MempoolBackend t)
+    , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
     }
 
@@ -122,7 +122,7 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
                       -- before re-introducing the transactions from the losing fork (aka oldBlocks),
                       -- filterout any transactions that have been included in the
                       -- winning fork (aka newBlocks):
-                      let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
+                      let !results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
 
                       -- create data for the dashboard showing number or reintroduced transacitons:
                       let !reIntro = ReintroducedTxs

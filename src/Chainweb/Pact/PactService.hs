@@ -381,7 +381,7 @@ execValidateBlock mpAccess loadingGenesis currHeader plData = do
         <> " (hash = " <> sshow bHash <> ")"
     liftIO $ mpaSetLastHeader mpAccess currHeader
 
-    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
+    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
     unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
       ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++

@@ -32,7 +32,7 @@ import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
     (AsyncException(ThreadKilled), SomeException, bracket, bracketOnError,
     evaluate, finally, handle, mask_, throwIO)
-import Control.Monad (forever, join, void, (>=>))
+import Control.Monad (forever, join, void, (<$!>), (>=>))
 
 import Data.Foldable (foldl', foldlM, traverse_)
 import qualified Data.HashMap.Strict as HashMap
@@ -212,7 +212,7 @@ makeInMemPool cfg txB = mask_ $ do
 
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
-newInMemMempoolData = InMemoryMempoolData <$> newIORef PSQ.empty
+newInMemMempoolData = InMemoryMempoolData <$!> newIORef PSQ.empty
                            <*> newIORef HashMap.empty
                            <*> newIORef HashSet.empty
                            <*> newIORef Nothing
