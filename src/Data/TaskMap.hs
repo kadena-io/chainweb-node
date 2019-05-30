@@ -54,7 +54,7 @@ delete :: Eq k => Hashable k => TaskMap k v -> k -> IO ()
 delete (TaskMap var) k = modifyMVar_ var $ evaluate . HM.delete k
 
 lookup :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe (Async v))
-lookup (TaskMap var) k = HM.lookup k <$> readMVar var
+lookup (TaskMap var) k = HM.lookup k <$!> readMVar var
 
 -- | If the key is in the map this blocks and awaits the results, otherwise
 -- it returns 'Nothing' immediately.
@@ -63,10 +63,10 @@ await :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe v)
 await t = traverse wait <=< lookup t
 
 size :: TaskMap k v -> IO Int
-size (TaskMap var) = HM.size <$> readMVar var
+size (TaskMap var) = HM.size <$!> readMVar var
 
 null :: TaskMap k v -> IO Bool
-null (TaskMap var) = HM.null <$> readMVar var
+null (TaskMap var) = HM.null <$!> readMVar var
 
 memo
     :: Eq k

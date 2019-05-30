@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -386,7 +387,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
         (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
         )
         (readTVarIO cutVar)
-        (\c -> do
+        (\(!c) -> do
             casInsert cutHashesStore (cutToCutHashes Nothing c)
             atomically (writeTVar cutVar c)
             loggc Info c "published cut"
@@ -409,7 +410,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     -- FIXME: this is problematic. We should drop these before they are
     -- added to the queue, to prevent the queue becoming stale.
     farAhead x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
         when r $ loggc Info x
             $ "skip far ahead cut. Current height: " <> sshow h
@@ -417,7 +418,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
         return r
 
     isVeryOld x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Info x "skip very old cut"
         return r

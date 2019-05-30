@@ -242,7 +242,7 @@ removeSession node pinf =
     modifyTVar' (_p2pNodeSessions node) $ M.delete pinf
 
 modifyStats :: (P2pNodeStats -> P2pNodeStats) -> P2pNode -> STM ()
-modifyStats f node = modifyTVar (_p2pNodeStats node) f
+modifyStats f node = modifyTVar' (_p2pNodeStats node) f
 
 countSuccess :: P2pNode -> STM ()
 countSuccess = modifyStats $ p2pStatsSuccessCount %~ succ
@@ -263,7 +263,7 @@ updateKnownPeerCount node = do
 
 updateActiveCount :: P2pNode -> STM ()
 updateActiveCount node = do
-    active <- int . M.size <$> readTVar (_p2pNodeSessions node)
+    active <- int . M.size <$!> readTVar (_p2pNodeSessions node)
     modifyStats (p2pStatsActiveLast .~ active) node
     modifyStats (p2pStatsActiveMax %~ max active) node
 
@@ -277,8 +277,8 @@ loggFun = _p2pNodeLogFunction
 
 randomR :: R.Random a => P2pNode -> (a, a) -> STM a
 randomR node range = do
-    gen <- readTVar (_p2pNodeRng node)
-    let (a, gen') = R.randomR range gen
+    !gen <- readTVar (_p2pNodeRng node)
+    let (!a, !gen') = R.randomR range gen
     a <$ writeTVar (_p2pNodeRng node) gen'
 
 setInactive :: P2pNode -> STM ()
@@ -334,13 +334,13 @@ findNextPeer conf node = do
     -- check if this node is active. If not, don't create new sessions,
     -- but retry until it becomes active.
     --
-    active <- readTVar (_p2pNodeActive node)
+    !active <- readTVar (_p2pNodeActive node)
     check active
 
     -- get all known peers and all active sessions
     --
     peers <- peerDbSnapshotSTM peerDbVar
-    sessions <- readTVar sessionsVar
+    !sessions <- readTVar sessionsVar
     let peerCount = length peers
     let sessionCount = length sessions
 

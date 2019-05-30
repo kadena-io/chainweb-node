@@ -15,6 +15,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
+import Control.Exception (evaluate)
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
@@ -65,7 +66,7 @@ saveInitial' lock p@PactDbState {..} = do
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@PactDbState {..} = do
-     Right <$> modifyMVar_ lock (return . HMS.insert (height, hash) p)
+     Right <$> modifyMVar_ lock (evaluate . HMS.insert (height, hash) p)
 
 discard' :: MVar Store -> PactDbState -> IO (Either String ())
 discard' _ _ = return (Right ())

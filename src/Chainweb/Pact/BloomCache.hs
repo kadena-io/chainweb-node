@@ -132,7 +132,7 @@ withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
 
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
 member h k (TransactionBloomCache mv _) = do
-    mp <- readIORef mv
+    !mp <- readIORef mv
     -- N.B. return false positive on block missing
     fmap (fromMaybe True) $ runMaybeT $ do
         !bloom <- MaybeT $ return $! HashMap.lookup k mp
