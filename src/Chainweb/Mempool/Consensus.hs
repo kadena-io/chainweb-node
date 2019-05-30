@@ -124,13 +124,14 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
                       -- winning fork (aka newBlocks):
                       let !results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
 
-                      -- create data for the dashboard showing number or reintroduced transacitons:
-                      let !reIntro = ReintroducedTxs
-                            { oldForkHeader = ObjectEncoded lastHeader
-                            , newForkHeader = ObjectEncoded newHeader
-                            , numReintroduced = V.length results
-                            }
-                      logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
+                      unless (V.null results) $ do
+                          -- create data for the dashboard showing number or reintroduced transacitons:
+                          let !reIntro = ReintroducedTxs
+                                { oldForkHeader = ObjectEncoded lastHeader
+                                , newForkHeader = ObjectEncoded newHeader
+                                , numReintroduced = V.length results
+                                }
+                          logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
                       return results
           where
             f trans header = S.union trans <$> plLookup header
