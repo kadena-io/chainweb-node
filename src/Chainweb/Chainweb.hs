@@ -50,10 +50,15 @@ module Chainweb.Chainweb
 , configNodeId
 , configChainwebVersion
 , configMiner
+, configReintroTxs
 , configP2p
 , configTransactionIndex
 , defaultChainwebConfiguration
 , pChainwebConfiguration
+
+, ReintroTxsConfig
+, defaultReintroTxsConfig
+, pReintroTxsConfig
 
 -- * Chainweb Resources
 , Chainweb(..)
@@ -165,12 +170,33 @@ pTransactionIndexConfig :: MParser TransactionIndexConfig
 pTransactionIndexConfig = pure id
 
 -- -------------------------------------------------------------------------- --
+-- ReintroTxsConfig
+
+data ReintroTxsConfig = ReintroTxsConfig
+    deriving (Show, Eq, Generic)
+
+makeLenses ''ReintroTxsConfig
+
+defaultReintroTxsConfig :: ReintroTxsConfig
+defaultReintroTxsConfig = ReintroTxsConfig
+
+instance ToJSON ReintroTxsConfig where
+    toJSON _ = object []
+
+instance FromJSON (ReintroTxsConfig -> ReintroTxsConfig) where
+    parseJSON = withObject "ReintroTxsConfig" $ const (return id)
+
+pReintroTxsConfig :: MParser ReintroTxsConfig
+pReintroTxsConfig = pure id
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
+    , _configReintroTxs :: !(EnableConfig ReintroTxsConfig)
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
@@ -194,6 +220,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
+    , _configReintroTxs = defaultEnableConfig defaultReintroTxsConfig
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
@@ -206,6 +233,7 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
+        , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
@@ -218,6 +246,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
+        <*< configReintroTxs %.: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
@@ -235,6 +264,7 @@ pChainwebConfiguration = id
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
+    <*< configReintroTxs %:: pEnableConfig "tx-reintro" pReintroTxsConfig
     <*< configP2p %:: pP2pConfiguration Nothing
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig

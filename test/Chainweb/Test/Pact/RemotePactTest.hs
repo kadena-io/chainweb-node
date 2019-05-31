@@ -361,6 +361,7 @@ config v n nid = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set (configReintroTxs . enableConfigEnabled) True
     & set (configTransactionIndex . enableConfigEnabled) True
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
