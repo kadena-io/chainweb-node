@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -103,7 +104,7 @@ toMempool version chain txcfg blocksizeLimit env =
 
     subscribe = do
         mv <- newEmptyMVar
-        ref <- mask_ $ do
+        !ref <- mask_ $ do
             chan <- atomically $ TBMChan.newTBMChan 8
             t <- Async.asyncWithUnmask $ subThread mv chan
             let finalize = Async.uninterruptibleCancel t

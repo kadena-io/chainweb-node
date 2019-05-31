@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -143,7 +144,8 @@ import Network.HTTP.Client (ManagerSettings)
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
 import Network.TLS.Extra (ciphersuite_default)
-import Network.Wai.Handler.WarpTLS as WARP (TLSSettings(..), tlsSettingsMemory, tlsSettingsChainMemory)
+import Network.Wai.Handler.WarpTLS as WARP
+    (TLSSettings(..), tlsSettingsChainMemory, tlsSettingsMemory)
 
 import Numeric.Natural (Natural)
 
@@ -280,7 +282,7 @@ instance X509Key EC.KeyPair where
 
     signIO sk bytes = do
         sig <- encodeEcSignatureDer <$> EC.sign (EC.toPrivateKey sk) SHA512 bytes
-        return (convert sig, sigAlg @EC.KeyPair)
+        return $! (convert sig, sigAlg @EC.KeyPair)
 
 -- | Ed25519
 --
@@ -294,7 +296,7 @@ instance X509Key Ed25519.SecretKey where
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed25519
     pemKeyHeader = "PRIVATE KEY"
 
-    signIO sk bytes = return (convert sig, sigAlg @Ed25519.SecretKey)
+    signIO sk bytes = return $! (convert sig, sigAlg @Ed25519.SecretKey)
       where
         sig = Ed25519.sign sk (publicKey sk) bytes
 
@@ -310,7 +312,7 @@ instance X509Key Ed448.SecretKey where
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed448
     pemKeyHeader = "PRIVATE KEY"
 
-    signIO sk bytes = return (convert sig, sigAlg @Ed448.SecretKey)
+    signIO sk bytes = return $! (convert sig, sigAlg @Ed448.SecretKey)
       where
         sig = Ed448.sign sk (publicKey sk) bytes
 
@@ -328,8 +330,8 @@ instance X509Key RSA.PrivateKey where
     signIO sk bytes = do
         sig <- RSA.signSafer (Just SHA512) sk bytes >>= \case
             Left e -> error $ "Network.X509.SelfSigned: X509Key instance for RSA.PrivateKey: signIO: " <>  show e
-            Right x -> return x
-        return (convert sig, sigAlg @RSA.PrivateKey)
+            Right x -> return $! x
+        return $! (convert sig, sigAlg @RSA.PrivateKey)
 
     sigAlg = SignatureALG HashSHA512 PubKeyALG_RSA
 
@@ -430,13 +432,13 @@ fingerprintToText (Fingerprint b) = encodeB64UrlNoPaddingText b
 
 fingerprintFromText :: MonadThrow m => T.Text -> m Fingerprint
 fingerprintFromText t = do
-    bytes <- decodeB64UrlNoPaddingText t
+    !bytes <- decodeB64UrlNoPaddingText t
     unless (B.length bytes == int fingerprintByteCount) $ throwM
         $ TextFormatException
         $ "wrong certificate fingerprint length: expected "
         <> sshow fingerprintByteCount <> " bytes, got "
         <> sshow (B.length bytes) <> " bytes."
-    return $ Fingerprint bytes
+    return $! Fingerprint bytes
 {-# INLINE fingerprintFromText #-}
 
 unsafeFingerprintFromText :: HasCallStack => String -> Fingerprint
@@ -455,7 +457,7 @@ x509CertPemToText (X509CertPem b) = T.decodeUtf8 b
 {-# INLINE x509CertPemToText #-}
 
 x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
-x509CertPemFromText t = return . X509CertPem $ T.encodeUtf8 t
+x509CertPemFromText t = return $! X509CertPem $! T.encodeUtf8 t
 {-# INLINE x509CertPemFromText #-}
 
 unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
@@ -613,7 +615,10 @@ generateSelfSignedCertificate days dn altNames = do
     let end = start `timeAdd` mempty { durationHours = 24 * fromIntegral days }
         c = makeCertificate @k start end dn dn altNames (getPubKey sk)
     sc <- signedCertIO sk c
-    return (fingerprint sc, encodeCertPem sc, encodeKeyPem sk)
+    let !fp = fingerprint sc
+    let !cpem = encodeCertPem sc
+    let !kpem = encodeKeyPem sk
+    return $! (fp, cpem, kpem)
 
 -- -------------------------------------------------------------------------- --
 -- Generate Self Signed Certificate for Localhost
@@ -805,7 +810,7 @@ pX509CertChainPem service = textOption
 {-# INLINE pX509CertChainPem #-}
 
 validateX509CertChainPem :: MonadError T.Text m => X509CertChainPem -> m ()
-validateX509CertChainPem (X509CertChainPem a b)  =
+validateX509CertChainPem (X509CertChainPem a b) =
     case traverse_ decodePemX509Cert (a : b) of
         Left e -> throwError $ sshow e
         Right () -> return ()

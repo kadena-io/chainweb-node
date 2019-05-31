@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -73,7 +74,7 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
     -- extract spv resources from pact object
     go s o cdb = case s of
       "TXOUT" -> case txOutputProofOf o of
-        Left u -> return $ Left u
+        (Left !u) -> return $! Left u
         Right t -> extractOutputs =<< verifyTransactionOutputProof cdb t
       "TXIN" -> return $ Left "TXIN is currently unsupported"
       x -> return . Left
@@ -89,12 +90,12 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
 
     extractOutputs :: TransactionOutput -> IO (Either Text (Object Name))
     extractOutputs (TransactionOutput t) =
-      case decodeStrict t :: Maybe HashCommandResult of
+      case decodeStrict' t :: Maybe HashCommandResult of
         Nothing -> internalError $
           "unable to decode spv transaction output"
         Just (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) -> case fromPactValue pv of
-          (TObject o _) -> return $ Right o
-          o -> do
+          (TObject !o _) -> return $! Right o
+          !o -> do
             logLog l "ERROR" $ show o
             return . Left $ pack "type error in associated pact transaction, should be object"
         Just o -> do
@@ -122,8 +123,8 @@ getTxIdx bdb pdb bh th = do
         >>= pure . note "unable to find payload associated with transaction hash"
 
     case ph of
-      Left s -> return $ Left s
-      Right a -> do
+      (Left !s) -> return $! Left s
+      (Right !a) -> do
         -- get payload
         payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
 
@@ -138,7 +139,7 @@ getTxIdx bdb pdb bh th = do
           & return
   where
     toPactTx :: MonadThrow m => Transaction -> m (Command Text)
-    toPactTx (Transaction b) = decodeStrictOrThrow b
+    toPactTx (Transaction b) = decodeStrictOrThrow' b
 
     toTxHash :: MonadThrow m => Transaction -> m PactHash
     toTxHash = fmap _cmdHash . toPactTx

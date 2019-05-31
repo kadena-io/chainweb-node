@@ -23,6 +23,7 @@ module Chainweb.Pact.Service.PactInProcApi
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
+import Control.Exception (evaluate)
 import Control.Monad.STM
 
 import Data.Int
@@ -78,7 +79,7 @@ withPactService' ver cid logger memPoolAccess cdbv action = do
     link a
     r <- action reqQ
     closeQueue reqQ
-    return r
+    evaluate r
 
 -- TODO: get from config
 maxBlockSize :: Int64

@@ -48,13 +48,13 @@ insert :: Eq k => Hashable k => TaskMap k v -> k -> IO v -> IO (Async v)
 insert tm@(TaskMap var) k t = modifyMVarMasked var $ \m -> do
     !a <- asyncWithUnmask $ \umask -> umask t `finally` delete tm k
     m' <- evaluate $ HM.insert k a m
-    return (m', a)
+    return $! (m', a)
 
 delete :: Eq k => Hashable k => TaskMap k v -> k -> IO ()
 delete (TaskMap var) k = modifyMVar_ var $ evaluate . HM.delete k
 
 lookup :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe (Async v))
-lookup (TaskMap var) k = HM.lookup k <$> readMVar var
+lookup (TaskMap var) k = HM.lookup k <$!> readMVar var
 
 -- | If the key is in the map this blocks and awaits the results, otherwise
 -- it returns 'Nothing' immediately.
@@ -63,10 +63,10 @@ await :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe v)
 await t = traverse wait <=< lookup t
 
 size :: TaskMap k v -> IO Int
-size (TaskMap var) = HM.size <$> readMVar var
+size (TaskMap var) = HM.size <$!> readMVar var
 
 null :: TaskMap k v -> IO Bool
-null (TaskMap var) = HM.null <$> readMVar var
+null (TaskMap var) = HM.null <$!> readMVar var
 
 memo
     :: Eq k
@@ -84,6 +84,6 @@ memo tm@(TaskMap var) k task = do
         Nothing -> do
             !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
             m' <- evaluate $ HM.insert k a m
-            return (m', a)
-        Just a -> return (m, a)
+            return $! (m', a)
+        (Just !a) -> return $! (m, a)
     wait a
