@@ -37,7 +37,6 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
@@ -143,24 +142,30 @@ getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess _bHeight _bHash _bHeader = do
-    moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-    d <- adminData
-    let txs = V.fromList
-          [ PactTransaction (T.pack moduleStr) d
-          , PactTransaction "(create-table test1.accounts)" d
-          , PactTransaction "(test1.create-global-accounts)" d
-          , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
-          ]
-    goldenTestTransactions txs
+testMemPoolAccess  = MemPoolAccess
+    { mpaGetBlock = getTestBlock
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
+  where
+    getTestBlock _bHeight _bHash _bHeader = do
+        moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
+        d <- adminData
+        let txs = V.fromList
+              [ PactTransaction (T.pack moduleStr) d
+              , PactTransaction "(create-table test1.accounts)" d
+              , PactTransaction "(test1.create-global-accounts)" d
+              , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+              ]
+        goldenTestTransactions txs
 
 
-testEmptyMemPool
-    :: BlockHeight
-    -> BlockHash
-    -> BlockHeader
-    -> IO (V.Vector ChainwebTransaction)
-testEmptyMemPool _ _ _ = goldenTestTransactions V.empty
+testEmptyMemPool :: MemPoolAccess
+testEmptyMemPool = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> goldenTestTransactions V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
 
 testLocal :: IO ChainwebTransaction
 testLocal = do

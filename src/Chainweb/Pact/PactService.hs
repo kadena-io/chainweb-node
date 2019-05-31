@@ -123,9 +123,9 @@ initPactService
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ memPoolAccess cdbv =
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv =
     initPactService' cid chainwebLogger (pactSPV cdbv) $
-      initialPayloadState ver cid >> serviceRequests memPoolAccess reqQ
+      initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -155,16 +155,16 @@ initPactService' cid chainwebLogger spv act = do
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
 
 
-initialPayloadState :: ChainwebVersion -> ChainId -> PactServiceM ()
-initialPayloadState Test{} _ = pure ()
-initialPayloadState TimedConsensus{} _ = pure ()
-initialPayloadState PowConsensus{} _ = pure ()
-initialPayloadState v@TimedCPM{} cid = createCoinContract v cid
-initialPayloadState v@Testnet00 cid = createCoinContract v cid
-initialPayloadState v@Testnet01 cid = createCoinContract v cid
+initialPayloadState :: ChainwebVersion -> ChainId -> MemPoolAccess -> PactServiceM ()
+initialPayloadState Test{} _ _ = pure ()
+initialPayloadState TimedConsensus{} _ _ = pure ()
+initialPayloadState PowConsensus{} _ _ = pure ()
+initialPayloadState v@TimedCPM{} cid mpa = createCoinContract v cid mpa
+initialPayloadState v@Testnet00 cid mpa = createCoinContract v cid mpa
+initialPayloadState v@Testnet01 cid mpa = createCoinContract v cid mpa
 
-createCoinContract :: ChainwebVersion -> ChainId -> PactServiceM ()
-createCoinContract v cid = do
+createCoinContract :: ChainwebVersion -> ChainId -> MemPoolAccess -> PactServiceM ()
+createCoinContract v cid mpa = do
     let PayloadWithOutputs{..} = payloadBlock
         inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
                            _payloadWithOutputsMiner
@@ -172,11 +172,14 @@ createCoinContract v cid = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader v cid
-    txs <- execValidateBlock True genesisHeader inputPayloadData
+    txs <- execValidateBlock mpa True genesisHeader inputPayloadData
     bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
-serviceRequests :: MemPoolAccess -> TQueue RequestMsg -> PactServiceM ()
+serviceRequests
+    :: MemPoolAccess
+    -> TQueue RequestMsg
+    -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go
@@ -202,7 +205,8 @@ serviceRequests memPoolAccess reqQ = do
                   Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock False _valBlockHeader _valPayloadData
+                txs <- try $ execValidateBlock memPoolAccess
+                             False _valBlockHeader _valPayloadData
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
@@ -273,12 +277,24 @@ liftCPErr = either internalError' return
 
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new block-to-be
-execNewBlock :: MemPoolAccess -> BlockHeader -> MinerInfo -> PactServiceM PayloadWithOutputs
-execNewBlock memPoolAccess header miner = do
+execNewBlock
+    :: MemPoolAccess
+    -> BlockHeader
+    -> MinerInfo
+    -> PactServiceM PayloadWithOutputs
+execNewBlock mpAccess header miner = do
     let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
-    newTrans <- liftIO $! memPoolAccess bHeight bHash header
+    logInfo $ "execNewBlock, about to get call processFork: "
+           <> " (height = " <> sshow bHeight <> ")"
+           <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaProcessFork mpAccess header
+
+    logInfo $ "execNewBlock, about to get new block from mempool: "
+           <> " (height = " <> sshow bHeight <> ")"
+           <> " (hash = " <> sshow bHash <> ")"
+    newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
 
     restoreCheckpointer $ Just (bHeight, bHash)
 
@@ -287,7 +303,6 @@ execNewBlock memPoolAccess header miner = do
       execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer
-
     return $! toPayloadWithOutputs miner results
 
 
@@ -349,15 +364,24 @@ logDebug = logg "DEBUG"
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
-execValidateBlock :: Bool -> BlockHeader -> PayloadData -> PactServiceM PayloadWithOutputs
-execValidateBlock loadingGenesis currHeader plData = do
-
-    miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
-
+execValidateBlock
+    :: MemPoolAccess
+    -> Bool
+    -> BlockHeader
+    -> PayloadData
+    -> PactServiceM PayloadWithOutputs
+execValidateBlock mpAccess loadingGenesis currHeader plData = do
     let bHeight@(BlockHeight bh) = _blockHeight currHeader
-        bParent = _blockParent currHeader
         bHash = _blockHash currHeader
+        bParent = _blockParent currHeader
         isGenesisBlock = isGenesisBlockHeader currHeader
+
+    logInfo $ "execValidateBlock, about to get call setLastHeader: "
+        <> " (height = " <> sshow bHeight <> ")"
+        <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaSetLastHeader mpAccess currHeader
+
+    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
     unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
       ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++

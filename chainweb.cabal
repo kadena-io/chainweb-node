@@ -116,6 +116,7 @@ library
         , Chainweb.Logger
         , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.InMem
+        , Chainweb.Mempool.InMemTypes
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.P2pConfig
         , Chainweb.Mempool.RestAPI
@@ -393,7 +394,6 @@ test-suite chainweb-tests
         , extra >= 1.6
         , fgl >= 5.6
         , hashable >= 1.2
-        , hashtables >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16

@@ -52,14 +52,11 @@ import Servant.Client
 import qualified System.IO.Streams as Streams
 import System.IO.Unsafe
 ------------------------------------------------------------------------------
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
-import Chainweb.Transaction
 import Chainweb.Version
 
-import Data.LogMessage
 ------------------------------------------------------------------------------
 
 -- TODO: all of these operations need timeout support.
@@ -69,15 +66,12 @@ toMempool
     -> ChainId
     -> TransactionConfig t
     -> Int64
-    -> Maybe (IORef BlockHeader)
     -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg blocksizeLimit lastPar env =
+toMempool version chain txcfg blocksizeLimit env =
     MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = blocksizeLimit
-    , mempoolLastNewBlockParent = lastPar
-    , mempoolProcessFork = processForkUnSup
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
@@ -124,10 +118,6 @@ toMempool version chain txcfg blocksizeLimit lastPar env =
     shutdown = return ()
 
     unsupported = fail "unsupported"
-
-    processForkUnSup :: LogFunction -> BlockHeader -> IO (V.Vector ChainwebTransaction)
-    processForkUnSup _ _ = unsupported
-
     markValidated _ = unsupported
     markConfirmed _ = unsupported
     reintroduce _ = unsupported

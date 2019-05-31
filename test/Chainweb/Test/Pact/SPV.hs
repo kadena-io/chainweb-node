@@ -63,6 +63,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Pact.Types
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
@@ -156,7 +157,7 @@ roundtrip
     -> IO (Bool, String)
 roundtrip sid0 tid0 burn create = do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v Nothing (return mempty)
+    pact0 <- testWebPactExecutionService v Nothing (return noopMemPoolAccess)
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
@@ -166,7 +167,7 @@ roundtrip sid0 tid0 burn create = do
 
             -- pact service, that is used to extend the cut data base
             txGen1 <- burn sid tid
-            pact1 <- testWebPactExecutionService v (Just cdb) txGen1
+            pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1)
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
@@ -202,7 +203,8 @@ roundtrip sid0 tid0 burn create = do
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb sid tid (height sid c1)
-            pact2 <- testWebPactExecutionService v (Just cdb) txGen2
+
+            pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2)
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
@@ -210,6 +212,20 @@ roundtrip sid0 tid0 burn create = do
                 ((<) `on` height tid) c2
 
             return (True, "test succeeded")
+
+
+-- -------------------------------------------------------------------------- --
+toMPA :: (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)) -> MemPoolAccess
+toMPA f = MemPoolAccess
+    { mpaGetBlock = f
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork  = \_ -> return ()
+    }
+
+chainToMPA
+    :: (Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
+    -> (Chainweb.ChainId -> MemPoolAccess)
+chainToMPA f = \cid -> toMPA $ f cid
 
 -- -------------------------------------------------------------------------- --
 -- transaction generators
