@@ -60,7 +60,9 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
+import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
+import qualified Chainweb.Mempool.InMemTypes as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -126,8 +128,9 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
-        withPactService v cid (setComponent "pact" logger) mempool cdbv $ \requestQ -> do
+      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        mpc <- MPCon.mkMempoolConsensus mempool cdb payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
 
             -- replay pact
             let pact = pes mempool requestQ
@@ -213,6 +216,9 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
 mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
 mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ =
     flip catches [ Handler errorHandler ] $ do
+
+        let peerMempool = MPC.toMempool v cid txcfg gaslimit env
+
         logg Debug "mempool sync session starting"
         Mempool.syncMempools' logg syncIntervalUs pool peerMempool
         logg Debug "mempool sync session finished"
@@ -228,11 +234,6 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ =
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-
-    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
-      where
-        -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar = Nothing
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

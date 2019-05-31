@@ -2,10 +2,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Chainweb.Transaction
   ( ChainwebTransaction
+  , HashableTrans(..)
   , PayloadWithText(..)
   , chainwebPayloadCodec
   , chainwebPayloadDecode
@@ -13,12 +16,14 @@ module Chainweb.Transaction
   , gasPriceOf
   ) where
 
-import Chainweb.Utils (Codec(..))
-
 import Control.DeepSeq
+
+import qualified Data.ByteString.Char8 as B
+import Data.Hashable
 
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (FromJSON(..), ToJSON(..))
+import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
@@ -29,6 +34,8 @@ import Pact.Parse (parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
+
+import Chainweb.Utils (Codec(..))
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -57,6 +64,16 @@ instance FromJSON PayloadWithText where
         parsePact code = ParsedCode code <$> parseExprs code
 
 type ChainwebTransaction = Command PayloadWithText
+
+-- | Hashable newtype of ChainwebTransaction
+newtype HashableTrans a = HashableTrans { unHashable :: Command a }
+    deriving (Eq, Functor, Ord)
+
+instance Hashable (HashableTrans PayloadWithText) where
+    hashWithSalt s (HashableTrans t) = hashWithSalt s (hashCode :: Int)
+      where
+        hashCode = either error id $ runGetS (fromIntegral <$> getWord64host)
+                   (B.take 8 (codecEncode chainwebPayloadCodec t))
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
