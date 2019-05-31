@@ -14,7 +14,7 @@ module Chainweb.Mempool.Consensus
 , mkMempoolConsensus
 , processFork
 , processFork'
-, ReintroducedTxs (..)
+, ReintroducedTxsLog (..)
 ) where
 
 ------------------------------------------------------------------------------
@@ -60,7 +60,7 @@ data MempoolConsensus t = MempoolConsensus
     , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
     }
 
-data ReintroducedTxs = ReintroducedTxs
+data ReintroducedTxsLog = ReintroducedTxsLog
     { oldForkHeader :: ObjectEncoded BlockHeader
     , newForkHeader :: ObjectEncoded BlockHeader
     , numReintroduced :: Int }
@@ -127,12 +127,12 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
 
                       unless (V.null results) $ do
                           -- create data for the dashboard showing number or reintroduced transacitons:
-                          let !reIntro = ReintroducedTxs
+                          let !reIntro = ReintroducedTxsLog
                                 { oldForkHeader = ObjectEncoded lastHeader
                                 , newForkHeader = ObjectEncoded newHeader
                                 , numReintroduced = V.length results
                                 }
-                          logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
+                          logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
                       return results
           where
             f trans header = HS.union trans <$> plLookup header
@@ -165,7 +165,7 @@ collectForkBlocks
 collectForkBlocks theStream =
     go theStream (V.empty, V.empty)
   where
-    go stream (oldBlocks, newBlocks) = do
+    go stream (!oldBlocks, !newBlocks) = do
         nxt <- S.next stream
         case nxt of
             -- end of the stream, last item is common branch point of the forks
