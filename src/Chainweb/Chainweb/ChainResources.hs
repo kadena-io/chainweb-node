@@ -213,7 +213,7 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
-mempoolSyncP2pSession chain pollInterval logg0 env _ =
+mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ =
     flip catches [ Handler errorHandler ] $ do
 
         let peerMempool = MPC.toMempool v cid txcfg gaslimit env
@@ -223,6 +223,8 @@ mempoolSyncP2pSession chain pollInterval logg0 env _ =
         logg Debug "mempool sync session finished"
         return True
   where
+    -- FIXME Potentially dangerous down-cast.
+    syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 1000000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env

@@ -470,7 +470,8 @@ toMerkleNodeTagged b = case toMerkleNode @u @b b of
         $ fromWordBE @Word16 tag <> bytes
     TreeNode r -> TreeNode @(HashAlg u) r
   where
-    tag = fromIntegral $ tagVal @u @(Tag b)
+    tag :: Word16
+    tag = tagVal @u @(Tag b)
 
 -- | /Internal:/ Decode Merkle nodes that are tagged with the respedtive type
 -- from the Merkle universe.
@@ -826,4 +827,3 @@ instance
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
-

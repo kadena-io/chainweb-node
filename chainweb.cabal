@@ -64,6 +64,7 @@ common warning-flags
         -Werror
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
+        -Widentities
 
 custom-setup
     setup-depends:
@@ -259,7 +260,6 @@ library
         , lens >= 4.16
         , loglevel >= 0.1
         , massiv >= 0.3
-        , memory >= 0.14
         , memory >=0.14
         , merkle-log
         , monad-control >= 1.0
