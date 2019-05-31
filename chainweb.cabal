@@ -62,6 +62,8 @@ common warning-flags
     ghc-options:
         -Wall
         -Werror
+        -Wcompat
+        -Wpartial-fields
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Widentities

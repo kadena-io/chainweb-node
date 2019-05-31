@@ -22,6 +22,7 @@ module TXG.Types
     TXCmd(..)
     -- * Timing
   , TimingDistribution(..)
+  , Gaussian(..), Uniform(..)
     -- * Args
   , Args(..)
   , defaultArgs
@@ -66,14 +67,20 @@ import qualified Utils.Logging.Config as U
 
 ---
 
-data TimingDistribution
-  = Gaussian { mean  :: !Double, var   :: !Double }
-  | Uniform  { low   :: !Double, high  :: !Double }
+data TimingDistribution = GaussianTD Gaussian | UniformTD Uniform
+  deriving (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data Gaussian = Gaussian { mean :: !Double, var :: !Double }
+  deriving (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data Uniform = Uniform { low :: !Double, high :: !Double }
   deriving (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 defaultTimingDist :: TimingDistribution
-defaultTimingDist = Gaussian 1000000 (1000000 / 16)
+defaultTimingDist = GaussianTD $ Gaussian 1000000 (1000000 / 16)
 
 data TXCmd
   = DeployContracts [Sim.ContractName]
