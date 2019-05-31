@@ -15,6 +15,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
 
 import Control.Concurrent.MVar
+import Control.Exception (evaluate)
 
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
@@ -27,7 +28,7 @@ import Chainweb.Pact.Backend.Types
 initInMemoryCheckpointEnv :: P.Logger -> P.GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv logger gasEnv = do
     inmem <- newMVar mempty
-    return $
+    return $!
         CheckpointEnv
             { _cpeCheckpointer =
                   Checkpointer
@@ -47,8 +48,8 @@ restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbSt
 restore' lock height hash = do
     withMVarMasked lock $ \store -> do
         case HMS.lookup (height, hash) store of
-            Just dbstate -> return (Right dbstate)
-            Nothing -> return $ Left $
+            Just dbstate -> return $! Right $! dbstate
+            Nothing -> return $! Left $!
               "InMemoryCheckpointer: Restore not found: height=" <> show height
               <> ", hash=" <> show hash
               <> ", known=" <> show (HMS.keys store)
@@ -65,7 +66,7 @@ saveInitial' lock p@PactDbState {..} = do
 
 save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
 save' lock height hash p@PactDbState {..} = do
-     Right <$> modifyMVar_ lock (return . HMS.insert (height, hash) p)
+     Right <$> modifyMVar_ lock (evaluate . HMS.insert (height, hash) p)
 
 discard' :: MVar Store -> PactDbState -> IO (Either String ())
 discard' _ _ = return (Right ())

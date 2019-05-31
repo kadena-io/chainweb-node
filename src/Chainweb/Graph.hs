@@ -304,7 +304,7 @@ checkAdjacentChainIds g cid expectedAdj = do
     void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
         (Actual $ G.adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
-    return (getExpected expectedAdj)
+    return $! getExpected expectedAdj
 
 -- -------------------------------------------------------------------------- --
 -- Some Graphs

@@ -77,8 +77,8 @@ import Chainweb.Transaction
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
 import Chainweb.Utils (encodeToText, runForever)
-import Data.LogMessage (LogFunction, LogFunctionText)
 
+import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -115,14 +115,6 @@ data MempoolBackend t = MempoolBackend {
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
-
-    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
-    --   in the case of forks
-  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
-
-    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-
-  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -163,13 +155,11 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
-noopMempool :: MempoolBackend t
-noopMempool =
-  MempoolBackend
+noopMempool :: IO (MempoolBackend t)
+noopMempool = do
+  return $ MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
-    , mempoolLastNewBlockParent = Nothing
-    , mempoolProcessFork = noopProcessFork
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
@@ -203,9 +193,6 @@ noopMempool =
     noopSubscribe = unimplemented
     noopShutdown = return ()
     noopClear = return ()
-
-    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
-    noopProcessFork _l _h = return V.empty
 
 
 
@@ -494,7 +481,7 @@ putDecimal (Decimal places mantissa) = do
 
 getDecimal :: MonadGet m => m Decimal
 getDecimal = do
-    !places <- fromIntegral <$> getWord8
+    !places <- getWord8
     !negative <- getWord8
     numWords <- fromIntegral <$> getWord16le
     mantissaWords <- replicateM numWords getWord64le

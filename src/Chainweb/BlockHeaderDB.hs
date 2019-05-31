@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -107,7 +108,7 @@ encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
 decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
-decodeRankedBlockHeader = RankedBlockHeader <$> decodeBlockHeader
+decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
 
 -- -------------------------------------------------------------------------- --
@@ -128,7 +129,7 @@ encodeRankedBlockHash (RankedBlockHash r bh) = do
 
 decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
-    <$> decodeBlockHeightBe
+    <$!> decodeBlockHeightBe
     <*> decodeBlockHash
 {-# INLINE decodeRankedBlockHash #-}
 
@@ -259,7 +260,7 @@ initBlockHeaderDb config = do
         (Codec (runPut . encodeBlockHash) (runGet decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
-    db = BlockHeaderDb cid
+    !db = BlockHeaderDb cid
         (_chainwebVersion rootEntry)
         (_configRocksDb config)
         headerTable
@@ -299,7 +300,7 @@ instance TreeDb BlockHeaderDb where
         -- lookup header
         rh <- MaybeT $ casLookup (_chainDbCas db) $ RankedBlockHash r h
 
-        return $ _getRankedBlockHeader rh
+        return $! _getRankedBlockHeader rh
     {-# INLINEABLE lookup #-}
 
     entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
@@ -322,7 +323,7 @@ instance TreeDb BlockHeaderDb where
     maxEntry db = withTableIter (_chainDbCas db) $ \it -> do
         tableIterLast it
         tableIterValue it >>= \case
-            Just (RankedBlockHeader r) -> return r
+            Just (RankedBlockHeader !r) -> return r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxEntry: empty block header db"
     {-# INLINEABLE maxEntry #-}
@@ -330,7 +331,7 @@ instance TreeDb BlockHeaderDb where
     maxRank db = withTableIter (_chainDbCas db) $ \it -> do
         tableIterLast it
         tableIterKey it >>= \case
-            Just (RankedBlockHash r _) -> return (int r)
+            Just (RankedBlockHash !r _) -> return $! int r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxRank: empty block header db"
     {-# INLINEABLE maxRank #-}
@@ -362,7 +363,7 @@ seekTreeDb
     -> Maybe MinRank
     -> IO (RocksDbTableIter RankedBlockHash RankedBlockHeader)
 seekTreeDb db k mir = do
-    it <- createTableIter (_chainDbCas db)
+    !it <- createTableIter (_chainDbCas db)
     case k of
         Nothing -> case mir of
             Nothing -> return ()
@@ -375,7 +376,7 @@ seekTreeDb db k mir = do
             let x = _getNextItem a
             r <- tableLookup (_chainDbRankTable db) x >>= \case
                 Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
-                Just b -> return b
+                (Just !b) -> return b
             tableIterSeek it (RankedBlockHash r x)
 
             -- if we don't find the cursor, throw exception
@@ -402,7 +403,7 @@ insertBlockHeaderDb :: BlockHeaderDb -> [E] -> IO ()
 insertBlockHeaderDb db es = do
 
     -- Validate set of additions
-    validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$> es
+    validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$!> es
 
     -- add set of additions to database
     mapM_ (dbAddChecked db) rankedAdditions

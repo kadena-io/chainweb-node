@@ -61,23 +61,24 @@ module Chainweb.Time
 , day
 
 -- * Seconds
-, Seconds
+, Seconds(..)
 , secondsToTimeSpan
 , secondsToText
 , secondsFromText
 ) where
 
 import Control.DeepSeq
+import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson (FromJSON, ToJSON)
-import qualified Data.Memory.Endian as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
 import Data.Hashable (Hashable)
 import Data.Int
 import Data.Kind
+import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX
 import Data.Word
@@ -118,7 +119,7 @@ encodeTimeSpanToWord64 (TimeSpan a) = BA.unLE . BA.toLE $ unsigned a
 {-# INLINE encodeTimeSpanToWord64 #-}
 
 decodeTimeSpan :: MonadGet m => m (TimeSpan Int64)
-decodeTimeSpan = TimeSpan . signed <$> getWord64le
+decodeTimeSpan = TimeSpan . signed <$!> getWord64le
 {-# INLINE decodeTimeSpan #-}
 
 castTimeSpan :: NumCast a b => TimeSpan a -> TimeSpan b
@@ -126,7 +127,7 @@ castTimeSpan (TimeSpan a) = TimeSpan $ numCast a
 {-# INLINE castTimeSpan #-}
 
 maybeCastTimeSpan :: MaybeNumCast a b => TimeSpan a -> Maybe (TimeSpan b)
-maybeCastTimeSpan (TimeSpan a) = TimeSpan <$> maybeNumCast a
+maybeCastTimeSpan (TimeSpan a) = TimeSpan <$!> maybeNumCast a
 {-# INLINE maybeCastTimeSpan #-}
 
 ceilingTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
@@ -173,7 +174,7 @@ getCurrentTimeIntegral :: Integral a => IO (Time a)
 getCurrentTimeIntegral = do
     -- returns POSIX seconds with picosecond precision
     t <- getPOSIXTime
-    return $ Time $ TimeSpan (round $ t * 1000000)
+    return $! Time $! TimeSpan $! round $ t * 1000000
 
 encodeTime :: MonadPut m => Time Int64 -> m ()
 encodeTime (Time a) = encodeTimeSpan a
@@ -184,7 +185,7 @@ encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
 {-# INLINE encodeTimeToWord64 #-}
 
 decodeTime :: MonadGet m => m (Time Int64)
-decodeTime  = Time <$> decodeTimeSpan
+decodeTime  = Time <$!> decodeTimeSpan
 {-# INLINE decodeTime #-}
 
 castTime :: NumCast a b => Time a -> Time b
@@ -192,7 +193,7 @@ castTime (Time a) = Time $ castTimeSpan a
 {-# INLINE castTime #-}
 
 maybeCastTime :: MaybeNumCast a b => Time a -> Maybe (Time b)
-maybeCastTime (Time a) = Time <$> maybeCastTimeSpan a
+maybeCastTime (Time a) = Time <$!> maybeCastTimeSpan a
 {-# INLINE maybeCastTime #-}
 
 ceilingTime :: RealFrac a => Integral b => Time a -> Time b
@@ -245,7 +246,7 @@ newtype Seconds = Seconds Integer
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (FromJSON, ToJSON)
-    deriving newtype (Num, Enum, Real, Integral)
+    deriving newtype (Num, Enum, Real)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second

@@ -122,7 +122,7 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import qualified Chainweb.Mempool.InMem as Mempool
+import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config

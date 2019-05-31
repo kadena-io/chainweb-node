@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -57,6 +58,7 @@ import NeatInterpolation (text)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (parseExprs)
+import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import qualified Pact.Types.Hash as H
@@ -65,7 +67,6 @@ import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
 import Pact.Types.Term (DefName(..), ModuleName(..))
-import Pact.Parse (ParsedDecimal)
 
 -- internal Chainweb modules
 
@@ -113,10 +114,10 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
 
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
-        (pactId,buyGasLogs) <- either internalError pure buyGasResult
+        (!pactId, !buyGasLogs) <- either internalError pure buyGasResult
         logDebugRequestKey logger requestKey "successful gas buy for request key"
 
-        let payloadEnv = set ceGasEnv userGasEnv
+        let !payloadEnv = set ceGasEnv userGasEnv
               $ set cePublicData pd' buyGasEnv
 
         cmdResultE <- catchesPactError $! runPayload payloadEnv def cmd spv buyGasLogs
@@ -128,11 +129,11 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0)
               "tx failure for request key when running cmd"
 
-          Right cmdResult -> do
+          (Right !cmdResult) -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
 
-            let redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
+            let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
                 cmdLogs = fromMaybe [] $ _crLogs cmdResult
             redeemResultE <- catchesPactError $!
               redeemGas redeemGasEnv cmd cmdResult pactId supply spv cmdLogs
@@ -144,10 +145,10 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
                   "tx failure for request key while redeeming gas"
 
-              Right redeemResult -> do
+              (Right !redeemResult) -> do
 
-                let redeemLogs = fromMaybe [] $ _crLogs redeemResult
-                    finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
+                let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
+                    !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
 
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
                 pure finalResult
@@ -225,11 +226,11 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
 
   exec <- case _pPayload _cmdPayload of
-    Exec pm -> return pm
+    (Exec !pm) -> return pm
     _ -> throwCmdEx "local continuations not supported"
 
-  r <- catchesPactError $! applyExec cmdEnv def requestKey
-       exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv []
+  !r <- catchesPactError $! applyExec cmdEnv def requestKey
+        exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) spv []
 
   either
     (\e -> jsonErrorResult cmdEnv requestKey e [] 0 "applyLocal")
@@ -249,7 +250,7 @@ jsonErrorResult
     -> IO (CommandResult [TxLog Value])
 jsonErrorResult cmdEnv reqKey err txLogs gas msg = do
     logErrorRequestKey (_ceLogger cmdEnv) reqKey err msg
-    return $ CommandResult reqKey Nothing (PactResult (Left err))
+    return $! CommandResult reqKey Nothing (PactResult (Left err))
       gas (Just txLogs) Nothing Nothing
 
 runPayload
@@ -278,7 +279,7 @@ applyExec
 applyExec env@CommandEnv{..} initState rk em senderSigs hsh spv prevLogs = do
     EvalResult{..} <- applyExec' env initState em senderSigs hsh spv
     -- applyExec enforces non-empty expression set so `last` ok
-    return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
@@ -317,7 +318,7 @@ applyContinuation
 applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hsh spv prevLogs = do
   EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh spv
   -- last safe here because cont msg is guaranteed one exp
-  return $ CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+  return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
 
 
@@ -468,7 +469,7 @@ buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
     go v = case ParsedCode code <$> parseExprs code of
-      Right t -> pure $ ExecMsg t v
+      (Right !t) -> pure $! ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err

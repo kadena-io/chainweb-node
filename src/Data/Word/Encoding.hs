@@ -16,6 +16,7 @@ module Data.Word.Encoding
 , properties
 ) where
 
+import Control.Monad ((<$!>))
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -74,9 +75,9 @@ instance WordEncoding Word64 where
 
 instance WordEncoding Word128 where
     encodeWordLe (Word128 a b) = encodeWordLe b *> encodeWordLe a
-    decodeWordLe = flip Word128 <$> decodeWordLe <*> decodeWordLe
+    decodeWordLe = flip Word128 <$!> decodeWordLe <*> decodeWordLe
     encodeWordBe (Word128 a b) = encodeWordBe a *> encodeWordBe b
-    decodeWordBe = Word128 <$> decodeWordBe <*> decodeWordBe
+    decodeWordBe = Word128 <$!> decodeWordBe <*> decodeWordBe
     {-# INLINE encodeWordLe #-}
     {-# INLINE decodeWordLe #-}
     {-# INLINE encodeWordBe #-}
@@ -84,9 +85,9 @@ instance WordEncoding Word128 where
 
 instance WordEncoding Word256 where
     encodeWordLe (Word256 a b) = encodeWordLe b *> encodeWordLe a
-    decodeWordLe = flip Word256 <$> decodeWordLe <*> decodeWordLe
+    decodeWordLe = flip Word256 <$!> decodeWordLe <*> decodeWordLe
     encodeWordBe (Word256 a b) = encodeWordBe a *> encodeWordBe b
-    decodeWordBe = Word256 <$> decodeWordBe <*> decodeWordBe
+    decodeWordBe = Word256 <$!> decodeWordBe <*> decodeWordBe
     {-# INLINE encodeWordLe #-}
     {-# INLINE decodeWordLe #-}
     {-# INLINE encodeWordBe #-}

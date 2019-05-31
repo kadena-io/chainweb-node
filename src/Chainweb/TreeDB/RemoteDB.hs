@@ -146,4 +146,4 @@ remoteDb
     -> IO RemoteDb
 remoteDb db logg env = do
     h <- root db
-    pure $ RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)
+    pure $! RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)
