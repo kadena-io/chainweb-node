@@ -243,6 +243,18 @@ in
             sha256 = "10jk274sbvsrr7varxa72jvh54n22qpw7d4p2wy7415bmij3y81p";
         };
 
+        digraph = dontHaddock (dontCheck (callHackageDirect {
+            pkg = "digraph";
+            ver = "0.1.0.1";
+            sha256 = "0874vsx8ba27cj5g28m2f6gcw9dn57l5ajbw63xwv8bv8gdq8l61";
+        }));
+
+        mwc-random = callHackageDirect {
+            pkg = "mwc-random";
+            ver = "0.14.0.0";
+            sha256 = "10jaajbnlcwqgqdnb94q0k8pzx11ff569af8a8d6k26xc954m48p";
+        };
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;

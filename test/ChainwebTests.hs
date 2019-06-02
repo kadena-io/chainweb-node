@@ -26,7 +26,6 @@ import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.CoinContract
-import qualified Chainweb.Test.DiGraph
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
@@ -47,7 +46,6 @@ import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
 import Data.CAS.RocksDB
-import qualified Data.DiGraph (properties)
 import qualified Data.PQueue.Test (properties)
 import qualified Data.Word.Encoding (properties)
 
@@ -89,7 +87,6 @@ suite rdb =
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
-        , Chainweb.Test.DiGraph.tests
         , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Pact.SPV.tests
         , Chainweb.Test.Mempool.InMem.tests
@@ -101,7 +98,6 @@ suite rdb =
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
         , testProperties "P2P.TaskQueue.Test" P2P.TaskQueue.Test.properties
-        , testProperties "Data.DiGraph" Data.DiGraph.properties
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties

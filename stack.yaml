@@ -34,6 +34,7 @@ extra-deps:
   - yaml-0.11.0.0
   - yet-another-logger-0.3.1
   - merkle-log-0.1.0.0
+  - digraph-0.1.0.0
 
   - git: https://github.com/kadena-io/pact.git
     commit: f880d34850b5aa4bd538a23029a74777e1f83a5d
