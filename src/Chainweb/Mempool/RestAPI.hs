@@ -30,13 +30,11 @@ module Chainweb.Mempool.RestAPI
   , MempoolLookupApi
   , MempoolGetBlockApi
   , MempoolGetPendingApi
-  , MempoolSubscribeApi
   , mempoolInsertApi
   , mempoolMemberApi
   , mempoolLookupApi
   , mempoolGetBlockApi
   , mempoolGetPendingApi
-  , mempoolSubscribeApi
   ) where
 
 
@@ -58,9 +56,8 @@ import Chainweb.Version
 
 ------------------------------------------------------------------------------
 -- type-indexed mempool
-data Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) = Mempool_ {
-    _mrKeepaliveSecs :: Int
-  , _mrMempool :: MempoolBackend t
+newtype Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) = Mempool_ {
+    _mrMempool :: MempoolBackend t
   }
 
 data SomeMempool t = forall v c
@@ -72,9 +69,7 @@ someMempoolVal v cid m =
    case someChainwebVersionVal v of
      (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
          (SomeChainIdT (Proxy :: Proxy cidt)) ->
-             SomeMempool (Mempool_ @vt @cidt keepaliveSecs m)
-  where
-    keepaliveSecs = 65
+             SomeMempool (Mempool_ @vt @cidt m)
 
 ------------------------------------------------------------------------------
 -- servant sub-api
@@ -86,8 +81,7 @@ type MempoolApi v c t = MempoolInsertApi v c t :<|>
                         MempoolMemberApi v c t :<|>
                         MempoolLookupApi v c t :<|>
                         MempoolGetBlockApi v c t :<|>
-                        MempoolGetPendingApi v c t :<|>
-                        MempoolSubscribeApi v c t
+                        MempoolGetPendingApi v c t
 
 type MempoolInsertApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "insert" :>
@@ -103,10 +97,8 @@ type MempoolGetBlockApi v c t =
     QueryParam "blockSize" Int64 :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
-    StreamPost NetstringFraming JSON (Streams.InputStream [TransactionHash])
-type MempoolSubscribeApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "subscribe" :>
-    StreamPost NetstringFraming JSON (Streams.InputStream [t])
+    QueryParam "since" MempoolTxId :>
+    StreamPost NetstringFraming JSON (Streams.InputStream (Either MempoolTxId [TransactionHash]))
 
 mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                  . Proxy (MempoolInsertApi v c t)
@@ -128,9 +120,6 @@ mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                      . Proxy (MempoolGetPendingApi v c t)
 mempoolGetPendingApi = Proxy
 
-mempoolSubscribeApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                          . Proxy (MempoolSubscribeApi v c t)
-mempoolSubscribeApi = Proxy
 
 
 #if MIN_VERSION_servant(0,15,0)
