@@ -244,7 +244,7 @@ library
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
-        , digraph >= 0.1
+        , digraph >= 0.1.0.2
         , directory >= 1.3
         , errors >= 2.3
         , exceptions >= 0.8
