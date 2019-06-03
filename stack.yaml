@@ -1,31 +1,33 @@
 resolver: lts-12.26
 
 extra-deps:
+  - FloatingHex-0.4
+  - QuickCheck-2.12.6.1
+  - QuickCheck-GenT-0.2.0
   - aeson-1.4.3.0
   - bloomfilter-2.0.1.0@sha256:5b67d765315fb2abc1cde85e3c20ae1badfbe8d1070ed57525b7c428586e2d2f
   - bounded-queue-1.0.0
   - compactable-0.1.2.2
   - configuration-tools-0.4.1
   - crackNum-2.3
+  - digraph-0.1.0.0
   - ed25519-donna-0.1.1
   - fake-0.1.1.1@sha256:a551fed1dbdd2ce3629cb843597d24793562cdd136e1252ae2febe0b91d239a8
   - fast-builder-0.1.0.0@sha256:a7a8f4de793c98424a8c92c806346692d8dc4f2cd6a284fbff1a0c88eac41814
-  - FloatingHex-0.4
   - generic-lens-1.1.0.0
   - hspec-2.5.8
   - hspec-core-2.5.8
   - hspec-discover-2.5.8
   - libyaml-0.1.1.0@sha256:b3fcd8c44622c75e054c2267f3fec39a58a311748000310cbc8257a4683d3f02,2090
   - loglevel-0.1.0.0@sha256:951338d262fb734cc2f06a6ee9fddb7ea998a71a5098011d864f038f4ec7ac2a,1256
-  - massiv-0.3.0.0
+  - massiv-0.3.3.0
+  - merkle-log-0.1.0.0
+  - mwc-random-0.14.0.0
   - nonempty-containers-0.1.1.0
   - paths-0.2.0.0@sha256:85e77985968860365cdb2074515b339863344ca0d28baa879baf4105f93e87cc,2628
-  # QuickCheck-2.12
-  - QuickCheck-2.12.6.1
-  - QuickCheck-GenT-0.2.0
   - rocksdb-haskell-1.0.1@sha256:3a437ec1cedea56e02ae85a8e37539151c5295cb228117e46aa90767f1072d61
   - sbv-8.1
-  - scheduler-1.0.0@sha256:7f5ddfff0d911b089014f0d7668fe7380c65d94630f204f943181e04815b14ed
+  - scheduler-1.3.0
   - strict-tuple-0.1.2@sha256:546cce0dae83a49f805749b3cdee6ccdbab425c58d78731bbe126dc0a758b80f
   - tasty-1.2
   - token-bucket-0.1.0.1@sha256:ef80a31e7f4f794e3686eb405a49afc663535dd3a11c012a002a7bacce897da6
@@ -33,7 +35,6 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.0@sha256:7b2ad0c3c20f3f1ff75a211a7ce13346445a65f648ff5effaae87d11805ab4e5
   - yaml-0.11.0.0
   - yet-another-logger-0.3.1
-  - merkle-log-0.1.0.0
 
   - git: https://github.com/kadena-io/pact.git
     commit: f880d34850b5aa4bd538a23029a74777e1f83a5d
