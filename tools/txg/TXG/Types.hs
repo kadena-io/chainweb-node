@@ -20,6 +20,7 @@
 module TXG.Types
   ( -- * TXCmd
     TXCmd(..)
+  , SingleTX(..)
     -- * Timing
   , TimingDistribution(..)
   , Gaussian(..), Uniform(..)
@@ -88,7 +89,12 @@ data TXCmd
   | RunSimpleExpressions TimingDistribution
   | PollRequestKeys ByteString
   | ListenerRequestKey ByteString
+  | SingleTransaction SingleTX
   deriving (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data SingleTX = SingleTX { _stxCmd :: Text, _stxChainId :: ChainId }
+  deriving (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 transactionCommandToText :: TXCmd -> Text
