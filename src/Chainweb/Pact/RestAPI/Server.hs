@@ -168,7 +168,7 @@ listenHandler cutR cid chain bloomCache (ListenerRequest key) =
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
-                Nothing -> return $ ListenTimeout defaultTimeout
+                Nothing -> return $! ListenTimeout defaultTimeout
                 (Just cut) -> poll cut
 
         poll cut = do
@@ -212,14 +212,14 @@ localHandler
     -> Handler (CommandResult Hash)
 localHandler _ _ cr cmd = do
   cmd' <- case validateCommand cmd of
-    Right c -> return c
+    (Right !c) -> return c
     Left err ->
       throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
   r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
   case r of
     Left err ->
       throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-    Right r' -> return r'
+    (Right !r') -> return r'
 
 
 
@@ -283,7 +283,7 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     keyHash = unRequestKey key
 
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
-    go blockHeader = do
+    go !blockHeader = do
         -- bloom reports false positives, so if it says "no" we're sure the
         -- transaction is not in this block and we can skip decoding it.
         needToLook <- liftIO $ Bloom.member keyHash
@@ -296,17 +296,15 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
-        txs <- mapM fromTx txsBs
+        !txs <- mapM fromTx txsBs
 
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) -> do
-
-                val <- MaybeT $ return $ decodeStrict output
-                return $! val
+            (Just (_cmd, (TransactionOutput output))) ->
+                MaybeT $ return $! decodeStrict' output
 
             Nothing -> lookupParent blockHeader
 
-    fromTx (tx, out) = do
+    fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
     matchingHash (cmd, _) = H.toUntypedHash (_cmdHash cmd) == keyHash
@@ -322,11 +320,11 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
 
 toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict b
+toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err

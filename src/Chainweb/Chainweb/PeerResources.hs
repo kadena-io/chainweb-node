@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -132,11 +133,11 @@ peerServerSettings peer
 
 allocateSocket :: P2pConfiguration -> IO (P2pConfiguration, Socket)
 allocateSocket conf = do
-    (p, sock) <- bindPortTcp
+    (!p, !sock) <- bindPortTcp
         (_peerConfigPort $ _p2pConfigPeer conf)
         (_peerConfigInterface $ _p2pConfigPeer conf)
-    let conf' = set (p2pConfigPeer . peerConfigPort) p conf
-    return (conf', sock)
+    let !conf' = set (p2pConfigPeer . peerConfigPort) p conf
+    return $! (conf', sock)
 
 deallocateSocket :: (P2pConfiguration, Socket) -> IO ()
 deallocateSocket (_, sock) = close sock
@@ -223,9 +224,9 @@ withConnectionManger logger certs key peerDb runInner = do
     certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
     certCacheLookup si = do
         ha <- serviceIdToHostAddress si
-        pe <- getOne . getEQ ha <$> peerDbSnapshot peerDb
-        return $ pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
+        pe <- getOne . getEQ ha <$!> peerDbSnapshot peerDb
+        return $! pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
 
     serviceIdToHostAddress (h, p) = HostAddress
-        <$> readHostnameBytes (B8.pack h)
+        <$!> readHostnameBytes (B8.pack h)
         <*> readPortBytes p

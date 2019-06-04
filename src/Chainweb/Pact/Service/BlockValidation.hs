@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -31,8 +33,8 @@ import Chainweb.Transaction
 newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg ->
             IO (MVar (Either PactException PayloadWithOutputs))
 newBlock mi bHeader reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
-    let msg = NewBlockMsg NewBlockReq
+    !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
+    let !msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newMiner = mi
           , _newResultVar = resultVar }
@@ -45,8 +47,8 @@ validateBlock
     -> TQueue RequestMsg
     -> IO (MVar (Either PactException PayloadWithOutputs))
 validateBlock bHeader plData reqQ = do
-    resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
-    let msg = ValidateBlockMsg ValidateBlockReq
+    !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
+    let !msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
           , _valResultVar = resultVar
           , _valPayloadData = plData }
@@ -55,8 +57,8 @@ validateBlock bHeader plData reqQ = do
 
 local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
-    resultVar <- newEmptyMVar
-    let msg = LocalMsg LocalReq
+    !resultVar <- newEmptyMVar
+    let !msg = LocalMsg LocalReq
           { _localRequest = ct
           , _localResultVar = resultVar }
     addRequest reqQ msg

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -75,6 +76,7 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
+import Control.Exception (evaluate)
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
@@ -122,13 +124,13 @@ shortPeerId = T.take 6 . toText
 
 peerIdFromText :: MonadThrow m => T.Text -> m PeerId
 peerIdFromText t = do
-    bytes <- decodeB64UrlNoPaddingText t
+    !bytes <- decodeB64UrlNoPaddingText t
     unless (B.length bytes == int fingerprintByteCount) $ throwM
         $ TextFormatException
         $ "wrong peer-id length: expected "
         <> sshow fingerprintByteCount <> " bytes, got "
         <> sshow (B.length bytes) <> " bytes."
-    return $ PeerId bytes
+    return $! PeerId bytes
 {-# INLINE peerIdFromText #-}
 
 unsafePeerIdFromText :: HasCallStack => String -> PeerId
@@ -386,30 +388,30 @@ getPeerCertificate conf = do
         Nothing -> do
             bytes <- traverse T.readFile $ _peerConfigCertificateChainFile conf
             traverse x509CertChainPemFromText bytes
-        x -> return x
+        x -> evaluate x
 
     maybeKey <- case _peerConfigKey conf of
         Nothing -> do
             bytes <- traverse T.readFile $ _peerConfigKeyFile conf
             traverse x509KeyPemFromText bytes
-        x -> return x
+        x -> evaluate x
 
     case (maybeChain, maybeKey) of
         (Nothing, _) -> do
-            (fp, c, k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
-            return (fp, X509CertChainPem c [], k)
-        (Just c@(X509CertChainPem a _), Just k) ->
-            return (unsafeFingerprintPem a, c, k)
+            (!fp, !c, !k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
+            return $! (fp, X509CertChainPem c [], k)
+        (Just !c@(X509CertChainPem !a _), (Just !k)) ->
+            return $! (unsafeFingerprintPem a, c, k)
         _ -> throwM $ ConfigurationException "missing certificate key in peer config"
   where
     dn = name . B8.unpack . hostnameBytes . _hostAddressHost . _peerConfigAddr $ conf
 
 unsafeCreatePeer :: PeerConfig -> IO Peer
 unsafeCreatePeer conf = do
-    (fp, certs, key) <- getPeerCertificate conf
-    return $ Peer
+    (!fp, !certs, !key) <- getPeerCertificate conf
+    return $! Peer
         { _peerInfo = PeerInfo
-            { _peerId = Just $ peerIdFromFingerprint fp
+            { _peerId = Just $! peerIdFromFingerprint fp
             , _peerAddr = _peerConfigAddr conf
             }
         , _peerInterface = _peerConfigInterface conf

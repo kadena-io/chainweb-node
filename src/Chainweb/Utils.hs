@@ -522,7 +522,7 @@ parseJsonFromText
     => String
     -> Value
     -> Aeson.Parser a
-parseJsonFromText l = withText l $ either fail return . eitherFromText
+parseJsonFromText l = withText l $! either fail return . eitherFromText
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
@@ -568,7 +568,7 @@ check
     -> m a
 check e a b = do
     unless (a ==? b) $ throwM (e a b)
-    return (getActual b)
+    return $! getActual b
 
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
@@ -716,7 +716,7 @@ timeoutStream msecs = go
   where
     go s = lift (timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
-        Just (Left r) -> return (Just r)
+        Just (Left r) -> return $! Just r
         Just (Right (a, s')) -> S.yield a >> go s'
 
 nub :: Monad m => Eq a => S.Stream (Of a) m r -> S.Stream (Of a) m r
@@ -780,7 +780,7 @@ withTempDir tag f = bracket create delete f
     create = do
         tmp <- getTemporaryDirectory
         suff <- randomIO @Word64
-        pure $ tmp </> fragment (printf "chainweb-%s-%d" tag suff)
+        pure $! tmp </> fragment (printf "chainweb-%s-%d" tag suff)
 
     delete :: Path Absolute -> IO ()
     delete = toAbsoluteFilePath >=> removeDirectoryRecursive

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -213,7 +214,7 @@ data RocksDbTableIter k v = RocksDbTableIter
 
 createTableIter :: RocksDbTable k v -> IO (RocksDbTableIter k v)
 createTableIter db = do
-    tit <- RocksDbTableIter
+    !tit <- RocksDbTableIter
         (_rocksDbTableValueCodec db)
         (_rocksDbTableKeyCodec db)
         (_rocksDbTableName db)
@@ -233,7 +234,7 @@ withTableIter db = bracket (createTableIter db) releaseTableIter
 tableIterValid :: MonadIO m => RocksDbTableIter k v -> m Bool
 tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return False
-    Just x -> return (checkIterKey it x)
+    (Just !x) -> return $! checkIterKey it x
 {-# INLINE tableIterValid #-}
 
 tableIterSeek :: MonadIO m => RocksDbTableIter k v -> k -> m ()
@@ -269,9 +270,9 @@ tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
     Just (k, v) -> do
         tryDecIterKey it k >>= \case
             Nothing -> return Nothing
-            Just k' -> do
-                v' <- decIterVal it v
-                return $ Just (k', v')
+            (Just !k') -> do
+                !v' <- decIterVal it v
+                return $! Just $! (k', v')
 {-# INLINE tableIterEntry #-}
 
 tableIterValue

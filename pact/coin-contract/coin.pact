@@ -102,11 +102,10 @@
 
   (defun account-balance:decimal (account:string)
     @doc "Query account balance for ACCOUNT"
-    (with-capability (ACCOUNT_GUARD account)
-      (with-read coin-table account
-        { "balance" := balance }
-        balance
-        ))
+    (with-read coin-table account
+      { "balance" := balance }
+      balance
+      )
     )
 
   (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)

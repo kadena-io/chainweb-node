@@ -82,6 +82,7 @@ module Chainweb.Payload
 ) where
 
 import Control.DeepSeq
+import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
@@ -122,7 +123,7 @@ encodeBlockTransactionsHash :: MonadPut m => BlockTransactionsHash -> m ()
 encodeBlockTransactionsHash (BlockTransactionsHash w) = encodeMerkleLogHash w
 
 decodeBlockTransactionsHash :: MonadGet m => m BlockTransactionsHash
-decodeBlockTransactionsHash = BlockTransactionsHash <$> decodeMerkleLogHash
+decodeBlockTransactionsHash = BlockTransactionsHash <$!> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockTransactionsHash where
     type Tag BlockTransactionsHash = 'BlockTransactionsHashTag
@@ -144,7 +145,7 @@ encodeBlockOutputsHash :: MonadPut m => BlockOutputsHash -> m ()
 encodeBlockOutputsHash (BlockOutputsHash w) = encodeMerkleLogHash w
 
 decodeBlockOutputsHash :: MonadGet m => m BlockOutputsHash
-decodeBlockOutputsHash = BlockOutputsHash <$> decodeMerkleLogHash
+decodeBlockOutputsHash = BlockOutputsHash <$!> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockOutputsHash where
     type Tag BlockOutputsHash = 'BlockOutputsHashTag
@@ -166,7 +167,7 @@ encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
 encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
 
 decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
-decodeBlockPayloadHash = BlockPayloadHash <$> decodeMerkleLogHash
+decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
 
 instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
     type Tag BlockPayloadHash = 'BlockPayloadHashTag
@@ -212,7 +213,7 @@ transactionToText = encodeB64UrlNoPaddingText . _transactionBytes
 
 transactionFromText :: MonadThrow m => T.Text -> m Transaction
 transactionFromText t = either (throwM . TextFormatException . sshow) return
-    $ Transaction <$> decodeB64UrlNoPaddingText t
+    $ Transaction <$!> decodeB64UrlNoPaddingText t
 {-# INLINE transactionFromText #-}
 
 instance HasTextRepresentation Transaction where
@@ -254,7 +255,7 @@ transactionOutputToText = encodeB64UrlNoPaddingText . _transactionOutputBytes
 
 transactionOutputFromText :: MonadThrow m => T.Text -> m TransactionOutput
 transactionOutputFromText t = either (throwM . TextFormatException . sshow) return
-    $ TransactionOutput <$> decodeB64UrlNoPaddingText t
+    $ TransactionOutput <$!> decodeB64UrlNoPaddingText t
 {-# INLINE transactionOutputFromText #-}
 
 instance HasTextRepresentation TransactionOutput where
@@ -309,7 +310,7 @@ instance ToJSON BlockPayload where
 
 instance FromJSON BlockPayload where
     parseJSON = withObject "BlockPayload" $ \o -> BlockPayload
-        <$> o .: "payloadHash"
+        <$!> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
@@ -369,7 +370,7 @@ minerDataToText = encodeB64UrlNoPaddingText . _minerData
 
 minerDataFromText :: MonadThrow m => T.Text -> m MinerData
 minerDataFromText t = either (throwM . TextFormatException . sshow) return
-    $ MinerData <$> decodeB64UrlNoPaddingText t
+    $ MinerData <$!> decodeB64UrlNoPaddingText t
 {-# INLINE minerDataFromText #-}
 
 instance HasTextRepresentation MinerData where
@@ -407,7 +408,7 @@ instance ToJSON BlockTransactions where
 
 instance FromJSON BlockTransactions where
     parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
-        <$> o .: "transactionHash"
+        <$!> o .: "transactionHash"
         <*> o .: "transaction"
         <*> o .: "minerData"
 
@@ -470,7 +471,7 @@ coinbaseOutputToText = encodeB64UrlNoPaddingText . _coinbaseOutput
 
 coinbaseOutputFromText :: MonadThrow m => T.Text -> m CoinbaseOutput
 coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
-    $ CoinbaseOutput <$> decodeB64UrlNoPaddingText t
+    $ CoinbaseOutput <$!> decodeB64UrlNoPaddingText t
 {-# INLINE coinbaseOutputFromText #-}
 
 instance HasTextRepresentation CoinbaseOutput where
@@ -511,7 +512,7 @@ instance ToJSON BlockOutputs where
 
 instance FromJSON BlockOutputs where
     parseJSON = withObject "BlockOutputs" $ \o -> BlockOutputs
-        <$> o .: "outputsHash"
+        <$!> o .: "outputsHash"
         <*> o .: "outputs"
         <*> o .: "coinbaseOutput"
 
@@ -564,7 +565,7 @@ instance ToJSON TransactionTree where
 
 instance FromJSON TransactionTree where
     parseJSON = withObject "TransactionTree" $ \o -> TransactionTree
-        <$> o .: "hash"
+        <$!> o .: "hash"
         <*> (o .: "tree" >>= merkleTreeFromJson)
 
 merkleTreeToJson :: MerkleTree a -> Value
@@ -600,7 +601,7 @@ instance ToJSON OutputTree where
 
 instance FromJSON OutputTree where
     parseJSON = withObject "OutputTree" $ \o -> OutputTree
-        <$> o .: "hash"
+        <$!> o .: "hash"
         <*> (o .: "tree" >>= merkleTreeFromJson)
 
 -- -------------------------------------------------------------------------- --
@@ -694,8 +695,8 @@ newBlockPayload
     -> BlockPayload
 newBlockPayload mi co s = blockPayload txs outs
   where
-    (_, txs) = newBlockTransactions mi (fst <$> s)
-    (_, outs) = newBlockOutputs co (snd <$> s)
+    (_, txs) = newBlockTransactions mi (fst <$!> s)
+    (_, outs) = newBlockOutputs co (snd <$!> s)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Data
@@ -721,7 +722,7 @@ instance ToJSON PayloadData where
 
 instance FromJSON PayloadData where
     parseJSON = withObject "PayloadData" $ \o -> PayloadData
-        <$> o .: "transactions"
+        <$!> o .: "transactions"
         <*> o .: "minerData"
         <*> o .: "payloadHash"
         <*> o .: "transactionsHash"
@@ -803,7 +804,7 @@ instance ToJSON PayloadWithOutputs where
 
 instance FromJSON PayloadWithOutputs where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
-        <$> o .: "transactions"
+        <$!> o .: "transactions"
         <*> o .: "minerData"
         <*> o .: "coinbase"
         <*> o .: "payloadHash"
@@ -820,7 +821,7 @@ payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
 
 payloadWithOutputsToPayloadData :: PayloadWithOutputs -> PayloadData
 payloadWithOutputsToPayloadData o = PayloadData
-    { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions o
+    { _payloadDataTransactions = fst <$!> _payloadWithOutputsTransactions o
     , _payloadDataMiner = _payloadWithOutputsMiner o
     , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash o
     , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash o

@@ -63,9 +63,9 @@ import qualified Data.Vector as V
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command
+import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
-import Pact.Types.Exp
 import Pact.Types.Runtime (SPVSupport(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 
@@ -81,17 +81,16 @@ import Chainweb.Utils
 type HashCommandResult = CommandResult H.Hash
 
 data Transactions = Transactions
-    { _transactionPairs :: Vector (Transaction, HashCommandResult)
-    , _transactionCoinbase :: HashCommandResult
-    } deriving (Eq,Show)
+    { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
+    , _transactionCoinbase :: !HashCommandResult
+    } deriving (Eq, Show)
 
 type MinerKeys = KeySet
-
 type MinerId = Text
 
 data MinerInfo = MinerInfo
-  { _minerAccount :: MinerId
-  , _minerKeys :: MinerKeys
+  { _minerAccount :: !MinerId
+  , _minerKeys :: !MinerKeys
   } deriving (Show,Eq)
 
 instance ToJSON MinerInfo where
@@ -122,13 +121,13 @@ toMinerData :: MinerInfo -> MinerData
 toMinerData = MinerData . encodeToByteString
 
 fromMinerData :: MonadThrow m => MinerData -> m MinerInfo
-fromMinerData = decodeStrictOrThrow . _minerData
+fromMinerData = decodeStrictOrThrow' . _minerData
 
 toCoinbaseOutput :: HashCommandResult -> CoinbaseOutput
 toCoinbaseOutput = CoinbaseOutput . encodeToByteString
 
 fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m HashCommandResult
-fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
+fromCoinbaseOutput = decodeStrictOrThrow' . _coinbaseOutput
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
@@ -138,8 +137,8 @@ defaultMiner = MinerInfo "miner" $ KeySet
   (Name "keys-all" def)
 
 data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: Maybe FilePath
-    , _pdbspPactDbState :: PactDbState
+    { _pdbspRestoreFile :: !(Maybe FilePath)
+    , _pdbspPactDbState :: !PactDbState
     }
 
 -- | Indicates a computed gas charge (gas amount * gas price)
@@ -147,15 +146,15 @@ newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
 data PactServiceEnv = PactServiceEnv
-  { _psMempoolAccess :: Maybe MemPoolAccess
-  , _psCheckpointEnv :: CheckpointEnv
-  , _psSpvSupport :: SPVSupport
-  , _psPublicData :: PublicData
+  { _psMempoolAccess :: !(Maybe MemPoolAccess)
+  , _psCheckpointEnv :: !CheckpointEnv
+  , _psSpvSupport :: !SPVSupport
+  , _psPublicData :: !PublicData
   }
 
 data PactServiceState = PactServiceState
-  { _psStateDb :: PactDbState
-  , _psStateValidated :: Maybe BlockHeader
+  { _psStateDb :: !PactDbState
+  , _psStateValidated :: !(Maybe BlockHeader)
   }
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
