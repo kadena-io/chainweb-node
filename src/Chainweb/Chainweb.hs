@@ -338,11 +338,12 @@ withChainweb c logger rocksDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 --
-mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-mempoolConfig = Mempool.InMemConfig
+mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
+mempoolConfig enableReIntro = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
     blockGasLimit
     mempoolReapInterval
+    enableReIntro
   where
     blockGasLimit = 1000000                 -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
@@ -362,19 +363,19 @@ withChainwebInternal
 withChainwebInternal conf logger peer rocksDb inner = do
     initializePayloadDb v payloadDb
     cdbv <- newEmptyMVar
-    go mempty (toList cids) cdbv
+    go mempty (toList cids) cdbv enableTxsReintro
   where
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go cs (cid : t) cdbv =
+    go cs (cid : t) cdbv enableReintro =
         withChainResources v cid rocksDb peer (chainLogger cid)
-        mempoolConfig cdbv (Just payloadDb) $ \c ->
-            go (HM.insert cid c cs) t cdbv
+        (mempoolConfig enableReintro) cdbv (Just payloadDb) $ \c ->
+            go (HM.insert cid c cs) t cdbv enableReintro
 
     -- Initialize global resources
-    go cs [] cdbv = do
+    go cs [] cdbv _enableReintro = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -431,6 +432,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
+    enableTxsReintro =  _enableConfigEnabled $ _configReintroTxs conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)

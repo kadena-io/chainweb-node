@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -76,7 +77,7 @@ instance Exception MempoolException
 
 ----------------------------------------------------------------------------------------------------
 mkMempoolConsensus
-    :: PayloadCas cas
+    :: forall cas t . PayloadCas cas
     => Bool
     -> MempoolBackend t
     -> BlockHeaderDb
@@ -91,9 +92,18 @@ mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
         , mpcProcessFork = processForkFunc blockHeaderDb payloadStore lastParentRef
         }
   where
+    processForkFunc -- (type repeated to help avoid compiler confusion)
+        :: PayloadCas cas
+        => BlockHeaderDb
+        -> Maybe (PayloadDb cas)
+        -> IORef (Maybe BlockHeader)
+        -> LogFunction
+        -> BlockHeader
+        -> IO (Vector ChainwebTransaction)
     processForkFunc = if txReintroEnabled
       then processFork
       else skipProcessFork
+
 ----------------------------------------------------------------------------------------------------
 skipProcessFork
     :: PayloadCas cas
