@@ -167,7 +167,7 @@ toMempoolBackend mempool = do
     cfg = _inmemCfg mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem cfg lockMVar
@@ -240,13 +240,17 @@ insertInMem :: InMemConfig t    -- ^ in-memory config
             -> Vector t  -- ^ new transactions
             -> IO ()
 insertInMem cfg lock txs = do
-    withMVarMasked lock $ \mdata -> V.mapM_ (insOne mdata) txs
+    withMVarMasked lock $ \mdata -> do
+        newHashes <- (V.map fst . V.filter snd) <$> V.mapM (insOne mdata) txs
+        modifyIORef' (_inmemRecentLog mdata) $
+            recordRecentTransactions maxRecent newHashes
 
   where
     txcfg = _inmemTxCfg cfg
     validateTx = txValidate txcfg
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
+    maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
 
     sizeOK tx = getSize tx <= maxSize
@@ -263,10 +267,12 @@ insertInMem cfg lock txs = do
         -- TODO: return error on unsuccessful validation?
         if v && not b && sizeOK tx
           then do
+            -- TODO: is it any better to build up a PSQ in pure code and then
+            -- union? Union is only one modifyIORef
             modifyIORef' (_inmemPending mdata) $
                PSQ.insert txhash (getPriority tx) tx
-            return (tx, True)
-          else return (tx, False)
+            return (txhash, True)
+          else return (txhash, False)
       where
         txhash = hasher tx
 

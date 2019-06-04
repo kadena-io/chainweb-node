@@ -5,8 +5,8 @@ module Chainweb.Test.Mempool.InMem
 ------------------------------------------------------------------------------
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import qualified Chainweb.Mempool.InMem as InMem
+import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
@@ -22,7 +22,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)
     -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
+    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec

@@ -313,9 +313,11 @@ mempoolConfig = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
     blockGasLimit
     mempoolReapInterval
+    maxRecentLog
   where
-    blockGasLimit = 1000000                 -- TODO: policy decision
+    blockGasLimit = 1000000               -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
+    maxRecentLog = 2048                   -- store 2k recent transaction hashes
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --

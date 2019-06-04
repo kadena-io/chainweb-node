@@ -24,6 +24,7 @@ module Chainweb.Mempool.InMemTypes
 ------------------------------------------------------------------------------
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
+import Control.DeepSeq
 
 import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
@@ -62,6 +63,7 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
+  , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
 }
 
 ------------------------------------------------------------------------------
@@ -89,7 +91,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 type RecentItem = (MempoolTxId, TransactionHash)
 data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
-  , _rlRecent :: [RecentItem]
+  , _rlRecent :: ![RecentItem]
   }
 
 emptyRecentLog :: RecentLog
@@ -106,14 +108,14 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     oldNext = _rlNext rlog
     newNext = oldNext + fromIntegral numNewItems
     newL' = _rlRecent rlog ++ ([oldNext..] `zip` V.toList newTxs)
-    newL = take maxNumRecent newL'
+    newL = force $ take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
 -- the old high water mark is too out of date.
 getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe (Vector TransactionHash)
 getRecentTxs maxNumRecent oldHw rlog =
-    if oldHw <= oldestHw
+    if oldHw <= oldestHw || oldHw > oldNext
       then Nothing
       else if oldHw == oldNext
               then Just V.empty
