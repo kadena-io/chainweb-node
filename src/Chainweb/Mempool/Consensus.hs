@@ -77,7 +77,7 @@ instance Exception MempoolException
 
 ----------------------------------------------------------------------------------------------------
 mkMempoolConsensus
-    :: forall cas t . PayloadCas cas
+    :: PayloadCas cas
     => Bool
     -> MempoolBackend t
     -> BlockHeaderDb
