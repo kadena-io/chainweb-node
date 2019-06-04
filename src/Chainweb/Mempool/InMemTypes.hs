@@ -14,6 +14,11 @@ module Chainweb.Mempool.InMemTypes
   , InMemoryMempoolData(..)
   , Priority
   , PSQ
+  , RecentItem
+  , RecentLog(..)
+  , emptyRecentLog
+  , recordRecentTransactions
+  , getRecentTxs
   ) where
 
 ------------------------------------------------------------------------------
@@ -26,11 +31,12 @@ import Data.HashSet (HashSet)
 import Data.Int (Int64)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
-import Data.Word (Word64)
-
-import Foreign.ForeignPtr
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import Pact.Types.Gas (GasPrice(..))
+
+import Prelude hiding (pred)
 
 -- internal imports
 
@@ -49,7 +55,6 @@ type PSQ t = HashPSQ TransactionHash Priority t
 ------------------------------------------------------------------------------
 _defaultTxQueueLen :: Int
 _defaultTxQueueLen = 64
-
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
@@ -77,5 +82,45 @@ data InMemoryMempoolData t = InMemoryMempoolData {
   , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
   , _inmemConfirmed :: !(IORef (HashSet TransactionHash))
   , _inmemLastNewBlockParent :: !(IORef (Maybe BlockHeader))
-  , _inmemNextTxId :: !(ForeignPtr Word64)   -- faster than IORef for counts
+  , _inmemRecentLog :: !(IORef RecentLog)
 }
+
+------------------------------------------------------------------------------
+type RecentItem = (MempoolTxId, TransactionHash)
+data RecentLog = RecentLog {
+    _rlNext :: {-# UNPACK #-} !MempoolTxId
+  , _rlRecent :: [RecentItem]
+  }
+
+emptyRecentLog :: RecentLog
+emptyRecentLog = RecentLog 0 []
+
+recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
+recordRecentTransactions maxNumRecent newTxs rlog = rlog'
+  where
+    !rlog' = RecentLog { _rlNext = newNext
+                       , _rlRecent = newL
+                       }
+
+    numNewItems = V.length newTxs
+    oldNext = _rlNext rlog
+    newNext = oldNext + fromIntegral numNewItems
+    newL' = _rlRecent rlog ++ ([oldNext..] `zip` V.toList newTxs)
+    newL = take maxNumRecent newL'
+
+
+-- | Get the recent transactions from the transaction log. Returns Nothing if
+-- the old high water mark is too out of date.
+getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe (Vector TransactionHash)
+getRecentTxs maxNumRecent oldHw rlog =
+    if oldHw <= oldestHw
+      then Nothing
+      else if oldHw == oldNext
+              then Just V.empty
+              else Just $! txs
+
+  where
+    oldNext = _rlNext rlog
+    oldestHw = oldNext - fromIntegral maxNumRecent
+    txs = V.fromList $ map snd $ filter pred $ _rlRecent rlog
+    pred x = fst x >= oldHw

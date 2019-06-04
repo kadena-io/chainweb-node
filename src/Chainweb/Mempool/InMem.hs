@@ -37,10 +37,6 @@ import Data.IORef
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word64)
-import Foreign.ForeignPtr
-import Foreign.Storable
-import GHC.ForeignPtr
 
 import Pact.Types.Gas (GasPrice(..))
 
@@ -77,13 +73,7 @@ newInMemMempoolData = InMemoryMempoolData <$!> newIORef PSQ.empty
                            <*> newIORef HashMap.empty
                            <*> newIORef HashSet.empty
                            <*> newIORef Nothing
-                           <*> newZeroCounter
-  where
-    newZeroCounter = do
-        let !val = 0 :: Word64
-        fp <- mallocPlainForeignPtrAlignedBytes 8 (alignment val)
-        withForeignPtr fp (flip poke val)
-        return fp
+                           <*> newIORef emptyRecentLog
 
 
 ------------------------------------------------------------------------------
@@ -355,7 +345,7 @@ getPendingInMem cfg lock _first callback = do
   where
     readLock = withMVar lock $ \mdata -> do
         !psq <- readIORef $ _inmemPending mdata
-        !hw <- withForeignPtr (_inmemNextTxId mdata) peek
+        !hw <- _rlNext <$> readIORef (_inmemRecentLog mdata)
         return $! (psq, hw)
 
     initState = (id, 0)    -- difference list
@@ -373,7 +363,7 @@ getPendingInMem cfg lock _first callback = do
     chunkSize = 1024 :: Int
 
     sendChunk _ 0 = return ()
-    sendChunk dl _ = callback $ V.fromList $ dl []
+    sendChunk dl _ = callback $! V.fromList $ dl []
 
 ------------------------------------------------------------------------------
 reintroduceInMem' :: InMemConfig t

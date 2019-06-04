@@ -107,7 +107,7 @@ data TransactionConfig t = TransactionConfig {
   }
 
 ------------------------------------------------------------------------------
-type MempoolTxId = Word64
+type MempoolTxId = Int64
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
