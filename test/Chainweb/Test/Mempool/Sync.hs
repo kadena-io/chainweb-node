@@ -5,31 +5,17 @@
 module Chainweb.Test.Mempool.Sync (tests) where
 
 ------------------------------------------------------------------------------
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.MVar
-import Control.Concurrent.STM
-import qualified Control.Concurrent.STM.TBMChan as TBMChan
-import Control.Exception
-import Control.Monad (void, when, (>=>))
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Except
-import Data.IORef
-import Data.Set (Set)
-import qualified Data.Set as Set
-import qualified Data.Vector as V
-import System.Timeout
-import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
+{-
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
-import Chainweb.Utils (Codec(..))
+-}
 
-tests :: TestTree
+{-
 tests = mempoolProperty "Mempool.syncMempools" gen
         propSync
         $ MempoolWithFunc
@@ -55,7 +41,6 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 
-
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
@@ -68,11 +53,8 @@ propSync (txs, missing, later) localMempool =
 
         -- expect remote to deliver us this many transactions during sync.
         -- Timeout to guard against waiting forever
-        m <- timeout 20000000 $
-             bracket (mempoolSubscribe localMempool)
-                     (readIORef >=> mempoolSubFinal) $ \subRef -> do
+        m <- timeout 20000000 $ do
                  syncThMv <- newEmptyMVar
-                 subStarted <- newEmptyMVar
                  syncFinished <- newEmptyMVar
                  tb1 <- mkTimeBomb (V.length missingV)
                                    (tryPutMVar syncFinished ())
@@ -81,11 +63,6 @@ propSync (txs, missing, later) localMempool =
                                           Async.uninterruptibleCancel
                                        throwIO ThreadKilled)
                  let tb x = tb1 x `finally` tb2 x
-                 sub <- readIORef subRef
-                 subTh <- Async.async (subThread tb sub subStarted)
-                 Async.link subTh
-                 takeMVar subStarted
-
                  syncTh <- Async.async $ syncThread remoteMempool
                  putMVar syncThMv syncTh
                  Async.link syncTh
@@ -97,8 +74,7 @@ propSync (txs, missing, later) localMempool =
                  -- more transactions before getting killed. Transactions
                  -- inserted into remote should get synced to us.
                  mempoolInsert remoteMempool laterV
-
-                 Async.wait syncTh `finally` Async.wait subTh
+                 Async.wait syncTh
 
         maybe (fail "timeout") return m
 
@@ -123,16 +99,6 @@ propSync (txs, missing, later) localMempool =
     syncThread remoteMempool =
         eatExceptions $ syncMempools noLog 10 localMempool remoteMempool
 
-    -- a thread that reads from a mempool subscription and calls a handler for
-    -- each element that comes through the channel.
-    subThread onElem sub subStarted =
-        eatExceptions $ flip finally (mempoolSubFinal sub) $ do
-            let chan = mempoolSubChan sub
-            putMVar subStarted ()
-            let go = atomically (TBMChan.readTBMChan chan) >>=
-                     maybe (return ()) (\e -> onElem e >> go)
-            go
-
     hash = txHasher $ mempoolTxConfig localMempool
     txsV = V.fromList $ Set.toList txs
     missingV = V.fromList $ Set.toList missing
@@ -143,3 +109,7 @@ propSync (txs, missing, later) localMempool =
 
 eatExceptions :: IO () -> IO ()
 eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+-}
+
+tests :: TestTree
+tests = testGroup "Chainweb.Mempool.sync" []
