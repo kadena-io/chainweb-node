@@ -107,7 +107,8 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     numNewItems = V.length newTxs
     oldNext = _rlNext rlog
     newNext = oldNext + fromIntegral numNewItems
-    newL' = _rlRecent rlog ++ ([oldNext..] `zip` V.toList newTxs)
+    newTxs' = reverse ([oldNext..] `zip` V.toList newTxs)
+    newL' = newTxs' ++ _rlRecent rlog
     newL = force $ take maxNumRecent newL'
 
 
@@ -124,5 +125,5 @@ getRecentTxs maxNumRecent oldHw rlog =
   where
     oldNext = _rlNext rlog
     oldestHw = oldNext - fromIntegral maxNumRecent
-    txs = V.fromList $ map snd $ filter pred $ _rlRecent rlog
+    txs = V.fromList $ map snd $ takeWhile pred $ _rlRecent rlog
     pred x = fst x >= oldHw

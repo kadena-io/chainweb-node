@@ -53,16 +53,39 @@ import qualified Numeric.AffineSpace as AF
 remoteTests :: MempoolWithFunc -> [TestTree]
 remoteTests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
-    , mempoolProperty "overlarge transactions are rejected" (pick arbitrary)
+    , mempoolProperty "overlarge transactions are rejected" genTwoSets
                       propOverlarge
-    , mempoolProperty "insert + lookup + getBlock" (pick arbitrary) propTrivial
-    , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
+    , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
+    , mempoolProperty "getPending" genNonEmpty propGetPending
+    , mempoolProperty "getPending high water marks" hwgen propHighWater
     ]
+  where
+    hwgen = do
+      (xs, ys0) <- genTwoSets
+      let ys = take 1000 ys0     -- recency log only has so many entries
+      return (xs, ys)
+
+genNonEmpty :: PropertyM IO [MockTx]
+genNonEmpty = do
+    xs <- pick arbitrary
+    pre (not $ null xs)
+    return xs
+
+genTwoSets :: PropertyM IO ([MockTx], [MockTx])
+genTwoSets = do
+    xs <- (uniq . sortBy ord) <$> genNonEmpty
+    ys' <- (uniq . sortBy ord) <$> genNonEmpty
+    let ys = OL.minusBy' ord ys' xs
+    pre (not $ null ys)
+    return (xs, ys)
+  where
+    ord = compare `on` onFees
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 -- | Local-only tests plus all of the tests that are safe for remote.
 tests :: MempoolWithFunc -> [TestTree]
 tests withMempool = map ($ withMempool) [
-      mempoolProperty "validate txs" (pick arbitrary) propValidate
+      mempoolProperty "validate txs" genTwoSets propValidate
     , mempoolTestCase "old transactions are reaped" testTooOld
     ] ++ remoteTests withMempool
 
@@ -141,7 +164,7 @@ testTooOld mempool = do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
+propOverlarge (txs, overlarge0) mempool = runExceptT $ do
     liftIO $ insert $ txs ++ overlarge
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup overlarge) >>= V.mapM_ lookupIsMissing
@@ -150,11 +173,8 @@ propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
     hash = txHasher txcfg
     insert = mempoolInsert mempool . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
-    txs = uniq $ sortBy (compare `on` onFees) txs0
-    overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) overlarge0
-
+    overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 
 propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
@@ -180,9 +200,7 @@ propTrivial txs mempool = runExceptT $ do
 
 propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propGetPending txs0 mempool = runExceptT $ do
-    let txs = uniq $ sortBy (compare `on` onFees) txs0
     liftIO $ insert txs
-    let txdata = sort $ map hash txs
     pendingOps <- liftIO $ newIORef []
     void $ liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps (v:)
     allPending <- sort . V.toList . V.concat
@@ -196,7 +214,35 @@ propGetPending txs0 mempool = runExceptT $ do
                          , show allPending ]
         in fail msg
   where
+    txs = uniq $ sortBy (compare `on` onFees) txs0
+    txdata = sort $ map hash txs
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
+    hash = txHasher $ mempoolTxConfig mempool
+    getPending = mempoolGetPendingTransactions mempool
+    insert = mempoolInsert mempool . V.fromList
+
+propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
+propHighWater (txs0, txs1) mempool = runExceptT $ do
+    liftIO $ insert txs0
+    hw <- liftIO $ getPending Nothing $ const (return ())
+    liftIO $ insert txs1
+    pendingOps <- liftIO $ newIORef []
+    void $ liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
+    allPending <- sort . V.toList . V.concat
+                  <$> liftIO (readIORef pendingOps)
+    when (txdata /= allPending) $
+        let msg = concat [ "getPendingTransactions highwater failure: "
+                         , "expected new pending list:\n    "
+                         , show txdata
+                         , "\nbut got:\n    "
+                         , show allPending
+                         , "\nhw was: ", show hw
+                         , ", txs0 size: ", show (length txs0)
+                         ]
+        in fail msg
+
+  where
+    txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
     insert = mempoolInsert mempool . V.fromList
@@ -209,9 +255,7 @@ uniq (x:ys@(y:rest)) | x == y    = uniq (x:rest)
                      | otherwise = x : uniq ys
 
 propValidate :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propValidate (txs0', txs1') mempool = runExceptT $ do
-    let txs0 = uniq $ sortBy ord txs0'
-    let txs1 = OL.minusBy' ord (uniq $ sortBy ord txs1') txs0
+propValidate (txs0, txs1) mempool = runExceptT $ do
     insert txs0
     insert txs1
     lookup txs0 >>= V.mapM_ lookupIsPending
@@ -228,8 +272,6 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
     lookup txs1 >>= V.mapM_ lookupIsConfirmed
 
   where
-    ord = compare `on` onFees
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     insert = liftIO . mempoolInsert mempool . V.fromList
     lookup = liftIO . mempoolLookup mempool . V.fromList . map hash

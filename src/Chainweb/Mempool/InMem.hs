@@ -429,5 +429,4 @@ clearInMem lock = do
         writeIORef (_inmemPending mdata) PSQ.empty
         writeIORef (_inmemValidated mdata) HashMap.empty
         writeIORef (_inmemConfirmed mdata) HashSet.empty
-        -- we won't reset the broadcaster but that's ok, the same one can be
-        -- re-used
+        writeIORef (_inmemRecentLog mdata) emptyRecentLog
