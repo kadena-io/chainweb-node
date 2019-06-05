@@ -56,10 +56,6 @@ module Chainweb.Chainweb
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
-, ReintroTxsConfig
-, defaultReintroTxsConfig
-, pReintroTxsConfig
-
 -- * Chainweb Resources
 , Chainweb(..)
 , chainwebChains
@@ -170,33 +166,13 @@ pTransactionIndexConfig :: MParser TransactionIndexConfig
 pTransactionIndexConfig = pure id
 
 -- -------------------------------------------------------------------------- --
--- ReintroTxsConfig
-
-data ReintroTxsConfig = ReintroTxsConfig
-    deriving (Show, Eq, Generic)
-
-makeLenses ''ReintroTxsConfig
-
-defaultReintroTxsConfig :: ReintroTxsConfig
-defaultReintroTxsConfig = ReintroTxsConfig
-
-instance ToJSON ReintroTxsConfig where
-    toJSON _ = object []
-
-instance FromJSON (ReintroTxsConfig -> ReintroTxsConfig) where
-    parseJSON = withObject "ReintroTxsConfig" $ const (return id)
-
-pReintroTxsConfig :: MParser ReintroTxsConfig
-pReintroTxsConfig = pure id
-
--- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
-    , _configReintroTxs :: !(EnableConfig ReintroTxsConfig)
+    , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
@@ -220,7 +196,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
-    , _configReintroTxs = defaultEnableConfig defaultReintroTxsConfig
+    , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
@@ -246,7 +222,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
-        <*< configReintroTxs %.: "reintroTxs" % o
+        <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
@@ -264,7 +240,10 @@ pChainwebConfiguration = id
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-    <*< configReintroTxs %:: pEnableConfig "tx-reintro" pReintroTxsConfig
+
+    <*< configReintroTxs .:: enableDisableFlag
+        % long "tx-reintro"
+        <> help "whether to enable transaction reintroduction from losing forks"
     <*< configP2p %:: pP2pConfiguration Nothing
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
@@ -432,7 +411,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
-    enableTxsReintro =  _enableConfigEnabled $ _configReintroTxs conf
+    enableTxsReintro = _configReintroTxs conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)
