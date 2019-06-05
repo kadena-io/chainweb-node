@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -75,27 +76,58 @@ instance Show MempoolException where
 instance Exception MempoolException
 
 ----------------------------------------------------------------------------------------------------
-mkMempoolConsensus :: PayloadCas cas => MempoolBackend t -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO (MempoolConsensus t)
-mkMempoolConsensus mempool blockHeaderDb payloadStore = do
-              lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
-              return MempoolConsensus
-                  { mpcMempool = mempool
-                  , mpcLastNewBlockParent = lastParentRef
-                  , mpcProcessFork = processFork blockHeaderDb payloadStore lastParentRef
-                  }
+mkMempoolConsensus
+    :: PayloadCas cas
+    => Bool
+    -> MempoolBackend t
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IO (MempoolConsensus t)
+mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
+    lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
+
+    return MempoolConsensus
+        { mpcMempool = mempool
+        , mpcLastNewBlockParent = lastParentRef
+        , mpcProcessFork = processForkFunc blockHeaderDb payloadStore lastParentRef
+        }
+  where
+    processForkFunc -- (type repeated to help avoid compiler confusion)
+        :: PayloadCas cas
+        => BlockHeaderDb
+        -> Maybe (PayloadDb cas)
+        -> IORef (Maybe BlockHeader)
+        -> LogFunction
+        -> BlockHeader
+        -> IO (Vector ChainwebTransaction)
+    processForkFunc = if txReintroEnabled
+      then processFork
+      else skipProcessFork
 
 ----------------------------------------------------------------------------------------------------
-processFork :: PayloadCas cas
-                 => BlockHeaderDb
-                 -> Maybe (PayloadDb cas)
-                 -> IORef (Maybe BlockHeader)
-                 -> LogFunction
-                 -> BlockHeader
-                 -> IO (Vector ChainwebTransaction)
+skipProcessFork
+    :: PayloadCas cas
+    => BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IORef (Maybe BlockHeader)
+    -> LogFunction
+    -> BlockHeader
+    -> IO (Vector ChainwebTransaction)
+skipProcessFork _ _ _ _ _ = return V.empty
+
+processFork
+    :: PayloadCas cas
+    => BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IORef (Maybe BlockHeader)
+    -> LogFunction
+    -> BlockHeader
+    -> IO (Vector ChainwebTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
     hashTxs <- processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
     return $ V.map unHashable hashTxs
+
 ----------------------------------------------------------------------------------------------------
 -- called directly from some unit tests...
 processFork'
