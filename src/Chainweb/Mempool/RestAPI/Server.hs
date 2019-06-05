@@ -74,13 +74,21 @@ data GpData t = GpData {
 getPendingHandler
     :: Show t
     => MempoolBackend t
+    -> Maybe ServerNonce
     -> Maybe MempoolTxId
-    -> Handler (Streams.InputStream (Either MempoolTxId [TransactionHash]))
-getPendingHandler mempool hw = liftIO $ mask_ $ do
+    -> Handler (Streams.InputStream (Either HighwaterMark [TransactionHash]))
+getPendingHandler mempool mbNonce mbHw = liftIO $ mask_ $ do
     dat <- createThread
     Streams.makeInputStream $ inputStreamAct dat
 
   where
+    hw :: Maybe (ServerNonce, MempoolTxId)
+    hw = do
+        -- check that both nonce and txid are supplied and stuff them into one maybe
+        oldNonce <- mbNonce
+        tx <- mbHw
+        return (oldNonce, tx)
+
     createThread = liftIO $ do
         chan <- atomically $ Chan.newTBMChan 4
         t <- Async.asyncWithUnmask (chanThread chan)
@@ -95,7 +103,8 @@ getPendingHandler mempool hw = liftIO $ mask_ $ do
         restore $ do
             !hw' <- mempoolGetPendingTransactions mempool hw
                 (atomically . Chan.writeTBMChan chan . Right . V.toList)
-            atomically $ Chan.writeTBMChan chan $! Left hw'
+            atomically $ Chan.writeTBMChan chan
+                       $! Left hw'
 
     inputStreamAct (ref, _) = do
         (GpData chan _) <- readIORef ref
@@ -106,8 +115,10 @@ handleErrs :: Handler a -> Handler a
 handleErrs = (`catch` \(e :: SomeException) ->
                  throwError $ err400 { errBody = sshow e })
 
-
-someMempoolServer :: (Show t, ToJSON t, FromJSON t) => SomeMempool t -> SomeServer
+someMempoolServer
+    :: (Show t, ToJSON t, FromJSON t)
+    => SomeMempool t
+    -> SomeServer
 someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
   = SomeServer (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
 

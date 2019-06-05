@@ -97,8 +97,9 @@ type MempoolGetBlockApi v c t =
     QueryParam "blockSize" Int64 :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
+    QueryParam "nonce" ServerNonce :>
     QueryParam "since" MempoolTxId :>
-    StreamPost NetstringFraming JSON (Streams.InputStream (Either MempoolTxId [TransactionHash]))
+    StreamPost NetstringFraming JSON (Streams.InputStream (Either HighwaterMark [TransactionHash]))
 
 mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                  . Proxy (MempoolInsertApi v c t)

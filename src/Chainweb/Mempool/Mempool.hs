@@ -20,6 +20,9 @@ module Chainweb.Mempool.Mempool
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
+  , ServerNonce
+  , HighwaterMark
+
   , chainwebTransactionConfig
   , mockCodec
   , mockEncode
@@ -108,6 +111,8 @@ data TransactionConfig t = TransactionConfig {
 
 ------------------------------------------------------------------------------
 type MempoolTxId = Int64
+type ServerNonce = Int
+type HighwaterMark = (ServerNonce, MempoolTxId)
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -145,9 +150,9 @@ data MempoolBackend t = MempoolBackend {
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
     -- the remote high-water mark.
   , mempoolGetPendingTransactions
-      :: Maybe MempoolTxId                  -- previous high-water mark, if any
+      :: Maybe HighwaterMark                -- previous high-water mark, if any
       -> (Vector TransactionHash -> IO ())  -- chunk callback
-      -> IO MempoolTxId                     -- returns remote high water mark
+      -> IO HighwaterMark                   -- returns remote high water mark
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
   -- only for testing.
@@ -186,7 +191,7 @@ noopMempool = do
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
     noopReintroduce = const $ return ()
-    noopGetPending = const $ const $ return 0
+    noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
 

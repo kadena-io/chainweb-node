@@ -87,7 +87,7 @@ toMempool version chain txcfg blocksizeLimit env =
     insert v = void $ go (insertClient version chain (V.toList v))
     getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
     getPending hw cb = do
-        hw' <- newIORef 0
+        hw' <- newIORef (0, 0)
         let f = either (writeIORef hw') (cb . V.fromList)
 #if MIN_VERSION_servant(0,15,0)
         withClientM (getPendingClient version chain hw) env $ \case
@@ -183,19 +183,22 @@ getBlockClient v c mbBs = runIdentity $ do
 getPendingClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => Maybe MempoolTxId
-    -> ClientM (Streams.InputStream (Either MempoolTxId [TransactionHash]))
+    => Maybe ServerNonce
+    -> Maybe MempoolTxId
+    -> ClientM (Streams.InputStream (Either HighwaterMark [TransactionHash]))
 getPendingClient_ = client (mempoolGetPendingApi @v @c)
 
 getPendingClient
   :: ChainwebVersion
   -> ChainId
-  -> Maybe MempoolTxId
-  -> ClientM (Streams.InputStream (Either MempoolTxId [TransactionHash]))
+  -> Maybe (ServerNonce, MempoolTxId)
+  -> ClientM (Streams.InputStream (Either HighwaterMark [TransactionHash]))
 getPendingClient v c hw = runIdentity $ do
+    let nonce = fst <$> hw
+    let tx = snd <$> hw
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ getPendingClient_ @v @c hw
+    return $ getPendingClient_ @v @c nonce tx
 
 
 

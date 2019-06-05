@@ -71,7 +71,7 @@ data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: InMemConfig t
   , _inmemDataLock :: MVar (InMemoryMempoolData t)
   , _inmemReaper :: ThreadId
-  -- TODO: reap expired transactions
+  , _inmemNonce :: ServerNonce
 }
 
 ------------------------------------------------------------------------------

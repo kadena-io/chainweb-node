@@ -42,6 +42,8 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup)
 
+import System.Random
+
 -- internal imports
 
 import Chainweb.Mempool.InMemTypes
@@ -59,9 +61,10 @@ toPriority r s = (Down r, s)
 makeInMemPool :: InMemConfig t
               -> IO (InMemoryMempool t)
 makeInMemPool cfg = mask_ $ do
+    nonce <- randomIO
     dataLock <- newInMemMempoolData >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock tid
+    return $! InMemoryMempool cfg dataLock tid nonce
 
 destroyInMemPool :: InMemoryMempool t -> IO ()
 destroyInMemPool = mask_ . killThread . _inmemReaper
@@ -165,6 +168,7 @@ toMempoolBackend mempool = do
       }
   where
     cfg = _inmemCfg mempool
+    nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
     InMemConfig tcfg blockSizeLimit _ _ = cfg
@@ -175,7 +179,7 @@ toMempoolBackend mempool = do
     markValidated = markValidatedInMem cfg lockMVar
     markConfirmed = markConfirmedInMem lockMVar
     reintroduce = reintroduceInMem cfg lockMVar
-    getPending = getPendingInMem cfg lockMVar
+    getPending = getPendingInMem cfg nonce lockMVar
     clear = clearInMem lockMVar
 
 
@@ -335,18 +339,17 @@ markConfirmedInMem lock txhashes =
 
 ------------------------------------------------------------------------------
 getPendingInMem :: InMemConfig t
+                -> ServerNonce
                 -> MVar (InMemoryMempoolData t)
-                -> Maybe MempoolTxId
+                -> Maybe (ServerNonce, MempoolTxId)
                 -> (Vector TransactionHash -> IO ())
-                -> IO MempoolTxId
-getPendingInMem cfg lock _first callback = do
-    (psq, hw) <- readLock
-    -- TODO: either:
-    --  1) add a tx log, if _first is set then try to read off the tx log
-    --  2) (easier, slower) add tx id to maps and filter by it here
+                -> IO (ServerNonce, MempoolTxId)
+getPendingInMem cfg nonce lock _first callback = do
+    (psq, !hw) <- readLock
+    -- TODO: implement search by log
     (dl, sz) <- foldlM go initState psq
     void $ sendChunk dl sz
-    return hw
+    return $! (nonce, hw)
 
   where
     readLock = withMVar lock $ \mdata -> do
