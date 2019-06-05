@@ -32,7 +32,7 @@ tests = mempoolProperty "Mempool.syncMempools" gen
       return (xss, yss, zss)
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100)
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100) True
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
                               mockGasLimit mockMeta (const $ return True)

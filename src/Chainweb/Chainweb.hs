@@ -50,6 +50,7 @@ module Chainweb.Chainweb
 , configNodeId
 , configChainwebVersion
 , configMiner
+, configReintroTxs
 , configP2p
 , configTransactionIndex
 , defaultChainwebConfiguration
@@ -171,6 +172,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
+    , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
@@ -194,6 +196,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
+    , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
@@ -206,6 +209,7 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
+        , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
@@ -218,6 +222,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
+        <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
@@ -235,6 +240,10 @@ pChainwebConfiguration = id
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
+
+    <*< configReintroTxs .:: enableDisableFlag
+        % long "tx-reintro"
+        <> help "whether to enable transaction reintroduction from losing forks"
     <*< configP2p %:: pP2pConfiguration Nothing
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
@@ -308,12 +317,13 @@ withChainweb c logger rocksDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 --
-mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-mempoolConfig = Mempool.InMemConfig
+mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
+mempoolConfig enableReIntro = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
     blockGasLimit
     mempoolReapInterval
     maxRecentLog
+    enableReIntro
   where
     blockGasLimit = 1000000               -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
@@ -334,19 +344,19 @@ withChainwebInternal
 withChainwebInternal conf logger peer rocksDb inner = do
     initializePayloadDb v payloadDb
     cdbv <- newEmptyMVar
-    go mempty (toList cids) cdbv
+    go mempty (toList cids) cdbv enableTxsReintro
   where
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
 
     -- Initialize chain resources
-    go cs (cid : t) cdbv =
+    go cs (cid : t) cdbv enableReintro =
         withChainResources v cid rocksDb peer (chainLogger cid)
-        mempoolConfig cdbv (Just payloadDb) $ \c ->
-            go (HM.insert cid c cs) t cdbv
+        (mempoolConfig enableReintro) cdbv (Just payloadDb) $ \c ->
+            go (HM.insert cid c cs) t cdbv enableReintro
 
     -- Initialize global resources
-    go cs [] cdbv = do
+    go cs [] cdbv _enableReintro = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -403,6 +413,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
+    enableTxsReintro = _configReintroTxs conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)

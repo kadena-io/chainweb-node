@@ -171,7 +171,7 @@ toMempoolBackend mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem cfg lockMVar

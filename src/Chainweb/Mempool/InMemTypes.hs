@@ -64,6 +64,7 @@ data InMemConfig t = InMemConfig {
   , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
+  , _inmemEnableReIntro :: !Bool
 }
 
 ------------------------------------------------------------------------------

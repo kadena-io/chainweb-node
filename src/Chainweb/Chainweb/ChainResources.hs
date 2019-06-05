@@ -129,7 +129,7 @@ withChainResources
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus mempool cdb payloadDb
+        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
 
             -- replay pact
@@ -146,6 +146,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
                 , _chainResPact = pact
                 }
   where
+    reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
     pes mempool requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

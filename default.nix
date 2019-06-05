@@ -243,11 +243,11 @@ in
             sha256 = "10jk274sbvsrr7varxa72jvh54n22qpw7d4p2wy7415bmij3y81p";
         };
 
-        digraph = dontHaddock (dontCheck (callHackageDirect {
+        digraph = dontCheck (callHackageDirect {
             pkg = "digraph";
-            ver = "0.1.0.1";
-            sha256 = "0874vsx8ba27cj5g28m2f6gcw9dn57l5ajbw63xwv8bv8gdq8l61";
-        }));
+            ver = "0.1.0.2";
+            sha256 = "1alqdzzlw8ns6hy8vh3ic4ign7jjxxa0cyxkv26zz7k2dihf3hzg";
+        });
 
         mwc-random = callHackageDirect {
             pkg = "mwc-random";

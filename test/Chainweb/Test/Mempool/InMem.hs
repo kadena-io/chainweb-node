@@ -22,7 +22,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)
     -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048
+    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048 True
     hz x = 1000000 `div` x
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
