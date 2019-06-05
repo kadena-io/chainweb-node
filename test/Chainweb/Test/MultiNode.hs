@@ -154,6 +154,9 @@ config v n nid = defaultChainwebConfiguration v
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
 
+    & set configReintroTxs True
+        -- enable transaction re-introduction
+
     & set (configTransactionIndex . enableConfigEnabled) True
         -- enable transaction index
 

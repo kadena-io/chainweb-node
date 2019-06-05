@@ -307,7 +307,7 @@ toMempoolBackend mempool = do
     lockMVar = _inmemDataLock mempool
     broadcaster = _inmemBroadcaster mempool
 
-    InMemConfig tcfg blockSizeLimit _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem broadcaster cfg lockMVar
