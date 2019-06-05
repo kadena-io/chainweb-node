@@ -35,7 +35,6 @@ module Chainweb.Mempool.Mempool
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently)
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
@@ -77,7 +76,7 @@ import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
     (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Chainweb.Utils (encodeToText, runForever)
+import Chainweb.Utils (encodeToText)
 
 import Data.LogMessage (LogFunctionText)
 
@@ -226,12 +225,13 @@ data SyncState = SyncState {
 
 -- | Pulls any missing pending transactions from a remote mempool.
 --
--- The sync procedure:
+-- The initial sync procedure:
 --
 --    1. get the list of pending transaction hashes from remote,
 --    2. lookup any hashes that are missing, and insert them into local,
---    3. push any hashes remote is missing,
---    4. sleep the given number of microseconds.
+--    3. push any hashes remote is missing
+--
+-- After initial sync, will loop subscribing to updates from remote.
 --
 -- Loops until killed, or until the underlying mempool connection throws an
 -- exception.
@@ -246,8 +246,7 @@ syncMempools'
     -> MempoolBackend t
         -- ^ remote mempool
     -> IO ()
-syncMempools' log0 us localMempool remoteMempool =
-    runForever log0 "mempool-sync-session" $ sync >> threadDelay us
+syncMempools' log0 us localMempool remoteMempool = sync
 
   where
     maxCnt = 10000
@@ -306,13 +305,13 @@ syncMempools' log0 us localMempool remoteMempool =
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = flip finally (deb "sync finished") $ do
-        deb "Get pending hashes from remote"
+    sync = flip finally (deb "sync exiting") (initialSync >>= subsequentSync)
 
-        -- Intialize and collect SyncState
-        syncState <- newIORef $! SyncState 0 [] HashSet.empty False
-        _hw <- mempoolGetPendingTransactions remoteMempool Nothing $ syncChunk syncState
-        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
+    initialSync = do
+        deb "Get full list of pending hashes from remote"
+
+        (numMissingFromLocal, missingChunks, remoteHashes, remoteHw) <-
+            fetchSince Nothing
 
         deb $ T.concat
             [ sshow (HashSet.size remoteHashes)
@@ -321,28 +320,53 @@ syncMempools' log0 us localMempool remoteMempool =
             , " need to be fetched)"
             ]
 
-        numPushed <- snd <$> concurrently
-
+        -- todo: should we do subsequent sync of pushed txs also?
+        (numPushed, _) <- do
             -- Go fetch missing transactions from remote
-            (traverse_ fetchMissing missingChunks)
+            traverse_ fetchMissing missingChunks
 
             -- Push our missing txs to remote.
-            (push remoteHashes)
+            push remoteHashes
 
         deb $ "pushed " <> sshow numPushed <> " new transactions to remote."
-        deb "sync complete, sleeping"
+        return remoteHw
+
+    subsequentSync !remoteHw = do
+        deb "Get new pending hashes from remote"
+        (numMissingFromLocal, missingChunks, _, remoteHw') <-
+            fetchSince $! Just remoteHw
+        deb $ T.concat
+            [ "sync: "
+            , sshow numMissingFromLocal
+            , " new remote hashes need to be fetched"
+            ]
+        traverse_ fetchMissing missingChunks
+        threadDelay us
+        subsequentSync remoteHw'
+
+    -- get pending hashes from remote since the given (optional) high water mark
+    fetchSince oldRemoteHw = do
+        -- Intialize and collect SyncState
+        let emptySyncState = SyncState 0 [] HashSet.empty False
+        syncState <- newIORef emptySyncState
+        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $ syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
+        -- immediately destroy ioref contents to assist GC
+        writeIORef syncState emptySyncState
+        return (numMissingFromLocal, missingChunks, remoteHashes, remoteHw)
 
     -- Push transactions that are available locally but are missing from the
     -- remote pool to the remote pool.
     --
     push remoteHashes = do
         ref <- newIORef 0
-        _ <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
+        ourHw <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
             let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
             when (not $ V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
-        readIORef ref
+        numPushed <- readIORef ref
+        return (numPushed, ourHw)
 
     -- Send a chunk of tranactions to the remote pool.
     --
