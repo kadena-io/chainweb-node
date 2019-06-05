@@ -344,18 +344,33 @@ getPendingInMem :: InMemConfig t
                 -> Maybe (ServerNonce, MempoolTxId)
                 -> (Vector TransactionHash -> IO ())
                 -> IO (ServerNonce, MempoolTxId)
-getPendingInMem cfg nonce lock _first callback = do
-    (psq, !hw) <- readLock
-    -- TODO: implement search by log
-    (dl, sz) <- foldlM go initState psq
-    void $ sendChunk dl sz
+getPendingInMem cfg nonce lock since callback = do
+    (psq, !hw, recent) <- readLock
+    maybe (sendAll psq) (sendSome psq recent) since
     return $! (nonce, hw)
 
   where
+    sendAll psq = do
+        (dl, sz) <- foldlM go initState psq
+        void $ sendChunk dl sz
+
+    sendSome psq recent (rNonce, oHw) = do
+        if rNonce /= nonce
+          then sendAll psq
+          else sendSince psq recent oHw
+
+    sendSince psq recent oHw = do
+        let isPending (_, h) = PSQ.member h psq
+        let isNewer (x, _) = x >= oHw
+        let keep x = isPending x && isNewer x
+        callback $! V.fromList $ map snd $ filter keep recent
+
     readLock = withMVar lock $ \mdata -> do
         !psq <- readIORef $ _inmemPending mdata
-        !hw <- _rlNext <$> readIORef (_inmemRecentLog mdata)
-        return $! (psq, hw)
+        rlog <- readIORef (_inmemRecentLog mdata)
+        let !hw = _rlNext rlog
+        let !recent = _rlRecent rlog
+        return $! (psq, hw, recent)
 
     initState = (id, 0)    -- difference list
     hash = txHasher $ _inmemTxCfg cfg
