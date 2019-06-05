@@ -84,7 +84,7 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
-  , _inmemEnableReIntro :: {-# UNPACK #-} !Bool
+  , _inmemEnableReIntro :: !Bool
 }
 
 ------------------------------------------------------------------------------
