@@ -6,7 +6,7 @@ synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
 bug-reports:  https://github.com/kadena-io/chainweb/issues
-license:      NONE
+license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
@@ -21,6 +21,17 @@ tested-with:
 extra-source-files:
     CHANGELOG.md
     README.md
+    LICENSE
+
+    -- pact test data
+    pact/coin-contract/coin.repl
+    pact/coin-contract/coin.pact
+    pact/coin-contract/coin-sig.pact
+    pact/coin-contract/load-coin-contract.yaml
+    pact/coin-contract/spv-sig.pact
+    test/pact/test1.pact
+    test/golden/reintro-test.pact
+    test/golden/*.txt
 
 data-files:
     examples/static-html/index.html
@@ -71,7 +82,7 @@ common warning-flags
 custom-setup
     setup-depends:
           Cabal
-        , base >= 4.11
+        , base >= 4.11 && < 5
         , configuration-tools >= 0.4.1
 
 -- -------------------------------------------------------------------------- --
@@ -82,8 +93,12 @@ library
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     hs-source-dirs: src
-    other-modules: PkgInfo
-    autogen-modules: PkgInfo
+    other-modules:
+        Paths_chainweb
+        PkgInfo
+    autogen-modules:
+        Paths_chainweb
+        PkgInfo
     exposed-modules:
           BackCompat.Test.QuickCheck
         , Chainweb.BlockHash
@@ -228,7 +243,7 @@ library
         , asn1-types >=0.3
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11
+        , base >= 4.11 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , bloomfilter >= 2.0
@@ -376,7 +391,7 @@ test-suite chainweb-tests
         , QuickCheck >= 2.10
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11
+        , base >= 4.11 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , bytes >= 0.15
@@ -455,6 +470,7 @@ executable chainweb-node
         Paths_chainweb
         PkgInfo
     autogen-modules:
+        Paths_chainweb
         PkgInfo
     build-depends:
         -- internal
@@ -463,7 +479,7 @@ executable chainweb-node
         -- external
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11
+        , base >= 4.11 && < 5
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , configuration-tools >= 0.4.1
@@ -519,7 +535,7 @@ executable cwtool
         , ansi-wl-pprint >= 0.6
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11
+        , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
         , bytes >= 0.15
