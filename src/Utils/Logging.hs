@@ -21,23 +21,25 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- This module defines log messages that are similar to Haskell exceptions from
--- 'Control.Exception'.
+-- This module provides backends for handling log messages from the
+-- "Data.LogMessage". Log messages that are similar to Haskell exceptions from
+-- 'Control.Exception'. Like exceptions, log messages in this module are typed
+-- dynamically and classes of log messages types are extensible.
 --
 -- Log messages and exceptions are similar in that they can be emitted/thrown
--- anywhere in the code base (in the IO monad, for logs) and are propagated
--- upward through the call stack, until they are eventually picked up by some
--- handler. The difference is that exceptions synchronously interrupt the
--- computation that throws them, while log messages are emitted asynchronously
--- and the computation that emits them continues while the message is handled.
+-- anywhere in the code base (in the IO monad, for logs) and are propagated to
+-- handlers that are defined upward in the call stack until they are eventually
+-- picked up. The difference is that exceptions synchronously interrupt the
+-- computation that throws them, while log messages are usually handled
+-- asynchronously and the computation that emits them continues while the
+-- message is handled.
 --
 -- Log messages are usually handled only at the top level by a global handler
 -- (or stack of handlers), but that depends on the implementation of the logger
 -- (usually a queue, but sometimes just an IO callback), which is orthorgonal to
--- the the definitions in this module.
---
--- Like exceptions, log messages also should be typed dynamically and classes of
--- log messages types should be extensible.
+-- the definitions in this module. The backends in this module use the type from
+-- the package @yet-another-logger@, which also provides an implementation of a
+-- logger queue.
 --
 -- Unlike exceptions, log messages must be handled. The type systems ensures
 -- that there is a /base log handler/ that catches messages of any type, even if
