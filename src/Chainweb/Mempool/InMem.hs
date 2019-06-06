@@ -24,6 +24,7 @@ import Control.Applicative (pure, (<|>))
 import Control.Concurrent (forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar
     (MVar, newMVar, readMVar, withMVar, withMVarMasked)
+import Control.DeepSeq
 import Control.Exception (bracket, bracketOnError, mask_)
 import Control.Monad (forever, void, (<$!>))
 
@@ -40,7 +41,7 @@ import qualified Data.Vector as V
 
 import Pact.Types.Gas (GasPrice(..))
 
-import Prelude hiding (init, lookup)
+import Prelude hiding (init, lookup, pred)
 
 import System.Random
 
@@ -111,6 +112,10 @@ wrapBackend txcfg bsl mp =
       , mempoolClear = withRef mp mempoolClear
       }
     where
+      getPnd :: (IORef (InMemoryMempool t), a)
+             -> Maybe HighwaterMark
+             -> (Vector TransactionHash -> IO ())
+             -> IO HighwaterMark
       getPnd (ref, _wk) a b = do
           mpl <- readIORef ref
           mb <- toMempoolBackend mpl
@@ -118,6 +123,9 @@ wrapBackend txcfg bsl mp =
           writeIORef ref mpl
           return x
 
+      withRef :: (IORef (InMemoryMempool t), a)
+              -> (MempoolBackend t -> IO z)
+              -> IO z
       withRef (ref, _wk) f = do
             mpl <- readIORef ref
             mb <- toMempoolBackend mpl
@@ -345,35 +353,36 @@ getPendingInMem :: InMemConfig t
                 -> (Vector TransactionHash -> IO ())
                 -> IO (ServerNonce, MempoolTxId)
 getPendingInMem cfg nonce lock since callback = do
-    (psq, !hw, recent) <- readLock
-    maybe (sendAll psq) (sendSome psq recent) since
-    return $! (nonce, hw)
+    (psq, !rlog) <- readLock
+    maybe (sendAll psq) (sendSome psq rlog) since
+    return $! (nonce, _rlNext rlog)
 
   where
     sendAll psq = do
         (dl, sz) <- foldlM go initState psq
         void $ sendChunk dl sz
 
-    sendSome psq recent (rNonce, oHw) = do
+    sendSome psq rlog (rNonce, oHw) = do
         if rNonce /= nonce
           then sendAll psq
-          else sendSince psq recent oHw
+          else sendSince psq rlog oHw
 
-    sendSince psq recent oHw = do
-        let isPending (_, h) = PSQ.member h psq
-        let isNewer (x, _) = x >= oHw
-        let keep x = isPending x && isNewer x
-        callback $! V.fromList $ map snd $ filter keep recent
+    sendSince psq rlog oHw = do
+        let mbTxs = getRecentTxs maxNumRecent oHw rlog
+        case mbTxs of
+          Nothing -> sendAll psq
+          Just txs -> do
+              let isPending = flip PSQ.member psq
+              callback $! V.fromList $ filter isPending txs
 
     readLock = withMVar lock $ \mdata -> do
         !psq <- readIORef $ _inmemPending mdata
-        rlog <- readIORef (_inmemRecentLog mdata)
-        let !hw = _rlNext rlog
-        let !recent = _rlRecent rlog
-        return $! (psq, hw, recent)
+        rlog <- readIORef $ _inmemRecentLog mdata
+        return $! (psq, rlog)
 
     initState = (id, 0)    -- difference list
     hash = txHasher $ _inmemTxCfg cfg
+    maxNumRecent = _inmemMaxRecentItems cfg
 
     go (dl, !sz) tx = do
         let txhash = hash tx
@@ -430,3 +439,37 @@ clearInMem lock = do
         writeIORef (_inmemValidated mdata) HashMap.empty
         writeIORef (_inmemConfirmed mdata) HashSet.empty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
+
+
+------------------------------------------------------------------------------
+emptyRecentLog :: RecentLog
+emptyRecentLog = RecentLog 0 []
+
+recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
+recordRecentTransactions maxNumRecent newTxs rlog = rlog'
+  where
+    !rlog' = RecentLog { _rlNext = newNext
+                       , _rlRecent = newL
+                       }
+
+    numNewItems = V.length newTxs
+    oldNext = _rlNext rlog
+    newNext = oldNext + fromIntegral numNewItems
+    newTxs' = reverse ([oldNext..] `zip` V.toList newTxs)
+    newL' = newTxs' ++ _rlRecent rlog
+    newL = force $ take maxNumRecent newL'
+
+
+-- | Get the recent transactions from the transaction log. Returns Nothing if
+-- the old high water mark is too out of date.
+getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TransactionHash]
+getRecentTxs maxNumRecent oldHw rlog
+    | oldHw <= oldestHw || oldHw > oldNext = Nothing
+    | oldHw == oldNext = Just []
+    | otherwise = Just $! txs
+
+  where
+    oldNext = _rlNext rlog
+    oldestHw = oldNext - fromIntegral maxNumRecent
+    txs = map snd $ takeWhile pred $ _rlRecent rlog
+    pred x = fst x >= oldHw

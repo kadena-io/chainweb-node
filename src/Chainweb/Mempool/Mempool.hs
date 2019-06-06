@@ -75,9 +75,8 @@ import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Chainweb.Utils (encodeToText)
-
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText,
+    encodeToText, sshow)
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
@@ -305,7 +304,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = flip finally (deb "sync exiting") (initialSync >>= subsequentSync)
+    sync = finally (initialSync >>= subsequentSync) (deb "sync exiting")
 
     initialSync = do
         deb "Get full list of pending hashes from remote"

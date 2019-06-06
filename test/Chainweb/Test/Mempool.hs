@@ -73,8 +73,8 @@ genNonEmpty = do
 
 genTwoSets :: PropertyM IO ([MockTx], [MockTx])
 genTwoSets = do
-    xs <- (uniq . sortBy ord) <$> genNonEmpty
-    ys' <- (uniq . sortBy ord) <$> genNonEmpty
+    xs <- uniq . sortBy ord <$> genNonEmpty
+    ys' <- uniq . sortBy ord <$> genNonEmpty
     let ys = OL.minusBy' ord ys' xs
     pre (not $ null ys)
     return (xs, ys)
