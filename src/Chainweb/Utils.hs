@@ -255,13 +255,7 @@ keySet = HS.fromMap . set each ()
 {-# INLINE keySet #-}
 
 minimumsOf :: Ord a => Getting (Endo (Endo [a])) s a -> s -> [a]
-minimumsOf l = foldlOf' l mf []
-  where
-    mf [] !y = [y]
-    mf x@(h:_) !y = case compare h y of
-        EQ -> y:x
-        LT -> [y]
-        GT -> x
+minimumsOf l = minimumsByOf l compare
 {-# INLINE minimumsOf #-}
 
 minimumsByOf :: Getting (Endo (Endo [a])) s a -> (a -> a -> Ordering) -> s -> [a]
@@ -270,8 +264,8 @@ minimumsByOf l cmp = foldlOf' l mf []
     mf [] !y = [y]
     mf x@(h:_) !y = case cmp h y of
         EQ -> y:x
-        LT -> [y]
-        GT -> x
+        GT -> [y]
+        LT -> x
 {-# INLINE minimumsByOf #-}
 
 maxBy :: (a -> a -> Ordering) -> a -> a -> a
