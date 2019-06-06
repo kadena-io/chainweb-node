@@ -641,8 +641,7 @@ runForever logfun name a = mask $ \umask -> do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e
             go
-    void go
-    logfun Info $ name <> " stopped"
+    void go `finally` logfun Info (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
