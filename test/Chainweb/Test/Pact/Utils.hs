@@ -68,10 +68,10 @@ import Pact.Types.Util (toB16Text)
 
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
-import Chainweb.Pact.Backend.Types
+-- import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
-import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+-- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
 import Chainweb.Transaction
@@ -80,7 +80,7 @@ import qualified Chainweb.Version as V
 import Chainweb.WebPactExecutionService
 
 import Pact.Gas
-import Pact.Interpreter
+-- import Pact.Interpreter
 import Pact.Types.Gas
 
 
@@ -210,10 +210,13 @@ testPactCtx
     -> Maybe (MVar (CutDb cas))
     -> IO TestPactCtx
 testPactCtx v cid cdbv = do
-    cpe <- initInMemoryCheckpointEnv logger gasEnv
-    env <- mkPureEnv loggers
-    dbSt <- mkPureState env
-    void $ saveInitial (_cpeCheckpointer cpe) dbSt
+    (dbSt, cpe) <- initInMemoryCheckpointEnv loggers logger gasEnv
+    -- env <- mkPureEnv loggers
+    -- dbSt <- mkPureState env
+    -- void $ saveInitial (_cpeCheckpointer cpe) dbSt
+    -- ctx <- TestPactCtx
+    --     <$> newMVar (PactServiceState Nothing)
+    --     <*> pure (PactServiceEnv Nothing cpe spv pd)
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)

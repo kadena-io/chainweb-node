@@ -21,12 +21,13 @@ import Control.Concurrent.MVar
 import Control.Exception hiding (try)
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
-import Control.Monad.State
+import Control.Monad.State.Strict
+
 import Control.Monad.Reader
 
 import Data.String
 import Data.String.Conv
-import Data.ByteString
+import Data.ByteString hiding (pack)
 import Data.Text (pack, Text)
 import Database.SQLite3.Direct as SQ3
 
@@ -44,7 +45,7 @@ import Pact.Types.Util (AsString(..))
 -- chainweb
 
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
@@ -52,37 +53,44 @@ runBlockEnv e m = modifyMVar e $
     (a,s) <- runStateT (runReaderT (runBlockHandler m) db) bs
     return (BlockEnv db s, a)
 
-callDb :: (MonadReader SQLiteEnv m, MonadIO m) => (Database -> IO b) -> m b
-callDb action = do
+callDb :: (MonadCatch m, MonadReader SQLiteEnv m, MonadIO m) => Text -> (Database -> IO b) -> m b
+callDb callerName action = do
   c <- view sConn
-  liftIO $ action c
+  res <- tryAny $ liftIO $ action c
+  case res of
+    Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
+    Right r -> return r
 
 withSavepoint :: SavepointName -> BlockHandler SQLiteEnv a -> BlockHandler SQLiteEnv a
 withSavepoint name action = do
   beginSavepoint name
-  result <- tryAny action
+  result <- try action
   case result of
-    Left (SomeException err) -> do
-      rollbackSavepoint name
-      internalError $
-        "withSavepoint (" <> asString name <> "): " <> (toS $ show err)
     Right r -> do
       commitSavepoint name
       return r
+    Left (PactInternalError err) -> do
+      rollbackSavepoint name
+      internalError $
+        "withSavepoint (" <> asString name <> "): " <> (pack $ show err)
+    Left err -> do
+      rollbackSavepoint name
+      internalError $ "withSavepoint: The impossible happened: " <> (pack $ show err)
+
 
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
-  callDb $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "]"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 commitSavepoint name =
-  callDb $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "]"
 
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
-  callDb $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "]"
 
-data SavepointName = Block | Transaction |  PreBlock
+data SavepointName = Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Show, Enum)
 
 instance AsString SavepointName where
@@ -95,17 +103,17 @@ readBlockEnv :: (a -> b) -> MVar a -> IO b
 readBlockEnv f = fmap f . readMVar
 
 withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
-withSQLiteConnection file ps todelete action = do
-  result <- bracket opener (close . _sConn) action
-  when todelete (removeFile file)
-  return result
+withSQLiteConnection file ps todelete action = bracket opener closer action
   where
+    closer c = do
+      void $ close $ _sConn c
+      when todelete (removeFile file)
     opener = do
       e <- open $ fromString file
       case e of
         Left (err, msg) ->
           internalError $
-            "Can't open db with "
+            "withSQLiteConnection: Can't open db with "
             <> asString (show err) <> ": " <> asString (show msg)
         Right r -> return $ mkSQLiteEnv r
     mkSQLiteEnv connection =
@@ -138,8 +146,10 @@ expectSingleRowCol :: Show a => String -> [[a]] -> IO a
 expectSingleRowCol _ [[s]] = return s
 expectSingleRowCol s v =
   internalError $
-  asString s <> " expected single row and column result, got: " <>
-  asString (show v)
+  "expectSingleRowCol: "
+  <> asString s <>
+  " expected single row and column result, got: "
+  <> asString (show v)
 
 expectSingle :: Show a => String -> [a] -> IO a
 expectSingle _ [s] = return s

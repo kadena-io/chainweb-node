@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -22,12 +23,12 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
-    , cpeCheckpointerNew
-    , cpeLoggerNew
-    , cpeGasEnvNew
+    -- , cpeCheckpointerNew
+    -- , cpeLoggerNew
+    -- , cpeGasEnvNew
     , Checkpointer(..)
-    , CheckpointerNew(..)
-    , CheckpointEnvNew(..)
+    -- , CheckpointerNew(..)
+    -- , CheckpointEnvNew(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -36,6 +37,7 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
+    , PactDbEnv'(..)
     , PactDbEnvPersist(..)
     , pdepEnv
     , pdepPactDb
@@ -57,39 +59,46 @@ module Chainweb.Pact.Backend.Types
     , sConn
     , sConfig
     , BlockHandler(..)
+    , ParentHash
+    -- , runDbEnv
+    -- , CheckpointAction(..)
+    -- , CheckpointerResult(..)
     ) where
 
 import Control.Exception.Safe hiding (bracket)
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Lens
 import Control.DeepSeq
+-- import Control.Concurrent.MVar
 
+import Data.Aeson
 import Data.Int
-import qualified Data.Aeson as A
 import Data.Map.Strict (Map)
 
 import Database.SQLite3.Direct as SQ3
 
 import GHC.Generics
 
-import qualified Pact.Interpreter as P
-import qualified Pact.Persist.SQLite as P
-import qualified Pact.PersistPactDb as P
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Persistence as P
-import qualified Pact.Types.Runtime as P
+import Pact.Interpreter (PactDbEnv(..))
+import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
+import Pact.PersistPactDb (DbEnv(..))
+-- import Pact.Persist.Pure (PureDb(..))
+-- import Pact.Types.Command
+import Pact.Types.Logger (Logger(..), Logging(..))
+import Pact.Types.Runtime (PactDb(..), TxId(..), ExecutionMode(..), TableName(..), TxLog(..), GasEnv(..))
+-- import Pact.Types.Term
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+-- import Chainweb.Payload
 
-
-data Env' = forall a. Env' (P.PactDbEnv (P.DbEnv a))
+data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: P.PactDb (P.DbEnv p)
-    , _pdepEnv :: P.DbEnv p
+    { _pdepPactDb :: PactDb (DbEnv p)
+    , _pdepEnv :: DbEnv p
     }
 
 makeLenses ''PactDbEnvPersist
@@ -97,26 +106,25 @@ makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState
-    { _pdbsDbEnv :: EnvPersist' }
+data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 
 makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: Maybe FilePath
     , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [P.Pragma]
+    , _pdbcPragmas :: [Pragma]
     , _pdbcGasLimit :: Maybe Int
     , _pdbcGasRate :: Maybe Int
     } deriving (Eq, Show, Generic)
 
-instance A.FromJSON PactDbConfig
+instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
 data SQLiteEnv = SQLiteEnv
   { _sConn :: Database
-  , _sConfig :: !P.SQLiteConfig
+  , _sConfig :: !SQLiteConfig
   }
 
 makeLenses ''SQLiteEnv
@@ -142,11 +150,11 @@ instance NFData BlockVersion where
 makeLenses ''BlockVersion
 
 data BlockState = BlockState
-  { _bsTxId :: !P.TxId
-  , _bsMode :: Maybe P.ExecutionMode
+  { _bsTxId :: !TxId
+  , _bsMode :: !(Maybe ExecutionMode)
   , _bsBlockVersion :: !BlockVersion
-  , _bsTxRecord :: Map P.TableName [P.TxLog A.Value]
-  , _logger :: P.Logger
+  , _bsTxRecord :: !(Map TableName [TxLog Value])
+  , _logger :: Logger
   }
 
 makeLenses ''BlockState
@@ -170,19 +178,39 @@ newtype BlockHandler p a = BlockHandler
              , MonadReader p
              )
 
-instance P.Logging (BlockHandler p) where
-  log c s = use logger >>= \l -> liftIO $ P.logLog l c s
+-- class DbEnvRunner e m | e -> m where
+--   runDbEnv :: PactDbEnv e -> m a -> IO a
 
-{- change to either pacterror <result> -}
-{- use catch and throw util for pactError (in TransactionExec) -}
+-- data PactDbEnv' = forall e m. (DbEnvRunner e m) => PactDbEnv' (PactDbEnv e)
+data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
-data CheckpointerNew p = CheckpointerNew
-    { restoreNew :: BlockHeight -> Maybe ParentHash -> IO (Either String (BlockEnv p))
-    , restoreInitialNew :: IO (Either String (BlockEnv p))
-    , saveNew :: BlockHeight -> BlockHash -> IO (Either String ())
-    , discardNew :: IO (Either String ())
-    }
+-- instance DbEnvRunner (DbEnv PureDb) IO where
+--   runDbEnv pdbenv action = go (pdPactDbVar pdbenv) action
+--     where
+--       go e m = undefined
 
+-- instance DbEnvRunner (BlockEnv SQLiteEnv) (BlockHandler SQLiteEnv) where
+--   runDbEnv pdbenv action = go (pdPactDbVar pdbenv) action
+--     where
+--       go e m = modifyMVar e $
+--         \(BlockEnv db bs) -> do
+--           (a, s) <- runStateT (runReaderT (runBlockHandler m) db) bs
+--           return (BlockEnv db s, a)
+
+
+instance Logging (BlockHandler p) where
+  log c s = use logger >>= \l -> liftIO $ logLog l c s
+
+-- data CheckpointerNew = CheckpointerNew
+--   { runCheckpointerNew :: Maybe (BlockHeight, ParentHash) -> (PactDbEnv' -> IO CheckpointerResult) -> (CheckpointerResult -> CheckpointAction) -> IO CheckpointerResult
+--   }
+
+-- data CheckpointerNew = CheckpointerNew
+--     { restoreNew :: BlockHeight -> Maybe ParentHash -> IO PactDbEnv'
+--     , restoreInitialNew :: IO PactDbEnv'
+--     , saveNew :: BlockHash -> IO ()
+--     , discardNew :: IO ()
+--     }
 
 type ParentHash = BlockHash
 
@@ -191,11 +219,10 @@ type ParentHash = BlockHash
 -- updates to restore
 
 data Checkpointer = Checkpointer
-    { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
-    , restoreInitial ::IO (Either String PactDbState)
-    , save :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-    , saveInitial :: PactDbState -> IO (Either String ())
-    , discard :: PactDbState -> IO (Either String ())
+    {
+      restore :: Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+    , save :: BlockHash -> IO ()
+    , discard :: IO ()
     }
 
 -- functions like the ones below need to be implemented internally
@@ -203,16 +230,16 @@ data Checkpointer = Checkpointer
 -- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: Checkpointer
-    , _cpeLogger :: P.Logger
-    , _cpeGasEnv :: P.GasEnv
+    , _cpeLogger :: Logger
+    , _cpeGasEnv :: GasEnv
     }
 
 makeLenses ''CheckpointEnv
 
-data CheckpointEnvNew p = CheckpointEnvNew
-    { _cpeCheckpointerNew :: CheckpointerNew p
-    , _cpeLoggerNew :: P.Logger
-    , _cpeGasEnvNew :: P.GasEnv
-    }
+-- data CheckpointEnvNew = CheckpointEnvNew
+--     { _cpeCheckpointerNew :: CheckpointerNew
+--     , _cpeLoggerNew :: Logger
+--     , _cpeGasEnvNew :: GasEnv
+--     }
 
-makeLenses ''CheckpointEnvNew
+-- makeLenses ''CheckpointEnvNew

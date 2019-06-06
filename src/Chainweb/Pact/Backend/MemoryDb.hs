@@ -24,3 +24,6 @@ mkPureState env = do
     return $
         PactDbState
             { _pdbsDbEnv = envPersist' }
+
+-- mkPurePactDbEnv' :: P.PactDbEnv (P.DbEnv P.PureDb) -> IO PactDbEnv'
+-- mkPurePactDbEnv' = pure . PactDbEnv'

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards   #-}
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -13,59 +13,112 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
+-- import Data.Map (toList)
+-- import Data.Text (pack)
 
 import Control.Concurrent.MVar
 
-import qualified Pact.Types.Logger as P
-import qualified Pact.Types.Runtime as P
+-- import Control.Exception
+
+import Pact.Interpreter
+import Pact.PersistPactDb
+-- import Pact.Persist
+import Pact.Persist.Pure
+import Pact.Types.Logger
+import Pact.Types.Runtime hiding (hash)
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.Types (internalError)
 
-initInMemoryCheckpointEnv :: P.Logger -> P.GasEnv -> IO CheckpointEnv
-initInMemoryCheckpointEnv logger gasEnv = do
-    inmem <- newMVar mempty
+-- checkpointer ::
+--      MVar Store
+--   -> Maybe (BlockHeight, ParentHash)
+--   -> (PactDbEnv' -> IO CheckpointerResult)
+--   -> (CheckpointerResult -> CheckpointAction)
+--   -> IO CheckpointerResult
+-- checkpointer lock mHeightHash action saveDiscardPredicate = do
+--   toSave <- newEmptyMVar
+--   result <- bracket (restore' toSave) (const $ return ()) action
+--   case saveDiscardPredicate result of
+--     Discard -> return ()
+--     (Save hash) -> do
+--       p <- readMVar toSave
+--       case mHeightHash of
+--         -- We are saving the "results" of genesis.
+--         Nothing -> modifyMVar_ lock (return . HMS.insert (Just (0, hash)) p)
+--         Just (height, _) -> modifyMVar_ lock (return . HMS.insert (Just (height, hash)) p)
+--   return result
+--   where
+--     restore' toput = withMVarMasked  lock $ \store -> do
+--       case HMS.lookup mHeightHash store of
+--         Just pactdbenv -> do
+--           putMVar toput pactdbenv
+--           return $ PactDbEnv' pactdbenv
+--         -- TODO
+--         Nothing -> internalError $ case mHeightHash of
+--           Just (bh, parentHash) ->
+--               "InMemoryCheckpointer: Restore not found: height=" <> pack (show bh)
+--               <> ", hash=" <> pack (show parentHash)
+--               <> ", known=" <> pack (show (HMS.keys store))
+--           Nothing -> "Something went wrong at genesis. There is nothing here!"
+
+
+
+data Store = Store
+  { _theStore :: HashMap (BlockHeight, BlockHash) (DbEnv PureDb)
+  , _tempSaveHeight :: Maybe BlockHeight
+  , _dbenv :: MVar (DbEnv PureDb)
+  }
+
+initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
+initInMemoryCheckpointEnv loggers logger gasEnv = do
+    pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
+    initSchema pdenv
+    inmem <- newMVar (Store mempty Nothing env)
     return $
-        CheckpointEnv
+        (PactDbEnv' pdenv,
+          CheckpointEnv
             { _cpeCheckpointer =
-                  Checkpointer
-                      { restore = restore' inmem
-                      , restoreInitial = restoreInitial' inmem
-                      , save = save' inmem
-                      , saveInitial = saveInitial' inmem
-                      , discard = discard' inmem
-                      }
+                Checkpointer
+                    (doRestore inmem)
+                    -- (doRestoreInitial inmem)
+                    (doSave inmem)
+                    (doDiscard inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
-            }
+            })
 
-type Store = HashMap (BlockHeight, BlockHash) PactDbState
+doRestore :: MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore lock (Just (height, hash)) = do
+    pactdbenv <- withMVarMasked lock $ \store -> do
+        case HMS.lookup (pred height, hash) (_theStore store) of
+            Just dbenv -> do
+              mdbenv <- newMVar dbenv
+              return $ PactDbEnv' (PactDbEnv pactdb mdbenv)
+            Nothing -> internalError $
+              "InMemoryCheckpointer: Restore not found: height=" <> pack (show (pred height))
+              <> ", hash=" <> pack (show hash)
+              <> ", known=" <> pack (show (HMS.keys (_theStore store)))
 
-restore' :: MVar Store -> BlockHeight -> BlockHash -> IO (Either String PactDbState)
-restore' lock height hash = do
-    withMVarMasked lock $ \store -> do
-        case HMS.lookup (height, hash) store of
-            Just dbstate -> return (Right dbstate)
-            Nothing -> return $ Left $
-              "InMemoryCheckpointer: Restore not found: height=" <> show height
-              <> ", hash=" <> show hash
-              <> ", known=" <> show (HMS.keys store)
+    modifyMVar_ lock (\s ->  pure $ s { _tempSaveHeight = Just height })
+    return pactdbenv
+doRestore lock Nothing = withMVarMasked lock $ \store -> return $ PactDbEnv' (PactDbEnv pactdb (_dbenv store))
 
-restoreInitial' :: MVar Store -> IO (Either String PactDbState)
-restoreInitial' lock = do
-    let bh = nullBlockHash
-    restore' lock (BlockHeight 0) bh
+-- doRestoreInitial :: MVar Store -> IO PactDbEnv'
+-- doRestoreInitial lock = withMVarMasked lock $ \store ->
+--   return $ PactDbEnv' (PactDbEnv pactdb (_currentPactDbEnv store))
 
-saveInitial' :: MVar Store -> PactDbState -> IO (Either String ())
-saveInitial' lock p@PactDbState {..} = do
-    let bh = nullBlockHash
-    save' lock (BlockHeight 0) bh p
+doSave :: MVar Store -> BlockHash -> IO ()
+doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv) -> case mheight of
+  Nothing -> do
+    env <- readMVar dbenv
+    return $ Store (HMS.insert (BlockHeight 0, hash) env store) mheight dbenv
+  Just height -> do
+    env <- readMVar dbenv
+    return $ Store (HMS.insert (height, hash) env store) mheight dbenv
 
-save' :: MVar Store -> BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
-save' lock height hash p@PactDbState {..} = do
-     Right <$> modifyMVar_ lock (return . HMS.insert (height, hash) p)
-
-discard' :: MVar Store -> PactDbState -> IO (Either String ())
-discard' _ _ = return (Right ())
+doDiscard :: MVar Store -> IO ()
+doDiscard _ = return ()

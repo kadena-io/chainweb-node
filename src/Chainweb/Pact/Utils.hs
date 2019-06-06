@@ -12,11 +12,17 @@
 module Chainweb.Pact.Utils where
     -- ( toEnv' , toEnvPersist')
 
+-- import Data.Aeson
+-- import Data.Vector (Vector)
+
 import Control.Concurrent.MVar
+-- import Control.Lens
 
 import Pact.Interpreter as P
+-- import Pact.Types.Runtime(TxLog(..))
 
 import Chainweb.Pact.Types
+-- import Chainweb.Payload
 
 toEnv' :: EnvPersist' -> IO Env'
 toEnv' (EnvPersist' ep') = do
