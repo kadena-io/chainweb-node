@@ -5,22 +5,35 @@
 module Chainweb.Test.Mempool.Sync (tests) where
 
 ------------------------------------------------------------------------------
+import qualified Control.Concurrent.Async as Async
+import Control.Concurrent.MVar
+import Control.Exception
+import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Except
+import Data.IORef
+import Data.Set (Set)
+import qualified Data.Set as Set
+import qualified Data.Vector as V
+import System.Timeout
+import Test.QuickCheck hiding ((.&.))
+import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
-{-
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
--}
+import Chainweb.Utils (Codec(..))
+------------------------------------------------------------------------------
 
-{-
-tests = mempoolProperty "Mempool.syncMempools" gen
-        propSync
-        $ MempoolWithFunc
-        $ withInMemoryMempool
-            testInMemCfg
+
+tests :: TestTree
+tests = testGroup "Chainweb.Mempool.sync" [
+            mempoolProperty "Mempool.syncMempools" gen propSync
+                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg
+            ]
   where
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
@@ -32,7 +45,7 @@ tests = mempoolProperty "Mempool.syncMempools" gen
       return (xss, yss, zss)
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100) True
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048 True
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
                               mockGasLimit mockMeta (const $ return True)
@@ -45,36 +58,43 @@ propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (txs, missing, later) localMempool =
+propSync (txs, missing, later) localMempool' =
     withInMemoryMempool testInMemCfg $ \remoteMempool -> do
-        mempoolInsert localMempool txsV
+        mempoolInsert localMempool' txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV
 
-        -- expect remote to deliver us this many transactions during sync.
+        syncThMv <- newEmptyMVar
+        syncFinished <- newEmptyMVar
+
+        let nmissing = V.length missingV
+        let nlater = V.length laterV
+        let onInitialSyncFinished = tryPutMVar syncFinished ()
+        let onFinalSyncFinished = do
+                readMVar syncThMv >>= Async.uninterruptibleCancel
+                throwIO ThreadKilled
+        localMempool <-
+              timebomb nmissing onInitialSyncFinished =<<
+              timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
+        let syncThread = eatExceptions $
+                         syncMempools noLog 10 localMempool remoteMempool
+
+
+        -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever
         m <- timeout 20000000 $ do
-                 syncThMv <- newEmptyMVar
-                 syncFinished <- newEmptyMVar
-                 tb1 <- mkTimeBomb (V.length missingV)
-                                   (tryPutMVar syncFinished ())
-                 tb2 <- mkTimeBomb (V.length missingV + V.length laterV)
-                                   (do readMVar syncThMv >>=
-                                          Async.uninterruptibleCancel
-                                       throwIO ThreadKilled)
-                 let tb x = tb1 x `finally` tb2 x
-                 syncTh <- Async.async $ syncThread remoteMempool
-                 putMVar syncThMv syncTh
-                 Async.link syncTh
+            syncTh <- Async.async syncThread
+            putMVar syncThMv syncTh
+            Async.link syncTh
 
-                 -- Wait until time bomb 1 goes off
-                 takeMVar syncFinished
+            -- Wait until time bomb 1 goes off
+            takeMVar syncFinished
 
-                 -- We should now be subscribed and waiting for V.length laterV
-                 -- more transactions before getting killed. Transactions
-                 -- inserted into remote should get synced to us.
-                 mempoolInsert remoteMempool laterV
-                 Async.wait syncTh
+            -- We should now be subscribed and waiting for V.length laterV
+            -- more transactions before getting killed. Transactions
+            -- inserted into remote should get synced to us.
+            mempoolInsert remoteMempool laterV
+            Async.wait syncTh
 
         maybe (fail "timeout") return m
 
@@ -86,20 +106,9 @@ propSync (txs, missing, later) localMempool =
                 V.mapM_ lookupIsPending
 
   where
-    -- twiddles the mvar and performs the given action when the given number of
-    -- transactions has been observed.
-    mkTimeBomb k act = do
-        ref <- newIORef k
-        return $ \v -> do
-            c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
-                                               in (x', x'))
-            when (c == 0) $ void act
-
     noLog = const $ const $ return ()
-    syncThread remoteMempool =
-        eatExceptions $ syncMempools noLog 10 localMempool remoteMempool
 
-    hash = txHasher $ mempoolTxConfig localMempool
+    hash = txHasher $ mempoolTxConfig localMempool'
     txsV = V.fromList $ Set.toList txs
     missingV = V.fromList $ Set.toList missing
     missingHashes = V.map hash missingV
@@ -109,7 +118,14 @@ propSync (txs, missing, later) localMempool =
 
 eatExceptions :: IO () -> IO ()
 eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
--}
 
-tests :: TestTree
-tests = testGroup "Chainweb.Mempool.sync" []
+timebomb :: Int -> IO a -> MempoolBackend t -> IO (MempoolBackend t)
+timebomb k act mp = do
+    ref <- newIORef k
+    return $! mp { mempoolInsert = ins ref }
+  where
+    ins ref v = do
+        mempoolInsert mp v
+        c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
+                                           in (x', x'))
+        when (c == 0) $ void act     -- so that the bomb only triggers once
