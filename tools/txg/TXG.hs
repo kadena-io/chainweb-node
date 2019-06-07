@@ -126,11 +126,12 @@ generateSimpleTransactions = do
             pure (a, b, operation)
           theCode = "(" ++ [op] ++ " " ++ show operandA ++ " " ++ show operandB ++ ")"
 
+      -- this contains the key of sender00
       kps <- testSomeKeyPairs
 
       let publicmeta = CM.PublicMeta
                        (CM.ChainId $ chainIdToText cid)
-                       ("sender" <> toText cid) 10 0.0001
+                       "sender00" 10 0.0001
           theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
       mkExec theCode theData publicmeta kps Nothing
 
