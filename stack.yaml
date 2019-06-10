@@ -25,7 +25,6 @@ extra-deps:
   - mwc-random-0.14.0.0  # Due to digraph
   - sbv-8.2              # Due to Pact
   - scheduler-1.3.0      # Due to massiv
-  - splitmix-0.0.2       # Due to QuickCheck
   - token-bucket-0.1.0.1 # Due to wai-middleware-throttle
 
   # --- Servant 0.16 --- #

@@ -77,11 +77,11 @@ in
           sha256 = "13r0wdvhb0a9pda2j209j6jy02h59jwyz356jzw9qq2y9ld1ggy9";
         };
 
-        generic-lens = callHackageDirect {
+        generic-lens = dontCheck (callHackageDirect {
           pkg = "generic-lens";
           ver = "1.1.0.0";
           sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
-        };
+        });
 
         vector-algorithms = callHackageDirect {
           pkg = "vector-algorithms";
@@ -140,25 +140,30 @@ in
         });
 
         # --- servant 0.16 --- #
-        servant = callHackageDirect {
+        servant = dontCheck (callHackageDirect {
           pkg = "servant";
           ver = "0.16.0.1";
           sha256 = "1z9iyfrf7wfx0849y7jyknfh9332y417qjivh69fh2zi7j6jx84g";
-        };
-        servant-client = callHackageDirect {
+        });
+        servant-client = doJailbreak (callHackageDirect {
           pkg = "servant-client";
           ver = "0.16";
           sha256 = "1jy3bdjkdl9bxwb6y2kial0w8ik6k4a8gq7b9yx9l4nkvjv8rc06";
-        };
-        servant-client-core = callHackageDirect {
+        });
+        servant-client-core = doJailbreak (callHackageDirect {
           pkg = "servant-client-core";
           ver = "0.16";
           sha256 = "0panxplcjslsvqxvsabn2fy0fhcqmmr0dqj51hk7bk7yyvgwxklf";
-        };
-        servant-server = callHackageDirect {
+        });
+        servant-server = doJailbreak (callHackageDirect {
           pkg = "servant-server";
           ver = "0.16";
           sha256 = "0am0mvj0h09a68mbjlb2rrlxybd2jwi8x2qq6kdd5fr6bhya9d5a";
+        });
+        base-compat= callHackageDirect {
+          pkg = "base-compat";
+          ver = "0.10.5";
+          sha256 = "0fq38x47dlwz3j6bdrlfslscz83ccwsjrmqq6l7m005331yn7qc6";
         };
         base-compat-batteries = callHackageDirect {
           pkg = "base-compat-batteries";
@@ -180,21 +185,26 @@ in
           ver = "5.1.1";
           sha256 = "1c305xd8k28c04xw3a5q2sab0g42v5k659kx7dv48cnvvjfaz5cn";
         };
-        http-api-data = callHackageDirect {
+        http-api-data = doJailbreak (dontCheck (callHackageDirect {
           pkg = "http-api-data";
           ver = "0.4";
           sha256 = "190b5lhl89lifyh4i1d8w8phx1sqmyz4hq95vc3h1ra288nvrzl5";
-        };
+        }));
         lens = callHackageDirect {
           pkg = "lens";
           ver = "4.17.1";
           sha256 = "0sig0p5b351sr7fpvhxbkrbj9nvjh1w8yyzlcpl3hy5l1cfn2bh6";
         };
-        network = callHackageDirect {
+        network = dontCheck (callHackageDirect {
           pkg = "network";
           ver = "2.8.0.1";
           sha256 = "0nrgwcklb7a32wxmvbgxmm4zsbk3gpc6f2d8jpyb0b1hwy0ji4mv";
-        };
+        });
+        HTTP = dontCheck (callHackageDirect {
+          pkg = "HTTP";
+          ver = "4000.3.13";
+          sha256 = "1qh6hskyxf6sljajqprg03jkkjpzwhwlciywpyxdn568s3pfqs2n";
+        });
         semigroupoids = callHackageDirect {
           pkg = "semigroupoids";
           ver = "5.3.2";
@@ -205,15 +215,30 @@ in
           ver = "1.1.7.1";
           sha256 = "1ymdcmdi234p9jbwa7rgj1j35n9xnx4kgfjba4gs2r8cnhqwak28";
         };
-        swagger2 = callHackageDirect {
+        swagger2 = doJailbreak (callHackageDirect {
           pkg = "swagger2";
           ver = "2.3.1.1";
           sha256 = "0rhxqdiymh462ya9h76qnv73v8hparwz8ibqqr1d06vg4zm7s86p";
-        };
+        });
         tagged = callHackageDirect {
           pkg = "tagged";
           ver = "0.8.6";
           sha256 = "0dsw809g7pfajbl8zsj2yvnad8vk09cqi40bszw5ia9bpzzqz7n4";
+        };
+        http-media = callHackageDirect {
+          pkg = "http-media";
+          ver = "0.8.0.0";
+          sha256 = "080xkljq1iq0i8wagg8kbzbp523p2awa98wpn9i4ph1dq8y8346y";
+        };
+        http-types = callHackageDirect {
+          pkg = "http-types";
+          ver = "0.12.3";
+          sha256 = "0239y1r25n7wnnf2ci5lajj0rf35j2ywa07f9lpccnry13zbh8dv";
+        };
+        io-streams = callHackageDirect {
+          pkg = "io-streams";
+          ver = "1.5.1.0";
+          sha256 = "1kvy476sdnxyg9318wxg7cvbafak81a1whrcffjc19sbymgg7srp";
         };
         # --- end servant --- #
 
@@ -224,48 +249,42 @@ in
           ver = "1.2";
           sha256 = "00pbf8rnissqd0nzykhq9szqdl56mylwqwyci7irmsb78ky1y2dh";
         };
-
         tasty-ant-xml = callHackageDirect {
           pkg = "tasty-ant-xml";
           ver = "1.1.5";
           sha256 = "05c0fa26ga7n84sidv189ik900p8ngx96v0asyz313hsnfx966y5";
         };
-
         tasty-hedgehog = doJailbreak (callHackageDirect {
           pkg = "tasty-hedgehog";
           ver = "0.2.0.0";
           sha256 = "0nhjxjj5dsh9h8yff9np6pj48a6lx5cd1zv50xlyfvvribyf6qvk";
         });
-
         natural-transformation = doJailbreak (callHackageDirect {
           pkg = "natural-transformation";
           ver = "0.4";
           sha256 = "124dabxss40angramlhcid9wbm878vgkfgqf6hrfl3n3dispkbnd";
         });
-
         aeson-compat = doJailbreak (callHackageDirect {
           pkg = "aeson-compat";
           ver = "0.3.9";
           sha256 = "07xw0chynnwr8i8jzn6ffvh732g9qi15mzj2nbyg685japkwwcrq";
         });
-
         these = doJailbreak (callHackageDirect {
           pkg = "these";
           ver = "0.7.5";
           sha256 = "0m9d9n7dy7plq20pxbl8pdgq4w2xskx2rbg9d4qnac14412bfcmf";
         });
-
         insert-ordered-containers = doJailbreak (callHackageDirect {
           pkg = "insert-ordered-containers";
           ver = "0.2.1.0";
           sha256 = "1ys02jz4xg94g8z78cgafi24vjp7fyhf0slcyrhs1ffbhr8gqwm3";
         });
-
         fake = doJailbreak (callHackageDirect {
           pkg = "fake";
           ver = "0.1.1.1";
           sha256 = "17b2iwqg62cl7r7lafjm8fj1chb104g2gdq8p2bbsgvvr39v0ras";
         });
+        tdigest = doJailbreak (dontCheck super.tdigest);
         # --- end of `tasty` dependents --- #
 
         extra = dontCheck (callHackageDirect {
@@ -332,6 +351,57 @@ in
             ver = "0.14.0.0";
             sha256 = "10jaajbnlcwqgqdnb94q0k8pzx11ff569af8a8d6k26xc954m48p";
         };
+
+        # --- QuickCheck --- #
+        QuickCheck = callHackageDirect {
+          pkg = "QuickCheck";
+          ver = "2.12.6.1";
+          sha256 = "1f6hp0xp2syhinrm47pc88m4rq59w0xc4kwbciqzyrxz3gs895ha";
+        };
+        hspec = callHackageDirect {
+          pkg = "hspec";
+          ver = "2.7.0";
+          sha256 = "1bsbljq8cp8haini4q1m7q5ij9y36dariipiniwc4h6cbdj9z3kv";
+        };
+        hspec-core = callHackageDirect {
+          pkg = "hspec-core";
+          ver = "2.7.0";
+          sha256 = "0323sc2ivxw04q2rcadc6yylgx8i2fd66qpm1qz282k1i9i6amdn";
+        };
+        hspec-discover = callHackageDirect {
+          pkg = "hspec-discover";
+          ver = "2.7.0";
+          sha256 = "0rgrhxhz4yfslhdvcwrqm88yx45v0p7b6hh15lsdr3d3jsz7whkw";
+        };
+        hspec-meta = callHackageDirect {
+          pkg = "hspec-meta";
+          ver = "2.6.0";
+          sha256 = "0i9crf6hr9m5xsh8w0hdsrmvcnxckphfzamwmks2qgk7mq0yqnz5";
+        };
+        ChasingBottoms = dontCheck (callHackageDirect {
+          pkg = "ChasingBottoms";
+          ver = "1.3.1.5";
+          sha256 = "1p81agaqny88q6pqx5b3qm96fn7cjf1xxvdp3rzlr8asyqlmml8l";
+        });
+        optparse-applicative = callHackageDirect {
+          pkg = "optparse-applicative";
+          ver = "0.14.3.0";
+          sha256 = "1sdf0cgv89sf9v7vi6vm6aawa5m6gjmqsxynxf8nsn0420ayb0y3";
+        };
+        test-framework-quickcheck2 = callHackageDirect {
+          pkg = "test-framework-quickcheck2";
+          ver = "0.3.0.5";
+          sha256 = "0n1hzihnnw60yzvfg98ch9x20g10ic10lx9plni9b9pxsrsxdz37";
+        };
+        HTF = dontCheck (callHackageDirect {
+          pkg = "HTF";
+          ver = "0.13.2.5";
+          sha256 = "0s9xzgj01rqgyhgvggrgfjsdma1kzqx4n23fy27v7kd2abpzgzaf";
+        });
+        cereal = dontCheck super.cereal;
+        psqueues = dontCheck super.psqueues;
+        Diff = dontCheck super.Diff;
+        # --- end QuickCheck --- #
 
         ######################################################################
         # Dependencies from pact
