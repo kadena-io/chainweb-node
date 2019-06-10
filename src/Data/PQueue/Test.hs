@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 -- |
 -- Module: Data.PQueue.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -33,10 +32,6 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 -- internal modules
-
-#if !MIN_VERSION_QuickCheck(2,12,2)
-import BackCompat.Test.QuickCheck
-#endif
 
 import Data.PQueue
 
@@ -127,4 +122,3 @@ data QueueCommand a = QueueInsert a | QueueRemove
 runQueueCommand :: MonadIO m => Ord a => PQueue a -> QueueCommand a -> m (Maybe a)
 runQueueCommand q (QueueInsert a) = liftIO (Nothing <$ pQueueInsert q a)
 runQueueCommand q QueueRemove = liftIO (Just <$> pQueueRemove q)
-

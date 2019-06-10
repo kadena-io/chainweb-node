@@ -99,8 +99,7 @@ library
         Paths_chainweb
         PkgInfo
     exposed-modules:
-          BackCompat.Test.QuickCheck
-        , Chainweb.BlockHash
+          Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
@@ -234,7 +233,7 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12
         , QuickCheck-GenT >=0.2
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
@@ -387,7 +386,7 @@ test-suite chainweb-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11 && < 5
@@ -528,7 +527,7 @@ executable cwtool
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , ansi-wl-pprint >= 0.6
