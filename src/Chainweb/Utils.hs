@@ -26,7 +26,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Utilities used by various modules of the chainweb package
 --
 module Chainweb.Utils
 (
@@ -237,49 +237,60 @@ exa = 10 ^ (18 :: Int)
 -- -------------------------------------------------------------------------- --
 -- Misc
 
+-- | A shorter alias for 'fromIntegral'
+--
 int :: Integral a => Num b => a -> b
 int = fromIntegral
 {-# INLINE int #-}
 
+-- | A generalization of 'length' that returns any type that is an instance of
+-- 'Integral'.
+--
 len :: Integral a => [b] -> a
 len = int . length
 {-# INLINE len #-}
 
+-- | Boolean implication operator.
+--
 (==>) :: Bool -> Bool -> Bool
 a ==> b = not a || b
 infixr 1 ==>
 {-# INLINE (==>) #-}
 
+-- | The set of keys of a 'HM.HashMap'.
+--
 keySet :: HM.HashMap a b -> HS.HashSet a
 keySet = HS.fromMap . set each ()
 {-# INLINE keySet #-}
 
+-- | The the minimum elements of a list.
+--
 minimumsOf :: Ord a => Getting (Endo (Endo [a])) s a -> s -> [a]
-minimumsOf l = foldlOf' l mf []
-  where
-    mf [] !y = [y]
-    mf x@(h:_) !y = case compare h y of
-        EQ -> y:x
-        LT -> [y]
-        GT -> x
+minimumsOf l = minimumsByOf l compare
 {-# INLINE minimumsOf #-}
 
+-- | The the minimum elements of a list by some comparision function.
+--
 minimumsByOf :: Getting (Endo (Endo [a])) s a -> (a -> a -> Ordering) -> s -> [a]
 minimumsByOf l cmp = foldlOf' l mf []
   where
     mf [] !y = [y]
     mf x@(h:_) !y = case cmp h y of
         EQ -> y:x
-        LT -> [y]
-        GT -> x
+        GT -> [y]
+        LT -> x
 {-# INLINE minimumsByOf #-}
 
+-- | The maximum of two value by some comparision function.
+--
 maxBy :: (a -> a -> Ordering) -> a -> a -> a
 maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
 {-# INLINE maxBy #-}
 
+-- | The minimum of two value by some comparision function.
+--
 minBy :: (a -> a -> Ordering) -> a -> a -> a
 minBy cmp a b = case cmp a b of
     GT -> b
@@ -310,7 +321,16 @@ whenM c a = c >>= flip when a
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
+-- | Provides a simple Fold lets you fold the value at a given key in a Map or
+-- element at an ordinal position in a list or Seq.
+--
+-- This is a restrictec version of 'Ixed' from the lens package that prevents
+-- the value at the key from being modified.
+--
 class IxedGet a where
+
+    -- | Provide a 'Fold' for a value at a given key.
+    --
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
@@ -320,12 +340,20 @@ class IxedGet a where
 -- -------------------------------------------------------------------------- --
 -- * Diffs
 
+-- | An difference between to collection of values.
+--
 data DiffItem a
     = LeftD a
+        -- ^ the item @a@ is present only in the left collection.
     | RightD a
+        -- ^ the item @a@ is present only in the right collection.
     | BothD a a
+        -- ^ the item is is present only in both collection and has the given
+        -- values.
     deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
 
+-- | Resolve a difference by applying a function to the content of a 'DiffItem'.
+--
 resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
 resolve l _ _ (LeftD a) = l a
 resolve _ r _ (RightD a) = r a
@@ -337,6 +365,8 @@ resolve _ _ m (BothD a b) = m a b
 -- -------------------------------------------------------------------------- --
 -- ** Binary
 
+-- | Exceptions that are thrown when encoding or decoding values.
+--
 data EncodingException where
     EncodeException :: T.Text -> EncodingException
     DecodeException :: T.Text -> EncodingException
@@ -350,14 +380,22 @@ data EncodingException where
 
 instance Exception EncodingException
 
+-- | Decode a value from a 'B.ByteString'. In case of a failure a
+-- 'DecodeException' is thrown.
+--
 runGet :: MonadThrow m => Get a -> B.ByteString -> m a
 runGet g = fromEitherM . runGetEither g
 {-# INLINE runGet #-}
 
+-- | Decode a value from a 'B.ByteString' and return either the result or a
+-- 'DecodeException'.
+--
 runGetEither :: Get a -> B.ByteString -> Either EncodingException a
 runGetEither g = first (DecodeException . T.pack) . runGetS g
 {-# INLINE runGetEither #-}
 
+-- | Encode a value into a 'B.ByteString'.
+--
 runPut :: Put -> B.ByteString
 runPut = runPutS
 {-# INLINE runPut #-}
@@ -365,10 +403,15 @@ runPut = runPutS
 -- -------------------------------------------------------------------------- --
 -- ** Text
 
+-- | Show a value as any type that is an instance of 'IsString'.
+--
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
 {-# INLINE sshow #-}
 
+-- | Read a value from a textual encoding using its 'Read' instance. Returns and
+-- textual error message if the operation fails.
+--
 tread :: Read a => T.Text -> Either T.Text a
 tread = first T.pack . readEither . T.unpack
 {-# INLINE tread #-}
@@ -379,6 +422,8 @@ treadM :: MonadThrow m => Read a => T.Text -> m a
 treadM = fromEitherM . first TextFormatException . tread
 {-# INLINE treadM #-}
 
+-- | Class of types that have an textual representation.
+--
 class HasTextRepresentation a where
     toText :: a -> T.Text
     fromText :: MonadThrow m => T.Text -> m a
@@ -401,6 +446,8 @@ instance HasTextRepresentation Int where
     fromText = treadM
     {-# INLINE fromText #-}
 
+-- | Decode a value from its textual representation.
+--
 eitherFromText
     :: HasTextRepresentation a
     => T.Text
@@ -412,15 +459,23 @@ eitherFromText = either f return . fromText
         _ -> displayException e
 {-# INLINE eitherFromText #-}
 
+-- | Unsafely decode a value rom its textual representation. It is an program
+-- error if decoding fails.
+--
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
 unsafeFromText = fromJuste . fromText
 {-# INLINE unsafeFromText #-}
 
+-- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
+-- A 'TextFormatException' is thrown if parsing fails.
+--
 parseM :: MonadThrow m => A.Parser a -> T.Text -> m a
 parseM p = either (throwM . TextFormatException . T.pack) return
     . A.parseOnly (p <* A.endOfInput)
 {-# INLINE parseM #-}
 
+-- | A parser for types with an 'HasTextRepresentation' instance.
+--
 parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
 parseText p = either (fail . sshow) return . fromText =<< p
 {-# INLINE parseText #-}
@@ -428,6 +483,10 @@ parseText p = either (fail . sshow) return . fromText =<< p
 -- -------------------------------------------------------------------------- --
 -- ** Base64
 
+-- | Decode a binary value from a textual base64 representation. A
+-- 'Base64DecodeException' is thrown if the input is not a valid base64
+-- encoding.
+--
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
     . first (Base64DecodeException . T.pack)
@@ -435,10 +494,16 @@ decodeB64Text = fromEitherM
     . T.encodeUtf8
 {-# INLINE decodeB64Text #-}
 
+-- | Encode a binary value to a textual base64 representation.
+--
 encodeB64Text :: B.ByteString -> T.Text
 encodeB64Text = T.decodeUtf8 . B64.encode
 {-# INLINE encodeB64Text #-}
 
+-- | Decode a binary value from a textual base64-url representation. A
+-- 'Base64DecodeException' is thrown if the input is not a valid base64-url
+-- encoding.
+--
 decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlText = fromEitherM
     . first (Base64DecodeException . T.pack)
@@ -446,10 +511,16 @@ decodeB64UrlText = fromEitherM
     . T.encodeUtf8
 {-# INLINE decodeB64UrlText #-}
 
+-- | Encode a binary value to a textual base64-url representation.
+--
 encodeB64UrlText :: B.ByteString -> T.Text
 encodeB64UrlText = T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlText #-}
 
+-- | Decode a binary value from a textual base64-url without padding
+-- representation. A 'Base64DecodeException' is thrown if the input is not a
+-- valid base64-url without padding encoding.
+--
 decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
     . first (Base64DecodeException . T.pack)
@@ -460,6 +531,9 @@ decodeB64UrlNoPaddingText = fromEitherM
     pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingText #-}
 
+-- | Encode a binary value to a textual base64-url without padding
+-- representation.
+--
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
@@ -467,44 +541,68 @@ encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 -- -------------------------------------------------------------------------- --
 -- ** JSON
 
+-- | Encode a value to a JSON text.
+--
 encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText
 {-# INLINE encodeToText #-}
 
--- | Strict aeson encode.
+-- | Encode a value to a strict 'B.ByteString'.
+--
 encodeToByteString :: ToJSON a => a -> B.ByteString
 encodeToByteString = BL.toStrict . encode
 
+-- | Decode a JSON value from a strict 'B.ByteString'. If decoding fails a
+-- 'JsonDecodeException' is thrown.
+--
 decodeStrictOrThrow :: MonadThrow m => FromJSON a => B.ByteString -> m a
 decodeStrictOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecodeStrict
 {-# INLINE decodeStrictOrThrow #-}
 
+-- | Strictly decode a JSON value from a strict 'B.ByteString'. If decoding
+-- fails a 'JsonDecodeException' is thrown.
+--
 decodeStrictOrThrow' :: MonadThrow m => FromJSON a => B.ByteString -> m a
 decodeStrictOrThrow' = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecodeStrict'
 {-# INLINE decodeStrictOrThrow' #-}
 
+-- | Decode a JSON value from a lazy 'BL.ByteString'. If decoding fails a
+-- 'JsonDecodeException' is thrown.
+--
 decodeOrThrow :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode
 {-# INLINE decodeOrThrow #-}
 
+-- | Strictly decode a JSON value from a lazy 'BL.ByteString'. If decoding fails
+-- a 'JsonDecodeException' is thrown.
+--
 decodeOrThrow' :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow' = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode'
 {-# INLINE decodeOrThrow' #-}
 
+-- | Decode a JSON value from the contents of a file. If decoding fails a
+-- 'JsonDecodeException' is thrown.
+--
+-- This function parses immediately, but defers conversion.  See
+-- 'json' for details.
+--
 decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -> m a
 decodeFileStrictOrThrow = fromEitherM
     <=< return . first (JsonDecodeException . T.pack)
     <=< liftIO . eitherDecodeFileStrict
 {-# INLINE decodeFileStrictOrThrow #-}
 
+-- | Strictly decode a JSON value from the content of a file. If decoding fails
+-- a 'JsonDecodeException' is thrown.
+--
 decodeFileStrictOrThrow'
     :: forall a m
     . MonadIO m
@@ -517,6 +615,8 @@ decodeFileStrictOrThrow' = fromEitherM
     <=< liftIO . eitherDecodeFileStrict'
 {-# INLINE decodeFileStrictOrThrow' #-}
 
+-- | A json parser for types with an instance of 'HasTextRepresentation'.
+--
 parseJsonFromText
     :: HasTextRepresentation a
     => String
@@ -527,37 +627,69 @@ parseJsonFromText l = withText l $! either fail return . eitherFromText
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
 
+-- | Type of parsers for simple compandline options.
+--
 type OptionParser a = O.Parser a
 
+-- | An option modifier that defines a long option name that may be prefixed.
+--
+-- @prefixLong (Just "component") "option"@ results in the command line option
+-- @--component-option@.
+--
 prefixLong :: HasName f => Maybe String -> String -> Mod f a
 prefixLong prefix l = long $ maybe "" (<> "-") prefix <> l
 
+-- | An option modifier that defines an help message to which a suffix may be
+-- appended.
+--
+-- @suffixHelp (Just "component") "Help message"@ result in the help text "Help
+-- message for component"
+--
 suffixHelp :: Maybe String -> String -> Mod f a
 suffixHelp suffix l = help $ l <> maybe "" (" for " <>) suffix
 
+-- | A command line option reader for types with an instance of
+-- 'HasTextRepresentation'.
+--
 textReader :: HasTextRepresentation a => ReadM a
 textReader = eitherReader $ first show . fromText . T.pack
 
+-- | A option parser for types with an instance of 'HasTextRepresentation'.
+--
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
 textOption = option textReader
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling
 
+-- | A newtype wrapper for tagger values as "expected" outcomes of some
+-- computation.
+--
 newtype Expected a = Expected { getExpected :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
 
+-- | A newtype wrapper for tagger values as "actual" outcomes of some
+-- computation.
+--
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
 
+-- | A textual message that describes the 'Expected' and the 'Actual' outcome of
+-- some computation.
+--
 unexpectedMsg :: Show a => T.Text -> Expected a -> Actual a -> T.Text
 unexpectedMsg msg expected actual = msg
     <> ", expected: " <> sshow (getExpected expected)
     <> ", actual: " <> sshow (getActual actual)
 
+-- | Compare an 'Expected' with an 'Actual' value.
+--
 (==?) :: Eq a => Expected a -> Actual a -> Bool
 (==?) (Expected a) (Actual b) = a == b
 
+-- | Compare an 'Expected' with an 'Actual' value and raise an exception if they
+-- are different.
+--
 check
     :: MonadThrow m
     => Eq a
@@ -570,6 +702,8 @@ check e a b = do
     unless (a ==? b) $ throwM (e a b)
     return $! getActual b
 
+-- | Throw an exception if a value is 'Nothing'.
+--
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
 {-# INLINE fromMaybeM #-}
@@ -581,23 +715,38 @@ fromJuste :: HasCallStack => Maybe a -> a
 fromJuste Nothing = error "Chainweb.Utils.fromJuste: Nothing"
 fromJuste (Just a) = a
 
+-- | Flipped infix version of 'fromMaybeM'
+--
 (???) :: MonadThrow m => Exception e => Maybe a -> e -> m a
 (???) = flip fromMaybeM
 infixl 0 ???
 {-# INLINE (???) #-}
 
+-- | Throw an exception if a value is a 'Left' result.
+--
 fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
 
+-- | An exeption to indicate an violation of an internal code invariants.
+-- Throwing this type of exception means that there is a bug in the code.
+--
 newtype InternalInvariantViolation = InternalInvariantViolation T.Text
     deriving (Show)
 
 instance Exception InternalInvariantViolation
 
+-- | Catch and strictly evaluate any 'IOException's.
+--
+-- This function should be used with great care because operation may silently
+-- fail without leaving a trace. This can hide issues in the code making them
+-- very difficult to debug.
+--
 eatIOExceptions :: IO () -> IO ()
 eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 
+-- | Catch and handle exception that are not contained in 'SomeAsyncException'.
+--
 catchSynchronous
     :: MonadCatch m
     => Exception e
@@ -611,6 +760,9 @@ catchSynchronous a f = force <$> a `catches`
     ]
 {-# INLINE catchSynchronous #-}
 
+-- | Catch all exceptions and return 'Left e' for all exceptions @e@ that are
+-- not contained in 'SomeAsyncException'. Asynchronous exceptions are re-thrown.
+--
 trySynchronous
     :: MonadCatch m
     => Exception e
@@ -623,6 +775,10 @@ trySynchronous a = (Right <$> a) `catches`
     ]
 {-# INLINE trySynchronous #-}
 
+-- | A version of 'catchSynchronous' that doesn't discriminate on the type of
+-- the exception but handles all exceptions in 'SomeExeption' that are not
+-- contained in 'SomeAsyncException'.
+--
 catchAllSynchronous
     :: MonadCatch m
     => NFData a
@@ -632,6 +788,10 @@ catchAllSynchronous
 catchAllSynchronous = catchSynchronous
 {-# INLINE catchAllSynchronous #-}
 
+-- | A version of 'tryhSynchronous' that doesn't discriminate on the type of the
+-- exception but handles all exceptions in 'SomeExeption' that are not contained
+-- in 'SomeAsyncException'.
+--
 tryAllSynchronous
     :: MonadCatch m
     => NFData a
@@ -640,6 +800,15 @@ tryAllSynchronous
 tryAllSynchronous = trySynchronous
 {-# INLINE tryAllSynchronous #-}
 
+-- | Repeatedly run a computation 'forever' until it is stopped by receiving
+-- 'SomeAsyncException'.
+--
+-- If the computation throws an exception that is not contained in
+-- 'SomeAsyncException' an error message is logged and the function continues to
+-- repeat the computation 'forever'.
+--
+-- An info-level message is logged when processing starts and stops.
+--
 runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
 runForever logfun name a = mask $ \umask -> do
     logfun Info $ "start " <> name
@@ -647,12 +816,13 @@ runForever logfun name a = mask $ \umask -> do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e
             go
-    void go
-    logfun Info $ name <> " stopped"
+    void go `finally` logfun Info (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zeros of a bytestring
 
+-- | Count leading zeros of a bytestring
+--
 leadingZeros :: B.ByteString -> Natural
 leadingZeros b = int (B.length x) * 8 + case B.uncons y of
     Just (h, _) -> int $ countLeadingZeros h
@@ -663,14 +833,20 @@ leadingZeros b = int (B.length x) * 8 + case B.uncons y of
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
 
+-- | Configuration wrapper to enable and disable components
+--
 data EnableConfig a = EnableConfig
     { _enableConfigEnabled :: !Bool
+        -- ^ A flag that indicates whether the component is enabled.
     , _enableConfigConfig :: !a
+        -- ^ The configuration value of the component.
     }
     deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''EnableConfig
 
+-- | The default is that the configured component is enabled.
+--
 defaultEnableConfig :: a -> EnableConfig a
 defaultEnableConfig a = EnableConfig
     { _enableConfigEnabled = True
@@ -688,6 +864,9 @@ instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
 
+-- | Command line parser for the configuration of a component that can be
+-- enabled or disabled.
+--
 pEnableConfig :: String -> MParser a -> MParser (EnableConfig a)
 pEnableConfig compName pConfig = id
     <$< enableConfigEnabled .:: enableDisableFlag
@@ -698,6 +877,8 @@ pEnableConfig compName pConfig = id
 -- -------------------------------------------------------------------------- --
 -- Configuration Validation
 
+-- | Exeption that is thrown when a configuration value is invalid.
+--
 newtype ConfigurationException = ConfigurationException T.Text
     deriving (Show, Eq, Generic)
     deriving newtype (IsString)
@@ -708,6 +889,12 @@ instance Exception ConfigurationException
 -- -------------------------------------------------------------------------- --
 -- Streaming Utilities
 
+-- | Add a timeout to each step of a stream.
+--
+-- If a step takes longer than the timeout processing of the stream is
+-- terminated and 'Nothing' is returned. After processing all items of the
+-- stream without a timeout 'Just' the result of the stream is returned.
+--
 timeoutStream
     :: Int
     -> S.Stream (Of a) IO r
@@ -719,9 +906,17 @@ timeoutStream msecs = go
         Just (Left r) -> return $! Just r
         Just (Right (a, s')) -> S.yield a >> go s'
 
+-- | Drop successive equal items from a stream.
+--
+-- @
+-- S.toList_ (nub (S.each [1,1,2,2,3,4,4,4])) == [1,2,3,4]
+-- @
+--
 nub :: Monad m => Eq a => S.Stream (Of a) m r -> S.Stream (Of a) m r
 nub = S.concats . S.maps (S.drained . S.splitAt 1) . S.group
 
+-- | Fold the items of a stream into a 'HS.HashSet'.
+--
 streamToHashSet
     :: Monad m
     => Eq a
@@ -730,6 +925,9 @@ streamToHashSet
     -> m (Of (HS.HashSet a) r)
 streamToHashSet = fmap (first HS.fromList) . S.toList
 
+-- | Fold the items of a stream into a 'HS.HashSet' and discard the result of
+-- the stream.
+--
 streamToHashSet_
     :: Monad m
     => Eq a
@@ -761,7 +959,10 @@ streamToHashSet_ = fmap HS.fromList . S.toList_
 reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 
--- | TODO: maybe use Put/Get ?
+-- | A binary codec.
+--
+-- TODO: maybe use Put/Get ?
+--
 data Codec t = Codec
     { codecEncode :: t -> ByteString
     , codecDecode :: ByteString -> Either String t
@@ -788,6 +989,9 @@ withTempDir tag f = bracket create delete f
 -- -------------------------------------------------------------------------- --
 -- Typelevel
 
+-- | Return the value of a type level symbol as a value of a type that is an
+-- instance of 'IsString'.
+--
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
 
