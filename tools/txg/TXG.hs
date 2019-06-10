@@ -337,13 +337,16 @@ listenerRequestKey config host listenerRequest = do
 
 -- | Send a single transaction to the network, and immediately listen for its result.
 singleTransaction :: Args -> HostAddress -> SingleTX -> IO ()
-singleTransaction args host (SingleTX c cid) = do
-  cfg <- mkTXGConfig Nothing args host
-  kps <- testSomeKeyPairs
-  cmd <- mkExec (T.unpack c) (datum kps) (Sim.makeMeta cid) kps Nothing
-  runMaybeT (f cfg cmd) >>= \case
-    Nothing -> putStrLn "Single Transaction: failed" >> exitWith (ExitFailure 1)
-    Just res -> pPrintNoColor res
+singleTransaction args host (SingleTX c cid)
+  | not . HS.member cid . chainIds $ nodeVersion args =
+    putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
+  | otherwise = do
+      cfg <- mkTXGConfig Nothing args host
+      kps <- testSomeKeyPairs
+      cmd <- mkExec (T.unpack c) (datum kps) (Sim.makeMeta cid) kps Nothing
+      runMaybeT (f cfg cmd) >>= \case
+        Nothing -> putStrLn "Single Transaction: failed" >> exitWith (ExitFailure 1)
+        Just res -> pPrintNoColor res
   where
     datum :: [SomeKeyPair] -> Value
     datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
