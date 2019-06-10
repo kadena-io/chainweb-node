@@ -29,8 +29,7 @@ extra-source-files:
     pact/coin-contract/coin-sig.pact
     pact/coin-contract/load-coin-contract.yaml
     pact/coin-contract/spv-sig.pact
-    test/pact/test1.pact
-    test/golden/reintro-test.pact
+    test/pact/*.pact
     test/golden/*.txt
 
 data-files:
