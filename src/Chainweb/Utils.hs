@@ -153,8 +153,6 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
--- * optics
-, locally
 ) where
 
 import Configuration.Utils hiding (Error)
@@ -994,14 +992,3 @@ withTempDir tag f = bracket create delete f
 --
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
-
--- -------------------------------------------------------------------------- --
--- Optics
-
-#if ! MIN_VERSION_lens(4,17,1)
--- | Like 'local' for reader environments, but modifies the
--- target of a lens possibly deep in the environment
---
-locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
-locally l f = Reader.local (over l f)
-#endif

@@ -272,7 +272,7 @@ library
         , http-types >= 0.12
         , io-streams >= 1.5
         , ixset-typed >= 0.4
-        , lens >= 4.16
+        , lens >= 4.17
         , loglevel >= 0.1
         , memory >=0.14
         , merkle-log
@@ -407,7 +407,7 @@ test-suite chainweb-tests
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
-        , lens >= 4.16
+        , lens >= 4.17
         , loglevel >= 0.1
         , mtl >= 2.2
         , mwc-random >= 0.13
@@ -486,7 +486,7 @@ executable chainweb-node
         , directory >= 1.3
         , exceptions >= 0.8
         , http-client >= 0.5
-        , lens >= 4.16
+        , lens >= 4.17
         , loglevel >= 0.1
         , managed >= 1.0
         , monad-control >= 1.0
@@ -559,7 +559,7 @@ executable cwtool
         , http-client-tls >=0.3
         , http-types >= 0.12
         , io-streams >= 1.5
-        , lens >= 4.16
+        , lens >= 4.17
         , loglevel >= 0.1
         , managed >= 1.0
         , monad-control >= 1.0
