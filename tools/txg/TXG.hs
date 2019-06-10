@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -75,9 +74,6 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,15,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Utils
 import Chainweb.Version
 

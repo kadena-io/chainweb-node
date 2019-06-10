@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -43,11 +42,7 @@ import Data.Int
 import Servant
 import qualified System.IO.Streams as Streams
 
-#if MIN_VERSION_servant(0,15,0)
 import Servant.Types.SourceT
-#else
-import Data.IORef
-#endif
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -123,24 +118,9 @@ mempoolGetPendingApi = Proxy
 
 
 
-#if MIN_VERSION_servant(0,15,0)
 ------------------------------------------------------------------------------
 instance ToSourceIO t (Streams.InputStream t) where
   toSourceIO is = SourceT $ \k -> k go
     where
       go = Effect slurp
       slurp = maybe Stop (flip Yield go) <$> Streams.read is
-#else
-
-instance Show a => ToStreamGenerator (Streams.InputStream a) a where
-  toStreamGenerator s = StreamGenerator $ \firstIO restIO -> do
-      firstRef <- newIORef True
-      Streams.mapM_ (f firstRef firstIO restIO) s >>= Streams.skipToEof
-    where
-      f firstRef firstIO restIO x = do
-          b <- readIORef firstRef
-          if b
-            then do writeIORef firstRef False
-                    firstIO x
-            else restIO x
-#endif

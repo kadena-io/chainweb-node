@@ -28,12 +28,29 @@ extra-deps:
   - splitmix-0.0.2       # Due to QuickCheck
   - token-bucket-0.1.0.1 # Due to wai-middleware-throttle
 
+  # --- Servant 0.16 --- #
+  - base-compat-batteries-0.10.5
+  - base-orphans-0.8.1
+  - contravariant-1.5.2
+  - free-5.1.1
+  - http-api-data-0.4
+  - lens-4.17.1
+  - network-2.8.0.1
+  - semigroupoids-5.3.2
+  - servant-swagger-1.1.7.1
+  - swagger2-2.3.1.1
+  - tagged-0.8.6
+
   # --- Forced Upgrades --- #
   - QuickCheck-2.12.6.1
   - aeson-1.4.3.0
   - configuration-tools-0.4.1
   - generic-lens-1.1.0.0
   - nonempty-containers-0.2.0.0
+  - servant-0.16.0.1
+  - servant-client-0.16
+  - servant-client-core-0.16
+  - servant-server-0.16
   - tasty-1.2
   - vector-algorithms-0.8.0.1
   - yaml-0.11.0.0
