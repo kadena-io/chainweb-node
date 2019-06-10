@@ -139,6 +139,84 @@ in
           sha256 = "1sbn4dbb2y1gwdwjvz5vf6a1g349z0jha5iz4dmp2v67dv86fzs5";
         });
 
+        # --- servant 0.16 --- #
+        servant = callHackageDirect {
+          pkg = "servant";
+          ver = "0.16.0.1";
+          sha256 = "1z9iyfrf7wfx0849y7jyknfh9332y417qjivh69fh2zi7j6jx84g";
+        };
+        servant-client = callHackageDirect {
+          pkg = "servant-client";
+          ver = "0.16";
+          sha256 = "1jy3bdjkdl9bxwb6y2kial0w8ik6k4a8gq7b9yx9l4nkvjv8rc06";
+        };
+        servant-client-core = callHackageDirect {
+          pkg = "servant-client-core";
+          ver = "0.16";
+          sha256 = "0panxplcjslsvqxvsabn2fy0fhcqmmr0dqj51hk7bk7yyvgwxklf";
+        };
+        servant-server = callHackageDirect {
+          pkg = "servant-server";
+          ver = "0.16";
+          sha256 = "0am0mvj0h09a68mbjlb2rrlxybd2jwi8x2qq6kdd5fr6bhya9d5a";
+        };
+        base-compat-batteries = callHackageDirect {
+          pkg = "base-compat-batteries";
+          ver = "0.10.5";
+          sha256 = "1l82l4q7sz336qqdqy3rhh6brgnslczdavn92wnaimpjmwbv256c";
+        };
+        base-orphans = callHackageDirect {
+          pkg = "base-orphans";
+          ver = "0.8.1";
+          sha256 = "1jg06ykz8fsk1vlwih4vjw3kpcysp8nfsv7qjm42y2gfyzn6jvsk";
+        };
+        contravariant = callHackageDirect {
+          pkg = "contravariant";
+          ver = "1.5.2";
+          sha256 = "1glq01mdv2xjwx7vkf3yvyd2rs150zx9gr7jy0gk7qylq6ljx8w6";
+        };
+        free = callHackageDirect {
+          pkg = "free";
+          ver = "5.1.1";
+          sha256 = "1c305xd8k28c04xw3a5q2sab0g42v5k659kx7dv48cnvvjfaz5cn";
+        };
+        http-api-data = callHackageDirect {
+          pkg = "http-api-data";
+          ver = "0.4";
+          sha256 = "190b5lhl89lifyh4i1d8w8phx1sqmyz4hq95vc3h1ra288nvrzl5";
+        };
+        lens = callHackageDirect {
+          pkg = "lens";
+          ver = "4.17.1";
+          sha256 = "0sig0p5b351sr7fpvhxbkrbj9nvjh1w8yyzlcpl3hy5l1cfn2bh6";
+        };
+        network = callHackageDirect {
+          pkg = "network";
+          ver = "2.8.0.1";
+          sha256 = "0nrgwcklb7a32wxmvbgxmm4zsbk3gpc6f2d8jpyb0b1hwy0ji4mv";
+        };
+        semigroupoids = callHackageDirect {
+          pkg = "semigroupoids";
+          ver = "5.3.2";
+          sha256 = "0mc9hwvjcidxnjpr0gilywgbnpqh5y384x2id2iai68w1lckpdy2";
+        };
+        servant-swagger = callHackageDirect {
+          pkg = "servant-swagger";
+          ver = "1.1.7.1";
+          sha256 = "1ymdcmdi234p9jbwa7rgj1j35n9xnx4kgfjba4gs2r8cnhqwak28";
+        };
+        swagger2 = callHackageDirect {
+          pkg = "swagger2";
+          ver = "2.3.1.1";
+          sha256 = "0rhxqdiymh462ya9h76qnv73v8hparwz8ibqqr1d06vg4zm7s86p";
+        };
+        tagged = callHackageDirect {
+          pkg = "tagged";
+          ver = "0.8.6";
+          sha256 = "0dsw809g7pfajbl8zsj2yvnad8vk09cqi40bszw5ia9bpzzqz7n4";
+        };
+        # --- end servant --- #
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {

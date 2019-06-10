@@ -29,6 +29,7 @@ extra-deps:
   - token-bucket-0.1.0.1 # Due to wai-middleware-throttle
 
   # --- Servant 0.16 --- #
+  # These can be removed once we bump to LTS 13.
   - base-compat-batteries-0.10.5
   - base-orphans-0.8.1
   - contravariant-1.5.2
