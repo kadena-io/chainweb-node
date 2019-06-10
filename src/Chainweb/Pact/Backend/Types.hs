@@ -178,25 +178,7 @@ newtype BlockHandler p a = BlockHandler
              , MonadReader p
              )
 
--- class DbEnvRunner e m | e -> m where
---   runDbEnv :: PactDbEnv e -> m a -> IO a
-
--- data PactDbEnv' = forall e m. (DbEnvRunner e m) => PactDbEnv' (PactDbEnv e)
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
-
--- instance DbEnvRunner (DbEnv PureDb) IO where
---   runDbEnv pdbenv action = go (pdPactDbVar pdbenv) action
---     where
---       go e m = undefined
-
--- instance DbEnvRunner (BlockEnv SQLiteEnv) (BlockHandler SQLiteEnv) where
---   runDbEnv pdbenv action = go (pdPactDbVar pdbenv) action
---     where
---       go e m = modifyMVar e $
---         \(BlockEnv db bs) -> do
---           (a, s) <- runStateT (runReaderT (runBlockHandler m) db) bs
---           return (BlockEnv db s, a)
-
 
 instance Logging (BlockHandler p) where
   log c s = use logger >>= \l -> liftIO $ logLog l c s
@@ -229,9 +211,9 @@ data Checkpointer = Checkpointer
 -- , prepareForValidBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 -- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
-    { _cpeCheckpointer :: Checkpointer
+    { _cpeCheckpointer :: !Checkpointer
     , _cpeLogger :: Logger
-    , _cpeGasEnv :: GasEnv
+    , _cpeGasEnv :: !GasEnv
     }
 
 makeLenses ''CheckpointEnv

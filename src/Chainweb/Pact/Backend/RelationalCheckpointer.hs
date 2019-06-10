@@ -13,6 +13,7 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer where
 
 import Control.Concurrent.MVar
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
@@ -33,71 +34,58 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
 
--- initRelationalCheckpointerEnv ::
---      Db -> Logger -> GasEnv -> IO CheckpointEnv
--- initRelationalCheckpointerEnv db loggr gasEnv =
---   pure $
---     CheckpointEnv
---       { _cpeCheckpointer = undefined $ CheckpointerNew $ checkpointerNew db
---       , _cpeLogger = loggr
---       , _cpeGasEnv = gasEnv
---       }
-
-
-initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO CheckpointEnv
+initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
 initRelationalCheckpointer bstate sqlenv loggr gasEnv = do
   db <- newMVar (BlockEnv sqlenv bstate)
   runBlockEnv db initSchema
+  genesis <- readMVar db
   return $
-    CheckpointEnv
+    (PactDbEnv' (PactDbEnv chainwebpactdb db),
+     CheckpointEnv
       { _cpeCheckpointer =
           Checkpointer
-            (doRestore db)
-            -- (doRestoreInitial db)
+            (doRestore genesis db)
             (doSave db)
             (doDiscard db)
       , _cpeLogger = loggr
       , _cpeGasEnv = gasEnv
-      }
+      })
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = do
+doRestore :: BlockEnv SQLiteEnv -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore _ dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
     withSavepoint PreBlock (handleVersion bh hash)
     beginSavepoint Block
+    liftIO $ putStrLn "have we restored"
   return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
-doRestore dbenv Nothing = do
+doRestore genesis dbenv Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
          $ \db -> qry db
-                  "SELECT COUNT(*)\
-                  \ FROM BlockHistory\
-                  \ WHERE blockheight = ? AND hash = ?;"
+                  "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
               [SInt 0, SBlob (Data.Serialize.encode nullBlockHash)]
               [RInt]
     liftIO (expectSingle "row" r) >>= \case
-      [SInt 0] -> beginSavepoint Block
+      [SInt 0] -> do
+        callDb "doRestoreInitial: resetting tables" $ \db -> do
+          exec_ db "DELETE FROM BlockHistory;"
+          exec_ db "DELETE FROM VersionHistory;"
+          exec_ db "DELETE FROM [SYS:KeySets];"
+          exec_ db "DELETE FROM [SYS:Modules];"
+          exec_ db "DELETE FROM [SYS:Namespaces];"
+          exec_ db "DELETE FROM [SYS:Pacts];"
+          tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
+          exec_ db "DELETE FROM UserTables;"
+          forM_ tblNames $ \tbl -> case tbl of
+            [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
+            _ -> internalError "Something went wrong when resetting tables."
+        beginSavepoint Block
       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
-  return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
-
--- -- Assumes that BlockState has been initialized properly.
--- -- This function only works (as in not throw an error) at genesis.
--- doRestoreInitial :: Db -> IO PactDbEnv'
--- doRestoreInitial dbenv = do
---   runBlockEnv dbenv $ do
---     r <- callDb "doRestoreInitial"
---          $ \db -> qry db
---                   "SELECT COUNT(*)\
---                   \ FROM BlockHistory\
---                   \ WHERE blockheight = ? AND hash = ?;"
---               [SInt 0, SBlob (Data.Serialize.encode nullBlockHash)]
---               [RInt]
---     liftIO (expectSingle "row" r) >>= \case
---       [SInt 0] -> beginSavepoint Block
---       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
---   return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
+  modifyMVarMasked dbenv $ \_ -> do
+    gen <- newMVar genesis
+    return $ (genesis, PactDbEnv' $ PactDbEnv chainwebpactdb gen)
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do

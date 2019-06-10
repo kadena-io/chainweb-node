@@ -394,6 +394,7 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , direct-sqlite >= 2.3
         , exceptions
         , extra >= 1.6
         , extra >= 1.6

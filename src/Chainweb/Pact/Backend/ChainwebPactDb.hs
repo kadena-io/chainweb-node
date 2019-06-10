@@ -330,7 +330,7 @@ createUserTablesTable =
     "CREATE TABLE UserTables (tablename TEXT\
   \ , createBlockHeight UNSIGNED BIGINT\
   \ , version UNSIGNED BIGINT\
-  \ , CONSTRAINT versionTableConstraint UNIQUE(version, createBlockHeight));"
+  \ , CONSTRAINT versionTableConstraint UNIQUE(version, createBlockHeight, tablename));"
 
 createUserTable :: TableName -> BlockVersion -> BlockHandler SQLiteEnv ()
 createUserTable name b = do
@@ -343,7 +343,6 @@ createUserTable name b = do
                       \, txid UNSIGNED BIGINT\
                       \, rowdata BLOB)"
   versionedTablesInsert name b
-
 
 handleVersion :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv ()
 handleVersion bRestore hsh = do
@@ -456,7 +455,8 @@ initSchema = withSavepoint DbTransaction $ do
   where
     toTableName :: Domain k v -> TableName
     toTableName = TableName . asString
-    create name =
+    create name = do
+      log "DDL" $ "initSchema: "  ++ show name
       callDb "initSchema" $ \db ->
         exec_ db $
         "CREATE TABLE "

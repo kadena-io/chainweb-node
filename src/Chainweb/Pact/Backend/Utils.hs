@@ -80,18 +80,23 @@ withSavepoint name action = do
 
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
 
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "]"
+  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
 data SavepointName = Block | DbTransaction |  PreBlock
-  deriving (Eq, Ord, Show, Enum)
+  deriving (Eq, Ord, Enum)
+
+instance Show SavepointName where
+  show (Block) = "block"
+  show (DbTransaction) = "transaction"
+  show (PreBlock) = "preblock"
 
 instance AsString SavepointName where
   asString = Data.Text.pack . show
@@ -115,7 +120,9 @@ withSQLiteConnection file ps todelete action = bracket opener closer action
           internalError $
             "withSQLiteConnection: Can't open db with "
             <> asString (show err) <> ": " <> asString (show msg)
-        Right r -> return $ mkSQLiteEnv r
+        Right r -> do
+          runPragmas r ps
+          return $ mkSQLiteEnv r
     mkSQLiteEnv connection =
       SQLiteEnv connection
       (SQLiteConfig file ps)

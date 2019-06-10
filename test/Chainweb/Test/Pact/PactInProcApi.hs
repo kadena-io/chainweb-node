@@ -20,6 +20,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception (Exception)
+-- import Control.Monad.IO.Class
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
@@ -76,6 +77,7 @@ withPact mempool f = withResource startPact stopPact $ f . fmap snd
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
         a <- async (PS.initPactService testVersion cid logger reqQ mempool mv)
+        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do
@@ -99,6 +101,7 @@ validateTest reqIO = goldenSch "validateBlock-0" $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
     respVar0 <- newBlock noMiner genesisHeader reqQ
+
     plwo <- takeMVar respVar0 >>= \case
         Left e -> assertFailure (show e)
         Right r -> return r
@@ -118,6 +121,7 @@ validateTest reqIO = goldenSch "validateBlock-0" $ do
             { _blockPayloadHash = matchingPlHash
             , _blockParent = _blockHash genesisHeader
             }
+
     respVar1 <- validateBlock toValidateHeader plData reqQ
     goldenBytes "validateBlock-0" =<< takeMVar respVar1
   where

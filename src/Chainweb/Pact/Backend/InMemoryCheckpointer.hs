@@ -33,38 +33,6 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types (internalError)
 
--- checkpointer ::
---      MVar Store
---   -> Maybe (BlockHeight, ParentHash)
---   -> (PactDbEnv' -> IO CheckpointerResult)
---   -> (CheckpointerResult -> CheckpointAction)
---   -> IO CheckpointerResult
--- checkpointer lock mHeightHash action saveDiscardPredicate = do
---   toSave <- newEmptyMVar
---   result <- bracket (restore' toSave) (const $ return ()) action
---   case saveDiscardPredicate result of
---     Discard -> return ()
---     (Save hash) -> do
---       p <- readMVar toSave
---       case mHeightHash of
---         -- We are saving the "results" of genesis.
---         Nothing -> modifyMVar_ lock (return . HMS.insert (Just (0, hash)) p)
---         Just (height, _) -> modifyMVar_ lock (return . HMS.insert (Just (height, hash)) p)
---   return result
---   where
---     restore' toput = withMVarMasked  lock $ \store -> do
---       case HMS.lookup mHeightHash store of
---         Just pactdbenv -> do
---           putMVar toput pactdbenv
---           return $ PactDbEnv' pactdbenv
---         -- TODO
---         Nothing -> internalError $ case mHeightHash of
---           Just (bh, parentHash) ->
---               "InMemoryCheckpointer: Restore not found: height=" <> pack (show bh)
---               <> ", hash=" <> pack (show parentHash)
---               <> ", known=" <> pack (show (HMS.keys store))
---           Nothing -> "Something went wrong at genesis. There is nothing here!"
-
 
 
 data Store = Store
@@ -77,35 +45,37 @@ initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO (PactDbEnv', Chec
 initInMemoryCheckpointEnv loggers logger gasEnv = do
     pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
     initSchema pdenv
+    genesis <- readMVar env
     inmem <- newMVar (Store mempty Nothing env)
     return $
         (PactDbEnv' pdenv,
           CheckpointEnv
             { _cpeCheckpointer =
                 Checkpointer
-                    (doRestore inmem)
-                    -- (doRestoreInitial inmem)
+                    (doRestore genesis inmem)
                     (doSave inmem)
                     (doDiscard inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
 
-doRestore :: MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore lock (Just (height, hash)) = do
-    pactdbenv <- withMVarMasked lock $ \store -> do
-        case HMS.lookup (pred height, hash) (_theStore store) of
+doRestore :: DbEnv PureDb -> MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore _ lock (Just (height, hash)) =
+    modifyMVarMasked lock $ \store -> do
+      case HMS.lookup (pred height, hash) (_theStore store) of
             Just dbenv -> do
               mdbenv <- newMVar dbenv
-              return $ PactDbEnv' (PactDbEnv pactdb mdbenv)
+              let store' = store { _tempSaveHeight = Just height, _dbenv = mdbenv }
+              return $ (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
             Nothing -> internalError $
               "InMemoryCheckpointer: Restore not found: height=" <> pack (show (pred height))
               <> ", hash=" <> pack (show hash)
               <> ", known=" <> pack (show (HMS.keys (_theStore store)))
+doRestore genesis lock Nothing =
+  modifyMVarMasked lock $ \_ -> do
+    gen <- newMVar genesis
+    return $! (Store mempty Nothing gen, PactDbEnv' $ PactDbEnv pactdb gen)
 
-    modifyMVar_ lock (\s ->  pure $ s { _tempSaveHeight = Just height })
-    return pactdbenv
-doRestore lock Nothing = withMVarMasked lock $ \store -> return $ PactDbEnv' (PactDbEnv pactdb (_dbenv store))
 
 -- doRestoreInitial :: MVar Store -> IO PactDbEnv'
 -- doRestoreInitial lock = withMVarMasked lock $ \store ->
