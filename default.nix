@@ -196,12 +196,12 @@ in
           sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
         });
 
-        # pact-2.6.1
+        # pact-3.0
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "f880d34850b5aa4bd538a23029a74777e1f83a5d";
-          sha256 = "17752aallilpvcdqy45jxgwc33a1ljzb3qbn7zbxn7pq4f5iypxw";
+          rev = "e46ecef1a43e37ba2739c1134f66f0999b9bd591";
+          sha256 = "0kc37w3fdpjan78a248wsi9gn3i9vpy3gg2gfy1vzvgnmqqxyl1d";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {

@@ -60,7 +60,7 @@ import Pact.Interpreter
 import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
-import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
+import Pact.Types.Gas (Gas(..), GasModel(..))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.RPC
@@ -490,8 +490,9 @@ publicMetaOf = _pMeta . _cmdPayload
 gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
 gasSupplyOf cmd = l * p
   where
-    l :: GasSupply = fromIntegral @GasLimit @GasSupply $ gasLimitOf cmd
-    p :: GasSupply = fromRational $ toRational $ gasPriceOf cmd
+    l :: GasSupply = fromIntegral $ gasLimitOf cmd
+    p :: GasSupply = fromRational . toRational $ gasPriceOf cmd
+
 {-# INLINABLE gasSupplyOf #-}
 
 -- | Log request keys at DEBUG when successful
