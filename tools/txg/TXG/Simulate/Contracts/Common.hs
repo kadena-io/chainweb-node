@@ -113,7 +113,7 @@ parens s = "(" ++ s ++ ")"
 makeMeta :: ChainId -> CM.PublicMeta
 makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 0.0001
 
-newtype ContractName = ContractName { getContractName :: String}
+newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)
   deriving newtype Read
 

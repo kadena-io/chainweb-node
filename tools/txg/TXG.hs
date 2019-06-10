@@ -30,10 +30,12 @@ import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM.TVar (modifyTVar')
+import Control.Error.Util (hushT, nothing)
 import Control.Lens hiding (op, (.=), (|>))
 import Control.Monad.Except
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import Data.Generics.Product.Fields (field)
 import qualified Data.HashSet as HS
@@ -190,13 +192,12 @@ generateTransactions = do
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
 sendTransactions
-  :: MonadIO m
-  => ChainId
+  :: TXGConfig
+  -> ChainId
   -> [Command Text]
-  -> TXG m (Either ClientError RequestKeys)
-sendTransactions cid cmds = do
-  TXGConfig _ _ cenv v _ <- ask
-  liftIO $ runClientM (send v cid $ SubmitBatch cmds) cenv
+  -> IO (Either ClientError RequestKeys)
+sendTransactions (TXGConfig _ _ cenv v _) cid cmds =
+  runClientM (send v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
@@ -204,7 +205,8 @@ loop
   -> TXG m ()
 loop f = do
   (cid, transactions) <- f
-  requestKeys <- sendTransactions cid transactions
+  config <- ask
+  requestKeys <- liftIO $ sendTransactions config cid transactions
 
   case requestKeys of
     Left servantError ->
@@ -333,6 +335,29 @@ listenerRequestKey config host listenerRequest = do
     cid :: ChainId
     cid = fromMaybe (unsafeChainId 0) . listToMaybe $ nodeChainIds config
 
+-- | Send a single transaction to the network, and immediately listen for its result.
+singleTransaction :: Args -> HostAddress -> SingleTX -> IO ()
+singleTransaction args host (SingleTX c cid)
+  | not . HS.member cid . chainIds $ nodeVersion args =
+    putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
+  | otherwise = do
+      cfg <- mkTXGConfig Nothing args host
+      kps <- testSomeKeyPairs
+      cmd <- mkExec (T.unpack c) (datum kps) (Sim.makeMeta cid) kps Nothing
+      runMaybeT (f cfg cmd) >>= \case
+        Nothing -> putStrLn "Single Transaction: failed" >> exitWith (ExitFailure 1)
+        Just res -> pPrintNoColor res
+  where
+    datum :: [SomeKeyPair] -> Value
+    datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+
+    -- TODO Make `ExceptT` once `RequestKeys` is a `NonEmpty`.
+    f :: TXGConfig -> Command Text -> MaybeT IO ListenResponse
+    f cfg@(TXGConfig _ _ ce v _) cmd =
+      hushT (ExceptT $ sendTransactions cfg cid [cmd]) >>= \case
+        RequestKeys [] -> nothing
+        RequestKeys (rk:_) -> hushT . ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
+
 work :: Args -> IO ()
 work cfg = do
   mgr <- newManager defaultManagerSettings
@@ -368,6 +393,8 @@ work cfg = do
           pollRequestKeys cfg host . RequestKey $ H.Hash rk
         ListenerRequestKey rk -> liftIO $
           listenerRequestKey cfg host . ListenerRequest . RequestKey $ H.Hash rk
+        SingleTransaction stx -> liftIO $
+          singleTransaction cfg host stx
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
