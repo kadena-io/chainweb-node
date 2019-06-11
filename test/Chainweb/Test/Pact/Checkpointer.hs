@@ -6,8 +6,6 @@ module Chainweb.Test.Pact.Checkpointer
   ( tests
   ) where
 
-import Control.Arrow ((&&&))
-import Control.Concurrent (MVar, modifyMVar, newMVar, readMVar)
 import Control.Lens (preview, _Just)
 import Control.Monad (void)
 
@@ -19,13 +17,13 @@ import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), mkPureEnv)
-import Pact.Types.Command (ExecutionMode(Transactional))
+import Pact.Types.Runtime (ExecutionMode(Transactional))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (TxId, noSPVSupport, peStep)
-import Pact.Types.Server (CommandConfig(..), CommandEnv(..), CommandState)
+import Pact.Types.Runtime (noSPVSupport, peStep)
+import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
 
@@ -52,12 +50,11 @@ tests = testGroupSch "Checkpointer"
 
 testInMemory :: Assertion
 testInMemory = do
-  let conf = CommandConfig Nothing Nothing Nothing Nothing
-      loggers = pactTestLogger
-  cpEnv <- initInMemoryCheckpointEnv conf
+  let loggers = pactTestLogger False -- set to True to see debug logs
+  cpEnv <- initInMemoryCheckpointEnv
         (newLogger loggers "inMemCheckpointer") freeGasEnv
   env <- mkPureEnv loggers
-  state <- mkPureState env conf
+  state <- mkPureState env
 
   testCheckpointer loggers cpEnv state
 
@@ -100,31 +97,27 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   let logger = newLogger loggers "testCheckpointer"
 
-      incTxId mv = modifyMVar mv (return . (id &&& succ))
-
-      runExec :: (MVar CommandState, Env',MVar TxId) -> Maybe Value -> Text -> IO EvalResult
-      runExec (mcs, Env' pactDbEnv, txIdV) eData eCode = do
-          txId <- incTxId txIdV
-          let cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv def
+      runExec :: Env' -> Maybe Value -> Text -> IO EvalResult
+      runExec (Env' pactDbEnv) eData eCode = do
+          let cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
           execMsg <- buildExecParsedCode eData eCode
           applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
 
-      runCont :: (MVar CommandState, Env',MVar TxId) -> PactId -> Int -> IO EvalResult
-      runCont (mcs, Env' pactDbEnv, txIdV) pactId step = do
-          txId <- incTxId txIdV
-          let contMsg = ContMsg pactId step False Null
-              cmdenv = CommandEnv Nothing (Transactional txId) pactDbEnv mcs logger freeGasEnv def
+      runCont :: Env' -> PactId -> Int -> IO EvalResult
+      runCont (Env' pactDbEnv) pactId step = do
+          let contMsg = ContMsg pactId step False Null Nothing
+              cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
           applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
 
       ksData :: Text -> Value
       ksData idx =
           object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
-      unwrapState :: PactDbState -> IO (MVar CommandState, Env', MVar TxId)
-      unwrapState dbs = (,,) <$> newMVar (_pdbsState dbs) <*> toEnv' (_pdbsDbEnv dbs) <*> newMVar (_pdbsTxId dbs)
+      unwrapState :: PactDbState -> IO Env'
+      unwrapState dbs = toEnv' (_pdbsDbEnv dbs)
 
-      wrapState :: (MVar CommandState, Env', MVar TxId) -> IO PactDbState
-      wrapState (mcs,dbe',txidV) = PactDbState <$> toEnvPersist' dbe' <*> readMVar mcs <*> readMVar txidV
+      wrapState :: Env' -> IO PactDbState
+      wrapState dbe' = PactDbState <$> toEnvPersist' dbe'
 
 
   void $ saveInitial _cpeCheckpointer dbState00
@@ -189,7 +182,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
   -- start a pact
   -- test is that exec comes back with proper step
-  let pactId = 1
+  let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
       pactCheckStep = preview (_Just . peStep) . _erExec
 
   runExec s03 Nothing "(m1.dopact 'pactA)"

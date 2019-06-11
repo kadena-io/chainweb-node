@@ -1,8 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -18,7 +16,6 @@ module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
 , withRequestKeys
-, runGhci
 ) where
 
 import Control.Concurrent hiding (putMVar, readMVar)
@@ -58,7 +55,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
@@ -107,10 +103,10 @@ testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
 -- -------------------------------------------------------------------------- --
--- Tests
+-- Tests. GHCI use `runSchedRocks tests`
 
 tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "PactRemoteTests"
+tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withRequestKeys net $ \rks ->
             testGroup "PactRemoteTests"
@@ -120,27 +116,23 @@ tests rdb = testGroupSch "PactRemoteTests"
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
--- for Stuart:
-runGhci :: IO ()
-runGhci = withTempRocksDb "ghci.RemotePactTests" $ defaultMain . _schTest . tests
-
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
     let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _arResult <$> catMaybes mays
+    let values = _crResult <$> catMaybes mays
     return $! toS $! foldMap A.encode values
 
 mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
+    noopPool <- noopMempool
+    let tConfig = mempoolTxConfig noopPool
     let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
-  where
-    tConfig = mempoolTxConfig noopMempool
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -249,20 +241,21 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
+
 testBatch :: IO SubmitBatch
 testBatch = do
     kps <- testKeyPairs
-    c <- mkExec "(+ 1 2)" A.Null pm kps Nothing
+    c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
     pure $ SubmitBatch [c]
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.0001
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
     :<|> ((Poll -> ClientM PollResponses)
-    :<|> ((ListenerRequest -> ClientM ApiResult)
-    :<|> (Command Text -> ClientM (CommandSuccess A.Value))))
+    :<|> ((ListenerRequest -> ClientM ListenResponse)
+    :<|> (Command Text -> ClientM (CommandResult H.Hash))))
 
 generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
 generatePactApi cwVersion chainid =
@@ -368,6 +361,7 @@ config v n nid = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration

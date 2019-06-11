@@ -36,12 +36,17 @@ module Chainweb.CutDB
 , defaultCutDbConfig
 , farAheadThreshold
 
+-- * Cut Hashes Table
+, cutHashesTable
+
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
 , cutDbWebBlockHeaderStore
+, cutDbBlockHeaderDb
 , cutDbPayloadCas
 , cutDbPayloadStore
+, cutDbStore
 , member
 , cut
 , _cut
@@ -105,10 +110,12 @@ import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
-import Chainweb.Utils hiding (check)
+import Chainweb.Utils hiding (Codec, check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS
+import Data.CAS.RocksDB
 import Data.PQueue
 import Data.Singletons
 
@@ -168,6 +175,17 @@ farAheadThreshold :: Int
 farAheadThreshold = 2000
 
 -- -------------------------------------------------------------------------- --
+-- CutHashes Table
+
+cutHashesTable :: RocksDb -> RocksDbCas CutHashes
+cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
+  where
+    keyCodec = Codec
+        (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
+        (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
+    valueCodec = Codec encodeToByteString decodeStrictOrThrow'
+
+-- -------------------------------------------------------------------------- --
 -- Cut DB
 
 -- | A sample of peers and the Cut Heights they report from `Cut`s that they
@@ -194,6 +212,7 @@ data CutDb cas = CutDb
     , _cutDbHeaderStore :: !WebBlockHeaderStore
     , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
     , _cutDbQueueSize :: !Natural
+    , _cutDbStore :: !(RocksDbCas CutHashes)
     }
 
 instance HasChainGraph (CutDb cas) where
@@ -206,17 +225,30 @@ instance HasChainwebVersion (CutDb cas) where
 
 cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
 cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
+{-# INLINE cutDbPayloadCas #-}
 
 cutDbPayloadStore :: Getter (CutDb cas) (WebBlockPayloadStore cas)
 cutDbPayloadStore = to _cutDbPayloadStore
+{-# INLINE cutDbPayloadStore #-}
+
+cutDbStore :: Getter (CutDb cas) (RocksDbCas CutHashes)
+cutDbStore = to _cutDbStore
+{-# INLINE cutDbStore #-}
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
 cutDbWebBlockHeaderDb :: Getter (CutDb cas) WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
+{-# INLINE cutDbWebBlockHeaderDb #-}
 
 cutDbWebBlockHeaderStore :: Getter (CutDb cas) WebBlockHeaderStore
 cutDbWebBlockHeaderStore = to _cutDbHeaderStore
+{-# INLINE cutDbWebBlockHeaderStore #-}
+
+-- | Access the blockerheaderdb via the cutdb for a given chain id
+--
+cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold (CutDb cas) BlockHeaderDb
+cutDbBlockHeaderDb cid = cutDbWebBlockHeaderDb . ixg (_chainId cid)
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
@@ -224,6 +256,7 @@ cutDbWebBlockHeaderStore = to _cutDbHeaderStore
 --
 _cut :: CutDb cas -> IO Cut
 _cut = readTVarIO . _cutDbCut
+{-# INLINE _cut #-}
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
@@ -256,7 +289,7 @@ member db cid h = do
         Nothing -> return False
         Just lh -> do
             fh <- forkEntry chainDb th lh
-            return $ fh == lh
+            return $! fh == lh
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
@@ -269,10 +302,13 @@ withCutDb
     -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
+    -> RocksDbCas CutHashes
     -> (CutDb cas -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore
-    = bracket (startCutDb config logfun headerStore payloadStore) stopCutDb
+withCutDb config logfun headerStore payloadStore cutHashesStore
+    = bracket
+        (startCutDb config logfun headerStore payloadStore cutHashesStore)
+        stopCutDb
 
 startCutDb
     :: PayloadCas cas
@@ -280,14 +316,15 @@ startCutDb
     -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
+    -> RocksDbCas CutHashes
     -> IO (CutDb cas)
-startCutDb config logfun headerStore payloadStore = mask_ $ do
-    cutVar <- newTVarIO (_cutDbConfigInitialCut config)
+startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
+    cutVar <- newTVarIO =<< initialCut
     queue <- newEmptyPQueue
     peerHeights <- newTVarIO . PeerHeights $ BQ.singleton 16 (BlockHeight 0)
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar peerHeights
     logfun @T.Text Info "CutDB started"
-    return $ CutDb
+    return $! CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
         , _cutPeerHeights = peerHeights
@@ -296,16 +333,41 @@ startCutDb config logfun headerStore payloadStore = mask_ $ do
         , _cutDbHeaderStore = headerStore
         , _cutDbPayloadStore = payloadStore
         , _cutDbQueueSize = _cutDbConfigBufferSize config
+        , _cutDbStore = cutHashesStore
         }
   where
     processor :: PQueue (Down CutHashes) -> TVar Cut -> TVar PeerHeights -> IO ()
     processor queue cutVar peerHeights = do
-        processCuts logfun headerStore payloadStore queue cutVar peerHeights `catches`
-            [ Handler $ \(e :: SomeAsyncException) -> throwM e
-            , Handler $ \(e :: SomeException) ->
-                logfun @T.Text Error $ "CutDB failed: " <> sshow e
-            ]
+        processCuts logfun headerStore payloadStore cutHashesStore queue cutVar peerHeights
+            `catches`
+                [ Handler $ \(e :: SomeAsyncException) -> throwM e
+                , Handler $ \(e :: SomeException) ->
+                    logfun @T.Text Error $ "CutDB failed: " <> sshow e
+                ]
         processor queue cutVar peerHeights
+
+    -- TODO: this checks the braiding but doesn't revaludate the db. Also it
+    -- doesn't replay pact txs. 'joinIntoHeavier_' may stil be slow on large
+    -- dbs. We should support different levels of validation:
+    --
+    -- 1. nothing (pact replay is still needed which requires access to all
+    --    payloads and is thus probably similarly expensive as joinIntoHeavier_.
+    -- 2. braiding
+    -- 3. exitence of dependencies
+    -- 4. full validation
+    --
+    initialCut = tableMaxValue (_getRocksDbCas cutHashesStore) >>= \case
+        Nothing -> return $! _cutDbConfigInitialCut config
+        Just ch -> cutHashesToBlockHeaderMap headerStore payloadStore ch >>= \case
+            Left _ -> do
+                logfun @T.Text Warn
+                    $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
+                    <> " from database. Falling back to genesis cut"
+                return $! _cutDbConfigInitialCut config
+            Right hm -> joinIntoHeavier_
+                (_webBlockHeaderStoreCas headerStore)
+                hm
+                (_cutMap $ _cutDbConfigInitialCut config)
 
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
@@ -322,11 +384,13 @@ processCuts
     => LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
+    -> RocksDbCas CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> TVar PeerHeights
     -> IO ()
-processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToStream
+processCuts logFun headerStore payloadStore cutHashesStore queue cutVar peerHeights =
+    queueToStream
     & S.chain (\c -> loggc Info c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
@@ -345,7 +409,8 @@ processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToSt
         (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
         )
         (readTVarIO cutVar)
-        (\c -> do
+        (\(!c) -> do
+            casInsert cutHashesStore (cutToCutHashes Nothing c)
             atomically (writeTVar cutVar c)
             loggc Info c "published cut"
         )
@@ -381,7 +446,7 @@ processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToSt
     -- added to the queue, to prevent the queue becoming stale.
     farAhead :: CutHashes -> IO Bool
     farAhead x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let !r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
         when r $ loggc Info x
             $ "skip far ahead cut. Current height: " <> sshow h
@@ -390,7 +455,7 @@ processCuts logFun headerStore payloadStore queue cutVar peerHeights = queueToSt
 
     isVeryOld :: CutHashes -> IO Bool
     isVeryOld x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let !r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Info x "skip very old cut"
         return r
@@ -441,8 +506,8 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
         & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
     if null missing
-        then return $ Right headers
-        else return $ Left missing
+        then return $! Right headers
+        else return $! Left missing
   where
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
@@ -451,7 +516,7 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
         (Right <$> mapM (getBlockHeader headerStore payloadStore cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                    return $ Left cv
+                    return $! Left cv
                 e -> throwM e
 
 -- | Yield a `Cut` only when it is determined that `CutDb` has sync'd with
@@ -467,8 +532,8 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
 --
 consensusCut :: CutDb cas -> IO Cut
 consensusCut cutdb = atomically $ do
-    cur <- _cutStm cutdb
     nh  <- avgNetworkHeight <$> readTVar (_cutPeerHeights cutdb)
+    cur <- _cutStm cutdb
     let !currentHeight = _cutHeight cur
         !thresh = int . catchupThreshold $ _chainwebVersion cutdb
         !mini = bool (nh - thresh) 0 $ thresh > nh

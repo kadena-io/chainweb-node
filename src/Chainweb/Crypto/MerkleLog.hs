@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -231,7 +232,7 @@ toWordBE
 toWordBE bytes
     | BA.length bytes < sizeOf (undefined :: w) = throwM
         $ MerkleLogDecodeException "failed to parse Word from bytes: not enough bytes"
-    | otherwise = return $ unsafeToWordBE bytes
+    | otherwise = return $! unsafeToWordBE bytes
 
 -- -------------------------------------------------------------------------- --
 -- $inputs
@@ -470,7 +471,8 @@ toMerkleNodeTagged b = case toMerkleNode @u @b b of
         $ fromWordBE @Word16 tag <> bytes
     TreeNode r -> TreeNode @(HashAlg u) r
   where
-    tag = fromIntegral $ tagVal @u @(Tag b)
+    tag :: Word16
+    tag = tagVal @u @(Tag b)
 
 -- | /Internal:/ Decode Merkle nodes that are tagged with the respedtive type
 -- from the Merkle universe.
@@ -724,7 +726,7 @@ decodeMerkleTreeNode
     => Coercible (MerkleRoot alg) a
     => MerkleNodeType alg x
     -> m a
-decodeMerkleTreeNode (TreeNode bytes) = return $ coerce bytes
+decodeMerkleTreeNode (TreeNode bytes) = return $! coerce bytes
 decodeMerkleTreeNode (InputNode _) = throwM expectedTreeNodeException
 
 -- -------------------------------------------------------------------------- --
@@ -741,7 +743,7 @@ instance
   where
     type Tag (ByteArrayMerkleLogEntry u t b) = t
     toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode $ BA.convert b
-    fromMerkleNode (InputNode x) = return . ByteArrayMerkleLogEntry $ BA.convert x
+    fromMerkleNode (InputNode x) = return $! ByteArrayMerkleLogEntry $! BA.convert x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
@@ -754,7 +756,7 @@ newtype MerkleRootLogEntry (t :: u) = MerkleRootLogEntry (MerkleRoot (HashAlg u)
 instance (InUniverse u t) => IsMerkleLogEntry u (MerkleRootLogEntry (t :: u)) where
     type Tag (MerkleRootLogEntry t) = t
     toMerkleNode (MerkleRootLogEntry r) = TreeNode r
-    fromMerkleNode (TreeNode x) = return (MerkleRootLogEntry x)
+    fromMerkleNode (TreeNode !x) = return $! MerkleRootLogEntry x
     fromMerkleNode (InputNode _) = throwM expectedTreeNodeException
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
@@ -772,7 +774,7 @@ instance
     fromMerkleNode (InputNode x) = case B.uncons x of
         Nothing -> throwM
             $ MerkleLogDecodeException "failed to deserialize Word8 from empty ByteString"
-        Just (c,"") -> return $ Word8MerkleLogEntry c
+        Just (!c,"") -> return $! Word8MerkleLogEntry c
         Just _ -> throwM
             $ MerkleLogDecodeException "failed to deserialize Word8. Pending bytes in input"
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
@@ -826,4 +828,3 @@ instance
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
-

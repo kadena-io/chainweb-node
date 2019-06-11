@@ -1,14 +1,14 @@
-{-# LANGUAGE OverloadedStrings  #-}
-module Chainweb.Simulate.Utils where
+{-# LANGUAGE OverloadedStrings #-}
+
+module TXG.Simulate.Utils where
 
 import Control.Monad.IO.Class
 
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
--- import Data.Default (def)
 import Data.Text (Text)
-import Data.Time.Clock
+import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
 import Pact.Types.ChainMeta (PublicMeta(..))

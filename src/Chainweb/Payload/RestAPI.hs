@@ -63,7 +63,7 @@ somePayloadDbVal :: forall cas . ChainwebVersion -> ChainId -> PayloadDb cas -> 
 somePayloadDbVal v cid db = runIdentity $ do
     SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
     SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
-    return $ SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
+    return $! SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API
@@ -100,7 +100,7 @@ somePayloadApi :: ChainwebVersion -> ChainId -> SomeApi
 somePayloadApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $ SomeApi (payloadApi @v' @c')
+    return $! SomeApi (payloadApi @v' @c')
 
 somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePayloadApis v = mconcat . fmap (somePayloadApi v)

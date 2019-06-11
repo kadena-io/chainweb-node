@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Main ( main ) where
+module Ea ( main ) where
 
 import BasePrelude
 
@@ -107,7 +107,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' Testnet00 (someChainId Testnet00) logger noSPVSupport $
+    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

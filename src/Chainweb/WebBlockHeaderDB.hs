@@ -104,7 +104,7 @@ initWebBlockHeaderDb
     -> ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb db v = WebBlockHeaderDb
-    <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid db)) (HS.toMap $ chainIds v)
+    <$!> itraverse (\cid _ -> initBlockHeaderDb (conf cid db)) (HS.toMap $ chainIds v)
     <*> pure v
   where
     conf cid = Configuration (genesisBlockHeader v cid)
@@ -134,7 +134,7 @@ getWebBlockHeaderDb
     -> m BlockHeaderDb
 getWebBlockHeaderDb p = do
     checkWebChainId (given @WebBlockHeaderDb) p
-    return $ _webBlockHeaderDb given HM.! _chainId p
+    return $! _webBlockHeaderDb given HM.! _chainId p
 
 lookupWebBlockHeaderDb
     :: Given WebBlockHeaderDb

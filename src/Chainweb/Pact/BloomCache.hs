@@ -132,7 +132,7 @@ withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
 
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
 member h k (TransactionBloomCache mv _) = do
-    mp <- readIORef mv
+    !mp <- readIORef mv
     -- N.B. return false positive on block missing
     fmap (fromMaybe True) $ runMaybeT $ do
         !bloom <- MaybeT $ return $! HashMap.lookup k mp
@@ -223,10 +223,10 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             return $! HashMap.insert hkey bloom mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
-    fromTx (tx, _) = MaybeT (return (toPactTx tx))
+    fromTx (tx, _) = MaybeT (return $! toPactTx tx)
 
 bloomFalsePositiveRate :: Double
 bloomFalsePositiveRate = 0.08
 
 toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict b
+toPactTx (Transaction b) = decodeStrict' b

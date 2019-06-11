@@ -14,11 +14,9 @@
 --
 -- Pact Types module for Chainweb
 module Chainweb.Pact.Types
-  ( FullLogTxOutput(..)
-  , HashedLogTxOutput(..)
-  , PactDbStatePersist(..)
+  ( PactDbStatePersist(..)
   , Transactions(..)
-  , MemPoolAccess
+  , MemPoolAccess(..)
   , MinerInfo(..)
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
@@ -28,12 +26,9 @@ module Chainweb.Pact.Types
     -- * types
   , PactServiceM
     -- * optics
-  , flCommandResult
-  , flTxLogs
-  , hlCommandResult
-  , hlTxLogHash
   , minerAccount
   , minerKeys
+  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
   , psMempoolAccess
@@ -47,9 +42,9 @@ module Chainweb.Pact.Types
   , emptyPayload
   , noMiner
   , noCoinbase
+  , HashCommandResult
     -- * module exports
   , module Chainweb.Pact.Backend.Types
-  , toHashedLogTxOutput
   ) where
 
 import Control.Lens hiding ((.=))
@@ -58,19 +53,21 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson
-import Data.Decimal (Decimal)
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 -- internal pact modules
 
+import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainMeta (PublicData(..))
-import Pact.Types.Command (CommandSuccess(..))
+import Pact.Types.Command
+import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
-import Pact.Types.Persistence (TxLog(..))
+import Pact.Types.PactValue
 import Pact.Types.Runtime (SPVSupport(..))
-import Pact.Types.Term (KeySet(..), Name(..), Term, tStr)
+import Pact.Types.Term (KeySet(..), Name(..))
 
 -- internal chainweb modules
 
@@ -81,61 +78,19 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
+type HashCommandResult = CommandResult H.Hash
+
 data Transactions = Transactions
-    { _transactionPairs :: Vector (Transaction, FullLogTxOutput)
-    , _transactionCoinbase :: FullLogTxOutput
-    } deriving (Eq,Show)
-
-data FullLogTxOutput = FullLogTxOutput
-    { _flCommandResult :: Value
-    , _flTxLogs :: [TxLog Value]
-    } deriving (Show, Eq)
-
-instance FromJSON FullLogTxOutput where
-    parseJSON = withObject "TransactionOutput" $ \o -> FullLogTxOutput
-        <$> o .: "flCommandResult"
-        <*> o .: "flTxLogs"
-    {-# INLINE parseJSON #-}
-
-instance ToJSON FullLogTxOutput where
-    toJSON o = object
-        [ "flCommandResult" .= _flCommandResult o
-        , "flTxLogs" .= _flTxLogs o]
-    {-# INLINE toJSON #-}
-
-data HashedLogTxOutput = HashedLogTxOutput
-    { _hlCommandResult :: Value
-    , _hlTxLogHash :: H.Hash
+    { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
+    , _transactionCoinbase :: !HashCommandResult
     } deriving (Eq, Show)
 
-instance FromJSON HashedLogTxOutput where
-    parseJSON = withObject "TransactionOutput" $ \o -> HashedLogTxOutput
-        <$> o .: "hlCommandResult"
-        <*> o .: "hlTxLogs"
-    {-# INLINE parseJSON #-}
-
-instance ToJSON HashedLogTxOutput where
-    toJSON o = object
-        [ "hlCommandResult" .= _hlCommandResult o
-        , "hlTxLogs" .= _hlTxLogHash o]
-    {-# INLINE toJSON #-}
-
-toHashedLogTxOutput :: FullLogTxOutput -> HashedLogTxOutput
-toHashedLogTxOutput FullLogTxOutput{..} =
-    HashedLogTxOutput
-        { _hlCommandResult = _flCommandResult
-        , _hlTxLogHash = H.toUntypedHash hashed }
-  where
-    hashed :: H.PactHash
-    hashed = H.hash $ encodeToByteString _flTxLogs
-
 type MinerKeys = KeySet
-
 type MinerId = Text
 
 data MinerInfo = MinerInfo
-  { _minerAccount :: MinerId
-  , _minerKeys :: MinerKeys
+  { _minerAccount :: !MinerId
+  , _minerKeys :: !MinerKeys
   } deriving (Show,Eq)
 
 instance ToJSON MinerInfo where
@@ -157,20 +112,22 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 noMiner :: MinerInfo
 noMiner = MinerInfo "NoMiner" (KeySet [] (Name "<" def))
 
-noCoinbase :: FullLogTxOutput
-noCoinbase = FullLogTxOutput (toJSON $ CommandSuccess (tStr "NO_COINBASE" :: Term Name)) []
+noCoinbase :: CommandResult a
+noCoinbase = CommandResult (RequestKey H.pactInitialHash) Nothing
+             (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
+             0 Nothing Nothing Nothing
 
 toMinerData :: MinerInfo -> MinerData
 toMinerData = MinerData . encodeToByteString
 
 fromMinerData :: MonadThrow m => MinerData -> m MinerInfo
-fromMinerData = decodeStrictOrThrow . _minerData
+fromMinerData = decodeStrictOrThrow' . _minerData
 
-toCoinbaseOutput :: FullLogTxOutput -> CoinbaseOutput
-toCoinbaseOutput = CoinbaseOutput . encodeToByteString . toHashedLogTxOutput
+toCoinbaseOutput :: HashCommandResult -> CoinbaseOutput
+toCoinbaseOutput = CoinbaseOutput . encodeToByteString
 
-fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m  HashedLogTxOutput
-fromCoinbaseOutput = decodeStrictOrThrow . _coinbaseOutput
+fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m HashCommandResult
+fromCoinbaseOutput = decodeStrictOrThrow' . _coinbaseOutput
 
 -- Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
@@ -180,31 +137,42 @@ defaultMiner = MinerInfo "miner" $ KeySet
   (Name "keys-all" def)
 
 data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: Maybe FilePath
-    , _pdbspPactDbState :: PactDbState
+    { _pdbspRestoreFile :: !(Maybe FilePath)
+    , _pdbspPactDbState :: !PactDbState
     }
 
-newtype GasSupply = GasSupply { _gasSupply :: Decimal }
+-- | Indicates a computed gas charge (gas amount * gas price)
+newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
+   deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
 data PactServiceEnv = PactServiceEnv
-  { _psMempoolAccess :: Maybe MemPoolAccess
-  , _psCheckpointEnv :: CheckpointEnv
-  , _psSpvSupport :: SPVSupport
-  , _psPublicData :: PublicData
+  { _psMempoolAccess :: !(Maybe MemPoolAccess)
+  , _psCheckpointEnv :: !CheckpointEnv
+  , _psSpvSupport :: !SPVSupport
+  , _psPublicData :: !PublicData
   }
 
 data PactServiceState = PactServiceState
-  { _psStateDb :: PactDbState
-  , _psStateValidated :: Maybe BlockHeader
+  { _psStateDb :: !PactDbState
+  , _psStateValidated :: !(Maybe BlockHeader)
   }
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
 
-type MemPoolAccess = BlockHeight -> BlockHash -> IO (Vector ChainwebTransaction)
+data MemPoolAccess = MemPoolAccess
+  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  , mpaSetLastHeader :: BlockHeader -> IO ()
+  , mpaProcessFork :: BlockHeader -> IO ()
+  }
+
+noopMemPoolAccess :: MemPoolAccess
+noopMemPoolAccess = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> return V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
-makeLenses ''FullLogTxOutput
-makeLenses ''HashedLogTxOutput
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState

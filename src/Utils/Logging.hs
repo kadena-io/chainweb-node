@@ -21,23 +21,25 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- This module defines log messages that are similar to Haskell exceptions from
--- 'Control.Exception'.
+-- This module provides backends for handling log messages from the
+-- "Data.LogMessage". Log messages that are similar to Haskell exceptions from
+-- 'Control.Exception'. Like exceptions, log messages in this module are typed
+-- dynamically and classes of log messages types are extensible.
 --
 -- Log messages and exceptions are similar in that they can be emitted/thrown
--- anywhere in the code base (in the IO monad, for logs) and are propagated
--- upward through the call stack, until they are eventually picked up by some
--- handler. The difference is that exceptions synchronously interrupt the
--- computation that throws them, while log messages are emitted asynchronously
--- and the computation that emits them continues while the message is handled.
+-- anywhere in the code base (in the IO monad, for logs) and are propagated to
+-- handlers that are defined upward in the call stack until they are eventually
+-- picked up. The difference is that exceptions synchronously interrupt the
+-- computation that throws them, while log messages are usually handled
+-- asynchronously and the computation that emits them continues while the
+-- message is handled.
 --
 -- Log messages are usually handled only at the top level by a global handler
 -- (or stack of handlers), but that depends on the implementation of the logger
 -- (usually a queue, but sometimes just an IO callback), which is orthorgonal to
--- the the definitions in this module.
---
--- Like exceptions, log messages also should be typed dynamically and classes of
--- log messages types should be extensible.
+-- the definitions in this module. The backends in this module use the type from
+-- the package @yet-another-logger@, which also provides an implementation of a
+-- logger queue.
 --
 -- Unlike exceptions, log messages must be handled. The type systems ensures
 -- that there is a /base log handler/ that catches messages of any type, even if
@@ -92,8 +94,10 @@ import Configuration.Utils hiding (Error)
 import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.STM.TVar
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control
@@ -104,16 +108,19 @@ import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+import Data.Time
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import Network.Wai (Middleware)
 import Network.Wai.Application.Static
 import Network.Wai.EventSource
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Middleware.Cors
-import Network.Wai (Middleware)
 import Network.Wai.UrlMap
+
+import Numeric.Natural
 
 import System.IO
 import qualified System.Logger as L
@@ -124,7 +131,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.HostAddress
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 
 import Data.LogMessage
 
@@ -216,8 +223,8 @@ maybeLogHandle
     -> GenericBackend b
     -> GenericBackend b
 maybeLogHandle f = genericLogHandle $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> f msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> f msg
 {-# INLINEABLE maybeLogHandle #-}
 
 -- | This is most the powerful handle function that allows to implement generic
@@ -231,9 +238,9 @@ genericLogHandle
     -> GenericBackend b
 genericLogHandle f b msg = case fromBackendLogMessage msg of
     Nothing -> b msg
-    Just amsg -> f amsg >>= \case
+    (Just !amsg) -> f amsg >>= \case
         Nothing -> return mempty
-        Just msg' -> b msg'
+        (Just !msg') -> b msg'
 {-# INLINEABLE genericLogHandle #-}
 
 -- -------------------------------------------------------------------------- --
@@ -254,8 +261,8 @@ maybeLogHandler
     => (L.LogMessage a -> IO (Maybe (L.LogMessage SomeLogMessage)))
     -> LogHandler
 maybeLogHandler b = LogHandler $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> b msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
 
 logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
@@ -449,6 +456,12 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend
 
+elasticSearchBatchSize :: Natural
+elasticSearchBatchSize = 1000
+
+elasticSearchBatchDelayMs :: Natural
+elasticSearchBatchDelayMs = 1000
+
 -- | A backend for JSON log messags that sends all logs to the given index of an
 -- Elasticsearch server. The index is created at startup if it doesn't exist.
 -- Messages are sent in a fire-and-forget fashion. If a connection fails, the
@@ -472,46 +485,72 @@ withElasticsearchBackend
     -> (Backend a -> IO b)
     -> IO b
 withElasticsearchBackend mgr esServer ixName inner = do
-    void $ HTTP.httpLbs putIndex mgr
-        -- FIXME Do we need failure handling? If this fails the exeption
-        -- is propagated to the main applcation
-
+    i <- curIxName
+    createIndex i
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
+    curIxName = do
+        d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
+        return $! ixName <> "-" <> d
+
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
 
+    -- Collect messages. If there is at least one pending message, submit a
+    -- `_bulk` request every second or when the batch size is 1000 messages,
+    -- whatever happens first.
+    --
     processor queue = do
-        (n, msg) <- atomically $ do
+        i <- curIxName
+
+        -- set timer to 1 second
+        timer <- registerDelay (int elasticSearchBatchDelayMs)
+
+        -- Fill the batch
+        (remaining, batch) <- atomically $ do
+            -- ensure that there is at least one transaction in every batch
             h <- readTBQueue queue
-            go (1000 :: Int) (indexAction h) (1 :: Int)
-        errorLogFun Info $ "send " <> sshow n <> " messages"
+            go i elasticSearchBatchSize (indexAction i h) timer
 
-        void $ HTTP.httpLbs (putBulgLog msg) mgr
+        createIndex i
+        errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
+        void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go 0 !b !c = return (c, b)
-        go i !b !c = tryReadTBQueue queue >>= \case
-            Nothing -> return (c, b)
-            Just x -> go i (b <> indexAction x) (pred c)
+        go _ 0 !batch _ = return $! (0, batch)
+        go i !remaining !batch !timer = isTimeout `orElse` fill
+          where
+            isTimeout = do
+                check =<< readTVar timer
+                return $! (remaining, batch)
+            fill = tryReadTBQueue queue >>= \case
+                Nothing -> return $! (remaining, batch)
+                Just x -> do
+                    go i (pred remaining) (batch <> indexAction i x) timer
 
+    createIndex i =
+        void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
+            `catch` \case
+                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) ->
+                    HTTP.httpLbs (putIndex i) mgr
+                ex -> throwM ex
 
-    putIndex = HTTP.defaultRequest
+    putIndex i = HTTP.defaultRequest
         { HTTP.method = "PUT"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName
+        , HTTP.path = T.encodeUtf8 i
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    _putLog a = HTTP.defaultRequest
+    _putLog i a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 ixName <> "/_doc"
+        , HTTP.path = T.encodeUtf8 i <> "/_doc"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
@@ -528,16 +567,16 @@ withElasticsearchBackend mgr esServer ixName inner = do
         }
 
     e = fromEncoding . toEncoding
-    indexAction a
-        = fromEncoding indexActionHeader
+    indexAction i a
+        = fromEncoding (indexActionHeader i)
         <> BB.char7 '\n'
         <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
         <> BB.char7 '\n'
 
-    indexActionHeader :: Encoding
-    indexActionHeader = pairs
+    indexActionHeader :: T.Text -> Encoding
+    indexActionHeader i = pairs
         $ pair "index" $ pairs
-            $ ("_index" .= (ixName :: T.Text))
+            $ ("_index" .= (i :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
 
 -- -------------------------------------------------------------------------- --

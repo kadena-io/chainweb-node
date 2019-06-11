@@ -57,7 +57,6 @@ in
           testTarget = "--test-option=--hide-successes";
         }));
 
-        configuration-tools = dontCheck (self.callHackage "configuration-tools" "0.4.0" {});
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
         yaml = callHackageDirect {
@@ -128,6 +127,18 @@ in
           sha256 = "04p9p8n3l75lhc0f4g7q8qwxwcjpv11mqyf46wxnb3s9wd0wyazc";
         };
 
+        nonempty-containers = callHackageDirect {
+          pkg = "nonempty-containers";
+          ver = "0.1.1.0";
+          sha256 = "09cq35spxppyhyigf2y6fhw4x72hg1jm80agzw8ccq1zbml7pnmv";
+        };
+
+        configuration-tools = dontCheck (callHackageDirect {
+          pkg = "configuration-tools";
+          ver = "0.4.1";
+          sha256 = "1sbn4dbb2y1gwdwjvz5vf6a1g349z0jha5iz4dmp2v67dv86fzs5";
+        });
+
         # --- tasty and its downstream dependants --- #
         # These can be removed once `tasty-1.2` is natively available in `nixpkgs`.
         tasty = callHackageDirect {
@@ -189,8 +200,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "0cf36de796dc88051fc34469e31a589317631fb9";
-          sha256 = "16k5m6rvj41g8md58gnh9qa9x53c5cyb92ql8xaap8vw2wl87zqf";
+          rev = "f880d34850b5aa4bd538a23029a74777e1f83a5d";
+          sha256 = "17752aallilpvcdqy45jxgwc33a1ljzb3qbn7zbxn7pq4f5iypxw";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -226,12 +237,23 @@ in
           sha256 = "02cg64rq8xk7x53ziidljyv3gsshdpgbzy7h03r869gj02l7bxwa";
         }) {});
 
-        merkle-log = dontCheck (self.callCabal2nix "merkle-log" (pkgs.fetchFromGitHub {
-          owner = "kadena-io";
-          repo = "merkle-log";
-          rev = "a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376";
-          sha256 = "05132bqc6724a58kidrqs1xq68d1bmfqsdy7yk5j83ddinw7yvp1";
-        }) {});
+        merkle-log = callHackageDirect {
+            pkg = "merkle-log";
+            ver = "0.1.0.0";
+            sha256 = "10jk274sbvsrr7varxa72jvh54n22qpw7d4p2wy7415bmij3y81p";
+        };
+
+        digraph = dontCheck (callHackageDirect {
+            pkg = "digraph";
+            ver = "0.1.0.2";
+            sha256 = "1alqdzzlw8ns6hy8vh3ic4ign7jjxxa0cyxkv26zz7k2dihf3hzg";
+        });
+
+        mwc-random = callHackageDirect {
+            pkg = "mwc-random";
+            ver = "0.14.0.0";
+            sha256 = "10jaajbnlcwqgqdnb94q0k8pzx11ff569af8a8d6k26xc954m48p";
+        };
 
         ######################################################################
         # Dependencies from pact

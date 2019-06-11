@@ -10,17 +10,21 @@
 -- Pact service for Chainweb
 
 module Chainweb.Pact.Utils
-    ( toEnv'
+    ( -- * persistence
+      toEnv'
     , toEnvPersist'
-    , closePactDb
+      -- * combinators
+    , aeson
     ) where
+
+import Data.Aeson
 
 import Control.Concurrent.MVar
 
 import Pact.Interpreter as P
-import Pact.PersistPactDb as P
 
 import Chainweb.Pact.Types
+
 
 toEnv' :: EnvPersist' -> IO Env'
 toEnv' (EnvPersist' ep') = do
@@ -39,10 +43,9 @@ toEnvPersist' (Env' pactDbEnv) = do
           }
     return $! EnvPersist' pDbEnvPersist
 
--- This is a band-aid solution; We're just going to close the
--- database connection here to be safe.
-closePactDb :: PactDbState -> IO ()
-closePactDb =  go . _pdbsDbEnv
-  where
-    go (EnvPersist' (PactDbEnvPersist _ dbEnv)) =
-      either fail return =<< closeDb (P._db dbEnv)
+-- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
+-- Similar to 'either', 'maybe', or 'bool' combinators
+--
+aeson :: (String -> b) -> (a -> b) -> Result a -> b
+aeson f _ (Error a) = f a
+aeson _ g (Success a) = g a

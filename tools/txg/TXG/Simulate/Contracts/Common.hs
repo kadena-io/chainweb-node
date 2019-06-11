@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
-module Chainweb.Simulate.Contracts.Common where
+module TXG.Simulate.Contracts.Common where
 
 import Control.Monad.Catch
 
@@ -30,7 +30,6 @@ import Text.Printf
 -- PACT
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
@@ -38,8 +37,8 @@ import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
 -- CHAINWEB
 
 import Chainweb.ChainId
-import Chainweb.Simulate.Utils
 import Chainweb.Utils
+import TXG.Simulate.Utils
 
 createPaymentsAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
 createPaymentsAccount meta name = do
@@ -112,9 +111,9 @@ parens s = "(" ++ s ++ ")"
 
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> CM.PublicMeta
-makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 0.0001
 
-newtype ContractName = ContractName { getContractName :: String}
+newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)
   deriving newtype Read
 

@@ -1,12 +1,12 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
-module Chainweb.Simulate.Contracts.CoinContract where
-
-import Control.Monad hiding (guard)
+module TXG.Simulate.Contracts.CoinContract where
 
 import Data.Aeson
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 
 import Fake
@@ -16,17 +16,16 @@ import System.Random
 import Text.Printf
 
 -- PACT
-
 import Pact.ApiReq (mkExec)
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair)
-import Pact.Types.ChainMeta (PublicMeta(..))
 
 -- CHAINWEB
+import TXG.Simulate.Contracts.Common
+import TXG.Simulate.Utils
 
--- import Chainweb.ChainId
-import Chainweb.Simulate.Contracts.Common
-import Chainweb.Simulate.Utils
+---
 
 data CoinContractRequest
   = CoinCreateAccount Account Guard
@@ -39,18 +38,19 @@ type Guard = [SomeKeyPair]
 type SenderName = Account
 type ReceiverName = Account
 
-mkRandomCoinContractRequest :: [(Account,Maybe [SomeKeyPair])] -> IO (FGen CoinContractRequest)
+mkRandomCoinContractRequest
+  :: M.Map Account [SomeKeyPair]
+  -> IO (FGen CoinContractRequest)
 mkRandomCoinContractRequest kacts = do
-  request <- randomRIO (0, 1 :: Int)
-  return $
-    case request of
-      0 -> CoinAccountBalance <$> fake
-      1 -> do
-        (from, to) <- distinctPair
-        case join (lookup to kacts) of
-          Nothing -> error (errmsg ++ getAccount to)
-          Just keyset -> CoinTransfer from to keyset <$> fake
-      _ -> error "mkRandomCoinContractRequest: impossible case"
+  request <- randomRIO @Int (0, 1)
+  pure $ case request of
+    0 -> CoinAccountBalance <$> fake
+    1 -> do
+      (from, to) <- distinctPair
+      case M.lookup to kacts of
+        Nothing -> error $ errmsg ++ getAccount to
+        Just keyset -> CoinTransfer from to keyset <$> fake
+    _ -> error "mkRandomCoinContractRequest: impossible case"
   where
     errmsg =
       "mkRandomCoinContractRequest: something went wrong." ++

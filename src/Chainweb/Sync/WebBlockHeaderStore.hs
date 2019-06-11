@@ -118,7 +118,7 @@ memoInsert cas m k a = casLookup cas k >>= \case
         !v <- a k'
         casInsert cas v
         return v
-    Just x -> return x
+    (Just !x) -> return x
 
 -- -------------------------------------------------------------------------- --
 -- Tag Values With a ChainId
@@ -211,14 +211,14 @@ getBlockPayload
 getBlockPayload s priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     casLookup cas payloadHash >>= \case
-        Just x -> return $ payloadWithOutputsToPayloadData x
+        (Just !x) -> return $! payloadWithOutputsToPayloadData x
         Nothing -> memo memoMap payloadHash $ \k ->
             pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
                     t <- queryPayloadTask k
                     pQueueInsert queue t
                     awaitTask t
-                Just x -> return x
+                (Just !x) -> return x
 
   where
     v = _chainwebVersion h
@@ -245,9 +245,9 @@ getBlockPayload s priority maybeOrigin h = do
         let originEnv = peerInfoClientEnv mgr origin
         logfun Debug $ taskMsg k "lookup origin"
         runClientM (payloadClient v cid k) originEnv >>= \case
-            Right x -> do
+            (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
-                return $ Just x
+                return $! Just x
             Left (e :: ClientError) -> do
                 logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
                 return Nothing
@@ -258,7 +258,7 @@ getBlockPayload s priority maybeOrigin h = do
     queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
         runClientM (payloadClient v cid k) env >>= \case
-            Right x -> do
+            (Right !x) -> do
                 logg @T.Text Debug $ taskMsg k "received remote block payload"
                 return x
             Left (e :: ClientError) -> do
@@ -296,9 +296,9 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
                 Nothing -> do
                     t <- queryBlockHeaderTask k
                     pQueueInsert queue t
-                    ChainValue _ x <- awaitTask t
-                    return (Nothing, x)
-                Just x -> return (maybeOrigin, x)
+                    (ChainValue _ !x) <- awaitTask t
+                    return $! (Nothing, x)
+                (Just !x) -> return $! (maybeOrigin, x)
 
         -- Query Prerequesits recursively. If there is already job for this
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
@@ -360,7 +360,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         logg Debug $ taskMsg k $ "getBlockHeaderInternal pact validation succeeded"
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
-        return $ chainValue header
+        return $! chainValue header
 
   where
 
@@ -390,7 +390,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
             l @T.Text Debug $ taskMsg ck $ "query remote block header"
-            r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
+            !r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
                 l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
             l @T.Text Debug $ taskMsg ck "received remote block header"
@@ -411,7 +411,7 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
         logg Debug $ taskMsg ck $ "lookup origin"
-        r <- TDB.lookup (rDb v cid originEnv) k
+        !r <- TDB.lookup (rDb v cid originEnv) k
         logg Debug $ taskMsg ck "received from origin"
         return r
 
@@ -459,7 +459,7 @@ newWebBlockHeaderStore
 newWebBlockHeaderStore mgr wdb logfun = do
     m <- new
     queue <- newEmptyPQueue
-    return $ WebBlockHeaderStore wdb m queue logfun mgr
+    return $! WebBlockHeaderStore wdb m queue logfun mgr
 
 newEmptyWebPayloadStore
     :: PayloadCas cas
@@ -482,7 +482,7 @@ newWebPayloadStore
 newWebPayloadStore mgr pact payloadCas logfun = do
     payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
-    return $ WebBlockPayloadStore
+    return $! WebBlockPayloadStore
         payloadCas payloadMemo payloadTaskQueue logfun mgr pact
 
 instance HasChainwebVersion WebBlockHeaderStore where

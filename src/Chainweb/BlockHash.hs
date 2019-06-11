@@ -128,7 +128,7 @@ encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
 decodeBlockHash :: MonadGet m => m BlockHash
-decodeBlockHash = BlockHash <$> decodeMerkleLogHash
+decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
 instance ToJSON BlockHash where
@@ -151,7 +151,7 @@ instance FromJSONKey BlockHash where
     {-# INLINE fromJSONKey #-}
 
 randomBlockHash :: MonadIO m => m BlockHash
-randomBlockHash = BlockHash <$> randomMerkleLogHash
+randomBlockHash = BlockHash <$!> randomMerkleLogHash
 {-# INLINE randomBlockHash #-}
 
 nullBlockHash :: BlockHash
@@ -204,13 +204,13 @@ encodeBlockHashRecord (BlockHashRecord r) = do
 decodeBlockHashWithChainId
     :: MonadGet m
     => m (ChainId, BlockHash)
-decodeBlockHashWithChainId = (,) <$> decodeChainId <*> decodeBlockHash
+decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 
 decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
     hashes <- mapM (const decodeBlockHashWithChainId) [1 .. l]
-    return $ BlockHashRecord $ HM.fromList $ hashes
+    return $! BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: MonadGet m
@@ -219,7 +219,7 @@ decodeBlockHashWithChainIdChecked
     => Expected p
     -> m (ChainId, BlockHash)
 decodeBlockHashWithChainIdChecked p = (,)
-    <$> decodeChainIdChecked p
+    <$!> decodeChainIdChecked p
     <*> decodeBlockHash
 
 -- to use this wrap the runGet into some MonadThrow.
@@ -231,10 +231,10 @@ decodeBlockHashRecordChecked
     => Expected [p]
     -> m BlockHashRecord
 decodeBlockHashRecordChecked ps = do
-    (l :: Natural) <- int <$> getWord16le
+    (l :: Natural) <- int <$!> getWord16le
     void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)
-    hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$> getExpected ps)
-    return $ BlockHashRecord $ HM.fromList $ hashes
+    hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
+    return $! BlockHashRecord $! HM.fromList hashes
 
 blockHashRecordToSequence :: BlockHashRecord -> S.Seq BlockHash
 blockHashRecordToSequence = S.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord
