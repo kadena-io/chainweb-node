@@ -58,7 +58,6 @@ doRestore _ dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
     withSavepoint PreBlock (handleVersion bh hash)
     beginSavepoint Block
-    liftIO $ putStrLn "have we restored"
   return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
 doRestore genesis dbenv Nothing = do
   runBlockEnv dbenv $ do

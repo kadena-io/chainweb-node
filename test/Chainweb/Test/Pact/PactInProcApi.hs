@@ -77,7 +77,6 @@ withPact mempool f = withResource startPact stopPact $ f . fmap snd
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
         a <- async (PS.initPactService testVersion cid logger reqQ mempool mv)
-        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do
@@ -106,6 +105,7 @@ validateTest reqIO = goldenSch "validateBlock-0" $ do
         Left e -> assertFailure (show e)
         Right r -> return r
 
+
     -- validate the same transactions sent to newBlockTest above
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
     let plData = PayloadData
@@ -121,7 +121,6 @@ validateTest reqIO = goldenSch "validateBlock-0" $ do
             { _blockPayloadHash = matchingPlHash
             , _blockParent = _blockHash genesisHeader
             }
-
     respVar1 <- validateBlock toValidateHeader plData reqQ
     goldenBytes "validateBlock-0" =<< takeMVar respVar1
   where

@@ -134,12 +134,13 @@ backendWriteInsert key tn bh version txid v db =
 
 backendWriteUpdate :: ToJSON v => Utf8 -> Utf8 -> BlockHeight -> ReorgVersion -> TxId -> v -> Database -> IO ()
 backendWriteUpdate key tn bh version txid v db =
-  exec' db ("UPDATE [" <> tn <> "] SET rowkey = ?, blockheight = ?, version =  ?, txid = ?, rowdata = ? ;")
-    [SText key
+  exec' db ("UPDATE [" <> tn <> "] SET rowdata = ? WHERE rowkey = ? AND blockheight = ? AND version =  ? AND txid = ? ;")
+    [SBlob (toStrict (Data.Aeson.encode v))
+    , SText key
     , SInt (fromIntegral bh)
     , SInt (fromIntegral version)
     , SInt (fromIntegral txid)
-    , SBlob (toStrict (Data.Aeson.encode v))]
+    ]
 
 backendWriteWrite :: ToJSON v => Utf8 -> Utf8 -> BlockHeight -> ReorgVersion -> TxId -> v -> Database -> IO ()
 backendWriteWrite key tn bh version txid v db =
@@ -166,16 +167,12 @@ writeUser wt d k row = do
         upd oldrow = do
           let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
               tn = domainTableName d
-          callDb "writeUser" (backendWriteUpdate (Utf8 $ toS $ asString $ key) tn bh version txid row')
-          record (prependToTableName "USER:" (toTableName $ tn)) d k row'
+          callDb "writeUser" $ backendWriteUpdate (Utf8 $ toS $ asString $ key) tn bh version txid row'
+          record (toTableName tn) d key row'
         ins = do
           let tn = domainTableName d
           callDb "writeUser" $ backendWriteInsert (Utf8 $ toS $ asString $ key) tn bh version txid row
-          record (prependToTableName "USER:" (toTableName $ domainTableName d)) d k row
-
-prependToTableName :: Text -> TableName -> TableName
-prependToTableName txt (TableName name) =
-  TableName (txt <> name)
+          record (toTableName tn) d key row
 
 writeRow :: (AsString k, ToJSON v) => WriteType -> Domain k v -> k -> v -> BlockHandler SQLiteEnv ()
 writeRow wt d k v = do
@@ -336,7 +333,7 @@ createUserTable :: TableName -> BlockVersion -> BlockHandler SQLiteEnv ()
 createUserTable name b = do
   callDb "createUserTable" $ \db -> exec_ db $
                   "CREATE TABLE "
-                   <> Utf8 (toS (flip T.snoc ']' $ T.cons '[' $ asString name))
+                   <> Utf8 (toS (flip T.snoc ']' $ T.cons '[' $ (asString name)))
                    <> " (rowkey TEXT\
                       \, blockheight UNSIGNED BIGINT\
                       \, version UNSIGNED BIGINT\
@@ -395,10 +392,10 @@ tableMaintenanceRowsVersionedSystemTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedSystemTables  = do
   (BlockVersion bh _) <- gets _bsBlockVersion
   callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
-    exec' db "DELETE FROM [SYS:KeySets] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
-    exec' db "DELETE FROM [SYS:Modules] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
-    exec' db "DELETE FROM [SYS:Namespaces] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
-    exec' db "DELETE FROM [SYS:Pacts] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+    exec' db "DELETE FROM [SYS:keysets] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+    exec' db "DELETE FROM [SYS:modules] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+    exec' db "DELETE FROM [SYS:namespaces] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+    exec' db "DELETE FROM [SYS:pacts] WHERE blockheight >= ?" [SInt (fromIntegral bh)]
 
 tableMaintenanceRowsVersionedUserTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedUserTables = do

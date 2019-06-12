@@ -47,14 +47,14 @@ testVersion = Testnet00
 
 tests :: ScheduledTest
 tests = testGroupSch "Simple pact execution tests"
-    [ withPactCtx testVersion Nothing $ \ctx -> testGroup "single transactions"
+    [ withPactCtxSQLite testVersion Nothing $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtx testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtxSQLite testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
 
 -- -------------------------------------------------------------------------- --

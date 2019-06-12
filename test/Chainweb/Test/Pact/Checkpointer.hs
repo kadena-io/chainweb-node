@@ -18,10 +18,8 @@ import Data.Aeson (Value(..), object, (.=), toJSON)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.String
 import Data.Text (Text)
 import qualified Data.Map.Strict as M
-import qualified Database.SQLite3.Direct as SQ3
 
 import NeatInterpolation (text)
 
@@ -40,11 +38,9 @@ import Pact.Types.Persistence
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
 import Pact.Types.Server (CommandEnv(..))
-import Pact.Types.SQLite
 import Pact.Types.Type (PrimType(..), Type(..))
 import Pact.Types.Exp (Literal(..))
 
-import System.IO.Extra
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -57,7 +53,6 @@ import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Service.Types (internalError)
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.TransactionExec
@@ -107,7 +102,7 @@ tIntList = toTList (TyPrim TyInteger) def . map toTerm
 
 
 testKeyset :: TestTree
-testKeyset = withResource initializeSQLite freeResource (runSQLite keysetTest)
+testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
 keysetTest ::  IO CheckpointEnv -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
@@ -151,24 +146,6 @@ data InitData = OnDisk | InMem
 testRelational :: TestTree
 testRelational = checkpointerTest "Relational Checkpointer" OnDisk
 
-
-initializeSQLite :: IO (IO (), SQLiteEnv)
-initializeSQLite = do
-      (file, del) <- newTempFile
-      e <- SQ3.open $ fromString file
-      case e of
-        Left (_err, _msg) ->
-          internalError ""
-        Right r -> do
-          runPragmas r fastNoJournalPragmas
-          return $ (del, SQLiteEnv r (SQLiteConfig file fastNoJournalPragmas))
-
-
-freeResource :: (IO (), SQLiteEnv) -> IO ()
-freeResource (del,sqlenv) = do
-  void $ SQ3.close $ _sConn sqlenv
-  del
-
 runSQLite :: (IO CheckpointEnv -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
 runSQLite runTest = runTest . make
   where
@@ -182,7 +159,7 @@ runSQLite runTest = runTest . make
 checkpointerTest :: String -> InitData -> TestTree
 checkpointerTest name initdata =
       case initdata of
-        OnDisk -> withResource initializeSQLite freeResource (runSQLite runTest)
+        OnDisk -> withResource initializeSQLite freeSQLiteResource (runSQLite runTest)
         InMem -> let loggers = pactTestLogger False
           in withResource (snd <$> initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer") freeGasEnv) (const $ return ()) runTest
   where
@@ -382,35 +359,35 @@ runRegression ::
   -> (MVar e -> IO ()) -- schema "creator"
   -> IO (MVar e) -- the final state of the environment
 runRegression pactdb e schemaInit = do
-  v <- newMVar e
-  schemaInit v
-  Just t1 <- begin pactdb v
+  conn <- newMVar e
+  schemaInit conn
+  Just t1 <- begin pactdb conn
   let user1 = "user1"
       usert = UserTables user1
       toPV :: ToTerm a => a -> PactValue
       toPV = toPactValueLenient . toTerm'
-  _createUserTable pactdb user1 "someModule" v
+  _createUserTable pactdb user1 "someModule" conn
   assertEquals' "output of commit2"
     [TxLog "SYS:usertables" "user1" $
       object [ ("utModule" .= object [ ("name" .= String "someModule"), ("namespace" .= Null)])
              ]
     ]
-    (commit pactdb v)
-  void $ begin pactdb v
+    (commit pactdb conn)
+  void $ begin pactdb conn
   {- the below line is commented out because we no longer support _getUserTableInfo -}
-  -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 v
+  -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 conn
   let row = ObjectMap $ M.fromList [("gah", PLiteral (LDecimal 123.454345))]
-  _writeRow pactdb Insert usert "key1" row v
-  assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" v)
+  _writeRow pactdb Insert usert "key1" row conn
+  assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" conn)
   let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
-  _writeRow pactdb Update usert "key1" row' v
-  assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" v)
+  _writeRow pactdb Update usert "key1" row' conn
+  assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
   let ks = KeySet [PublicKey "skdjhfskj"] (Name "predfun" def)
-  _writeRow pactdb Write KeySets "ks1" ks v
-  assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" v
+  _writeRow pactdb Write KeySets "ks1" ks conn
+  assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
   (modName,modRef,mod') <- loadModule
-  _writeRow pactdb Write Modules modName mod' v
-  assertEquals' "module write" (Just mod') $ _readRow pactdb Modules modName v
+  _writeRow pactdb Write Modules modName mod' conn
+  assertEquals' "module write" (Just mod') $ _readRow pactdb Modules modName conn
   assertEquals "module native repopulation" (Right modRef) $
     traverse (traverse (fromPersistDirect nativeLookup)) mod'
   assertEquals' "result of commit 3"
@@ -432,23 +409,23 @@ runRegression pactdb e schemaInit = do
             , _txValue = toJSON row'
             }
     ]
-    (commit pactdb v)
-  void $ begin pactdb v
-  tids <- _txids pactdb user1 t1 v
+    (commit pactdb conn)
+  void $ begin pactdb conn
+  tids <- _txids pactdb user1 t1 conn
   assertEquals "user txids" [1] tids
   -- assertEquals' "user txlogs"
   --   [TxLog "user1" "key1" row,
   --    TxLog "user1" "key1" row'] $
-  --   _getTxLog chainwebpactdb usert (head tids) v
+  --   _getTxLog chainwebpactdb usert (head tids) conn
   assertEquals' "user txlogs" [TxLog "user1" "key1" (ObjectMap $ on M.union _objectMap row' row)] $
-    _getTxLog pactdb usert (head tids) v
-  _writeRow pactdb Insert usert "key2" row v
-  assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" v)
-  assertEquals' "keys pre-rollback" ["key1","key2"] $ _keys pactdb (UserTables user1) v
-  _rollbackTx pactdb v
-  assertEquals' "rollback erases key2" Nothing $ _readRow pactdb usert "key2" v
-  assertEquals' "keys" ["key1"] $ _keys pactdb (UserTables user1) v
-  return v
+    _getTxLog pactdb usert (head tids) conn
+  _writeRow pactdb Insert usert "key2" row conn
+  assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" conn)
+  assertEquals' "keys pre-rollback" ["key1","key2"] $ _keys pactdb (UserTables user1) conn
+  _rollbackTx pactdb conn
+  assertEquals' "rollback erases key2" Nothing $ _readRow pactdb usert "key2" conn
+  assertEquals' "keys" ["key1"] $ _keys pactdb (UserTables user1) conn
+  return conn
 
 assertEquals' :: (Eq a, Show a, NFData a) => String -> a -> IO a -> IO ()
 assertEquals' msg a b = assertEquals msg a =<< b

@@ -30,8 +30,11 @@ module Chainweb.Test.Pact.Utils
 , destroyTestPactCtx
 , evalPactServiceM
 , withPactCtx
+, withPactCtxSQLite
 , testWebPactExecutionService
 , testPactExecutionService
+, initializeSQLite
+, freeSQLiteResource
 ) where
 
 import Control.Concurrent.MVar
@@ -47,8 +50,14 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import Data.String
 import Data.Vector (Vector)
+
+import qualified Database.SQLite3.Direct as SQ3
+
+import System.IO.Extra
 
 import Test.Tasty
 
@@ -63,6 +72,7 @@ import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.Runtime (noSPVSupport)
 import Pact.Types.Util (toB16Text)
+import Pact.Types.SQLite
 
 -- internal modules
 
@@ -71,7 +81,9 @@ import Chainweb.CutDB
 -- import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
 import Chainweb.Transaction
@@ -280,3 +292,48 @@ withPactCtx v cutDB f
         evalPactServiceM ctx pact
   where
     start = testPactCtx v (someChainId v)
+
+initializeSQLite :: IO (IO (), SQLiteEnv)
+initializeSQLite = do
+      (file, del) <- newTempFile
+      e <- SQ3.open $ fromString file
+      case e of
+        Left (_err, _msg) ->
+          internalError "initializeSQLite: A connection could not be opened."
+        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file []))
+
+freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
+freeSQLiteResource (del,sqlenv) = do
+  void $ SQ3.close $ _sConn sqlenv
+  del
+
+
+withPactCtxSQLite
+  :: ChainwebVersion
+  -> Maybe (MVar (CutDb cas))
+  -> ((forall a . PactServiceM a -> IO a) -> TestTree)
+  -> TestTree
+withPactCtxSQLite v cutDB f =
+  withResource
+    initializeSQLite
+    freeSQLiteResource $ \io -> do
+      withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \pact -> do
+          ctx <- ctxIO
+          evalPactServiceM ctx pact
+  where
+    destroy = const destroyTestPactCtx
+    start ios cdbv = do
+      let loggers = pactTestLogger False
+          logger = newLogger loggers $ LogName "PactService"
+          gasEnv = GasEnv 0 0 (constGasModel 0)
+          spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+          cid = (someChainId v)
+          pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+          blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
+      (_,s) <- ios
+      (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate s logger gasEnv
+      ctx <- TestPactCtx
+        <$> newMVar (PactServiceState thePactDbEnv Nothing)
+        <*> pure (PactServiceEnv Nothing cpe spv pd)
+      evalPactServiceM ctx (initialPayloadState v cid)
+      return ctx

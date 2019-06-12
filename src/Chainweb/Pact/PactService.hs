@@ -53,7 +53,7 @@ import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import Data.Maybe (isNothing)
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
@@ -69,7 +69,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.SQLite as P
+-- import qualified Pact.Types.SQLite as P
 
 -- internal modules
 
@@ -148,8 +148,8 @@ initPactService' cid chainwebLogger spv act = do
     let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
 
     -- TODO: The file and pragmas should come from a config file
-    withTempSQLiteConnection P.fastNoJournalPragmas $ \sqlenv -> do
-    -- withTempSQLiteConnection [] $ \sqlenv -> do
+    -- withTempSQLiteConnection P.fastNoJournalPragmas $ \sqlenv -> do
+    withTempSQLiteConnection [] $ \sqlenv -> do
 
       (thePactDbEnv, checkpointEnv) <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
     -- (thePactDbEnv, checkpointEnv) <- initInMemoryCheckpointEnv loggers logger gasEnv
@@ -212,7 +212,7 @@ serviceRequests memPoolAccess reqQ = do
                   Left (SomeException e) -> do
                     logError (show e)
                     liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
-                  Right r ->
+                  Right r -> do
                     liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
 
@@ -359,7 +359,7 @@ execValidateBlock loadingGenesis currHeader plData = do
 
     trans <- liftIO $ transactionsFromPayload plData
 
-    restoreCheckpointer $ if loadingGenesis then Nothing else Just (bHeight, bParent)
+    restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (bHeight, bParent)
 
     results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
       execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans
@@ -379,16 +379,16 @@ execTransactions nonGenesisParentHash miner ctxs = do
     case currentState of
       PactDbEnv' pactdbenv -> do
 
-        let isGenesis = isNothing nonGenesisParentHash
+        let !isGenesis = isNothing nonGenesisParentHash
 
-        coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-        txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+        !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
+        !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
 
 
-        let cmdBSToTx = toTransactionBytes . fmap payloadBytes
-            paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
+        let !cmdBSToTx = toTransactionBytes . fmap payloadBytes
+            !paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
 
-        return (Transactions paired coinOut)
+        return $! Transactions paired coinOut
 
 runCoinbase
     :: Maybe BlockHash

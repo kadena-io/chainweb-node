@@ -5,17 +5,13 @@ results:
     obj:
       amount:
         i: null
-        lit: -1
+        lit: 1000000
       data:
-        obj:
-          transfer-to:
-            i: null
-            lit: Acct2
-        type: '*'
         i: null
+        lit: Created account
       balance:
         i: null
-        lit: 999999
+        lit: 1000000
       account:
         i: null
         lit: Acct1
