@@ -35,6 +35,7 @@ module Chainweb.Test.Pact.Utils
 , testPactExecutionService
 , initializeSQLite
 , freeSQLiteResource
+, testPactCtxSQLite
 ) where
 
 import Control.Concurrent.MVar
@@ -82,6 +83,7 @@ import Chainweb.CutDB
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.Utils
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
@@ -223,12 +225,6 @@ testPactCtx
     -> IO TestPactCtx
 testPactCtx v cid cdbv = do
     (dbSt, cpe) <- initInMemoryCheckpointEnv loggers logger gasEnv
-    -- env <- mkPureEnv loggers
-    -- dbSt <- mkPureState env
-    -- void $ saveInitial (_cpeCheckpointer cpe) dbSt
-    -- ctx <- TestPactCtx
-    --     <$> newMVar (PactServiceState Nothing)
-    --     <*> pure (PactServiceEnv Nothing cpe spv pd)
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
@@ -241,6 +237,27 @@ testPactCtx v cid cdbv = do
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
+testPactCtxSQLite
+  :: ChainwebVersion
+  -> V.ChainId
+  -> Maybe (MVar (CutDb cas))
+  -> IO TestPactCtx
+testPactCtxSQLite v cid cdbv = do
+  withTempSQLiteConnection [] $ \sqlenv -> do
+
+    (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+    ctx <- TestPactCtx
+      <$> newMVar (PactServiceState thePactDbEnv Nothing)
+      <*> pure (PactServiceEnv Nothing cpe spv pd)
+    evalPactServiceM ctx (initialPayloadState v cid)
+    return ctx
+  where
+    loggers = pactTestLogger False
+    logger = newLogger loggers $ LogName "PactService"
+    gasEnv = GasEnv 0 0 (constGasModel 0)
+    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+    blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
 
 -- | A test PactExecutionService for a single chain
 --
@@ -252,7 +269,7 @@ testPactExecutionService
        -- ^ transaction generator
     -> IO PactExecutionService
 testPactExecutionService v cid cutDB mempoolAccess = do
-    ctx <- testPactCtx v cid cutDB
+    ctx <- testPactCtxSQLite v cid cutDB
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
@@ -327,7 +344,7 @@ withPactCtxSQLite v cutDB f =
           logger = newLogger loggers $ LogName "PactService"
           gasEnv = GasEnv 0 0 (constGasModel 0)
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
-          cid = (someChainId v)
+          cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
           blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
       (_,s) <- ios

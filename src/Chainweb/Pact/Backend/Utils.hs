@@ -77,7 +77,6 @@ withSavepoint name action = do
       rollbackSavepoint name
       internalError $ "withSavepoint: The impossible happened: " <> (pack $ show err)
 
-
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
