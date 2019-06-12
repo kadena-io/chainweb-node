@@ -438,7 +438,7 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >=1.2
         , time
-        , these >= 0.7
+        , these >= 0.7 && < 1
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12

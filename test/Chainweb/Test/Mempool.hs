@@ -97,11 +97,13 @@ arbitraryDecimal = do
     i <- (arbitrary :: Gen Int64)
     return $! fromInteger $ toInteger i
 
+arbitraryGasPrice :: Gen GasPrice
+arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
   arbitrary = let g x = choose (1, x)
               in MockTx <$> chooseAny
-                        <*> (GasPrice . ParsedDecimal <$> arbitraryDecimal)
+                        <*> arbitraryGasPrice
                         <*> g mockBlockGasLimit
                         <*> pure emptyMeta
     where
