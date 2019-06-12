@@ -405,7 +405,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
         | _enableConfigEnabled (_configTransactionIndex conf)
             = let l = sortBy (compare `on` fst) (HM.toList cs)
                   bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
-              in Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
+              in Bloom.withCache (cuts ^. cutsCutDb) rocksDb bdbs $ \bloom ->
                  m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
 
         | otherwise = m []

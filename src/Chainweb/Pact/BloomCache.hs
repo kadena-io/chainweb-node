@@ -33,7 +33,7 @@ import Control.Applicative
 import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
-import Control.Exception (ErrorCall(..), SomeAsyncException(..))
+import Control.Exception (SomeAsyncException(..))
 import Control.Lens ((^.))
 import Control.Monad
 import Control.Monad.Catch
@@ -74,7 +74,7 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.TreeDB as TreeDB
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils (fromJuste, runGet)
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.CAS.RocksDB as RDB
@@ -101,16 +101,11 @@ data TransactionBloomCache = TransactionBloomCache {
 -}
 
 data BloomEntry = BloomEntry
-    { _beHeight :: {-# UNPACK #-} !BlockHeight
-    , _beHash :: {-# UNPACK #-} !BlockHash
-    , _beBloom :: !(Bloom H.Hash)
+    { _beKey :: {-# UNPACK #-} !BloomKey
     , _beNumHashes :: {-# UNPACK #-} !Int16
+    , _beBloom :: !(Bloom H.Hash)
     }
     deriving (Show, Generic)
-
-_beKey :: BloomEntry -> BloomKey
-_beKey x = BloomKey (_beHeight x) (_beHash x)
-{-# INLINE _beKey #-}
 
 instance Eq BloomEntry where
     (==) = (==) `on` _beKey
@@ -151,10 +146,15 @@ data TransactionBloomCache = TransactionBloomCache {
 maxBloomAssocs :: Int
 maxBloomAssocs = 32678
 
+putBloomKey :: MonadPut m => BloomKey -> m ()
+putBloomKey (BloomKey h hsh) = encodeBlockHeightBe h >> encodeBlockHash hsh
+
+getBloomKey :: MonadGet m => m BloomKey
+getBloomKey = BloomKey <$> decodeBlockHeightBe <*> decodeBlockHash
+
 encodeBloomEntry :: BloomEntry -> B.ByteString
 encodeBloomEntry b = runPutS $ do
-    encodeBlockHeightBe $! _beHeight b
-    encodeBlockHash $! _beHash b
+    putBloomKey $ _beKey b
     putWord16le $ fromIntegral $! _beNumHashes b
     let bloom = _beBloom b
     let ua = Bloom.bitArray bloom
@@ -175,46 +175,50 @@ encodeBloomEntry b = runPutS $ do
         putWord32le h
 
 decodeBloomEntry :: MonadThrow m => B.ByteString -> m BloomEntry
-decodeBloomEntry s = either bad return $ runGetS dec s
-  where
-    bad = throwM . ErrorCall . ("bloom decode error: "++)
-          -- todo: principled exception type here
-    dec = do
-        h <- decodeBlockHeightBe
-        hsh <- decodeBlockHash
-        nh <- fromIntegral <$> getWord16le
-        bloomBits <- fromIntegral <$> getWord16le
-        lo <- fromIntegral <$> getWord32le
-        hi <- fromIntegral <$> getWord32le
-        na <- fromIntegral <$> getWord32le
-        guard $ na <= maxBloomAssocs
-        assocs <- replicateM na decOne
-        let !bits = U.array (lo, hi) assocs
-        let !bloom = (Bloom.empty (Bloom.cheapHashes nh) bloomBits) { Bloom.bitArray = bits }
-        return $! BloomEntry h hsh bloom $ fromIntegral nh
+decodeBloomEntry = runGet $ do
+    k <- getBloomKey
+    nh <- fromIntegral <$> getWord16le
+    bloomBits <- fromIntegral <$> getWord16le
+    lo <- fromIntegral <$> getWord32le
+    hi <- fromIntegral <$> getWord32le
+    na <- fromIntegral <$> getWord32le
+    guard $ na <= maxBloomAssocs
+    assocs <- replicateM na decOne
+    let !bits = U.array (lo, hi) assocs
+    let !bloom = (Bloom.empty (Bloom.cheapHashes nh) bloomBits) { Bloom.bitArray = bits }
+    return $! BloomEntry k (fromIntegral nh) bloom
 
+  where
     decOne = do
         !i <- fromIntegral <$> getWord64le
         !h <- getWord32le
         return $! (i, h)
 
 
-_bloomEntryCodec :: RDB.Codec BloomEntry
-_bloomEntryCodec = RDB.Codec encodeBloomEntry decodeBloomEntry
+bloomEntryCodec :: RDB.Codec BloomEntry
+bloomEntryCodec = RDB.Codec encodeBloomEntry decodeBloomEntry
 
+bloomKeyCodec :: RDB.Codec BloomKey
+bloomKeyCodec = RDB.Codec encodeBloomKey decodeBloomKey
+  where
+    encodeBloomKey = runPutS . putBloomKey
+    decodeBloomKey :: MonadThrow m => B.ByteString -> m BloomKey
+    decodeBloomKey = runGet getBloomKey
 
 createCache
     :: PayloadCas cas
     => CutDb cas
+    -> RocksDb
     -> [(ChainId, BlockHeaderDb)]
     -> IO TransactionBloomCache
-createCache cutDb bdbs = mask_ $ do
+createCache cutDb rocks bdbs = mask_ $ do
     !m <- newIORef HashMap.empty
     !t <- Async.asyncWithUnmask $ threadProc m
-    -- TODO: create CAS
-    return $! TransactionBloomCache m undefined t
+    return $! TransactionBloomCache m cas t
 
   where
+    cas = newCas rocks bloomEntryCodec bloomKeyCodec ["BlockTxBloom"]
+
     threadProc mapVar restore = begin
       where
         begin = silently . restore $ go Nothing
@@ -241,10 +245,11 @@ destroyCache = Async.cancel . _thread
 withCache
     :: PayloadCas cas
     => CutDb cas
+    -> RocksDb
     -> [(ChainId, BlockHeaderDb)] -- TODO: should be WebBlockHeaderDb or WebBlockHeaderStore
     -> (TransactionBloomCache -> IO a)
     -> IO a
-withCache cutDb bdbs = bracket (createCache cutDb bdbs) destroyCache
+withCache cutDb rocks bdbs = bracket (createCache cutDb rocks bdbs) destroyCache
 
 
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
@@ -340,7 +345,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             hashes <- mapM (fmap (H.toUntypedHash . _cmdHash) . fromTx) txsBs
             let (nbits, nh) = Bloom.suggestSizing (length hashes) bloomFalsePositiveRate
             let !bloom = Bloom.fromList (Bloom.cheapHashes nh) nbits $ toList hashes
-            let be = BloomEntry hgt hc bloom $ fromIntegral nh
+            let be = BloomEntry (BloomKey hgt hc) (fromIntegral nh) bloom
             return $! HashMap.insert hkey be mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
