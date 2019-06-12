@@ -7,6 +7,8 @@
 module TXG.Simulate.Contracts.SimplePayments where
 
 import Data.Aeson
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -29,10 +31,10 @@ import Pact.Types.Crypto (SomeKeyPair)
 import TXG.Simulate.Contracts.Common
 import TXG.Simulate.Utils
 
-simplePaymentsContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
-simplePaymentsContractLoader meta adminKeyset = do
-    let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-    mkExec (T.unpack theCode) theData meta adminKeyset Nothing
+simplePaymentsContractLoader :: PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
+simplePaymentsContractLoader meta adminKS = do
+    let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKS]
+    mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) Nothing
   where
     theCode = [text| ;; Simple accounts model.
 ;;
@@ -86,7 +88,7 @@ simplePaymentsContractLoader meta adminKeyset = do
   |]
 
 mkRandomSimplePaymentRequest
-  :: M.Map Account [SomeKeyPair]
+  :: M.Map Account (NonEmpty SomeKeyPair)
   -> IO (FGen SimplePaymentRequest)
 mkRandomSimplePaymentRequest _ = do
   request <- randomRIO @Int (0, 1)
@@ -112,21 +114,27 @@ mkRandomSimplePaymentRequest _ = do
 data SimplePaymentRequest
   = SPRequestGetBalance Account
   | SPRequestPay Account Account Amount
-  | SPCreateAccount Account Balance [SomeKeyPair]
+  | SPCreateAccount Account Balance (NonEmpty SomeKeyPair)
 
-createSimplePaymentRequest :: PublicMeta -> SimplePaymentRequest -> Maybe [SomeKeyPair] -> IO (Command Text)
-createSimplePaymentRequest meta (SPCreateAccount (Account account) (Balance initialBalance) somekeyset) _ = do
-  adminKeyset <- testSomeKeyPairs
-  let theData = object ["keyset" .= fmap formatB16PubKey somekeyset ,"admin-keyset" .= fmap formatB16PubKey adminKeyset]
-      theCode = printf "(payments.create-account \"%s\" %s)" account (show initialBalance)
-  mkExec theCode theData meta somekeyset Nothing
+simplePayReq
+  :: PublicMeta
+  -> SimplePaymentRequest
+  -> Maybe (NonEmpty SomeKeyPair)
+  -> IO (Command Text)
+simplePayReq meta (SPCreateAccount (Account account) (Balance initBal) ks) _ = do
+  adminKS <- testSomeKeyPairs
+  let theCode = printf "(payments.create-account \"%s\" %s)" account (show initBal)
+      theData = object [ "keyset" .= fmap formatB16PubKey ks
+                       , "admin-keyset" .= fmap formatB16PubKey adminKS ]
+  mkExec theCode theData meta (NEL.toList ks) Nothing
 
-createSimplePaymentRequest meta (SPRequestGetBalance (Account account)) _ = do
-  adminKeyset <- testSomeKeyPairs
+simplePayReq meta (SPRequestGetBalance (Account account)) _ = do
+  adminKS <- testSomeKeyPairs
   let theCode = printf "(payments.get-balance \"%s\")" account
-  mkExec theCode Null meta adminKeyset Nothing
+  mkExec theCode Null meta (NEL.toList adminKS) Nothing
 
-createSimplePaymentRequest meta (SPRequestPay (Account from) (Account to) (Amount amount)) (Just keyset) = do
+simplePayReq meta (SPRequestPay (Account from) (Account to) (Amount amount)) (Just ks) = do
   let theCode = printf "(payments.pay \"%s\" \"%s\" %s)" from to (show amount)
-  mkExec theCode Null meta keyset Nothing
-createSimplePaymentRequest _ _ _ = error "createSimplePaymentRequest: impossible"
+  mkExec theCode Null meta (NEL.toList ks) Nothing
+
+simplePayReq _ _ _ = error "simplePayReq: impossible"
