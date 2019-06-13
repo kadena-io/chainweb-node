@@ -320,7 +320,6 @@ checkpointerTest name initdata =
 
           save _cpeCheckpointer hash02Fork
 
-
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 

@@ -45,6 +45,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
+import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
@@ -56,7 +57,6 @@ import Data.Text (Text)
 import Data.String
 import Data.Vector (Vector)
 
-import qualified Database.SQLite3.Direct as SQ3
 
 import System.IO.Extra
 
@@ -85,6 +85,7 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Utils
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
+import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
@@ -313,7 +314,7 @@ withPactCtx v cutDB f
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
       (file, del) <- newTempFile
-      e <- SQ3.open $ fromString file
+      e <- open_v2 (fromString file) (0x00000002 .|. 0x00000004 .|. 0x00010000) "unix"
       case e of
         Left (_err, _msg) ->
           internalError "initializeSQLite: A connection could not be opened."
@@ -321,9 +322,8 @@ initializeSQLite = do
 
 freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
 freeSQLiteResource (del,sqlenv) = do
-  void $ SQ3.close $ _sConn sqlenv
+  void $ close_v2 $ _sConn sqlenv
   del
-
 
 withPactCtxSQLite
   :: ChainwebVersion

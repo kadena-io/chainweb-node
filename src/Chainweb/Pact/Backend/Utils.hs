@@ -25,6 +25,7 @@ import Control.Monad.State.Strict
 
 import Control.Monad.Reader
 
+import Data.Bits
 import Data.String
 import Data.String.Conv
 import Data.ByteString hiding (pack)
@@ -46,6 +47,7 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Backend.SQLite.DirectV2
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
@@ -110,10 +112,10 @@ withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO 
 withSQLiteConnection file ps todelete action = bracket opener closer action
   where
     closer c = do
-      void $ close $ _sConn c
+      void $ close_v2 $ _sConn c
       when todelete (removeFile file)
     opener = do
-      e <- open $ fromString file
+      e <- open_v2 (fromString file) (0x00000002 .|. 0x00000004 .|. 0x00010000) "unix"
       case e of
         Left (err, msg) ->
           internalError $
