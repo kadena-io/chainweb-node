@@ -9,14 +9,12 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | This structure records a probabilistic sketch of which transactions were
--- processed in recent blocks. We keep a (fixed) maximum block horizon, i.e. if
+-- processed in recent blocks. We keep block bloom filter sketches in rocksdb
+-- as well as a (fixed) maximum block horizon in memory, i.e. if
 --
 --   h = min_height_in_cut,
 --
--- the cache will not contain sketches for blocks smaller than h - d. Currently
--- d = 16384, meaning we'll spend approximately 4-8MB per chain for this cache
--- if the blocks average 100 txs (blooms will be ~128 bytes plus data + hashmap
--- overhead in this case).
+-- the in-memory cache will not contain sketches for blocks smaller than h - d.
 --
 -- The cache is updated by a worker thread that listens for changes to the Cut
 -- TVar.
@@ -151,10 +149,12 @@ maxBloomAssocs = 32678
 
 putBloomKey :: MonadPut m => BloomKey -> m ()
 putBloomKey (BloomKey h hsh) = encodeBlockHeightBe h >> encodeBlockHash hsh
+{-# INLINE putBloomKey #-}
 
 
 getBloomKey :: MonadGet m => m BloomKey
 getBloomKey = BloomKey <$!> decodeBlockHeightBe <*> decodeBlockHash
+{-# INLINE getBloomKey #-}
 
 
 encodeBloomEntry :: BloomEntry -> B.ByteString
@@ -178,6 +178,7 @@ encodeBloomEntry b = runPutS $ do
     ual = length assocs
     (lo, hi) = U.bounds ua
     bloomBits = Bloom.length bloom
+{-# INLINE encodeBloomEntry #-}
 
 
 decodeBloomEntry :: MonadThrow m => B.ByteString -> m BloomEntry
@@ -199,6 +200,7 @@ decodeBloomEntry = runGet $ do
         !i <- fromIntegral <$> getWord64le
         !h <- getWord32le
         return $! (i, h)
+{-# INLINE decodeBloomEntry #-}
 
 
 bloomEntryCodec :: RDB.Codec BloomEntry
@@ -244,7 +246,7 @@ createCache cutDb rocks bdbs = mask_ $ do
       where
         f bh (_, hdr) = min bh $ _blockHeight hdr
 
-    reap !minHeight = HashMap.filterWithKey $ const . (>= minHeight) . _kHeight
+    reap !minHeight = HashMap.filterWithKey (const . (>= minHeight) . _kHeight)
 
 
 destroyCache :: TransactionBloomCache -> IO ()
@@ -261,6 +263,11 @@ withCache
 withCache cutDb rocks bdbs = bracket (createCache cutDb rocks bdbs) destroyCache
 
 
+-- | (Probabilistic) bloom membership. Looks up the given pact tx id in the
+-- given consensus block. Returns `False` if the given tx definitely doesn't
+-- belong in the given block (and so we don't have to decode and search it), or
+-- `True` if we think there's a chance the tx might be in the block or if the
+-- block is not in bloom cache.
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
 member h (a,b) (TransactionBloomCache mv cas _) = do
     !mp <- readMVar mv
@@ -271,11 +278,16 @@ member h (a,b) (TransactionBloomCache mv cas _) = do
 
     lookupInMap mp = MaybeT (return $! HashMap.lookup k mp) >>= lookupInBloom
 
-    lookupInCas = MaybeT (casLookup cas k) >>= lookupInBloom
+    lookupInCas = do
+        !entry <- MaybeT (casLookup cas k)
+        -- insert this lookup into cache because we were forced to load it from
+        -- disk. It will be reaped at next cut update if necessary.
+        liftIO $ modifyMVar_ mv $ \(!mp) ->
+            return $! HashMap.insert (_beKey entry) entry mp
+        lookupInBloom entry
 
-    lookupInBloom entry =
-        let !bloom = _beBloom entry
-        in return $! Bloom.elem h bloom
+    lookupInBloom = return . Bloom.elem h . _beBloom
+{-# INLINE member #-}
 
 
 ------------------------------------------------------------------------------
@@ -284,13 +296,18 @@ waitForNewCut cutDb lastCut = atomically $ do
     !cut <- CutDB._cutStm cutDb
     when (lastCut == Just cut) retry
     return cut
+{-# INLINE waitForNewCut #-}
 
 
 -- TODO: configurable
+-- | This parameter controls how many blocks back into history we'll keep in
+-- ram.
 mAX_HEIGHT_DELTA :: BlockHeight
-mAX_HEIGHT_DELTA = 16384
+mAX_HEIGHT_DELTA = 100
 
 
+-- | Given a new cut, decodes all of the new block payloads and inserts the new
+-- bloom entries into the CAS and in-memory cache.
 update
     :: HasCallStack
     => PayloadCas cas
@@ -301,20 +318,24 @@ update
     -> Cut
     -> (BloomMap -> BloomMap)
     -> IO ()
-update cutDb cas bdbs mv cut atEnd =
-    modMap >>= casInsertBatch cas
-
+update cutDb cas bdbs mv cut atEnd = modMap >>= casInsertBatch cas
   where
+    -- Generates new bloom sketches, puts them in the in-memory map, and
+    -- returns a vector of the new bloom map entries for insertion into the CAS
+    -- store.
+    modMap :: IO (V.Vector BloomEntry)
     modMap = modifyMVar mv $ \mp -> do
         (mp', entries) <- f mp
         !mp'' <- evaluate (atEnd mp')
-        return (mp'', V.fromList entries)
+        let !v = V.fromList entries
+        return (mp'', v)
 
     f mp = foldM upd (mp, []) hdrs
     hdrs = HashMap.toList $ _cutMap cut
     upd (!mp, !entries) (cid, blockHeader) =
         updateChain cutDb cas (fromJuste $! lookup cid bdbs) blockHeader
                     mp entries
+{-# INLINE update #-}
 
 
 updateChain
@@ -332,6 +353,7 @@ updateChain cutDb cas bdb blockHeader mp entries = do
     fromMaybe (mp, entries) <$!>
         runMaybeT (updateChain' cutDb cas bdb minHeight blockHeader mp entries)
 
+
 boundHeight :: BlockHeight -> BlockHeight
 boundHeight h | h <= mAX_HEIGHT_DELTA = 0
               | otherwise = h - mAX_HEIGHT_DELTA
@@ -347,9 +369,9 @@ updateChain'
     -> BloomMap
     -> [BloomEntry]
     -> MaybeT IO (BloomMap, [BloomEntry])
-updateChain' cutDb cas bdb minHeight blockHeader0 mp0 entries0 = go mp0 entries0 blockHeader0
+updateChain' cutDb cas bdb minHeight = go
   where
-    go !mp !entries !blockHeader = do
+    go !blockHeader !mp !entries = do
         b <- lookupHKey hkey mp
         if b
             then return (mp, entries)   -- we can stop here, rest of parents are in cache
@@ -361,7 +383,7 @@ updateChain' cutDb cas bdb minHeight blockHeader0 mp0 entries0 = go mp0 entries0
                   else do
                     let parentHash = _blockParent blockHeader
                     parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
-                    go mp' entries' parentHeader
+                    go parentHeader mp' entries'
       where
         hgt = _blockHeight blockHeader
         hc = _blockHash blockHeader
@@ -383,8 +405,10 @@ updateChain' cutDb cas bdb minHeight blockHeader0 mp0 entries0 = go mp0 entries0
     pdb = cutDb ^. CutDB.cutDbPayloadCas
     fromTx (tx, _) = MaybeT (return $! toPactTx tx)
 
+
 bloomFalsePositiveRate :: Double
-bloomFalsePositiveRate = 0.08
+bloomFalsePositiveRate = 0.02
+
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
