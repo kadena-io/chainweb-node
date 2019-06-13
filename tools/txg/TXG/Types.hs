@@ -35,34 +35,49 @@ module TXG.Types
     -- * Misc.
   , TXCount(..)
   , BatchSize(..)
+  , nelReplicate
+  , nelZipWith3
   ) where
 
 import BasePrelude hiding (loop, option, rotate, timeout, (%))
-import Chainweb.ChainId
-import Chainweb.HostAddress
-import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
-import Chainweb.Version
+
 import Configuration.Utils hiding (Error, Lens', (<.>))
+
 import Control.Monad.Catch (MonadThrow(..))
 import Control.Monad.Primitive
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
+
+import qualified Data.Attoparsec.ByteString.Char8 as A
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.List.NonEmpty as NEL
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.ByteString (ByteString)
 import Data.Generics.Product.Fields (field)
 import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Text (Text)
+
 import GHC.Generics (Generic)
+
 import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
-import Pact.Types.Crypto (SomeKeyPair)
+
 import Servant.Client
+
 import System.Random.MWC (Gen)
-import qualified Data.Attoparsec.ByteString.Char8 as A
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+
+-- internal modules
+
+import Chainweb.ChainId
+import Chainweb.HostAddress
+import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
+import Chainweb.Version
+
+import Pact.Types.Crypto (SomeKeyPair)
+
 import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
 
@@ -242,7 +257,7 @@ data TXGState = TXGState
 
 data TXGConfig = TXGConfig
   { confTimingDist :: !(Maybe TimingDistribution)
-  , confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName [SomeKeyPair])))
+  , confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))))
   , confClientEnv :: !ClientEnv
   , confVersion :: !ChainwebVersion
   , confBatchSize :: !BatchSize
@@ -258,8 +273,8 @@ mkTXGConfig mdistribution config host =
     cenv :: IO ClientEnv
     cenv = do
        mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
-       let timeout = responseTimeoutMicro (1000000 * 60 * 4)
-       mgr <- newTlsManagerWith (mgrSettings { managerResponseTimeout = timeout })
+       let timeout = responseTimeoutMicro $ 1000000 * 60 * 4
+       mgr <- newTlsManagerWith $ mgrSettings { managerResponseTimeout = timeout }
        let url = BaseUrl Https
                  (T.unpack . hostnameToText $ _hostAddressHost host)
                  (fromIntegral $ _hostAddressPort host)
@@ -276,3 +291,13 @@ newtype TXCount = TXCount Word
 
 newtype BatchSize = BatchSize Word
   deriving newtype (Integral, Real, Num, Enum, Ord, Eq, Read, Show, ToJSON, FromJSON)
+
+nelReplicate :: Word -> a -> NonEmpty a
+nelReplicate n a = NEL.unfoldr f n
+  where
+    f 0 = error "nelReplicate: Can't have length-0 list."
+    f 1 = (a, Nothing)
+    f m = (a, Just $ m - 1)
+
+nelZipWith3 :: (a -> b -> c -> d) -> NonEmpty a -> NonEmpty b -> NonEmpty c -> NonEmpty d
+nelZipWith3 f ~(x :| xs) ~(y :| ys) ~(z :| zs) = f x y z :| zipWith3 f xs ys zs

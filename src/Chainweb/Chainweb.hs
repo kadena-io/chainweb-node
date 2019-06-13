@@ -331,8 +331,6 @@ mempoolConfig enableReIntro = Mempool.InMemConfig
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
--- TODO: abstract cas creation
---
 withChainwebInternal
     :: Logger logger
     => ChainwebConfiguration
@@ -344,19 +342,21 @@ withChainwebInternal
 withChainwebInternal conf logger peer rocksDb inner = do
     initializePayloadDb v payloadDb
     cdbv <- newEmptyMVar
-    go mempty (toList cids) cdbv enableTxsReintro
+    concurrentWith
+        -- initialize chains concurrently
+        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid) mempoolConf cdbv (Just payloadDb))
+
+        -- initialize global resources after all chain resources are initialized
+        (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
+        cidsList
+
   where
+    cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
 
-    -- Initialize chain resources
-    go cs (cid : t) cdbv enableReintro =
-        withChainResources v cid rocksDb peer (chainLogger cid)
-        (mempoolConfig enableReintro) cdbv (Just payloadDb) $ \c ->
-            go (HM.insert cid c cs) t cdbv enableReintro
-
     -- Initialize global resources
-    go cs [] cdbv _enableReintro = do
+    global cs cdbv = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -414,6 +414,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
     cids = chainIds v
     cwnid = _configNodeId conf
     enableTxsReintro = _configReintroTxs conf
+    mempoolConf = mempoolConfig enableTxsReintro
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)

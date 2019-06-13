@@ -196,12 +196,12 @@ in
           sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
         });
 
-        # pact-2.6.1
+        # pact-3.0.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "f880d34850b5aa4bd538a23029a74777e1f83a5d";
-          sha256 = "17752aallilpvcdqy45jxgwc33a1ljzb3qbn7zbxn7pq4f5iypxw";
+          rev = "c26d1396bb4d1e86892b488ab25464ae562db12e";
+          sha256 = "1hk39sxcx405vgvj99ydqszz06vywi2l1gr2xg76yy3wrrcvz7nc";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -284,6 +284,30 @@ in
 
         # hlint = self.callHackage "hlint" "2.0.14" {};
         # hoogle = self.callHackage "hoogle" "5.0.15" {};
+
+        swagger2 = dontCheck (callHackageDirect {
+          pkg = "swagger2";
+          ver = "2.3.1.1";
+          sha256 = "0rhxqdiymh462ya9h76qnv73v8hparwz8ibqqr1d06vg4zm7s86p";
+        });
+
+        base-compat-batteries = dontCheck (callHackageDirect {
+          pkg = "base-compat-batteries";
+          ver = "0.10.5";
+          sha256 = "1l82l4q7sz336qqdqy3rhh6brgnslczdavn92wnaimpjmwbv256c";
+        });
+
+        base-compat= dontCheck (callHackageDirect {
+          pkg = "base-compat";
+          ver = "0.10.5";
+          sha256 = "0fq38x47dlwz3j6bdrlfslscz83ccwsjrmqq6l7m005331yn7qc6";
+        });
+
+        contravariant = dontCheck (callHackageDirect {
+          pkg = "contravariant";
+          ver = "1.5.2";
+          sha256 = "1glq01mdv2xjwx7vkf3yvyd2rs150zx9gr7jy0gk7qylq6ljx8w6";
+        });
 
         # specific revision needed by pact
         sbv = pkgs.haskell.lib.dontCheck (self.callCabal2nix "sbv" (pkgs.fetchFromGitHub {

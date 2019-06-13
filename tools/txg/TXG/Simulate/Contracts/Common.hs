@@ -3,8 +3,22 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
-module TXG.Simulate.Contracts.Common where
+module TXG.Simulate.Contracts.Common
+  ( -- * Types
+    Account(..)
+  , Amount(..)
+  , Balance(..)
+  , ContractName(..)
+  , makeMeta
+    -- * Accounts
+  , accountNames
+  , createPaymentsAccounts
+  , createCoinAccounts
+    -- * Generation
+  , distinctPair
+    -- * Parsing
+  , parseBytes
+  ) where
 
 import Control.Monad.Catch
 
@@ -15,6 +29,8 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Char
 import Data.Decimal
 import Data.List (uncons)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -22,8 +38,6 @@ import qualified Data.Text as T
 import Fake
 
 import GHC.Generics hiding (from, to)
-
--- -- import System.Random
 
 import Text.Printf
 
@@ -40,48 +54,46 @@ import Chainweb.ChainId
 import Chainweb.Utils
 import TXG.Simulate.Utils
 
-createPaymentsAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
+createPaymentsAccount :: CM.PublicMeta -> String -> IO (NonEmpty SomeKeyPair, Command Text)
 createPaymentsAccount meta name = do
-    adminKeyset <- testSomeKeyPairs
-    nameKeyset <- return <$> genKeyPair defaultScheme
+    adminKS <- testSomeKeyPairs
+    nameKeyset <- pure <$> genKeyPair defaultScheme
     let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-    res <- mkExec theCode theData meta adminKeyset Nothing
-    return (nameKeyset, res)
+    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
+    pure (nameKeyset, res)
   where
     theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
 
 
-createCoinAccount :: CM.PublicMeta -> String -> IO ([SomeKeyPair], Command Text)
+createCoinAccount :: CM.PublicMeta -> String -> IO (NonEmpty SomeKeyPair, Command Text)
 createCoinAccount meta name = do
-  adminKeyset <- testSomeKeyPairs
-  nameKeyset <- return <$> genKeyPair defaultScheme
+  adminKS <- testSomeKeyPairs
+  nameKeyset <- pure <$> genKeyPair defaultScheme
   let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-  res <- mkExec theCode theData meta adminKeyset Nothing
-  return (nameKeyset, res)
+  res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
+  pure (nameKeyset, res)
   where
     theCode = printf "(coin.create-account \"%s\" (read-keyset \"%s\"))" name name
 
-createPaymentsAccounts :: CM.PublicMeta -> IO [([SomeKeyPair], Command Text)]
-createPaymentsAccounts meta = traverse (createPaymentsAccount meta . safeCapitalize) (words names)
+createPaymentsAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
+createPaymentsAccounts meta = traverse (createPaymentsAccount meta) names
 
-createCoinAccounts :: CM.PublicMeta -> IO [([SomeKeyPair], Command Text)]
-createCoinAccounts meta = traverse (createCoinAccount meta . safeCapitalize) (words names)
+createCoinAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
+createCoinAccounts meta = traverse (createCoinAccount meta) names
 
 safeCapitalize :: String -> String
 safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (map toLower)) . uncons
 
-names :: String
-names = "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
+names :: NonEmpty String
+names = NEL.map safeCapitalize . NEL.fromList $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
-newtype Account = Account
-  { getAccount :: String
-  } deriving (Eq, Ord, Show, Generic)
+newtype Account = Account { getAccount :: String } deriving (Eq, Ord, Show, Generic)
 
-accountNames :: [Account]
-accountNames = map (Account . safeCapitalize) (words names)
+accountNames :: NonEmpty Account
+accountNames = NEL.map Account names
 
 instance Fake Account where
-  fake = elements accountNames
+  fake = elements $ NEL.toList accountNames
 
 newtype Amount = Amount
   { getAmount :: Decimal
@@ -106,9 +118,6 @@ instance Fake Balance where
 distinctPair :: (Fake a, Eq a) => FGen (a,a)
 distinctPair = fake >>= \a -> (,) a <$> suchThat fake (/= a)
 
-parens :: String -> String
-parens s = "(" ++ s ++ ")"
-
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> CM.PublicMeta
 makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 0.0001
@@ -122,7 +131,7 @@ instance ToJSON ContractName
 instance FromJSON ContractName
 
 parseBytes :: MonadThrow m => Text -> Parser a -> B8.ByteString -> m a
-parseBytes name parser b = either (throwM . TextFormatException . msg) return $ parseOnly (parser <* endOfInput) b
+parseBytes name parser b = either (throwM . TextFormatException . msg) pure $ parseOnly (parser <* endOfInput) b
   where
     msg e = "Failed to parse " <> sshow b <> " as " <> name <> ": "
         <> T.pack e

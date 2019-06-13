@@ -24,14 +24,17 @@ module Chainweb.Mempool.RestAPI.Client
   ) where
 
 ------------------------------------------------------------------------------
+#if ! MIN_VERSION_servant(0,15,0)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
-#if ! MIN_VERSION_servant(0,15,0)
 import qualified Control.Concurrent.STM.TBMChan as Chan
 #endif
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
+#if MIN_VERSION_servant(0,15,0)
+import Control.Monad.IO.Class
+#endif
 import Control.Monad.Identity
 import Data.Aeson.Types (FromJSON, ToJSON)
 import Data.Int
@@ -92,7 +95,9 @@ toMempool version chain txcfg blocksizeLimit env =
 #if MIN_VERSION_servant(0,15,0)
         withClientM (getPendingClient version chain hw) env $ \case
             Left e -> throwIO e
-            Right is -> Streams.mapM_ f is >>= Streams.skipToEof
+            Right is -> do
+                Streams.mapM_ f is >>= Streams.skipToEof
+                readIORef hw'
 #else
         go (getPendingClient version chain hw) >>= Streams.mapM_ f
                                                >>= Streams.skipToEof
