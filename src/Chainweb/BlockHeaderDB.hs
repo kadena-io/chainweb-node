@@ -253,7 +253,7 @@ pruneForks logger cdb callback limit = do
     m <- maxRank cdb
     let rootHeight = m - min m limit
 
-    roots <- keys cdb Nothing Nothing
+    !roots <- keys cdb Nothing Nothing
         (Just $ MinRank $ Min rootHeight)
         (Just $ MaxRank $ Max rootHeight)
         streamToHashSet_
@@ -262,7 +262,7 @@ pruneForks logger cdb callback limit = do
     --
     let s = max (int rootHeight + 10 * HS.size roots) (int rootHeight * 2)
     let (size, hashNum) = BF.suggestSizing s 0.0001
-    marked <- stToIO $ BF.new (BF.cheapHashes hashNum) size
+    !marked <- stToIO $ BF.new (BF.cheapHashes hashNum) size
 
     -- Bloom filter for marking block payload hashes
     --
@@ -275,7 +275,7 @@ pruneForks logger cdb callback limit = do
     -- TODO: would it be better to use a single shared filter?
     --
     let (psize, phashNum) = BF.suggestSizing s 0.0001
-    markedPayloads <- stToIO $ BF.new (BF.cheapHashes phashNum) psize
+    !markedPayloads <- stToIO $ BF.new (BF.cheapHashes phashNum) psize
 
     -- Iterate backwards and mark all predecessors of the roots
     --
@@ -307,7 +307,7 @@ pruneForks logger cdb callback limit = do
     -- Nodes that are know to be false postives must be removed, if any of their
     -- predecessors got removed.
     --
-    go marked markedPayloads (falsePositiveSet, i) h = do
+    go marked markedPayloads !(!falsePositiveSet, !i) !h = do
         let k = runPut $ encodeBlockHash $ _blockHash h
         let p = runPut $ encodeBlockHash $ _blockParent h
         isMarked <- stToIO $ BF.elem k marked
