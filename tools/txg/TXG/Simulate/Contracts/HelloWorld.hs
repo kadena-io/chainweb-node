@@ -15,6 +15,8 @@ module TXG.Simulate.Contracts.HelloWorld where
 
 import Data.Aeson
 import Data.Default
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -38,10 +40,10 @@ import Pact.Types.Crypto (SomeKeyPair)
 
 import TXG.Simulate.Utils
 
-helloWorldContractLoader :: PublicMeta -> [SomeKeyPair] -> IO (Command Text)
-helloWorldContractLoader meta adminKeyset = do
-  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKeyset]
-  mkExec (T.unpack theCode) theData meta adminKeyset Nothing
+helloWorldContractLoader :: PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
+helloWorldContractLoader meta adminKS = do
+  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKS]
+  mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) Nothing
   where
     theCode = [text|
 (module helloWorld 'admin-keyset

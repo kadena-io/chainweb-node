@@ -29,6 +29,7 @@ import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
+import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
@@ -121,8 +122,7 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
-    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _crResult <$> catMaybes mays
+    let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
 mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
@@ -167,7 +167,7 @@ testMPValidated
     -> RequestKeys
     -> Assertion
 testMPValidated mPool rks = do
-    let txHashes = V.fromList $ TransactionHash . H.unHash . unRequestKey <$> _rkRequestKeys rks
+    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . H.unHash . unRequestKey) $ _rkRequestKeys rks
     b <- go maxMempoolRetries mPool txHashes
     assertBool "At least one transaction was not validated" b
   where
@@ -246,7 +246,7 @@ testBatch :: IO SubmitBatch
 testBatch = do
     kps <- testKeyPairs
     c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
-    pure $ SubmitBatch [c]
+    pure $ SubmitBatch (pure c)
   where
     pm :: CM.PublicMeta
     pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.0001

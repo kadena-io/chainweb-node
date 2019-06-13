@@ -1,5 +1,4 @@
 -- | Tests and test infrastructure common to all mempool backends.
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -30,7 +29,6 @@ import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
-import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
@@ -39,6 +37,11 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
+
+-- internal modules
+
+import Pact.Parse (ParsedDecimal(..))
+import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
@@ -94,11 +97,13 @@ arbitraryDecimal = do
     i <- (arbitrary :: Gen Int64)
     return $! fromInteger $ toInteger i
 
+arbitraryGasPrice :: Gen GasPrice
+arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
   arbitrary = let g x = choose (1, x)
               in MockTx <$> chooseAny
-                        <*> (GasPrice <$> arbitraryDecimal)
+                        <*> arbitraryGasPrice
                         <*> g mockBlockGasLimit
                         <*> pure emptyMeta
     where

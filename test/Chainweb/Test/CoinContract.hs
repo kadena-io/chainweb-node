@@ -20,7 +20,7 @@ import Control.Concurrent (readMVar)
 
 import Data.Aeson
 import Data.Default (def)
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text
 
@@ -70,7 +70,7 @@ ccReplTests = do
     execRepl rst = do
       lst <- readMVar $! _eePactDbVar . _rEnv $ rst
       for_ (_rlsTests lst) $ \tr ->
-        maybe (pure ()) (uncurry failCC) $ trFailure tr
+        traverse_ (uncurry failCC) $ trFailure tr
 
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
