@@ -17,6 +17,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -155,10 +156,15 @@ module Chainweb.Utils
 , symbolText
 -- * optics
 , locally
+
+-- * Resource Management
+, concurrentWith
 ) where
 
 import Configuration.Utils hiding (Error)
 
+import Control.Concurrent.Async
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception
     (IOException, SomeAsyncException(..), bracket, evaluate)
@@ -1005,3 +1011,44 @@ symbolText = fromString $ symbolVal (Proxy @s)
 locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
 locally l f = Reader.local (over l f)
 #endif
+
+-- -------------------------------------------------------------------------- --
+-- Resource Management
+
+-- | Bracket style resource managment uses CPS style which only supports
+-- sequential componsition of different allocation functions.
+--
+-- This function is a hack that allows to allocate and deallocate several
+-- resources concurrently and provide them to a single inner computation.
+--
+concurrentWith
+    :: forall a b t d
+    . Traversable t
+    => (forall c . a -> (b -> IO c) -> IO c)
+        -- concurrent resource allocation brackets. Given a value of type @a@,
+        -- allocates a resource of type @b@, it provides the inner function with
+        -- that value, and retursn the result of the inner computation.
+    -> (t b -> IO d)
+        -- inner computation
+    -> t a
+        -- traversable that provides parameters to instantiate the resource
+        -- allocation bracktes.
+        --
+        -- The value must be finite and is traversed twiced!
+        --
+    -> IO d
+concurrentWith alloc inner params = do
+    doneVar <- newEmptyMVar
+    paramsWithVar <- traverse (\p -> (p,) <$> newEmptyMVar) params
+    results <- concurrently (mapConcurrently (concAlloc doneVar) paramsWithVar) $ do
+        resources <- traverse (takeMVar . snd) paramsWithVar
+        result <- inner resources
+        putMVar doneVar ()
+        return result
+    return $ snd results
+  where
+    concAlloc :: MVar () -> (a, MVar b) -> IO ()
+    concAlloc doneVar (p, var) = alloc p $ \b -> do
+        putMVar var b
+        readMVar doneVar
+

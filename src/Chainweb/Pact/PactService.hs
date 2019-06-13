@@ -33,7 +33,7 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (try)
+import Control.Exception hiding (try, finally)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -183,7 +183,7 @@ serviceRequests
     -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
-    go
+    go `finally` logInfo "Stopping service"
   where
     go = do
         logDebug $ "serviceRequests: wait"
@@ -287,12 +287,12 @@ execNewBlock mpAccess header miner = do
     let bHeight@(BlockHeight bh) = _blockHeight header
         bHash = _blockHash header
 
-    logInfo $ "execNewBlock, about to get call processFork: "
+    logDebug $ "execNewBlock, about to get call processFork: "
            <> " (height = " <> sshow bHeight <> ")"
            <> " (hash = " <> sshow bHash <> ")"
     liftIO $ mpaProcessFork mpAccess header
 
-    logInfo $ "execNewBlock, about to get new block from mempool: "
+    logDebug $ "execNewBlock, about to get new block from mempool: "
            <> " (height = " <> sshow bHeight <> ")"
            <> " (hash = " <> sshow bHash <> ")"
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
@@ -377,14 +377,14 @@ execValidateBlock mpAccess loadingGenesis currHeader plData = do
         !bParent = _blockParent currHeader
         !isGenesisBlock = isGenesisBlockHeader currHeader
 
-    logInfo $ "execValidateBlock, about to get call setLastHeader: "
+    logDebug $ "execValidateBlock, about to get call setLastHeader: "
         <> " (height = " <> sshow bHeight <> ")"
         <> " (hash = " <> sshow bHash <> ")"
     liftIO $ mpaSetLastHeader mpAccess currHeader
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
-    unless loadingGenesis $ logInfo $ "execValidateBlock: height=" ++ show bHeight ++
+    unless loadingGenesis $ logDebug $ "execValidateBlock: height=" ++ show bHeight ++
       ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++
       ", payloadHash=" ++ show (_blockPayloadHash currHeader)
 
