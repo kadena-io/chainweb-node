@@ -38,8 +38,10 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
+
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
+
 import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
@@ -60,14 +62,19 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
 import GHC.Generics
+
+import Prelude hiding (log)
+
+import System.LogLevel
+
+-- internal modules
+
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..))
 import qualified Pact.Types.Hash as H
-import Prelude hiding (log)
-import System.LogLevel
-
-------------------------------------------------------------------------------
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -466,7 +473,7 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do
+mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) = runPutS $ do
     putWord64le $ fromIntegral nonce
     putDecimal price
     putWord64le $ fromIntegral limit
@@ -509,6 +516,6 @@ getDecimal = do
 mockDecode :: ByteString -> Either String MockTx
 mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
   where
-    getPrice = GasPrice <$> getDecimal
+    getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime

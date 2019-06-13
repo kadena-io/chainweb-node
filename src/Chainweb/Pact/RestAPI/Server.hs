@@ -28,24 +28,32 @@ import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+
 import Data.Aeson
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.ByteString.Lazy.Char8 as BSL8
 import Data.List (find)
-import Data.Maybe (catMaybes)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Singletons
 import Data.Text (Text)
 import Data.Text.Encoding
+import Data.Witherable (wither)
+import qualified Data.ByteString.Lazy.Char8 as BSL8
+import qualified Data.HashMap.Strict as HM
+import qualified Data.List.NonEmpty as NEL
 import qualified Data.Vector as V
 import qualified GHC.Event as Ev
-import qualified Pact.Types.Hash as H
+
+import Prelude hiding (init, lookup)
+
+import Servant
+
+-- internal modules
+
 import Pact.Types.API
 import Pact.Types.Command
-import Pact.Types.Hash
-import Prelude hiding (init, lookup)
-import Servant
+import Pact.Types.Hash (Hash)
+import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -130,8 +138,8 @@ sendHandler mempool (SubmitBatch cmds) =
     Handler $
     case traverse validateCommand cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool $! V.fromList enriched
-        return $! RequestKeys $ map cmdToRequestKey enriched
+        liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
+        return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
@@ -148,9 +156,6 @@ pollHandler cutR cid chain bloomCache (Poll request) = liftIO $ do
     cut <- CutDB._cut $ _cutResCutDb cutR
     PollResponses <$> internalPoll cutR cid chain bloomCache cut request
 
-
-
-
 listenHandler
     :: PayloadCas cas
     => CutResources logger cas
@@ -162,21 +167,24 @@ listenHandler
 listenHandler cutR cid chain bloomCache (ListenerRequest key) =
     liftIO (handleTimeout runListen)
   where
-
+    runListen :: TVar Bool -> IO ListenResponse
     runListen timedOut = go Nothing
       where
+        go :: Maybe Cut -> IO ListenResponse
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
                 Nothing -> return $! ListenTimeout defaultTimeout
                 (Just cut) -> poll cut
 
+        poll :: Cut -> IO ListenResponse
         poll cut = do
-            hm <- internalPoll cutR cid chain bloomCache cut [key]
-            if HashMap.null hm
+            hm <- internalPoll cutR cid chain bloomCache cut (pure key)
+            if HM.null hm
               then go (Just cut)
-              else return $! ListenResponse $ snd $ head $ HashMap.toList hm
+              else return $! ListenResponse $ snd $ head $ HM.toList hm
 
+        waitForNewCut :: Maybe Cut -> IO (Maybe Cut)
         waitForNewCut lastCut = atomically $ do
              -- TODO: we should compute greatest common ancestor here to bound the
              -- search
@@ -231,16 +239,13 @@ internalPoll
     -> ChainResources logger
     -> TransactionBloomCache
     -> Cut
-    -> [RequestKey]
+    -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
 internalPoll cutR cid chain bloomCache cut requestKeys =
-    toHashMap <$> mapM lookup requestKeys
+    HM.fromList <$> wither lookup (NEL.toList requestKeys)
   where
     lookup :: RequestKey -> IO (Maybe (RequestKey, CommandResult Hash))
-    lookup key =
-        fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
-    toHashMap = HashMap.fromList . catMaybes
-
+    lookup key = fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
 
 lookupRequestKey
     :: PayloadCas cas
