@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -32,8 +33,9 @@ module Chainweb.Pact.BloomCache
 import Control.Applicative
 import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.Async as Async
+import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Exception (SomeAsyncException(..))
+import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens ((^.))
 import Control.Monad
 import Control.Monad.Catch
@@ -55,7 +57,6 @@ import Data.Hashable (hashWithSalt)
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HashMap
 import Data.Int
-import Data.IORef
 import Data.List (lookup)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -85,20 +86,14 @@ instance Bloom.Hashable H.Hash where
         return $! fromIntegral $ hashWithSalt (fromIntegral salt) (hashCode :: Int)
       where
         hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 bytes)
+    {-# INLINE hashIO32 #-}
 
     hashIO64 (H.Hash bytes) salt =
         return $! fromIntegral $ hashWithSalt (fromIntegral salt) hashCode
       where
         hashCode = either error id $ runGetS getWord64host (B.take 8 bytes)
+    {-# INLINE hashIO64 #-}
 
-{-
-type TransactionBloomCache_ = HashMap (BlockHeight, BlockHash) (Bloom H.Hash)
-
-data TransactionBloomCache = TransactionBloomCache {
-    _map :: {-# UNPACK #-} !(IORef TransactionBloomCache_)
-  , _thread :: {-# UNPACK #-} !(Async ())
-}
--}
 
 data BloomEntry = BloomEntry
     { _beKey :: {-# UNPACK #-} !BloomKey
@@ -124,7 +119,10 @@ instance IsCasValue BloomEntry where
     casKey = _beKey
     {-# INLINE casKey #-}
 
+
 type BloomCas = RocksDbCas BloomEntry
+
+
 data BloomKey = BloomKey {
     _kHeight :: {-# UNPACK #-} !BlockHeight
   , _kHash :: {-# UNPACK #-} !BlockHash
@@ -135,33 +133,33 @@ instance Hashable BloomKey where
     hashWithSalt s (BloomKey a b) = hashWithSalt (hashWithSalt s a) b
     {-# INLINE hashWithSalt #-}
 
+
 type BloomMap = HashMap BloomKey BloomEntry
 
+
 data TransactionBloomCache = TransactionBloomCache {
-    _map :: !(IORef BloomMap)
+    _map :: !(MVar BloomMap)
   , _cas :: !BloomCas
   , _thread :: !(Async ())
   }
 
+
 maxBloomAssocs :: Int
 maxBloomAssocs = 32678
+
 
 putBloomKey :: MonadPut m => BloomKey -> m ()
 putBloomKey (BloomKey h hsh) = encodeBlockHeightBe h >> encodeBlockHash hsh
 
+
 getBloomKey :: MonadGet m => m BloomKey
-getBloomKey = BloomKey <$> decodeBlockHeightBe <*> decodeBlockHash
+getBloomKey = BloomKey <$!> decodeBlockHeightBe <*> decodeBlockHash
+
 
 encodeBloomEntry :: BloomEntry -> B.ByteString
 encodeBloomEntry b = runPutS $ do
     putBloomKey $ _beKey b
     putWord16le $ fromIntegral $! _beNumHashes b
-    let bloom = _beBloom b
-    let ua = Bloom.bitArray bloom
-    let assocs = U.assocs ua
-    let !ual = length assocs
-    let (lo, hi) = U.bounds ua
-    let !bloomBits = Bloom.length bloom
     -- can't do anything better here, maybe we have to do this check elsewhere
     when (ual > maxBloomAssocs) $ fail "bloom too big"
     putWord16le $! fromIntegral bloomBits
@@ -170,18 +168,25 @@ encodeBloomEntry b = runPutS $ do
     putWord32le $! fromIntegral $! length assocs
     traverse_ encOne assocs
   where
-    encOne (i, h) = do
-        putWord64le $ fromIntegral i
+    encOne (!i, !h) = do
+        putWord64le $! fromIntegral i
         putWord32le h
+    bloom = _beBloom b
+    ua = Bloom.bitArray bloom
+    assocs = U.assocs ua
+    ual = length assocs
+    (lo, hi) = U.bounds ua
+    bloomBits = Bloom.length bloom
+
 
 decodeBloomEntry :: MonadThrow m => B.ByteString -> m BloomEntry
 decodeBloomEntry = runGet $ do
-    k <- getBloomKey
-    nh <- fromIntegral <$> getWord16le
-    bloomBits <- fromIntegral <$> getWord16le
-    lo <- fromIntegral <$> getWord32le
-    hi <- fromIntegral <$> getWord32le
-    na <- fromIntegral <$> getWord32le
+    !k <- getBloomKey
+    !nh <- fromIntegral <$> getWord16le
+    !bloomBits <- fromIntegral <$> getWord16le
+    !lo <- fromIntegral <$> getWord32le
+    !hi <- fromIntegral <$> getWord32le
+    !na <- fromIntegral <$> getWord32le
     guard $ na <= maxBloomAssocs
     assocs <- replicateM na decOne
     let !bits = U.array (lo, hi) assocs
@@ -198,12 +203,14 @@ decodeBloomEntry = runGet $ do
 bloomEntryCodec :: RDB.Codec BloomEntry
 bloomEntryCodec = RDB.Codec encodeBloomEntry decodeBloomEntry
 
+
 bloomKeyCodec :: RDB.Codec BloomKey
 bloomKeyCodec = RDB.Codec encodeBloomKey decodeBloomKey
   where
     encodeBloomKey = runPutS . putBloomKey
     decodeBloomKey :: MonadThrow m => B.ByteString -> m BloomKey
     decodeBloomKey = runGet getBloomKey
+
 
 createCache
     :: PayloadCas cas
@@ -212,7 +219,7 @@ createCache
     -> [(ChainId, BlockHeaderDb)]
     -> IO TransactionBloomCache
 createCache cutDb rocks bdbs = mask_ $ do
-    !m <- newIORef HashMap.empty
+    !m <- newMVar HashMap.empty
     !t <- Async.asyncWithUnmask $ threadProc m
     return $! TransactionBloomCache m cas t
 
@@ -254,8 +261,8 @@ withCache cutDb rocks bdbs = bracket (createCache cutDb rocks bdbs) destroyCache
 
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
 member h (a,b) (TransactionBloomCache mv _ _) = do
+    !mp <- readMVar mv
     let k = BloomKey a b
-    !mp <- readIORef mv
     -- N.B. return false positive on block missing
     fmap (fromMaybe True) $ runMaybeT $ do
         !entry <- MaybeT $ return $! HashMap.lookup k mp
@@ -281,14 +288,13 @@ update
     => PayloadCas cas
     => CutDb cas
     -> [(ChainId, BlockHeaderDb)]
-    -> IORef BloomMap
+    -> MVar BloomMap
     -> Cut
     -> (BloomMap -> BloomMap)
     -> IO ()
-update cutDb bdbs mv cut atEnd = do
-    mp <- readIORef mv
-    !mp' <- atEnd <$> f mp
-    writeIORef mv mp'
+update cutDb bdbs mv cut atEnd = modifyMVar mv $ \mp -> do
+    mp' <- atEnd <$!> (f $! mp)
+    (,()) <$> evaluate mp'
   where
     f mp = foldM upd mp hdrs
     hdrs = HashMap.toList $ _cutMap cut
