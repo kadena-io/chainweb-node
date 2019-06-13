@@ -76,15 +76,9 @@
       (update history-table address
         {"total-coins-returned": (+ amount coins-returned)})))
 
-  (defun describe-behavior:string (address:string)
-    @doc "Describes past coin request and returns of the account"
-
-    (with-read history-table address {
-      "total-coins-earned":= total-coins-earned,
-      "total-coins-returned":= total-coins-returned
-      }
-      (format "Address {} has earned {} and returned {}"
-        [address, total-coins-earned, total-coins-returned])))
+  (defun read-history:object{history} (address:string)
+    @doc "Returns history of the account"
+    (read history-table address))
 
   (defun curr-time:time ()
     @doc "Returns current chain's block-time in time type"

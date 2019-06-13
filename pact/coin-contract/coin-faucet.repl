@@ -78,9 +78,14 @@
 (expect "Coin 8.0 was credited in faucet account"
   99999999999977.0 (account-balance 'faucet-account))
 
-;;;; TESTING describe-behavior
+;;;; TESTING read-history
 
-(expect "Describes k2's behavior"
-  "Address k2 has earned 10.0 and returned 8.0" (describe-behavior 'k2))
-(expect "Describes k1's behavior"
-  "Address k1 has earned 21.0 and returned 0.0" (describe-behavior 'k1))
+(expect "Returns history of k1" {
+  "last-tx-time": (time "2019-05-08T18:10:00Z"),
+  "total-coins-earned": 21.0,
+  "total-coins-returned": 0.0 } (read-history 'k1))
+
+(expect "Returns history of k1" {
+  "last-tx-time": (time "2019-05-08T17:03:20Z"),
+  "total-coins-earned": 10.0,
+  "total-coins-returned": 8.0 } (read-history 'k2))
