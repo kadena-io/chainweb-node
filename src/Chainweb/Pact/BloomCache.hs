@@ -60,6 +60,7 @@ import Data.Int
 import Data.List (lookup)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import qualified Data.Vector as V
 import GHC.Generics
 import GHC.Stack (HasCallStack)
 import Pact.Types.Command
@@ -231,7 +232,7 @@ createCache cutDb rocks bdbs = mask_ $ do
         begin = silently . restore $ go Nothing
         go !lastCut = do
             !cut <- waitForNewCut cutDb lastCut
-            update cutDb bdbs mapVar cut (reap $! boundHeight $ lowestHeight cut)
+            update cutDb cas bdbs mapVar cut (reap $! boundHeight $ lowestHeight cut)
             go $! Just cut
         silently = flip catches [
                 -- cancellation msg should quit, all others restart
@@ -244,6 +245,7 @@ createCache cutDb rocks bdbs = mask_ $ do
         f bh (_, hdr) = min bh $ _blockHeight hdr
 
     reap !minHeight = HashMap.filterWithKey $ const . (>= minHeight) . _kHeight
+
 
 destroyCache :: TransactionBloomCache -> IO ()
 destroyCache = Async.cancel . _thread
@@ -260,14 +262,20 @@ withCache cutDb rocks bdbs = bracket (createCache cutDb rocks bdbs) destroyCache
 
 
 member :: H.Hash -> (BlockHeight, BlockHash) -> TransactionBloomCache -> IO Bool
-member h (a,b) (TransactionBloomCache mv _ _) = do
+member h (a,b) (TransactionBloomCache mv cas _) = do
     !mp <- readMVar mv
-    let k = BloomKey a b
     -- N.B. return false positive on block missing
-    fmap (fromMaybe True) $ runMaybeT $ do
-        !entry <- MaybeT $ return $! HashMap.lookup k mp
+    fromMaybe True <$> runMaybeT (lookupInMap mp <|> lookupInCas)
+  where
+    !k = BloomKey a b
+
+    lookupInMap mp = MaybeT (return $! HashMap.lookup k mp) >>= lookupInBloom
+
+    lookupInCas = MaybeT (casLookup cas k) >>= lookupInBloom
+
+    lookupInBloom entry =
         let !bloom = _beBloom entry
-        return $! Bloom.elem h bloom
+        in return $! Bloom.elem h bloom
 
 
 ------------------------------------------------------------------------------
@@ -287,32 +295,42 @@ update
     :: HasCallStack
     => PayloadCas cas
     => CutDb cas
+    -> BloomCas
     -> [(ChainId, BlockHeaderDb)]
     -> MVar BloomMap
     -> Cut
     -> (BloomMap -> BloomMap)
     -> IO ()
-update cutDb bdbs mv cut atEnd = modifyMVar mv $ \mp -> do
-    mp' <- atEnd <$!> (f $! mp)
-    (,()) <$> evaluate mp'
+update cutDb cas bdbs mv cut atEnd =
+    modMap >>= casInsertBatch cas
+
   where
-    f mp = foldM upd mp hdrs
+    modMap = modifyMVar mv $ \mp -> do
+        (mp', entries) <- f mp
+        !mp'' <- evaluate (atEnd mp')
+        return (mp'', V.fromList entries)
+
+    f mp = foldM upd (mp, []) hdrs
     hdrs = HashMap.toList $ _cutMap cut
-    upd !mp (cid, blockHeader) =
-        updateChain cutDb (fromJuste $! lookup cid bdbs) blockHeader mp
+    upd (!mp, !entries) (cid, blockHeader) =
+        updateChain cutDb cas (fromJuste $! lookup cid bdbs) blockHeader
+                    mp entries
 
 
 updateChain
     :: PayloadCas cas
     => CutDb cas
+    -> BloomCas
     -> BlockHeaderDb
     -> BlockHeader
     -> BloomMap
-    -> IO BloomMap
-updateChain cutDb bdb blockHeader mp = do
+    -> [BloomEntry]
+    -> IO (BloomMap, [BloomEntry])
+updateChain cutDb cas bdb blockHeader mp entries = do
     let leafHeight = _blockHeight blockHeader
     let minHeight = boundHeight leafHeight
-    fromMaybe mp <$> runMaybeT (updateChain' cutDb bdb minHeight blockHeader mp)
+    fromMaybe (mp, entries) <$!>
+        runMaybeT (updateChain' cutDb cas bdb minHeight blockHeader mp entries)
 
 boundHeight :: BlockHeight -> BlockHeight
 boundHeight h | h <= mAX_HEIGHT_DELTA = 0
@@ -322,25 +340,28 @@ boundHeight h | h <= mAX_HEIGHT_DELTA = 0
 updateChain'
     :: PayloadCas cas
     => CutDb cas
+    -> BloomCas
     -> BlockHeaderDb
     -> BlockHeight
     -> BlockHeader
     -> BloomMap
-    -> MaybeT IO BloomMap
-updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
+    -> [BloomEntry]
+    -> MaybeT IO (BloomMap, [BloomEntry])
+updateChain' cutDb cas bdb minHeight blockHeader0 mp0 entries0 = go mp0 entries0 blockHeader0
   where
-    go !mp !blockHeader =
-        if HashMap.member hkey mp
-            then return mp   -- we can stop here, rest of parents are in cache
+    go !mp !entries !blockHeader = do
+        b <- lookupHKey hkey mp
+        if b
+            then return (mp, entries)   -- we can stop here, rest of parents are in cache
             else do
                 let bh = _blockHeight blockHeader
-                !mp' <- insBloom <|> return mp
+                (!mp', !entries') <- insBloom <|> return (mp, entries)
                 if bh <= minHeight
-                  then return mp'
+                  then return (mp', entries')
                   else do
                     let parentHash = _blockParent blockHeader
                     parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
-                    go mp' parentHeader
+                    go mp' entries' parentHeader
       where
         hgt = _blockHeight blockHeader
         hc = _blockHash blockHeader
@@ -351,8 +372,13 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             hashes <- mapM (fmap (H.toUntypedHash . _cmdHash) . fromTx) txsBs
             let (nbits, nh) = Bloom.suggestSizing (length hashes) bloomFalsePositiveRate
             let !bloom = Bloom.fromList (Bloom.cheapHashes nh) nbits $ toList hashes
-            let be = BloomEntry (BloomKey hgt hc) (fromIntegral nh) bloom
-            return $! HashMap.insert hkey be mp
+            let !be = BloomEntry (BloomKey hgt hc) (fromIntegral nh) bloom
+            let !mp' = HashMap.insert hkey be mp
+            return $! (mp', be : entries)
+
+    lookupHKey hkey mp = lookupMap hkey mp <|> lookupCas hkey
+    lookupMap hkey mp = if HashMap.member hkey mp then pure True else empty
+    lookupCas hkey = liftIO $ casMember cas hkey
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas
     fromTx (tx, _) = MaybeT (return $! toPactTx tx)
