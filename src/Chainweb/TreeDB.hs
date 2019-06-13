@@ -306,9 +306,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Maybe MinRank
         -> Maybe MaxRank
         -> HS.HashSet (LowerBound (DbKey db))
-            -- Upper limits
+            -- ^ Lower limits
         -> HS.HashSet (UpperBound (DbKey db))
-            -- Lower limits
+            -- ^ Upper limits
         -> (S.Stream (Of (DbKey db)) IO (Natural, Eos) -> IO a)
         -> IO a
     branchKeys db k l mir mar lower upper f =
