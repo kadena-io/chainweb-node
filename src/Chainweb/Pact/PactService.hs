@@ -33,7 +33,7 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (try)
+import Control.Exception hiding (try, finally)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -183,7 +183,7 @@ serviceRequests
     -> PactServiceM ()
 serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
-    go
+    go `finally` logInfo "Stopping service"
   where
     go = do
         logDebug $ "serviceRequests: wait"
