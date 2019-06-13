@@ -13,8 +13,9 @@
   ; --------------------------------------------------------------------------
 
   (defschema history
-    @doc "Table to record of the behavior of addresses. Last transaction time,   \
-    \ total coins earned, and total coins returned are recorded per transaction. "
+    @doc "Table to record the behavior of addresses. Last transaction time,       \
+    \ total coins earned, and total coins returned are inserted or updated at     \
+    \ transaction. "
     last-tx-time:time
     total-coins-earned:decimal
     total-coins-returned:decimal
@@ -38,10 +39,10 @@
   (defun faucet-guard:guard () (create-module-guard 'faucet-admin))
 
   (defun request-coin:string (address:string address-guard:guard amount:decimal)
-    @doc "Transfers up to MAX_COIN_PER_REQUEST coins from faucet account to the \
-    \ requester. Inserts or updates the record of the requester in history      \
-    \ table to keep track of the record. Limits the number of coin request by   \
-    \ time, WAIT_TIME_PER_REQUEST "
+    @doc "Transfers AMOUNT of coins up to MAX_COIN_PER_REQUEST from the faucet    \
+    \ account to the requester account at ADDRESS. Inserts or updates the         \
+    \ transaction of the account at ADDRESS in history-table. Limits the number   \
+    \ of coin requests by time, WAIT_TIME_PER_REQUEST "
     @model [(property (<= amount 20.0))]
 
     (enforce (<= amount MAX_COIN_PER_REQUEST)
@@ -66,8 +67,9 @@
         "total-coins-returned": total-coins-returned })))
 
   (defun return-coin:string (address:string amount:decimal)
-    @doc "Returns the coin back to the faucet account after use. Updates the    \
-    \ history table to keep track of behavior. "
+    @doc "Returns the AMOUNT of coin from account at ADDRESS back to the faucet   \
+    \ account after use. Updates the transaction of the account at ADDRESS in     \
+    \ history-table keep track of behavior. "
     @model [(property (> amount 0.0))]
 
     (with-read history-table address
@@ -77,7 +79,7 @@
         {"total-coins-returned": (+ amount coins-returned)})))
 
   (defun read-history:object{history} (address:string)
-    @doc "Returns history of the account"
+    @doc "Returns history of the account at ADDRESS"
     (read history-table address))
 
   (defun curr-time:time ()
