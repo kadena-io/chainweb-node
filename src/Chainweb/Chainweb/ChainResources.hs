@@ -39,6 +39,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Maybe
+import Data.Semigroup
 import qualified Data.Text as T
 
 import GHC.Stack
@@ -132,6 +133,11 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
 
+            -- prune block header db
+            logg Info "start pruning block header database"
+            x <- pruneForks logger cdb (\h t -> unless t $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)) (diam * 3)
+            logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+
             -- replay pact
             let pact = pes mempool requestQ
             -- payloadStore is only 'Nothing' in some unit tests not using this code
@@ -146,6 +152,8 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
                 , _chainResPact = pact
                 }
   where
+    logg = logFunctionText (setComponent "pact-tx-replay" logger)
+    diam = diameter (_chainGraph v)
     reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
     pes mempool requestQ = case v of
         Test{} -> emptyPactExecutionService
@@ -155,6 +163,11 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
         Testnet00 -> mkPactExecutionService mempool requestQ
         Testnet01 -> mkPactExecutionService mempool requestQ
 
+-- -------------------------------------------------------------------------- --
+-- Initialization and Housekeeping
+
+-- | Replay transactions for the payloads of /all/ blocks including forks.
+--
 replayPact
     :: HasCallStack
     => Logger logger
