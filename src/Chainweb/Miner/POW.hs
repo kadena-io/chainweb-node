@@ -41,11 +41,12 @@ import qualified Data.ByteString as B
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Int
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Proxy
 import Data.Reflection (Given, give)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T4(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -82,6 +83,10 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 -- -------------------------------------------------------------------------- --
 -- Miner
 
+-- | The result of mining a new `Cut`.
+--
+data Ore = Ore !BlockHeader !PayloadWithOutputs !Cut !Adjustments !Word
+
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
 powMiner
@@ -114,7 +119,7 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -- Mine a new Cut
         --
         c <- _cut cutDb
-        T4 newBh payload c' adjustments' <- do
+        Ore newBh payload c' adjustments' hashAttempts <- do
             let go2 !x = race (awaitNextCut cutDb x) (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
                     Left c' -> go2 c'
                     Right !r -> return r
@@ -124,8 +129,9 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (Seq.length $ _payloadWithOutputsTransactions payload)
-                   bytes
+                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int bytes)
+                   hashAttempts
 
         logg Info $! "POW Miner: created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
@@ -178,7 +184,7 @@ mineCut
     -> MWC.GenIO
     -> Cut
     -> Adjustments
-    -> IO (T4 BlockHeader PayloadWithOutputs Cut Adjustments)
+    -> IO Ore
 mineCut logfun conf nid cutDb gen !c !adjustments = do
 
     -- Randomly pick a chain to mine on.
@@ -220,7 +226,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
                     creationTime
                     p
 
-            newHeader <- usePowHash v mine candidateHeader nonce
+            T2 newHeader hashAttempts <- usePowHash v mine candidateHeader nonce
 
             -- create cut with new block
             --
@@ -239,7 +245,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
             logg Info $! "add block to payload db"
             insertWebBlockHeaderDb newHeader
 
-            return $! T4 newHeader payload c' adjustments'
+            return $! Ore newHeader payload c' adjustments' hashAttempts
   where
     v = _chainwebVersion cutDb
     wcdb = view cutDbWebBlockHeaderDb cutDb
@@ -325,42 +331,46 @@ mine
     => Proxy a
     -> BlockHeader
     -> Nonce
-    -> IO BlockHeader
-mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
-    !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf ->
-        allocaBytes (powSize :: Int) $ \pow -> do
+    -> IO (T2 BlockHeader Word)
+mine _ h nonce = do
+    counter <- newIORef 0
+    res <- BA.withByteArray initialTargetBytes $ \trgPtr -> do
+        !ctx <- hashMutableInit @a
+        bytes <- BA.copy initialBytes $ \buf ->
+            allocaBytes (powSize :: Int) $ \pow -> do
 
-            -- inner mining loop
-            --
-            -- We do 100000 hashes before we update the creation time.
-            --
-            let go 100000 !n = do
+                -- inner mining loop
+                --
+                -- We do 100000 hashes before we update the creation time.
+                --
+                let go 100000 !n = do
 
-                    -- update the block creation time
-                    ct <- getCurrentTimeIntegral
-                    injectTime ct buf
-                    go 0 n
+                        -- update the block creation time
+                        ct <- getCurrentTimeIntegral
+                        injectTime ct buf
+                        go 0 n
 
-                go !i !n = do
+                    go !i !n = do
 
-                    -- Compute POW hash for the nonce
-                    injectNonce n buf
-                    hash ctx buf pow
+                        -- increment hash counter
+                        modifyIORef' counter (+ 1)
 
-                    -- check whether the nonce meets the target
-                    fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> return ()
-                        False -> go (succ i) (succ n)
+                        -- Compute POW hash for the nonce
+                        injectNonce n buf
+                        hash ctx buf pow
 
-            -- Start inner mining loop
-            go (0 :: Int) nonce
+                        -- check whether the nonce meets the target
+                        fastCheckTarget trgPtr (castPtr pow) >>= \case
+                            True -> return ()
+                            False -> go (succ i) (succ n)
 
-    -- On success: deserialize and return the new BlockHeader
-    runGet decodeBlockHeaderWithoutHash bytes
+                -- Start inner mining loop
+                go (0 :: Int) nonce
 
+        -- On success: deserialize and return the new BlockHeader
+        runGet decodeBlockHeaderWithoutHash bytes
+    T2 res <$> readIORef counter
   where
-
     !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
     !bufSize = B.length initialBytes
     !target = _blockTarget h
