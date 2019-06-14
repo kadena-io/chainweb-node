@@ -72,7 +72,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.TreeDB.Difficulty (hashTarget)
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -133,6 +133,12 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -- Publish the new Cut into the CutDb (add to queue).
         --
         addCutHashes cutDb (cutToCutHashes Nothing c')
+
+        -- Wait for a new cut. We never mine twice on the same cut. If it stays
+        -- at the same cut for a longer time, we are most likely in catchup
+        -- mode.
+        --
+        void $ awaitNextCut cutDb c
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
