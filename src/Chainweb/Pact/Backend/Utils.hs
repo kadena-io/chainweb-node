@@ -32,12 +32,15 @@ import Data.ByteString hiding (pack)
 import Data.Text (pack, Text)
 import Database.SQLite3.Direct as SQ3
 
+import Prelude hiding (log)
+
 import System.Directory (removeFile)
 import System.IO.Extra
 
 -- pact
 
 
+-- import Pact.Types.Logger (Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.SQLite
 import Pact.Types.Term(KeySetName(..), NamespaceName(..), ModuleName(..), PactId(..))
@@ -51,13 +54,13 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
-  \(BlockEnv  db bs)  -> do
-    (a,s) <- runStateT (runReaderT (runBlockHandler m) db) bs
-    return (BlockEnv db s, a)
+  \(BlockEnv  dbenv bs)  -> do
+    (a,s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
+    return (BlockEnv dbenv s, a)
 
-callDb :: (MonadCatch m, MonadReader SQLiteEnv m, MonadIO m) => Text -> (Database -> IO b) -> m b
+callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => Text -> (Database -> IO b) -> m b
 callDb callerName action = do
-  c <- view sConn
+  c <- view (bdbenvDb . sConn)
   res <- tryAny $ liftIO $ action c
   case res of
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
@@ -79,6 +82,14 @@ withSavepoint name action = do
       rollbackSavepoint name
       internalError $ "withSavepoint: The impossible happened: " <> (pack $ show err)
 
+-- for debugging
+withTrace :: Database -> (Utf8 -> IO ()) -> IO a -> IO a
+withTrace db tracer dbaction = do
+  setTrace db (Just tracer)
+  a <- dbaction
+  setTrace db Nothing
+  return a
+
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
@@ -91,13 +102,14 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
-data SavepointName = Block | DbTransaction |  PreBlock
+data SavepointName = Block | DbTransaction |  PreBlock | PactDbTransaction
   deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
   show (Block) = "block"
-  show (DbTransaction) = "transaction"
+  show (DbTransaction) = "db-transaction"
   show (PreBlock) = "preblock"
+  show (PactDbTransaction) = "pact-transaction"
 
 instance AsString SavepointName where
   asString = Data.Text.pack . show
@@ -184,3 +196,12 @@ instance StringConv String Utf8 where
 
 instance StringConv Utf8 String where
   strConv l (Utf8 bytestring) = strConv l bytestring
+
+fastNoJournalPragmas :: [Pragma]
+fastNoJournalPragmas = [
+  "synchronous = NORMAL",
+  "journal_mode = WAL",
+  -- "journal_mode = MEMORY",
+  "locking_mode = EXCLUSIVE",
+  "temp_store = MEMORY"
+  ]

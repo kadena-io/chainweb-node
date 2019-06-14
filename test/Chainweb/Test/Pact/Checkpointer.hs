@@ -28,10 +28,8 @@ import Pact.Interpreter (EvalResult(..), PactDbEnv(..))
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
--- import Pact.Types.Info
 import Pact.Types.Runtime (ExecutionMode(Transactional))
 import qualified Pact.Types.Hash as H
--- import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.Persistence
@@ -40,7 +38,6 @@ import Pact.Types.Runtime
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Type (PrimType(..), Type(..))
 import Pact.Types.Exp (Literal(..))
-
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -53,11 +50,9 @@ import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
--- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
--- import Chainweb.Pact.Utils (toEnv', toEnvPersist')
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -152,7 +147,7 @@ runSQLite runTest = runTest . make
     make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
-      let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty (newLogger loggers "BlockEnvironment")
+      let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
           loggers = pactTestLogger False
       snd <$> initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
@@ -331,16 +326,16 @@ testRegress =
   assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, BlockVersion 0 0, M.empty)
-    toTup (BlockState txid _ blockVersion txRecord _) =
+    toTup (BlockState txid _ blockVersion txRecord) =
       (txid, blockVersion, txRecord)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do
- withTempSQLiteConnection []  $ \sqlenv -> do
-        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty (newLogger loggers "BlockEnvironment")
+ withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
+        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
             loggers = pactTestLogger False
         runRegression chainwebpactdb
-          (BlockEnv sqlenv initBlockState)
+          (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
           (\v -> runBlockEnv v initSchema)
 
  {- this should be moved to pact -}

@@ -83,7 +83,6 @@ import Chainweb.CutDB
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.Utils
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Service.Types (internalError)
@@ -242,10 +241,9 @@ testPactCtxSQLite
   :: ChainwebVersion
   -> V.ChainId
   -> Maybe (MVar (CutDb cas))
+  -> SQLiteEnv
   -> IO TestPactCtx
-testPactCtxSQLite v cid cdbv = do
-  withTempSQLiteConnection [] $ \sqlenv -> do
-
+testPactCtxSQLite v cid cdbv sqlenv = do
     (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState thePactDbEnv Nothing)
@@ -254,11 +252,11 @@ testPactCtxSQLite v cid cdbv = do
     return ctx
   where
     loggers = pactTestLogger False
-    logger = newLogger loggers $ LogName "PactService"
+    logger = newLogger loggers $ LogName ("PactService" ++ show cid)
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-    blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
+    blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
 
 -- | A test PactExecutionService for a single chain
 --
@@ -268,9 +266,10 @@ testPactExecutionService
     -> Maybe (MVar (CutDb cas))
     -> MemPoolAccess
        -- ^ transaction generator
+    -> SQLiteEnv
     -> IO PactExecutionService
-testPactExecutionService v cid cutDB mempoolAccess = do
-    ctx <- testPactCtxSQLite v cid cutDB
+testPactExecutionService v cid cutDB mempoolAccess sqlenv = do
+    ctx <- testPactCtxSQLite v cid cutDB sqlenv
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
@@ -287,12 +286,14 @@ testWebPactExecutionService
     -> Maybe (MVar (CutDb cas))
     -> (V.ChainId -> MemPoolAccess)
        -- ^ transaction generator
+    -> [SQLiteEnv]
     -> IO WebPactExecutionService
-testWebPactExecutionService v cutDB mempoolAccess
+testWebPactExecutionService v cutDB mempoolAccess sqlenvs
     = fmap mkWebPactExecutionService
     $ fmap HM.fromList
     $ traverse
-        (\c -> (c,) <$> testPactExecutionService v c cutDB (mempoolAccess c))
+        (\(sqlenv, c) -> (c,) <$> testPactExecutionService v c cutDB (mempoolAccess c) sqlenv)
+    $ zip sqlenvs
     $ toList
     $ chainIds v
 
@@ -318,7 +319,7 @@ initializeSQLite = do
       case e of
         Left (_err, _msg) ->
           internalError "initializeSQLite: A connection could not be opened."
-        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file []))
+        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file fastNoJournalPragmas))
 
 freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
 freeSQLiteResource (del,sqlenv) = do
@@ -346,7 +347,7 @@ withPactCtxSQLite v cutDB f =
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-          blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
+          blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
       (_,s) <- ios
       (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate s logger gasEnv
       ctx <- TestPactCtx

@@ -36,15 +36,15 @@ import Chainweb.Pact.Service.Types (internalError)
 
 initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
 initRelationalCheckpointer bstate sqlenv loggr gasEnv = do
-  db <- newMVar (BlockEnv sqlenv bstate)
+  let dbenv = BlockDbEnv sqlenv loggr
+  db <- newMVar (BlockEnv dbenv bstate)
   runBlockEnv db initSchema
-  genesis <- readMVar db
   return $
     (PactDbEnv' (PactDbEnv chainwebpactdb db),
      CheckpointEnv
       { _cpeCheckpointer =
           Checkpointer
-            (doRestore genesis db)
+            (doRestore db)
             (doSave db)
             (doDiscard db)
       , _cpeLogger = loggr
@@ -53,13 +53,13 @@ initRelationalCheckpointer bstate sqlenv loggr gasEnv = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-doRestore :: BlockEnv SQLiteEnv -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore _ dbenv (Just (bh, hash)) = do
+doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
     withSavepoint PreBlock $ handleVersion bh hash
     beginSavepoint Block
   return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
-doRestore genesis dbenv Nothing = do
+doRestore dbenv Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
          $ \db -> qry db
@@ -83,9 +83,7 @@ doRestore genesis dbenv Nothing = do
                _ -> internalError "Something went wrong when resetting tables."
         beginSavepoint Block
       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
-  modifyMVarMasked dbenv $ \_ -> do
-    gen <- newMVar genesis
-    return $ (genesis, PactDbEnv' $ PactDbEnv chainwebpactdb gen)
+  return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do

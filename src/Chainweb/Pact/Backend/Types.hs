@@ -23,12 +23,7 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , cpeGasEnv
-    -- , cpeCheckpointerNew
-    -- , cpeLoggerNew
-    -- , cpeGasEnvNew
     , Checkpointer(..)
-    -- , CheckpointerNew(..)
-    -- , CheckpointEnvNew(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -60,9 +55,8 @@ module Chainweb.Pact.Backend.Types
     , sConfig
     , BlockHandler(..)
     , ParentHash
-    -- , runDbEnv
-    -- , CheckpointAction(..)
-    -- , CheckpointerResult(..)
+    , BlockDbEnv(..)
+    , bdbenvDb
     ) where
 
 import Control.Exception.Safe hiding (bracket)
@@ -70,7 +64,6 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Lens
 import Control.DeepSeq
--- import Control.Concurrent.MVar
 
 import Data.Aeson
 import Data.Int
@@ -83,16 +76,12 @@ import GHC.Generics
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
--- import Pact.Persist.Pure (PureDb(..))
--- import Pact.Types.Command
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime (PactDb(..), TxId(..), ExecutionMode(..), TableName(..), TxLog(..), GasEnv(..))
--- import Pact.Types.Term
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
--- import Chainweb.Payload
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -154,20 +143,27 @@ data BlockState = BlockState
   , _bsMode :: !(Maybe ExecutionMode)
   , _bsBlockVersion :: !BlockVersion
   , _bsTxRecord :: !(Map TableName [TxLog Value])
-  , _logger :: Logger
   }
 
 makeLenses ''BlockState
 
+data BlockDbEnv p = BlockDbEnv
+  { _bdbenvDb :: p
+  , _logger :: Logger
+  }
+
+makeLenses ''BlockDbEnv
+
+
 data BlockEnv p = BlockEnv
-  { _benvDb :: p
+  { _benvDb :: BlockDbEnv p
   , _benvBlockState :: !BlockState
   }
 
 makeLenses ''BlockEnv
 
 newtype BlockHandler p a = BlockHandler
-  { runBlockHandler :: ReaderT p (StateT BlockState IO) a
+  { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
   } deriving ( Functor
              , Applicative
              , Monad
@@ -175,13 +171,13 @@ newtype BlockHandler p a = BlockHandler
              , MonadThrow
              , MonadCatch
              , MonadIO
-             , MonadReader p
+             , MonadReader (BlockDbEnv p)
              )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
 instance Logging (BlockHandler p) where
-  log c s = use logger >>= \l -> liftIO $ logLog l c s
+  log c s = view logger >>= \l -> liftIO $ logLog l c s
 
 -- data CheckpointerNew = CheckpointerNew
 --   { runCheckpointerNew :: Maybe (BlockHeight, ParentHash) -> (PactDbEnv' -> IO CheckpointerResult) -> (CheckpointerResult -> CheckpointAction) -> IO CheckpointerResult

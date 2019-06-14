@@ -221,7 +221,7 @@ doCreateUserTable tn@(TableName _) mn = do
 
 doRollback :: BlockHandler SQLiteEnv ()
 doRollback = do
-  tryAny (rollbackSavepoint DbTransaction) >>= \case
+  tryAny (rollbackSavepoint PactDbTransaction) >>= \case
     Left (SomeException err) -> logError $ "doRollback: " ++ show err
     Right _ -> return ()
   resetTemp
@@ -234,7 +234,7 @@ doBegin m = do
       doRollback
     Nothing -> return ()
   resetTemp
-  beginSavepoint DbTransaction
+  beginSavepoint PactDbTransaction
   bsMode .= Just m
   case m of
     Transactional -> Just <$> use bsTxId
@@ -253,7 +253,7 @@ doCommit = use bsMode >>= \mm -> case mm  of
     if m == Transactional then do
       bsTxId += 1
       -- commit
-      commitSavepoint DbTransaction
+      commitSavepoint PactDbTransaction
       resetTemp
     else doRollback
     return $ fromdlist $ foldr (\a b -> todlist a . b) id txrs

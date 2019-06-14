@@ -145,7 +145,7 @@ initPactService' cid chainwebLogger spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
-    let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty logger
+    let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
 
     -- TODO: The file and pragmas should come from a config file
     -- withTempSQLiteConnection P.fastNoJournalPragmas $ \sqlenv -> do
