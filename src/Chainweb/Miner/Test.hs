@@ -159,8 +159,9 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (Seq.length $ _payloadWithOutputsTransactions payload)
-                   bytes
+                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int bytes)
+                   1
 
         logg Info $! "Test Miner: created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
