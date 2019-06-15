@@ -63,6 +63,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.SPV as P
 
 -- internal modules
 

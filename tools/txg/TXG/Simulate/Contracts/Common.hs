@@ -44,6 +44,7 @@ import Text.Printf
 -- PACT
 
 import Pact.ApiReq (mkExec)
+import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
 import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
