@@ -22,7 +22,8 @@ import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (noSPVSupport, peStep)
+import Pact.Types.Runtime (peStep)
+import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))

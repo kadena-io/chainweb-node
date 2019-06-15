@@ -66,6 +66,7 @@ import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
+import Pact.Types.SPV
 import Pact.Types.Term (DefName(..), ModuleName(..))
 
 -- internal Chainweb modules
@@ -330,13 +331,13 @@ applyContinuation'
     -> Hash
     -> SPVSupport
     -> IO EvalResult
-applyContinuation' CommandEnv{..} initState ContMsg{..} senderSigs hsh spv =
+applyContinuation' CommandEnv{..} initState cm senderSigs hsh spv =
   let sigs = userSigsToPactKeySet senderSigs
-      pactStep = Just $ PactStep _cmStep _cmRollback _cmPactId Nothing
+      pactStep = Just $ PactStep (_cmStep cm) (_cmRollback cm) (_cmPactId cm) Nothing
       evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                (MsgData sigs _cmData pactStep hsh) initRefStore
+                (MsgData sigs (_cmData cm) pactStep hsh) initRefStore
                 _ceGasEnv permissiveNamespacePolicy spv _cePublicData
-  in evalContinuation initState evalEnv Nothing
+  in evalContinuation initState evalEnv cm
 
 
 

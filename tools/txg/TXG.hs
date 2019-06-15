@@ -64,6 +64,7 @@ import Text.Pretty.Simple (pPrintNoColor)
 -- PACT
 import Pact.ApiReq
 import Pact.Types.API
+import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import Pact.Types.Crypto

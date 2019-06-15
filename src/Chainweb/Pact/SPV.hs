@@ -2,7 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -15,6 +15,8 @@
 module Chainweb.Pact.SPV
 ( -- * spv support
   pactSPV
+, verifySPV
+, verifyCont
   -- * spv api utilities
 , getTxIdx
 ) where
@@ -60,7 +62,8 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.PactValue
-import Pact.Types.Runtime hiding (ChainId)
+import Pact.Types.Runtime
+import Pact.Types.SPV
 
 
 -- -------------------------------------------------------------------------- --
@@ -68,8 +71,21 @@ import Pact.Types.Runtime hiding (ChainId)
 
 -- | Spv support for pact
 --
-pactSPV :: MVar (CutDb cas) -> Logger -> SPVSupport
-pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
+pactSPV :: forall cas. MVar (CutDb cas) -> Logger -> SPVSupport
+pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv l)
+
+-- | SPV transaction verification support. Calls to 'verify-spv' in Pact
+-- will thread through this function and verify an SPV receipt, making the
+-- requisite calls to the SPV api and verifying the output proof.
+--
+verifySPV
+    :: forall cas
+    . MVar (CutDb cas)
+    -> Logger
+    -> Text
+    -> Object Name
+    -> IO (Either Text (Object Name))
+verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
   where
     -- extract spv resources from pact object
     go s o cdb = case s of
@@ -102,6 +118,16 @@ pactSPV cdbv l = SPVSupport $ \s o -> readMVar cdbv >>= go s o
           logLog l "ERROR" $ show o
           return . Left $ pack "Invalid command result in associated pact output"
 
+-- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
+-- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
+--
+verifyCont
+    :: forall cas
+    . MVar (CutDb cas)
+    -> Logger
+    -> ContProof
+    -> IO (Either Text PactExec)
+verifyCont _cdbv _l = _spvVerifyContinuation noSPVSupport
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.

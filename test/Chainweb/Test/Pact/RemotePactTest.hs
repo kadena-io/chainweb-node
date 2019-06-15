@@ -57,6 +57,7 @@ import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.API
+import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H

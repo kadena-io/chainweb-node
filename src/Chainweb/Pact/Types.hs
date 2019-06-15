@@ -66,7 +66,7 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
-import Pact.Types.Runtime (SPVSupport(..))
+import Pact.Types.SPV
 import Pact.Types.Term (KeySet(..), Name(..))
 
 -- internal chainweb modules

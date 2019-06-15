@@ -42,6 +42,6 @@ extra-deps:
 
   # --- Custom Pins --- #
   - git: https://github.com/kadena-io/pact.git
-    commit: fb30307a204791914831c45e3b68c1f4eaf75f78
+    commit: d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
