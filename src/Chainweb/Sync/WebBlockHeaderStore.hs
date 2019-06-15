@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -15,10 +14,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-
-#ifndef MIN_VERSION_servant_client
-#define MIN_VERSION_servant_client(a,b,c) 1
-#endif
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore
@@ -88,13 +83,6 @@ import Data.TaskMap
 
 import P2P.Peer
 import P2P.TaskQueue
-
--- -------------------------------------------------------------------------- --
--- Servant backward compatibility
-
-#if !MIN_VERSION_servant_client(0,16,0)
-type ClientError = ServantError
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap

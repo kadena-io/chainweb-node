@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -75,9 +74,6 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,15,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -353,7 +349,7 @@ singleTransaction args host (SingleTX c cid)
     datum :: NonEmpty SomeKeyPair -> Value
     datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
 
-    f :: TXGConfig -> Command Text -> ExceptT ServantError IO ListenResponse
+    f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
     f cfg@(TXGConfig _ _ ce v _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce

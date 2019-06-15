@@ -1,6 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -24,18 +22,11 @@ module Chainweb.Mempool.RestAPI.Client
   ) where
 
 ------------------------------------------------------------------------------
-#if ! MIN_VERSION_servant(0,15,0)
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM
-import qualified Control.Concurrent.STM.TBMChan as Chan
-#endif
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
-#if MIN_VERSION_servant(0,15,0)
-import Control.Monad.IO.Class
-#endif
 import Control.Monad.Identity
+import Control.Monad.IO.Class
 import Data.Aeson.Types (FromJSON, ToJSON)
 import Data.Int
 import Data.IORef
@@ -43,12 +34,8 @@ import Data.Proxy
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
-#if MIN_VERSION_servant(0,15,0)
 import Servant.Client.Streaming
 import Servant.Types.SourceT
-#else
-import Servant.Client
-#endif
 import qualified System.IO.Streams as Streams
 import System.IO.Unsafe
 ------------------------------------------------------------------------------
@@ -92,17 +79,12 @@ toMempool version chain txcfg blocksizeLimit env =
     getPending hw cb = do
         hw' <- newIORef (0, 0)
         let f = either (writeIORef hw') (cb . V.fromList)
-#if MIN_VERSION_servant(0,15,0)
-        withClientM (getPendingClient version chain hw) env $ \case
+        void . withClientM (getPendingClient version chain hw) env $ \case
             Left e -> throwIO e
             Right is -> do
                 Streams.mapM_ f is >>= Streams.skipToEof
                 readIORef hw'
-#else
-        go (getPendingClient version chain hw) >>= Streams.mapM_ f
-                                               >>= Streams.skipToEof
         readIORef hw'
-#endif
 
     unsupported = fail "unsupported"
     markValidated _ = unsupported
@@ -208,7 +190,6 @@ getPendingClient v c hw = runIdentity $ do
 
 
 ------------------------------------------------------------------------------
-#if MIN_VERSION_servant(0,15,0)
 
 -- TODO: the code in this module could be simplfied by replacing the use of
 -- io-streams with servant's build-in SourceIO stream type.
@@ -231,44 +212,3 @@ instance Show a => FromSourceIO a (Streams.InputStream a) where
     --
     -- The proper solution is not to use io-streams here. Let's do this once the
     -- nix build supports servant-0.16 and we can drop the legacy code.
-
-#else
-asIoStream :: Show a => ResultStream a -> (Streams.InputStream a -> IO b) -> IO b
-asIoStream (ResultStream func) withFunc = func $ \popper -> do
-    s <- Streams.makeInputStream $ f popper
-    withFunc s
-  where
-    f popper = do
-        m <- popper
-        case m of
-            Nothing -> return Nothing
-            (Just (Left e)) -> fail e              -- todo: fail
-            (Just (Right x)) -> return $! Just x
-
-
-instance Show a => BuildFromStream a (Streams.InputStream a) where
-  buildFromStream rs = let out = unsafePerformIO go
-                       in out `seq` out
-    where
-      createThread = do
-          chan <- atomically $ Chan.newTBMChan 4
-          t <- Async.asyncWithUnmask (chanThread chan)
-          Async.link t
-          ref <- newIORef (chan, t)
-          wk <- mkWeakIORef ref (Async.uninterruptibleCancel t)
-          return $! (ref, wk)
-
-      chanThread chan restore =
-          flip finally (atomically $ Chan.closeTBMChan chan) $
-          restore $
-          asIoStream rs (
-              Streams.mapM_ (atomically . Chan.writeTBMChan chan) >=>
-              Streams.skipToEof)
-
-      go = do
-          (ref, _) <- createThread
-          Streams.makeInputStream $ do
-              chan <- fst <$> readIORef ref
-              atomically $ Chan.readTBMChan chan
-
-#endif
