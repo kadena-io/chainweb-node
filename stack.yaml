@@ -41,7 +41,16 @@ extra-deps:
   - yaml-0.11.0.0
 
   # --- Custom Pins --- #
-  - git: https://github.com/kadena-io/pact.git
+  - github: kadena-io/pact
     commit: d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3
-  - git: https://github.com/kadena-io/thyme.git
+  - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - github: fosskers/servant
+    commit: c9472671e8dceb07891509a998614687d1843629
+    subdirs:
+      - servant
+      - servant-client
+      - servant-client-core
+      - servant-server
+  - github: fosskers/servant-swagger
+    commit: 1bf10ef5223cfee7ec6bdb626865957ae17b1dca
