@@ -1,6 +1,4 @@
 -- | Tests and test infrastructure common to all mempool backends.
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -19,16 +17,11 @@ module Chainweb.Test.Mempool
   ) where
 
 import Control.Applicative
-import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
-import Control.Concurrent.Async (Concurrently(..))
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TBMChan as TBMChan
-import Control.Monad (replicateM, when)
+import Control.Concurrent (threadDelay)
+import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
 import Data.Decimal (Decimal)
-import Data.Foldable (for_, traverse_)
 import Data.Function (on)
 import Data.Int (Int64)
 import Data.IORef
@@ -36,7 +29,6 @@ import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
-import Pact.Types.Gas (GasPrice(..))
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
@@ -46,7 +38,14 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
 
+-- internal modules
+
+import Pact.Parse (ParsedDecimal(..))
+import Pact.Types.Gas (GasPrice(..))
+
+import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+import Chainweb.Test.Utils (toyChainId, toyGenesis)
 import qualified Chainweb.Time as Time
 import qualified Numeric.AffineSpace as AF
 
@@ -57,24 +56,39 @@ import qualified Numeric.AffineSpace as AF
 remoteTests :: MempoolWithFunc -> [TestTree]
 remoteTests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
-    , mempoolProperty "overlarge transactions are rejected" (pick arbitrary)
+    , mempoolProperty "overlarge transactions are rejected" genTwoSets
                       propOverlarge
-    , mempoolProperty "insert + lookup + getBlock" (pick arbitrary) propTrivial
-    , mempoolProperty "get all pending transactions" (pick arbitrary) propGetPending
-    , mempoolProperty "single subscription" (do
-          xs <- pick arbitrary
-          pre (length xs > 0)
-          return xs) propSubscription
+    , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
+    , mempoolProperty "getPending" genNonEmpty propGetPending
+    , mempoolProperty "getPending high water marks" hwgen propHighWater
     ]
+  where
+    hwgen = do
+      (xs, ys0) <- genTwoSets
+      let ys = take 1000 ys0     -- recency log only has so many entries
+      return (xs, ys)
+
+genNonEmpty :: PropertyM IO [MockTx]
+genNonEmpty = do
+    xs <- pick arbitrary
+    pre (not $ null xs)
+    return xs
+
+genTwoSets :: PropertyM IO ([MockTx], [MockTx])
+genTwoSets = do
+    xs <- uniq . sortBy ord <$> genNonEmpty
+    ys' <- uniq . sortBy ord <$> genNonEmpty
+    let ys = OL.minusBy' ord ys' xs
+    pre (not $ null ys)
+    return (xs, ys)
+  where
+    ord = compare `on` onFees
+    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 -- | Local-only tests plus all of the tests that are safe for remote.
 tests :: MempoolWithFunc -> [TestTree]
 tests withMempool = map ($ withMempool) [
-      mempoolProperty "validate txs" (pick arbitrary) propValidate
-    , mempoolProperty "multiple subscriptions"  (do
-          xs <- pick arbitrary
-          pre (length xs > 0)
-          return xs) propSubscriptions
+      mempoolProperty "validate txs" genTwoSets propValidate
     , mempoolTestCase "old transactions are reaped" testTooOld
     ] ++ remoteTests withMempool
 
@@ -83,11 +97,13 @@ arbitraryDecimal = do
     i <- (arbitrary :: Gen Int64)
     return $! fromInteger $ toInteger i
 
+arbitraryGasPrice :: Gen GasPrice
+arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
   arbitrary = let g x = choose (1, x)
               in MockTx <$> chooseAny
-                        <*> (GasPrice <$> arbitraryDecimal)
+                        <*> arbitraryGasPrice
                         <*> g mockBlockGasLimit
                         <*> pure emptyMeta
     where
@@ -153,7 +169,7 @@ testTooOld mempool = do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
+propOverlarge (txs, overlarge0) mempool = runExceptT $ do
     liftIO $ insert $ txs ++ overlarge
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup overlarge) >>= V.mapM_ lookupIsMissing
@@ -162,11 +178,8 @@ propOverlarge (txs0, overlarge0) mempool = runExceptT $ do
     hash = txHasher txcfg
     insert = mempoolInsert mempool . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
-    txs = uniq $ sortBy (compare `on` onFees) txs0
-    overlarge = setOverlarge $ uniq $ sortBy (compare `on` onFees) overlarge0
-
+    overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
 
 propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
@@ -192,11 +205,9 @@ propTrivial txs mempool = runExceptT $ do
 
 propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
 propGetPending txs0 mempool = runExceptT $ do
-    let txs = uniq $ sortBy (compare `on` onFees) txs0
     liftIO $ insert txs
-    let txdata = sort $ map hash txs
     pendingOps <- liftIO $ newIORef []
-    liftIO $ getPending $ \v -> modifyIORef' pendingOps (v:)
+    void $ liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps (v:)
     allPending <- sort . V.toList . V.concat
                   <$> liftIO (readIORef pendingOps)
 
@@ -208,7 +219,35 @@ propGetPending txs0 mempool = runExceptT $ do
                          , show allPending ]
         in fail msg
   where
+    txs = uniq $ sortBy (compare `on` onFees) txs0
+    txdata = sort $ map hash txs
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
+    hash = txHasher $ mempoolTxConfig mempool
+    getPending = mempoolGetPendingTransactions mempool
+    insert = mempoolInsert mempool . V.fromList
+
+propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
+propHighWater (txs0, txs1) mempool = runExceptT $ do
+    liftIO $ insert txs0
+    hw <- liftIO $ getPending Nothing $ const (return ())
+    liftIO $ insert txs1
+    pendingOps <- liftIO $ newIORef []
+    void $ liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
+    allPending <- sort . V.toList . V.concat
+                  <$> liftIO (readIORef pendingOps)
+    when (txdata /= allPending) $
+        let msg = concat [ "getPendingTransactions highwater failure: "
+                         , "expected new pending list:\n    "
+                         , show txdata
+                         , "\nbut got:\n    "
+                         , show allPending
+                         , "\nhw was: ", show hw
+                         , ", txs0 size: ", show (length txs0)
+                         ]
+        in fail msg
+
+  where
+    txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
     insert = mempoolInsert mempool . V.fromList
@@ -221,9 +260,7 @@ uniq (x:ys@(y:rest)) | x == y    = uniq (x:rest)
                      | otherwise = x : uniq ys
 
 propValidate :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propValidate (txs0', txs1') mempool = runExceptT $ do
-    let txs0 = uniq $ sortBy ord txs0'
-    let txs1 = OL.minusBy' ord (uniq $ sortBy ord txs1') txs0
+propValidate (txs0, txs1) mempool = runExceptT $ do
     insert txs0
     insert txs1
     lookup txs0 >>= V.mapM_ lookupIsPending
@@ -240,17 +277,21 @@ propValidate (txs0', txs1') mempool = runExceptT $ do
     lookup txs1 >>= V.mapM_ lookupIsConfirmed
 
   where
-    ord = compare `on` onFees
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     insert = liftIO . mempoolInsert mempool . V.fromList
     lookup = liftIO . mempoolLookup mempool . V.fromList . map hash
+
     markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
-    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList . map hash
+
+    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList
     markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
 
-    -- TODO: empty forks here
-    validate = ValidatedTransaction V.empty
+    -- BlockHash and BlockHeight don't matter for this test...
+    validate = ValidatedTransaction (_blockHeight someBlockHeader) (_blockHash someBlockHeader)
+
+
+someBlockHeader :: BlockHeader
+someBlockHeader = head $ testBlockHeaders (toyGenesis toyChainId)
 
 lookupIsPending :: Monad m => LookupResult t -> m ()
 lookupIsPending (Pending _) = return ()
@@ -267,91 +308,3 @@ lookupIsMissing _ = fail "lookup failure: expected missing"
 lookupIsValidated :: Monad m => LookupResult t -> m ()
 lookupIsValidated (Validated _) = return ()
 lookupIsValidated _ = fail "lookup failure: expected validated"
-
-chunk :: Int -> [a] -> [[a]]
-chunk k l = if null l
-              then []
-              else let a = take k l
-                       b = drop k l
-                   in a : (if null b then [] else chunk k b)
-
-
-propSubscription :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
-propSubscription txs0 mempool = runExceptT $ do
-    sub <- subscribe
-    mv <- liftIO newEmptyMVar
-    result <- liftIO $ Async.runConcurrently (
-        insertThread mv *> Concurrently (mockSubscriber (length txChunks) sub mv))
-    checkResult result
-
-  where
-    txs = uniq $ sortBy ord txs0
-    txChunks = chunk 64 txs
-    checkResult = checkSubscriptionResult txs
-    ord = compare `on` onFees
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
-    insert = liftIO . mempoolInsert mempool . V.fromList
-    subscribe = liftIO $ mempoolSubscribe mempool
-    insertThread mv = Concurrently $ do
-        traverse_ insert txChunks
-        takeMVar mv
-
-
-checkSubscriptionResult :: [MockTx] -> [MockTx] -> ExceptT String IO ()
-checkSubscriptionResult txs r =
-    when (r /= txs) $
-    let msg = concat [ "subscription failed: expected sequence "
-                     , show txs
-                     , "got "
-                     , show r
-                     ]
-    in fail msg
-
-
-mockSubscriber :: Int -> IORef (Subscription a) -> MVar () -> IO [a]
-mockSubscriber sz subRef mv = do
-    sub <- readIORef subRef
-    ref <- newIORef []
-    go sz ref $ mempoolSubChan sub
-    out <- reverse <$> readIORef ref
-    -- make sure we touch the ref so it isn't gc'ed
-    writeIORef subRef sub
-    return out
-  where
-    go !k ref chan = do
-        m <- atomically $ TBMChan.readTBMChan chan
-        flip (maybe (return ())) m $ \el -> do
-            let l = reverse $ V.toList el
-            modifyIORef' ref (l ++)
-            if (k <= 1)
-              then putMVar mv ()
-              else go (k - 1) ref chan
-
--- In-mem backend supports multiple subscriptions at once, socket-based one
--- doesn't (you'd just connect twice)
-propSubscriptions :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
-propSubscriptions txs0 mempool = runExceptT $ do
-    subscriptions <- replicateM numSubscribers subscribe
-    mvs <- replicateM numSubscribers (liftIO newEmptyMVar)
-    results <- liftIO $ Async.runConcurrently (insertThread mvs *>
-                                               runSubscribers mvs subscriptions)
-    mapM_ checkResult results
-
-  where
-    txs = uniq $ sortBy ord txs0
-    txChunks = chunk 64 txs
-    checkResult = checkSubscriptionResult txs
-    numSubscribers = 7
-    ord = compare `on` onFees
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
-    insert = liftIO . mempoolInsert mempool . V.fromList
-    subscribe = liftIO $ mempoolSubscribe mempool
-    insertThread mvs = Concurrently $ do
-        traverse_ insert txChunks
-        for_ mvs takeMVar
-
-    runSubscribers :: [MVar ()] -> [IORef (Subscription MockTx)] -> Concurrently [[MockTx]]
-    runSubscribers mvs subscriptions =
-        Concurrently $ Async.forConcurrently (subscriptions `zip` mvs)
-                     $ \(s,mv) -> mockSubscriber (length txChunks) s mv
-

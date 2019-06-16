@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
@@ -59,9 +60,9 @@ import Chainweb.Version
 cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
 cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
-    c <- _cut db
-    c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
-    return $ cutToCutHashes Nothing c'
+    !c <- _cut db
+    !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
+    return $! cutToCutHashes Nothing c'
 
 cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
 cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)

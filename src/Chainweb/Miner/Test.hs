@@ -24,7 +24,8 @@ module Chainweb.Miner.Test ( testMiner ) where
 import Control.Concurrent (threadDelay)
 import Control.Lens (view, (^?!))
 
-import Data.Reflection (give)
+import qualified Data.ByteString as BS
+import Data.Foldable (foldl')
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -52,7 +53,7 @@ import Chainweb.NodeId (NodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (getCurrentTimeIntegral)
+import Chainweb.Time (Seconds(..), getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -154,11 +155,15 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         --
         T3 newBh payload c' <- mine gen nonce0
 
-        let !nmb = NewMinedBlock (ObjectEncoded newBh)
-                       . Seq.length
-                       $ _payloadWithOutputsTransactions payload
+        let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions payload
+            !nmb = NewMinedBlock
+                   (ObjectEncoded newBh)
+                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int bytes)
+                   1
 
-        logg Info $! "created new block" <> sshow i
+        logg Info $! "Test Miner: created new block" <> sshow i
         logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).
@@ -169,7 +174,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
       where
         meanBlockTime :: Double
         meanBlockTime = case blockRate ver of
-            Just (BlockRate n) -> int n
+            Just (BlockRate (Seconds n)) -> int n
             Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show ver
 
     -- | Assemble the new block.
@@ -224,8 +229,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        result <- give payloadDb $ give wcdb
-            $ testMineWithPayload @cas (Nonce nonce) target ct payload nid cid c pact
+        result <- testMineWithPayload wcdb payloadDb (Nonce nonce) target ct payload nid cid c pact
 
         case result of
             Left BadNonce -> do

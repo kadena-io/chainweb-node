@@ -35,6 +35,8 @@ module Chainweb.Difficulty
 , powHashNat
 , encodePowHashNat
 , decodePowHashNat
+, encodePowHashNatBe
+, decodePowHashNatBe
 
 -- * HashTarget
 , HashTarget(..)
@@ -51,6 +53,8 @@ module Chainweb.Difficulty
 , HashDifficulty(..)
 , encodeHashDifficulty
 , decodeHashDifficulty
+, encodeHashDifficultyBe
+, decodeHashDifficultyBe
 
 -- * Difficulty Adjustment
 -- ** Fork-specific Settings
@@ -101,7 +105,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Seconds, TimeSpan(..))
+import Chainweb.Time (Seconds(..), TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -156,8 +160,16 @@ encodePowHashNat (PowHashNat n) = encodeWordLe n
 {-# INLINE encodePowHashNat #-}
 
 decodePowHashNat :: MonadGet m => m PowHashNat
-decodePowHashNat = PowHashNat <$> decodeWordLe
+decodePowHashNat = PowHashNat <$!> decodeWordLe
 {-# INLINE decodePowHashNat #-}
+
+encodePowHashNatBe :: MonadPut m => PowHashNat -> m ()
+encodePowHashNatBe (PowHashNat n) = encodeWordBe n
+{-# INLINE encodePowHashNatBe #-}
+
+decodePowHashNatBe :: MonadGet m => m PowHashNat
+decodePowHashNatBe = PowHashNat <$!> decodeWordBe
+{-# INLINE decodePowHashNatBe #-}
 
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
@@ -198,8 +210,16 @@ encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 {-# INLINE encodeHashDifficulty #-}
 
 decodeHashDifficulty :: MonadGet m => m HashDifficulty
-decodeHashDifficulty = HashDifficulty <$> decodePowHashNat
+decodeHashDifficulty = HashDifficulty <$!> decodePowHashNat
 {-# INLINE decodeHashDifficulty #-}
+
+encodeHashDifficultyBe :: MonadPut m => HashDifficulty -> m ()
+encodeHashDifficultyBe (HashDifficulty x) = encodePowHashNatBe x
+{-# INLINE encodeHashDifficultyBe #-}
+
+decodeHashDifficultyBe :: MonadGet m => m HashDifficulty
+decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
+{-# INLINE decodeHashDifficultyBe #-}
 
 -- -------------------------------------------------------------------------- --
 -- HashTarget
@@ -281,7 +301,7 @@ encodeHashTarget = encodePowHashNat . coerce
 {-# INLINE encodeHashTarget #-}
 
 decodeHashTarget :: MonadGet m => m HashTarget
-decodeHashTarget = HashTarget <$> decodePowHashNat
+decodeHashTarget = HashTarget <$!> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
 
 -- -------------------------------------------------------------------------- --
@@ -498,7 +518,7 @@ adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
   where
     br :: Natural
     br = case blockRate ver of
-        Just (BlockRate n) -> int n
+        Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
 
     minAdj :: PowHashNat

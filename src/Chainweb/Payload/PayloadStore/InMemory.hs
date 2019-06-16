@@ -58,7 +58,4 @@ newPayloadCache = PayloadCache <$> newBlockOutputsStore
     <*> newOutputTreeStore
 
 newPayloadDb :: IO (PayloadDb HashCAS.HashMapCas)
-newPayloadDb = PayloadDb
-    <$> newTransactionDb
-    <*> newPayloadCache
-
+newPayloadDb = PayloadDb <$> newTransactionDb <*> newPayloadCache

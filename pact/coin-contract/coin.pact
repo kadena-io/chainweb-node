@@ -1,14 +1,14 @@
 (module coin GOVERNANCE
 
-  "'coin' represents the Kadena Coin Contract."
+  "'coin' represents the Kadena Coin Contract. This contract provides both the \
+  \buy/redeem gas support in the form of 'fund-tx', as well as transfer,       \
+  \credit, debit, coinbase, account creation and query, as well as SPV burn    \
+  \create. To access the coin contract, you may use its fully-qualified name,  \
+  \or issue the '(use coin)' command in the body of a module declaration."
 
-
-  ; (implements coin-sig)
-  ; (implements spv-sig)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
-  ; --------------------------------------------------------------------------
 
   (defschema coin-schema
     balance:decimal
@@ -17,15 +17,16 @@
   (deftable coin-table:{coin-schema})
 
   (defschema creates-schema
-    exists:string
+    exists:bool
     )
   (deftable creates-table:{creates-schema})
 
   ; --------------------------------------------------------------------------
   ; Capabilities
-  ; --------------------------------------------------------------------------
 
-  (defcap GOVERNANCE () (enforce false "upgrade disabled"))
+  (defcap GOVERNANCE ()
+    "upgrade disabled"
+    false)
 
   (defcap TRANSFER ()
     "Autonomous capability to protect debit and credit actions"
@@ -49,7 +50,6 @@
 
   ; --------------------------------------------------------------------------
   ; Coin Contract
-  ; --------------------------------------------------------------------------
 
   (defun buy-gas:string (sender:string total:decimal)
     @doc "This function describes the main 'gas buy' operation. At this point \
@@ -62,7 +62,7 @@
 
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
-       (debit sender total))
+      (debit sender total))
     )
 
   (defun redeem-gas:string (miner:string miner-guard:guard sender:string total:decimal)
@@ -102,11 +102,10 @@
 
   (defun account-balance:decimal (account:string)
     @doc "Query account balance for ACCOUNT"
-    (with-capability (ACCOUNT_GUARD account)
-      (with-read coin-table account
-        { "balance" := balance }
-        balance
-        ))
+    (with-read coin-table account
+      { "balance" := balance }
+      balance
+      )
     )
 
   (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)
@@ -141,10 +140,6 @@
     (step (redeem-gas miner miner-guard sender total))
     )
 
-  ; --------------------------------------------------------------------------
-  ; Helpers
-  ; --------------------------------------------------------------------------
-
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
 
@@ -168,34 +163,50 @@
     @model [(property (> amount 0.0))]
 
     (require-capability (TRANSFER))
-      (with-default-read coin-table account
-        { "balance" : 0.0, "guard" : guard }
-        { "balance" := balance, "guard" := retg }
-          ; we don't want to overwrite an existing guard with the user-supplied one
-        (enforce (= retg guard) "account guards do not match")
+    (with-default-read coin-table account
+      { "balance" : 0.0, "guard" : guard }
+      { "balance" := balance, "guard" := retg }
+      ; we don't want to overwrite an existing guard with the user-supplied one
+      (enforce (= retg guard)
+        "account guards do not match")
 
-        (write coin-table account
-          { "balance" : (+ balance amount)
-          , "guard"   : retg
-          }))
-      )
+      (write coin-table account
+        { "balance" : (+ balance amount)
+        , "guard"   : retg
+        })
+      ))
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
+    @doc "Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
+         \produce an SPV receipt which may be manually redeemed for an SPV      \
+         \proof. Once a proof is obtained, the user may call 'create-coin' and  \
+         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT        \
+         \QUANTITY-many coins."
+
+    @model [(property (> amount 0.0))]
+
     (with-capability (TRANSFER)
       (debit delete-account quantity)
+
       { "create-chain-id": create-chain-id
       , "create-account": create-account
       , "create-account-guard": create-account-guard
       , "quantity": quantity
-      , "delete-chain-id": (at "chain-id" (chain-data))
+      , "delete-block-height": (at 'block-height (chain-data))
+      , "delete-chain-id": (at 'chain-id (chain-data))
       , "delete-account": delete-account
       , "delete-tx-hash": (tx-hash)
-      }))
+      })
+    )
 
   (defun create-coin (proof)
-    (let ((outputs (at "outputs" (verify-spv "TXOUT" proof))))
-      (enforce (= 1 (length outputs)) "only one tx in outputs")
-      (bind (at 0 outputs)
+    @doc "Consume an SPV proof for a number of coins, and credit the account   \
+         \associated with the proof the quantify of coins burned on the source \
+         \chain by the burn account. Note: must be called on the correct chain \
+         \id as specified in the proof."
+
+    (let ((outputs (verify-spv "TXOUT" proof)))
+      (bind outputs
         { "create-chain-id":= create-chain-id
         , "create-account" := create-account
         , "create-account-guard" := create-account-guard
@@ -203,19 +214,25 @@
         , "delete-tx-hash" := delete-tx-hash
         , "delete-chain-id" := delete-chain-id
         }
-        (enforce (= (at "chain-id" (chain-data)) create-chain-id "enforce correct create chain ID"))
-        (let ((create-id (format "%:%" [delete-tx-hash delete-chain-id])))
-          (with-default-read create-id creates-table
+
+        (enforce
+          (= create-chain-id (at "chain-id" (chain-data)))
+          "enforce correct create chain ID")
+
+        (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
+          (with-default-read creates-table create-id
             { "exists": false }
             { "exists":= exists }
-            (enforce (not exists) (format "enforce unique usage of %" [create-id]))
+
+            (enforce (not exists)
+              (format "enforce unique usage of {}" [create-id]))
+
             (insert creates-table create-id { "exists": true })
+
             (with-capability (TRANSFER)
               (credit create-account create-account-guard quantity)))
           )))
     )
-
-
 )
 
 (create-table coin-table)

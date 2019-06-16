@@ -22,6 +22,7 @@ module Data.CAS.HashMap
 ) where
 
 import Control.Concurrent.STM.TVar
+import Control.Monad ((<$!>))
 import Control.Monad.STM
 
 import Data.Hashable
@@ -37,7 +38,7 @@ data HashMapCas v = IsCasValue v => HashMapCas !(TVar (HM.HashMap (CasKeyType v)
 
 instance (Show (CasKeyType v), Hashable (CasKeyType v), IsCasValue v) => IsCas (HashMapCas v) where
     type CasValueType (HashMapCas v) = v
-    casLookup (HashMapCas var) k = HM.lookup k <$> readTVarIO var
+    casLookup (HashMapCas var) k = HM.lookup k <$!> readTVarIO var
     casInsert cas@(HashMapCas var) a = casLookup cas (casKey a) >>= \case
         Just _ -> return ()
         Nothing -> atomically $ modifyTVar' var $ HM.insert (casKey a) a
@@ -54,10 +55,10 @@ emptyCas = HashMapCas <$> newTVarIO mempty
 -- | Return all entries of CAS as List
 --
 toList :: HashMapCas v -> IO [v]
-toList (HashMapCas var) = HM.elems <$> readTVarIO var
+toList (HashMapCas var) = HM.elems <$!> readTVarIO var
 
 -- | The number of items in the CAS
 --
 size :: HashMapCas v -> IO Int
-size (HashMapCas var) = HM.size <$> readTVarIO var
+size (HashMapCas var) = HM.size <$!> readTVarIO var
 

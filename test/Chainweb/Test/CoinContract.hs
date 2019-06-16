@@ -19,12 +19,10 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 
 import Data.Aeson
-import Data.Decimal (Decimal)
 import Data.Default (def)
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text
-import Data.Word
 
 -- internal pact modules
 
@@ -51,7 +49,7 @@ tests = testGroup "Coin Contract Unit Tests"
   ]
 
 buyGas' :: Assertion
-buyGas' = void $ mkBuyGasCmd minerId0 minerKeys0 sender0 gasLimit0
+buyGas' = void $ mkBuyGasCmd minerId0 minerKeys0 sender0 1.0
 
 coinbase' :: Assertion
 coinbase' = void $ mkCoinbaseCmd minerId0 minerKeys0 1.0
@@ -72,7 +70,7 @@ ccReplTests = do
     execRepl rst = do
       lst <- readMVar $! _eePactDbVar . _rEnv $ rst
       for_ (_rlsTests lst) $ \tr ->
-        maybe (pure ()) (uncurry failCC) $ trFailure tr
+        traverse_ (uncurry failCC) $ trFailure tr
 
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
@@ -93,9 +91,6 @@ minerId0 = "default miner"
 
 minerKeys0 :: KeySet
 minerKeys0 = keyset0
-
-gasLimit0 :: Decimal
-gasLimit0 = fromIntegral @Word64 @Decimal 1
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"

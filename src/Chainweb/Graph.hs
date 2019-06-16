@@ -185,7 +185,7 @@ validChainGraph g
     = G.isDiGraph g
     && G.isSymmetric g
     && G.isRegular g
-    && (G.order g <= 1 || G.size g >= 1)
+    && (G.order g <= 1 || G.symSize g >= 1)
 {-# INLINE validChainGraph #-}
 
 adjacentChainIds
@@ -228,7 +228,10 @@ adjsOfVertex g a = HS.map (Adj (_chainId a)) $ adjacentChainIds g a
 -- Properties
 
 size :: ChainGraph -> Natural
-size = G.size . _chainGraphGraph
+size = (`div` 2) . G.size . _chainGraphGraph
+    -- A chaingraph is guaranteed to be symmetric. @G.symSize@ is less efficient
+    -- than @(`div` 2) . G.size@, because the former computes the symmetric
+    -- closure of the graph, while the latter assumes symmetry.
 
 order :: ChainGraph -> Natural
 order = G.order . _chainGraphGraph
@@ -304,7 +307,7 @@ checkAdjacentChainIds g cid expectedAdj = do
     void $ check AdjacentChainMismatch
         (HS.map _chainId <$> expectedAdj)
         (Actual $ G.adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
-    return (getExpected expectedAdj)
+    return $! getExpected expectedAdj
 
 -- -------------------------------------------------------------------------- --
 -- Some Graphs

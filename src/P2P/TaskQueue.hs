@@ -112,7 +112,7 @@ makeLensesFor
 newTask :: TaskId -> Priority -> TaskAction env a -> IO (Task env a)
 newTask tid prio act = do
     var <- newIVar
-    return $ Task
+    return $! Task
         { _taskId = tid
         , _taskAction = act
         , _taskPriority = prio

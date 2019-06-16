@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -30,6 +31,9 @@
 --
 -- 'RocksDbCas' adds an 'IsCas' instance for a 'RocksDbTable' where the value
 -- type is content-addressable.
+--
+-- TODO: Abstract the 'RocksDbTable' API into a typeclass so that one can
+-- provide alterantive implementations for it.
 --
 module Data.CAS.RocksDB
 ( RocksDb(..)
@@ -74,6 +78,14 @@ module Data.CAS.RocksDB
 , iterToValueStream
 , iterToKeyStream
 
+-- ** Extremal Table Entries
+, tableMaxKey
+, tableMaxValue
+, tableMaxEntry
+, tableMinKey
+, tableMinValue
+, tableMinEntry
+
 -- * RocksDbCas
 , RocksDbCas(..)
 , newCas
@@ -115,17 +127,28 @@ data RocksDb = RocksDb
 
 makeLenses ''RocksDb
 
+-- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
+-- at the provided directory path, a new database is created.
+--
 openRocksDb :: FilePath -> IO RocksDb
 openRocksDb path = RocksDb <$> R.open path opts <*> mempty
   where
     opts = R.defaultOptions { R.createIfMissing = True }
 
+-- | Close a 'RocksDb' instance.
+--
 closeRocksDb :: RocksDb -> IO ()
 closeRocksDb = R.close . _rocksDbHandle
 
+-- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
+-- the provided directory path, a new database is created.
+--
 withRocksDb :: FilePath -> (RocksDb -> IO a) -> IO a
 withRocksDb path = bracket (openRocksDb path) closeRocksDb
 
+-- | Provide a computation with a temporary 'RocksDb'. The database is deleted
+-- when the computation exits.
+--
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
     withRocksDb dir f
@@ -139,11 +162,19 @@ withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
 -- could handle the types in all sub-namespaces. This could for instance
 -- be useful for iterating over the complete database.
 
+-- | A binary codec for encoding and decoding values that are stored in a
+-- 'RocksDb' Table.
+--
 data Codec a = Codec
     { _codecEncode :: !(a -> B.ByteString)
+        -- ^ encode a value.
     , _codecDecode :: !(forall m . MonadThrow m => B.ByteString -> m a)
+        -- ^ decode a value. Throws an exception of decoding fails.
     }
 
+-- | A logical table in a 'RocksDb'. Tables in a rocks db are have isolated key
+-- namespaces.
+--
 data RocksDbTable k v = RocksDbTable
     { _rocksDbTableValueCodec :: !(Codec v)
     , _rocksDbTableKeyCodec :: !(Codec k)
@@ -172,6 +203,9 @@ newTable db valCodec keyCodec namespace
     ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace <> "$"
 {-# INLINE newTable #-}
 
+-- | @tableInsert db k v@ inserts the value @v@ at key @k@ in the rocks db table
+-- @db@.
+--
 tableInsert :: RocksDbTable k v -> k -> v -> IO ()
 tableInsert db k v = R.put
     (_rocksDbTableDb db)
@@ -180,12 +214,19 @@ tableInsert db k v = R.put
     (encVal db v)
 {-# INLINE tableInsert #-}
 
+-- | @tableLookup db k@ returns 'Just' the value at key @k@ in the
+-- 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@ doesn't exist in
+-- the table.
+--
 tableLookup :: RocksDbTable k v -> k -> IO (Maybe v)
 tableLookup db k = do
     maybeBytes <- R.get (_rocksDbTableDb db) R.defaultReadOptions (encKey db k)
     traverse (decVal db) maybeBytes
 {-# INLINE tableLookup #-}
 
+-- | @tableDelete db k@ deletes the value at the key @k@ from the 'RocksDbTable'
+-- db. If the @k@ doesn't exist in @db@ this function does nothing.
+--
 tableDelete :: RocksDbTable k v -> k -> IO ()
 tableDelete db k = R.delete
     (_rocksDbTableDb db)
@@ -196,6 +237,17 @@ tableDelete db k = R.delete
 -- -------------------------------------------------------------------------- --
 -- Table Iterator
 
+-- | An iterator for a 'RocksDbTable'. An interator is a stateful object that
+-- represents an enumeration of a subset of the entries of an immutable snapshop
+-- of the table.
+--
+-- An iterator should be used single threaded. Since the iterator retains the
+-- snapshot of the database, one should avoid storing iterators over longer
+-- periods of time. After usage it should be released in a timely manner.
+--
+-- The recommended way to created a 'RocksDbTableIter' is to use the function
+-- `withTableIter`.
+--
 data RocksDbTableIter k v = RocksDbTableIter
     { _rocksDbTableIterValueCodec :: !(Codec v)
     , _rocksDbTableIterKeyCodec :: !(Codec k)
@@ -203,9 +255,16 @@ data RocksDbTableIter k v = RocksDbTableIter
     , _rocksDbTableIter :: !I.Iterator
     }
 
+-- | Creates a 'RocksDbTableIterator'. If the 'RocksDbTable' is not empty, the
+-- iterator is pointing to the first key in the 'RocksDbTable' and is valid.
+--
+-- The returnd iterator must be released with 'releaseTableIter' when it is not
+-- needed any more. Not doing so release in a data leak that retains database
+-- snapshots.
+--
 createTableIter :: RocksDbTable k v -> IO (RocksDbTableIter k v)
 createTableIter db = do
-    tit <- RocksDbTableIter
+    !tit <- RocksDbTableIter
         (_rocksDbTableValueCodec db)
         (_rocksDbTableKeyCodec db)
         (_rocksDbTableName db)
@@ -214,43 +273,70 @@ createTableIter db = do
     return tit
 {-# INLINE createTableIter #-}
 
+-- | Releases an 'RocksDbTableIteror', freeing up it's resources.
+--
 releaseTableIter :: RocksDbTableIter k v -> IO ()
 releaseTableIter = I.releaseIter . _rocksDbTableIter
 {-# INLINE releaseTableIter #-}
 
+-- | Provide an computation with a 'RocksDbTableIteror' and release the iterator
+-- after after the computation has finished either by returning a result or
+-- throwing an exception.
+--
+-- This is function provides the prefered way of creating and using a
+-- 'RocksDbTableIter'.
+--
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
 withTableIter db = bracket (createTableIter db) releaseTableIter
 {-# INLINE withTableIter #-}
 
+-- | Checks if an 'RocksDbTableIterator' is valid.
+--
+-- A valid iterator returns a value when 'tableIterEntry', 'tableIterValue', or
+-- 'tableIterKey' is called on it.
+--
 tableIterValid :: MonadIO m => RocksDbTableIter k v -> m Bool
 tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return False
-    Just x -> return (checkIterKey it x)
+    (Just !x) -> return $! checkIterKey it x
 {-# INLINE tableIterValid #-}
 
+-- | Efficiently seek to a key in a 'RocksDbTableIterator' iteration.
+--
 tableIterSeek :: MonadIO m => RocksDbTableIter k v -> k -> m ()
 tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 {-# INLINE tableIterSeek #-}
 
+-- | Seek to the first key in a 'RocksDbTable'.
+--
 tableIterFirst :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterFirst it
     = I.iterSeek (_rocksDbTableIter it) (_rocksDbTableIterNamespace it)
 {-# INLINE tableIterFirst #-}
 
+-- | Seek to the last value in a 'RocksDbTable'
+--
 tableIterLast :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterLast it = do
     I.iterSeek (_rocksDbTableIter it) (namespaceLast it)
     I.iterPrev (_rocksDbTableIter it)
 {-# INLINE tableIterLast #-}
 
+-- | Move a 'RocksDbTableIter' to the next key in a 'RocksDbTable'.
+--
 tableIterNext :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterNext = I.iterNext . _rocksDbTableIter
 {-# INLINE tableIterNext #-}
 
+-- | Move a 'RocksDbTableIter' to the previous key in a 'RocksDbTable'.
+--
 tableIterPrev :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterPrev = I.iterPrev . _rocksDbTableIter
 {-# INLINE tableIterPrev #-}
 
+-- | Returns the key and the value at the current position of a
+-- 'RocksDbTableIter'. Returns 'Nothing' if the iterator is invalid.
+--
 tableIterEntry
     :: MonadIO m
     => MonadThrow m
@@ -261,11 +347,14 @@ tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
     Just (k, v) -> do
         tryDecIterKey it k >>= \case
             Nothing -> return Nothing
-            Just k' -> do
-                v' <- decIterVal it v
-                return $ Just (k', v')
+            (Just !k') -> do
+                !v' <- decIterVal it v
+                return $! Just $! (k', v')
 {-# INLINE tableIterEntry #-}
 
+-- | Returns the value at the current position of a 'RocksDbTableIter'. Returns
+-- 'Nothing' if the iterator is invalid.
+--
 tableIterValue
     :: MonadIO m
     => MonadThrow m
@@ -274,6 +363,9 @@ tableIterValue
 tableIterValue it = fmap snd <$> tableIterEntry it
 {-# INLINE tableIterValue #-}
 
+-- | Returns the key at the current position of a 'RocksDbTableIter'. Returns
+-- 'Nothing' if the iterator is invalid.
+--
 tableIterKey
     :: MonadIO m
     => MonadThrow m
@@ -284,27 +376,89 @@ tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
     Just k -> tryDecIterKey it k
 {-# INLINE tableIterKey #-}
 
+-- | Returns the stream of key-value pairs of an 'RocksDbTableIter'.
+--
+-- The iterator must be released after the stream is consumed. Releasing the
+-- iterator to early while the stream is still in use results in a runtime
+-- error. Not releasing the iterator after the processing of the stream has
+-- finished results in a memory leak.
+--
 iterToEntryStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of (k,v)) m ()
 iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
     Nothing -> return ()
     Just x -> S.yield x >> tableIterNext it >> iterToEntryStream it
 {-# INLINE iterToEntryStream #-}
 
+-- | Returns the stream of values of an 'RocksDbTableIter'.
+--
+-- The iterator must be released after the stream is consumed. Releasing the
+-- iterator to early while the stream is still in use results in a runtime
+-- error. Not releasing the iterator after the processing of the stream has
+-- finished results in a memory leak.
+--
 iterToValueStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of v) m ()
 iterToValueStream it = liftIO (tableIterValue it) >>= \case
     Nothing -> return ()
     Just x -> S.yield x >> tableIterNext it >> iterToValueStream it
 {-# INLINE iterToValueStream #-}
 
+-- | Returns the stream of keys of an 'RocksDbTableIter'.
+--
+-- The iterator must be released after the stream is consumed. Releasing the
+-- iterator to early while the stream is still in use results in a runtime
+-- error. Not releasing the iterator after the processing of the stream has
+-- finished results in a memory leak.
+--
 iterToKeyStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of k) m ()
 iterToKeyStream it = liftIO (tableIterKey it) >>= \case
     Nothing -> return ()
     Just x -> S.yield x >> tableIterNext it >> iterToKeyStream it
 {-# INLINE iterToKeyStream #-}
 
+-- Extremal Table Entries
+
+-- | The maximum key in a 'RocksDbTable'.
+--
+tableMaxKey :: RocksDbTable k v -> IO (Maybe k)
+tableMaxKey = flip withTableIter $ \i -> tableIterLast i *> tableIterKey i
+{-# INLINE tableMaxKey #-}
+
+-- | The maximum value in a 'RocksDbTable'.
+--
+tableMaxValue :: RocksDbTable k v -> IO (Maybe v)
+tableMaxValue = flip withTableIter $ \i -> tableIterLast i *> tableIterValue i
+{-# INLINE tableMaxValue #-}
+
+-- | The maximum key-value in a 'RocksDbTable'.
+--
+tableMaxEntry :: RocksDbTable k v -> IO (Maybe (k, v))
+tableMaxEntry = flip withTableIter $ \i -> tableIterLast i *> tableIterEntry i
+{-# INLINE tableMaxEntry #-}
+
+-- | The minimum key in a 'RocksDbTable'.
+--
+tableMinKey :: RocksDbTable k v -> IO (Maybe k)
+tableMinKey = flip withTableIter $ \i -> tableIterFirst i *> tableIterKey i
+{-# INLINE tableMinKey #-}
+
+-- | The minimum value in a 'RocksDbTable'.
+--
+tableMinValue :: RocksDbTable k v -> IO (Maybe v)
+tableMinValue = flip withTableIter $ \i -> tableIterFirst i *> tableIterValue i
+{-# INLINE tableMinValue #-}
+
+-- | The minimum key-value in a 'RocksDbTable'.
+--
+tableMinEntry :: RocksDbTable k v -> IO (Maybe (k, v))
+tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
+{-# INLINE tableMinEntry #-}
+
 -- -------------------------------------------------------------------------- --
 -- CAS
 
+-- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
+-- instance of 'IsCas'.
+--
 instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
     type CasValueType (RocksDbTable k v) = v
 
@@ -316,12 +470,12 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
 
--- | A newtype wrapper that takes only a single type constructor. This
--- useful in situations where a Higher Order type constructor for a CAS
--- is required. A type synonym isn't doesn't work in this situation because
--- type synonyms must be fully applied.
+-- | A newtype wrapper that takes only a single type constructor. This useful in
+-- situations where a Higher Order type constructor for a CAS is required. A
+-- type synonym doesn't work in this situation because type synonyms must be
+-- fully applied.
 --
-newtype RocksDbCas v = RocksDbCas (RocksDbTable (CasKeyType v) v)
+newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
 
 instance IsCasValue v => IsCas (RocksDbCas v) where
     type instance CasValueType (RocksDbCas v) = v
@@ -334,6 +488,8 @@ instance IsCasValue v => IsCas (RocksDbCas v) where
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
 
+-- | Create a new 'RocksDbCas'.
+--
 newCas
     :: CasKeyType v ~ k
     => RocksDb
@@ -347,6 +503,8 @@ newCas db vc kc n = RocksDbCas $ newTable db vc kc n
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
+-- | Excpeptions that can be thrown by functions in this module.
+--
 data RocksDbException
     = RocksDbTableIterInvalidKeyNamespace (Expected B.ByteString) (Actual B.ByteString)
     deriving (Eq, Ord, Generic)

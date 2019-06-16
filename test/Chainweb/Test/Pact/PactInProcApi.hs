@@ -23,6 +23,7 @@ import Control.Exception (Exception)
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Vector ((!))
 import qualified Data.Vector as V
@@ -141,24 +142,37 @@ getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess _bHeight _bHash = do
-    moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-    let cmdStrs = V.fromList
-          [ moduleStr
-          , "(create-table test1.accounts)"
-          , "(test1.create-global-accounts)"
-          , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
-          ]
-    mkPactTestTransactions cmdStrs
+testMemPoolAccess  = MemPoolAccess
+    { mpaGetBlock = getTestBlock
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
+  where
+    getTestBlock _bHeight _bHash _bHeader = do
+        moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
+        d <- adminData
+        let txs = V.fromList
+              [ PactTransaction (T.pack moduleStr) d
+              , PactTransaction "(create-table test1.accounts)" d
+              , PactTransaction "(test1.create-global-accounts)" d
+              , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+              ]
+        goldenTestTransactions txs
+
 
 testEmptyMemPool :: MemPoolAccess
-testEmptyMemPool _bHeight _bHash = mkPactTestTransactions V.empty
+testEmptyMemPool = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> goldenTestTransactions V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
 
 testLocal :: IO ChainwebTransaction
-testLocal = fmap (head . V.toList) $ mkPactTestTransactions $ V.fromList
-    [ "(test1.read-account \"Acct1\")"
-    ]
-
+testLocal = do
+    d <- adminData
+    fmap (head . V.toList)
+      $ goldenTestTransactions
+      $ V.fromList [ PactTransaction "(test1.read-account \"Acct1\")" d ]
 {-
 cmdBlocks :: Vector (Vector String)
 cmdBlocks =  V.fromList

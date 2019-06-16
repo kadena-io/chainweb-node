@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -218,11 +219,11 @@ limitCut wdb h c = c & (cutHeaders . itraverse) f
     ch = h `div` int (order (_chainGraph wdb))
     f cid x = do
         db <- give wdb $ getWebBlockHeaderDb cid
-        a <- S.head_ & branchEntries db
+        !a <- S.head_ & branchEntries db
             Nothing (Just 1)
             Nothing (Just $ int ch)
             mempty (HS.singleton $ UpperBound $ _blockHash x)
-        return $ fromJuste a
+        return $! fromJuste a
             -- this is safe because branchEntries returns at least
             -- the genesis block
 
@@ -303,7 +304,7 @@ isBraidingOfCutPair (Adj a b) = do
     ab <- getAdjacentHash b a
     ba <- getAdjacentHash a b
     return
-        $ (_blockParent a == ba && _blockParent b == ab)
+        $! (_blockParent a == ba && _blockParent b == ab)
         || ba == _blockHash a
         || ab == _blockHash b
 
@@ -329,7 +330,7 @@ isMonotonicCutExtension
     -> m Bool
 isMonotonicCutExtension c h = do
     checkBlockHeaderGraph h
-    return $ monotonic && validBraiding
+    return $! monotonic && validBraiding
   where
     monotonic = _blockParent h == c ^?! ixg (_chainId h) . blockHash
     validBraiding = getAll $ ifoldMap
@@ -343,7 +344,7 @@ monotonicCutExtension
     -> m Cut
 monotonicCutExtension c h = do
     unlessM (isMonotonicCutExtension c h) $ throwM $ InvalidCutExtension h
-    return $ c & cutHeaders . ix (_chainId h) .~ h
+    return $! c & cutHeaders . ix (_chainId h) .~ h
 
 tryMonotonicCutExtension
     :: MonadThrow m
@@ -388,7 +389,7 @@ join_
     -> IO (Join a)
 join_ wdb prioFun a b = do
     (m, h) <- foldM f (mempty, mempty) (zipChainIdMaps a b)
-    return $ Join (Cut m (_chainwebVersion wdb)) h
+    return $! Join (Cut m (_chainwebVersion wdb)) h
   where
     f
         :: (HM.HashMap ChainId BlockHeader, JoinQueue a)
@@ -397,7 +398,8 @@ join_ wdb prioFun a b = do
     f (m, q) (cid, x, y) = do
         db <- give wdb $ getWebBlockHeaderDb cid
         (q' :> h) <- S.fold g q id $ branchDiff_ db x y
-        return (HM.insert cid h m, q')
+        let !h' = q' `seq` h `seq` HM.insert cid h m
+        return $! (h', q')
 
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
     g q x = foldl' maybeInsert q $ zip (toList x) (toList (prioFun x))
@@ -406,8 +408,8 @@ join_ wdb prioFun a b = do
         :: H.Heap (H.Entry (BlockHeight, a) BlockHeader)
         -> (BlockHeader, Maybe a)
         -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
-    maybeInsert q (_, Nothing) = q
-    maybeInsert q (h, Just p) = H.insert (H.Entry (_blockHeight h, p) h) q
+    maybeInsert !q (_, Nothing) = q
+    maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (_blockHeight h, p) h) q
 
     -- | Only chain ids of the intersection are included in the result.
     --
@@ -508,10 +510,10 @@ meet
     -> Cut
     -> IO Cut
 meet wdb a b = do
-    r <- HM.fromList <$> mapM f (zipCuts a b)
-    return $ Cut r (_chainwebVersion wdb)
+    !r <- HM.fromList <$> mapM f (zipCuts a b)
+    return $! Cut r (_chainwebVersion wdb)
   where
-    f (cid, x, y) = (cid,) <$> do
+    f (!cid, !x, !y) = (cid,) <$!> do
         db <- give wdb $ getWebBlockHeaderDb cid
         forkEntry db x y
 
@@ -522,7 +524,7 @@ forkDepth
     -> IO Natural
 forkDepth wdb a b = do
     m <- meet wdb a b
-    return . int $ max (maxDepth m a) (maxDepth m b)
+    return $! int $ max (maxDepth m a) (maxDepth m b)
   where
     maxDepth l u = maximum
         $ (\(_, x, y) -> _blockHeight y - _blockHeight x)

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -140,7 +141,7 @@ validateAdditionsM lookupParent as = traverse_ (validateEntryM lookupParent') as
   where
     lookupParent' h = case HM.lookup h as of
         Nothing -> lookupParent h
-        p -> return p
+        !p -> return p
 
 -- -------------------------------------------------------------------------- --
 -- Validate with Lookup Function
@@ -174,10 +175,10 @@ validateInductiveInternal
     -> BlockHeader
     -> m [ValidationFailureType]
 validateInductiveInternal lookupParent b
-    | isGenesisBlockHeader b = return (validateParent b b)
+    | isGenesisBlockHeader b = return $! validateParent b b
     | otherwise = lookupParent (_blockParent b) >>= \case
         Nothing -> return [MissingParent]
-        Just p -> return $ validateParent p b
+        (Just !p) -> return $! validateParent p b
 
 -- -------------------------------------------------------------------------- --
 -- Validate BlockHeaders

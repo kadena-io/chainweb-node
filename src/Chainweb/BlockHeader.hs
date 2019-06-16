@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -36,11 +37,15 @@ module Chainweb.BlockHeader
   BlockHeight(..)
 , encodeBlockHeight
 , decodeBlockHeight
+, encodeBlockHeightBe
+, decodeBlockHeightBe
 
 -- * Block Weight
 , BlockWeight(..)
 , encodeBlockWeight
 , decodeBlockWeight
+, encodeBlockWeightBe
+, decodeBlockWeightBe
 
 -- * Block Payload Hash
 , BlockPayloadHash(..)
@@ -180,6 +185,12 @@ encodeBlockHeight (BlockHeight h) = putWord64le h
 decodeBlockHeight :: MonadGet m => m BlockHeight
 decodeBlockHeight = BlockHeight <$> getWord64le
 
+encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
+encodeBlockHeightBe (BlockHeight r) = putWord64be r
+
+decodeBlockHeightBe :: MonadGet m => m BlockHeight
+decodeBlockHeightBe = BlockHeight <$> getWord64be
+
 -- -------------------------------------------------------------------------- --
 -- Block Weight
 --
@@ -204,9 +215,19 @@ instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
 
 encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
+{-# INLINE encodeBlockWeight #-}
 
 decodeBlockWeight :: MonadGet m => m BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
+{-# INLINE decodeBlockWeight #-}
+
+encodeBlockWeightBe :: MonadPut m => BlockWeight -> m ()
+encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
+{-# INLINE encodeBlockWeightBe #-}
+
+decodeBlockWeightBe :: MonadGet m => m BlockWeight
+decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
+{-# INLINE decodeBlockWeightBe #-}
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -488,7 +509,7 @@ decodeBlockHeaderChecked
     => MonadGet m
     => m BlockHeader
 decodeBlockHeaderChecked = do
-    bh <- decodeBlockHeader
+    !bh <- decodeBlockHeader
     _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
     return bh
 
@@ -505,7 +526,7 @@ decodeBlockHeaderCheckedChainId
     => Expected p
     -> m BlockHeader
 decodeBlockHeaderCheckedChainId p = do
-    bh <- decodeBlockHeaderChecked
+    !bh <- decodeBlockHeaderChecked
     _ <- checkChainId p (Actual (_chainId bh))
     return bh
 
@@ -527,7 +548,7 @@ decodeBlockHeaderWithoutHash = do
     a9 <- decodeChainwebVersion
     a10 <- decodeChainNodeId
     return
-        $ fromLog
+        $! fromLog
         $ newMerkleLog
         $ a0
         :+: a1
@@ -567,7 +588,7 @@ instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
         case runGet decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
             Left (e :: SomeException) -> fail (sshow e)
-            Right x -> return x
+            (Right !x) -> return x
 
 _blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
 _blockAdjacentChainIds =
@@ -651,8 +672,10 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     {-# INLINE parseJSON #-}
 
 data NewMinedBlock = NewMinedBlock
-    { _minedBlockHeader :: ObjectEncoded BlockHeader
-    , _minedBlockTrans :: Int }
+    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
+    , _minedBlockTrans :: {-# UNPACK #-} !Word
+    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
+    , _minedHashAttempts :: {-# UNPACK #-} !Word }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 

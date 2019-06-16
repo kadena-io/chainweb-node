@@ -56,7 +56,7 @@ import Chainweb.Version
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
-import Pact.Types.Runtime (noSPVSupport)
+import Pact.Types.SPV (noSPVSupport)
 
 ---
 
@@ -107,7 +107,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' (someChainId Testnet00) logger noSPVSupport $
+    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

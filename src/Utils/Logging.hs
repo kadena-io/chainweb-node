@@ -21,23 +21,25 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- This module defines log messages that are similar to Haskell exceptions from
--- 'Control.Exception'.
+-- This module provides backends for handling log messages from the
+-- "Data.LogMessage". Log messages that are similar to Haskell exceptions from
+-- 'Control.Exception'. Like exceptions, log messages in this module are typed
+-- dynamically and classes of log messages types are extensible.
 --
 -- Log messages and exceptions are similar in that they can be emitted/thrown
--- anywhere in the code base (in the IO monad, for logs) and are propagated
--- upward through the call stack, until they are eventually picked up by some
--- handler. The difference is that exceptions synchronously interrupt the
--- computation that throws them, while log messages are emitted asynchronously
--- and the computation that emits them continues while the message is handled.
+-- anywhere in the code base (in the IO monad, for logs) and are propagated to
+-- handlers that are defined upward in the call stack until they are eventually
+-- picked up. The difference is that exceptions synchronously interrupt the
+-- computation that throws them, while log messages are usually handled
+-- asynchronously and the computation that emits them continues while the
+-- message is handled.
 --
 -- Log messages are usually handled only at the top level by a global handler
 -- (or stack of handlers), but that depends on the implementation of the logger
 -- (usually a queue, but sometimes just an IO callback), which is orthorgonal to
--- the the definitions in this module.
---
--- Like exceptions, log messages also should be typed dynamically and classes of
--- log messages types should be extensible.
+-- the definitions in this module. The backends in this module use the type from
+-- the package @yet-another-logger@, which also provides an implementation of a
+-- logger queue.
 --
 -- Unlike exceptions, log messages must be handled. The type systems ensures
 -- that there is a /base log handler/ that catches messages of any type, even if
@@ -221,8 +223,8 @@ maybeLogHandle
     -> GenericBackend b
     -> GenericBackend b
 maybeLogHandle f = genericLogHandle $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> f msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> f msg
 {-# INLINEABLE maybeLogHandle #-}
 
 -- | This is most the powerful handle function that allows to implement generic
@@ -236,9 +238,9 @@ genericLogHandle
     -> GenericBackend b
 genericLogHandle f b msg = case fromBackendLogMessage msg of
     Nothing -> b msg
-    Just amsg -> f amsg >>= \case
+    (Just !amsg) -> f amsg >>= \case
         Nothing -> return mempty
-        Just msg' -> b msg'
+        (Just !msg') -> b msg'
 {-# INLINEABLE genericLogHandle #-}
 
 -- -------------------------------------------------------------------------- --
@@ -259,8 +261,8 @@ maybeLogHandler
     => (L.LogMessage a -> IO (Maybe (L.LogMessage SomeLogMessage)))
     -> LogHandler
 maybeLogHandler b = LogHandler $ \case
-    Left msg -> Just . Left <$> return msg
-    Right msg -> fmap Right <$> b msg
+    (Left !msg) -> Just . Left <$!> return msg
+    (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
 
 logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
@@ -492,7 +494,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
   where
     curIxName = do
         d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
-        return $ ixName <> "-" <> d
+        return $! ixName <> "-" <> d
 
     errorLogFun Error msg = T.hPutStrLn stderr msg
     errorLogFun _ _ = return ()
@@ -517,14 +519,14 @@ withElasticsearchBackend mgr esServer ixName inner = do
         errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
         void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go _ 0 !batch _ = return (0, batch)
+        go _ 0 !batch _ = return $! (0, batch)
         go i !remaining !batch !timer = isTimeout `orElse` fill
           where
             isTimeout = do
                 check =<< readTVar timer
-                return (remaining, batch)
+                return $! (remaining, batch)
             fill = tryReadTBQueue queue >>= \case
-                Nothing -> return (remaining, batch)
+                Nothing -> return $! (remaining, batch)
                 Just x -> do
                     go i (pred remaining) (batch <> indexAction i x) timer
 

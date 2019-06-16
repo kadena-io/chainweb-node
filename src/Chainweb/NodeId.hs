@@ -45,6 +45,7 @@ module Chainweb.NodeId
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -94,7 +95,7 @@ encodeChainNodeId (ChainNodeId cid i) = encodeChainId cid >> putWord64le i
 {-# INLINE encodeChainNodeId #-}
 
 decodeChainNodeId :: MonadGet m => m ChainNodeId
-decodeChainNodeId = ChainNodeId <$> decodeChainId <*> getWord64le
+decodeChainNodeId = ChainNodeId <$!> decodeChainId <*> getWord64le
 {-# INLINE decodeChainNodeId #-}
 
 decodeChainNodeIdChecked
@@ -103,7 +104,7 @@ decodeChainNodeIdChecked
     => HasChainId p
     => Expected p
     -> m ChainNodeId
-decodeChainNodeIdChecked p = ChainNodeId <$> decodeChainIdChecked p <*> getWord64le
+decodeChainNodeIdChecked p = ChainNodeId <$!> decodeChainIdChecked p <*> getWord64le
 {-# INLINE decodeChainNodeIdChecked #-}
 
 chainNodeIdToText :: ChainNodeId -> T.Text
@@ -147,7 +148,7 @@ encodeNodeId (NodeId i) = putWord64le i
 {-# INLINE encodeNodeId #-}
 
 decodeNodeId :: MonadGet m => m NodeId
-decodeNodeId = NodeId <$> getWord64le
+decodeNodeId = NodeId <$!> getWord64le
 {-# INLINE decodeNodeId #-}
 
 nodeIdToText :: NodeId -> T.Text

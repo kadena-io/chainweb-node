@@ -22,7 +22,8 @@ import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (Loggers, newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime (noSPVSupport, peStep)
+import Pact.Types.Runtime (peStep)
+import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Term (PactId(..), Term(..), toTList, toTerm)
 import Pact.Types.Type (PrimType(..), Type(..))
@@ -105,7 +106,7 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
       runCont :: Env' -> PactId -> Int -> IO EvalResult
       runCont (Env' pactDbEnv) pactId step = do
-          let contMsg = ContMsg pactId step False Null
+          let contMsg = ContMsg pactId step False Null Nothing
               cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
           applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -27,23 +28,32 @@ import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+
 import Data.Aeson
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.ByteString.Lazy.Char8 as BSL8
 import Data.List (find)
-import Data.Maybe (catMaybes)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Singletons
 import Data.Text (Text)
 import Data.Text.Encoding
+import Data.Witherable (wither)
+import qualified Data.ByteString.Lazy.Char8 as BSL8
+import qualified Data.HashMap.Strict as HM
+import qualified Data.List.NonEmpty as NEL
 import qualified Data.Vector as V
 import qualified GHC.Event as Ev
-import qualified Pact.Types.Hash as H
+
+import Prelude hiding (init, lookup)
+
+import Servant
+
+-- internal modules
+
 import Pact.Types.API
 import Pact.Types.Command
-import Prelude hiding (init, lookup)
-import Servant
+import Pact.Types.Hash (Hash)
+import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -128,8 +138,8 @@ sendHandler mempool (SubmitBatch cmds) =
     Handler $
     case traverse validateCommand cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool $! V.fromList enriched
-        return $! RequestKeys $ map cmdToRequestKey enriched
+        liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
+        return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
@@ -146,7 +156,6 @@ pollHandler cutR cid chain bloomCache (Poll request) = liftIO $ do
     cut <- CutDB._cut $ _cutResCutDb cutR
     PollResponses <$> internalPoll cutR cid chain bloomCache cut request
 
-
 listenHandler
     :: PayloadCas cas
     => CutResources logger cas
@@ -154,26 +163,28 @@ listenHandler
     -> ChainResources logger
     -> TransactionBloomCache
     -> ListenerRequest
-    -> Handler ApiResult
+    -> Handler ListenResponse
 listenHandler cutR cid chain bloomCache (ListenerRequest key) =
-    liftIO $ handleTimeout runListen
+    liftIO (handleTimeout runListen)
   where
-    nullResponse = ApiResult (object []) Nothing Nothing
-
+    runListen :: TVar Bool -> IO ListenResponse
     runListen timedOut = go Nothing
       where
+        go :: Maybe Cut -> IO ListenResponse
         go !prevCut = do
             m <- waitForNewCut prevCut
             case m of
-                Nothing -> return nullResponse      -- timeout
+                Nothing -> return $! ListenTimeout defaultTimeout
                 (Just cut) -> poll cut
 
+        poll :: Cut -> IO ListenResponse
         poll cut = do
-            hm <- internalPoll cutR cid chain bloomCache cut [key]
-            if HashMap.null hm
+            hm <- internalPoll cutR cid chain bloomCache cut (pure key)
+            if HM.null hm
               then go (Just cut)
-              else return $! snd $ head $ HashMap.toList hm
+              else return $! ListenResponse $ snd $ head $ HM.toList hm
 
+        waitForNewCut :: Maybe Cut -> IO (Maybe Cut)
         waitForNewCut lastCut = atomically $ do
              -- TODO: we should compute greatest common ancestor here to bound the
              -- search
@@ -206,17 +217,17 @@ localHandler
     -> ChainId
     -> ChainResources logger
     -> Command Text
-    -> Handler (CommandSuccess Value)
+    -> Handler (CommandResult Hash)
 localHandler _ _ cr cmd = do
   cmd' <- case validateCommand cmd of
-    Right c -> return c
+    (Right !c) -> return c
     Left err ->
       throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
   r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
   case r of
     Left err ->
       throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-    Right r' -> return r'
+    (Right !r') -> return r'
 
 
 
@@ -228,16 +239,13 @@ internalPoll
     -> ChainResources logger
     -> TransactionBloomCache
     -> Cut
-    -> [RequestKey]
-    -> IO (HashMap RequestKey ApiResult)
+    -> NonEmpty RequestKey
+    -> IO (HashMap RequestKey (CommandResult Hash))
 internalPoll cutR cid chain bloomCache cut requestKeys =
-    toHashMap <$> mapM lookup requestKeys
+    HM.fromList <$> wither lookup (NEL.toList requestKeys)
   where
-    lookup :: RequestKey -> IO (Maybe (RequestKey, ApiResult))
-    lookup key =
-        fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
-    toHashMap = HashMap.fromList . catMaybes
-
+    lookup :: RequestKey -> IO (Maybe (RequestKey, CommandResult Hash))
+    lookup key = fmap (key,) <$> lookupRequestKey cid cut cutR chain bloomCache key
 
 lookupRequestKey
     :: PayloadCas cas
@@ -247,7 +255,7 @@ lookupRequestKey
     -> ChainResources logger
     -> TransactionBloomCache
     -> RequestKey
-    -> IO (Maybe ApiResult)
+    -> IO (Maybe (CommandResult Hash))
 lookupRequestKey cid cut cutResources chain bloomCache key = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
@@ -273,14 +281,14 @@ lookupRequestKeyInBlock
     -> RequestKey               -- ^ key to search
     -> BlockHeight              -- ^ lowest block to search
     -> BlockHeader              -- ^ search starts here
-    -> MaybeT IO ApiResult
+    -> MaybeT IO (CommandResult Hash)
 lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
   where
     keyHash :: H.Hash
     keyHash = unRequestKey key
 
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
-    go blockHeader = do
+    go !blockHeader = do
         -- bloom reports false positives, so if it says "no" we're sure the
         -- transaction is not in this block and we can skip decoding it.
         needToLook <- liftIO $ Bloom.member keyHash
@@ -293,21 +301,15 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
-        txs <- mapM fromTx txsBs
+        !txs <- mapM fromTx txsBs
 
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) -> do
-
-                -- this will be a HashedTxLogOutput containing a Value of
-                -- of `CommandSuccess` or `CommandFailure`.
-                -- The metadata could be used to track request time, chain metadata etc.
-
-                val <- MaybeT $ return $ decodeStrict output
-                return $! ApiResult val Nothing Nothing
+            (Just (_cmd, (TransactionOutput output))) ->
+                MaybeT $ return $! decodeStrict' output
 
             Nothing -> lookupParent blockHeader
 
-    fromTx (tx, out) = do
+    fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
     matchingHash (cmd, _) = H.toUntypedHash (_cmdHash cmd) == keyHash
@@ -323,11 +325,11 @@ lookupRequestKeyInBlock cutR chain bloomCache key minHeight = go
 
 
 toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict b
+toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $ (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err

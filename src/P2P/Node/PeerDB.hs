@@ -77,6 +77,7 @@ module P2P.Node.PeerDB
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
 import Control.Lens hiding (Indexable)
+import Control.Monad ((<$!>))
 import Control.Monad.STM
 
 import Data.Aeson
@@ -272,11 +273,11 @@ peerDbSnapshotSTM (PeerDb _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ var) = int . size <$> readTVarIO var
+peerDbSize (PeerDb _ var) = int . size <$!> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ var) = int . size <$> readTVar var
+peerDbSizeSTM (PeerDb _ var) = int . size <$!> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | Adds new 'PeerInfo' values for a given chain id.
@@ -306,7 +307,7 @@ peerDbInsertList peers (PeerDb lock var) =
     withMVar lock
         . const
         . atomically
-        . modifyTVar var
+        . modifyTVar' var
         $ insertPeerEntryList peers
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
