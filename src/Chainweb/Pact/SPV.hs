@@ -102,14 +102,14 @@ verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
     -- extract spv resources from pact object
     go s o cdb = case s of
       "TXOUT" -> case extractProof o of
-        (Left !u) -> return $! Left u
+        Left !u -> return $! Left u
         Right !t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
       "TXIN" -> return $ Left "TXIN is currently unsupported"
       t -> return . Left $!
         "TXIN or TXOUT must be specified to generate valid spv proofs: " <> t
 
     handleResult (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) = case fromPactValue pv of
-      (TObject !o _) -> return $! Right o
+      TObject !o _ -> return $! Right o
       !o -> do
         logLog l "ERROR" $ show o
         return $! Left (pack "type error in associated pact transaction, should be object")
@@ -127,17 +127,18 @@ verifyCont
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb ->
-    case decodeStrict' p :: Maybe (TransactionOutputProof SHA512t_256) of
-      Nothing -> internalError "unable to decoee continuation transaction output"
-      Just t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
+verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case decodeStrict' p  of
+    Nothing -> internalError "unable to decode continuation transaction output"
+    Just o -> case extractProof o of
+      Left !u -> return $! Left u
+      Right !t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
   where
     handleResult (CommandResult _ _ _ _ _ mpe _) = case mpe of
       Nothing -> return $! Left "no pact exec found in command result"
       Just pe -> return $! Right pe
 
 
--- | Extract a 'TransactionOutputProof' from a generic pact object.
+-- | Extract a 'TransactionOutputProof' from a generic pact object
 --
 extractProof :: Object Name -> Either Text (TransactionOutputProof SHA512t_256)
 extractProof = (=<<) k . toPactValue . flip TObject def

@@ -182,13 +182,7 @@
         })
       ))
 
-  (defpact cross-chain-transfer
-    ( delete-account:string
-      create-chain-id:string
-      create-account:string
-      create-account-guard:guard
-      quantity:decimal
-      )
+  (defpact cross-chain-transfer (delete-account create-chain-id create-account create-account-guard quantity)
 
     @doc "Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
          \produce an SPV receipt which may be manually redeemed for an SPV      \
@@ -236,7 +230,7 @@
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
     (require-capability (BURN_CREATE))
     (with-capability (TRANSFER)
-      (debit delete-account quantity)
+      (debit delete-account quantity))
 
       { "create-chain-id": create-chain-id
       , "create-account": create-account
@@ -246,17 +240,9 @@
       , "delete-chain-id": (at 'chain-id (chain-data))
       , "delete-account": delete-account
       , "delete-tx-hash": (tx-hash)
-      }
-     ))
+      })
 
-  (defun create-coin
-    ( create-chain-id
-      create-account
-      create-account-guard
-      quantity
-      delete-tx-hash
-      delete-chain-id
-      )
+  (defun create-coin (create-chain-id create-account create-account-guard quantity delete-tx-hash delete-chain-id)
 
     (require-capability (BURN_CREATE))
 
