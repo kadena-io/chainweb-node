@@ -28,7 +28,6 @@ module Chainweb.Pact.Types
     -- * optics
   , minerAccount
   , minerKeys
-  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
   , psMempoolAccess
@@ -56,7 +55,6 @@ import Data.Aeson
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -165,12 +163,11 @@ data MemPoolAccess = MemPoolAccess
   , mpaProcessFork :: BlockHeader -> IO ()
   }
 
-noopMemPoolAccess :: MemPoolAccess
-noopMemPoolAccess = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> return V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
+instance Semigroup MemPoolAccess where
+  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+
+instance Monoid MemPoolAccess where
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

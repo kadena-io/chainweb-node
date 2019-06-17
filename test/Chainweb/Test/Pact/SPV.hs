@@ -160,7 +160,7 @@ roundtrip
     -> IO (Bool, String)
 roundtrip sid0 tid0 burn create = do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v Nothing (return noopMemPoolAccess)
+    pact0 <- testWebPactExecutionService v Nothing mempty
     withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
         withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
             cdb <- newMVar cutDb
@@ -217,10 +217,7 @@ roundtrip sid0 tid0 burn create = do
             return (True, "test succeeded")
 
 
-chainToMPA
-    :: TransactionGenerator
-    -> Chainweb.ChainId
-    -> MemPoolAccess
+chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
 chainToMPA f cid = MemPoolAccess
     { mpaGetBlock = f cid
     , mpaSetLastHeader = \_ -> return ()
@@ -255,7 +252,6 @@ txGenerator1 sid tid = do
             ks <- testKeyPairs
 
             let pcid = Pact.ChainId $ chainIdToText sid
-
 
             mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
                 `finally` writeIORef ref False
@@ -292,8 +288,8 @@ txGenerator2 cdbv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha _
-        | tid /= tid' = return mempty
+    go ref _cid _bhe _bha _
+        | tid /= _cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
@@ -301,12 +297,12 @@ txGenerator2 cdbv sid tid bhe = do
                 q <- fmap toJSON
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
-                let pcid = Pact.ChainId (chainIdToText tid)
+                let pid = Pact.ChainId (chainIdToText tid)
                     proof = Just . ContProof . toStrict . encode $ q
 
                 ks <- testKeyPairs
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
+                mkTestContTransaction "sender00" pid ks "1" 100 0.0001 1
                   (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
                     `finally` writeIORef ref True
 

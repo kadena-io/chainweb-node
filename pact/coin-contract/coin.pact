@@ -217,14 +217,8 @@
         }
 
         (with-capability (BURN_CREATE)
-          (create-coin
-            create-chain-id
-            create-account
-            create-account-guard
-            quantity
-            delete-tx-hash
-            delete-chain-id
-            ))))
+          (create-coin create-chain-id create-account create-account-guard quantity delete-tx-hash delete-chain-id)
+          )))
     )
 
   (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)

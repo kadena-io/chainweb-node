@@ -79,7 +79,7 @@ import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId, chainIds)
-import qualified Chainweb.Version as V
+import qualified Chainweb.Version as Version
 import Chainweb.WebPactExecutionService
 
 import Pact.Gas
@@ -247,7 +247,7 @@ destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 testPactCtx
     :: ChainwebVersion
-    -> V.ChainId
+    -> Version.ChainId
     -> Maybe (MVar (CutDb cas))
     -> IO TestPactCtx
 testPactCtx v cid cdbv = do
@@ -258,7 +258,7 @@ testPactCtx v cid cdbv = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
-    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
+    evalPactServiceM ctx (initialPayloadState v cid mempty)
     return ctx
   where
     loggers = pactTestLogger False
@@ -272,7 +272,7 @@ testPactCtx v cid cdbv = do
 --
 testPactExecutionService
     :: ChainwebVersion
-    -> V.ChainId
+    -> Version.ChainId
     -> Maybe (MVar (CutDb cas))
     -> MemPoolAccess
        -- ^ transaction generator
@@ -293,7 +293,7 @@ testPactExecutionService v cid cutDB mempoolAccess = do
 testWebPactExecutionService
     :: ChainwebVersion
     -> Maybe (MVar (CutDb cas))
-    -> (V.ChainId -> MemPoolAccess)
+    -> (Version.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> IO WebPactExecutionService
 testWebPactExecutionService v cutDB mempoolAccess
