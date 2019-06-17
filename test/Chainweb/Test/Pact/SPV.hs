@@ -34,6 +34,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
 import Data.Aeson
+import Data.ByteString.Lazy (toStrict)
 import Data.Default
 import Data.Function
 import Data.Functor (void)
@@ -53,7 +54,9 @@ import Test.Tasty.HUnit
 -- internal pact modules
 
 import Pact.Types.ChainId as Pact
+import Pact.Types.SPV
 import Pact.Types.Term
+
 
 -- internal chainweb modules
 
@@ -214,18 +217,15 @@ roundtrip sid0 tid0 burn create = do
             return (True, "test succeeded")
 
 
--- -------------------------------------------------------------------------- --
-toMPA :: (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)) -> MemPoolAccess
-toMPA f = MemPoolAccess
-    { mpaGetBlock = f
+chainToMPA
+    :: TransactionGenerator
+    -> Chainweb.ChainId
+    -> MemPoolAccess
+chainToMPA f cid = MemPoolAccess
+    { mpaGetBlock = f cid
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork  = \_ -> return ()
     }
-
-chainToMPA
-    :: (Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
-    -> (Chainweb.ChainId -> MemPoolAccess)
-chainToMPA f = \cid -> toMPA $ f cid
 
 -- -------------------------------------------------------------------------- --
 -- transaction generators
@@ -254,7 +254,7 @@ txGenerator1 sid tid = do
         False -> do
             ks <- testKeyPairs
 
-            let pcid = Pact.ChainId $ chainIdToText _cid
+            let pcid = Pact.ChainId $ chainIdToText sid
 
 
             mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
@@ -264,7 +264,8 @@ txGenerator1 sid tid = do
 
     tx1Code =
       [text|
-        (coin.delete-coin 'sender00
+        (coin.cross-chain-transfer
+          'sender00
           (read-msg 'target-chain-id)
           'sender01
           (read-keyset 'sender01-keyset)
@@ -301,20 +302,13 @@ txGenerator2 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
+                    proof = Just . ContProof . toStrict . encode $ q
 
                 ks <- testKeyPairs
 
-                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
+                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
                     `finally` writeIORef ref True
-
-    txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
-
-    tx1Code =
-      [text|
-        (coin.create-coin (read-msg 'proof))
-        |]
-
-    tx1Data q = Just $ object [ "proof" .= q ]
 
 -- | Double spend transaction which calls the coin-create
 -- function twice
@@ -333,22 +327,14 @@ txGenerator3 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-
+                    proof = Just . ContProof . toStrict . encode $ q
                 ks <- testKeyPairs
-                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                txs <- mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
+                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
                     `finally` writeIORef ref True
 
-    txs q = fromList
-      [ PactTransaction tx1Code (tx1Data q)
-      ]
-
-    tx1Code =
-      [text|
-        (coin.create-coin (read-msg 'proof))
-        (coin.create-coin (read-msg 'proof))
-        |]
-
-    tx1Data q = Just $ object [ "proof" .= q ]
+                -- double spend is an attempt to continue the same pact twice
+                return $ txs <> txs
 
 -- | Execute on the create-coin command on the wrong target chain
 txGenerator4 :: CreatesGenerator
@@ -366,21 +352,12 @@ txGenerator4 cdbv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
+                    proof = Just . ContProof . toStrict . encode $ q
 
                 ks <- testKeyPairs
-                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
+                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
                     `finally` writeIORef ref True
-
-    txs q = fromList
-      [ PactTransaction tx1Code (tx1Data q)
-      ]
-
-    tx1Code =
-      [text|
-        (coin.create-coin (read-msg 'proof))
-        |]
-
-    tx1Data q = Just $ object [ "proof" .= q ]
 
 -- | Execute create-coin command with invalid proof
 txGenerator5 :: CreatesGenerator
@@ -397,12 +374,6 @@ txGenerator5 _cdbv _ tid _ = do
                 let pcid = Pact.ChainId (chainIdToText tid)
 
                 ks <- testKeyPairs
-                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
+                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False Nothing Null
                     `finally` writeIORef ref True
-
-    txs = fromList [ PactTransaction tx1Code Nothing ]
-
-    tx1Code =
-      [text|
-        (coin.create-coin { "invalid" : "proof" })
-        |]

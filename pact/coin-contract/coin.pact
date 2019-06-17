@@ -203,7 +203,7 @@
              (delete-coin delete-account create-chain-id create-account create-account-guard quantity)
              ))
 
-          (yield retv)
+          (yield retv create-chain-id)
           retv)))
 
     (step
@@ -246,7 +246,7 @@
 
     (require-capability (BURN_CREATE))
 
-    (enforce (= create-chain-id (at "chain-id" (chain-data)))
+    (enforce (= create-chain-id (at 'chain-id (chain-data)))
       "enforce correct create chain ID")
 
     (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))

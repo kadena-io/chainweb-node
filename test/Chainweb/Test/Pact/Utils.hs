@@ -23,7 +23,7 @@ module Chainweb.Test.Pact.Utils
 , formatB16PubKey
 , goldenTestTransactions
 , mkTestExecTransactions
-, mkTestContTransactions
+, mkTestContTransaction
 , pactTestLogger
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
@@ -51,6 +51,7 @@ import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as Vector
 
 import Test.Tasty
 
@@ -138,25 +139,25 @@ goldenTestTransactions txs = do
 
     mkTestExecTransactions "sender00" "0" ks "1" 100 0.0001 txs
 
--- Make pact transactions specifying sender, chain id of the signer,
+-- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
 -- (with data) to execute.
 --
 mkTestExecTransactions
     :: Text
-    -- ^ sender
+      -- ^ sender
     -> ChainId
-    -- ^ chain id of execution
+      -- ^ chain id of execution
     -> [SomeKeyPair]
-    -- ^ signer keys
+      -- ^ signer keys
     -> Text
-    -- ^ nonce
+      -- ^ nonce
     -> GasLimit
-    -- ^ starting gas
+      -- ^ starting gas
     -> GasPrice
-    -- ^ gas rate
+      -- ^ gas rate
     -> Vector PactTransaction
-    -- ^ the pact transactions with data to run
+      -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
 mkTestExecTransactions sender cid ks nonce gas gasrate txs =
     traverse go txs
@@ -173,35 +174,44 @@ mkTestExecTransactions sender cid ks nonce gas gasrate txs =
 
     k t bs = PayloadWithText bs (_cmdPayload t)
 
-
-mkTestContTransactions
+-- | Make pact 'ContMsg' transactions, specifying sender, chain id of the signer,
+-- signer keys, nonce, gas rate, gas limit, cont step, pact id, rollback,
+-- proof etc.
+--
+mkTestContTransaction
     :: Text
+      -- ^ sender
     -> ChainId
+      -- ^ chain id of execution
     -> [SomeKeyPair]
+      -- ^ signer keys
     -> Text
+      -- ^ nonce
     -> GasLimit
+      -- ^ starting gas
     -> GasPrice
+      -- ^ gas rate
     -> Int
+      -- ^ continuation step
     -> PactId
+      -- ^ pact id
     -> Bool
+      -- ^ rollback?
     -> Maybe ContProof
-    -> Vector PactTransaction
+      -- ^ SPV proof
+    -> Value
     -> IO (Vector ChainwebTransaction)
-mkTestContTransactions sender cid ks nonce gas rate step pid rollback proof txs =
-    traverse go txs
+mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof d = do
+    let pm = PublicMeta cid sender gas rate
+        msg :: PactRPC ContMsg =
+          Continuation (ContMsg pid step rollback d proof)
+
+    cmd <- mkCommand ks pm nonce msg
+    case verifyCommand cmd of
+      ProcSucc t -> return $ Vector.singleton $ fmap (k t) cmd
+      ProcFail e -> throwM $ userError e
+
   where
-    go (PactTransaction _ d) = do
-      let dd = mergeObjects (toList d)
-          pm = PublicMeta cid sender gas rate
-
-      let msg :: PactRPC ContMsg =
-            Continuation (ContMsg pid step rollback dd proof)
-
-      cmd <- mkCommand ks pm nonce msg
-      case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) cmd
-        ProcFail e -> throwM $ userError e
-
     k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
