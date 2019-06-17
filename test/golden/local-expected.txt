@@ -1,19 +1,15 @@
 test-group: local
 results:
-  status: success
-  data:
-    obj:
-      amount:
-        i: null
-        lit: 1000000
-      data:
-        i: null
-        lit: Created account
-      balance:
-        i: null
-        lit: 1000000
-      account:
-        i: null
-        lit: Acct1
-    type: '*'
-    i: null
+  gas: 0
+  result:
+    status: failure
+    error:
+      callStack: []
+      type: EvalError
+      message: Cannot resolve test1.read-account
+      info: <interactive>:0:0
+  reqKey: sJcgrbkD-jEXnZth6mpDIcMi8E3dGr8CKw9g849FnDc
+  logs: wsATyGqckuIvlm89hhd2j4t6RMkCrcwJe_oeCYr7Th8
+  metaData: null
+  continuation: null
+  txId: null

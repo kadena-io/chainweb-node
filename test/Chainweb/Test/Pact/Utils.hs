@@ -65,7 +65,6 @@ import Test.Tasty
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -73,7 +72,7 @@ import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.Runtime (noSPVSupport)
 import Pact.Types.Util (toB16Text)
-import Pact.Types.SQLite
+import Pact.Types.SQLite hiding (fastNoJournalPragmas)
 
 -- internal modules
 
@@ -83,6 +82,7 @@ import Chainweb.CutDB
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.Utils
 -- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Service.Types (internalError)
@@ -146,10 +146,7 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    let g = ParsedInteger 100
-        r = ParsedDecimal 0.0001
-
-    mkPactTestTransactions "sender00" "0" ks "1" g r txs
+    mkPactTestTransactions "sender00" "0" ks "1" 100 0.0001 txs
 
 -- Make pact transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -164,9 +161,9 @@ mkPactTestTransactions
     -- ^ signer keys
     -> Text
     -- ^ nonce
-    -> ParsedInteger
+    -> GasLimit
     -- ^ starting gas
-    -> ParsedDecimal
+    -> GasPrice
     -- ^ gas rate
     -> Vector PactTransaction
     -- ^ the pact transactions with data to run
@@ -228,7 +225,7 @@ testPactCtx v cid cdbv = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState dbSt Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
-    evalPactServiceM ctx (initialPayloadState v cid)
+    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where
     loggers = pactTestLogger False
@@ -248,7 +245,7 @@ testPactCtxSQLite v cid cdbv sqlenv = do
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState thePactDbEnv Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd)
-    evalPactServiceM ctx (initialPayloadState v cid)
+    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where
     loggers = pactTestLogger False
@@ -274,7 +271,7 @@ testPactExecutionService v cid cutDB mempoolAccess sqlenv = do
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock False h d
+            evalPactServiceM ctx $ execValidateBlock mempoolAccess False h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -315,6 +312,7 @@ withPactCtx v cutDB f
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
       (file, del) <- newTempFile
+      -- TODO: Should change what is passed as the vfs_module.
       e <- open_v2 (fromString file) (0x00000002 .|. 0x00000004 .|. 0x00010000) "unix"
       case e of
         Left (_err, _msg) ->
@@ -353,5 +351,5 @@ withPactCtxSQLite v cutDB f =
       ctx <- TestPactCtx
         <$> newMVar (PactServiceState thePactDbEnv Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
-      evalPactServiceM ctx (initialPayloadState v cid)
+      evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
       return ctx

@@ -183,7 +183,7 @@ writeRow wt d k v = do
 doKeys :: (IsString k, AsString k) => Domain k v -> BlockHandler SQLiteEnv [k]
 doKeys d = do
   let tn = domainTableName d
-  (ReorgVersion version) <- gets (_bvVersion . _bsBlockVersion)
+  version <- gets (_bvVersion . _bsBlockVersion)
   ks <- callDb "doKeys" $ \db -> qry db
             ("SELECT rowkey FROM [" <> tn <> "] WHERE version = ?;")
             [SInt (fromIntegral version)]
@@ -196,7 +196,7 @@ doKeys d = do
 
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
 doTxIds (TableName tn) (TxId tid) = do
-  (ReorgVersion version) <- gets (_bvVersion . _bsBlockVersion)
+  version <- gets (_bvVersion . _bsBlockVersion)
   rows <- callDb "doTxIds" $ \db ->
     qry db ("SELECT txid FROM [" <> Utf8 (toS tn) <> "] WHERE version = ? AND txid > ?")
     [SInt (fromIntegral version), SInt (fromIntegral tid)]
@@ -269,7 +269,7 @@ todlist xs = foldr go id xs
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
-  BlockVersion (BlockHeight bh) (ReorgVersion version) <- gets _bsBlockVersion
+  BlockVersion bh version <- gets _bsBlockVersion
   rows <- callDb "doGetTxLog" $ \db -> qry db
         ("SELECT rowkey, rowdata FROM [" <> domainTableName d <> "] WHERE txid = ? AND version = ? AND blockheight = ?")
         [SInt (fromIntegral txid), SInt (fromIntegral bh), SInt (fromIntegral version)]

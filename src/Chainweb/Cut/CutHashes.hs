@@ -47,7 +47,8 @@ module Chainweb.Cut.CutHashes
 import Control.Applicative
 import Control.Arrow
 import Control.DeepSeq
-import Control.Lens (Getter, to, view, makeLenses)
+import Control.Lens (Getter, makeLenses, to, view)
+import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import qualified Crypto.Hash as C
@@ -114,7 +115,7 @@ cutIdBytes (CutId bytes) = bytes
 {-# INLINE cutIdBytes #-}
 
 decodeCutId :: MonadGet m => m CutId
-decodeCutId = CutId . SB.toShort <$> getBytes (int cutIdBytesCount)
+decodeCutId = CutId . SB.toShort <$!> getBytes (int cutIdBytesCount)
 {-# INLINE decodeCutId #-}
 
 instance Hashable CutId where

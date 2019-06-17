@@ -29,13 +29,10 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 
-import Data.Aeson (Value)
-import Pact.Types.Command
-
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
   , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
-  , _pactLocal :: ChainwebTransaction -> IO (Either SomeException (CommandSuccess Value))
+  , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
   }
 
 newtype WebPactExecutionService = WebPactExecutionService
@@ -69,13 +66,14 @@ mkPactExecutionService mempool q = PactExecutionService
       mv <- validateBlock h pd q
       r <- takeMVar mv
       case r of
-        Right pdo -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h) >> return pdo
+        (Right !pdo) -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h)
+                          >> return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
       r <- takeMVar mv
       case r of
-        Right pdo -> return pdo
+        (Right !pdo) -> return pdo
         Left e -> throwM e
   , _pactLocal = \ct -> do
       mv <- local ct q
@@ -104,8 +102,8 @@ markAllValidated mempool payload height hash = mempoolMarkValidated mempool vali
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
-                                        { validatedHeight = height
-                                        , validatedHash = hash
-                                        , validatedTransaction = t }
-                                    ) decodedTxs
+    !validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
+                                         { validatedHeight = height
+                                         , validatedHash = hash
+                                         , validatedTransaction = t }
+                                     ) decodedTxs

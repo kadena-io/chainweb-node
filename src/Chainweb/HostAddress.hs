@@ -210,7 +210,7 @@ ipV6Parser = p0
     h16 = Just <$> do
         h <- hexadecimal @Integer
         guard $ h < int (maxBound @Word16)
-        return (int h)
+        return $! (int h)
         <?> "h16"
 
     l0 = []
@@ -322,9 +322,9 @@ readHostnameBytes :: MonadThrow m => B8.ByteString -> m Hostname
 readHostnameBytes b = parseBytes "hostname" parser b
   where
     parser = hostParser <* endOfInput >>= \case
-        HostTypeName -> return $ HostnameName (CI.mk b)
-        HostTypeIPv4 -> return $ HostnameIPv4 (CI.mk b)
-        HostTypeIPv6 -> return $ HostnameIPv6 (CI.mk b)
+        HostTypeName -> return $! HostnameName (CI.mk b)
+        HostTypeIPv4 -> return $! HostnameIPv4 (CI.mk b)
+        HostTypeIPv6 -> return $! HostnameIPv6 (CI.mk b)
 {-# INLINE readHostnameBytes #-}
 
 localhost :: Hostname

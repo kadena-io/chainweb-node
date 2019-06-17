@@ -9,11 +9,15 @@
 --
 -- Pact service for Chainweb
 
-module Chainweb.Pact.Utils where
-    -- ( toEnv' , toEnvPersist')
+module Chainweb.Pact.Utils
+    ( -- * persistence
+      toEnv'
+    , toEnvPersist'
+      -- * combinators
+    , aeson
+    ) where
 
--- import Data.Aeson
--- import Data.Vector (Vector)
+import Data.Aeson
 
 import Control.Concurrent.MVar
 -- import Control.Lens
@@ -23,6 +27,7 @@ import Pact.Interpreter as P
 
 import Chainweb.Pact.Types
 -- import Chainweb.Payload
+
 
 toEnv' :: EnvPersist' -> IO Env'
 toEnv' (EnvPersist' ep') = do
@@ -40,3 +45,10 @@ toEnvPersist' (Env' pactDbEnv) = do
           , _pdepEnv = dbEnv
           }
     return $! EnvPersist' pDbEnvPersist
+
+-- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
+-- Similar to 'either', 'maybe', or 'bool' combinators
+--
+aeson :: (String -> b) -> (a -> b) -> Result a -> b
+aeson f _ (Error a) = f a
+aeson _ g (Success a) = g a

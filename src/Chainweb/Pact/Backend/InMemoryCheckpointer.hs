@@ -76,11 +76,6 @@ doRestore genesis lock Nothing =
     gen <- newMVar genesis
     return $! (Store mempty Nothing gen, PactDbEnv' $ PactDbEnv pactdb gen)
 
-
--- doRestoreInitial :: MVar Store -> IO PactDbEnv'
--- doRestoreInitial lock = withMVarMasked lock $ \store ->
---   return $ PactDbEnv' (PactDbEnv pactdb (_currentPactDbEnv store))
-
 doSave :: MVar Store -> BlockHash -> IO ()
 doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv) -> case mheight of
   Nothing -> do

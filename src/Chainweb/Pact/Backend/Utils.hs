@@ -201,7 +201,6 @@ fastNoJournalPragmas :: [Pragma]
 fastNoJournalPragmas = [
   "synchronous = NORMAL",
   "journal_mode = WAL",
-  -- "journal_mode = MEMORY",
   "locking_mode = EXCLUSIVE",
   "temp_store = MEMORY"
   ]

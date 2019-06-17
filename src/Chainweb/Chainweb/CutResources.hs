@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -194,7 +195,7 @@ mkCutNetworkSync mgr cuts label cutSync = bracket create destroy $ \n ->
     s = _cutResSyncSession cutSync
 
     create = do
-        n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr s
+        !n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr s
         logFunctionText logger Info $ label <> ": initialized"
         return n
 

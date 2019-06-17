@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -87,13 +88,14 @@ transactionProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- casLookup cas $ _blockPayloadTransactionsHash payload
         -- TODO: use the transaction tree cache
-    let (subj, pos, t) = bodyTree @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @ChainwebHashTag outs i
         -- FIXME use log
-    let tree = (pos, t)
+    let !tree = (pos, t)
         -- we blindly trust the ix
 
     -- 2. Payload proof
-    return (subj, tree N.:| [headerTree_ @BlockTransactionsHash payload])
+    let !proof = tree N.:| [headerTree_ @BlockTransactionsHash payload]
+    return $! (subj, proof)
   where
     cas = _transactionDbBlockTransactions $ _transactionDb db
 
@@ -132,13 +134,14 @@ outputProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- casLookup cas $ _blockPayloadOutputsHash payload
         -- TODO: use the transaction tree cache
-    let (subj, pos, t) = bodyTree @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @ChainwebHashTag outs i
         -- FIXME use log
     let tree = (pos, t)
         -- we blindly trust the ix
 
     -- 2. Payload proof
-    return (subj, tree N.:| [headerTree_ @BlockOutputsHash payload])
+    let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
+    return $! (subj, proof)
   where
     cas = _payloadCacheBlockOutputs $ _payloadCache db
 
@@ -194,7 +197,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = give headerDb $ do
 
     -- crossChain == ]srcHeadHeader, trgHeadHeader]
     (srcHeadHeader, crossChain) <- crumbsToChain scid trgHeadHeader >>= \case
-        Just x -> return x
+        Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "target chain not reachabe. Chainweb instance is to young"
             , _spvExceptionSourceChainId = scid
@@ -214,7 +217,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = give headerDb $ do
 
     -- chain == [srcHeader, srcHeadHeader]
     (txHeader N.:| chain) <- crumbsOnChain srcHeadHeader txHeight >>= \case
-        Just x -> return x
+        Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
             , _spvExceptionSourceChainId = scid
@@ -284,7 +287,7 @@ crumbsOnChain trgHeader srcHeight
     | otherwise = Just <$> go trgHeader []
   where
     go cur acc
-        | srcHeight == _blockHeight cur = return (cur N.:| acc)
+        | srcHeight == _blockHeight cur = return $! (cur N.:| acc)
         | otherwise = do
             p <- lookupParentHeader cur
             go p (cur : acc)
@@ -312,12 +315,12 @@ crumbsToChain srcCid trgHeader
        -> [ChainId]
        -> [(Int, BlockHeader)]
        -> IO (BlockHeader, [(Int, BlockHeader)])
-    go cur [] acc = return (cur, acc)
-    go cur (h:t) acc = do
+    go !cur [] !acc = return $! (cur, acc)
+    go !cur (!h:t) !acc = do
         adjpHdr <- lookupAdjacentParentHeader cur h
         unless (_blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
 
-        let adjIdx = fromJuste $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
+        let !adjIdx = fromJuste $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)

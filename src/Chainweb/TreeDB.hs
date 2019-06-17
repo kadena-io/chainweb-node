@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -305,9 +306,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> Maybe MinRank
         -> Maybe MaxRank
         -> HS.HashSet (LowerBound (DbKey db))
-            -- Upper limits
+            -- ^ Lower limits
         -> HS.HashSet (UpperBound (DbKey db))
-            -- Lower limits
+            -- ^ Upper limits
         -> (S.Stream (Of (DbKey db)) IO (Natural, Eos) -> IO a)
         -> IO a
     branchKeys db k l mir mar lower upper f =
@@ -505,7 +506,7 @@ limitStream
     -> S.Stream (Of a) m (Natural, Eos)
 limitStream Nothing s = do
     limit' <- s & S.copy & S.length_
-    return (int limit', Eos True)
+    return $! (int limit', Eos True)
 limitStream (Just limit) s = do
     (limit' :> tailStream) <- s
         & S.splitAt (int limit)
@@ -514,8 +515,8 @@ limitStream (Just limit) s = do
     -- FIXME this can be expensive for infinite/blocking streams. Skip this if
     -- the underlying stream is known to be infinite.
     --
-    eos <- lift (atEos tailStream)
-    return (int limit', eos)
+    !eos <- lift (atEos tailStream)
+    return $! (int limit', eos)
 
 seekStream
     :: Monad m
@@ -574,7 +575,7 @@ lookupM
     -> IO (DbEntry db)
 lookupM db k = lookup db k >>= \case
     Nothing -> throwM $ TreeDbKeyNotFound @db k
-    Just x -> return x
+    (Just !x) -> return x
 
 -- | Lookup all entries in a stream of database keys and return the stream
 -- of entries. Throws if an entry is missing.
@@ -621,7 +622,7 @@ lookupParentM g db e = case parent e of
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
-        Just x -> return x
+        (Just !x) -> return x
 
 -- | Replace all entries in the stream by their parent entries.
 -- If the genesis block is part of the stream it is replaced by itself.
@@ -641,7 +642,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block"
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
-        Just x -> return $ Just x
+        (Just !x) -> return $! Just x
 
 -- | Create a `Stream` from a `Foldable` value.
 --

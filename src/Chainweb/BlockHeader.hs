@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -508,7 +509,7 @@ decodeBlockHeaderChecked
     => MonadGet m
     => m BlockHeader
 decodeBlockHeaderChecked = do
-    bh <- decodeBlockHeader
+    !bh <- decodeBlockHeader
     _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
     return bh
 
@@ -525,7 +526,7 @@ decodeBlockHeaderCheckedChainId
     => Expected p
     -> m BlockHeader
 decodeBlockHeaderCheckedChainId p = do
-    bh <- decodeBlockHeaderChecked
+    !bh <- decodeBlockHeaderChecked
     _ <- checkChainId p (Actual (_chainId bh))
     return bh
 
@@ -547,7 +548,7 @@ decodeBlockHeaderWithoutHash = do
     a9 <- decodeChainwebVersion
     a10 <- decodeChainNodeId
     return
-        $ fromLog
+        $! fromLog
         $ newMerkleLog
         $ a0
         :+: a1
@@ -587,7 +588,7 @@ instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
         case runGet decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
             Left (e :: SomeException) -> fail (sshow e)
-            Right x -> return x
+            (Right !x) -> return x
 
 _blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
 _blockAdjacentChainIds =
@@ -672,7 +673,8 @@ instance FromJSON (ObjectEncoded BlockHeader) where
 
 data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: ObjectEncoded BlockHeader
-    , _minedBlockTrans :: Int }
+    , _minedBlockTrans :: Int
+    , _minedBlockSize :: Int }  -- ^ Bytes
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 

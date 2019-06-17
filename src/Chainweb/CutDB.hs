@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -179,7 +180,7 @@ cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
     keyCodec = Codec
         (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
         (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
-    valueCodec = Codec encodeToByteString decodeStrictOrThrow
+    valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -271,7 +272,7 @@ member db cid h = do
         Nothing -> return False
         Just lh -> do
             fh <- forkEntry chainDb th lh
-            return $ fh == lh
+            return $! fh == lh
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
@@ -305,7 +306,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logfun @T.Text Info "CutDB started"
-    return $ CutDb
+    return $! CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
         , _cutDbAsync = cutAsync
@@ -337,13 +338,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 4. full validation
     --
     initialCut = tableMaxValue (_getRocksDbCas cutHashesStore) >>= \case
-        Nothing -> return $ _cutDbConfigInitialCut config
+        Nothing -> return $! _cutDbConfigInitialCut config
         Just ch -> cutHashesToBlockHeaderMap headerStore payloadStore ch >>= \case
             Left _ -> do
                 logfun @T.Text Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database. Falling back to genesis cut"
-                return $ _cutDbConfigInitialCut config
+                return $! _cutDbConfigInitialCut config
             Right hm -> joinIntoHeavier_
                 (_webBlockHeaderStoreCas headerStore)
                 hm
@@ -386,7 +387,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
         (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
         )
         (readTVarIO cutVar)
-        (\c -> do
+        (\(!c) -> do
             casInsert cutHashesStore (cutToCutHashes Nothing c)
             atomically (writeTVar cutVar c)
             loggc Info c "published cut"
@@ -409,7 +410,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     -- FIXME: this is problematic. We should drop these before they are
     -- added to the queue, to prevent the queue becoming stale.
     farAhead x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
         when r $ loggc Info x
             $ "skip far ahead cut. Current height: " <> sshow h
@@ -417,7 +418,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
         return r
 
     isVeryOld x = do
-        h <- _cutHeight <$> readTVarIO cutVar
+        !h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Info x "skip very old cut"
         return r
@@ -466,8 +467,8 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
         & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
     if null missing
-        then return $ Right headers
-        else return $ Left missing
+        then return $! Right headers
+        else return $! Left missing
   where
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
@@ -476,7 +477,7 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
         (Right <$> mapM (getBlockHeader headerStore payloadStore cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                    return $ Left cv
+                    return $! Left cv
                 e -> throwM e
 
 -- -------------------------------------------------------------------------- --

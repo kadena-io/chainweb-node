@@ -15,16 +15,18 @@ module Chainweb.Mempool.Mempool
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
+  , MempoolTxId
   , HashMeta(..)
-  , Subscription(..)
   , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
+  , ServerNonce
+  , HighwaterMark
+
   , chainwebTransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
-  , finalizeSubscriptionImmediately
   , chainwebTestHasher
   , chainwebTestHashMeta
   , noopMempool
@@ -33,13 +35,13 @@ module Chainweb.Mempool.Mempool
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently)
-import Control.Concurrent.STM.TBMChan (TBMChan)
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
+
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
+
 import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
@@ -60,26 +62,29 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
 import GHC.Generics
+
+import Prelude hiding (log)
+
+import System.LogLevel
+
+-- internal modules
+
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..))
 import qualified Pact.Types.Hash as H
-import Prelude hiding (log)
-import System.LogLevel
-
-------------------------------------------------------------------------------
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Orphans ()
 import Chainweb.Time (Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText, sshow)
-import Chainweb.Utils (encodeToText, runForever)
-import Data.LogMessage (LogFunction, LogFunctionText)
-
+    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText,
+    encodeToText, sshow)
+import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -110,20 +115,17 @@ data TransactionConfig t = TransactionConfig {
   }
 
 ------------------------------------------------------------------------------
+type MempoolTxId = Int64
+type ServerNonce = Int
+type HighwaterMark = (ServerNonce, MempoolTxId)
+
+------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
   , mempoolBlockGasLimit :: Int64
-
-    -- | keeps track of the PARENT of the last newBlock request - used to re-introduce txs
-    --   in the case of forks
-  , mempoolLastNewBlockParent :: Maybe (IORef BlockHeader)
-
-    -- | check for a fork, and re-introduce transactions from the losing branch if necessary
-
-  , mempoolProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -148,15 +150,14 @@ data MempoolBackend t = MempoolBackend {
 
   , mempoolReintroduce :: Vector t -> IO ()
 
-    -- | given a callback function, loops through the pending candidate
-    -- transactions and supplies the hashes to the callback in chunks. No
-    -- ordering of hashes is presupposed.
+    -- | given a previous high-water mark and a chunk callback function, loops
+    -- through the pending candidate transactions and supplies the hashes to
+    -- the callback in chunks. No ordering of hashes is presupposed. Returns
+    -- the remote high-water mark.
   , mempoolGetPendingTransactions
-      :: (Vector TransactionHash -> IO ()) -> IO ()
-
-  , mempoolSubscribe :: IO (IORef (Subscription t))
-
-  , mempoolShutdown :: IO ()
+      :: Maybe HighwaterMark                -- previous high-water mark, if any
+      -> (Vector TransactionHash -> IO ())  -- chunk callback
+      -> IO HighwaterMark                   -- returns remote high water mark
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
   -- only for testing.
@@ -164,13 +165,11 @@ data MempoolBackend t = MempoolBackend {
 }
 
 
-noopMempool :: MempoolBackend t
-noopMempool =
-  MempoolBackend
+noopMempool :: IO (MempoolBackend t)
+noopMempool = do
+  return $ MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolBlockGasLimit = 1000
-    , mempoolLastNewBlockParent = Nothing
-    , mempoolProcessFork = noopProcessFork
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
@@ -179,12 +178,9 @@ noopMempool =
     , mempoolMarkConfirmed = noopMarkConfirmed
     , mempoolReintroduce = noopReintroduce
     , mempoolGetPendingTransactions = noopGetPending
-    , mempoolSubscribe = noopSubscribe
-    , mempoolShutdown = noopShutdown
     , mempoolClear = noopClear
     }
   where
-    unimplemented = fail "unimplemented"
     noopCodec = Codec (const "") (const $ Left "unimplemented")
     noopHasher = const $ chainwebTestHasher "noopMempool"
     noopHashMeta = chainwebTestHashMeta
@@ -200,13 +196,8 @@ noopMempool =
     noopMarkValidated = const $ return ()
     noopMarkConfirmed = const $ return ()
     noopReintroduce = const $ return ()
-    noopGetPending = const $ return ()
-    noopSubscribe = unimplemented
-    noopShutdown = return ()
+    noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
-
-    noopProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction )
-    noopProcessFork _l _h = return V.empty
 
 
 
@@ -240,12 +231,13 @@ data SyncState = SyncState {
 
 -- | Pulls any missing pending transactions from a remote mempool.
 --
--- The sync procedure:
+-- The initial sync procedure:
 --
 --    1. get the list of pending transaction hashes from remote,
 --    2. lookup any hashes that are missing, and insert them into local,
---    3. push any hashes remote is missing,
---    4. sleep the given number of microseconds.
+--    3. push any hashes remote is missing
+--
+-- After initial sync, will loop subscribing to updates from remote.
 --
 -- Loops until killed, or until the underlying mempool connection throws an
 -- exception.
@@ -260,8 +252,7 @@ syncMempools'
     -> MempoolBackend t
         -- ^ remote mempool
     -> IO ()
-syncMempools' log0 us localMempool remoteMempool =
-    runForever log0 "mempool-sync-session" $ sync >> threadDelay us
+syncMempools' log0 us localMempool remoteMempool = sync
 
   where
     maxCnt = 10000
@@ -320,13 +311,13 @@ syncMempools' log0 us localMempool remoteMempool =
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = flip finally (deb "sync finished") $ do
-        deb "Get pending hashes from remote"
+    sync = finally (initialSync >>= subsequentSync) (deb "sync exiting")
 
-        -- Intialize and collect SyncState
-        syncState <- newIORef $! SyncState 0 [] HashSet.empty False
-        mempoolGetPendingTransactions remoteMempool $ syncChunk syncState
-        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
+    initialSync = do
+        deb "Get full list of pending hashes from remote"
+
+        (numMissingFromLocal, missingChunks, remoteHashes, remoteHw) <-
+            fetchSince Nothing
 
         deb $ T.concat
             [ sshow (HashSet.size remoteHashes)
@@ -335,28 +326,53 @@ syncMempools' log0 us localMempool remoteMempool =
             , " need to be fetched)"
             ]
 
-        numPushed <- snd <$> concurrently
-
+        -- todo: should we do subsequent sync of pushed txs also?
+        (numPushed, _) <- do
             -- Go fetch missing transactions from remote
-            (traverse_ fetchMissing missingChunks)
+            traverse_ fetchMissing missingChunks
 
             -- Push our missing txs to remote.
-            (push remoteHashes)
+            push remoteHashes
 
         deb $ "pushed " <> sshow numPushed <> " new transactions to remote."
-        deb "sync complete, sleeping"
+        return remoteHw
+
+    subsequentSync !remoteHw = do
+        deb "Get new pending hashes from remote"
+        (numMissingFromLocal, missingChunks, _, remoteHw') <-
+            fetchSince $! Just remoteHw
+        deb $ T.concat
+            [ "sync: "
+            , sshow numMissingFromLocal
+            , " new remote hashes need to be fetched"
+            ]
+        traverse_ fetchMissing missingChunks
+        threadDelay us
+        subsequentSync remoteHw'
+
+    -- get pending hashes from remote since the given (optional) high water mark
+    fetchSince oldRemoteHw = do
+        -- Intialize and collect SyncState
+        let emptySyncState = SyncState 0 [] HashSet.empty False
+        syncState <- newIORef emptySyncState
+        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $ syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
+        -- immediately destroy ioref contents to assist GC
+        writeIORef syncState emptySyncState
+        return (numMissingFromLocal, missingChunks, remoteHashes, remoteHw)
 
     -- Push transactions that are available locally but are missing from the
     -- remote pool to the remote pool.
     --
     push remoteHashes = do
         ref <- newIORef 0
-        mempoolGetPendingTransactions localMempool $ \chunk -> do
+        ourHw <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
             let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
             when (not $ V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
-        readIORef ref
+        numPushed <- readIORef ref
+        return (numPushed, ourHw)
 
     -- Send a chunk of tranactions to the remote pool.
     --
@@ -425,15 +441,6 @@ chainwebTestHasher s = let b = convert $ hash @_ @SHA512t_256 $ "TEST" <> s
 chainwebTestHashMeta :: HashMeta
 chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
 
-------------------------------------------------------------------------------
--- | Clients can subscribe to a mempool to receive new transactions as soon as
--- they appear.
-data Subscription t = Subscription {
-    mempoolSubChan :: TBMChan (Vector t)
-  , mempoolSubFinal :: IO ()
-  -- TODO: activity timer
-}
-
 data ValidatedTransaction t = ValidatedTransaction
     { validatedHeight :: {-# UNPACK #-} !BlockHeight
     , validatedHash :: {-# UNPACK #-} !BlockHash
@@ -442,11 +449,8 @@ data ValidatedTransaction t = ValidatedTransaction
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
+
 ------------------------------------------------------------------------------
-finalizeSubscriptionImmediately :: Subscription t -> IO ()
-finalizeSubscriptionImmediately = mempoolSubFinal
-
-
 -- | Mempool only cares about a few projected values from the transaction type
 -- (gas price, gas limit, hash, metadata), so our mock transaction type will only
 -- contain these (plus a nonce)
@@ -469,7 +473,7 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx nonce (GasPrice price) limit meta) = runPutS $ do
+mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) = runPutS $ do
     putWord64le $ fromIntegral nonce
     putDecimal price
     putWord64le $ fromIntegral limit
@@ -495,7 +499,7 @@ putDecimal (Decimal places mantissa) = do
 
 getDecimal :: MonadGet m => m Decimal
 getDecimal = do
-    !places <- fromIntegral <$> getWord8
+    !places <- getWord8
     !negative <- getWord8
     numWords <- fromIntegral <$> getWord16le
     mantissaWords <- replicateM numWords getWord64le
@@ -512,6 +516,6 @@ getDecimal = do
 mockDecode :: ByteString -> Either String MockTx
 mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
   where
-    getPrice = GasPrice <$> getDecimal
+    getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime

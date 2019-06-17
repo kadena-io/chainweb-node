@@ -6,6 +6,8 @@
 module TXG.Simulate.Contracts.CoinContract where
 
 import Data.Aeson
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 
@@ -32,14 +34,12 @@ data CoinContractRequest
   | CoinAccountBalance Account
   | CoinTransfer SenderName ReceiverName Guard Amount
 
-type Guard = [SomeKeyPair]
-
--- for simplicity
-type SenderName = Account
-type ReceiverName = Account
+newtype Guard = Guard (NonEmpty SomeKeyPair)
+newtype SenderName = SenderName Account
+newtype ReceiverName = ReceiverName Account
 
 mkRandomCoinContractRequest
-  :: M.Map Account [SomeKeyPair]
+  :: M.Map Account (NonEmpty SomeKeyPair)
   -> IO (FGen CoinContractRequest)
 mkRandomCoinContractRequest kacts = do
   request <- randomRIO @Int (0, 1)
@@ -48,8 +48,10 @@ mkRandomCoinContractRequest kacts = do
     1 -> do
       (from, to) <- distinctPair
       case M.lookup to kacts of
-        Nothing -> error $ errmsg ++ getAccount to
-        Just keyset -> CoinTransfer from to keyset <$> fake
+        Nothing ->
+          error $ errmsg ++ getAccount to
+        Just keyset ->
+          CoinTransfer (SenderName from) (ReceiverName to) (Guard keyset) <$> fake
     _ -> error "mkRandomCoinContractRequest: impossible case"
   where
     errmsg =
@@ -59,8 +61,8 @@ mkRandomCoinContractRequest kacts = do
 createCoinContractRequest :: PublicMeta -> CoinContractRequest -> IO (Command Text)
 createCoinContractRequest meta request =
   case request of
-    CoinCreateAccount (Account account) guard -> do
-      adminKeyset <- testSomeKeyPairs
+    CoinCreateAccount (Account account) (Guard guard) -> do
+      adminKS <- testSomeKeyPairs
       let theCode =
             printf
             "(coin.create-account \"%s\" (read-keyset \"%s\"))"
@@ -68,30 +70,30 @@ createCoinContractRequest meta request =
             ("create-account-guard" :: String)
           theData =
             object
-              [ "admin-keyset" .= fmap formatB16PubKey adminKeyset
+              [ "admin-keyset" .= fmap formatB16PubKey adminKS
               , "create-account-guard" .= fmap formatB16PubKey guard
               ]
-      mkExec theCode theData meta adminKeyset Nothing
+      mkExec theCode theData meta (NEL.toList adminKS) Nothing
     CoinAccountBalance (Account account) -> do
-      adminKeyset <- testSomeKeyPairs
+      adminKS <- testSomeKeyPairs
       let theData = Null
           theCode =
             printf
             "(coin.account-balance \"%s\")"
             account
-      mkExec theCode theData meta adminKeyset Nothing
-    CoinTransfer (Account sendername) (Account receivername) guard (Amount amount) -> do
-      adminKeyset <- testSomeKeyPairs
+      mkExec theCode theData meta (NEL.toList adminKS) Nothing
+    CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guard) (Amount amount) -> do
+      adminKS <- testSomeKeyPairs
       let theCode =
             printf
             "(coin.transfer \"%s\" \"%s\" (read-keyset \"%s\") %s)"
-            sendername
-            receivername
+            sn
+            rn
             ("receiver-guard" :: String)
             (show amount)
           theData =
             object
-              [ "admin-keyset" .= fmap formatB16PubKey adminKeyset
+              [ "admin-keyset" .= fmap formatB16PubKey adminKS
               , "receiver-guard" .= fmap formatB16PubKey guard
               ]
-      mkExec theCode theData meta adminKeyset Nothing
+      mkExec theCode theData meta (NEL.toList adminKS) Nothing

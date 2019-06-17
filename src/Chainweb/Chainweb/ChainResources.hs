@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -38,6 +39,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Maybe
+import Data.Semigroup
 import qualified Data.Text as T
 
 import GHC.Stack
@@ -59,7 +61,9 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
+import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
+import qualified Chainweb.Mempool.InMemTypes as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -125,8 +129,14 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg cdb payloadDb $ \mempool ->
-        withPactService v cid (setComponent "pact" logger) mempool cdbv $ \requestQ -> do
+      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
+
+            -- prune block header db
+            logg Info "start pruning block header database"
+            x <- pruneForks logger cdb (\h t -> unless t $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)) (diam * 3)
+            logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
             let pact = pes mempool requestQ
@@ -142,6 +152,9 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
                 , _chainResPact = pact
                 }
   where
+    logg = logFunctionText (setComponent "pact-tx-replay" logger)
+    diam = diameter (_chainGraph v)
+    reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
     pes mempool requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
@@ -150,6 +163,11 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
         Testnet00 -> mkPactExecutionService mempool requestQ
         Testnet01 -> mkPactExecutionService mempool requestQ
 
+-- -------------------------------------------------------------------------- --
+-- Initialization and Housekeeping
+
+-- | Replay transactions for the payloads of /all/ blocks including forks.
+--
 replayPact
     :: HasCallStack
     => Logger logger
@@ -168,7 +186,7 @@ replayPact logger pact cdb pdb = do
   where
     payload h = casLookup pdb (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-        Just p -> return $ payloadWithOutputsToPayloadData p
+        (Just !p) -> return $! payloadWithOutputsToPayloadData p
 
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
@@ -210,13 +228,18 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
-mempoolSyncP2pSession chain pollInterval logg0 env _ =
+mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ =
     flip catches [ Handler errorHandler ] $ do
+
+        let peerMempool = MPC.toMempool v cid txcfg gaslimit env
+
         logg Debug "mempool sync session starting"
         Mempool.syncMempools' logg syncIntervalUs pool peerMempool
         logg Debug "mempool sync session finished"
         return True
   where
+    -- FIXME Potentially dangerous down-cast.
+    syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 1000000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
@@ -225,11 +248,6 @@ mempoolSyncP2pSession chain pollInterval logg0 env _ =
     errorHandler (e :: SomeException) = do
         logg Warn ("mempool sync session failed: " <> sshow e)
         throwM e
-
-    peerMempool = MPC.toMempool v cid txcfg gaslimit noLastPar env
-      where
-        -- no sync needed / wanted for lastNewBlockParent attribute:
-        noLastPar = Nothing
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

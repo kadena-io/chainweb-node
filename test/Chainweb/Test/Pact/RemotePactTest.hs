@@ -1,8 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -31,6 +29,7 @@ import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
+import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Proxy
 import Data.Streaming.Network (HostPreference)
@@ -57,7 +56,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
@@ -124,19 +122,17 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
-    let mays = map (`HM.lookup` theMap) (_rkRequestKeys rks)
-    let values = _arResult <$> catMaybes mays
+    let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
 mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    let lastPar = Nothing
-    let mPool = toMempool version cid tConfig 10000 lastPar cwEnv :: MempoolBackend ChainwebTransaction
+    noopPool <- noopMempool
+    let tConfig = mempoolTxConfig noopPool
+    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
-  where
-    tConfig = mempoolTxConfig noopMempool
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -171,7 +167,7 @@ testMPValidated
     -> RequestKeys
     -> Assertion
 testMPValidated mPool rks = do
-    let txHashes = V.fromList $ TransactionHash . H.unHash . unRequestKey <$> _rkRequestKeys rks
+    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . H.unHash . unRequestKey) $ _rkRequestKeys rks
     b <- go maxMempoolRetries mPool txHashes
     assertBool "At least one transaction was not validated" b
   where
@@ -250,16 +246,16 @@ testBatch :: IO SubmitBatch
 testBatch = do
     kps <- testKeyPairs
     c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
-    pure $ SubmitBatch [c]
+    pure $ SubmitBatch (pure c)
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" (ParsedInteger 100) (ParsedDecimal 0.0001)
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.0001
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
     :<|> ((Poll -> ClientM PollResponses)
-    :<|> ((ListenerRequest -> ClientM ApiResult)
-    :<|> (Command Text -> ClientM (CommandSuccess A.Value))))
+    :<|> ((ListenerRequest -> ClientM ListenResponse)
+    :<|> (Command Text -> ClientM (CommandResult H.Hash))))
 
 generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
 generatePactApi cwVersion chainid =
@@ -365,6 +361,7 @@ config v n nid = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration

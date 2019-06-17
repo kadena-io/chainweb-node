@@ -26,7 +26,6 @@ import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -45,7 +44,6 @@ import Chainweb.Logger
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
-import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
@@ -57,18 +55,28 @@ import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
+
+tests :: ScheduledTest
+tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
+    [ withPact testMemPoolAccess $ \reqQIO ->
+        newBlockTest "new-block-0" reqQIO
+    , withPact testEmptyMemPool $ \reqQIO ->
+        newBlockTest "empty-block-tests" reqQIO
+    ]
+
+{-
 tests :: ScheduledTest
 tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
     [ withPact testMemPoolAccess $ \reqQIO -> testGroup "pact tests"
         $ schedule Sequential
-            [ validateTest reqQIO
-            , localTest reqQIO
+            [ localTest reqQIO
             ]
     , withPact testMemPoolAccess $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
     , withPact testEmptyMemPool $ \reqQIO ->
         newBlockTest "empty-block-tests" reqQIO
     ]
+-}
 
 withPact :: MemPoolAccess -> (IO (TQueue RequestMsg) -> TestTree) -> TestTree
 withPact mempool f = withResource startPact stopPact $ f . fmap snd
@@ -95,41 +103,10 @@ newBlockTest label reqIO = golden label $ do
   where
     cid = someChainId testVersion
 
-validateTest :: IO (TQueue RequestMsg) -> ScheduledTest
-validateTest reqIO = goldenSch "validateBlock-0" $ do
+_localTest :: IO (TQueue RequestMsg) -> ScheduledTest
+_localTest reqIO = goldenSch "local" $ do
     reqQ <- reqIO
-    let genesisHeader = genesisBlockHeader testVersion cid
-    respVar0 <- newBlock noMiner genesisHeader reqQ
-
-    plwo <- takeMVar respVar0 >>= \case
-        Left e -> assertFailure (show e)
-        Right r -> return r
-
-
-    -- validate the same transactions sent to newBlockTest above
-    let matchingPlHash = _payloadWithOutputsPayloadHash plwo
-    let plData = PayloadData
-            { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
-            , _payloadDataMiner = _payloadWithOutputsMiner plwo
-            , _payloadDataPayloadHash = matchingPlHash
-            , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
-            , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
-            }
-
-    let headers = V.fromList $ getBlockHeaders cid 2
-    let toValidateHeader = (headers ! 1)
-            { _blockPayloadHash = matchingPlHash
-            , _blockParent = _blockHash genesisHeader
-            }
-    respVar1 <- validateBlock toValidateHeader plData reqQ
-    goldenBytes "validateBlock-0" =<< takeMVar respVar1
-  where
-    cid = someChainId testVersion
-
-localTest :: IO (TQueue RequestMsg) -> ScheduledTest
-localTest reqIO = goldenSch "local" $ do
-    reqQ <- reqIO
-    locVar0c <- testLocal >>= \t -> local t reqQ
+    locVar0c <- _testLocal >>= \t -> local t reqQ
     goldenBytes "local" =<< takeMVar locVar0c
 
 goldenBytes :: Y.ToJSON a => Exception e => String -> Either e a -> IO BL.ByteString
@@ -139,30 +116,39 @@ goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
     , "results" .= a
     ]
 
-getBlockHeaders :: ChainId -> Int -> [BlockHeader]
-getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+_getBlockHeaders :: ChainId -> Int -> [BlockHeader]
+_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess _bHeight _bHash _bHeader = do
-    moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-    d <- adminData
-    let txs = V.fromList
-          [ PactTransaction (T.pack moduleStr) d
-          , PactTransaction "(create-table test1.accounts)" d
-          , PactTransaction "(test1.create-global-accounts)" d
-          , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
-          ]
-    goldenTestTransactions txs
+testMemPoolAccess  = MemPoolAccess
+    { mpaGetBlock = getTestBlock
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
+  where
+    getTestBlock _bHeight _bHash _bHeader = do
+        moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
+        d <- adminData
+        let txs = V.fromList
+              [ PactTransaction (T.pack moduleStr) d
+              , PactTransaction "(create-table test1.accounts)" d
+              , PactTransaction "(test1.create-global-accounts)" d
+              , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+              ]
+        goldenTestTransactions txs
 
 
-testEmptyMemPool
-  :: p1 -> p2 -> p3 -> IO (V.Vector ChainwebTransaction)
-testEmptyMemPool _bHeight _bHash _bHeader = goldenTestTransactions V.empty
+testEmptyMemPool :: MemPoolAccess
+testEmptyMemPool = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> goldenTestTransactions V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
 
-testLocal :: IO ChainwebTransaction
-testLocal = do
+_testLocal :: IO ChainwebTransaction
+_testLocal = do
     d <- adminData
     fmap (head . V.toList)
       $ goldenTestTransactions

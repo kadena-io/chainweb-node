@@ -26,7 +26,6 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import Servant
 import qualified System.IO.Streams as Streams
-import System.Timeout
 
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
@@ -72,12 +71,24 @@ data GpData t = GpData {
     }
 
 
-getPendingHandler :: Show t => MempoolBackend t -> Handler (Streams.InputStream [TransactionHash])
-getPendingHandler mempool = liftIO $ mask_ $ do
+getPendingHandler
+    :: Show t
+    => MempoolBackend t
+    -> Maybe ServerNonce
+    -> Maybe MempoolTxId
+    -> Handler (Streams.InputStream (Either HighwaterMark [TransactionHash]))
+getPendingHandler mempool mbNonce mbHw = liftIO $ mask_ $ do
     dat <- createThread
     Streams.makeInputStream $ inputStreamAct dat
 
   where
+    hw :: Maybe (ServerNonce, MempoolTxId)
+    hw = do
+        -- check that both nonce and txid are supplied and stuff them into one maybe
+        oldNonce <- mbNonce
+        tx <- mbHw
+        return (oldNonce, tx)
+
     createThread = liftIO $ do
         chan <- atomically $ Chan.newTBMChan 4
         t <- Async.asyncWithUnmask (chanThread chan)
@@ -89,40 +100,25 @@ getPendingHandler mempool = liftIO $ mask_ $ do
 
     chanThread chan restore =
         flip finally (atomically $ Chan.closeTBMChan chan) $
-        restore $
-        mempoolGetPendingTransactions mempool (atomically . Chan.writeTBMChan chan . V.toList)
+        restore $ do
+            !hw' <- mempoolGetPendingTransactions mempool hw
+                (atomically . Chan.writeTBMChan chan . Right . V.toList)
+            atomically $ Chan.writeTBMChan chan
+                       $! Left hw'
 
     inputStreamAct (ref, _) = do
         (GpData chan _) <- readIORef ref
         atomically $ Chan.readTBMChan chan
 
 
-subscribeHandler :: Show t => Int -> MempoolBackend t -> Handler (Streams.InputStream [t])
-subscribeHandler keepaliveSecs mempool = liftIO $ do
-    subRef <- mempoolSubscribe mempool
-    s <- Streams.fromList [[],[]]  -- send empty message to start
-    -- send empty messages -- servant is messing up the framing
-    t <- Streams.makeInputStream (streamAction subRef) >>= Streams.concatLists
-    Streams.appendInputStream s t
-
-  where
-    streamAction subRef = do
-        chan <- mempoolSubChan <$> readIORef subRef
-        m <- tout $ atomically $ Chan.readTBMChan chan
-        case m of
-          Nothing -> return $! Just [[],[]]   -- keepalive
-          Just (Just xs) -> return $! Just [ V.toList xs, [] ]
-          Just Nothing -> return Nothing
-
-    tout = timeout (keepaliveSecs * 1000000)
-
-
 handleErrs :: Handler a -> Handler a
 handleErrs = (`catch` \(e :: SomeException) ->
                  throwError $ err400 { errBody = sshow e })
 
-
-someMempoolServer :: (Show t, ToJSON t, FromJSON t) => SomeMempool t -> SomeServer
+someMempoolServer
+    :: (Show t, ToJSON t, FromJSON t)
+    => SomeMempool t
+    -> SomeServer
 someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
   = SomeServer (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
 
@@ -135,13 +131,12 @@ someMempoolServers v = mconcat
 
 
 mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c t)
-mempoolServer (Mempool_ keepaliveSecs mempool) =
+mempoolServer (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
     :<|> getBlockHandler mempool
     :<|> getPendingHandler mempool
-    :<|> subscribeHandler keepaliveSecs mempool
 
 
 mempoolApp

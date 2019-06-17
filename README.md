@@ -27,38 +27,13 @@ You have the code, now let's pick a build tool.
 
 ### Building with Nix
 
-#### Dependencies
+The fastest way to build and run chainweb is to use the Nix package manager
+which has binary caching capabilities that allow you to download pre-built
+binaries for everything needed by Chainweb. For detailed instructions see [our
+wiki](https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects).
 
-- `nix >= 2.2`
-  - [Linux / Mac](https://nixos.org/nix/)
 
-Using Nix is a great option if you just want Chainweb built, and don't
-necessarily care about the Haskell toolchain. It will also pull prebuilt
-versions of all of Chainweb's dependencies, avoiding the need to compile them
-yourself.
-
-Once Nix is installed, if you notice that the `/etc/nix` directory does not yet
-exist, create it (as the `root` user). Then put the following lines in your
-`/etc/nix/nix.conf` file to connect to Kadena's cache:
-
-```
-max-jobs = auto
-cores = 0
-substituters = http://nixcache.kadena.io https://pact.cachix.org https://nixcache.reflex-frp.org https://cache.nixos.org/
-trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= pact.cachix.org-1:cg1bsryGrHnQzqEp52NcHq4mBBL+R25XbR2Q/I/vQ8Y= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
-```
-
-Once you've done this, run the following from the director you cloned Chainweb
-to:
-
-```
-nix-build
-```
-
-This will place a runnable `chainweb-node` binary at a path like
-`/nix/store/d2f1ybvrlxj02ikfbgmjgfyybqbxk2s6-chainweb/ghc/chainweb/bin/chainweb-node`.
-This path changes with every code update, so a more reliable way to run
-`chainweb-node` is to use the symlink created by Nix:
+When the build is finished, you can run chainweb with the following command:
 
 ```bash
 ./result/ghc/chainweb/bin/chainweb-node

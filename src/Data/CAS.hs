@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -15,27 +17,29 @@
 -- Stability: experimental
 -- Description: Content Addressed Key Value Store (CAS)
 --
--- TODO
+-- API for Content-Addressable Stores (CAS)
 --
 module Data.CAS
 ( IsCasValue(..)
 , IsCas(..)
-, casMember
 , casLookupM
 , CasConstraint
 ) where
 
-import Control.DeepSeq
-import Control.Exception (Exception)
+import Control.Exception (Exception, SomeException)
 import Control.Monad.Catch (throwM)
 
+import Data.Foldable
 import Data.Kind
 import Data.Maybe
 import Data.Text (Text)
+import qualified Data.Vector as V
 
 import GHC.Generics
 
--- | The casKey function must be morally injective:
+-- | The class of content-addressable values.
+--
+-- The casKey function must be morally injective:
 --
 -- prop> casKey a /= casKey b || a == b
 --
@@ -55,26 +59,63 @@ class Eq (CasKeyType v) => IsCasValue v where
 --
 class IsCasValue (CasValueType a) => IsCas a where
     type CasValueType a :: Type
+
+    -- | Lookup a value in a content-addressable store
+    --
     casLookup :: a -> CasKeyType (CasValueType a) -> IO (Maybe (CasValueType a))
+
+    -- | Insert a value into a content-addressasble store
+    --
     casInsert :: a -> CasValueType a -> IO ()
+
+    -- | Delete a value from a content-addressable store
+    --
     casDelete :: a -> CasKeyType (CasValueType a) -> IO ()
 
-casMember :: IsCas a => a -> CasKeyType (CasValueType a) -> IO Bool
-casMember db = fmap isJust . casLookup db
-{-# INLINE casMember #-}
+    -- | Lookup a batch of values in a content-addressable store
+    --
+    casLookupBatch :: a -> V.Vector (CasKeyType (CasValueType a)) -> IO (V.Vector (Maybe (CasValueType a)))
+    casLookupBatch = traverse . casLookup
+    {-# INLINE casLookupBatch #-}
 
+    -- | Insert a batch of values into a content-addressasble store
+    --
+    casInsertBatch :: a -> V.Vector (CasValueType a) -> IO ()
+    casInsertBatch = traverse_ . casInsert
+    {-# INLINE casInsertBatch #-}
+
+    -- | Delete a batch of values from a content-addressable store
+    --
+    casDeleteBatch :: a -> V.Vector (CasKeyType (CasValueType a)) -> IO ()
+    casDeleteBatch = traverse_ . casDelete
+    {-# INLINE casDeleteBatch #-}
+
+    -- | Check for the existence of a value in a content addressable store
+    --
+    casMember :: a -> CasKeyType (CasValueType a) -> IO Bool
+    casMember db = fmap isJust . casLookup db
+    {-# INLINE casMember #-}
+
+-- | Lookup a value by its key in a content-addressable store and throw an
+-- 'CasException' if the value doesn't exist in the store
+--
 casLookupM
     :: IsCas a
     => a -> CasKeyType (CasValueType a) -> IO (CasValueType a)
 casLookupM cas k = casLookup cas k >>= \case
     Nothing -> throwM . CasException $
       "casLookupM: lookup failed for cas key"
-    Just x -> return x
+    (Just !x) -> return x
 
-newtype CasException = CasException Text
-    deriving (Eq, Show, Generic)
-    deriving newtype (NFData)
+-- | Exceptions that are thrown by instances of 'IsCas'.
+--
+data CasException = CasException Text |  CasImplementationException SomeException
+    deriving (Show, Generic)
 
 instance Exception CasException
 
+-- | @CasConstraint cas x@ asserts that @cas@ is an instance if 'IsCas' with
+-- value type 'x'.
+--
 type CasConstraint cas x = (IsCas (cas x), CasValueType (cas x) ~ x)
+

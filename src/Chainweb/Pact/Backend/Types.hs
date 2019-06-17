@@ -60,6 +60,7 @@ module Chainweb.Pact.Backend.Types
     ) where
 
 import Control.Exception.Safe hiding (bracket)
+import Control.Monad.Fail
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Lens
@@ -172,23 +173,13 @@ newtype BlockHandler p a = BlockHandler
              , MonadCatch
              , MonadIO
              , MonadReader (BlockDbEnv p)
+             , MonadFail
              )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
 instance Logging (BlockHandler p) where
   log c s = view logger >>= \l -> liftIO $ logLog l c s
-
--- data CheckpointerNew = CheckpointerNew
---   { runCheckpointerNew :: Maybe (BlockHeight, ParentHash) -> (PactDbEnv' -> IO CheckpointerResult) -> (CheckpointerResult -> CheckpointAction) -> IO CheckpointerResult
---   }
-
--- data CheckpointerNew = CheckpointerNew
---     { restoreNew :: BlockHeight -> Maybe ParentHash -> IO PactDbEnv'
---     , restoreInitialNew :: IO PactDbEnv'
---     , saveNew :: BlockHash -> IO ()
---     , discardNew :: IO ()
---     }
 
 type ParentHash = BlockHash
 
@@ -203,9 +194,6 @@ data Checkpointer = Checkpointer
     , discard :: IO ()
     }
 
--- functions like the ones below need to be implemented internally
--- , prepareForValidBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
--- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: !Checkpointer
     , _cpeLogger :: Logger
@@ -213,11 +201,3 @@ data CheckpointEnv = CheckpointEnv
     }
 
 makeLenses ''CheckpointEnv
-
--- data CheckpointEnvNew = CheckpointEnvNew
---     { _cpeCheckpointerNew :: CheckpointerNew
---     , _cpeLoggerNew :: Logger
---     , _cpeGasEnvNew :: GasEnv
---     }
-
--- makeLenses ''CheckpointEnvNew

@@ -6,21 +6,20 @@ package chainweb
 package aeson
     flags: +cffi
 
+debug-info: True
+
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: d9a35f6edee1a99cd6f864f68fc3b3b44ce0b4cd
+    tag: fb30307a204791914831c45e3b68c1f4eaf75f78
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/thyme.git
     tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/merkle-log.git
-    tag: a7ae61d7082afe3aa1a0fd0546fc1351a2f7c376
-
 constraints:
       megaparsec <7.0
-    , servant < 0.15
+    , neat-interpolation <0.3.2.4
+    , swagger2 < 2.4
+    , these < 1

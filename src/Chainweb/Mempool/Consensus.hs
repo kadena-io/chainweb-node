@@ -5,12 +5,17 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Mempool.Consensus
 ( chainwebTxsFromPWO
+, MempoolConsensus(..)
+, mkMempoolConsensus
 , processFork
-, ReintroducedTxs (..)
+, processFork'
+, ReintroducedTxsLog (..)
 ) where
 
 ------------------------------------------------------------------------------
@@ -25,75 +30,165 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Either
 import Data.Foldable (toList)
-
-import Data.Set (Set)
-import qualified Data.Set as S
-import qualified Data.Text as T
+import Data.Hashable
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
+import Data.IORef
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import GHC.Generics
 
 import System.LogLevel
-------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
+
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
 import Data.LogMessage (JsonLog(..), LogFunction)
-------------------------------------------------------------------------------
-processFork
-    :: Ord x
-    => LogFunction
-    -> BlockHeaderDb
-    -> BlockHeader
-    -> Maybe BlockHeader
-    -> (BlockHeader -> IO (S.Set x))
-    -> IO (V.Vector x)
-processFork _ _ _ Nothing _ = return V.empty
-processFork logFun db newHeader (Just lastHeader) payloadLookup = do
+import Data.CAS
 
-    let s = branchDiff db lastHeader newHeader
-    (oldBlocks, newBlocks) <- collectForkBlocks s
-    case V.length newBlocks - V.length oldBlocks of
-        n | n == 1    -> return V.empty -- no fork, no trans to reintroduce
-        n | n > 1     -> throwM $ MempoolConsensusException ("processFork -- height of new block is"
-                                      ++ "more than one greater than the previous new block request")
-          | otherwise -> do -- fork occurred, get the transactions to reintroduce
-              oldTrans <- foldM f mempty oldBlocks
-              newTrans <- foldM f mempty newBlocks
-              -- before re-introducing the transactions from the losing fork (aka oldBlocks), filter
-              -- out any transactions that have been included in the winning fork (aka newBlocks)
+----------------------------------------------------------------------------------------------------
+data MempoolConsensus t = MempoolConsensus
+    { mpcMempool :: !(MempoolBackend t)
+    , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
+    , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+    }
 
-              -- return $ V.fromList $ S.toList $ oldTrans `S.difference` newTrans
-              let results = V.fromList $ S.toList $ oldTrans `S.difference` newTrans
-
-              -- create data for the dashboard showing number or reintroduced transacitons:
-              let !reIntro = ReintroducedTxs
-                    { oldForkHeader = (ObjectEncoded lastHeader)
-                    , newForkHeader = (ObjectEncoded newHeader)
-                    , numReintroduced = V.length results
-                    }
-              logg Info $! "transactions reintroduced" <> sshow (V.length results)
-              logFun @(JsonLog ReintroducedTxs) Info $ JsonLog reIntro
-              return results
-  where
-    f trans header = S.union trans <$> payloadLookup header
-
-    logg :: LogLevel -> T.Text -> IO ()
-    logg = logFun
-
-
-data ReintroducedTxs = ReintroducedTxs
+data ReintroducedTxsLog = ReintroducedTxsLog
     { oldForkHeader :: ObjectEncoded BlockHeader
     , newForkHeader :: ObjectEncoded BlockHeader
     , numReintroduced :: Int }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 
+newtype MempoolException = MempoolConsensusException String
+
+instance Show MempoolException where
+    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
+
+instance Exception MempoolException
+
+----------------------------------------------------------------------------------------------------
+mkMempoolConsensus
+    :: PayloadCas cas
+    => Bool
+    -> MempoolBackend t
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IO (MempoolConsensus t)
+mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
+    lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
+
+    return MempoolConsensus
+        { mpcMempool = mempool
+        , mpcLastNewBlockParent = lastParentRef
+        , mpcProcessFork = processForkFunc blockHeaderDb payloadStore lastParentRef
+        }
+  where
+    processForkFunc -- (type repeated to help avoid compiler confusion)
+        :: PayloadCas cas
+        => BlockHeaderDb
+        -> Maybe (PayloadDb cas)
+        -> IORef (Maybe BlockHeader)
+        -> LogFunction
+        -> BlockHeader
+        -> IO (Vector ChainwebTransaction)
+    processForkFunc = if txReintroEnabled
+      then processFork
+      else skipProcessFork
+
+----------------------------------------------------------------------------------------------------
+skipProcessFork
+    :: PayloadCas cas
+    => BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IORef (Maybe BlockHeader)
+    -> LogFunction
+    -> BlockHeader
+    -> IO (Vector ChainwebTransaction)
+skipProcessFork _ _ _ _ _ = return V.empty
+
+processFork
+    :: PayloadCas cas
+    => BlockHeaderDb
+    -> Maybe (PayloadDb cas)
+    -> IORef (Maybe BlockHeader)
+    -> LogFunction
+    -> BlockHeader
+    -> IO (Vector ChainwebTransaction)
+processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
+    lastHeader <- readIORef lastHeaderRef
+    hashTxs <- processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
+    return $ V.map unHashable hashTxs
+
+----------------------------------------------------------------------------------------------------
+-- called directly from some unit tests...
+processFork'
+  :: (Eq x, Hashable x)
+    => LogFunction
+    -> BlockHeaderDb
+    -> BlockHeader
+    -> Maybe BlockHeader
+    -> (BlockHeader -> IO (HashSet x))
+    -> IO (V.Vector x)
+processFork' logFun db newHeader lastHeaderM plLookup = do
+    case lastHeaderM of
+        Nothing -> return V.empty
+        Just lastHeader -> do
+            let s = branchDiff db lastHeader newHeader
+            (oldBlocks, newBlocks) <- collectForkBlocks s
+            case V.length newBlocks - V.length oldBlocks of
+                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
+                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
+                           ++ "block is more than one greater than the previous new block request")
+                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
+                      oldTrans <- foldM f mempty oldBlocks
+                      newTrans <- foldM f mempty newBlocks
+
+                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
+                      -- filterout any transactions that have been included in the
+                      -- winning fork (aka newBlocks):
+                      let !results = V.fromList $ HS.toList $ oldTrans `HS.difference` newTrans
+
+                      unless (V.null results) $ do
+                          -- create data for the dashboard showing number or reintroduced transacitons:
+                          let !reIntro = ReintroducedTxsLog
+                                { oldForkHeader = ObjectEncoded lastHeader
+                                , newForkHeader = ObjectEncoded newHeader
+                                , numReintroduced = V.length results
+                                }
+                          logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
+                      return results
+          where
+            f trans header = HS.union trans <$> plLookup header
+
+----------------------------------------------------------------------------------------------------
+payloadLookup
+    :: forall cas . PayloadCas cas
+    => Maybe (PayloadDb cas)
+    -> BlockHeader
+    -> IO (HashSet (HashableTrans PayloadWithText))
+payloadLookup payloadStore bh =
+    case payloadStore of
+        Nothing -> return mempty
+        Just s -> do
+            pwo <- casLookupM' s (_blockPayloadHash bh)
+            chainwebTxsFromPWO pwo
+  where
+    casLookupM' s h = do
+        x <- casLookup s h
+        case x of
+            Nothing -> throwIO $ PayloadNotFoundException h
+            Just pwo -> return pwo
+
+----------------------------------------------------------------------------------------------------
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.
 collectForkBlocks
@@ -102,7 +197,7 @@ collectForkBlocks
 collectForkBlocks theStream =
     go theStream (V.empty, V.empty)
   where
-    go stream (oldBlocks, newBlocks) = do
+    go stream (!oldBlocks, !newBlocks) = do
         nxt <- S.next stream
         case nxt of
             -- end of the stream, last item is common branch point of the forks
@@ -114,7 +209,8 @@ collectForkBlocks theStream =
             Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
                                                        V.cons rBlk newBlocks )
 
-chainwebTxsFromPWO :: PayloadWithOutputs -> IO (Set ChainwebTransaction)
+----------------------------------------------------------------------------------------------------
+chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
 chainwebTxsFromPWO pwo = do
     let transSeq = fst <$> _payloadWithOutputsTransactions pwo
     let bytes = _transactionBytes <$> transSeq
@@ -122,13 +218,6 @@ chainwebTxsFromPWO pwo = do
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
     let theRights  =  rights $ toList eithers
-    return $ S.fromList theRights
+    return $ HS.fromList $ HashableTrans <$> theRights
   where
     toCWTransaction = codecDecode chainwebPayloadCodec
-
-newtype MempoolException = MempoolConsensusException String
-
-instance Show MempoolException where
-    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
-
-instance Exception MempoolException

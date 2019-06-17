@@ -95,7 +95,6 @@ defModule idx = [text| ;;
 tIntList :: [Int] -> Term n
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
 
-
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
@@ -173,7 +172,7 @@ checkpointerTest name initdata =
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
-                  let contMsg = ContMsg pactId step False Null
+                  let contMsg = ContMsg pactId step False Null Nothing
                       cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def
                   applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
             ------------------------------------------------------------------
