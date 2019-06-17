@@ -7,7 +7,7 @@
   \or issue the '(use coin)' command in the body of a module declaration."
 
 
-  (use coin-sig)
+  ;(use coin-sig)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables

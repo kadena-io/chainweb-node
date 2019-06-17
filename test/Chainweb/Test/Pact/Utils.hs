@@ -2,6 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module: Chainweb.Test.PactInProcApi
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -21,7 +22,8 @@ module Chainweb.Test.Pact.Utils
 , mergeObjects
 , formatB16PubKey
 , goldenTestTransactions
-, mkPactTestTransactions
+, mkTestExecTransactions
+, mkTestContTransactions
 , pactTestLogger
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
@@ -82,7 +84,9 @@ import Chainweb.WebPactExecutionService
 import Pact.Gas
 import Pact.Interpreter
 import Pact.Types.Gas
-
+import Pact.Types.RPC
+import Pact.Types.Runtime (PactId)
+import Pact.Types.SPV
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -132,13 +136,13 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    mkPactTestTransactions "sender00" "0" ks "1" 100 0.0001 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 100 0.0001 txs
 
 -- Make pact transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
 -- (with data) to execute.
 --
-mkPactTestTransactions
+mkTestExecTransactions
     :: Text
     -- ^ sender
     -> ChainId
@@ -154,7 +158,7 @@ mkPactTestTransactions
     -> Vector PactTransaction
     -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions sender cid ks nonce gas gasrate txs =
+mkTestExecTransactions sender cid ks nonce gas gasrate txs =
     traverse go txs
   where
     go (PactTransaction c d) = do
@@ -169,6 +173,36 @@ mkPactTestTransactions sender cid ks nonce gas gasrate txs =
 
     k t bs = PayloadWithText bs (_cmdPayload t)
 
+
+mkTestContTransactions
+    :: Text
+    -> ChainId
+    -> [SomeKeyPair]
+    -> Text
+    -> GasLimit
+    -> GasPrice
+    -> Int
+    -> PactId
+    -> Bool
+    -> Maybe ContProof
+    -> Vector PactTransaction
+    -> IO (Vector ChainwebTransaction)
+mkTestContTransactions sender cid ks nonce gas rate step pid rollback proof txs =
+    traverse go txs
+  where
+    go (PactTransaction _ d) = do
+      let dd = mergeObjects (toList d)
+          pm = PublicMeta cid sender gas rate
+
+      let msg :: PactRPC ContMsg =
+            Continuation (ContMsg pid step rollback dd proof)
+
+      cmd <- mkCommand ks pm nonce msg
+      case verifyCommand cmd of
+        ProcSucc t -> return $ fmap (k t) cmd
+        ProcFail e -> throwM $ userError e
+
+    k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def

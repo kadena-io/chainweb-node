@@ -257,7 +257,7 @@ txGenerator1 sid tid = do
             let pcid = Pact.ChainId $ chainIdToText _cid
 
 
-            mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
+            mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
                 `finally` writeIORef ref False
 
     txs = fromList [ PactTransaction tx1Code tx1Data ]
@@ -304,7 +304,7 @@ txGenerator2 cdbv sid tid bhe = do
 
                 ks <- testKeyPairs
 
-                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList [ PactTransaction tx1Code (tx1Data q) ]
@@ -335,7 +335,7 @@ txGenerator3 cdbv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText tid)
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -368,7 +368,7 @@ txGenerator4 cdbv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText sid)
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
+                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 (txs q)
                     `finally` writeIORef ref True
 
     txs q = fromList
@@ -397,7 +397,7 @@ txGenerator5 _cdbv _ tid _ = do
                 let pcid = Pact.ChainId (chainIdToText tid)
 
                 ks <- testKeyPairs
-                mkPactTestTransactions "sender00" pcid ks "1" 100 0.0001 txs
+                mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
                     `finally` writeIORef ref True
 
     txs = fromList [ PactTransaction tx1Code Nothing ]
