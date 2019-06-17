@@ -1,5 +1,6 @@
 (begin-tx)
 
+(load "coin-sig.pact")
 (load "coin.pact")
 
 (commit-tx)

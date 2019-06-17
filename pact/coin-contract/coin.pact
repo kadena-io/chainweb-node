@@ -7,6 +7,8 @@
   \or issue the '(use coin)' command in the body of a module declaration."
 
 
+  (use coin-sig)
+
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
@@ -180,7 +182,14 @@
         })
       ))
 
-  (defpact cross-chain-transfer (delete-account create-chain-id create-account create-account-guard quantity)
+  (defpact cross-chain-transfer
+    ( delete-account:string
+      create-chain-id:string
+      create-account:string
+      create-account-guard:guard
+      quantity:decimal
+      )
+
     @doc "Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
          \produce an SPV receipt which may be manually redeemed for an SPV      \
          \proof. Once a proof is obtained, the user may call 'create-coin' and  \
@@ -192,9 +201,7 @@
          \source chain by the burn account. Note: must be called on the correct \
          \chain id as specified in the proof."
 
-    @model [ (property (> quantity 0.0))
-           , (property (not (= "create-chain-id" (at 'chain-id (chain-data)))))
-           ]
+    @model [ (property (> quantity 0.0)) ]
     (step
       (with-capability (BURN_CREATE)
         (let
