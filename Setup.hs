@@ -1,4 +1,5 @@
 -- ------------------------------------------------------ --
+-- Copyright © 2019 Kadena LLC <chainweb-dev@kadena.io>
 -- Copyright © 2019 Colin Woodbury <colin@fosskers.ca>
 -- Copyright © 2015-2018 Lars Kuhtz <lakuhtz@gmail.com>
 -- Copyright © 2014 AlephCloud Systems, Inc.
@@ -115,7 +116,6 @@ import Distribution.Pretty
 
 import System.Process
 
-import Control.Applicative
 import Control.Monad
 
 import qualified Data.ByteString as B
@@ -123,9 +123,6 @@ import Data.ByteString.Char8 (pack)
 import Data.Char (isSpace)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
-import Data.Monoid
-
-import Prelude hiding (readFile, writeFile)
 
 import System.Directory
     (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist,
@@ -269,16 +266,33 @@ gitlabCiVcsInfo = do
             tag <- fromMaybe "" <$> lookupEnv "CI_COMMIT_TAG"
             return $ Just (tag, rev, branch)
 
+-- | The file format is revision, branch, and tag separate by newline
+-- characters.
+--
+fileVcsInfo :: IO (Maybe (String, String, String))
+fileVcsInfo = do
+    doesFileExist ".vcs-info" >>= \x -> if x
+    then do
+        (rev : branch : tag : _) <- (<> ["", "", ""]) . lines <$> readFile ".vcs-info"
+        return $ Just (tag, rev, branch)
+    else return Nothing
+
+-- | Returns tag, revision, and branch name.
+--
 noVcsInfo :: IO (String, String, String)
 noVcsInfo = return ("", "", "")
 
+-- | Returns tag, revision, and branch name.
+--
 getVcsInfo :: IO (String, String, String)
 getVcsInfo = getVCS >>= \case
     Just Mercurial -> hgInfo
     Just Git -> gitInfo
     _ -> gitlabCiVcsInfo >>= \case
         Just a -> return a
-        Nothing -> noVcsInfo
+        Nothing -> fileVcsInfo >>= \case
+            Just a -> return a
+            Nothing -> noVcsInfo
 
 -- -------------------------------------------------------------------------- --
 -- Generate Module
