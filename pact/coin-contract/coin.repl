@@ -99,5 +99,48 @@
 
 ; SPV tests - note: proof creation will not work as we have no spv support as our default spv
 ; handler in the environment at this point.
-(expect "spv proof creation should succeed" "" (let ((p (delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0))) ""))
-(expect-failure "spv proof creation should fail for insufficient funds" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 2.0))
+(expect-failure "burns should fail when called directly" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0))
+
+(test-capability (BURN_CREATE))
+(expect "burns should succeed only when BURN_CREATE is in scope" "success" (let ((p delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0)) "success"))
+
+(expect-failure "spv proof creation should fail s for insufficient funds" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 2.0))
+
+(credit 'k1 (read-keyset 'k1) 1.0)
+(expect "burn step for cross-chain transfers succeed" "success" (let ((p delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0)) "success"))
+
+;; Test full 2-step burn/create pact
+(credit 'k1 (read-keyset 'k1) 1.0)
+
+(pact-state true)
+(env-chain-data { "chain-id" : "0" })
+(env-hash (hash "burn-create"))
+
+(expect "burn side of cross-chain transfers succeed" "success" (let ((p (cross-chain-transfer 'k1 "1" 'k2 (read-keyset 'k2) 1.0))) "success"))
+
+; make sure chain-id is enforced in the yield
+(expect-failure "create side of cross-chain transfer fails yield on wrong chain"
+        (continue-pact 1 false (hash "burn-create")
+          { "create-chain-id": "1"
+          , "create-account": 'k2
+          , "create-account-guard": (read-keyset 'k2)
+          , "quantity": 1.0
+          , "delete-block-height": 0
+          , "delete-chain-id": "0"
+          , "delete-account": 'k1
+          , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
+          }))
+
+; successful path
+(env-chain-data { "chain-id" : "1" })
+(expect "create side of cross-chain transfer fails yield on wrong chain" "Write succeeded"
+        (continue-pact 1 false (hash "burn-create")
+          { "create-chain-id": "1"
+          , "create-account": 'k2
+          , "create-account-guard": (read-keyset 'k2)
+          , "quantity": 1.0
+          , "delete-block-height": 0
+          , "delete-chain-id": "0"
+          , "delete-account": 'k1
+          , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
+          }))

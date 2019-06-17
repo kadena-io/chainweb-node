@@ -71,7 +71,13 @@ import Pact.Types.SPV
 
 -- | Spv support for pact
 --
-pactSPV :: forall cas. MVar (CutDb cas) -> Logger -> SPVSupport
+pactSPV
+    :: forall cas
+    . MVar (CutDb cas)
+      -- ^ handle into the cutdb
+    -> Logger
+      -- ^ pact service logger
+    -> SPVSupport
 pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv l)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
@@ -81,9 +87,14 @@ pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv l)
 verifySPV
     :: forall cas
     . MVar (CutDb cas)
+      -- ^ handle into the cut db
     -> Logger
+      -- ^ pact service logger
     -> Text
+      -- ^ TXOUT or TXIN - defines the type of proof
+      -- used in validation
     -> Object Name
+      -- ^ the 'TransactionOutputProof' object to validate
     -> IO (Either Text (Object Name))
 verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
   where
@@ -124,8 +135,11 @@ verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
 verifyCont
     :: forall cas
     . MVar (CutDb cas)
+      -- ^ handle into the cut db
     -> Logger
+      -- ^ pact service logger
     -> ContProof
+      -- ^ bytestring of 'TransactionOutputProof' object to validate
     -> IO (Either Text PactExec)
 verifyCont _cdbv _l = _spvVerifyContinuation noSPVSupport
 

@@ -40,6 +40,10 @@
     "Magic capability to execute gas purchases and redemptions"
     true)
 
+  (defcap BURN_CREATE ()
+    "Magic capability to protect cross-chain coin transfers"
+    true)
+
   (defcap ACCOUNT_GUARD (account)
     "Lookup and enforce guards associated with an account"
     (with-read coin-table account { "guard" := g }
@@ -176,15 +180,54 @@
         })
       ))
 
-  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
-    @doc "Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
+  (defpact cross-chain-transfer (delete-account create-chain-id create-account create-account-guard quantity)
+    @doc "Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
          \produce an SPV receipt which may be manually redeemed for an SPV      \
          \proof. Once a proof is obtained, the user may call 'create-coin' and  \
          \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT        \
-         \QUANTITY-many coins."
+         \QUANTITY-many coins.                                                  \
+         \                                                                      \
+         \Step 2: Consume an SPV proof for a number of coins, and credit the    \
+         \account associated with the proof the quantify of coins burned on the \
+         \source chain by the burn account. Note: must be called on the correct \
+         \chain id as specified in the proof."
 
-    @model [(property (> amount 0.0))]
+    @model [ (property (> quantity 0.0))
+           , (property (not (= "create-chain-id" (at 'chain-id (chain-data)))))
+           ]
+    (step
+      (with-capability (BURN_CREATE)
+        (let
+          ((retv
+             (delete-coin delete-account create-chain-id create-account create-account-guard quantity)
+             ))
 
+          (yield retv)
+          retv)))
+
+    (step
+      (resume
+        { "create-chain-id":= create-chain-id
+        , "create-account" := create-account
+        , "create-account-guard" := create-account-guard
+        , "quantity" := quantity
+        , "delete-tx-hash" := delete-tx-hash
+        , "delete-chain-id" := delete-chain-id
+        }
+
+        (with-capability (BURN_CREATE)
+          (create-coin
+            create-chain-id
+            create-account
+            create-account-guard
+            quantity
+            delete-tx-hash
+            delete-chain-id
+            ))))
+    )
+
+  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
+    (require-capability (BURN_CREATE))
     (with-capability (TRANSFER)
       (debit delete-account quantity)
 
@@ -196,43 +239,37 @@
       , "delete-chain-id": (at 'chain-id (chain-data))
       , "delete-account": delete-account
       , "delete-tx-hash": (tx-hash)
-      })
-    )
+      }
+     ))
 
-  (defun create-coin (proof)
-    @doc "Consume an SPV proof for a number of coins, and credit the account   \
-         \associated with the proof the quantify of coins burned on the source \
-         \chain by the burn account. Note: must be called on the correct chain \
-         \id as specified in the proof."
+  (defun create-coin
+    ( create-chain-id
+      create-account
+      create-account-guard
+      quantity
+      delete-tx-hash
+      delete-chain-id
+      )
 
-    (let ((outputs (verify-spv "TXOUT" proof)))
-      (bind outputs
-        { "create-chain-id":= create-chain-id
-        , "create-account" := create-account
-        , "create-account-guard" := create-account-guard
-        , "quantity" := quantity
-        , "delete-tx-hash" := delete-tx-hash
-        , "delete-chain-id" := delete-chain-id
-        }
+    (require-capability (BURN_CREATE))
 
-        (enforce
-          (= create-chain-id (at "chain-id" (chain-data)))
-          "enforce correct create chain ID")
+    (enforce (= create-chain-id (at "chain-id" (chain-data)))
+      "enforce correct create chain ID")
 
-        (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
-          (with-default-read creates-table create-id
-            { "exists": false }
-            { "exists":= exists }
+    (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
+      (with-default-read creates-table create-id
+        { "exists": false }
+        { "exists":= exists }
 
-            (enforce (not exists)
-              (format "enforce unique usage of {}" [create-id]))
+        (enforce (not exists)
+          (format "enforce unique usage of {}" [create-id]))
 
-            (insert creates-table create-id { "exists": true })
+        (insert creates-table create-id { "exists": true })
 
-            (with-capability (TRANSFER)
-              (credit create-account create-account-guard quantity)))
-          )))
-    )
+        (with-capability (TRANSFER)
+          (credit create-account create-account-guard quantity))
+
+        )))
 )
 
 (create-table coin-table)
