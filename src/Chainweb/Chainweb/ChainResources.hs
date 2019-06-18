@@ -185,7 +185,9 @@ replayPact logger pact cdb pdb = do
     logg Info $ "finished replaying " <> sshow l <> " pact transactions"
   where
     payload h = casLookup pdb (_blockPayloadHash h) >>= \case
-        Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
+        Nothing -> do
+            logg Error $ "Corrupted database: failed to load payload data for block header " <> sshow h
+            error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         (Just !p) -> return $! payloadWithOutputsToPayloadData p
 
     logg = logFunctionText (setComponent "pact-tx-replay" logger)

@@ -1,0 +1,91 @@
+
+
+(begin-tx)
+(load "coin.pact")
+(commit-tx)
+
+(begin-tx)
+
+(env-data { "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"]})
+(env-keys ["keys1", "keys2", "faucet"])
+
+;;Set block time to (time "2019-05-08T17:03:20Z")
+(env-chain-data {"block-time": 1557335000})
+
+(test-capability (coin.COINBASE))
+(load "coin-faucet.pact")
+(commit-tx)
+
+(begin-tx)
+
+(typecheck 'coin-faucet)
+;(verify 'coin-faucet)
+
+(commit-tx)
+
+(use coin)
+(use coin-faucet)
+
+(define-keyset 'k1 (read-keyset "k1"))
+(define-keyset 'k2 (read-keyset "k2"))
+(define-keyset 'k3 (read-keyset "k3"))
+
+
+;;;; TESTING request-coin
+
+(create-account 'k1 (read-keyset "k1"))
+(expect "Account is created with balance 0.0"
+  0.0 (account-balance 'k1))
+
+(expect-failure "Requested coin amount is above maximum coin giveout"
+  (request-coin 'k1 (read-keyset "k1") 20.1))
+
+(request-coin 'k1 (read-keyset "k1") 20.0)
+(expect "Coin 20.0 was transferred to address 'k1"
+  20.0 (account-balance 'k1))
+(expect "Coin 20.0 was debited in faucet account"
+  99999999999980.0 (account-balance 'faucet-account))
+
+(expect-failure "Address 'k2 does not exist" (account-balance 'k2))
+(request-coin 'k2 (read-keyset "k2") 10.0)
+(expect "Address 'k2 was created and coin 10.0 was credited at request."
+  10.0  (account-balance 'k2))
+(expect "Coin 1.0 was debited in faucet account"
+  99999999999970.0 (account-balance 'faucet-account))
+
+;;Set block time to (time "2019-05-08T17:20:00Z")
+(env-chain-data {"block-time": 1557336000})
+(expect-failure "Coin request fails because wait time has not passed since last request"
+  (request-coin 'k1 (read-keyset "k1")))
+
+;;Set block time to (time "2019-05-08T18:10:00Z")
+(env-chain-data {"block-time": 1557339000})
+
+(request-coin 'k1 (read-keyset "k1") 1.0)
+(expect "Coin request succeeded after wait time has passed"
+  21.0 (account-balance 'k1))
+(expect "Coin 1.0 was debited in faucet account"
+  99999999999969.0 (account-balance 'faucet-account))
+
+;;;; TESTING return-coin
+
+(expect-failure "Return fails due to insufficient funds in k1"
+  (return-coin 'k1 30.0))
+
+(return-coin 'k2 8.0)
+(expect "Return succeeds and k2 balance decreases from 10.0 to 2.0"
+  2.0 (account-balance 'k2))
+(expect "Coin 8.0 was credited in faucet account"
+  99999999999977.0 (account-balance 'faucet-account))
+
+;;;; TESTING read-history
+
+(expect "Returns history of k1" {
+  "last-tx-time": (time "2019-05-08T18:10:00Z"),
+  "total-coins-earned": 21.0,
+  "total-coins-returned": 0.0 } (read-history 'k1))
+
+(expect "Returns history of k1" {
+  "last-tx-time": (time "2019-05-08T17:03:20Z"),
+  "total-coins-earned": 10.0,
+  "total-coins-returned": 8.0 } (read-history 'k2))
