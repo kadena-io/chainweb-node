@@ -207,7 +207,7 @@ serviceRequests memPoolAccess reqQ = do
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
-                    liftIO $ putMVar _valResultVar $ Left $ PactInternalError $ T.pack $ show e
+                    liftIO $ putMVar _valResultVar $ toPactInternalError e
                   Right r -> liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
@@ -291,10 +291,10 @@ execNewBlock mpAccess header miner = do
            <> " (hash = " <> sshow bHash <> ")"
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
 
-    restoreCheckpointer $ Just (succ $ bHeight, bHash)
+    restoreCheckpointer $ Just (succ bHeight, bHash)
 
     -- locally run 'execTransactions' with updated blockheight data
-    results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+    results <- locally (psPublicData . P.pdBlockHeight) (const (bh + 1)) $
       execTransactions (Just bHash) miner newTrans
 
     discardCheckpointer

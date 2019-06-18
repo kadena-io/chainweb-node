@@ -250,6 +250,7 @@ doCommit = use bsMode >>= \mm -> case mm  of
   Nothing -> doRollback >> internalError "doCommit: Not in transaction"
   Just m -> do
     txrs <- use bsTxRecord
+
     if m == Transactional then do
       bsTxId += 1
       -- commit
@@ -284,17 +285,20 @@ doGetTxLog d txid = do
 unwrap :: Utf8 -> BS.ByteString
 unwrap (Utf8 str) = str
 
-blockHistoryInsert :: BlockHeight -> BlockHash -> BlockHandler SQLiteEnv ()
-blockHistoryInsert bh hsh = do
+blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
+blockHistoryInsert bh hsh t = do
   let s = "INSERT INTO BlockHistory ('blockheight','hash') VALUES (?,?);"
+      u = "INSERT INTO TxIdHistory ('blockheight','endingtxid') VALUES (?,?);"
   callDb "blockHistoryInsert" $ \db ->
     exec' db s [SInt (fromIntegral bh), SBlob (Data.Serialize.encode hsh)]
+  callDb "TxIdHistory Insert" $ \db ->
+    exec' db u [SInt (fromIntegral bh), SInt (fromIntegral t)]
 
-versionHistoryInsert :: BlockVersion -> BlockHandler SQLiteEnv ()
-versionHistoryInsert (BlockVersion bh version) = do
-  let s = "INSERT INTO VersionHistory ('version','blockheight') VALUES (?,?);"
+versionHistoryInsert :: BlockVersion -> TxId -> BlockHandler SQLiteEnv ()
+versionHistoryInsert (BlockVersion bh version) txid = do
+  let s = "INSERT INTO VersionHistory ('version','blockheight','txid') VALUES (?,?,?);"
   callDb "versionHistoryInsert" $ \db ->
-    exec' db s [SInt (fromIntegral version), SInt (fromIntegral bh)]
+    exec' db s [SInt (fromIntegral version), SInt (fromIntegral bh), SInt (fromIntegral txid)]
 
 versionedTablesInsert :: TableName -> BlockVersion -> BlockHandler SQLiteEnv ()
 versionedTablesInsert (TableName name) (BlockVersion bh version) = do
@@ -316,10 +320,17 @@ createBlockHistoryTable =
 
 createVersionHistoryTable  :: BlockHandler SQLiteEnv ()
 createVersionHistoryTable =
-  callDb "createVersionHistoryTable" $ \db -> exec_ db
-    "CREATE TABLE VersionHistory (version UNSIGNED BIGINT,\
-    \ blockheight UNSIGNED BIGINT,\
-    \ CONSTRAINT versionConstraint UNIQUE (version, blockheight));"
+  callDb "createVersionHistoryTable" $ \db -> do
+     exec_ db
+       "CREATE TABLE VersionHistory (version UNSIGNED BIGINT NOT NULL,\
+       \ blockheight UNSIGNED BIGINT NOT NULL,\
+       \ txid UNSIGNED BIGINT NOT NULL,\
+       \ CONSTRAINT versionConstraint UNIQUE (version, blockheight));"
+     exec_ db
+       "CREATE TABLE TxIdHistory (blockheight UNSIGNED BIGINT NOT NULL,\
+       \ endingtxid UNSIGNED BIGINT NOT NULL,\
+       \ UNIQUE (blockheight));"
+
 
 createUserTablesTable  :: BlockHandler SQLiteEnv ()
 createUserTablesTable =
@@ -341,7 +352,7 @@ createUserTable name b = do
                       \, rowdata BLOB)"
   versionedTablesInsert name b
 
-handleVersion :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv ()
+handleVersion :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handleVersion bRestore hsh = do
   bCurrent <- do
     r <- callDb "handleVersion" $ \ db -> qry_ db "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
@@ -361,27 +372,40 @@ handleVersion bRestore hsh = do
   when (historyInvariant /= SInt 1) $
     internalError "handleVersion: History invariant violation"
 
-
   case compare bRestore (bCurrent + 1) of
    GT -> internalError "handleVersion: Block_Restore invariant violation!"
    EQ -> do
      assign bsBlockVersion (BlockVersion bRestore vCurrent)
+     (SInt txid) <- callDb "getting txid" $ \db ->
+       expectSingleRowCol "blah" =<< qry db
+         "SELECT endingtxid FROM TxIdHistory WHERE blockheight = ?;"
+         [SInt (fromIntegral bCurrent)]
+         [RInt]
      bs@(BlockVersion bh version) <- gets _bsBlockVersion
-     count <- callDb "handleVersion" $ \db -> do
-       result <- qry db
-         "SELECT COUNT(*) FROM VersionHistory WHERE blockheight = ? AND version = ?;"
+     result <- callDb "handleVersion" $ \db -> qry db
+         "SELECT txid FROM VersionHistory WHERE blockheight = ? AND version = ?;"
          [SInt (fromIntegral bh), SInt (fromIntegral version)]
          [RInt]
-       expectSingleRowCol "handleVersion: block version check" result
-     case count of
-      SInt 0 -> versionHistoryInsert bs
-      _ -> return ()
+     newtxid <- if null result
+       then do
+         versionHistoryInsert bs (fromIntegral txid)
+         return (fromIntegral txid :: TxId)
+       else do
+        r <- liftIO $ expectSingleRowCol "handleVersion: block version check" result
+        case r of
+          SInt res -> return (fromIntegral res)
+          _ -> error "lol"
+     assign bsTxId newtxid
+     return newtxid
    LT -> do
      bsBlockVersion .= BlockVersion bRestore (succ vCurrent)
      tableMaintenanceRowsVersionedTables
      dropUserTables
-     deleteHistory
-     gets _bsBlockVersion >>= versionHistoryInsert
+     t <- deleteHistory
+     assign bsTxId t
+     b <- gets _bsBlockVersion
+     versionHistoryInsert b t
+     return t
 
 tableMaintenanceRowsVersionedTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedTables = do
@@ -432,14 +456,28 @@ dropUserTables = do
                         \ while querying the\
                         \ VersionedTables table for table names."
 
-deleteHistory :: BlockHandler SQLiteEnv ()
+deleteHistory :: BlockHandler SQLiteEnv TxId
 deleteHistory = do
-  (BlockVersion bh _) <- gets _bsBlockVersion
-  callDb "deleteHistory" $ \db -> exec' db
+  (BlockVersion bh v) <- gets _bsBlockVersion
+  callDb "delete BlockHistory" $ \db -> exec' db
     "DELETE FROM BlockHistory\
     \ WHERE BlockHistory.blockheight >= ?"
     [SInt (fromIntegral bh)]
-
+  callDb "deleting" $ \db -> exec' db
+    "DELETE FROM TxIdHistory WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+  callDb "delete VersionHistory" $ \db -> exec' db
+    "DELETE FROM VersionHistory\
+    \ WHERE version >= ?;"
+    [SInt (fromIntegral v)]
+  callDb "get txid" $ \db -> qry db
+    "SELECT endingtxid FROM TxIdHistory\
+    \ WHERE blockheight = ?"
+    [SInt (fromIntegral $ pred bh)]
+    [RInt]
+    >>= fmap convert . expectSingleRowCol "txid after delete history"
+  where
+    convert (SInt thing) = fromIntegral thing
+    convert _ = error "I don't care"
 initSchema :: BlockHandler SQLiteEnv ()
 initSchema = withSavepoint DbTransaction $ do
   createBlockHistoryTable

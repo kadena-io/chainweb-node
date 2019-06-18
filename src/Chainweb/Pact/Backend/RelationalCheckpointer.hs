@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE ViewPatterns      #-}
 
 -- |
@@ -13,6 +14,7 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer where
 
 import Control.Concurrent.MVar
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
@@ -56,15 +58,17 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
-    withSavepoint PreBlock $ handleVersion bh hash
+    txid <- withSavepoint PreBlock $ handleVersion bh hash
+    assign bsTxId txid
     beginSavepoint Block
   return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
+
 doRestore dbenv Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
          $ \db -> qry db
                   "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
-              [SInt 0, SBlob (Data.Serialize.encode nullBlockHash)]
+              [SInt 0, SBlob (encode nullBlockHash)]
               [RInt]
     liftIO (expectSingle "row" r) >>= \case
       [SInt 0] -> do
@@ -88,8 +92,9 @@ doRestore dbenv Nothing = do
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
   commitSavepoint Block
+  t <- gets _bsTxId
   (BlockVersion height _) <- gets _bsBlockVersion
-  blockHistoryInsert height hash
+  blockHistoryInsert height hash t
 
 doDiscard :: Db -> IO ()
-doDiscard dbenv = runBlockEnv dbenv (rollbackSavepoint Block)
+doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block

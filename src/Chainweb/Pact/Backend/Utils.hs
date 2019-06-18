@@ -39,8 +39,6 @@ import System.IO.Extra
 
 -- pact
 
-
--- import Pact.Types.Logger (Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.SQLite
 import Pact.Types.Term(KeySetName(..), NamespaceName(..), ModuleName(..), PactId(..))
