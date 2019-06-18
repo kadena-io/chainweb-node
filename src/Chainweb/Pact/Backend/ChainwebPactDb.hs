@@ -287,12 +287,9 @@ unwrap (Utf8 str) = str
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
 blockHistoryInsert bh hsh t = do
-  let s = "INSERT INTO BlockHistory ('blockheight','hash') VALUES (?,?);"
-      u = "INSERT INTO TxIdHistory ('blockheight','endingtxid') VALUES (?,?);"
+  let s = "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
   callDb "blockHistoryInsert" $ \db ->
-    exec' db s [SInt (fromIntegral bh), SBlob (Data.Serialize.encode hsh)]
-  callDb "TxIdHistory Insert" $ \db ->
-    exec' db u [SInt (fromIntegral bh), SInt (fromIntegral t)]
+    exec' db s [SInt (fromIntegral bh), SBlob (Data.Serialize.encode hsh), SInt (fromIntegral t)]
 
 versionHistoryInsert :: BlockVersion -> TxId -> BlockHandler SQLiteEnv ()
 versionHistoryInsert (BlockVersion bh version) txid = do
@@ -314,8 +311,9 @@ createBlockHistoryTable :: BlockHandler SQLiteEnv ()
 createBlockHistoryTable =
   callDb "createBlockHistoryTable" $ \db -> exec_ db
     "CREATE TABLE BlockHistory \
-    \(blockheight UNSIGNED BIGINT,\
-    \ hash BLOB,\
+    \(blockheight UNSIGNED BIGINT NOT NULL,\
+    \ hash BLOB NOT NULL,\
+    \ endingtxid UNSIGNED BIGINT NOT NULL, \
     \ CONSTRAINT blockHashConstraint UNIQUE (blockheight, hash));"
 
 createVersionHistoryTable  :: BlockHandler SQLiteEnv ()
@@ -326,18 +324,13 @@ createVersionHistoryTable =
        \ blockheight UNSIGNED BIGINT NOT NULL,\
        \ txid UNSIGNED BIGINT NOT NULL,\
        \ CONSTRAINT versionConstraint UNIQUE (version, blockheight));"
-     exec_ db
-       "CREATE TABLE TxIdHistory (blockheight UNSIGNED BIGINT NOT NULL,\
-       \ endingtxid UNSIGNED BIGINT NOT NULL,\
-       \ UNIQUE (blockheight));"
-
 
 createUserTablesTable  :: BlockHandler SQLiteEnv ()
 createUserTablesTable =
   callDb "createUserTablesTable" $ \db -> exec_ db
-    "CREATE TABLE UserTables (tablename TEXT\
-  \ , createBlockHeight UNSIGNED BIGINT\
-  \ , version UNSIGNED BIGINT\
+    "CREATE TABLE UserTables (tablename TEXT NOT NULL\
+  \ , createBlockHeight UNSIGNED BIGINT NOT NULL\
+  \ , version UNSIGNED BIGINT NOT NULL\
   \ , CONSTRAINT versionTableConstraint UNIQUE(version, createBlockHeight, tablename));"
 
 createUserTable :: TableName -> BlockVersion -> BlockHandler SQLiteEnv ()
@@ -378,7 +371,7 @@ handleVersion bRestore hsh = do
      assign bsBlockVersion (BlockVersion bRestore vCurrent)
      (SInt txid) <- callDb "getting txid" $ \db ->
        expectSingleRowCol "blah" =<< qry db
-         "SELECT endingtxid FROM TxIdHistory WHERE blockheight = ?;"
+         "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
          [SInt (fromIntegral bCurrent)]
          [RInt]
      bs@(BlockVersion bh version) <- gets _bsBlockVersion
@@ -459,25 +452,24 @@ dropUserTables = do
 deleteHistory :: BlockHandler SQLiteEnv TxId
 deleteHistory = do
   (BlockVersion bh v) <- gets _bsBlockVersion
-  callDb "delete BlockHistory" $ \db -> exec' db
+  callDb "Deleting from BlockHistory" $ \db -> exec' db
     "DELETE FROM BlockHistory\
-    \ WHERE BlockHistory.blockheight >= ?"
+    \ WHERE blockheight >= ?"
     [SInt (fromIntegral bh)]
-  callDb "deleting" $ \db -> exec' db
-    "DELETE FROM TxIdHistory WHERE blockheight >= ?" [SInt (fromIntegral bh)]
-  callDb "delete VersionHistory" $ \db -> exec' db
+  callDb "Deleting from VersionHistory" $ \db -> exec' db
     "DELETE FROM VersionHistory\
     \ WHERE version >= ?;"
     [SInt (fromIntegral v)]
-  callDb "get txid" $ \db -> qry db
-    "SELECT endingtxid FROM TxIdHistory\
+  callDb "Get txid" $ \db -> qry db
+    "SELECT endingtxid FROM BlockHistory\
     \ WHERE blockheight = ?"
     [SInt (fromIntegral $ pred bh)]
     [RInt]
     >>= fmap convert . expectSingleRowCol "txid after delete history"
   where
     convert (SInt thing) = fromIntegral thing
-    convert _ = error "I don't care"
+    convert _ = error "deleteHistory: Something went wrong!"
+
 initSchema :: BlockHandler SQLiteEnv ()
 initSchema = withSavepoint DbTransaction $ do
   createBlockHistoryTable
@@ -501,12 +493,3 @@ initSchema = withSavepoint DbTransaction $ do
            \, version UNSIGNED BIGINT\
            \, txid UNSIGNED BIGINT\
            \, rowdata BLOB)"
-
-{-
-
-NOTE: Ensure that restore on a new block cannot cause a version
-change. A call to discard should happen after the restore call in
-execNewBlock. This should revert any version change which may happen
-in the restore call.
-
--}
