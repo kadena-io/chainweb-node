@@ -232,8 +232,45 @@ in
           sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
         });
 
+        # --- SERVANT --- #
+        servant = dontCheck (callCabal2nixWithOptions "servant" (pkgs.fetchFromGitHub {
+          owner = "fosskers";
+          repo = "servant";
+          rev = "c9472671e8dceb07891509a998614687d1843629";
+          sha256 = "0mcpqlr5xkqdh57z436zyp0bz28jdya2xm1n54qxmjpgam49sj93";
+        }) "--subpath=servant" {});
+
+        servant-server = dontCheck (callCabal2nixWithOptions "servant-server" (pkgs.fetchFromGitHub {
+          owner = "fosskers";
+          repo = "servant";
+          rev = "c9472671e8dceb07891509a998614687d1843629";
+          sha256 = "0mcpqlr5xkqdh57z436zyp0bz28jdya2xm1n54qxmjpgam49sj93";
+        }) "--subpath=servant-server" {});
+
+        servant-client = dontCheck (callCabal2nixWithOptions "servant-client" (pkgs.fetchFromGitHub {
+          owner = "fosskers";
+          repo = "servant";
+          rev = "c9472671e8dceb07891509a998614687d1843629";
+          sha256 = "0mcpqlr5xkqdh57z436zyp0bz28jdya2xm1n54qxmjpgam49sj93";
+        }) "--subpath=servant-client" {});
+
+        servant-client-core = dontCheck (callCabal2nixWithOptions "servant-client-core" (pkgs.fetchFromGitHub {
+          owner = "fosskers";
+          repo = "servant";
+          rev = "c9472671e8dceb07891509a998614687d1843629";
+          sha256 = "0mcpqlr5xkqdh57z436zyp0bz28jdya2xm1n54qxmjpgam49sj93";
+        }) "--subpath=servant-client-core" {});
+
+        servant-swagger = dontCheck (self.callCabal2nix "servant-swagger" (pkgs.fetchFromGitHub {
+          owner = "fosskers";
+          repo = "servant-swagger";
+          rev = "1bf10ef5223cfee7ec6bdb626865957ae17b1dca";
+          sha256 = "03ajgy1ndm59imqzrw3cm0xd8ab179lf0jbb25kpz6njp34s9x8r";
+        }) {});
+        # --- END SERVANT --- #
+
         # pact-3.0.1
-        pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        pact = dontCheck (addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
           rev = "d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3";
