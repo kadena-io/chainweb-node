@@ -41,11 +41,12 @@ import qualified Data.ByteString as B
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Int
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Proxy
 import Data.Reflection (Given, give)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T4(..))
+import Data.Tuple.Strict (T2(..), T5(..))
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -72,7 +73,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.TreeDB.Difficulty (hashTarget)
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -92,15 +93,15 @@ powMiner
     -> NodeId
     -> CutDb cas
     -> IO ()
-powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
-    gen <- MWC.createSystemRandom
-    give wcdb $ give payloadDb $ go gen 1 HM.empty
+powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
+    g <- MWC.createSystemRandom
+    give wcdb $ give payloadDb $ go g 1 HM.empty
   where
-    wcdb = view cutDbWebBlockHeaderDb cutDb
-    payloadDb = view cutDbPayloadCas cutDb
+    wcdb = view cutDbWebBlockHeaderDb cdb
+    payloadDb = view cutDbPayloadCas cdb
 
     logg :: LogLevel -> T.Text -> IO ()
-    logg = logFun
+    logg = lf
 
     go
         :: Given WebBlockHeaderDb
@@ -109,30 +110,37 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -> Int
         -> Adjustments
         -> IO ()
-    go gen !i !adjustments0 = do
+    go g !i !adj = do
 
         -- Mine a new Cut
         --
-        c <- _cut cutDb
-        T4 newBh payload c' adjustments' <- do
-            let go2 !x = race (awaitNextCut cutDb x) (mineCut @cas logFun conf nid cutDb gen x adjustments0) >>= \case
-                    Left c' -> go2 c'
-                    Right !r -> return r
-            go2 c
+        c <- _cut cdb
+
+        let f !x =
+              race (awaitCut cdb x) (mineCut @cas lf conf nid cdb g x adj) >>= either f pure
+
+        T5 newBh payload c' adj' hashAttempts <- f c
 
         let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (Seq.length $ _payloadWithOutputsTransactions payload)
-                   bytes
+                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int bytes)
+                   hashAttempts
 
         logg Info $! "POW Miner: created new block" <> sshow i
-        logFun @(JsonLog NewMinedBlock) Info $ JsonLog nmb
+        lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        addCutHashes cutDb (cutToCutHashes Nothing c')
+        addCutHashes cdb (cutToCutHashes Nothing c')
+
+        -- Wait for a new cut. We never mine twice on the same cut. If it stays
+        -- at the same cut for a longer time, we are most likely in catchup
+        -- mode.
+        --
+        void $ awaitCut cdb c
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
@@ -153,11 +161,11 @@ powMiner logFun conf nid cutDb = runForever logFun "POW Miner" $ do
         -- N = W * C
         -- @
         --
-        go gen (i + 1) (HM.filter (\(T2 h _) -> h > limit) adjustments')
+        go g (i + 1) (HM.filter (\(T2 h _) -> h > limit) adj')
 
-awaitNextCut :: CutDb cas -> Cut -> IO Cut
-awaitNextCut cutDb c = atomically $ do
-    c' <- _cutStm cutDb
+awaitCut :: CutDb cas -> Cut -> IO Cut
+awaitCut cdb c = atomically $ do
+    c' <- _cutStm cdb
     when (c' == c) retry
     return c'
 
@@ -172,8 +180,8 @@ mineCut
     -> MWC.GenIO
     -> Cut
     -> Adjustments
-    -> IO (T4 BlockHeader PayloadWithOutputs Cut Adjustments)
-mineCut logfun conf nid cutDb gen !c !adjustments = do
+    -> IO (T5 BlockHeader PayloadWithOutputs Cut Adjustments Word)
+mineCut logfun conf nid cdb g !c !adjustments = do
 
     -- Randomly pick a chain to mine on.
     --
@@ -189,7 +197,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
     --
     case getAdjacentParents c p of
 
-        Nothing -> mineCut logfun conf nid cutDb gen c adjustments
+        Nothing -> mineCut logfun conf nid cdb g c adjustments
             -- spin until a chain is found that isn't blocked
 
         Just adjParents -> do
@@ -199,12 +207,12 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
 
             -- get target
             --
-            T2 target adjustments' <- getTarget cid p adjustments
+            T2 target adj' <- getTarget cid p adjustments
 
             -- Assemble block without Nonce and Timestamp
             --
             creationTime <- getCurrentTimeIntegral
-            nonce <- Nonce <$> MWC.uniform gen
+            nonce <- Nonce <$> MWC.uniform g
             let candidateHeader = newBlockHeader
                     (nodeIdFromNodeId nid cid)
                     adjParents
@@ -214,7 +222,7 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
                     creationTime
                     p
 
-            newHeader <- usePowHash v mine candidateHeader nonce
+            T2 newHeader hashAttempts <- usePowHash v mine candidateHeader nonce
 
             -- create cut with new block
             --
@@ -233,12 +241,12 @@ mineCut logfun conf nid cutDb gen !c !adjustments = do
             logg Info $! "add block to payload db"
             insertWebBlockHeaderDb newHeader
 
-            return $! T4 newHeader payload c' adjustments'
+            return $! T5 newHeader payload c' adj' hashAttempts
   where
-    v = _chainwebVersion cutDb
-    wcdb = view cutDbWebBlockHeaderDb cutDb
-    payloadDb = view cutDbPayloadCas cutDb
-    payloadStore = view cutDbPayloadStore cutDb
+    v = _chainwebVersion cdb
+    wcdb = view cutDbWebBlockHeaderDb cdb
+    payloadDb = view cutDbPayloadCas cdb
+    payloadStore = view cutDbPayloadStore cdb
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
@@ -319,42 +327,45 @@ mine
     => Proxy a
     -> BlockHeader
     -> Nonce
-    -> IO BlockHeader
-mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
-    !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf ->
-        allocaBytes (powSize :: Int) $ \pow -> do
+    -> IO (T2 BlockHeader Word)
+mine _ h nonce = do
+    counter <- newIORef 1
+    res <- BA.withByteArray initialTargetBytes $ \trgPtr -> do
+        !ctx <- hashMutableInit @a
+        bytes <- BA.copy initialBytes $ \buf ->
+            allocaBytes (powSize :: Int) $ \pow -> do
 
-            -- inner mining loop
-            --
-            -- We do 100000 hashes before we update the creation time.
-            --
-            let go 100000 !n = do
+                -- inner mining loop
+                --
+                -- We do 100000 hashes before we update the creation time.
+                --
+                let go 100000 !n = do
+                        -- increment hash counter. This should be enough
+                        -- precision for realistic network scenarios.
+                        modifyIORef' counter (+ 100000)
 
-                    -- update the block creation time
-                    ct <- getCurrentTimeIntegral
-                    injectTime ct buf
-                    go 0 n
+                        -- update the block creation time
+                        ct <- getCurrentTimeIntegral
+                        injectTime ct buf
+                        go 0 n
 
-                go !i !n = do
+                    go !i !n = do
+                        -- Compute POW hash for the nonce
+                        injectNonce n buf
+                        hash ctx buf pow
 
-                    -- Compute POW hash for the nonce
-                    injectNonce n buf
-                    hash ctx buf pow
+                        -- check whether the nonce meets the target
+                        fastCheckTarget trgPtr (castPtr pow) >>= \case
+                            True -> return ()
+                            False -> go (succ i) (succ n)
 
-                    -- check whether the nonce meets the target
-                    fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> return ()
-                        False -> go (succ i) (succ n)
+                -- Start inner mining loop
+                go (0 :: Int) nonce
 
-            -- Start inner mining loop
-            go (0 :: Int) nonce
-
-    -- On success: deserialize and return the new BlockHeader
-    runGet decodeBlockHeaderWithoutHash bytes
-
+        -- On success: deserialize and return the new BlockHeader
+        runGet decodeBlockHeaderWithoutHash bytes
+    T2 res <$> readIORef counter
   where
-
     !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
     !bufSize = B.length initialBytes
     !target = _blockTarget h

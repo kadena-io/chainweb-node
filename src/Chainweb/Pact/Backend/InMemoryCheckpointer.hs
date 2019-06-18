@@ -11,18 +11,15 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
     ( initInMemoryCheckpointEnv
     ) where
 
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HMS
--- import Data.Map (toList)
--- import Data.Text (pack)
-
 import Control.Concurrent.MVar
 
--- import Control.Exception
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HMS
+import Data.Text (pack)
+
 
 import Pact.Interpreter
 import Pact.PersistPactDb
--- import Pact.Persist
 import Pact.Persist.Pure
 import Pact.Types.Logger
 import Pact.Types.Runtime hiding (hash)

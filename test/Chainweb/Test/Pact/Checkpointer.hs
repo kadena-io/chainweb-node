@@ -28,13 +28,12 @@ import Pact.Interpreter (EvalResult(..), PactDbEnv(..))
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.Runtime (ExecutionMode(Transactional))
+import Pact.Types.Runtime
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
-import Pact.Types.Persistence
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.Runtime
+import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.Type (PrimType(..), Type(..))
 import Pact.Types.Exp (Literal(..))

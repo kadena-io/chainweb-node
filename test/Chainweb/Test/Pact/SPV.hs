@@ -53,7 +53,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import Pact.Types.ChainMeta as Pact
+import Pact.Types.ChainId as Pact
 import Pact.Types.Term
 
 -- internal chainweb modules

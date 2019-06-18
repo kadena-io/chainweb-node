@@ -672,9 +672,10 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     {-# INLINE parseJSON #-}
 
 data NewMinedBlock = NewMinedBlock
-    { _minedBlockHeader :: ObjectEncoded BlockHeader
-    , _minedBlockTrans :: Int
-    , _minedBlockSize :: Int }  -- ^ Bytes
+    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
+    , _minedBlockTrans :: {-# UNPACK #-} !Word
+    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
+    , _minedHashAttempts :: {-# UNPACK #-} !Word }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 

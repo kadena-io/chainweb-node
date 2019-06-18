@@ -56,7 +56,7 @@ import Chainweb.Version
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)
-import Pact.Types.Runtime (noSPVSupport)
+import Pact.Types.SPV (noSPVSupport)
 
 ---
 

@@ -65,12 +65,13 @@ import Test.Tasty
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
-import Pact.Types.Runtime (noSPVSupport)
+import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Util (toB16Text)
 import Pact.Types.SQLite hiding (fastNoJournalPragmas)
 

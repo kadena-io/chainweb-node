@@ -64,6 +64,7 @@ import Text.Pretty.Simple (pPrintNoColor)
 -- PACT
 import Pact.ApiReq
 import Pact.Types.API
+import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -352,7 +353,7 @@ singleTransaction args host (SingleTX c cid)
     datum :: NonEmpty SomeKeyPair -> Value
     datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
 
-    f :: TXGConfig -> Command Text -> ExceptT ServantError IO ListenResponse
+    f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
     f cfg@(TXGConfig _ _ ce v _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
