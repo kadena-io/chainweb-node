@@ -135,7 +135,9 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
 
             -- prune block header db
             logg Info "start pruning block header database"
-            x <- pruneForks logger cdb (\h t -> unless t $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)) (diam * 3)
+            x <- pruneForks logger cdb (diam * 3) $ \h payloadInUse ->
+                unless payloadInUse
+                    $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
             logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
