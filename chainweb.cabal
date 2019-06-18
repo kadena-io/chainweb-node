@@ -82,7 +82,10 @@ custom-setup
     setup-depends:
           Cabal
         , base >= 4.11 && < 5
-        , configuration-tools >= 0.4.1
+        , bytestring >= 0.10
+        , directory >= 1.3
+        , filepath >= 1.4
+        , process >= 1.5
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
