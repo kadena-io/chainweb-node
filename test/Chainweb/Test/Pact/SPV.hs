@@ -303,7 +303,7 @@ txGenerator2 cdbv sid tid bhe = do
                 ks <- testKeyPairs
 
                 mkTestContTransaction "sender00" pid ks "1" 100 0.0001 1
-                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
+                  (PactId "2W_AgMrjOXJsYz2i8uJu383gRdGpUrVj6XjK_Y6zJlA") False proof Null
                     `finally` writeIORef ref True
 
 -- | Double spend transaction which calls the coin-create

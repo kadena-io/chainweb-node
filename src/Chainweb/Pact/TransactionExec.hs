@@ -135,6 +135,8 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
 
             let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
                 cmdLogs = fromMaybe [] $ _crLogs cmdResult
+
+            print cmdResult
             redeemResultE <- catchesPactError $!
               redeemGas redeemGasEnv cmd cmdResult pactId supply cmdLogs
 
@@ -311,10 +313,11 @@ applyContinuation
     -> Hash
     -> [TxLog Value]
     -> IO (CommandResult [TxLog Value])
-applyContinuation env@CommandEnv{..} initState rk msg@ContMsg{..} senderSigs hsh prevLogs = do
-  EvalResult{..} <- applyContinuation' env initState msg senderSigs hsh
-  -- last safe here because cont msg is guaranteed one exp
-  return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs = do
+    EvalResult{..} <- applyContinuation' env initState cm senderSigs hsh
+    -- last safe here because cont msg is guaranteed one exp
+
+    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing -- TODO add perf metadata
 
 
@@ -325,13 +328,14 @@ applyContinuation'
     -> [Signer]
     -> Hash
     -> IO EvalResult
-applyContinuation' CommandEnv{..} initState cm senderSigs hsh =
-  let sigs = userSigsToPactKeySet senderSigs
-      pactStep = Just $ PactStep (_cmStep cm) (_cmRollback cm) (_cmPactId cm) Nothing
-      evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
+applyContinuation' CommandEnv{..} initState cm senderSigs hsh = do
+    let sigs = userSigsToPactKeySet senderSigs
+        pactStep = Just $ PactStep (_cmStep cm) (_cmRollback cm) (_cmPactId cm) Nothing
+        evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
                 (MsgData sigs (_cmData cm) pactStep hsh) initRefStore
                 _ceGasEnv permissiveNamespacePolicy _ceSPVSupport _cePublicData
-  in evalContinuation initState evalEnv cm
+
+    evalContinuation initState evalEnv cm
 
 
 
@@ -354,7 +358,9 @@ buyGas env cmd (MinerInfo minerId minerKeys) supply = do
         initState = initCapabilities [magic_FUND_TX]
 
     buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
-    result <- applyExec' env initState buyGasCmd (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+    result <- applyExec' env initState buyGasCmd
+      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+
     pure $! case _erExec result of
       Nothing ->
         Left "buyGas: Internal error - empty continuation"
@@ -382,9 +388,8 @@ redeemGas env cmd cmdResult pactId supply prevLogs = do
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
   where
     redeemGasCmd :: Int64 -> GasSupply -> PactId -> ContMsg
-    redeemGasCmd fee total pid = ContMsg pid 1 False (object
-      [ "fee" .= feeOf total fee
-      ]) Nothing
+    redeemGasCmd fee total pid =
+      ContMsg pid 1 False (object [ "fee" .= feeOf total fee ]) Nothing
 
     feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
 
