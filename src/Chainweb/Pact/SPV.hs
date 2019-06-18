@@ -129,9 +129,7 @@ verifyCont
     -> IO (Either Text PactExec)
 verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case decodeStrict' p  of
     Nothing -> internalError "unable to decode continuation transaction output"
-    Just o -> case extractProof o of
-      Left !u -> return $! Left u
-      Right !t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
+    Just t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
   where
     handleResult (CommandResult _ _ _ _ _ mpe _) = case mpe of
       Nothing -> return $! Left "no pact exec found in command result"

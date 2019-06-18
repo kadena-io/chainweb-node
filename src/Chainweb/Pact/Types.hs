@@ -21,6 +21,7 @@ module Chainweb.Pact.Types
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
+  , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
     -- * types
@@ -65,7 +66,7 @@ import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
 import Pact.Types.SPV
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), PactId(..))
 
 -- internal chainweb modules
 
@@ -168,6 +169,8 @@ instance Semigroup MemPoolAccess where
 
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+
+newtype GasId = GasId PactId deriving (Eq, Show)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

@@ -28,12 +28,12 @@ module Chainweb.Test.Pact.SPV
 , doublespend
 ) where
 
-import Control.Concurrent.MVar (MVar, readMVar, newMVar)
+import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally, throwIO)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
-import Data.Aeson
+import Data.Aeson hiding (Object)
 import Data.ByteString.Lazy (toStrict)
 import Data.Default
 import Data.Function
@@ -43,6 +43,7 @@ import Data.List (isInfixOf)
 import Data.Text (pack)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
+import qualified Data.Vector as Vector
 
 import NeatInterpolation (text)
 
@@ -54,6 +55,9 @@ import Test.Tasty.HUnit
 -- internal pact modules
 
 import Pact.Types.ChainId as Pact
+import Pact.Types.Command
+import Pact.Types.Hash
+import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -141,11 +145,11 @@ doublespend = expectFailure "Tx Failed: enforce unique usage" $
     roundtrip 0 1 txGenerator1 txGenerator3
 
 wrongchain :: Assertion
-wrongchain = expectFailure "Tx Failed: enforce correct create chain ID" $
+wrongchain = expectFailure "enforceYield: yield provenance" $
     roundtrip 0 1 txGenerator1 txGenerator4
 
 badproof :: Assertion
-badproof = expectFailure "SPV verify failed: key \"chain\" not present" $
+badproof = expectFailure "resumePact: no previous execution found" $
     roundtrip 0 1 txGenerator1 txGenerator5
 
 roundtrip
@@ -168,8 +172,11 @@ roundtrip sid0 tid0 burn create = do
             sid <- mkChainId v sid0
             tid <- mkChainId v tid0
 
+            pidv <- newMVar (toPactId (Hash "init"), False)
+
             -- pact service, that is used to extend the cut data base
-            txGen1 <- burn sid tid
+            txGen1 <- burn pidv sid tid
+
             pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1)
             syncPact cutDb pact1
 
@@ -205,7 +212,7 @@ roundtrip sid0 tid0 burn create = do
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            txGen2 <- create cdb sid tid (height sid c1)
+            txGen2 <- create cdb pidv sid tid (height sid c1)
 
             pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2)
             syncPact cutDb pact2
@@ -231,16 +238,16 @@ type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
+    = MVar (PactId, Bool) -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = MVar (CutDb RocksDbCas) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
+    = MVar (CutDb RocksDbCas) -> MVar (PactId, Bool) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
 
 
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 sid tid = do
+txGenerator1 pidv sid tid = do
     ref <- newIORef False
     return $ go ref
   where
@@ -249,12 +256,22 @@ txGenerator1 sid tid = do
       | otherwise = readIORef ref >>= \case
         True -> return mempty
         False -> do
-            ks <- testKeyPairs
+            takeMVar pidv >>= \case
+              (pid, True) -> putMVar pidv (pid, True) >> return mempty
+              (_, False) -> do
+                ks <- testKeyPairs
 
-            let pcid = Pact.ChainId $ chainIdToText sid
+                let pcid = Pact.ChainId $ chainIdToText sid
 
-            mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
-                `finally` writeIORef ref False
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
+                  `finally` writeIORef ref False
+
+                let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
+
+                putMVar pidv (pid, True)
+                return cmd
+
+
 
     txs = fromList [ PactTransaction tx1Code tx1Data ]
 
@@ -284,7 +301,7 @@ txGenerator1 sid tid = do
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
 txGenerator2 :: CreatesGenerator
-txGenerator2 cdbv sid tid bhe = do
+txGenerator2 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -297,19 +314,19 @@ txGenerator2 cdbv sid tid bhe = do
                 q <- fmap toJSON
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
-                let pid = Pact.ChainId (chainIdToText tid)
-                    proof = Just . ContProof . toStrict . encode $ q
+                let pcid = Pact.ChainId (chainIdToText tid)
+                    proof = Just . ContProof . toStrict . encode . toJSON $ q
 
                 ks <- testKeyPairs
+                (pid, _) <- readMVar pidv
 
-                mkTestContTransaction "sender00" pid ks "1" 100 0.0001 1
-                  (PactId "2W_AgMrjOXJsYz2i8uJu383gRdGpUrVj6XjK_Y6zJlA") False proof Null
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Double spend transaction which calls the coin-create
 -- function twice
 txGenerator3 :: CreatesGenerator
-txGenerator3 cdbv sid tid bhe = do
+txGenerator3 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -324,9 +341,11 @@ txGenerator3 cdbv sid tid bhe = do
 
                 let pcid = Pact.ChainId (chainIdToText tid)
                     proof = Just . ContProof . toStrict . encode $ q
+
                 ks <- testKeyPairs
-                txs <- mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
-                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
+                (pid, _) <- readMVar pidv
+
+                txs <- mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
 
                 -- double spend is an attempt to continue the same pact twice
@@ -334,7 +353,7 @@ txGenerator3 cdbv sid tid bhe = do
 
 -- | Execute on the create-coin command on the wrong target chain
 txGenerator4 :: CreatesGenerator
-txGenerator4 cdbv sid tid bhe = do
+txGenerator4 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -351,13 +370,14 @@ txGenerator4 cdbv sid tid bhe = do
                     proof = Just . ContProof . toStrict . encode $ q
 
                 ks <- testKeyPairs
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
-                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False proof Null
+                (pid, _) <- readMVar pidv
+
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
 txGenerator5 :: CreatesGenerator
-txGenerator5 _cdbv _ tid _ = do
+txGenerator5 _cdbv pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
@@ -370,6 +390,7 @@ txGenerator5 _cdbv _ tid _ = do
                 let pcid = Pact.ChainId (chainIdToText tid)
 
                 ks <- testKeyPairs
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1
-                  (PactId "BwJx0vJU6wq3yH1zQEmRlv3SH4iD6xrIvh2w1Tgr0lE") False Nothing Null
+                (pid, _) <- readMVar pidv
+
+                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False Nothing Null
                     `finally` writeIORef ref True

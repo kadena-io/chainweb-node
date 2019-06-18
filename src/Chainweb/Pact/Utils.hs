@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
-
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -15,11 +16,17 @@ module Chainweb.Pact.Utils
     , toEnvPersist'
       -- * combinators
     , aeson
+    , printDebug
+    , showableDebug
+    , debug
+    , showable
     ) where
 
 import Data.Aeson
+import Data.Foldable (traverse_)
 
 import Control.Concurrent.MVar
+import Control.Lens (Getter, to, view)
 
 import Pact.Interpreter as P
 
@@ -49,3 +56,31 @@ toEnvPersist' (Env' pactDbEnv) = do
 aeson :: (String -> b) -> (a -> b) -> Result a -> b
 aeson f _ (Error a) = f a
 aeson _ g (Success a) = g a
+
+-- ------------------------------------------------------------------------ --
+-- debugging
+
+
+-- | existential form for printable values
+--
+data Showable = forall a . Show a => Showable a
+
+-- | smuggle values of type 'Show a => a'
+--
+debug :: forall a. Show a => a -> Showable
+debug = Showable
+
+-- | get the string value of a showable
+--
+showable :: Getter Showable String
+showable = to (\(Showable a) -> show a)
+
+-- | Apply some unital debug function on some traversable of showables
+--
+showableDebug :: (Traversable f, Applicative g) => (Showable -> g ()) -> f Showable -> g ()
+showableDebug = traverse_
+
+-- | Given a list of Showable values, print them
+--
+printDebug :: [Showable] -> IO ()
+printDebug = showableDebug ((<*) (putStrLn "------------------------") . print . view showable)

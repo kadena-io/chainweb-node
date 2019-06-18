@@ -5,6 +5,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -25,6 +26,7 @@ module Chainweb.Pact.TransactionExec
 , applyContinuation
 , applyContinuation'
 , runPayload
+, withGas
   -- * coin contract api
 , buyGas
 , coinbase
@@ -72,7 +74,7 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 -- internal Chainweb modules
 
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..))
+import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..), GasId(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 
 -- ------------------------------------------------------------------------ --
@@ -93,68 +95,62 @@ applyCmd
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO (CommandResult [TxLog Value])
-applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
+applyCmd l pactDbEnv minerInfo gasModel pd0 spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
-        requestKey = cmdToRequestKey cmd
-        pd' = set pdPublicMeta (publicMetaOf cmd) $ pd
+        pd = set pdPublicMeta (publicMetaOf cmd) $ pd0
         supply = gasSupplyOf cmd
 
-    let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd' spv
+    let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv l freeGasEnv pd spv
 
-    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd minerInfo supply
+    withGas l buyGasEnv cmd minerInfo supply userGasEnv $ \cenv logs ->
+      runPayload cenv def cmd logs
 
-    case buyGasResultE of
+-- | A handle for wrapping 'runPayload' commands in a buy/redeem gas phase.
+--
+withGas
+    :: forall a
+    . Logger
+    -> CommandEnv a
+    -> Command (Payload PublicMeta ParsedCode)
+    -> MinerInfo
+    -> GasSupply
+    -> GasEnv
+    -> (CommandEnv a -> [TxLog Value] -> IO (CommandResult [TxLog Value]))
+      -- ^ this is the form of a 'runPayload' command
+    -> IO (CommandResult [TxLog Value])
+withGas l genv cmd mi supply gasEnv action = do
+    let rk = cmdToRequestKey cmd
 
-      Left e1 ->
-        jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0)
-          "tx failure for requestKey when buying gas"
+    bge <- catchesPactError $! buyGas genv cmd mi supply
+    case bge of
+      Left e -> jsonErrorResult genv rk e [] (Gas 0) "transaction failure for when buying gas"
+      Right (Left e0) -> internalError e0
+      Right (Right (!gid, !bgLogs)) -> do
+        logDebugRequestKey l rk "successful gas buy"
 
-      Right buyGasResult -> do
+        let !cenv = set ceGasEnv gasEnv genv
 
-        -- this call needs to fail hard if Left. It means the continuation did not process
-        -- correctly, and we should fail the transaction
-        (!pactId, !buyGasLogs) <- either internalError pure buyGasResult
-        logDebugRequestKey logger requestKey "successful gas buy for request key"
+        cmde <- catchesPactError $! action cenv bgLogs
+        case cmde of
+          Left e' ->
+            jsonErrorResult cenv rk e' bgLogs (Gas 0) "transaction failure while executing cmd"
+          Right !cmdr -> do
+            logDebugRequestKey l rk "successful transaction execution"
 
-        let !payloadEnv = set ceGasEnv userGasEnv
-              $ set cePublicData pd' buyGasEnv
+            let !renv = set ceGasEnv freeGasEnv cenv
+                !cmdLogs = fromMaybe [] $ _crLogs cmdr
 
-        cmdResultE <- catchesPactError $! runPayload payloadEnv def cmd buyGasLogs
+            rge <- catchesPactError $! redeemGas renv cmd cmdr gid supply cmdLogs
+            case rge of
+              Left e'' ->
+                jsonErrorResult renv rk e'' cmdLogs (_crGas cmdr) "transaction failure while redeeming gas"
+              Right !rr -> do
+                let !rlogs = fromMaybe [] $ _crLogs rr
+                    !r = over (crLogs . _Just) (<> rlogs) cmdr
 
-        case cmdResultE of
-
-          Left e2 ->
-
-            jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0)
-              "tx failure for request key when running cmd"
-
-          (Right !cmdResult) -> do
-
-            logDebugRequestKey logger requestKey "success for requestKey"
-
-            let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
-                cmdLogs = fromMaybe [] $ _crLogs cmdResult
-
-            print cmdResult
-            redeemResultE <- catchesPactError $!
-              redeemGas redeemGasEnv cmd cmdResult pactId supply cmdLogs
-
-            case redeemResultE of
-
-              Left e3 ->
-
-                jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
-                  "tx failure for request key while redeeming gas"
-
-              (Right !redeemResult) -> do
-
-                let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
-                    !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
-
-                logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure finalResult
-
+                logDebugRequestKey l rk "successful gas redemption for request key"
+                return r
 
 applyGenesisCmd
     :: Logger
@@ -300,7 +296,7 @@ applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh
     er@EvalResult{..} <- evalExec initState evalEnv parsedCode
     for_ _erExec $ \PactExec{..} ->
       logLog _ceLogger "DEBUG" $ "applyExec: new pact added: " ++
-      show (_pePactId,_peStep,_peYield,_peExecuted)
+      show (_pePactId, _peStep, _peYield, _peExecuted)
     return er
 
 
@@ -331,9 +327,10 @@ applyContinuation'
 applyContinuation' CommandEnv{..} initState cm senderSigs hsh = do
     let sigs = userSigsToPactKeySet senderSigs
         pactStep = Just $ PactStep (_cmStep cm) (_cmRollback cm) (_cmPactId cm) Nothing
-        evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-                (MsgData sigs (_cmData cm) pactStep hsh) initRefStore
-                _ceGasEnv permissiveNamespacePolicy _ceSPVSupport _cePublicData
+
+    let evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
+          (MsgData sigs (_cmData cm) pactStep hsh) initRefStore
+          _ceGasEnv permissiveNamespacePolicy _ceSPVSupport _cePublicData
 
     evalContinuation initState evalEnv cm
 
@@ -352,19 +349,22 @@ buyGas
     -> Command (Payload PublicMeta ParsedCode)
     -> MinerInfo
     -> GasSupply
-    -> IO (Either Text (PactId, [TxLog Value]))
+    -> IO (Either Text (GasId, [TxLog Value]))
 buyGas env cmd (MinerInfo minerId minerKeys) supply = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = initCapabilities [magic_FUND_TX]
+        chash = toUntypedHash (_cmdHash cmd)
+
+    let bgHash = case chash of Hash h -> Hash (h <> "-buygas")
 
     buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
     result <- applyExec' env initState buyGasCmd
-      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+      (_pSigners $ _cmdPayload cmd) bgHash
 
-    pure $! case _erExec result of
-      Nothing ->
+    case _erExec result of
+      Nothing -> return $!
         Left "buyGas: Internal error - empty continuation"
-      Just pe -> Right $! (_pePactId pe, _erLogs result)
+      Just pe -> return $! Right (GasId $ _pePactId pe,  _erLogs result)
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
@@ -375,20 +375,20 @@ redeemGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
     -> CommandResult a -- ^ result from the user command payload
-    -> PactId          -- ^ result of the buy-gas continuation
+    -> GasId          -- ^ result of the buy-gas continuation
     -> GasSupply       -- ^ the total calculated supply of gas (as Decimal)
     -> [TxLog Value]   -- ^ previous txlogs
     -> IO (CommandResult [TxLog Value])
-redeemGas env cmd cmdResult pactId supply prevLogs = do
+redeemGas env cmd cmdResult gid supply prevLogs = do
     let (Gas fee)  = _crGas cmdResult
         rk         = cmdToRequestKey cmd
         initState  = initCapabilities [magic_FUND_TX]
 
-    applyContinuation env initState rk (redeemGasCmd fee supply pactId)
+    applyContinuation env initState rk (redeemGasCmd fee supply gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
   where
-    redeemGasCmd :: Int64 -> GasSupply -> PactId -> ContMsg
-    redeemGasCmd fee total pid =
+    redeemGasCmd :: Int64 -> GasSupply -> GasId -> ContMsg
+    redeemGasCmd fee total (GasId pid) =
       ContMsg pid 1 False (object [ "fee" .= feeOf total fee ]) Nothing
 
     feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
