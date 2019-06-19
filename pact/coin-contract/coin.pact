@@ -197,67 +197,38 @@
 
     @model [ (property (> quantity 0.0)) ]
     (step
-      (with-capability (BURN_CREATE)
-        (let
-          ((retv
-             (delete-coin delete-account create-chain-id create-account create-account-guard quantity)
-             ))
+      (with-capability (TRANSFER)
+        (debit delete-account quantity)
+
+        (let*
+            ((retv
+              { "create-chain-id": create-chain-id
+              , "create-account": create-account
+              , "create-account-guard": create-account-guard
+              , "quantity": quantity
+              , "delete-block-height": (at 'block-height (chain-data))
+              , "delete-chain-id": (at 'chain-id (chain-data))
+              , "delete-account": delete-account
+              , "delete-tx-hash": (tx-hash)
+              }))
 
           (yield retv create-chain-id)
-          retv)))
+
+          retv
+          )))
 
     (step
       (resume
-        { "create-chain-id":= create-chain-id
-        , "create-account" := create-account
+        { "create-account" := create-account
         , "create-account-guard" := create-account-guard
         , "quantity" := quantity
-        , "delete-tx-hash" := delete-tx-hash
-        , "delete-chain-id" := delete-chain-id
         }
 
-        (with-capability (BURN_CREATE)
-          (create-coin create-chain-id create-account create-account-guard quantity delete-tx-hash delete-chain-id)
-          )))
-    )
-
-  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
-    (require-capability (BURN_CREATE))
-    (with-capability (TRANSFER)
-      (debit delete-account quantity))
-
-      { "create-chain-id": create-chain-id
-      , "create-account": create-account
-      , "create-account-guard": create-account-guard
-      , "quantity": quantity
-      , "delete-block-height": (at 'block-height (chain-data))
-      , "delete-chain-id": (at 'chain-id (chain-data))
-      , "delete-account": delete-account
-      , "delete-tx-hash": (tx-hash)
-      })
-
-  (defun create-coin (create-chain-id create-account create-account-guard quantity delete-tx-hash delete-chain-id)
-
-    (require-capability (BURN_CREATE))
-
-    (enforce (= create-chain-id (at 'chain-id (chain-data)))
-      "enforce correct create chain ID")
-
-    (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
-      (with-default-read creates-table create-id
-        { "exists": false }
-        { "exists":= exists }
-
-        (enforce (not exists)
-          (format "enforce unique usage of {}" [create-id]))
-
-        (insert creates-table create-id { "exists": true })
-
         (with-capability (TRANSFER)
-          (credit create-account create-account-guard quantity))
-
-        )))
+          (credit create-account create-account-guard quantity)
+          )
+        ))
+    )
 )
 
 (create-table coin-table)
-(create-table creates-table)

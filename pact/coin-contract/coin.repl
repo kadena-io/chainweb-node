@@ -98,21 +98,6 @@
 (coinbase 'k3 (read-keyset 'k3) 1.0)
 (expect "coinbase should create accounts and credit them some amount" 2.0 (account-balance 'k3))
 
-; SPV tests - note: proof creation will not work as we have no spv support as our default spv
-; handler in the environment at this point.
-(expect-failure "burns should fail when called directly" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0))
-
-(test-capability (BURN_CREATE))
-(expect "burns should succeed only when BURN_CREATE is in scope" "success" (let ((p delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0)) "success"))
-
-(expect-failure "spv proof creation should fail s for insufficient funds" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 2.0))
-
-(credit 'k1 (read-keyset 'k1) 1.0)
-(expect "burn step for cross-chain transfers succeed" "success" (let ((p delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0)) "success"))
-
-;; Test full 2-step burn/create pact
-(credit 'k1 (read-keyset 'k1) 1.0)
-
 (pact-state true)
 (env-chain-data { "chain-id" : "0" })
 (env-hash (hash "burn-create"))
@@ -134,7 +119,7 @@
 
 ; successful path
 (env-chain-data { "chain-id" : "1" })
-(expect "create side of cross-chain transfer fails yield on wrong chain" "Write succeeded"
+(expect "create side of cross-chain transfer succeeds" "Write succeeded"
         (continue-pact 1 false (hash "burn-create")
           { "create-chain-id": "1"
           , "create-account": 'k2
