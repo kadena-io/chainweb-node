@@ -43,6 +43,8 @@ module Data.CAS.RocksDB
 , closeRocksDb
 , withRocksDb
 , withTempRocksDb
+, destroyRocksDb
+, resetOpenRocksDb
 
 -- * Rocks DB Table
 , Codec(..)
@@ -135,6 +137,15 @@ openRocksDb path = RocksDb <$> R.open path opts <*> mempty
   where
     opts = R.defaultOptions { R.createIfMissing = True }
 
+-- | Open a 'RocksDb' and reset it if it already exists.
+--
+resetOpenRocksDb :: FilePath -> IO RocksDb
+resetOpenRocksDb path = do
+    destroyRocksDb path
+    RocksDb <$> R.open path opts <*> mempty
+  where
+    opts = R.defaultOptions { R.createIfMissing = True, R.errorIfExists = True }
+
 -- | Close a 'RocksDb' instance.
 --
 closeRocksDb :: RocksDb -> IO ()
@@ -152,6 +163,17 @@ withRocksDb path = bracket (openRocksDb path) closeRocksDb
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
     withRocksDb dir f
+
+-- | Delete the RocksDb instance.
+--
+-- This is the prefered method of deleting an rocks db instance. A rocks db
+-- instance may store files in different locations. This function guarantees
+-- that all files are deleted.
+--
+destroyRocksDb :: FilePath -> IO ()
+destroyRocksDb path = R.destroy path opts
+  where
+    opts = R.defaultOptions { R.createIfMissing = False }
 
 -- -------------------------------------------------------------------------- --
 -- RocksDb Table
