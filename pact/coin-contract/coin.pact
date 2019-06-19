@@ -18,10 +18,11 @@
     )
   (deftable coin-table:{coin-schema})
 
-  (defschema creates-schema
-    exists:bool
-    )
-  (deftable creates-table:{creates-schema})
+  ; the shape of a cross-chain transfer (used for typechecking)
+  (defschema cc-transfer
+    create-account:string
+    create-account-guard:guard
+    quantity:decimal)
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -40,10 +41,6 @@
 
   (defcap FUND_TX ()
     "Magic capability to execute gas purchases and redemptions"
-    true)
-
-  (defcap BURN_CREATE ()
-    "Magic capability to protect cross-chain coin transfers"
     true)
 
   (defcap ACCOUNT_GUARD (account)
@@ -199,22 +196,16 @@
     (step
       (with-capability (TRANSFER)
         (debit delete-account quantity)
+          (let
+              ((retv:object{cc-transfer}
 
-        (let*
-            ((retv
-              { "create-chain-id": create-chain-id
-              , "create-account": create-account
-              , "create-account-guard": create-account-guard
-              , "quantity": quantity
-              , "delete-block-height": (at 'block-height (chain-data))
-              , "delete-chain-id": (at 'chain-id (chain-data))
-              , "delete-account": delete-account
-              , "delete-tx-hash": (tx-hash)
-              }))
+                { "create-account": create-account
+                , "create-account-guard": create-account-guard
+                , "quantity": quantity
+                }
+                ))
 
           (yield retv create-chain-id)
-
-          retv
           )))
 
     (step
