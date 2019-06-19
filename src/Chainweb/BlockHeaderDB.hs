@@ -226,13 +226,6 @@ pruneForks
     :: Logger logger
     => logger
     -> BlockHeaderDb
-    -> (BlockHeader -> Bool -> IO ())
-        -- ^ Deletion call back. This hook is called /after/ the entry is
-        -- deleted from the database. It's main purpose is to delete any
-        -- resources that were related to the deleted header and that are not
-        -- needed any more. The Boolean argument indicates whether the payload
-        -- of the block is shared with any block header that isn't marked for
-        -- deletion.
     -> Natural
         -- ^ The depth at which the roots are collected for marking block
         -- headers that are kept. Any fork that was active that the given depth
@@ -245,8 +238,15 @@ pruneForks
         --
         -- Usually this number would be defined in terms of the chainweb
         -- diameter and/or the difficulty adjustment window.
+    -> (BlockHeader -> Bool -> IO ())
+        -- ^ Deletion call back. This hook is called /after/ the entry is
+        -- deleted from the database. It's main purpose is to delete any
+        -- resources that were related to the deleted header and that are not
+        -- needed any more. The Boolean argument indicates whether the payload
+        -- of the block is shared with any block header that isn't marked for
+        -- deletion.
     -> IO Int
-pruneForks logger cdb callback limit = do
+pruneForks logger cdb limit callback = do
 
     -- find all roots at \(maxEntry - limit\)
     --
@@ -296,16 +296,22 @@ pruneForks logger cdb callback limit = do
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
     -- The falsePositiveSet collects all deleted nodes that are known to be
-    -- false positives. We know that a node is false positive when it is in the
-    -- filter but any of its ancestors is either not in the fitler or in the
-    -- falsePositiveSet. Note that this doesn't capture all false positives, but
-    -- only those that are not connected to the main chain.
+    -- false positives.
+    --
+    -- We know that a node is false positive when it is in the filter but any of
+    -- its ancestors is neither in the filter nor in the falsePositiveSet.
+    -- (Because for a true positive all ancestors are in the filter.) We also
+    -- know that a node is false positive if it's payload isn't marked, because
+    -- we mark the payload of all nodes that are true positives.
+    --
+    -- Note that this doesn't capture all false positives, but only those that
+    -- are not connected to the main chain.
     --
     -- Nodes that are known to be false positives are safe to remove, if also
     -- all of its successors are removed.
     --
-    -- Nodes that are know to be false postives must be removed, if any of their
-    -- predecessors got removed.
+    -- Nodes that are known to be false postives must be removed, if any of their
+    -- predecessors got removed or if their payload got removed.
     --
     go marked markedPayloads !(!falsePositiveSet, !i) !h = do
         let k = runPut $ encodeBlockHash $ _blockHash h
@@ -324,7 +330,7 @@ pruneForks logger cdb callback limit = do
             -- Delete nodes which parent isn't in the filter or is in the
             -- falsePositiveSet
             parentIsMarked <- stToIO $ BF.elem p marked
-            if not (isGenesisBlockHeader h) && (not parentIsMarked || HS.member p falsePositiveSet)
+            if not (isGenesisBlockHeader h) && (not parentIsMarked || HS.member p falsePositiveSet || not isPayloadMarked)
               then do
                 -- We know that this a false positive. We keep track of this for
                 -- future reference.
@@ -337,9 +343,9 @@ pruneForks logger cdb callback limit = do
                 return (HS.insert k falsePositiveSet, succ i)
               else
                 -- The key is either
-                -- 1. in the chain
-                -- 2. a false positive that is connected to the chain, i.e. has
-                -- all of its predecessors.
+                -- 1. in the chain or
+                -- 2. is a false positive that has a payload and is connected to
+                --    the chain (i.e. has all of its predecessors).
                 --
                 -- We accept a small number of nodes of the second case.
                 --
