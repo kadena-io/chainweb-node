@@ -131,5 +131,6 @@
           , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
           }))
 
+; double spends are disallowed by construction
 (expect-failure "cross-chain transfer pact prevents double spends"
                 (continue-pact 1 false (hash "burn-create")))

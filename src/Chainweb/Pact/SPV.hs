@@ -139,7 +139,7 @@ verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case decodeStrict' p  
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
 extractProof :: Object Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof = (=<<) k . toPactValue . flip TObject def
+extractProof o = toPactValue (TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
