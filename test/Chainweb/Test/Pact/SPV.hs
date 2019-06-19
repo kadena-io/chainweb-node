@@ -25,7 +25,6 @@ module Chainweb.Test.Pact.SPV
 , standard
 , wrongchain
 , badproof
-, doublespend
 ) where
 
 import Control.Concurrent.MVar
@@ -85,7 +84,6 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCase "standard SPV verification round trip" standard
-    , testCase "double spends fail" doublespend
     , testCase "wrong chain execution fails" wrongchain
     , testCase "invalid proof formats fail" badproof
     ]
@@ -140,17 +138,13 @@ expectSuccess test = do
 standard :: Assertion
 standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
 
-doublespend :: Assertion
-doublespend = expectFailure "Tx Failed: enforce unique usage" $
-    roundtrip 0 1 txGenerator1 txGenerator3
-
 wrongchain :: Assertion
 wrongchain = expectFailure "enforceYield: yield provenance" $
-    roundtrip 0 1 txGenerator1 txGenerator4
+    roundtrip 0 1 txGenerator1 txGenerator3
 
 badproof :: Assertion
 badproof = expectFailure "resumePact: no previous execution found" $
-    roundtrip 0 1 txGenerator1 txGenerator5
+    roundtrip 0 1 txGenerator1 txGenerator4
 
 roundtrip
     :: Int
@@ -172,7 +166,7 @@ roundtrip sid0 tid0 burn create = do
             sid <- mkChainId v sid0
             tid <- mkChainId v tid0
 
-            pidv <- newMVar (toPactId (Hash "init"), False)
+            pidv <- newMVar (toPactId $ Hash "", False)
 
             -- pact service, that is used to extend the cut data base
             txGen1 <- burn pidv sid tid
@@ -257,7 +251,8 @@ txGenerator1 pidv sid tid = do
         True -> return mempty
         False -> do
             takeMVar pidv >>= \case
-              (pid, True) -> putMVar pidv (pid, True) >> return mempty
+              (pid, True) ->
+                putMVar pidv (pid, True) >> return mempty
               (_, False) -> do
                 ks <- testKeyPairs
 
@@ -323,37 +318,9 @@ txGenerator2 cdbv pidv sid tid bhe = do
                 mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
 
--- | Double spend transaction which calls the coin-create
--- function twice
+-- | Execute on the create-coin command on the wrong target chain
 txGenerator3 :: CreatesGenerator
 txGenerator3 cdbv pidv sid tid bhe = do
-    ref <- newIORef False
-    return $ go ref
-  where
-    go ref tid' _bhe _bha _
-        | tid /= tid' = return mempty
-        | otherwise = readIORef ref >>= \case
-            True -> return mempty
-            False -> do
-                cdb <- readMVar cdbv
-                q <- fmap toJSON
-                    $ createTransactionOutputProof cdb tid sid bhe 0
-
-                let pcid = Pact.ChainId (chainIdToText tid)
-                    proof = Just . ContProof . toStrict . encode $ q
-
-                ks <- testKeyPairs
-                (pid, _) <- readMVar pidv
-
-                txs <- mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
-                    `finally` writeIORef ref True
-
-                -- double spend is an attempt to continue the same pact twice
-                return $ txs <> txs
-
--- | Execute on the create-coin command on the wrong target chain
-txGenerator4 :: CreatesGenerator
-txGenerator4 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -376,8 +343,8 @@ txGenerator4 cdbv pidv sid tid bhe = do
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
-txGenerator5 :: CreatesGenerator
-txGenerator5 _cdbv pidv _ tid _ = do
+txGenerator4 :: CreatesGenerator
+txGenerator4 _cdbv pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where

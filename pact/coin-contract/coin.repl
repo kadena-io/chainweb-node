@@ -130,3 +130,6 @@
           , "delete-account": 'k1
           , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
           }))
+
+(expect-failure "cross-chain transfer pact prevents double spends"
+                (continue-pact 1 false (hash "burn-create")))
