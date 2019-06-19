@@ -14,15 +14,15 @@
 
   (defschema coin-schema
     balance:decimal
-    guard:guard
-    )
+    guard:guard)
   (deftable coin-table:{coin-schema})
 
   ; the shape of a cross-chain transfer (used for typechecking)
-  (defschema cc-transfer
+  (defschema transfer-*
     create-account:string
     create-account-guard:guard
-    quantity:decimal)
+    quantity:decimal
+    )
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -197,16 +197,13 @@
       (with-capability (TRANSFER)
         (debit delete-account quantity)
           (let
-              ((retv:object{cc-transfer}
-
-                { "create-account": create-account
-                , "create-account-guard": create-account-guard
-                , "quantity": quantity
-                }
-                ))
-
-          (yield retv create-chain-id)
-          )))
+              ((retv:object{transfer-*}
+                  { "create-account": create-account
+                  , "create-account-guard": create-account-guard
+                  , "quantity": quantity
+                  }))
+            (yield retv create-chain-id)
+            )))
 
     (step
       (resume
@@ -216,8 +213,7 @@
         }
 
         (with-capability (TRANSFER)
-          (credit create-account create-account-guard quantity)
-          )
+          (credit create-account create-account-guard quantity))
         ))
     )
 )
