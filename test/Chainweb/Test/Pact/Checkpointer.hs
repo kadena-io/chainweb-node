@@ -147,14 +147,14 @@ runSQLite runTest = runTest . make
       (_,sqlenv) <- iosqlenv
       let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
           loggers = pactTestLogger False
-      snd <$> initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
+      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
 checkpointerTest :: String -> InitData -> TestTree
 checkpointerTest name initdata =
       case initdata of
         OnDisk -> withResource initializeSQLite freeSQLiteResource (runSQLite runTest)
         InMem -> let loggers = pactTestLogger False
-          in withResource (snd <$> initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer") freeGasEnv) (const $ return ()) runTest
+          in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer") freeGasEnv) (const $ return ()) runTest
   where
     runTest :: IO CheckpointEnv -> TestTree
     runTest c  = testCaseSteps name $ \next -> do
@@ -332,7 +332,7 @@ regressChainwebPactDb = do
  withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
         let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
             loggers = pactTestLogger False
-        runRegression chainwebpactdb
+        runRegression chainwebPactDb
           (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
           (\v -> runBlockEnv v initSchema)
 

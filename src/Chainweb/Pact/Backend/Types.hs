@@ -57,6 +57,7 @@ module Chainweb.Pact.Backend.Types
     , ParentHash
     , BlockDbEnv(..)
     , bdbenvDb
+    , SQLiteFlag(..)
     ) where
 
 import Control.Exception.Safe hiding (bracket)
@@ -67,8 +68,10 @@ import Control.Lens
 import Control.DeepSeq
 
 import Data.Aeson
+import Data.Bits
 import Data.Int
 import Data.Map.Strict (Map)
+import Data.Word
 
 import Database.SQLite3.Direct as SQ3
 
@@ -113,7 +116,7 @@ instance FromJSON PactDbConfig
 makeLenses ''PactDbConfig
 
 data SQLiteEnv = SQLiteEnv
-  { _sConn :: Database
+  { _sConn :: !Database
   , _sConfig :: !SQLiteConfig
   }
 
@@ -149,16 +152,15 @@ data BlockState = BlockState
 makeLenses ''BlockState
 
 data BlockDbEnv p = BlockDbEnv
-  { _bdbenvDb :: p
-  , _logger :: Logger
+  { _bdbenvDb :: !p
+  , _logger :: !Logger
   }
 
 makeLenses ''BlockDbEnv
 
-
 data BlockEnv p = BlockEnv
-  { _benvDb :: BlockDbEnv p
-  , _benvBlockState :: !BlockState
+  { _benvDb :: !(BlockDbEnv p)
+  , _benvBlockState :: !BlockState -- ^ The current block state.
   }
 
 makeLenses ''BlockEnv
@@ -183,10 +185,6 @@ instance Logging (BlockHandler p) where
 
 type ParentHash = BlockHash
 
--- TODO: pass (Maybe blockHash) (only populated on validateblock) to
--- restore instead of to save make save a noarg function, move history
--- updates to restore
-
 data Checkpointer = Checkpointer
     {
       restore :: Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
@@ -196,8 +194,11 @@ data Checkpointer = Checkpointer
 
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: !Checkpointer
-    , _cpeLogger :: Logger
+    , _cpeLogger :: !Logger
     , _cpeGasEnv :: !GasEnv
     }
 
 makeLenses ''CheckpointEnv
+
+newtype SQLiteFlag = SQLiteFlag { getFlag :: Word32 }
+  deriving (Eq, Ord, Bits, Num)

@@ -1,9 +1,9 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -71,7 +71,7 @@ withSavepoint name action = do
   case result of
     Right r -> do
       commitSavepoint name
-      return r
+      liftIO $ evaluate r
     Left (PactInternalError err) -> do
       rollbackSavepoint name
       internalError $
@@ -125,7 +125,7 @@ withSQLiteConnection file ps todelete action = bracket opener closer action
       void $ close_v2 $ _sConn c
       when todelete (removeFile file)
     opener = do
-      e <- open_v2 (fromString file) (0x00000002 .|. 0x00000004 .|. 0x00010000) "unix"
+      e <- open2 file
       case e of
         Left (err, msg) ->
           internalError $
@@ -202,3 +202,18 @@ fastNoJournalPragmas = [
   "locking_mode = EXCLUSIVE",
   "temp_store = MEMORY"
   ]
+
+
+open2 :: String -> IO (Either (Error, Utf8) Database)
+open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex]) Nothing
+-- Nothing corresponds to the nullPtr
+
+collapseFlags :: [SQLiteFlag] -> SQLiteFlag
+collapseFlags xs =
+  if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
+  else Prelude.foldr1 (.|.) xs
+
+sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readwrite = 0x00000002
+sqlite_open_create = 0x00000004
+sqlite_open_fullmutex = 0x00010000

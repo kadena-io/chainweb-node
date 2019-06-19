@@ -124,7 +124,7 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
+execTest :: (forall a . (PactDbEnv' -> PactServiceM a) -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData

@@ -45,7 +45,6 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
-import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
@@ -54,7 +53,6 @@ import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import Data.String
 import Data.Vector (Vector)
 
 
@@ -79,12 +77,10 @@ import Pact.Types.SQLite hiding (fastNoJournalPragmas)
 
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
--- import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer, initRelationalCheckpointer')
 import Chainweb.Pact.Backend.Utils
--- import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
@@ -95,7 +91,6 @@ import qualified Chainweb.Version as V
 import Chainweb.WebPactExecutionService
 
 import Pact.Gas
--- import Pact.Interpreter
 import Pact.Types.Gas
 
 
@@ -222,9 +217,9 @@ testPactCtx
     -> Maybe (MVar (CutDb cas))
     -> IO TestPactCtx
 testPactCtx v cid cdbv = do
-    (dbSt, cpe) <- initInMemoryCheckpointEnv loggers logger gasEnv
+    cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
     ctx <- TestPactCtx
-        <$> newMVar (PactServiceState dbSt Nothing)
+        <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
     evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
@@ -242,9 +237,9 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO TestPactCtx
 testPactCtxSQLite v cid cdbv sqlenv = do
-    (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+    cpe <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
     ctx <- TestPactCtx
-      <$> newMVar (PactServiceState thePactDbEnv Nothing)
+      <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd)
     evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
@@ -313,8 +308,7 @@ withPactCtx v cutDB f
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
       (file, del) <- newTempFile
-      -- TODO: Should change what is passed as the vfs_module.
-      e <- open_v2 (fromString file) (0x00000002 .|. 0x00000004 .|. 0x00010000) "unix"
+      e <- open2 file
       case e of
         Left (_err, _msg) ->
           internalError "initializeSQLite: A connection could not be opened."
@@ -328,17 +322,17 @@ freeSQLiteResource (del,sqlenv) = do
 withPactCtxSQLite
   :: ChainwebVersion
   -> Maybe (MVar (CutDb cas))
-  -> ((forall a . PactServiceM a -> IO a) -> TestTree)
+  -> ((forall a . (PactDbEnv' -> PactServiceM a) -> IO a) -> TestTree)
   -> TestTree
 withPactCtxSQLite v cutDB f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
-      withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \pact -> do
-          ctx <- ctxIO
-          evalPactServiceM ctx pact
+      withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \toPact -> do
+          (ctx, dbSt) <- ctxIO
+          evalPactServiceM ctx (toPact dbSt)
   where
-    destroy = const destroyTestPactCtx
+    destroy = const (destroyTestPactCtx . fst)
     start ios cdbv = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
@@ -348,9 +342,9 @@ withPactCtxSQLite v cutDB f =
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
           blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
       (_,s) <- ios
-      (thePactDbEnv, cpe) <- initRelationalCheckpointer blockstate s logger gasEnv
+      (dbSt, cpe) <- initRelationalCheckpointer' blockstate s logger gasEnv
       ctx <- TestPactCtx
-        <$> newMVar (PactServiceState thePactDbEnv Nothing)
+        <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd)
       evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
-      return ctx
+      return (ctx, dbSt)

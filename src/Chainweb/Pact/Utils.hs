@@ -20,13 +20,10 @@ module Chainweb.Pact.Utils
 import Data.Aeson
 
 import Control.Concurrent.MVar
--- import Control.Lens
 
 import Pact.Interpreter as P
--- import Pact.Types.Runtime(TxLog(..))
 
 import Chainweb.Pact.Types
--- import Chainweb.Payload
 
 
 toEnv' :: EnvPersist' -> IO Env'

@@ -14,7 +14,7 @@
 --
 
 module Chainweb.Pact.Backend.ChainwebPactDb
-  ( chainwebpactdb
+  ( chainwebPactDb
   , handleVersion
   , blockHistoryInsert
   , versionHistoryInsert
@@ -33,6 +33,7 @@ import Control.Monad.State.Strict
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (toStrict, fromStrict)
+import Data.Foldable (concat)
 import Data.Maybe
 import qualified Data.Map.Strict as M
 import Data.Serialize (encode)
@@ -42,7 +43,7 @@ import qualified Data.Text as T
 
 import Database.SQLite3.Direct as SQ3
 
-import Prelude hiding (log)
+import Prelude hiding (log, concat)
 
 -- pact
 
@@ -63,11 +64,11 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
 
-chainwebpactdb :: PactDb (BlockEnv SQLiteEnv)
-chainwebpactdb = PactDb
+chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
+chainwebPactDb = PactDb
   {
-    _readRow = \d k e -> runBlockEnv e $ readRow d k
-  , _writeRow = \wt d k v e -> runBlockEnv e $ writeRow wt d k v
+    _readRow = \d k e -> runBlockEnv e $ doReadRow d k
+  , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
   , _keys = \d e -> runBlockEnv e $ doKeys d
   , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
   , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
@@ -78,8 +79,8 @@ chainwebpactdb = PactDb
   , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
   }
 
-readRow :: (IsString k, FromJSON v) => Domain k v -> k -> BlockHandler SQLiteEnv (Maybe v)
-readRow d k =
+doReadRow :: (IsString k, FromJSON v) => Domain k v -> k -> BlockHandler SQLiteEnv (Maybe v)
+doReadRow d k =
     case d of
       KeySets -> callDbWithKey (convKeySetName k)
       -- TODO: This is incomplete (the modules case), due to namespace
@@ -91,7 +92,7 @@ readRow d k =
  where
    callDbWithKey :: FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
    callDbWithKey kstr = do
-     result <- callDb "readRow" $ \db -> do
+     result <- callDb "doReadRow" $ \db -> do
                 let stmt =
                       "SELECT rowdata \
                       \FROM [" <> domainTableName d <> "]\
@@ -102,7 +103,7 @@ readRow d k =
      case result of
          [] -> return Nothing
          [[SBlob a]] -> return $ decode $ fromStrict a
-         err -> internalError $ "readRow: Expected (at most) a single result, but got: " <> T.pack (show err)
+         err -> internalError $ "doReadRow: Expected (at most) a single result, but got: " <> T.pack (show err)
 
 writeSys :: (AsString k, ToJSON v) => WriteType -> Domain k v -> k -> v -> BlockHandler SQLiteEnv ()
 writeSys wt d k v = do
@@ -155,7 +156,7 @@ writeUser wt d k row = do
   where
     toTableName (Utf8 str) = TableName $ toS str
     userWrite key bh version txid = do
-      olds <- readRow d key
+      olds <- doReadRow d key
       case (olds, wt) of
         (Nothing, Insert) -> ins
         (Just _, Insert) -> internalError $ "writeUser: Insert: row not found for key " <> asString key
@@ -174,8 +175,8 @@ writeUser wt d k row = do
           callDb "writeUser" $ backendWriteInsert (Utf8 $ toS $ asString $ key) tn bh version txid row
           record (toTableName tn) d key row
 
-writeRow :: (AsString k, ToJSON v) => WriteType -> Domain k v -> k -> v -> BlockHandler SQLiteEnv ()
-writeRow wt d k v = do
+doWriteRow :: (AsString k, ToJSON v) => WriteType -> Domain k v -> k -> v -> BlockHandler SQLiteEnv ()
+doWriteRow wt d k v = do
     case d of
       (UserTables _) -> writeUser wt d k v
       _ -> writeSys wt d k v
@@ -194,6 +195,7 @@ doKeys d = do
       _ -> internalError "doKeys: The impossible happpened."
 {-# INLINE doKeys #-}
 
+-- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
 doTxIds (TableName tn) (TxId tid) = do
   version <- gets (_bvVersion . _bsBlockVersion)
@@ -252,21 +254,13 @@ doCommit = use bsMode >>= \mm -> case mm  of
     txrs <- use bsTxRecord
 
     if m == Transactional then do
-      bsTxId += 1
+      modify' (over bsTxId succ)
       -- commit
       commitSavepoint PactDbTransaction
       resetTemp
     else doRollback
-    return $ fromdlist $ foldr (\a b -> todlist a . b) id txrs
+    return $ concat txrs
 {-# INLINE doCommit #-}
-
-fromdlist :: ([a] -> [a]) -> [a]
-fromdlist dl = dl []
-
-todlist :: [a] -> [a] -> [a]
-todlist xs = foldr go id xs
-  where
-    go a b = (a :) . b
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -277,7 +271,7 @@ doGetTxLog d txid = do
         [RText, RBlob]
   forM rows $ \case
     [SText key, SBlob value] ->
-      case Data.Aeson.decode $ fromStrict value of
+      case Data.Aeson.decodeStrict' value of
         Nothing -> internalError $ "doGetTxLog: Unexpected value, unable to deserialize log"
         Just v -> return $ TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap $ key) v
     err -> internalError $ "doGetTxLog: Expected single row with two columns as the result, got: " <> T.pack (show err)
@@ -342,7 +336,8 @@ createUserTable name b = do
                       \, blockheight UNSIGNED BIGINT\
                       \, version UNSIGNED BIGINT\
                       \, txid UNSIGNED BIGINT\
-                      \, rowdata BLOB)"
+                      \, rowdata BLOB \
+                      \, UNIQUE(blockheight, rowkey, txid));"
   versionedTablesInsert name b
 
 handleVersion :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
@@ -350,18 +345,18 @@ handleVersion bRestore hsh = do
   bCurrent <- do
     r <- callDb "handleVersion" $ \ db -> qry_ db "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
     SInt bh <- liftIO $ expectSingleRowCol "handleVersion: (block):" r
-    return $ BlockHeight (fromIntegral bh)
+    return $! BlockHeight (fromIntegral bh)
   vCurrent <- do
     r <- callDb "handleVersion" $ \db -> qry_ db "SELECT max(version) AS current_version FROM VersionHistory;" [RInt]
     SInt version <- liftIO $ expectSingleRowCol "handleVersion: (version):" r
-    return $ ReorgVersion version
+    return $! ReorgVersion version
 
   -- enforce invariant that the history has (B_restore-1,H_parent).
   historyInvariant <- callDb "handleVersion" $ \db -> do
         res <- qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
             [SInt $ fromIntegral $ pred bRestore, SBlob (Data.Serialize.encode hsh)] [RInt]
             >>= expectSingleRowCol "handleVersion: (historyInvariant):"
-        return res
+        return $! res
   when (historyInvariant /= SInt 1) $
     internalError "handleVersion: History invariant violation"
 
@@ -382,12 +377,12 @@ handleVersion bRestore hsh = do
      newtxid <- if null result
        then do
          versionHistoryInsert bs (fromIntegral txid)
-         return (fromIntegral txid :: TxId)
+         return $! (fromIntegral txid :: TxId)
        else do
         r <- liftIO $ expectSingleRowCol "handleVersion: block version check" result
         case r of
-          SInt res -> return (fromIntegral res)
-          _ -> error "lol"
+          SInt res -> return $! (fromIntegral res)
+          _ -> error "handleVersion: We failed to get an integer for the txid."
      assign bsTxId newtxid
      return newtxid
    LT -> do
@@ -398,7 +393,7 @@ handleVersion bRestore hsh = do
      assign bsTxId t
      b <- gets _bsBlockVersion
      versionHistoryInsert b t
-     return t
+     return $! t
 
 tableMaintenanceRowsVersionedTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedTables = do
@@ -417,18 +412,10 @@ tableMaintenanceRowsVersionedSystemTables  = do
 tableMaintenanceRowsVersionedUserTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedUserTables = do
   (BlockVersion bh _) <- gets _bsBlockVersion
-  tblNames <- callDb "tableMaintenanceRowsVersionedUserTables" $ \db -> qry db
-    "SELECT tablename\
-    \ FROM UserTables\
-    \ WHERE createBlockHeight < ?;"
-    [SInt (fromIntegral bh)]
-    [RText]
-  forM_ tblNames $ \case
-      [SText tbl] -> do
-        callDb "tableMaintenanceRowsVersionedUserTables" $ \db ->
-          exec' db
-          ("DELETE FROM [" <> tbl <> "] WHERE blockheight >= ?")
-          [SInt (fromIntegral bh)]
+  callDb "tableMaintenanceRowsVersionedUserTables" $ \db -> do
+    tblNames <- qry db "SELECT tablename FROM UserTables WHERE createBlockHeight < ?;" [SInt (fromIntegral bh)] [RText]
+    forM_ tblNames $ \case
+      [SText tbl] -> exec' db ("DELETE FROM [" <> tbl <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
       _ -> internalError "tableMaintenanceRowsUserTables: An error occured\
                         \ while querying the\
                         \ VersionedTables table for table names."
@@ -436,15 +423,10 @@ tableMaintenanceRowsVersionedUserTables = do
 dropUserTables :: BlockHandler SQLiteEnv ()
 dropUserTables = do
   (BlockVersion (BlockHeight bh) _) <- gets _bsBlockVersion
-  tblNames <- callDb "dropUserTables" $ \db -> qry db
-    "SELECT tablename\
-    \ FROM UserTables\
-    \ WHERE createBlockHeight >=?"
-    [SInt (fromIntegral bh)]
-    [RText]
-  forM_ tblNames $ \case
-      [SText name] -> do
-        callDb "dropUserTables" $ \db -> exec_ db $ "DROP TABLE [" <> name <> "];"
+  callDb "dropUserTables" $ \db -> do
+    tblNames <- qry db "SELECT tablename FROM UserTables WHERE createBlockHeight >=?" [SInt (fromIntegral bh)] [RText]
+    forM_ tblNames $ \case
+      [SText name] -> exec_ db $ "DROP TABLE [" <> name <> "];"
       _ -> internalError "dropUserTables: An error occured\
                         \ while querying the\
                         \ VersionedTables table for table names."
@@ -452,20 +434,11 @@ dropUserTables = do
 deleteHistory :: BlockHandler SQLiteEnv TxId
 deleteHistory = do
   (BlockVersion bh v) <- gets _bsBlockVersion
-  callDb "Deleting from BlockHistory" $ \db -> exec' db
-    "DELETE FROM BlockHistory\
-    \ WHERE blockheight >= ?"
-    [SInt (fromIntegral bh)]
-  callDb "Deleting from VersionHistory" $ \db -> exec' db
-    "DELETE FROM VersionHistory\
-    \ WHERE version >= ?;"
-    [SInt (fromIntegral v)]
-  callDb "Get txid" $ \db -> qry db
-    "SELECT endingtxid FROM BlockHistory\
-    \ WHERE blockheight = ?"
-    [SInt (fromIntegral $ pred bh)]
-    [RInt]
-    >>= fmap convert . expectSingleRowCol "txid after delete history"
+  callDb "Deleting from BlockHistory, VersionHistory. Also get txid." $ \db -> do
+    exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?" [SInt (fromIntegral bh)]
+    exec' db "DELETE FROM VersionHistory WHERE version >= ?;" [SInt (fromIntegral v)]
+    qry db "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?" [SInt (fromIntegral $ pred bh)] [RInt]
+      >>= fmap convert . expectSingleRowCol "txid after delete history"
   where
     convert (SInt thing) = fromIntegral thing
     convert _ = error "deleteHistory: Something went wrong!"
@@ -492,4 +465,5 @@ initSchema = withSavepoint DbTransaction $ do
            \, blockheight UNSIGNED BIGINT\
            \, version UNSIGNED BIGINT\
            \, txid UNSIGNED BIGINT\
-           \, rowdata BLOB)"
+           \, rowdata BLOB\
+           \, UNIQUE(blockheight, rowkey, txid));"

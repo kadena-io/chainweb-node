@@ -18,7 +18,6 @@ module Chainweb.Pact.PactService
     , execTransactions
     , execValidateBlock
     , initPactService, initPactService'
-    , mkPureState
     , serviceRequests
     , createCoinContract
     , initialPayloadState
@@ -75,9 +74,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
--- import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.MemoryDb
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -143,15 +140,17 @@ initPactService' cid chainwebLogger spv act = do
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
 
+    -- withTempSQLiteConnection
+
     -- TODO: The file and pragmas should come from a config file
     withTempSQLiteConnection fastNoJournalPragmas $ \sqlenv -> do
 
-      (thePactDbEnv, checkpointEnv) <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+      checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd
 
-      evalStateT (runReaderT act pse) (PactServiceState thePactDbEnv Nothing)
+      evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
 initialPayloadState :: ChainwebVersion -> ChainId -> MemPoolAccess -> PactServiceM ()
 initialPayloadState Test{} _ _ = pure ()
@@ -253,21 +252,20 @@ validateHashes pwo bHeader =
             "Hash from Pact execution: " ++ show newHash ++
             " does not match the previously stored hash: " ++ show prevHash
 
-restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactServiceM ()
+restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactServiceM PactDbEnv'
 restoreCheckpointer maybeBB = do
   checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
-  cpData <- liftIO $! case maybeBB of
+  liftIO $! case maybeBB of
     Nothing -> restore checkPointer Nothing
     Just (bHeight,bHash) -> restore checkPointer (Just (bHeight, bHash))
-  updatePactDbEnv $! cpData
 
 discardCheckpointer :: PactServiceM ()
-discardCheckpointer = finalizeCheckpointer $ \checkPointer _ -> discard checkPointer
+discardCheckpointer = finalizeCheckpointer $ \checkPointer -> discard checkPointer
 
-finalizeCheckpointer :: (Checkpointer -> PactDbEnv' -> IO ()) -> PactServiceM ()
+finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM ()
 finalizeCheckpointer finalize = do
   checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
-  use psPactDbEnv >>= \s -> liftIO $! finalize checkPointer s
+  liftIO $! finalize checkPointer
 
 _liftCPErr :: Either String a -> PactServiceM a
 _liftCPErr = either internalError' return
@@ -292,11 +290,11 @@ execNewBlock mpAccess header miner = do
            <> " (hash = " <> sshow bHash <> ")"
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
 
-    restoreCheckpointer $ Just (succ bHeight, bHash)
+    pdbenv <- restoreCheckpointer $ Just (succ bHeight, bHash)
 
     -- locally run 'execTransactions' with updated blockheight data
     results <- locally (psPublicData . P.pdBlockHeight) (const (bh + 1)) $
-      execTransactions (Just bHash) miner newTrans
+      execTransactions (Just bHash) miner newTrans pdbenv
 
     discardCheckpointer
     return $! toPayloadWithOutputs miner results
@@ -305,9 +303,9 @@ execNewBlock mpAccess header miner = do
 execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactServiceM PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
 
-    restoreCheckpointer Nothing
+    pdbenv <- restoreCheckpointer Nothing
 
-    results <- execTransactions Nothing miner newTrans
+    results <- execTransactions Nothing miner newTrans pdbenv
 
     discardCheckpointer
 
@@ -321,11 +319,9 @@ execLocal cmd = do
     Nothing -> throwM NoBlockValidatedYet
     (Just !p) -> return p
 
-  restoreCheckpointer $ Just (succ $ _blockHeight bh,_blockHash bh)
+  !pdbst <- restoreCheckpointer $ Just (succ $ _blockHeight bh,_blockHash bh)
 
-  currentState <- use psPactDbEnv
-
-  case currentState of
+  case pdbst of
     PactDbEnv' pactdbenv -> do
 
       PactServiceEnv{..} <- ask
@@ -376,24 +372,19 @@ execValidateBlock mpAccess loadingGenesis currHeader plData = do
       ", payloadHash=" ++ show (_blockPayloadHash currHeader)
 
     trans <- liftIO $ transactionsFromPayload plData
-    restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (bHeight, bParent)
+    pdbenv <- restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (bHeight, bParent)
 
     !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
-      execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans
+      execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans pdbenv
 
-    finalizeCheckpointer $ \cp _ -> save cp bHash
+    finalizeCheckpointer $ \cp -> save cp bHash
 
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
 
 execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction ->
-                    PactServiceM Transactions
-execTransactions nonGenesisParentHash miner ctxs = do
-
-    !currentState <- use psPactDbEnv
-
-    case currentState of
-      PactDbEnv' pactdbenv -> do
+                    PactDbEnv' -> PactServiceM Transactions
+execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
 
         let !isGenesis = isNothing nonGenesisParentHash
 
@@ -457,9 +448,6 @@ applyPactCmd isGenesis dbenv cmdIn miner = do
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)
-
-updatePactDbEnv :: PactDbEnv'  -> PactServiceM ()
-updatePactDbEnv = assign psPactDbEnv
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do

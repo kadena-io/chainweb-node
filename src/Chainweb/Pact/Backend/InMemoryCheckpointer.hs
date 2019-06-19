@@ -38,15 +38,14 @@ data Store = Store
   , _dbenv :: MVar (DbEnv PureDb)
   }
 
-initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
+initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO CheckpointEnv
 initInMemoryCheckpointEnv loggers logger gasEnv = do
     pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
     initSchema pdenv
     genesis <- readMVar env
     inmem <- newMVar (Store mempty Nothing env)
     return $
-        (PactDbEnv' pdenv,
-          CheckpointEnv
+        (CheckpointEnv
             { _cpeCheckpointer =
                 Checkpointer
                     (doRestore genesis inmem)

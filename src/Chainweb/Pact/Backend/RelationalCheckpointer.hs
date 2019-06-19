@@ -1,17 +1,18 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE ViewPatterns      #-}
 
 -- |
--- Module: Chainweb.Pact.RelationalCheckpointer
+-- Module: Chainweb.Pact.Backend.RelationalCheckpointer
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Emmanuel Denloye <emmanuel@kadena.io>
 -- Stability: experimental
 --
 -- Pact Checkpointer for Chainweb
-module Chainweb.Pact.Backend.RelationalCheckpointer where
+module Chainweb.Pact.Backend.RelationalCheckpointer
+  ( initRelationalCheckpointer
+  , initRelationalCheckpointer'
+  ) where
 
 import Control.Concurrent.MVar
 import Control.Lens
@@ -36,13 +37,19 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
 
-initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer bstate sqlenv loggr gasEnv = do
+
+initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO CheckpointEnv
+initRelationalCheckpointer bstate sqlenv loggr gasEnv =
+  snd <$> initRelationalCheckpointer' bstate sqlenv loggr gasEnv
+
+-- for testing
+initRelationalCheckpointer' :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
+initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
   let dbenv = BlockDbEnv sqlenv loggr
   db <- newMVar (BlockEnv dbenv bstate)
   runBlockEnv db initSchema
   return $
-    (PactDbEnv' (PactDbEnv chainwebpactdb db),
+    (PactDbEnv' (PactDbEnv chainwebPactDb db),
      CheckpointEnv
       { _cpeCheckpointer =
           Checkpointer
@@ -61,7 +68,7 @@ doRestore dbenv (Just (bh, hash)) = do
     txid <- withSavepoint PreBlock $ handleVersion bh hash
     assign bsTxId txid
     beginSavepoint Block
-  return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
+  return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doRestore dbenv Nothing = do
   runBlockEnv dbenv $ do
@@ -80,21 +87,21 @@ doRestore dbenv Nothing = do
              exec_ db "DELETE FROM [SYS:Modules];"
              exec_ db "DELETE FROM [SYS:Namespaces];"
              exec_ db "DELETE FROM [SYS:Pacts];"
-             tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
              exec_ db "DELETE FROM UserTables;"
+             tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
              forM_ tblNames $ \tbl -> case tbl of
                [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
                _ -> internalError "Something went wrong when resetting tables."
         beginSavepoint Block
       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
-  return $ PactDbEnv' $ PactDbEnv chainwebpactdb dbenv
+  return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
   commitSavepoint Block
-  t <- gets _bsTxId
+  nextTxId <- gets _bsTxId
   (BlockVersion height _) <- gets _bsBlockVersion
-  blockHistoryInsert height hash t
+  blockHistoryInsert height hash nextTxId
 
 doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
