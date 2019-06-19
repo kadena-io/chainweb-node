@@ -97,6 +97,8 @@ import Chainweb.Version
 
 import Data.LogMessage
 
+import Network.X509.SelfSigned
+
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
@@ -296,9 +298,14 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = runClientM sync env >>= \case
-    Left e -> do
-        logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
-        return False
+    Left e
+        | isCertMissmatch e -> do
+            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknow certificate. Deleting peer from peer db"
+            peerDbDelete (_p2pNodePeerDb node) info
+            return False
+        | otherwise -> do
+            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
+            return False
     Right p -> do
         peerDbInsertPeerInfoList
             (_p2pNodeNetworkId node)
@@ -317,6 +324,21 @@ syncFromPeer node info = runClientM sync env >>= \case
         return p
     myPid = _peerId $ _p2pNodePeerInfo node
     pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
+
+    -- If the certificate check fails because the certificate is unknown, the
+    -- peer is removed from the database. That is, we allow only connection to
+    -- peers that we know through explicitly being added to the db.
+    --
+    -- We explicitly don't update the certificate fingerprint. The only we to
+    -- introduce a new peer into the network is by propagating it to the peer
+    -- databased. This allows to implement reputation management, gray-, and
+    -- black listing.
+    --
+    isCertMissmatch (ConnectionError e) = case fromException e of
+        Just x
+            | isCertificateMissmatchException x -> True
+        _ -> False
+    isCertMissmatch _ = False
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
