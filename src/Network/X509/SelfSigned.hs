@@ -42,6 +42,7 @@ module Network.X509.SelfSigned
 , ServiceID
 , unsafeMakeCredential
 , certificateCacheManagerSettings
+, isCertificateMissmatchException
 
 -- * Server Settings
 , tlsServerSettings
@@ -140,7 +141,7 @@ import GHC.Stack
 import GHC.TypeNats
 
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client (ManagerSettings)
+import Network.HTTP.Client (ManagerSettings, HttpException(HttpExceptionRequest), HttpExceptionContent(InternalException))
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
 import Network.TLS.Extra (ciphersuite_default)
@@ -655,7 +656,12 @@ unsafeMakeCredential (X509CertChainPem cert chain) (X509KeyPem keyBytes) =
 --
 data TlsPolicy
     = TlsInsecure
-    | TlsSecure Bool (ServiceID -> IO (Maybe Fingerprint))
+    | TlsSecure
+        Bool
+            -- ^ whether to use the system certificate store.
+        (ServiceID -> IO (Maybe Fingerprint))
+            -- ^ a call back for looking up certificate fingerprints for known
+            -- service endpoints.
 
 -- | Create a connection manager for a given 'TlsPolicy'.
 --
@@ -715,6 +721,21 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
                 $ "for host: " <> fst serviceID <> ":" <> B8.unpack (snd serviceID)
                 <> " expected fingerprint: " <> T.unpack (fingerprintToText f)
                 <> " but got fingerprint: " <> T.unpack (fingerprintToText fp)
+
+-- | Check whether a connection failed due to an certificate missmatch
+--
+isCertificateMissmatchException :: HttpException -> Bool
+isCertificateMissmatchException (HttpExceptionRequest _ (InternalException e)) =
+    case fromException e of
+        Just (HandshakeFailed (Error_Protocol (_msg, _, CertificateUnknown))) -> True
+        _ -> False
+    -- _msg looks something like:
+    --
+    -- "certificate rejected: [
+    --   CacheSaysNo \"for host: 54.93.103.7:443 expected fingerprint: aXv-A9r5FUbg7R9hQHG0huvVIuS0_HQacvMn-wIUS-M but got fingerprint: GqZr-fWw0zj68xll-HW9RcL46e1mq6wwwDjRuXPlrcA\"
+    -- ]"
+isCertificateMissmatchException _ = False
+
 
 -- -------------------------------------------------------------------------- --
 -- Server Settings
