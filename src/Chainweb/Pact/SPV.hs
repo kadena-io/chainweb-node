@@ -31,6 +31,7 @@ import Control.Lens hiding (index)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
+import Data.ByteString.Base64.URL as Base64
 import Data.Default (def)
 import Data.Text (Text, pack)
 
@@ -127,9 +128,11 @@ verifyCont
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case decodeStrict' p  of
-    Nothing -> internalError "unable to decode continuation transaction output"
-    Just t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
+verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case Base64.decode p of
+      Left e -> return $! Left (sshow e)
+      Right t -> case decodeStrict' t of
+        Nothing -> internalError "unable to decode continuation transaction output"
+        Just u -> verifyTransactionOutputProof cdb u >>= extractOutputs handleResult
   where
     handleResult (CommandResult _ _ _ _ _ mpe _) = case mpe of
       Nothing -> return $! Left "no pact exec found in command result"

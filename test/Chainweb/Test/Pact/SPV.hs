@@ -32,8 +32,9 @@ import Control.Exception (SomeException, finally, throwIO)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
-import Data.Aeson hiding (Object)
+import Data.Aeson as Aeson
 import Data.ByteString.Lazy (toStrict)
+import Data.ByteString.Base64.URL as Base64
 import Data.Default
 import Data.Foldable
 import Data.Function
@@ -320,7 +321,7 @@ txGenerator2 cdbv pidv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    proof = Just . ContProof . toStrict . encode . toJSON $ q
+                    proof = Just . ContProof . Base64.encode . toStrict . Aeson.encode . toJSON $ q
 
                 ks <- testKeyPairs
                 pid <- readMVar pidv
@@ -344,7 +345,7 @@ txGenerator3 cdbv pidv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
-                    proof = Just . ContProof . toStrict . encode $ q
+                    proof = Just . ContProof .  Base64.encode . toStrict . Aeson.encode $ q
 
                 ks <- testKeyPairs
                 pid <- readMVar pidv
