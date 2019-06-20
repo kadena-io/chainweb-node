@@ -136,8 +136,20 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
             -- prune block header db
             logg Info "start pruning block header database"
             x <- pruneForks logger cdb (diam * 3) $ \h payloadInUse ->
-                unless payloadInUse
-                    $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
+
+                -- FIXME At the time of writing his payload hashes are not unique. The pruning
+                -- algorithm can handle non-uniquness between within a chain between forks, but not
+                -- accross chains. Also cas-deletion is sound for payload hashes if outputs are
+                -- unique for payload hashes.
+                --
+                -- Renable this code once pact
+                --
+                -- * includes the parent hash into the coinbase hash,
+                -- * includes the transaction hash into the respective output hash, and
+                -- * guarantees that transaction hashes are unique.
+                --
+                -- unless payloadInUse
+                --     $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
             logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
