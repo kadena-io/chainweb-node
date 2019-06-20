@@ -44,15 +44,15 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "Simple pact execution tests"
-    [ withPactCtxSQLite testVersion Nothing $ \ctx -> testGroup "single transactions"
+tests = testGroupSch "Chainweb.Test.Pact.PactExec"
+    [ withPactCtx testVersion Nothing $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtxSQLite testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtx testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -124,7 +124,7 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . (PactDbEnv' -> PactServiceM a) -> IO a) -> TestRequest -> ScheduledTest
+execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
