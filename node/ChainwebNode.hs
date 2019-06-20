@@ -98,6 +98,7 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
     { _nodeConfigChainweb :: !ChainwebConfiguration
     , _nodeConfigLog :: !LogConfig
     , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
+    , _nodeConfigResetChainDbs :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -109,6 +110,7 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
+    , _nodeConfigResetChainDbs = False
     }
 
 instance ToJSON ChainwebNodeConfiguration where
@@ -116,6 +118,7 @@ instance ToJSON ChainwebNodeConfiguration where
         [ "chainweb" .= _nodeConfigChainweb o
         , "logging" .= _nodeConfigLog o
         , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
+        , "resetChainDatabases" .= _nodeConfigResetChainDbs o
         ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
@@ -123,6 +126,7 @@ instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
         <$< nodeConfigChainweb %.: "chainweb" % o
         <*< nodeConfigLog %.: "logging" % o
         <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
+        <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
 pChainwebNodeConfiguration = id
@@ -131,6 +135,9 @@ pChainwebNodeConfiguration = id
     <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
         % long "database-directory"
         <> help "directory where the databases are persisted"
+    <*< nodeConfigResetChainDbs .:: enableDisableFlag
+        % long "reset-chain-databases"
+        <> help "Reset the chain databases for all chains on startup"
 
 -- -------------------------------------------------------------------------- --
 -- Monitors
@@ -220,6 +227,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 node :: Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
     rocksDbDir <- getRocksDbDir
+    when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         withChainweb cwConf logger rocksDb $ \cw -> mapConcurrently_ id
