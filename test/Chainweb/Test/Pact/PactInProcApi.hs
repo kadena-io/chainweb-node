@@ -20,12 +20,12 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception (Exception)
--- import Control.Monad.IO.Class
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -44,6 +44,7 @@ import Chainweb.Logger
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
@@ -55,28 +56,18 @@ import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
-
-tests :: ScheduledTest
-tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
-    [ withPact testMemPoolAccess $ \reqQIO ->
-        newBlockTest "new-block-0" reqQIO
-    , withPact testEmptyMemPool $ \reqQIO ->
-        newBlockTest "empty-block-tests" reqQIO
-    ]
-
-{-
 tests :: ScheduledTest
 tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
     [ withPact testMemPoolAccess $ \reqQIO -> testGroup "pact tests"
         $ schedule Sequential
-            [ localTest reqQIO
+            [ validateTest reqQIO
+            , localTest reqQIO
             ]
     , withPact testMemPoolAccess $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
     , withPact testEmptyMemPool $ \reqQIO ->
         newBlockTest "empty-block-tests" reqQIO
     ]
--}
 
 withPact :: MemPoolAccess -> (IO (TQueue RequestMsg) -> TestTree) -> TestTree
 withPact mempool f = withResource startPact stopPact $ f . fmap snd
@@ -103,10 +94,39 @@ newBlockTest label reqIO = golden label $ do
   where
     cid = someChainId testVersion
 
-_localTest :: IO (TQueue RequestMsg) -> ScheduledTest
-_localTest reqIO = goldenSch "local" $ do
+validateTest :: IO (TQueue RequestMsg) -> ScheduledTest
+validateTest reqIO = goldenSch "validateBlock-0" $ do
     reqQ <- reqIO
-    locVar0c <- _testLocal >>= \t -> local t reqQ
+    let genesisHeader = genesisBlockHeader testVersion cid
+    respVar0 <- newBlock noMiner genesisHeader reqQ
+    plwo <- takeMVar respVar0 >>= \case
+        Left e -> assertFailure (show e)
+        Right r -> return r
+
+    -- validate the same transactions sent to newBlockTest above
+    let matchingPlHash = _payloadWithOutputsPayloadHash plwo
+    let plData = PayloadData
+            { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
+            , _payloadDataMiner = _payloadWithOutputsMiner plwo
+            , _payloadDataPayloadHash = matchingPlHash
+            , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
+            , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
+            }
+
+    let headers = V.fromList $ getBlockHeaders cid 2
+    let toValidateHeader = (headers ! 1)
+            { _blockPayloadHash = matchingPlHash
+            , _blockParent = _blockHash genesisHeader
+            }
+    respVar1 <- validateBlock toValidateHeader plData reqQ
+    goldenBytes "validateBlock-0" =<< takeMVar respVar1
+  where
+    cid = someChainId testVersion
+
+localTest :: IO (TQueue RequestMsg) -> ScheduledTest
+localTest reqIO = goldenSch "local" $ do
+    reqQ <- reqIO
+    locVar0c <- testLocal >>= \t -> local t reqQ
     goldenBytes "local" =<< takeMVar locVar0c
 
 goldenBytes :: Y.ToJSON a => Exception e => String -> Either e a -> IO BL.ByteString
@@ -116,8 +136,8 @@ goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
     , "results" .= a
     ]
 
-_getBlockHeaders :: ChainId -> Int -> [BlockHeader]
-_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+getBlockHeaders :: ChainId -> Int -> [BlockHeader]
+getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 
@@ -147,8 +167,8 @@ testEmptyMemPool = MemPoolAccess
     , mpaProcessFork = \_ -> return ()
     }
 
-_testLocal :: IO ChainwebTransaction
-_testLocal = do
+testLocal :: IO ChainwebTransaction
+testLocal = do
     d <- adminData
     fmap (head . V.toList)
       $ goldenTestTransactions
