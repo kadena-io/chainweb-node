@@ -76,6 +76,7 @@ module P2P.Node.PeerDB
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
+import Control.DeepSeq
 import Control.Lens hiding (Indexable)
 import Control.Monad ((<$!>))
 import Control.Monad.STM
@@ -116,19 +117,19 @@ import P2P.Peer
 
 newtype LastSuccess = LastSuccess { _getLastSuccess :: Maybe UTCTime }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Arbitrary)
+    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
 
 newtype SuccessiveFailures = SuccessiveFailures{ _getSuccessiveFailures :: Natural }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary, NFData)
 
 newtype AddedTime = AddedTime { _getAddedTime :: UTCTime }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Arbitrary)
+    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
 
 newtype ActiveSessionCount = ActiveSessionCount { _getActiveSessionCount :: Natural }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary, NFData)
 
 data PeerEntry = PeerEntry
     { _peerEntryInfo :: !PeerInfo
@@ -144,8 +145,8 @@ data PeerEntry = PeerEntry
     , _peerEntryLastSuccess :: !LastSuccess
         -- ^ The time of the last successful interaction with this peer.
 
-    , _peerEntryNetworkIds :: S.Set NetworkId
-        -- ^ The set of chains that this peer supports.
+    , _peerEntryNetworkIds :: !(S.Set NetworkId)
+        -- ^ The set of networks that this peer supports.
 
     , _peerEntryActiveSessionCount :: !ActiveSessionCount
         -- ^ number of currently active sessions with this peer. By trying to
@@ -155,7 +156,7 @@ data PeerEntry = PeerEntry
 
     }
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+    deriving anyclass (ToJSON, FromJSON, NFData)
 
 makeLenses ''PeerEntry
 
@@ -215,7 +216,7 @@ addPeerEntry :: PeerEntry -> PeerSet -> PeerSet
 addPeerEntry b m = m & case getOne (getEQ addr m) of
 
     -- new peer doesn't exist: insert
-    Nothing -> updateIx addr b
+    Nothing -> updateIx addr (force b)
 
     -- existing peer addr
     Just a -> case _peerId (_peerEntryInfo a) of
@@ -232,7 +233,7 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
   where
     addr = _peerAddr $ _peerEntryInfo b
     replace = updateIx addr b
-    update a = updateIx addr $ PeerEntry
+    update a = updateIx addr $!! PeerEntry
         { _peerEntryInfo = _peerEntryInfo a
         , _peerEntrySuccessiveFailures = _peerEntrySuccessiveFailures a + _peerEntrySuccessiveFailures b
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
@@ -324,7 +325,7 @@ updatePeerDb (PeerDb lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
-            Just x -> updateIx a (f x) s
+            Just x -> force $ updateIx a (force $ f x) s
 
 incrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
 incrementActiveSessionCount db i
