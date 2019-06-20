@@ -42,7 +42,7 @@ module Network.X509.SelfSigned
 , ServiceID
 , unsafeMakeCredential
 , certificateCacheManagerSettings
-, isCertificateMissmatchException
+, isCertificateMismatchException
 
 -- * Server Settings
 , tlsServerSettings
@@ -725,8 +725,8 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
 
 -- | Check whether a connection failed due to an certificate missmatch
 --
-isCertificateMissmatchException :: HttpException -> Bool
-isCertificateMissmatchException (HttpExceptionRequest _ (InternalException e)) =
+isCertificateMismatchException :: HttpException -> Bool
+isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
     case fromException e of
         Just (HandshakeFailed (Error_Protocol (_msg, _, CertificateUnknown))) -> True
         _ -> False
@@ -735,7 +735,7 @@ isCertificateMissmatchException (HttpExceptionRequest _ (InternalException e)) =
     -- "certificate rejected: [
     --   CacheSaysNo \"for host: 54.93.103.7:443 expected fingerprint: aXv-A9r5FUbg7R9hQHG0huvVIuS0_HQacvMn-wIUS-M but got fingerprint: GqZr-fWw0zj68xll-HW9RcL46e1mq6wwwDjRuXPlrcA\"
     -- ]"
-isCertificateMissmatchException _ = False
+isCertificateMismatchException _ = False
 
 
 -- -------------------------------------------------------------------------- --

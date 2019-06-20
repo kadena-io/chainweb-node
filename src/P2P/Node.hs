@@ -301,7 +301,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = runClientM sync env >>= \case
     Left e
-        | isCertMissmatch e -> do
+        | isCertMismatch e -> do
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknow certificate. Deleting peer from peer db"
             peerDbDelete (_p2pNodePeerDb node) info
             return False
@@ -337,16 +337,16 @@ syncFromPeer node info = runClientM sync env >>= \case
     -- black listing.
     --
 #if MIN_VERSION_servant(0,16,0)
-    isCertMissmatch (ConnectionError e) = case fromException e of
+    isCertMismatch (ConnectionError e) = case fromException e of
         Just x
-            | isCertificateMissmatchException x -> True
+            | isCertificateMismatchException x -> True
         _ -> False
-    isCertMissmatch _ = False
+    isCertMismatch _ = False
 #else
-    isCertMissmatch (ConnectionError e)
+    isCertMismatch (ConnectionError e)
         | T.isInfixOf "CertificateUnknown" e = True
         | otherwise = False
-    isCertMissmatch _ = False
+    isCertMismatch _ = False
 #endif
 
 -- -------------------------------------------------------------------------- --
