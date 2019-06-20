@@ -175,7 +175,8 @@ roundtrip sid0 tid0 burn create = do
               sid <- mkChainId v sid0
               tid <- mkChainId v tid0
 
-              pidv <- newMVar (toPactId $ Hash "", False)
+              -- track the continuation pact id
+              pidv <- newEmptyMVar @PactId
 
               -- pact service, that is used to extend the cut data base
               txGen1 <- burn pidv sid tid
@@ -241,10 +242,10 @@ type TransactionGenerator
     = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = MVar (PactId, Bool) -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
+    = MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = MVar (CutDb RocksDbCas) -> MVar (PactId, Bool) -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
+    = MVar (CutDb RocksDbCas) -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
 
 
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
@@ -252,17 +253,17 @@ type CreatesGenerator
 txGenerator1 :: BurnGenerator
 txGenerator1 pidv sid tid = do
     ref <- newIORef False
-    return $ go ref
+    pref <- newIORef True
+    return $ go ref pref
   where
-    go ref _cid _bhe _bha _
+    go ref pref _cid _bhe _bha _
       | sid /= _cid = return mempty
       | otherwise = readIORef ref >>= \case
         True -> return mempty
         False -> do
-            takeMVar pidv >>= \case
-              (pid, True) ->
-                putMVar pidv (pid, True) >> return mempty
-              (_, False) -> do
+            readIORef pref >>= \case
+              False -> return mempty
+              True -> do
                 ks <- testKeyPairs
 
                 let pcid = Pact.ChainId $ chainIdToText sid
@@ -272,7 +273,7 @@ txGenerator1 pidv sid tid = do
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
 
-                putMVar pidv (pid, True)
+                putMVar pidv pid `finally` writeIORef pref False
                 return cmd
 
 
@@ -309,8 +310,8 @@ txGenerator2 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref _cid _bhe _bha _
-        | tid /= _cid = return mempty
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
@@ -322,7 +323,7 @@ txGenerator2 cdbv pidv sid tid bhe = do
                     proof = Just . ContProof . toStrict . encode . toJSON $ q
 
                 ks <- testKeyPairs
-                (pid, _) <- readMVar pidv
+                pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
@@ -333,8 +334,8 @@ txGenerator3 cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha _
-        | tid /= tid' = return mempty
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
@@ -346,7 +347,7 @@ txGenerator3 cdbv pidv sid tid bhe = do
                     proof = Just . ContProof . toStrict . encode $ q
 
                 ks <- testKeyPairs
-                (pid, _) <- readMVar pidv
+                pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
                     `finally` writeIORef ref True
@@ -357,8 +358,8 @@ txGenerator4 _cdbv pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
-    go ref tid' _bhe _bha _
-        | tid /= tid' = return mempty
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
@@ -366,7 +367,7 @@ txGenerator4 _cdbv pidv _ tid _ = do
                 let pcid = Pact.ChainId (chainIdToText tid)
 
                 ks <- testKeyPairs
-                (pid, _) <- readMVar pidv
+                pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False Nothing Null
                     `finally` writeIORef ref True
