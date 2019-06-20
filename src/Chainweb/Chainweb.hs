@@ -178,6 +178,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configIncludeOrigin :: !Bool
     , _configThrottleRate :: !Natural
     , _configMempoolP2p :: !MempoolP2pConfig
+    , _configPruneChainDatabase :: !Bool
     }
     deriving (Show, Eq, Generic)
 
@@ -202,6 +203,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configIncludeOrigin = True
     , _configThrottleRate = 1000
     , _configMempoolP2p = defaultMempoolP2pConfig
+    , _configPruneChainDatabase = True
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -215,6 +217,7 @@ instance ToJSON ChainwebConfiguration where
         , "includeOrigin" .= _configIncludeOrigin o
         , "throttleRate" .= _configThrottleRate o
         , "mempoolP2p" .= _configMempoolP2p o
+        , "pruneChainDatabase" .= _configPruneChainDatabase o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -228,6 +231,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottleRate ..: "throttleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
+        <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -254,6 +258,9 @@ pChainwebConfiguration = id
         % long "throttle-rate"
         <> help "how many requests per second are accepted from another node before it is being throttled"
     <*< configMempoolP2p %:: pMempoolP2pConfig
+    <*< configPruneChainDatabase .:: enableDisableFlag
+        % long "prune-chain-database"
+        <> help "prune the chain database for all chains on startup"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -344,13 +351,15 @@ withChainwebInternal conf logger peer rocksDb inner = do
     cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
-        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid) mempoolConf cdbv (Just payloadDb))
+        (\cid -> withChainResources
+            v cid rocksDb peer (chainLogger cid) mempoolConf cdbv (Just payloadDb) prune)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
         cidsList
 
   where
+    prune = _configPruneChainDatabase conf
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger

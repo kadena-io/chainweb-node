@@ -255,7 +255,11 @@ pruneForks logger cdb limit callback = do
 
     !roots <- keys cdb Nothing Nothing
         (Just $ MinRank $ Min rootHeight)
-        (Just $ MaxRank $ Max rootHeight)
+        Nothing
+            -- include all block headers in the root set, so that all headers
+            -- are included in the marking phase. PayloadBlockHashes can be
+            -- shared between blocks at different height, so we must make sure
+            -- that they are retained if a root depends on them.
         streamToHashSet_
 
     -- Bloom filter for marking block headers
