@@ -657,11 +657,12 @@ unsafeMakeCredential (X509CertChainPem cert chain) (X509KeyPem keyBytes) =
 data TlsPolicy
     = TlsInsecure
     | TlsSecure
-        Bool
+        { _tlsPolicyUseSystemStore :: !Bool
             -- ^ whether to use the system certificate store.
-        (ServiceID -> IO (Maybe Fingerprint))
-            -- ^ a call back for looking up certificate fingerprints for known
+        , _tlsPolicyCallback :: !(ServiceID -> IO (Maybe Fingerprint))
+            -- ^ a callback for looking up certificate fingerprints for known
             -- service endpoints.
+        }
 
 -- | Create a connection manager for a given 'TlsPolicy'.
 --
