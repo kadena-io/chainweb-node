@@ -675,9 +675,7 @@ certificateCacheManagerSettings policy credential = do
     settings certstore = (defaultParamsClient "" "")
         { clientSupported = def
             { supportedCiphers = ciphersuite_default
-#if WITH_TLS13
             , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
             }
         , clientShared = def
             { sharedCAStore = certstore
@@ -728,9 +726,7 @@ tlsServerSettings
 tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
     = (tlsSettingsMemory certBytes keyBytes)
         { tlsCiphers = ciphersuite_default
-#if WITH_TLS13
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
         }
 
 -- | TLS server settings
@@ -742,9 +738,7 @@ tlsServerChainSettings
 tlsServerChainSettings (X509CertChainPem cert chain) (X509KeyPem keyBytes)
     = (tlsSettingsChainMemory (x509Bytes cert) (x509Bytes <$> chain) keyBytes)
         { tlsCiphers = ciphersuite_default
-#if WITH_TLS13
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
         }
   where
     x509Bytes (X509CertPem bytes) = bytes
@@ -814,4 +808,3 @@ validateX509CertChainPem (X509CertChainPem a b) =
     case traverse_ decodePemX509Cert (a : b) of
         Left e -> throwError $ sshow e
         Right () -> return ()
-

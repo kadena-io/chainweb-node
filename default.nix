@@ -255,6 +255,12 @@ in
             sha256 = "10jaajbnlcwqgqdnb94q0k8pzx11ff569af8a8d6k26xc954m48p";
         };
 
+        tls = callHackageDirect {
+            pkg = "tls";
+            ver = "1.5.0";
+            sha256 = "05srd9lssgs437h45mawaxbd79lqyxj7qx7fx2sdgncr6m0h8vm0";
+        };
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;
