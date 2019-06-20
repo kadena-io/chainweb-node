@@ -195,13 +195,12 @@ applyCoinbase logger dbEnv mi@(MinerInfo mid mks) reward pd ph = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
         initState = initCapabilities [magic_COINBASE]
-        ch = toUntypedHash (Pact.hash (sshow ph) :: Pact.PactHash)
+        ch = Pact.Hash (sshow ph)
 
     let rk = RequestKey ch
 
     cexec <- mkCoinbaseCmd mid mks reward
-    cre <- catchesPactError $!
-      applyExec' cenv initState cexec [] ch
+    cre <- catchesPactError $! applyExec' cenv initState cexec [] ch
 
     case cre of
       Left e -> jsonErrorResult cenv rk e [] (Gas 0) "coinbase tx failure"
