@@ -111,10 +111,6 @@
           , "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
-          , "delete-block-height": 0
-          , "delete-chain-id": "0"
-          , "delete-account": 'k1
-          , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
           }))
 
 ; successful path
@@ -125,10 +121,6 @@
           , "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
-          , "delete-block-height": 0
-          , "delete-chain-id": "0"
-          , "delete-account": 'k1
-          , "delete-tx-hash": "UT9N17TRzn2FmWlZdT_S7y-AC1A_yOugNbfRSz4VFPE"
           }))
 
 ; double spends are disallowed by construction

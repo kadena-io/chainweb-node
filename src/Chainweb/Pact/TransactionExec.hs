@@ -105,8 +105,8 @@ applyCmd l pactDbEnv minerInfo gasModel pd0 spv cmd = do
 
     let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv l freeGasEnv pd spv
 
-    withGas l buyGasEnv cmd minerInfo supply userGasEnv $ \cenv logs ->
-      runPayload cenv def cmd logs
+    withGas l buyGasEnv cmd minerInfo supply userGasEnv $ \cenv cmd0 logs ->
+      runPayload cenv def cmd0 logs
 
 -- | A handle for wrapping 'runPayload' commands in a buy/redeem gas phase.
 --
@@ -118,7 +118,7 @@ withGas
     -> MinerInfo
     -> GasSupply
     -> GasEnv
-    -> (CommandEnv a -> [TxLog Value] -> IO (CommandResult [TxLog Value]))
+    -> (CommandEnv a -> Command (Payload PublicMeta ParsedCode) -> [TxLog Value] -> IO (CommandResult [TxLog Value]))
       -- ^ this is the form of a 'runPayload' command
     -> IO (CommandResult [TxLog Value])
 withGas l benv cmd mi supply gasEnv action = do
@@ -133,7 +133,7 @@ withGas l benv cmd mi supply gasEnv action = do
 
         let !cenv = set ceGasEnv gasEnv benv
 
-        cmde <- catchesPactError $! action cenv bgLogs
+        cmde <- catchesPactError $! action cenv cmd bgLogs
         case cmde of
           Left e' ->
             jsonErrorResult cenv rk e' bgLogs (Gas 0) "transaction failure while executing cmd"

@@ -1,6 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
