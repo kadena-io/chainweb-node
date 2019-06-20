@@ -147,9 +147,9 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
                     --
                     -- Renable this code once pact
                     --
-                    -- * includes the parent hash into the coinbase hash,
-                    -- * includes the transaction hash into the respective output hash, and
-                    -- * guarantees that transaction hashes are unique.
+                    -- includes the parent hash into the coinbase hash,
+                    -- includes the transaction hash into the respective output hash, and
+                    -- guarantees that transaction hashes are unique.
                     --
                     -- unless payloadInUse
                     --     $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
