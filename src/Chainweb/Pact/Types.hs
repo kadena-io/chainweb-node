@@ -35,7 +35,6 @@ module Chainweb.Pact.Types
   , psCheckpointEnv
   , psSpvSupport
   , psPublicData
-  , psStateDb
   , psStateValidated
     -- * defaults
   , defaultMiner
@@ -153,8 +152,7 @@ data PactServiceEnv = PactServiceEnv
   }
 
 data PactServiceState = PactServiceState
-  { _psStateDb :: !PactDbState
-  , _psStateValidated :: !(Maybe BlockHeader)
+  {_psStateValidated :: Maybe BlockHeader
   }
 
 type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
