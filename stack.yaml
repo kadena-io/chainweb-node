@@ -37,6 +37,7 @@ extra-deps:
   - generic-lens-1.1.0.0
   - nonempty-containers-0.2.0.0
   - tasty-1.2
+  - tls-1.5.0
   - vector-algorithms-0.8.0.1
   - yaml-0.11.0.0
 

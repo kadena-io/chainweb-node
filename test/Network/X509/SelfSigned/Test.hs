@@ -48,10 +48,8 @@ import Network.X509.SelfSigned
 tests :: TestTree
 tests = testGroup "SelfSignedCertificate Tests"
     [ testCertType @RsaCert "RSA"
-#if MIN_VERSION_tls(1,5,0) || WITH_TLS13
     , testCertType @Ed25519Cert "Ed25519"
     , testCertType @Ed448Cert "Ed448"
-#endif
     -- , testCertType @P256Cert "P-256"
         -- P-256 is currently not fully supported on the server side
         -- in the master branch of the tls package.
@@ -138,4 +136,3 @@ assertException a = (a >> assertFailure "missing asserted exception")
 --     serverHooks = def
 --         { onUnverifiedClientCert = return True
 --         }
-

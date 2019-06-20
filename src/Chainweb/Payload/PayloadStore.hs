@@ -269,6 +269,32 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
             }
     {-# INLINE casLookup #-}
 
+    -- Note that this function is sound only if the PayloadHash uniquly identifies
+    -- all three components:
+    --
+    -- * BlockPayloads,
+    -- * BlockTransactions (transactions and miner info), and
+    -- * BlockOutputs.
+    --
+    -- 'BlockPayload' is content addressed by the 'PayloadHash' and thus
+    -- trivially satisfies the requirement.
+    --
+    -- The 'PayloadHash' is a cryptographic hash of the transactions and of the
+    -- outputs, where the outputs are deterministically evaluated from the
+    -- transactions. The 'BlockPayloadHash' thus uniquely identifies the block
+    -- transactions.
+    --
+    -- Each transaction in the block transactions has a unique hash which is
+    -- included in its outputs. (At the time of writing this wasn't yet fully
+    -- implemented.) Thus the hash of any non-empty set of transactions uniquely
+    -- identifies a the respective outputs and thus the hash of the outputs.
+    --
+    -- The set of transactions is never empty. Each block includes the coinbase
+    -- transactions. The coinbase transaction is unique modulo the block height.
+    -- Thus it's unique within a single fork of the chain. However, this is of
+    -- no concern here, because those blocks also share the same
+    -- 'BlockPayloadHash'.
+    --
     casDelete db k =
         casLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
             Just pd -> do
@@ -283,3 +309,4 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
                     (_blockPayloadOutputsHash pd)
             Nothing -> return ()
     {-# INLINE casDelete #-}
+
