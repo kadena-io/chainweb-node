@@ -33,7 +33,6 @@ module Chainweb.Pact.TransactionExec
   -- * commands
 , mkBuyGasCmd
 , mkCoinbaseCmd
-, mkCoinbaseExec
   -- * code parsing utils
 , buildExecParsedCode
   -- * utilities
@@ -64,6 +63,7 @@ import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
+import Pact.Types.Hash as Pact
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime
@@ -121,17 +121,17 @@ withGas
     -> (CommandEnv a -> [TxLog Value] -> IO (CommandResult [TxLog Value]))
       -- ^ this is the form of a 'runPayload' command
     -> IO (CommandResult [TxLog Value])
-withGas l genv cmd mi supply gasEnv action = do
+withGas l benv cmd mi supply gasEnv action = do
     let rk = cmdToRequestKey cmd
 
-    bge <- catchesPactError $! buyGas genv cmd mi supply
+    bge <- catchesPactError $! buyGas benv cmd mi supply
     case bge of
-      Left e -> jsonErrorResult genv rk e [] (Gas 0) "transaction failure for when buying gas"
+      Left e -> jsonErrorResult benv rk e [] (Gas 0) "transaction failure for when buying gas"
       Right (Left e0) -> internalError e0
       Right (Right (!gid, !bgLogs)) -> do
         logDebugRequestKey l rk "successful gas buy"
 
-        let !cenv = set ceGasEnv gasEnv genv
+        let !cenv = set ceGasEnv gasEnv benv
 
         cmde <- catchesPactError $! action cenv bgLogs
         case cmde of
@@ -195,33 +195,27 @@ applyCoinbase logger dbEnv mi@(MinerInfo mid mks) reward pd ph = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
         initState = initCapabilities [magic_COINBASE]
+        ch = toUntypedHash (Pact.hash (sshow ph) :: Pact.PactHash)
 
-    -- build the pure Exec so we can build the cmd
-    let cexec = Exec $! mkCoinbaseExec mid mks reward
+    let rk = RequestKey ch
 
-    ccmd <- mkCommand [] (_pdPublicMeta pd) (sshow ph) cexec
-
-    cexec' <- case verifyCommand @PublicMeta ccmd of
-      ProcSucc t -> case _pPayload $ _cmdPayload t of
-        Exec c -> return c
-        _ -> internalError "applyCoinbase: continuation generated for coinbase cmd"
-      ProcFail e -> internalError (sshow e)
-
-    let rk = cmdToRequestKey ccmd
-        ch = toUntypedHash $ _cmdHash ccmd
-
-    cre <- catchesPactError $! applyExec cenv initState rk cexec' [] ch []
+    cexec <- mkCoinbaseCmd mid mks reward
+    cre <- catchesPactError $!
+      applyExec' cenv initState cexec [] ch
 
     case cre of
       Left e -> jsonErrorResult cenv rk e [] (Gas 0) "coinbase tx failure"
-      Right r -> do
+      Right !er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase for miner "
           ++ show mi
           ++ ": "
           ++ show reward
 
-        return $! r
+        let r = PactResult (Right (last $ _erOutput er))
+
+        return $! CommandResult rk (_erTxId er) r
+          (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
 
 
 applyLocal
@@ -249,8 +243,6 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
   either
     (\e -> jsonErrorResult cmdEnv requestKey e [] 0 "applyLocal")
     return r
-
-
 
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
@@ -442,19 +434,6 @@ mkCoinbaseCmd minerId minerKeys reward =
       , "reward" .= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
-
--- | Make the 'ExecMsg' of a coinbase call
---
-mkCoinbaseExec :: Text -> KeySet -> ParsedDecimal -> ExecMsg Text
-mkCoinbaseExec mid mks reward = ExecMsg c d
-  where
-    c =
-      [text|
-        (coin.coinbase '$mid (read-keyset 'miner-keyset) (read-decimal 'reward))
-        |]
-
-    d = object [ "miner-keyset" .= mks , "reward" .= reward ]
-{-# INLINABLE mkCoinbaseExec #-}
 
 -- | Initialize a fresh eval state with magic capabilities.
 -- This is the way we inject the correct guards into the environment
