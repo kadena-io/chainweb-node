@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -29,10 +30,10 @@ module Chainweb.Pact.TransactionExec
 , withGas
   -- * coin contract api
 , buyGas
-, coinbase
   -- * commands
 , mkBuyGasCmd
 , mkCoinbaseCmd
+, mkCoinbaseExec
   -- * code parsing utils
 , buildExecParsedCode
   -- * utilities
@@ -63,7 +64,6 @@ import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
-import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime
@@ -73,9 +73,11 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 
 -- internal Chainweb modules
 
+import Chainweb.BlockHash
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..), GasId(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
+import Chainweb.Utils (sshow)
 
 -- ------------------------------------------------------------------------ --
 -- Transaction logic
@@ -187,25 +189,39 @@ applyCoinbase
     -> MinerInfo
     -> ParsedDecimal
     -> PublicData
+    -> BlockHash
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv minerInfo reward pd = do
-
+applyCoinbase logger dbEnv mi@(MinerInfo mid mks) reward pd ph = do
     -- cmd env with permissive gas model
-    let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
-        coinbaseReq = RequestKey $ H.toUntypedHash (H.hash "COINBASE" :: H.PactHash)
+    let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
+        initState = initCapabilities [magic_COINBASE]
 
-    resultE <- catchesPactError $ coinbase cmdEnv minerInfo reward coinbaseReq
+    -- build the pure Exec so we can build the cmd
+    let cexec = Exec $! mkCoinbaseExec mid mks reward
 
-    case resultE of
+    ccmd <- mkCommand [] (_pdPublicMeta pd) (sshow ph) cexec
 
-      Left e ->
-        jsonErrorResult cmdEnv coinbaseReq e [] (Gas 0)
-          "genesis tx failure for request key while running genesis"
+    cexec' <- case verifyCommand @PublicMeta ccmd of
+      ProcSucc t -> case _pPayload $ _cmdPayload t of
+        Exec c -> return c
+        _ -> internalError "applyCoinbase: continuation generated for coinbase cmd"
+      ProcFail e -> internalError (sshow e)
 
-      Right result -> do
-        logDebugRequestKey logger coinbaseReq $
-          "successful coinbase for miner " ++ show minerInfo ++ " of " ++ show reward
-        pure $! result
+    let rk = cmdToRequestKey ccmd
+        ch = toUntypedHash $ _cmdHash ccmd
+
+    cre <- catchesPactError $! applyExec cenv initState rk cexec' [] ch []
+
+    case cre of
+      Left e -> jsonErrorResult cenv rk e [] (Gas 0) "coinbase tx failure"
+      Right r -> do
+        logDebugRequestKey logger rk
+          $ "successful coinbase for miner "
+          ++ show mi
+          ++ ": "
+          ++ show reward
+
+        return $! r
 
 
 applyLocal
@@ -334,8 +350,6 @@ applyContinuation' CommandEnv{..} initState cm senderSigs hsh = do
 
     evalContinuation initState evalEnv cm
 
-
-
 -- ------------------------------------------------------------------------ --
 -- Coin Contract
 
@@ -393,23 +407,6 @@ redeemGas env cmd cmdResult gid supply prevLogs = do
 
     feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
 
--- | The miner reward function (i.e. 'coinbase'). Miners are rewarded
--- on a per-block, rather than a per-transaction basis.
---
--- See: 'pact/coin-contract/coin.pact#coinbase'
---
-coinbase
-    :: CommandEnv p
-    -> MinerInfo  -- ^ Account to associate reward
-    -> ParsedDecimal    -- ^ Reward amount
-    -> RequestKey -- ^ Hash for exec, request key
-    -> IO (CommandResult [TxLog Value])
-coinbase env (MinerInfo minerId minerKeys) reward rk@(RequestKey h) = do
-    let initState = initCapabilities [magic_COINBASE]
-
-    coinbaseCmd <- mkCoinbaseCmd minerId minerKeys reward
-    applyExec env initState rk coinbaseCmd [] h []
-
 -- ------------------------------------------------------------------------ --
 -- Command Builders
 
@@ -445,6 +442,19 @@ mkCoinbaseCmd minerId minerKeys reward =
       , "reward" .= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
+
+-- | Make the 'ExecMsg' of a coinbase call
+--
+mkCoinbaseExec :: Text -> KeySet -> ParsedDecimal -> ExecMsg Text
+mkCoinbaseExec mid mks reward = ExecMsg c d
+  where
+    c =
+      [text|
+        (coin.coinbase '$mid (read-keyset 'miner-keyset) (read-decimal 'reward))
+        |]
+
+    d = object [ "miner-keyset" .= mks , "reward" .= reward ]
+{-# INLINABLE mkCoinbaseExec #-}
 
 -- | Initialize a fresh eval state with magic capabilities.
 -- This is the way we inject the correct guards into the environment
