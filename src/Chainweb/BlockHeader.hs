@@ -23,6 +23,7 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -91,6 +92,7 @@ module Chainweb.BlockHeader
 , ObjectEncoded(..)
 , NewMinedBlock(..)
 
+, timeBetween
 , getAdjacentHash
 , computeBlockHash
 , adjacentChainIds
@@ -623,6 +625,14 @@ _blockPow h = powHash (_blockChainwebVersion h)
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
 {-# INLINE blockPow #-}
+
+-- | The number of `Seconds` between the creation time of two `BlockHeader`s.
+--
+timeBetween :: BlockHeader -> BlockHeader -> Seconds
+timeBetween after before = f after - f before
+  where
+    f :: BlockHeader -> Seconds
+    f (_blockCreationTime -> BlockCreationTime (Time ts)) = timeSpanToSeconds ts
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
