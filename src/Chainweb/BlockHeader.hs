@@ -138,6 +138,8 @@ import Data.Word
 
 import GHC.Generics (Generic)
 
+import Numeric.Natural (Natural)
+
 -- Internal imports
 
 import Chainweb.BlockHash
@@ -685,7 +687,7 @@ data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
     , _minedBlockTrans :: {-# UNPACK #-} !Word
     , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: {-# UNPACK #-} !Word }
+    , _minedHashAttempts :: !Natural }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 
