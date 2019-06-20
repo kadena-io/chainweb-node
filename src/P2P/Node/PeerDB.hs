@@ -48,6 +48,7 @@ module P2P.Node.PeerDB
 , peerDbInsertList
 , peerDbInsertPeerInfoList
 , peerDbInsertSet
+, peerDbDelete
 , newEmptyPeerDb
 , fromPeerEntryList
 , fromPeerInfoList
@@ -256,6 +257,12 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
 addPeerInfo :: NetworkId -> PeerInfo -> PeerSet -> PeerSet
 addPeerInfo nid = addPeerEntry . newPeerEntry nid
 
+-- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
+-- is delete for all network ids.
+--
+deletePeer :: PeerInfo -> PeerSet -> PeerSet
+deletePeer i = deleteIx (_peerAddr i)
+
 insertPeerEntryList :: [PeerEntry] -> PeerSet -> PeerSet
 insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
 
@@ -294,6 +301,16 @@ peerDbInsert (PeerDb lock var) nid i = withMVar lock
     . modifyTVar' var
     $ addPeerInfo nid i
 {-# INLINE peerDbInsert #-}
+
+-- | Delete a peer, identified by its host address, from the peer database.
+--
+peerDbDelete :: PeerDb -> PeerInfo -> IO ()
+peerDbDelete (PeerDb lock var) i = withMVar lock
+    . const
+    . atomically
+    . modifyTVar' var
+    $ deletePeer i
+{-# INLINE peerDbDelete #-}
 
 fromPeerEntryList :: [PeerEntry] -> IO PeerDb
 fromPeerEntryList peers = PeerDb
