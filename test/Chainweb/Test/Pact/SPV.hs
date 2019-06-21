@@ -36,7 +36,6 @@ import Data.Aeson as Aeson
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Base64.URL as Base64
 import Data.Default
-import Data.Foldable
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
@@ -72,7 +71,6 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Types
-import Chainweb.Pact.Backend.Utils
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
@@ -149,12 +147,6 @@ badproof :: Assertion
 badproof = expectFailure "resumePact: no previous execution found" $
     roundtrip 0 1 txGenerator1 txGenerator4
 
-withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
-withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
-  where
-    with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
-    with g envs =  withTempSQLiteConnection fastNoJournalPragmas $ \s -> g (s : envs)
-
 roundtrip
     :: Int
       -- ^ source chain id
@@ -166,67 +158,66 @@ roundtrip
       -- ^ create tx generator
     -> IO (Bool, String)
 roundtrip sid0 tid0 burn create = do
-    withAll v $ \sqlenv0s -> withAll v $ \sqlenv1s -> withAll v $ \sqlenv2s -> do
-      -- Pact service that is used to initialize the cut data base
-      pact0 <- testWebPactExecutionService v Nothing mempty sqlenv0s
-      withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
-          withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
-              cdb <- newMVar cutDb
+    -- Pact service that is used to initialize the cut data base
+    pact0 <- testWebPactExecutionService v Nothing mempty
+    withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
+        withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
+            cdb <- newMVar cutDb
 
-              sid <- mkChainId v sid0
-              tid <- mkChainId v tid0
+            sid <- mkChainId v sid0
+            tid <- mkChainId v tid0
 
-              -- track the continuation pact id
-              pidv <- newEmptyMVar @PactId
+            -- track the continuation pact id
+            pidv <- newEmptyMVar @PactId
 
-              -- pact service, that is used to extend the cut data base
-              txGen1 <- burn pidv sid tid
+            -- pact service, that is used to extend the cut data base
+            txGen1 <- burn pidv sid tid
 
-              pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1) sqlenv1s
-              syncPact cutDb pact1
+            pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1)
+            syncPact cutDb pact1
 
-              c0 <- _cut cutDb
+            c0 <- _cut cutDb
 
-              -- get tx output from `(coin.delete-coin ...)` call.
-              -- Note: we must mine at least (diam + 1) * graph order many blocks
-              -- to ensure we synchronize the cutdb across all chains
+            -- get tx output from `(coin.delete-coin ...)` call.
+            -- Note: we must mine at least (diam + 1) * graph order many blocks
+            -- to ensure we synchronize the cutdb across all chains
 
-              c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
+            c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height sid) c0
 
-              -- A proof can only be constructed if the block hash of the source
-              -- block is included in the block hash of the target. Extending the
-              -- cut db with `distance(source, target) * order(graph) + 2 *
-              -- diameter(graph) * order(graph)` should be sufficient to guarantee
-              -- that a proof exists (modulo off-by-one errors)
+            -- A proof can only be constructed if the block hash of the source
+            -- block is included in the block hash of the target. Extending the
+            -- cut db with `distance(source, target) * order(graph) + 2 *
+            -- diameter(graph) * order(graph)` should be sufficient to guarantee
+            -- that a proof exists (modulo off-by-one errors)
 
-              -- So, if the distance is 2, you would mine 10 (order of peterson
-              -- graph) * 2 new blocks. Since extending the cut db picks chains
-              -- randomly you mine another 2 * diameter(graph) * 10 = 40 blocks to
-              -- make up for uneven height distribution.
+            -- So, if the distance is 2, you would mine 10 (order of peterson
+            -- graph) * 2 new blocks. Since extending the cut db picks chains
+            -- randomly you mine another 2 * diameter(graph) * 10 = 40 blocks to
+            -- make up for uneven height distribution.
 
-              -- So in total you would add 60 + 2 blocks which would guarantee that
-              -- all chains advanced by at least 2 blocks. This is probably an
-              -- over-approximation, I guess the formula could be made a little
-              -- more tight, but the that’s the overall idea. The idea behind the
-              -- `2 * diameter(graph) * order(graph)` corrective is that, the
-              -- block heights between any two chains can be at most
-              -- `diameter(graph)` apart.
+            -- So in total you would add 60 + 2 blocks which would guarantee that
+            -- all chains advanced by at least 2 blocks. This is probably an
+            -- over-approximation, I guess the formula could be made a little
+            -- more tight, but the that’s the overall idea. The idea behind the
+            -- `2 * diameter(graph) * order(graph)` corrective is that, the
+            -- block heights between any two chains can be at most
+            -- `diameter(graph)` apart.
 
-              c2 <- fmap fromJuste $ extendAwait cutDb pact1 80 $ \c ->
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 80 $ \c ->
                 height tid c > diam + height sid c1
 
-              -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-              txGen2 <- create cdb pidv sid tid (height sid c1)
+            -- execute '(coin.create-coin ...)' using the  correct chain id and block height
+            txGen2 <- create cdb pidv sid tid (height sid c1)
 
-              pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2) sqlenv2s
-              syncPact cutDb pact2
+            pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2)
+            syncPact cutDb pact2
 
-              -- consume the stream and mine second batch of transactions
-              void $ fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
+            -- consume the stream and mine second batch of transactions
+            void $ fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
                 ((<) `on` height tid) c2
 
-              return (True, "test succeeded")
+            return (True, "test succeeded")
 
 
 chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess

@@ -1,14 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FunctionalDependencies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -32,66 +29,36 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
-    , PactDbEnv'(..)
     , PactDbEnvPersist(..)
     , pdepEnv
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
-    , ReorgVersion(..)
-    , BlockVersion(..)
-    , bvVersion
-    , bvBlock
-    , BlockState(..)
-    , bsBlockVersion
-    , bsTxRecord
-    , bsMode
-    , bsTxId
-    , BlockEnv(..)
-    , benvBlockState
-    , benvDb
-    , SQLiteEnv(..)
-    , sConn
-    , sConfig
-    , BlockHandler(..)
-    , ParentHash
-    , BlockDbEnv(..)
-    , bdbenvDb
-    , SQLiteFlag(..)
     ) where
 
-import Control.Exception.Safe hiding (bracket)
-import Control.Monad.Fail
-import Control.Monad.State.Strict
-import Control.Monad.Reader
 import Control.Lens
-import Control.DeepSeq
 
-import Data.Aeson
-import Data.Bits
-import Data.Int
-import Data.Map.Strict (Map)
-import Data.Word
-
-import Database.SQLite3.Direct as SQ3
+import qualified Data.Aeson as A
 
 import GHC.Generics
 
-import Pact.Interpreter (PactDbEnv(..))
-import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
-import Pact.PersistPactDb (DbEnv(..))
-import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime (PactDb(..), TxId(..), ExecutionMode(..), TableName(..), TxLog(..), GasEnv(..))
+import qualified Pact.Interpreter as P
+import qualified Pact.Persist.SQLite as P
+import qualified Pact.PersistPactDb as P
+import qualified Pact.Types.Logger as P
+import qualified Pact.Types.Persistence as P
+import qualified Pact.Types.Runtime as P
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 
-data Env' = forall a. Env' (PactDbEnv (DbEnv a))
+
+data Env' = forall a. Env' (P.PactDbEnv (P.DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: PactDb (DbEnv p)
-    , _pdepEnv :: DbEnv p
+    { _pdepPactDb :: P.PactDb (P.DbEnv p)
+    , _pdepEnv :: P.DbEnv p
     }
 
 makeLenses ''PactDbEnvPersist
@@ -99,106 +66,38 @@ makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
+data PactDbState = PactDbState
+    { _pdbsDbEnv :: EnvPersist' }
 
 makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: Maybe FilePath
     , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [Pragma]
+    , _pdbcPragmas :: [P.Pragma]
     , _pdbcGasLimit :: Maybe Int
     , _pdbcGasRate :: Maybe Int
     } deriving (Eq, Show, Generic)
 
-instance FromJSON PactDbConfig
+instance A.FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
-data SQLiteEnv = SQLiteEnv
-  { _sConn :: !Database
-  , _sConfig :: !SQLiteConfig
-  }
-
-makeLenses ''SQLiteEnv
-
-newtype ReorgVersion = ReorgVersion
-  { _getReorgVersion :: Int64
-  }
-  deriving newtype (Num, Integral, Enum, Real, Ord, Eq)
-  deriving stock Show
-
-instance NFData ReorgVersion where
-  rnf (ReorgVersion v) = rnf v
-
-data BlockVersion = BlockVersion
-  { _bvBlock :: !BlockHeight
-  , _bvVersion :: !ReorgVersion
-  }
-  deriving (Eq, Show)
-
-instance NFData BlockVersion where
-  rnf (BlockVersion bvBlock bvVersion) = rnf bvBlock `seq` rnf bvVersion
-
-makeLenses ''BlockVersion
-
-data BlockState = BlockState
-  { _bsTxId :: !TxId
-  , _bsMode :: !(Maybe ExecutionMode)
-  , _bsBlockVersion :: !BlockVersion
-  , _bsTxRecord :: !(Map TableName [TxLog Value])
-  }
-
-makeLenses ''BlockState
-
-data BlockDbEnv p = BlockDbEnv
-  { _bdbenvDb :: !p
-  , _logger :: !Logger
-  }
-
-makeLenses ''BlockDbEnv
-
-data BlockEnv p = BlockEnv
-  { _benvDb :: !(BlockDbEnv p)
-  , _benvBlockState :: !BlockState -- ^ The current block state.
-  }
-
-makeLenses ''BlockEnv
-
-newtype BlockHandler p a = BlockHandler
-  { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
-  } deriving ( Functor
-             , Applicative
-             , Monad
-             , MonadState BlockState
-             , MonadThrow
-             , MonadCatch
-             , MonadIO
-             , MonadReader (BlockDbEnv p)
-             , MonadFail
-             )
-
-data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
-
-instance Logging (BlockHandler p) where
-  log c s = view logger >>= \l -> liftIO $ logLog l c s
-
-type ParentHash = BlockHash
-
 data Checkpointer = Checkpointer
-    {
-      restore :: Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-    , save :: BlockHash -> IO ()
-    , discard :: IO ()
+    { restore :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
+    , restoreInitial ::IO (Either String PactDbState)
+    , save :: BlockHeight -> BlockHash -> PactDbState -> IO (Either String ())
+    , saveInitial :: PactDbState -> IO (Either String ())
+    , discard :: PactDbState -> IO (Either String ())
     }
 
+-- functions like the ones below need to be implemented internally
+-- , prepareForValidBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
+-- , prepareForNewBlock :: BlockHeight -> BlockHash -> IO (Either String PactDbState)
 data CheckpointEnv = CheckpointEnv
-    { _cpeCheckpointer :: !Checkpointer
-    , _cpeLogger :: !Logger
-    , _cpeGasEnv :: !GasEnv
+    { _cpeCheckpointer :: Checkpointer
+    , _cpeLogger :: P.Logger
+    , _cpeGasEnv :: P.GasEnv
     }
 
 makeLenses ''CheckpointEnv
-
-newtype SQLiteFlag = SQLiteFlag { getFlag :: Word32 }
-  deriving (Eq, Ord, Bits, Num)
