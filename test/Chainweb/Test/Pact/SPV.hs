@@ -253,28 +253,28 @@ type CreatesGenerator
 --
 txGenerator1 :: BurnGenerator
 txGenerator1 pidv sid tid = do
-    ref <- newIORef False
-    pref <- newIORef True
-    return $ go ref pref
+    ref0 <- newIORef False
+    ref1 <- newIORef False
+    return $ go ref0 ref1
   where
-    go ref pref _cid _bhe _bha _
+    go ref0 ref1 _cid _bhe _bha _
       | sid /= _cid = return mempty
-      | otherwise = readIORef ref >>= \case
+      | otherwise = readIORef ref0 >>= \case
         True -> return mempty
         False -> do
-            readIORef pref >>= \case
-              False -> return mempty
-              True -> do
+            readIORef ref1 >>= \case
+              True -> return mempty
+              False -> do
                 ks <- testKeyPairs
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
                 cmd <- mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
-                  `finally` writeIORef ref False
+                  `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
 
-                putMVar pidv pid `finally` writeIORef pref False
+                putMVar pidv pid `finally` writeIORef ref1 True
                 return cmd
 
 
