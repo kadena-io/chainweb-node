@@ -51,6 +51,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -255,6 +256,7 @@ validateHashes pwo bHeader =
 restoreCheckpointer :: Maybe (BlockHeight,BlockHash) -> PactServiceM PactDbEnv'
 restoreCheckpointer maybeBB = do
   checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
+  logInfo $ "restoring " <> sshow maybeBB
   liftIO $! case maybeBB of
     Nothing -> restore checkPointer Nothing
     Just (bHeight,bHash) -> restore checkPointer (Just (bHeight, bHash))
@@ -276,25 +278,26 @@ execNewBlock
     -> BlockHeader
     -> MinerInfo
     -> PactServiceM PayloadWithOutputs
-execNewBlock mpAccess header miner = do
-    let bHeight@(BlockHeight bh) = _blockHeight header
-        bHash = _blockHash header
+execNewBlock mpAccess parentHeader miner = do
+    let pHeight@(BlockHeight bh) = _blockHeight parentHeader
+        pHash = _blockHash parentHeader
+        bHeight = succ pHeight
 
-    logDebug $ "execNewBlock, about to get call processFork: "
-           <> " (height = " <> sshow bHeight <> ")"
-           <> " (hash = " <> sshow bHash <> ")"
-    liftIO $ mpaProcessFork mpAccess header
+    logInfo $ "execNewBlock, about to get call processFork: "
+           <> " (parent height = " <> sshow pHeight <> ")"
+           <> " (parent hash = " <> sshow pHash <> ")"
+    liftIO $ mpaProcessFork mpAccess parentHeader
 
-    logDebug $ "execNewBlock, about to get new block from mempool: "
-           <> " (height = " <> sshow bHeight <> ")"
-           <> " (hash = " <> sshow bHash <> ")"
-    newTrans <- liftIO $! mpaGetBlock mpAccess bHeight bHash header
+    liftIO $ T.putStrLn $ "execNewBlock, about to get new block from mempool: "
+           <> " (parent height = " <> sshow pHeight <> ")"
+           <> " (parent hash = " <> sshow pHash <> ")"
+    newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
 
-    pdbenv <- restoreCheckpointer $ Just (succ bHeight, bHash)
+    pdbenv <- restoreCheckpointer $ Just (bHeight, pHash)
 
     -- locally run 'execTransactions' with updated blockheight data
-    results <- locally (psPublicData . P.pdBlockHeight) (const (bh + 1)) $
-      execTransactions (Just bHash) miner newTrans pdbenv
+    results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
+      execTransactions (Just pHash) miner newTrans pdbenv
 
     discardCheckpointer
     return $! toPayloadWithOutputs miner results
@@ -360,16 +363,16 @@ execValidateBlock mpAccess loadingGenesis currHeader plData = do
         !bParent = _blockParent currHeader
         !isGenesisBlock = isGenesisBlockHeader currHeader
 
-    logDebug $ "execValidateBlock, about to get call setLastHeader: "
+    liftIO $ T.putStrLn $ "execValidateBlock, about to get call setLastHeader: "
         <> " (height = " <> sshow bHeight <> ")"
         <> " (hash = " <> sshow bHash <> ")"
     liftIO $ mpaSetLastHeader mpAccess currHeader
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
-    unless loadingGenesis $ logDebug $ "execValidateBlock: height=" ++ show bHeight ++
-      ", parent=" ++ show bParent ++ ", hash=" ++ show bHash ++
-      ", payloadHash=" ++ show (_blockPayloadHash currHeader)
+    unless loadingGenesis $ liftIO $ T.putStrLn $ "execValidateBlock: height=" <> sshow bHeight <>
+      ", parent=" <> sshow bParent <> ", hash=" <> sshow bHash <>
+      ", payloadHash=" <> sshow (_blockPayloadHash currHeader)
 
     trans <- liftIO $ transactionsFromPayload plData
     pdbenv <- restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (bHeight, bParent)

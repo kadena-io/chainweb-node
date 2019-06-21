@@ -143,6 +143,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
             -- replay pact
             let pact = pes mempool requestQ
             -- payloadStore is only 'Nothing' in some unit tests not using this code
+            -- this is wrong because of italian forks
             replayPact logger pact cdb $ fromJust payloadDb
 
             -- run inner

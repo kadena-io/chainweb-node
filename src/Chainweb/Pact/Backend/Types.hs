@@ -148,6 +148,7 @@ data BlockState = BlockState
   , _bsBlockVersion :: !BlockVersion
   , _bsTxRecord :: !(Map TableName [TxLog Value])
   }
+  deriving Show
 
 makeLenses ''BlockState
 

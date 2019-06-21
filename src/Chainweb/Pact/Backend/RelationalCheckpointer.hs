@@ -18,15 +18,20 @@ import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State (gets)
+import Control.Monad.State (gets, get)
 
-import Data.Serialize
+import Data.Serialize hiding (get)
+import Data.List (intercalate)
+-- import qualified Data.Text as T
+  -- import qualified Data.Text.IO as T
+
+import Prelude hiding (log)
 
 -- pact
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Gas (GasEnv(..))
-import Pact.Types.Logger (Logger(..))
+import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.SQLite
 
 -- chainweb
@@ -62,14 +67,37 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
+
+dump :: BlockHandler SQLiteEnv ()
+dump = do
+  bstate <- get
+  log "INFO" $ "dumping bstate here:" <> show bstate
+  log "INFO" "dumping blockhistory here"
+  txts <- callDb "dumping" $ \db -> do
+      qry_ db "SELECT * FROM BlockHistory;" [RInt,RBlob,RInt] >>= mapM go
+  log "INFO" (intercalate ":" txts)
+    -- log "Info" "dumping versionhistory\n"
+    -- qry_ db "SELECT * FROM VersionHistory;" [RInt,RInt,RInt] >>= print
+
+go :: [SType] -> IO String
+go [SInt a, SBlob blob, SInt b] = do
+  let getshit = either error id
+  return $
+    "row= " <> show a <> " " <>
+    show ((getshit $ Data.Serialize.decode blob) :: BlockHash) <>
+    " " <>
+    show b
+go _ = error "whatever"
+
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
+    dump
     txid <- withSavepoint PreBlock $ handleVersion bh hash
+    dump
     assign bsTxId txid
     beginSavepoint Block
   return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
-
 doRestore dbenv Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
