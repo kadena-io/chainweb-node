@@ -66,6 +66,8 @@ module Chainweb.Time
 , timeSpanToSeconds
 , secondsToText
 , secondsFromText
+, Micros(..)
+, microsToSeconds
 ) where
 
 import Control.DeepSeq
@@ -111,16 +113,16 @@ newtype TimeSpan :: Type -> Type where
         , ToJSON, FromJSON
         )
 
-encodeTimeSpan :: MonadPut m => TimeSpan Int64 -> m ()
-encodeTimeSpan (TimeSpan a) = putWord64le $ unsigned a
+encodeTimeSpan :: MonadPut m => TimeSpan Micros -> m ()
+encodeTimeSpan (TimeSpan (Micros a)) = putWord64le $ unsigned a
 {-# INLINE encodeTimeSpan #-}
 
-encodeTimeSpanToWord64 :: TimeSpan Int64 -> Word64
-encodeTimeSpanToWord64 (TimeSpan a) = BA.unLE . BA.toLE $ unsigned a
+encodeTimeSpanToWord64 :: TimeSpan Micros -> Word64
+encodeTimeSpanToWord64 (TimeSpan (Micros a)) = BA.unLE . BA.toLE $ unsigned a
 {-# INLINE encodeTimeSpanToWord64 #-}
 
-decodeTimeSpan :: MonadGet m => m (TimeSpan Int64)
-decodeTimeSpan = TimeSpan . signed <$!> getWord64le
+decodeTimeSpan :: MonadGet m => m (TimeSpan Micros)
+decodeTimeSpan = TimeSpan . Micros . signed <$!> getWord64le
 {-# INLINE decodeTimeSpan #-}
 
 castTimeSpan :: NumCast a b => TimeSpan a -> TimeSpan b
@@ -177,15 +179,15 @@ getCurrentTimeIntegral = do
     t <- getPOSIXTime
     return $! Time $! TimeSpan $! round $ t * 1000000
 
-encodeTime :: MonadPut m => Time Int64 -> m ()
+encodeTime :: MonadPut m => Time Micros -> m ()
 encodeTime (Time a) = encodeTimeSpan a
 {-# INLINE encodeTime #-}
 
-encodeTimeToWord64 :: Time Int64 -> Word64
+encodeTimeToWord64 :: Time Micros -> Word64
 encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
 {-# INLINE encodeTimeToWord64 #-}
 
-decodeTime :: MonadGet m => m (Time Int64)
+decodeTime :: MonadGet m => m (Time Micros)
 decodeTime  = Time <$!> decodeTimeSpan
 {-# INLINE decodeTime #-}
 
@@ -272,6 +274,17 @@ instance HasTextRepresentation Seconds where
     {-# INLINE toText #-}
     fromText = secondsFromText
     {-# INLINE fromText #-}
+
+-- | Will last for around ~300,000 years after the Linux epoch.
+--
+newtype Micros = Micros Int64
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+    deriving anyclass (Hashable, NFData)
+    deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
+    deriving newtype (Arbitrary, ToJSON, FromJSON)
+
+microsToSeconds :: Micros -> Seconds
+microsToSeconds (Micros m) = Seconds (int m `div` 1000000)
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances

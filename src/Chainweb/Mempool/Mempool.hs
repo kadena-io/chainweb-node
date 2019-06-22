@@ -78,7 +78,7 @@ import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Time (Time(..))
+import Chainweb.Time (Micros(..), Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -421,8 +421,8 @@ instance FromJSON TransactionHash where
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
-    txMetaCreationTime :: {-# UNPACK #-} !(Time Int64)
-  , txMetaExpiryTime :: {-# UNPACK #-} !(Time Int64)
+    txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
+  , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
   } deriving (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON, NFData)
 

@@ -17,7 +17,6 @@ module Chainweb.Test.Roundtrips
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
-import Data.Int
 import qualified Data.Text as T
 
 import Test.QuickCheck
@@ -121,8 +120,8 @@ jsonTestCases
     :: (forall a . Arbitrary a => Show a => ToJSON a => FromJSON a => Eq a => a -> Property)
     -> [TestTree]
 jsonTestCases f =
-    [ testProperty "Time Int64" $ f @(Time Int64)
-    , testProperty "TimeSpan Int64" $ f @(TimeSpan Int64)
+    [ testProperty "Time Micros" $ f @(Time Micros)
+    , testProperty "TimeSpan Micros" $ f @(TimeSpan Micros)
     , testProperty "Seconds" $ f @Seconds
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
@@ -254,4 +253,3 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     ]
-
