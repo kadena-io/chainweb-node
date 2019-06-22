@@ -67,7 +67,6 @@ module Chainweb.Time
 , secondsToText
 , secondsFromText
 , Micros(..)
-, microsToSeconds
 ) where
 
 import Control.DeepSeq
@@ -282,9 +281,6 @@ newtype Micros = Micros Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (Arbitrary, ToJSON, FromJSON)
-
-microsToSeconds :: Micros -> Seconds
-microsToSeconds (Micros m) = Seconds (int m `div` 1000000)
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
