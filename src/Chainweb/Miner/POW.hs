@@ -167,18 +167,16 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
         --
         go g (i + 1) (HM.filter (\(T2 h _) -> h > limit) adj')
 
--- | The estimated number of hashes it took to mine this block among all miners
--- on the chain.
+-- | The estimated per-second Hash Power of the network, guessed from the time
+-- it took to mine this block among all miners on the chain.
 --
 estimatedHashes :: PrevBlock -> BlockHeader -> Natural
-estimatedHashes (PrevBlock p) b = case blockRate $ _chainwebVersion b of
-    Nothing -> 0
-    Just (BlockRate (Seconds br)) -> floor $ d * (int br % t)
+estimatedHashes (PrevBlock p) b = floor (d % t)
   where
     t :: Integer
     t = case timeBetween b p of Seconds t' -> int t'
 
-    d :: Rational
+    d :: Integer
     d = case targetToDifficulty $ _blockTarget b of
         HashDifficulty (PowHashNat w) -> int w
 
