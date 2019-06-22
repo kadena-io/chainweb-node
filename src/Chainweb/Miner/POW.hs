@@ -40,7 +40,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString as B
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
-import Data.Int
 import Data.Proxy
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
@@ -167,18 +166,16 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
         --
         go g (i + 1) (HM.filter (\(T2 h _) -> h > limit) adj')
 
--- | The estimated number of hashes it took to mine this block among all miners
--- on the chain.
+-- | The estimated per-second Hash Power of the network, guessed from the time
+-- it took to mine this block among all miners on the chain.
 --
 estimatedHashes :: PrevBlock -> BlockHeader -> Natural
-estimatedHashes (PrevBlock p) b = case blockRate $ _chainwebVersion b of
-    Nothing -> 0
-    Just (BlockRate (Seconds br)) -> floor $ d * (int br % t)
+estimatedHashes (PrevBlock p) b = floor $ (d % t) * 1000000
   where
     t :: Integer
-    t = case timeBetween b p of Seconds t' -> int t'
+    t = case timeBetween b p of Micros t' -> int t'
 
-    d :: Rational
+    d :: Integer
     d = case targetToDifficulty $ _blockTarget b of
         HashDifficulty (PowHashNat w) -> int w
 
@@ -393,7 +390,7 @@ mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
             hashInternalFinalize ctxPtr (castPtr pow)
     {-# INLINE hash #-}
 
-    injectTime :: Time Int64 -> Ptr Word8 -> IO ()
+    injectTime :: Time Micros -> Ptr Word8 -> IO ()
     injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
     {-# INLINE injectTime #-}
 
