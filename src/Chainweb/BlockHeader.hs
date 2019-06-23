@@ -627,7 +627,7 @@ blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
 {-# INLINE blockPow #-}
 
--- | The number of `Seconds` between the creation time of two `BlockHeader`s.
+-- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
 timeBetween :: BlockHeader -> BlockHeader -> Micros
 timeBetween after before = f after - f before
