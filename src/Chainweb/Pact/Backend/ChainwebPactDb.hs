@@ -360,9 +360,7 @@ handleVersion bRestore hsh _cdb _payloadDb = do
             >>= expectSingleRowCol "handleVersion: (historyInvariant):"
         return $! res
   when (historyInvariant /= SInt 1) $
-    undefined
-    {- reconciliation -}
-    {-internalError "handleVersion: History invariant violation"-}
+    internalError "handleVersion: History invariant violation"
 
   case compare bRestore (bCurrent + 1) of
    GT -> internalError "handleVersion: Block_Restore invariant violation!"
