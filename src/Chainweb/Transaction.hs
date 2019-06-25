@@ -48,11 +48,6 @@ data PayloadWithText = PayloadWithText
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
-{-
-instance Ord PayloadWithText where
-    compare x y = compare (payloadBytes x) (payloadBytes y)
--}
-
 instance ToJSON PayloadWithText where
     toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 bs)
     toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 bs)
