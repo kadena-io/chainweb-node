@@ -37,19 +37,21 @@ import Pact.Types.SQLite
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Payload.PayloadStore
 
 
-initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr gasEnv =
-  snd <$> initRelationalCheckpointer' bstate sqlenv loggr gasEnv
+initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO CheckpointEnv
+initRelationalCheckpointer bstate sqlenv loggr gasEnv cdb payloadDb =
+  snd <$> initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb
 
 -- for testing
-initRelationalCheckpointer' :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
+initRelationalCheckpointer' :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO (PactDbEnv', CheckpointEnv)
+initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb = do
   let dbenv = BlockDbEnv sqlenv loggr
   db <- newMVar (BlockEnv dbenv bstate)
   runBlockEnv db initSchema
@@ -58,7 +60,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
      CheckpointEnv
       { _cpeCheckpointer =
           Checkpointer
-            (doRestore db)
+            (doRestore db cdb payloadDb)
             (doSave db)
             (doDiscard db)
       , _cpeLogger = loggr
@@ -89,16 +91,16 @@ go [SInt a, SBlob blob, SInt b] = do
     show b
 go _ = error "whatever"
 
-doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = do
+doRestore :: Db -> BlockHeaderDb -> Maybe (PayloadDb cas) -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore dbenv _cdb _payloadDb (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
     dump
-    txid <- withSavepoint PreBlock $ handleVersion bh hash
+    txid <- withSavepoint PreBlock $ handleVersion bh hash _cdb _payloadDb
     dump
     assign bsTxId txid
     beginSavepoint Block
   return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
-doRestore dbenv Nothing = do
+doRestore dbenv _cdb _payloadDb Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
          $ \db -> qry db

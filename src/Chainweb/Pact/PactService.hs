@@ -72,6 +72,7 @@ import qualified Pact.Types.SPV as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
@@ -83,6 +84,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -123,9 +125,11 @@ initPactService
     -> TQueue RequestMsg
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv =
-    initPactService' cid chainwebLogger (pactSPV cdbv) $
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv cdb payloadDb =
+    initPactService' cid chainwebLogger (pactSPV cdbv) cdb payloadDb $
       initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
@@ -133,9 +137,11 @@ initPactService'
     => ChainId
     -> logger
     -> (P.Logger -> P.SPVSupport)
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
     -> PactServiceM a
     -> IO a
-initPactService' cid chainwebLogger spv act = do
+initPactService' cid chainwebLogger spv cdb payloadDb act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
@@ -146,7 +152,7 @@ initPactService' cid chainwebLogger spv act = do
     -- TODO: The file and pragmas should come from a config file
     withTempSQLiteConnection fastNoJournalPragmas $ \sqlenv -> do
 
-      checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+      checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv cdb payloadDb
 
       let !pd = P.PublicData def def def
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd

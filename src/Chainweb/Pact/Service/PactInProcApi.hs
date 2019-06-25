@@ -34,6 +34,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Logger
@@ -43,6 +44,7 @@ import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
@@ -57,10 +59,12 @@ withPactService
     -> logger
     -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv action = do
-    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
+withPactService ver cid logger mpc cdbv cdb payloadDb action = do
+    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv cdb payloadDb action
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions
@@ -71,11 +75,13 @@ withPactService'
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
+    -> Maybe (PayloadDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv action = do
+withPactService' ver cid logger memPoolAccess cdbv cdb payloadDb action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv)
+    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv cdb payloadDb)
     link a
     r <- action reqQ
     closeQueue reqQ

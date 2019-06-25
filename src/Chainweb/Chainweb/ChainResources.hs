@@ -131,7 +131,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
+        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb $ \requestQ -> do
 
             -- prune block header db
             logg Info "start pruning block header database"
