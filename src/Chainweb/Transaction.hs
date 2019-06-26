@@ -34,6 +34,7 @@ import Pact.Parse (parseExprs)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
+import Pact.Types.Hash
 
 import Chainweb.Utils (Codec(..))
 
@@ -46,9 +47,6 @@ data PayloadWithText = PayloadWithText
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
-
-instance Ord PayloadWithText where
-    compare x y = compare (payloadBytes x) (payloadBytes y)
 
 instance ToJSON PayloadWithText where
     toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 bs)
@@ -70,10 +68,12 @@ newtype HashableTrans a = HashableTrans { unHashable :: Command a }
     deriving (Eq, Functor, Ord)
 
 instance Hashable (HashableTrans PayloadWithText) where
-    hashWithSalt s (HashableTrans t) = hashWithSalt s (hashCode :: Int)
+    hashWithSalt s (HashableTrans t) = hashWithSalt s hashCode
       where
-        hashCode = either error id $ runGetS (fromIntegral <$> getWord64host)
-                   (B.take 8 (codecEncode chainwebPayloadCodec t))
+        (TypedHash hc) = _cmdHash t
+        decHC = runGetS getWord64host
+        !hashCode = either error id $ decHC (B.take 8 hc)
+    {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
