@@ -60,7 +60,6 @@ import Data.Bifunctor (first)
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Int (Int64)
 import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
@@ -90,7 +89,7 @@ import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Time (Time, getCurrentTimeIntegral, second)
+import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -115,7 +114,7 @@ testMine
     => Given WebBlockHeaderDb
     => Nonce
     -> HashTarget
-    -> Time Int64
+    -> Time Micros
     -> BlockPayloadHash
     -> NodeId
     -> cid
@@ -133,7 +132,7 @@ testMineWithPayload
     -> PayloadDb cas
     -> Nonce
     -> HashTarget
-    -> Time Int64
+    -> Time Micros
     -> PayloadWithOutputs
     -> NodeId
     -> cid
@@ -168,7 +167,7 @@ createNewCut
     => HasChainId cid
     => Nonce
     -> HashTarget
-    -> Time Int64
+    -> Time Micros
     -> BlockPayloadHash
     -> NodeId
     -> cid
