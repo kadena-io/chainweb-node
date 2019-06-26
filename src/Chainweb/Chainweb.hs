@@ -344,7 +344,7 @@ withChainwebInternal conf logger peer rocksDb inner = do
     cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
-        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid) mempoolConf cdbv (Just payloadDb))
+        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid) mempoolConf cdbv payloadDb)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)

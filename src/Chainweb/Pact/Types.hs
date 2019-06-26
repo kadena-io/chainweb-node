@@ -36,6 +36,7 @@ module Chainweb.Pact.Types
   , psSpvSupport
   , psPublicData
   , psStateValidated
+  , psPdb
     -- * defaults
   , defaultMiner
   , emptyPayload
@@ -74,6 +75,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
 
@@ -144,18 +146,19 @@ data PactDbStatePersist = PactDbStatePersist
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
-data PactServiceEnv = PactServiceEnv
+data PactServiceEnv cas = PactServiceEnv
   { _psMempoolAccess :: !(Maybe MemPoolAccess)
   , _psCheckpointEnv :: !CheckpointEnv
   , _psSpvSupport :: !SPVSupport
   , _psPublicData :: !PublicData
+  , _psPdb :: PayloadDb cas
   }
 
 data PactServiceState = PactServiceState
   {_psStateValidated :: Maybe BlockHeader
   }
 
-type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
+type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)

@@ -124,27 +124,26 @@ withChainResources
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
-    -> Maybe (PayloadDb cas)
+    -> PayloadDb cas
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
+        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv payloadDb $
+          \requestQ -> do
 
             -- prune block header db
             logg Info "start pruning block header database"
             x <- pruneForks logger cdb (diam * 3) $ \h payloadInUse ->
                 unless payloadInUse
-                    $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
+                    $ casDelete payloadDb (_blockPayloadHash h)
             logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
             let pact = pes mempool requestQ
-            -- payloadStore is only 'Nothing' in some unit tests not using this code
-            -- this is wrong because of italian forks
-            replayPact logger pact cdb $ fromJust payloadDb
+            replayPact logger pact cdb payloadDb
 
             -- run inner
             inner $ ChainResources

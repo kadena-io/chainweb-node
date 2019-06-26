@@ -18,9 +18,9 @@ module Chainweb.Test.Pact.PactExec
 
 import Data.Aeson
 import Data.String.Conv (toS)
+import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
-import Data.Text (Text, pack)
 
 import GHC.Generics (Generic)
 
@@ -34,6 +34,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..))
@@ -44,16 +45,20 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "Simple pact execution tests"
-    [ withPactCtxSQLite testVersion Nothing $ \ctx -> testGroup "single transactions"
+tests = ScheduledTest label $ withResource newPayloadDb killPdb $ \pdb ->
+        testGroup label
+    [ withPactCtxSQLite testVersion Nothing pdb $ \ctx -> testGroup "single transactions"
         $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtxSQLite testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtxSQLite testVersion Nothing pdb $ \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
+  where
+    label = "Simple pact execution tests"
+    killPdb _ = return ()
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
@@ -124,7 +129,7 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . (PactDbEnv' -> PactServiceM a) -> IO a) -> TestRequest -> ScheduledTest
+execTest :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData

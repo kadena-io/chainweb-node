@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
@@ -23,7 +24,7 @@ module Chainweb.Pact.Service.PactInProcApi
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, finally, mask)
 import Control.Monad.STM
 
 import Data.Int
@@ -43,6 +44,7 @@ import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
@@ -51,35 +53,39 @@ import Data.LogMessage
 
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: Logger logger
+    :: PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv action = do
-    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
+withPactService ver cid logger mpc cdbv pdb action = do
+    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv pdb action
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions
 withPactService'
-    :: Logger logger
+    :: PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv action = do
-    reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv)
-    link a
-    r <- action reqQ
-    closeQueue reqQ
-    evaluate r
+withPactService' ver cid logger memPoolAccess cdbv pdb action =
+    mask $ \rst -> do
+        reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
+        a <- async $
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv pdb
+        link a
+        evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
 -- TODO: get from config
 maxBlockSize :: Int64
