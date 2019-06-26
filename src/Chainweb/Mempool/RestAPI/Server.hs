@@ -13,19 +13,16 @@ module Chainweb.Mempool.RestAPI.Server
   ) where
 
 ------------------------------------------------------------------------------
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM
-import qualified Control.Concurrent.STM.TBMChan as Chan
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Data.Aeson.Types (FromJSON, ToJSON)
+import qualified Data.DList as D
 import Data.Int
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import Servant
-import qualified System.IO.Streams as Streams
 
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
@@ -65,21 +62,28 @@ getBlockHandler mempool mbSz = handleErrs (liftIO gb)
     gb = V.toList <$> mempoolGetBlock mempool sz
 
 
-data GpData t = GpData {
-      _gpChan :: !(Chan.TBMChan t)
-    , _gpThr :: !(Async.Async ())
-    }
-
-
 getPendingHandler
     :: Show t
     => MempoolBackend t
     -> Maybe ServerNonce
     -> Maybe MempoolTxId
-    -> Handler (Streams.InputStream (Either HighwaterMark [TransactionHash]))
-getPendingHandler mempool mbNonce mbHw = liftIO $ mask_ $ do
-    dat <- createThread
-    Streams.makeInputStream $ inputStreamAct dat
+    -> Handler PendingTransactions
+getPendingHandler mempool mbNonce mbHw = liftIO $ do
+
+    -- Ideally, this would serialize directly into the output buffer, but
+    -- that's not how servant works. So we first collect the hashes into a
+    -- dlist serialize them latter on a second pass over the list.
+    --
+    ref <- newIORef mempty
+    !hw' <- mempoolGetPendingTransactions mempool hw $ \chunk ->
+        modifyIORef' ref (<> D.fromList (V.toList chunk))
+            -- fromList is applied lazily, so the vector isn't traversed at this
+            -- point.
+    PendingTransactions
+        <$> (D.toList <$> readIORef ref)
+            -- at this point only the head of the list of forced. It is fully
+            -- evaluated when servant calls toEncoding on it.
+        <*> pure hw'
 
   where
     hw :: Maybe (ServerNonce, MempoolTxId)
@@ -88,27 +92,6 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ mask_ $ do
         oldNonce <- mbNonce
         tx <- mbHw
         return (oldNonce, tx)
-
-    createThread = liftIO $ do
-        chan <- atomically $ Chan.newTBMChan 4
-        t <- Async.asyncWithUnmask (chanThread chan)
-        Async.link t
-        let d = GpData chan t
-        !ref <- newIORef d
-        !wk <- mkWeakIORef ref (Async.uninterruptibleCancel t)
-        return $! (ref, wk)
-
-    chanThread chan restore =
-        flip finally (atomically $ Chan.closeTBMChan chan) $
-        restore $ do
-            !hw' <- mempoolGetPendingTransactions mempool hw
-                (atomically . Chan.writeTBMChan chan . Right . V.toList)
-            atomically $ Chan.writeTBMChan chan
-                       $! Left hw'
-
-    inputStreamAct (ref, _) = do
-        (GpData chan _) <- readIORef ref
-        atomically $ Chan.readTBMChan chan
 
 
 handleErrs :: Handler a -> Handler a
