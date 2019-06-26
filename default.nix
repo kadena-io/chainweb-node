@@ -261,6 +261,12 @@ in
             sha256 = "05srd9lssgs437h45mawaxbd79lqyxj7qx7fx2sdgncr6m0h8vm0";
         };
 
+        warp-tls = callHackageDirect {
+            pkg = "warp-tls";
+            ver = "3.2.7";
+            sha256 = "1xaqk1qrcxh5lv92v1hvdsim7v8plrp0b3wyzkhzq9xqhmk24fvj";
+        };
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;
