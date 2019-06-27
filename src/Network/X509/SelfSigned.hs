@@ -42,6 +42,7 @@ module Network.X509.SelfSigned
 , ServiceID
 , unsafeMakeCredential
 , certificateCacheManagerSettings
+, isCertificateMismatchException
 
 -- * Server Settings
 , tlsServerSettings
@@ -140,7 +141,7 @@ import GHC.Stack
 import GHC.TypeNats
 
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client (ManagerSettings)
+import Network.HTTP.Client (ManagerSettings, HttpException(HttpExceptionRequest), HttpExceptionContent(InternalException))
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
 import Network.TLS.Extra (ciphersuite_default)
@@ -655,7 +656,13 @@ unsafeMakeCredential (X509CertChainPem cert chain) (X509KeyPem keyBytes) =
 --
 data TlsPolicy
     = TlsInsecure
-    | TlsSecure Bool (ServiceID -> IO (Maybe Fingerprint))
+    | TlsSecure
+        { _tlsPolicyUseSystemStore :: !Bool
+            -- ^ whether to use the system certificate store.
+        , _tlsPolicyCallback :: !(ServiceID -> IO (Maybe Fingerprint))
+            -- ^ a callback for looking up certificate fingerprints for known
+            -- service endpoints.
+        }
 
 -- | Create a connection manager for a given 'TlsPolicy'.
 --
@@ -675,9 +682,7 @@ certificateCacheManagerSettings policy credential = do
     settings certstore = (defaultParamsClient "" "")
         { clientSupported = def
             { supportedCiphers = ciphersuite_default
-#if WITH_TLS13
             , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
             }
         , clientShared = def
             { sharedCAStore = certstore
@@ -716,6 +721,21 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
                 <> " expected fingerprint: " <> T.unpack (fingerprintToText f)
                 <> " but got fingerprint: " <> T.unpack (fingerprintToText fp)
 
+-- | Check whether a connection failed due to an certificate missmatch
+--
+isCertificateMismatchException :: HttpException -> Bool
+isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
+    case fromException e of
+        Just (HandshakeFailed (Error_Protocol (_msg, _, CertificateUnknown))) -> True
+        _ -> False
+    -- _msg looks something like:
+    --
+    -- "certificate rejected: [
+    --   CacheSaysNo \"for host: 54.93.103.7:443 expected fingerprint: aXv-A9r5FUbg7R9hQHG0huvVIuS0_HQacvMn-wIUS-M but got fingerprint: GqZr-fWw0zj68xll-HW9RcL46e1mq6wwwDjRuXPlrcA\"
+    -- ]"
+isCertificateMismatchException _ = False
+
+
 -- -------------------------------------------------------------------------- --
 -- Server Settings
 
@@ -728,9 +748,7 @@ tlsServerSettings
 tlsServerSettings (X509CertPem certBytes) (X509KeyPem keyBytes)
     = (tlsSettingsMemory certBytes keyBytes)
         { tlsCiphers = ciphersuite_default
-#if WITH_TLS13
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
         }
 
 -- | TLS server settings
@@ -742,9 +760,7 @@ tlsServerChainSettings
 tlsServerChainSettings (X509CertChainPem cert chain) (X509KeyPem keyBytes)
     = (tlsSettingsChainMemory (x509Bytes cert) (x509Bytes <$> chain) keyBytes)
         { tlsCiphers = ciphersuite_default
-#if WITH_TLS13
         , tlsAllowedVersions = [TLS13, TLS12, TLS11, TLS10]
-#endif
         }
   where
     x509Bytes (X509CertPem bytes) = bytes
@@ -814,4 +830,3 @@ validateX509CertChainPem (X509CertChainPem a b) =
     case traverse_ decodePemX509Cert (a : b) of
         Left e -> throwError $ sshow e
         Right () -> return ()
-
