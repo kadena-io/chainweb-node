@@ -87,7 +87,6 @@ import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
-import Data.Int (Int64)
 import Data.Ratio ((%))
 import qualified Data.Text as T
 
@@ -105,7 +104,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Seconds(..), TimeSpan(..))
+import Chainweb.Time (Micros(..), Seconds(..), TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -482,7 +481,7 @@ minAdjust Testnet01 = Just $ MinAdjustment 3
 -- Analysis has been shown that \(Z\) should be greater than a factor of
 -- \(e = 2.71828\cdots\) (/source needed/). See also `minAdjust`.
 --
-adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Int64 -> HashTarget -> HashTarget
+adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Micros -> HashTarget -> HashTarget
 adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
     -- Intent: When increasing the difficulty (thereby lowering the target
     -- toward 0), the target must decrease by at least some minimum threshold

@@ -38,6 +38,7 @@ extra-deps:
   - nonempty-containers-0.2.0.0
   - tasty-1.2
   - vector-algorithms-0.8.0.1
+  - warp-tls-3.2.7
   - yaml-0.11.0.0
 
   # --- Custom Pins --- #

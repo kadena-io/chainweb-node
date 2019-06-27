@@ -125,7 +125,6 @@ import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Int
 import Data.Kind
 import Data.List (unfoldr)
 import qualified Data.Memory.Endian as BA
@@ -266,7 +265,7 @@ instance FromJSON Nonce where
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time
 
-newtype BlockCreationTime = BlockCreationTime (Time Int64)
+newtype BlockCreationTime = BlockCreationTime (Time Micros)
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable)
@@ -624,6 +623,14 @@ blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
 {-# INLINE blockPow #-}
 
+-- | The number of microseconds between the creation time of two `BlockHeader`s.
+--
+timeBetween :: BlockHeader -> BlockHeader -> Micros
+timeBetween after before = f after - f before
+  where
+    f :: BlockHeader -> Micros
+    f (_blockCreationTime -> BlockCreationTime (Time (TimeSpan ts))) = ts
+
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
 
@@ -715,7 +722,7 @@ newBlockHeader
         -- ^ Randomness to affect the block hash
     -> HashTarget
         -- ^ New target for POW-mining
-    -> Time Int64
+    -> Time Micros
         -- ^ Creation time of the block
     -> BlockHeader
         -- ^ parent block header

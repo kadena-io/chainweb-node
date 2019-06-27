@@ -41,7 +41,6 @@ import qualified Data.ByteString as B
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Int
-import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Proxy
 import Data.Reflection (Given, give)
 import qualified Data.Sequence as Seq
@@ -162,6 +161,19 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
         -- @
         --
         go g (i + 1) (HM.filter (\(T2 h _) -> h > limit) adj')
+
+-- | The estimated per-second Hash Power of the network, guessed from the time
+-- it took to mine this block among all miners on the chain.
+--
+estimatedHashes :: PrevBlock -> BlockHeader -> Natural
+estimatedHashes (PrevBlock p) b = floor $ (d % t) * 1000000
+  where
+    t :: Integer
+    t = case timeBetween b p of Micros t' -> int t'
+
+    d :: Integer
+    d = case targetToDifficulty $ _blockTarget b of
+        HashDifficulty (PowHashNat w) -> int w
 
 awaitCut :: CutDb cas -> Cut -> IO Cut
 awaitCut cdb c = atomically $ do
@@ -381,7 +393,7 @@ mine _ h nonce = do
             hashInternalFinalize ctxPtr (castPtr pow)
     {-# INLINE hash #-}
 
-    injectTime :: Time Int64 -> Ptr Word8 -> IO ()
+    injectTime :: Time Micros -> Ptr Word8 -> IO ()
     injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
     {-# INLINE injectTime #-}
 
