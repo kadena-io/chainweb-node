@@ -23,6 +23,7 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -91,6 +92,7 @@ module Chainweb.BlockHeader
 , ObjectEncoded(..)
 , NewMinedBlock(..)
 
+, timeBetween
 , getAdjacentHash
 , computeBlockHash
 , adjacentChainIds
@@ -134,6 +136,8 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
+
+import Numeric.Natural (Natural)
 
 -- Internal imports
 
@@ -682,7 +686,7 @@ data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
     , _minedBlockTrans :: {-# UNPACK #-} !Word
     , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: {-# UNPACK #-} !Word }
+    , _minedHashAttempts :: !Natural }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 

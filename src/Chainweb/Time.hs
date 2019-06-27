@@ -63,6 +63,7 @@ module Chainweb.Time
 -- * Seconds
 , Seconds(..)
 , secondsToTimeSpan
+, timeSpanToSeconds
 , secondsToText
 , secondsFromText
 , Micros(..)
@@ -252,6 +253,12 @@ newtype Seconds = Seconds Integer
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
 {-# INLINE secondsToTimeSpan #-}
+
+-- | Assumes that the `TimeSpan` contains milliseconds.
+--
+timeSpanToSeconds :: Integral a => TimeSpan a -> Seconds
+timeSpanToSeconds (TimeSpan ms) = Seconds . int $ ms `div` 1000000
+{-# INLINE timeSpanToSeconds #-}
 
 secondsToText :: Seconds -> T.Text
 secondsToText (Seconds s) = sshow s
