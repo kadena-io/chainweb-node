@@ -2,13 +2,13 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FunctionalDependencies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -60,12 +60,12 @@ module Chainweb.Pact.Backend.Types
     , SQLiteFlag(..)
     ) where
 
-import Control.Exception.Safe hiding (bracket)
-import Control.Monad.Fail
-import Control.Monad.State.Strict
-import Control.Monad.Reader
-import Control.Lens
 import Control.DeepSeq
+import Control.Exception.Safe hiding (bracket)
+import Control.Lens
+import Control.Monad.Fail
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Bits
@@ -81,7 +81,9 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime (PactDb(..), TxId(..), ExecutionMode(..), TableName(..), TxLog(..), GasEnv(..))
+import Pact.Types.Runtime
+    (ExecutionMode(..), GasEnv(..), PactDb(..), TableName(..), TxId(..),
+    TxLog(..))
 
 -- internal modules
 import Chainweb.BlockHash
@@ -189,8 +191,18 @@ type ParentHash = BlockHash
 data Checkpointer = Checkpointer
     {
       restore :: Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+      -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+      -- the "latest block"
     , save :: BlockHash -> IO ()
+      -- ^ commits pending modifications to block, with the given blockhash
     , discard :: IO ()
+      -- ^ discard pending block changes
+    , getLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
+      -- ^ get the checkpointer's idea of the latest block
+    , withAtomicRewind :: forall a . IO a -> IO a
+      -- ^ in the event of rewind we may wish to play through many blocks. In
+      -- the event of any of them failing, we should discard the whole
+      -- transaction in total.
     }
 
 data CheckpointEnv = CheckpointEnv

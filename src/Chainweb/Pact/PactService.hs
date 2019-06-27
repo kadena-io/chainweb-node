@@ -277,9 +277,7 @@ restoreCheckpointer
 restoreCheckpointer maybeBB = do
   checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   logInfo $ "restoring " <> sshow maybeBB
-  liftIO $! case maybeBB of
-    Nothing -> restore checkPointer Nothing
-    Just (bHeight,bHash) -> restore checkPointer (Just (bHeight, bHash))
+  liftIO $ restore checkPointer maybeBB
 
 discardCheckpointer :: PayloadCas cas => PactServiceM cas ()
 discardCheckpointer = finalizeCheckpointer $ \checkPointer -> discard checkPointer
@@ -374,6 +372,7 @@ logError = logg "ERROR"
 
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
