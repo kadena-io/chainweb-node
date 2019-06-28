@@ -81,7 +81,9 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer, initRelationalCheckpointer')
 import Chainweb.Pact.Backend.SQLite.DirectV2
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.InternalTypes
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
@@ -217,7 +219,7 @@ testPactCtx
     :: PayloadCas cas
     => ChainwebVersion
     -> V.ChainId
-    -> Maybe (MVar (CutDb cas))
+    -> MVar (CutDb cas)
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv pdb = do

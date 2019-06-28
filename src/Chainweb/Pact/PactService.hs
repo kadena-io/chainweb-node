@@ -44,10 +44,12 @@ import Control.Monad.State.Strict
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
+import Data.Reflection (give)
 import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as M
 import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
@@ -73,8 +75,10 @@ import qualified Pact.Types.SPV as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.WebBlockHeaderDB
+import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.ChainId (ChainId)
-import Chainweb.CutDB (CutDb)
+import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Utils
@@ -82,14 +86,17 @@ import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.InternalTypes
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
+import Chainweb.TreeDB (collectForkBlocks)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+import Data.CAS (casLookupM)
 
 ------------------------------------------------------------------------------
 pactDbConfig :: ChainwebVersion -> PactDbConfig
@@ -127,7 +134,7 @@ initPactService
     -> PayloadDb cas
     -> IO ()
 initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv pdb =
-    initPactService' cid chainwebLogger (pactSPV cdbv) pdb $
+    initPactService' cid chainwebLogger (pactSPV cdbv) cdbv pdb $
       initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
@@ -136,10 +143,11 @@ initPactService'
     => ChainId
     -> logger
     -> (P.Logger -> P.SPVSupport)
+    -> MVar (CutDb cas)
     -> PayloadDb cas
     -> PactServiceM cas a
     -> IO a
-initPactService' cid chainwebLogger spv pdb act = do
+initPactService' cid chainwebLogger spv cdb pdb act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
@@ -149,11 +157,10 @@ initPactService' cid chainwebLogger spv pdb act = do
 
     -- TODO: The file and pragmas should come from a config file
     withTempSQLiteConnection fastNoJournalPragmas $ \sqlenv -> do
-
       checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb
+      let !pse = PactServiceEnv cid Nothing checkpointEnv (spv logger) pd pdb cdb
 
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
@@ -378,9 +385,6 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
-_validateBehavior :: Bool
-_validateBehavior = True
-
 playOneBlock
     :: MemPoolAccess
     -> BlockHeader
@@ -389,10 +393,12 @@ playOneBlock
     -> PactServiceM cas PayloadWithOutputs
 playOneBlock mpAccess currHeader plData pdbenv = do
     -- precondition: restore has been called already
+    --
+    -- TODO: check precondition?
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
-      execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans pdbenv
+                execTransactions pBlock miner trans pdbenv
     finalizeCheckpointer (flip save bHash)   -- caller must restore again
     psStateValidated .= Just currHeader
     liftIO $ T.putStrLn $ "playOneBlock, about to get call setLastHeader: "
@@ -406,6 +412,7 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+    pBlock = if isGenesisBlock then Nothing else Just bParent
 
 
 -- | Validate a mined block. Execute the transactions in Pact again as
@@ -422,15 +429,59 @@ execValidateBlock mpAccess currHeader plData = do
       ", parent=" <> sshow bParent <> ", hash=" <> sshow bHash <>
       ", payloadHash=" <> sshow (_blockPayloadHash currHeader)
 
-    pdbenv <- restoreCheckpointer $ if isGenesisBlock then Nothing else Just $! (bHeight, bParent)
-    -- TODO: cross-branch rewind here
-    playOneBlock mpAccess currHeader plData pdbenv
+    cp <- (_cpeCheckpointer . _psCheckpointEnv) <$> ask
+    withRewind cp $
+        if isGenesisBlock
+            then playGenesisBlock
+            else do
+                payloadDb <- asks _psPdb
+                mbLastHeader <- liftIO $ getLatestBlock cp
+                lastHeader <- maybe failNonGenesisOnEmptyDb return mbLastHeader
+                webDb <- getWebDb
+                playFork webDb payloadDb lastHeader
   where
     bHeight = _blockHeight currHeader
     bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
 
+    withRewind cp m = do
+        e <- ask
+        s <- get
+        (a, s') <- liftIO $ withAtomicRewind cp $ runStateT (runReaderT m e) s
+        put $! s'
+        return $! a
+
+
+    failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
+    -- the only time that the DB would be empty is before we've played the
+    -- genesis block. So the only block we allow to be played in this
+    -- circumstance is the genesis block
+    playGenesisBlock = restoreCheckpointer Nothing >>=
+                       playOneBlock mpAccess currHeader plData
+
+    playFork webDb payloadDb (_, lastHash) = do
+        cid <- asks _psChainId
+        lastHeader <- liftIO (give webDb (lookupWebBlockHeaderDb cid lastHash))
+        let hdb = fromJuste $ HashMap.lookup cid $ _webBlockHeaderDb webDb
+        (!_, _, newBlocks) <-
+            liftIO $ collectForkBlocks hdb lastHeader currHeader
+        -- newBlocks cannot be empty
+        when (V.null newBlocks) $ fail "impossible: empty newBlocks"
+        V.foldM (fastForward payloadDb) undefined newBlocks
+
+    fastForward payloadDb _ block = do
+        let h = _blockHeight block
+        let ph = _blockParent block
+        pdbenv <- restoreCheckpointer (Just (h, ph))
+        let bpHash = _blockPayloadHash block
+        payload <- liftIO (payloadWithOutputsToPayloadData <$>
+                                casLookupM payloadDb bpHash)
+        playOneBlock mpAccess block payload pdbenv
+
+    getWebDb = do
+        cutDb <- asks _psCutDb >>= liftIO . readMVar
+        return $ view cutDbWebBlockHeaderDb cutDb
 
 execTransactions
     :: Maybe BlockHash

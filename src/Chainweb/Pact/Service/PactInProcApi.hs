@@ -40,10 +40,10 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.InternalTypes
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -63,8 +63,10 @@ withPactService
     -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv pdb action = do
-    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv pdb action
+withPactService ver cid logger mpc cdbv pdb action =
+    withPactService' ver cid logger mpa cdbv pdb action
+  where
+    mpa = pactMemPoolAccess mpc logger
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions

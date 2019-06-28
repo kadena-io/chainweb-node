@@ -67,6 +67,7 @@ module Chainweb.TreeDB
 , branchDiff
 , branchDiff_
 , collectForkBlocks
+, streamAncestors
 
 -- * properties
 , properties
@@ -720,9 +721,23 @@ branchDiff_ db = go
             go lp rp
     step = lift . lookupParentM GenesisParentThrow db
 
+-- -------------------------------------------------------------------------- --
+-- | Walks the ancestry of the given tree from the leaf back to the genesis.
+streamAncestors
+    :: forall db . TreeDb db
+    => db
+    -> DbEntry db
+    -> S.Stream (Of (DbEntry db)) IO ()
+streamAncestors db = go
+  where
+    go !block = do
+        S.yield block
+        unless (rank block == 0) (step block >>= go)
+    step = lift . lookupParentM GenesisParentThrow db
+
 
 -- -------------------------------------------------------------------------- --
--- | Collect the blocks on the old and new branches of a fork. Returns
+-- | Collects the blocks on the old and new branches of a fork. Returns
 --   @(commonAncestor, oldBlocks, newBlocks)@.
 collectForkBlocks
     :: forall db . TreeDb db

@@ -28,16 +28,7 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
-
-data PactExecutionService = PactExecutionService
-  { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-  , _pactNewBlock :: MinerInfo -> BlockHeader -> IO PayloadWithOutputs
-  , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
-  }
-
-newtype WebPactExecutionService = WebPactExecutionService
-  { _webPactExecutionService :: PactExecutionService
-  }
+import Chainweb.WebPactExecutionService.Types
 
 _webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
