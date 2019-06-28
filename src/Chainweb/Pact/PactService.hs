@@ -186,7 +186,7 @@ createCoinContract v cid mpa = do
                            _payloadWithOutputsTransactionsHash
                            _payloadWithOutputsOutputsHash
         genesisHeader = genesisBlockHeader v cid
-    txs <- execValidateBlock mpa True genesisHeader inputPayloadData
+    txs <- execValidateBlock mpa genesisHeader inputPayloadData
     bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
@@ -220,8 +220,8 @@ serviceRequests memPoolAccess reqQ = do
                   Right r -> liftIO $ putMVar _newResultVar $ Right r
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock memPoolAccess
-                             False _valBlockHeader _valPayloadData
+                txs <- try $ execValidateBlock memPoolAccess _valBlockHeader
+                                 _valPayloadData
                 case txs of
                   Left (SomeException e) -> do
                     logError (show e)
@@ -373,58 +373,74 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
+_validateBehavior :: Bool
+_validateBehavior = True
+
+playOneBlock
+    :: MemPoolAccess
+    -> BlockHeader
+    -> PayloadData
+    -> PactDbEnv'
+    -> PactServiceM cas PayloadWithOutputs
+playOneBlock mpAccess currHeader plData pdbenv = do
+    -- precondition: restore has been called already
+    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    trans <- liftIO $ transactionsFromPayload plData
+    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+      execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans pdbenv
+    finalizeCheckpointer (flip save bHash)   -- caller must restore again
+    psStateValidated .= Just currHeader
+    liftIO $ T.putStrLn $ "playOneBlock, about to get call setLastHeader: "
+        <> " (height = " <> sshow bHeight <> ")"
+        <> " (hash = " <> sshow bHash <> ")"
+    liftIO $ mpaSetLastHeader mpAccess currHeader
+    return $! toPayloadWithOutputs miner results
+
+  where
+    bHeight@(BlockHeight bh) = _blockHeight currHeader
+    bHash = _blockHash currHeader
+    bParent = _blockParent currHeader
+    isGenesisBlock = isGenesisBlockHeader currHeader
+
 
 -- | Validate a mined block.  Execute the transactions in Pact again as validation
 -- | Note: The BlockHeader here is the header of the block being validated
 execValidateBlock
     :: PayloadCas cas
     => MemPoolAccess
-    -> Bool
     -> BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
-execValidateBlock mpAccess loadingGenesis currHeader plData = do
-    let bHeight@(BlockHeight bh) = _blockHeight currHeader
-        !bHash = _blockHash currHeader
-        !bParent = _blockParent currHeader
-        !isGenesisBlock = isGenesisBlockHeader currHeader
-
-    liftIO $ T.putStrLn $ "execValidateBlock, about to get call setLastHeader: "
-        <> " (height = " <> sshow bHeight <> ")"
-        <> " (hash = " <> sshow bHash <> ")"
-    liftIO $ mpaSetLastHeader mpAccess currHeader
-
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
-
-    unless loadingGenesis $ liftIO $ T.putStrLn $ "execValidateBlock: height=" <> sshow bHeight <>
+execValidateBlock mpAccess currHeader plData = do
+    unless isGenesisBlock $ liftIO $ T.putStrLn $ "execValidateBlock: height=" <> sshow bHeight <>
       ", parent=" <> sshow bParent <> ", hash=" <> sshow bHash <>
       ", payloadHash=" <> sshow (_blockPayloadHash currHeader)
 
-    trans <- liftIO $ transactionsFromPayload plData
-    pdbenv <- restoreCheckpointer $ if loadingGenesis then Nothing else Just $! (bHeight, bParent)
+    pdbenv <- restoreCheckpointer $ if isGenesisBlock then Nothing else Just $! (bHeight, bParent)
+    -- TODO: cross-branch rewind here
+    playOneBlock mpAccess currHeader plData pdbenv
+  where
+    bHeight = _blockHeight currHeader
+    bHash = _blockHash currHeader
+    bParent = _blockParent currHeader
+    isGenesisBlock = isGenesisBlockHeader currHeader
 
-    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
-      execTransactions (if isGenesisBlock then Nothing else Just bParent) miner trans pdbenv
 
-    finalizeCheckpointer $ \cp -> save cp bHash
-
-    psStateValidated .= Just currHeader
-    return $! toPayloadWithOutputs miner results
-
-execTransactions :: Maybe BlockHash -> MinerInfo -> Vector ChainwebTransaction ->
-                    PactDbEnv' -> PactServiceM cas Transactions
+execTransactions
+    :: Maybe BlockHash
+    -> MinerInfo
+    -> Vector ChainwebTransaction
+    -> PactDbEnv'
+    -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
+    !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
+    !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+    return $! Transactions (paired txOuts) coinOut
+  where
+    !isGenesis = isNothing nonGenesisParentHash
+    cmdBSToTx = toTransactionBytes . fmap payloadBytes
+    paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
-        let !isGenesis = isNothing nonGenesisParentHash
-
-        !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-        !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
-
-
-        let !cmdBSToTx = toTransactionBytes . fmap payloadBytes
-            !paired = V.zipWith (curry $ first cmdBSToTx) ctxs txOuts
-
-        return $! Transactions paired coinOut
 
 runCoinbase
     :: Maybe BlockHash
@@ -433,7 +449,6 @@ runCoinbase
     -> PactServiceM cas HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
 runCoinbase (Just _parentHash) dbEnv mi@MinerInfo{..} = do
-
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData

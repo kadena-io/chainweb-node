@@ -276,7 +276,7 @@ testPactExecutionService v cid cutDB pdbIO mempoolAccess sqlenv = do
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock mempoolAccess False h d
+            evalPactServiceM ctx $ execValidateBlock mempoolAccess h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
