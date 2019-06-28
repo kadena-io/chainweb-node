@@ -176,6 +176,7 @@ newtype BlockHandler p a = BlockHandler
              , MonadState BlockState
              , MonadThrow
              , MonadCatch
+             , MonadMask
              , MonadIO
              , MonadReader (BlockDbEnv p)
              , MonadFail

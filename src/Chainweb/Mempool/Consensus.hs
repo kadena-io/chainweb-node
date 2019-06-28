@@ -19,9 +19,6 @@ module Chainweb.Mempool.Consensus
 ) where
 
 ------------------------------------------------------------------------------
-import Streaming.Prelude (Of)
-import qualified Streaming.Prelude as S hiding (toList)
-
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
@@ -142,8 +139,7 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
     case lastHeaderM of
         Nothing -> return V.empty
         Just lastHeader -> do
-            let s = branchDiff db lastHeader newHeader
-            (oldBlocks, newBlocks) <- collectForkBlocks s
+            (_, oldBlocks, newBlocks) <- collectForkBlocks db lastHeader newHeader
             case V.length newBlocks - V.length oldBlocks of
                 n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
                 n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
@@ -169,6 +165,7 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
           where
             f !trans !header = HS.union trans <$!> plLookup header
 
+
 ----------------------------------------------------------------------------------------------------
 payloadLookup
     :: forall cas . PayloadCas cas
@@ -188,31 +185,6 @@ payloadLookup payloadStore bh =
             Nothing -> throwIO $ PayloadNotFoundException h
             Just pwo -> return pwo
 
-----------------------------------------------------------------------------------------------------
--- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
---   element of the tuple and the new blocks are in the second.
-collectForkBlocks
-    :: S.Stream (Of (DiffItem BlockHeader)) IO ()
-    -> IO (Vector BlockHeader, Vector BlockHeader)
-collectForkBlocks theStream = do
-    (oldDL, newDL) <- go theStream (id, id)
-    let !old = V.fromList $ oldDL []
-    let !new = V.fromList $ newDL []
-    return $! (old, new)
-  where
-    go !stream (!oldBlocks, !newBlocks) = do
-        nxt <- S.next stream
-        case nxt of
-            -- end of the stream, last item is common branch point of the forks
-            -- removing the common branch block with tail -- the lists should never be empty
-            Left _ -> let old = tail . oldBlocks
-                          new = tail . newBlocks
-                      in return (old, new)
-
-            Right (LeftD blk, strm) -> go strm ((blk:) . oldBlocks, newBlocks)
-            Right (RightD blk, strm) -> go strm (oldBlocks, (blk:) . newBlocks)
-            Right (BothD lBlk rBlk, strm) -> go strm ( (lBlk:) . oldBlocks,
-                                                       (rBlk:) . newBlocks )
 
 ----------------------------------------------------------------------------------------------------
 chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
