@@ -15,23 +15,21 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.0
   - yet-another-logger-0.3.1
 
-  # --- Forced Dependencies --- #
+  # --- Transitive Pact Dependencies --- #
+  - ed25519-donna-0.1.1
+  - sbv-8.2
+  - swagger2-2.3.1.1
+
+  # --- Other Transitive Dependencies --- #
   - base-compat-batteries-0.10.5 # Due to swagger2
   - contravariant-1.5.2  # Due to base-compat-batteries
-  - ed25519-donna-0.1.1  # Due to Pact
-  - hspec-2.7.0          # Due to QuickCheck
-  - hspec-core-2.7.0     # Due to QuickCheck
-  - hspec-discover-2.7.0 # Due to QuickCheck
   - libyaml-0.1.1.0      # Due to yaml
   - massiv-0.3.3.0       # Due to digraph
   - mwc-random-0.14.0.0  # Due to digraph
-  - sbv-8.2              # Due to Pact
   - scheduler-1.3.0      # Due to massiv
-  - swagger2-2.3.1.1     # Due to Pact
   - token-bucket-0.1.0.1 # Due to wai-middleware-throttle
 
   # --- Forced Upgrades --- #
-  - QuickCheck-2.12.6.1
   - aeson-1.4.3.0
   - configuration-tools-0.4.1
   - generic-lens-1.1.0.0
@@ -39,11 +37,11 @@ extra-deps:
   - tasty-1.2
   - tls-1.5.0
   - vector-algorithms-0.8.0.1
-  - warp-tls-3.2.7
+  - warp-tls-3.2.7  # To match `tls-1.5.0`
   - yaml-0.11.0.0
 
   # --- Custom Pins --- #
-  - git: https://github.com/kadena-io/pact.git
+  - github: kadena-io/pact
     commit: a622a1e1097fa9bf1a966e0914e05c9ceffdb46a
-  - git: https://github.com/kadena-io/thyme.git
+  - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
