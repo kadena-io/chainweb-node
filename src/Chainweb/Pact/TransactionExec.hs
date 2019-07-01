@@ -27,7 +27,6 @@ module Chainweb.Pact.TransactionExec
 , applyContinuation
 , applyContinuation'
 , runPayload
-, withGas
   -- * coin contract api
 , buyGas
   -- * commands
@@ -79,8 +78,7 @@ import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..), GasId(..))
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 import Chainweb.Utils (sshow)
 
--- ------------------------------------------------------------------------ --
--- Transaction logic
+
 
 magic_COINBASE :: Capability
 magic_COINBASE = mkMagicCap "COINBASE"
@@ -97,62 +95,65 @@ applyCmd
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> IO (CommandResult [TxLog Value])
-applyCmd l pactDbEnv minerInfo gasModel pd0 spv cmd = do
+applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
-        pd = set pdPublicMeta (publicMetaOf cmd) $ pd0
+        requestKey = cmdToRequestKey cmd
+        pd' = set pdPublicMeta (publicMetaOf cmd) pd
         supply = gasSupplyOf cmd
 
-    let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv l freeGasEnv pd spv
+    let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd' spv
 
-    withGas l buyGasEnv cmd minerInfo supply userGasEnv $ \cenv cmd0 logs ->
-      runPayload cenv def cmd0 logs
+    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd minerInfo supply
 
--- | A handle for wrapping 'runPayload' commands in a buy/redeem gas phase.
---
-withGas
-    :: forall a
-    . Logger
-    -> CommandEnv a
-    -> Command (Payload PublicMeta ParsedCode)
-    -> MinerInfo
-    -> GasSupply
-    -> GasEnv
-    -> (CommandEnv a -> Command (Payload PublicMeta ParsedCode) -> [TxLog Value] -> IO (CommandResult [TxLog Value]))
-      -- ^ this is the form of a 'runPayload' command
-    -> IO (CommandResult [TxLog Value])
-withGas l benv cmd mi supply gasEnv action = do
-    let rk = cmdToRequestKey cmd
+    case buyGasResultE of
 
-    bge <- catchesPactError $! buyGas benv cmd mi supply
-    case bge of
-      Left e -> jsonErrorResult benv rk e [] (Gas 0) "transaction failure for when buying gas"
-      Right (Left e0) -> internalError e0
-      Right (Right (!gid, !bgLogs)) -> do
-        logDebugRequestKey l rk "successful gas buy"
+      Left e1 ->
+        jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0)
+          "tx failure for requestKey when buying gas"
 
-        let !cenv = set ceGasEnv gasEnv benv
+      Right buyGasResult -> do
 
-        cmde <- catchesPactError $! action cenv cmd bgLogs
-        case cmde of
-          Left e' ->
-            jsonErrorResult cenv rk e' bgLogs (Gas 0) "transaction failure while executing cmd"
-          Right !cmdr -> do
-            logDebugRequestKey l rk "successful transaction execution"
+        -- this call needs to fail hard if Left. It means the continuation did not process
+        -- correctly, and we should fail the transaction
+        (!pactId, !buyGasLogs) <- either internalError pure buyGasResult
+        logDebugRequestKey logger requestKey "successful gas buy for request key"
 
-            let !renv = set ceGasEnv freeGasEnv cenv
-                !cmdLogs = fromMaybe [] $ _crLogs cmdr
+        let !payloadEnv = set ceGasEnv userGasEnv
+              $ set cePublicData pd' buyGasEnv
 
-            rge <- catchesPactError $! redeemGas renv cmd cmdr gid supply cmdLogs
-            case rge of
-              Left e'' ->
-                jsonErrorResult renv rk e'' cmdLogs (_crGas cmdr) "transaction failure while redeeming gas"
-              Right !rr -> do
-                let !rlogs = fromMaybe [] $ _crLogs rr
-                    !r = over (crLogs . _Just) (<> rlogs) cmdr
+        cmdResultE <- catchesPactError $! runPayload payloadEnv def cmd buyGasLogs
 
-                logDebugRequestKey l rk "successful gas redemption for request key"
-                return r
+        case cmdResultE of
+
+          Left e2 ->
+
+            jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0)
+              "tx failure for request key when running cmd"
+
+          (Right !cmdResult) -> do
+
+            logDebugRequestKey logger requestKey "success for requestKey"
+
+            let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
+                cmdLogs = fromMaybe [] $ _crLogs cmdResult
+            redeemResultE <- catchesPactError $!
+              redeemGas redeemGasEnv cmd cmdResult pactId supply cmdLogs
+
+            case redeemResultE of
+
+              Left e3 ->
+
+                jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult)
+                  "tx failure for request key while redeeming gas"
+
+              (Right !redeemResult) -> do
+
+                let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
+                    !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
+
+                logDebugRequestKey logger requestKey "successful gas redemption for request key"
+                pure finalResult
 
 applyGenesisCmd
     :: Logger
@@ -341,8 +342,6 @@ applyContinuation' CommandEnv{..} initState cm senderSigs hsh = do
 
     evalContinuation initState evalEnv cm
 
--- ------------------------------------------------------------------------ --
--- Coin Contract
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
@@ -397,9 +396,6 @@ redeemGas env cmd cmdResult gid supply prevLogs = do
       ContMsg pid 1 False (object [ "fee" .= feeOf total fee ]) Nothing
 
     feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
-
--- ------------------------------------------------------------------------ --
--- Command Builders
 
 -- | Build the 'coin-contract.buygas' command
 --
@@ -457,9 +453,6 @@ buildExecParsedCode value code = maybe (go Null) go value
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
-
--- ------------------------------------------------------------------------ --
--- Helpers
 
 -- | Create a gas environment from a verified command
 --

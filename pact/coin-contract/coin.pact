@@ -18,7 +18,7 @@
   (deftable coin-table:{coin-schema})
 
   ; the shape of a cross-chain transfer (used for typechecking)
-  (defschema transfer-*
+  (defschema transfer-schema
     create-account:string
     create-account-guard:guard
     quantity:decimal
@@ -178,7 +178,11 @@
       create-account-guard:guard
       quantity:decimal )
 
-    @doc "Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, \
+    @doc "Transfer QUANTITY coins from DELETE-ACCOUNT on current chain to           \
+         \CREATE-ACCOUNT on CREATE-CHAIN-ID. Target chain id must not be the        \
+         \current chain-id.                                                         \
+         \                                                                          \
+         \Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, \
          \and produce an SPV receipt which may be manually redeemed for an SPV      \
          \proof. Once a proof is obtained, the user may call 'create-coin' and      \
          \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT QUANTITY-  \
@@ -195,15 +199,18 @@
 
     (step
       (with-capability (TRANSFER)
+        (enforce (= (at 'chain-id (chain-data)) create-chain-id)
+          "cannot run cross-chain transfers to the same chain")
+
         (debit delete-account quantity)
-          (let
-              ((retv:object{transfer-*}
-                  { "create-account": create-account
-                  , "create-account-guard": create-account-guard
-                  , "quantity": quantity
-                  }))
-            (yield retv create-chain-id)
-            )))
+        (let
+          ((retv:object{transfer-schema}
+            { "create-account": create-account
+            , "create-account-guard": create-account-guard
+            , "quantity": quantity
+            }))
+          (yield retv create-chain-id)
+          )))
 
     (step
       (resume

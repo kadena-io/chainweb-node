@@ -68,9 +68,6 @@ import Pact.Types.Runtime
 import Pact.Types.SPV
 
 
--- -------------------------------------------------------------------------- --
--- Noop and std pact spv support
-
 -- | Spv support for pact
 --
 pactSPV
@@ -105,9 +102,7 @@ verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
       "TXOUT" -> case extractProof o of
         Left !u -> return $! Left u
         Right !t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
-      "TXIN" -> return $ Left "TXIN is currently unsupported"
-      t -> return . Left $!
-        "TXIN or TXOUT must be specified to generate valid spv proofs: " <> t
+      t -> return . Left $! "unsupported SPV types: " <> t
 
     handleResult (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) = case fromPactValue pv of
       TObject !o _ -> return $! Right o
