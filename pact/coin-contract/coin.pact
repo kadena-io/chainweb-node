@@ -199,7 +199,7 @@
 
     (step
       (with-capability (TRANSFER)
-        (enforce (= (at 'chain-id (chain-data)) create-chain-id)
+        (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
           "cannot run cross-chain transfers to the same chain")
 
         (debit delete-account quantity)
