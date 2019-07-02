@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -42,19 +41,14 @@ import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
 
-import GHC.Stack
-
 import qualified Network.HTTP.Client as HTTP
 
 import Prelude hiding (log)
-
-import qualified Streaming.Prelude as S
 
 import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -69,16 +63,13 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Data.CAS
 import Data.CAS.RocksDB
 
 import P2P.Node
@@ -159,7 +150,6 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
 
             -- replay pact
             let pact = pes mempool requestQ
-            replayPact logger pact cdb payloadDb
 
             -- run inner
             inner $ ChainResources
@@ -180,35 +170,6 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
         TimedCPM{} -> mkPactExecutionService mempool requestQ
         Testnet00 -> mkPactExecutionService mempool requestQ
         Testnet01 -> mkPactExecutionService mempool requestQ
-
--- -------------------------------------------------------------------------- --
--- Initialization and Housekeeping
-
--- | Replay transactions for the payloads of /all/ blocks including forks.
---
-replayPact
-    :: HasCallStack
-    => Logger logger
-    => PayloadCas cas
-    => logger
-    -> PactExecutionService
-    -> BlockHeaderDb
-    -> PayloadDb cas
-    -> IO ()
-replayPact logger pact cdb pdb = do
-    logg Info "start replaying pact transactions"
-    (l, _) <- entries cdb Nothing Nothing Nothing Nothing $ \s -> s
-        & S.drop 1
-        & S.mapM_ (\h -> payload h >>= _pactValidateBlock pact h)
-    logg Info $ "finished replaying " <> sshow l <> " pact transactions"
-  where
-    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
-        Nothing -> do
-            logg Error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-            error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-        (Just !p) -> return $! payloadWithOutputsToPayloadData p
-
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.
