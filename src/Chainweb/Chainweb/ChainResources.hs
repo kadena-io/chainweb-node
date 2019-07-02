@@ -133,17 +133,18 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv payloadDb $ \requestQ -> do
-
+        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb $
+          \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
                 x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
 
-                    -- FIXME At the time of writing his payload hashes are not unique. The pruning
-                    -- algorithm can handle non-uniquness between within a chain between forks, but not
-                    -- accross chains. Also cas-deletion is sound for payload hashes if outputs are
-                    -- unique for payload hashes.
+                    -- FIXME At the time of writing his payload hashes are not
+                    -- unique. The pruning algorithm can handle non-uniquness
+                    -- between within a chain between forks, but not accross
+                    -- chains. Also cas-deletion is sound for payload hashes if
+                    -- outputs are unique for payload hashes.
                     --
                     -- Renable this code once pact
                     --

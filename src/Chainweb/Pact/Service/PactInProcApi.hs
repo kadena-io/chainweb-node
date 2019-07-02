@@ -35,6 +35,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Logger
@@ -60,11 +61,12 @@ withPactService
     -> logger
     -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
     -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv pdb action =
-    withPactService' ver cid logger mpa cdbv pdb action
+withPactService ver cid logger mpc cdbv bhdb pdb action =
+    withPactService' ver cid logger mpa cdbv bhdb pdb action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -78,14 +80,15 @@ withPactService'
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
     -> PayloadDb cas
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv pdb action =
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
         a <- async $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv pdb
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb
         link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
