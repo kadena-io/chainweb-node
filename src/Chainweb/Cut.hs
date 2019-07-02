@@ -214,11 +214,21 @@ limitCut
         -- upper bound for the cut height. This is not a tight bound.
     -> Cut
     -> IO Cut
-limitCut wdb h c = c & (cutHeaders . itraverse) f
+limitCut wdb h c
+    | h >= _cutHeight c = return c
+    | otherwise = c & (cutHeaders . itraverse) fastRoute
   where
     ch = h `div` int (order (_chainGraph wdb))
-    f cid x = do
-        db <- give wdb $ getWebBlockHeaderDb cid
+
+    fastRoute cid x = do
+        !db <- give wdb $ getWebBlockHeaderDb cid
+        let l = min (_blockHeight x) (int ch)
+        !a <- S.toList_ & entries db Nothing (Just 2) (Just $ int l) (Just $ int l)
+        case a of
+            [r] -> return r
+            _ -> slowRoute db x
+
+    slowRoute db x = do
         !a <- S.head_ & branchEntries db
             Nothing (Just 1)
             Nothing (Just $ int ch)
