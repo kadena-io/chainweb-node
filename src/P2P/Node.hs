@@ -67,7 +67,6 @@ import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
-import Data.Int
 import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT, size)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -176,8 +175,8 @@ data P2pSessionInfo = P2pSessionInfo
     { _p2pSessionInfoId :: !T.Text
     , _p2pSessionInfoSource :: !PeerInfo
     , _p2pSessionInfoTarget :: !PeerInfo
-    , _p2pSessionInfoStart :: !(Time Int64)
-    , _p2pSessionInfoEnd :: !(Maybe (Time Int64))
+    , _p2pSessionInfoStart :: !(Time Micros)
+    , _p2pSessionInfoEnd :: !(Maybe (Time Micros))
     , _p2pSessionInfoResult :: !(Maybe P2pSessionResult)
     }
     deriving (Show, Eq, Ord, Generic)
@@ -222,7 +221,7 @@ addSession
     :: P2pNode
     -> PeerInfo
     -> Async (Maybe Bool)
-    -> Time Int64
+    -> Time Micros
     -> STM P2pSessionInfo
 addSession node peer session start = do
     modifyTVar' (_p2pNodeSessions node) $ M.insert peer (info, session)

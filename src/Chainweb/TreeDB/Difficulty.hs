@@ -17,7 +17,6 @@ import Control.Lens ((^.))
 
 import Data.Function ((&))
 import qualified Data.HashSet as HS
-import Data.Int (Int64)
 import Data.Semigroup (Max(..), Min(..))
 
 import Numeric.Natural (Natural)
@@ -28,7 +27,7 @@ import qualified Streaming.Prelude as P
 
 import Chainweb.BlockHeader
 import Chainweb.Difficulty
-import Chainweb.Time (Time(..), TimeSpan(..))
+import Chainweb.Time (Time(..), TimeSpan(..), Micros(..))
 import Chainweb.TreeDB
 import Chainweb.Utils (fromJuste, int)
 import Chainweb.Version (ChainwebVersion)
@@ -58,7 +57,7 @@ hashTarget db bh
 
         -- The time difference in microseconds between when the earliest and
         -- latest blocks in the window were mined.
-        let delta :: TimeSpan Int64
+        let delta :: TimeSpan Micros
             !delta = TimeSpan $ time bh' - time start
 
         pure . adjust ver (WindowWidth ww) delta $ _blockTarget bh'
@@ -103,5 +102,5 @@ hashTarget db bh
     lower = HS.empty
     upper = HS.singleton . UpperBound $! key bh
 
-    time :: BlockHeader -> Int64
+    time :: BlockHeader -> Micros
     time h = case _blockCreationTime h of BlockCreationTime (Time (TimeSpan n)) -> n

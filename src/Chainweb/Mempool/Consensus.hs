@@ -51,8 +51,8 @@ import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 
-import Data.LogMessage (JsonLog(..), LogFunction)
 import Data.CAS
+import Data.LogMessage (JsonLog(..), LogFunction)
 
 ----------------------------------------------------------------------------------------------------
 data MempoolConsensus t = MempoolConsensus
@@ -167,7 +167,7 @@ processFork' logFun db newHeader lastHeaderM plLookup = do
                           logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
                       return results
           where
-            f trans header = HS.union trans <$> plLookup header
+            f !trans !header = HS.union trans <$!> plLookup header
 
 ----------------------------------------------------------------------------------------------------
 payloadLookup
@@ -194,20 +194,25 @@ payloadLookup payloadStore bh =
 collectForkBlocks
     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
     -> IO (Vector BlockHeader, Vector BlockHeader)
-collectForkBlocks theStream =
-    go theStream (V.empty, V.empty)
+collectForkBlocks theStream = do
+    (oldDL, newDL) <- go theStream (id, id)
+    let !old = V.fromList $ oldDL []
+    let !new = V.fromList $ newDL []
+    return $! (old, new)
   where
-    go stream (!oldBlocks, !newBlocks) = do
+    go !stream (!oldBlocks, !newBlocks) = do
         nxt <- S.next stream
         case nxt of
             -- end of the stream, last item is common branch point of the forks
             -- removing the common branch block with tail -- the lists should never be empty
-            Left _ -> return (V.tail oldBlocks, V.tail newBlocks)
+            Left _ -> let old = tail . oldBlocks
+                          new = tail . newBlocks
+                      in return (old, new)
 
-            Right (LeftD blk, strm) -> go strm (V.cons blk oldBlocks, newBlocks)
-            Right (RightD blk, strm) -> go strm (oldBlocks, V.cons blk newBlocks)
-            Right (BothD lBlk rBlk, strm) -> go strm ( V.cons lBlk oldBlocks,
-                                                       V.cons rBlk newBlocks )
+            Right (LeftD blk, strm) -> go strm ((blk:) . oldBlocks, newBlocks)
+            Right (RightD blk, strm) -> go strm (oldBlocks, (blk:) . newBlocks)
+            Right (BothD lBlk rBlk, strm) -> go strm ( (lBlk:) . oldBlocks,
+                                                       (rBlk:) . newBlocks )
 
 ----------------------------------------------------------------------------------------------------
 chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
@@ -218,6 +223,6 @@ chainwebTxsFromPWO pwo = do
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
     let theRights  =  rights $ toList eithers
-    return $ HS.fromList $ HashableTrans <$> theRights
+    return $! HS.fromList $ HashableTrans <$!> theRights
   where
     toCWTransaction = codecDecode chainwebPayloadCodec

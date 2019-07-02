@@ -24,6 +24,7 @@ module Chainweb.Mempool.RestAPI
   , someMempoolVal
   , MempoolApi
   , mempoolApi
+  , PendingTransactions(..)
 
   , MempoolInsertApi
   , MempoolMemberApi
@@ -39,15 +40,11 @@ module Chainweb.Mempool.RestAPI
 
 
 ------------------------------------------------------------------------------
+import Data.Aeson
 import Data.Int
+import GHC.Generics
 import Servant
-import qualified System.IO.Streams as Streams
 
-#if MIN_VERSION_servant(0,15,0)
-import Servant.Types.SourceT
-#else
-import Data.IORef
-#endif
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -70,6 +67,24 @@ someMempoolVal v cid m =
      (SomeChainwebVersionT (Proxy :: Proxy vt)) -> case someChainIdVal cid of
          (SomeChainIdT (Proxy :: Proxy cidt)) ->
              SomeMempool (Mempool_ @vt @cidt m)
+
+------------------------------------------------------------------------------
+-- pending transactions
+data PendingTransactions = PendingTransactions
+    { _pendingTransationsHashes :: ![TransactionHash]
+    , _pendingTransactionsHighwaterMark :: !HighwaterMark
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+instance ToJSON PendingTransactions where
+    toEncoding o = pairs
+        $ "hashes" .= _pendingTransationsHashes o
+        <> "highwaterMark" .= _pendingTransactionsHighwaterMark o
+
+instance FromJSON PendingTransactions where
+    parseJSON = withObject "PendingTransactions" $ \o -> PendingTransactions
+        <$> o .: "hashes"
+        <*> o .: "highwaterMark"
 
 ------------------------------------------------------------------------------
 -- servant sub-api
@@ -99,7 +114,7 @@ type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
     QueryParam "since" MempoolTxId :>
-    StreamPost NetstringFraming JSON (Streams.InputStream (Either HighwaterMark [TransactionHash]))
+    Post '[JSON] PendingTransactions
 
 mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                  . Proxy (MempoolInsertApi v c t)
@@ -121,26 +136,3 @@ mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                      . Proxy (MempoolGetPendingApi v c t)
 mempoolGetPendingApi = Proxy
 
-
-
-#if MIN_VERSION_servant(0,15,0)
-------------------------------------------------------------------------------
-instance ToSourceIO t (Streams.InputStream t) where
-  toSourceIO is = SourceT $ \k -> k go
-    where
-      go = Effect slurp
-      slurp = maybe Stop (flip Yield go) <$> Streams.read is
-#else
-
-instance Show a => ToStreamGenerator (Streams.InputStream a) a where
-  toStreamGenerator s = StreamGenerator $ \firstIO restIO -> do
-      firstRef <- newIORef True
-      Streams.mapM_ (f firstRef firstIO restIO) s >>= Streams.skipToEof
-    where
-      f firstRef firstIO restIO x = do
-          b <- readIORef firstRef
-          if b
-            then do writeIORef firstRef False
-                    firstIO x
-            else restIO x
-#endif
