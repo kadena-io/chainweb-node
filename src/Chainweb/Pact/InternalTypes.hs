@@ -27,7 +27,6 @@ module Chainweb.Pact.InternalTypes
   , psPublicData
   , psStateValidated
   , psPdb
-  , psChainId
   , psBlockHeaderDb
     -- * module exports
   , module Chainweb.Pact.Backend.Types
@@ -50,14 +49,12 @@ import Pact.Types.SPV
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
-import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
 data PactServiceEnv cas = PactServiceEnv
-  { _psChainId :: ChainId
-  , _psMempoolAccess :: !(Maybe MemPoolAccess)
+  { _psMempoolAccess :: !(Maybe MemPoolAccess)
   , _psCheckpointEnv :: !CheckpointEnv
   , _psSpvSupport :: !SPVSupport
   , _psPublicData :: !PublicData

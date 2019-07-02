@@ -75,6 +75,7 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
+import Chainweb.BlockHeaderDb.Types
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -220,13 +221,14 @@ testPactCtx
     => ChainwebVersion
     -> V.ChainId
     -> MVar (CutDb cas)
+    -> BlockHeaderDb
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
-testPactCtx v cid cdbv pdb = do
+testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
     evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where

@@ -158,7 +158,7 @@ initPactService' cid chainwebLogger spv bhDb pdb act = do
       checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv cid Nothing checkpointEnv (spv logger) pd pdb bhDb
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
 
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
