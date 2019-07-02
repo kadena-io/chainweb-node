@@ -67,7 +67,6 @@ import Data.Aeson hiding (Error)
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
-import Data.Int
 import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT, size)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -96,6 +95,10 @@ import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.LogMessage
+
+#if MIN_VERSION_servant(0,16,0)
+import Network.X509.SelfSigned
+#endif
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -176,8 +179,8 @@ data P2pSessionInfo = P2pSessionInfo
     { _p2pSessionInfoId :: !T.Text
     , _p2pSessionInfoSource :: !PeerInfo
     , _p2pSessionInfoTarget :: !PeerInfo
-    , _p2pSessionInfoStart :: !(Time Int64)
-    , _p2pSessionInfoEnd :: !(Maybe (Time Int64))
+    , _p2pSessionInfoStart :: !(Time Micros)
+    , _p2pSessionInfoEnd :: !(Maybe (Time Micros))
     , _p2pSessionInfoResult :: !(Maybe P2pSessionResult)
     }
     deriving (Show, Eq, Ord, Generic)
@@ -222,7 +225,7 @@ addSession
     :: P2pNode
     -> PeerInfo
     -> Async (Maybe Bool)
-    -> Time Int64
+    -> Time Micros
     -> STM P2pSessionInfo
 addSession node peer session start = do
     modifyTVar' (_p2pNodeSessions node) $ M.insert peer (info, session)
@@ -296,9 +299,14 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = runClientM sync env >>= \case
-    Left e -> do
-        logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
-        return False
+    Left e
+        | isCertMismatch e -> do
+            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknow certificate. Deleting peer from peer db"
+            peerDbDelete (_p2pNodePeerDb node) info
+            return False
+        | otherwise -> do
+            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
+            return False
     Right p -> do
         peerDbInsertPeerInfoList
             (_p2pNodeNetworkId node)
@@ -317,6 +325,28 @@ syncFromPeer node info = runClientM sync env >>= \case
         return p
     myPid = _peerId $ _p2pNodePeerInfo node
     pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
+
+    -- If the certificate check fails because the certificate is unknown, the
+    -- peer is removed from the database. That is, we allow only connection to
+    -- peers that we know through explicitly being added to the db.
+    --
+    -- We explicitly don't update the certificate fingerprint. The only we to
+    -- introduce a new peer into the network is by propagating it to the peer
+    -- databased. This allows to implement reputation management, gray-, and
+    -- black listing.
+    --
+#if MIN_VERSION_servant(0,16,0)
+    isCertMismatch (ConnectionError e) = case fromException e of
+        Just x
+            | isCertificateMismatchException x -> True
+        _ -> False
+    isCertMismatch _ = False
+#else
+    isCertMismatch (ConnectionError e)
+        | T.isInfixOf "CertificateUnknown" e = True
+        | otherwise = False
+    isCertMismatch _ = False
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb

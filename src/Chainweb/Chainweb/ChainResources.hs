@@ -124,27 +124,41 @@ withChainResources
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
-    -> Maybe (PayloadDb cas)
+    -> PayloadDb cas
+    -> Bool
+        -- ^ whether to prune the chain database
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb inner =
+withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb $ \requestQ -> do
+        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv payloadDb $ \requestQ -> do
 
             -- prune block header db
-            logg Info "start pruning block header database"
-            x <- pruneForks logger cdb (diam * 3) $ \h payloadInUse ->
-                unless payloadInUse
-                    $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
-            logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+            when prune $ do
+                logg Info "start pruning block header database"
+                x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
+
+                    -- FIXME At the time of writing his payload hashes are not unique. The pruning
+                    -- algorithm can handle non-uniquness between within a chain between forks, but not
+                    -- accross chains. Also cas-deletion is sound for payload hashes if outputs are
+                    -- unique for payload hashes.
+                    --
+                    -- Renable this code once pact
+                    --
+                    -- includes the parent hash into the coinbase hash,
+                    -- includes the transaction hash into the respective output hash, and
+                    -- guarantees that transaction hashes are unique.
+                    --
+                    -- unless payloadInUse
+                    --     $ casDelete payloadDb (_blockPayloadHash h)
+                    return ()
+                logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
             let pact = pes mempool requestQ
-            -- payloadStore is only 'Nothing' in some unit tests not using this code
-            -- this is wrong because of italian forks
-            replayPact logger pact cdb $ fromJust payloadDb
+            replayPact logger pact cdb payloadDb
 
             -- run inner
             inner $ ChainResources
@@ -233,26 +247,20 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 mempoolSyncP2pSession :: ChainResources logger -> Seconds -> P2pSession
-mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ =
-    flip catches [ Handler errorHandler ] $ do
-
-        let peerMempool = MPC.toMempool v cid txcfg gaslimit env
-
-        logg Debug "mempool sync session starting"
-        Mempool.syncMempools' logg syncIntervalUs pool peerMempool
-        logg Debug "mempool sync session finished"
-        return True
+mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
+    logg Debug "mempool sync session starting"
+    Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+    logg Debug "mempool sync session finished"
+    return True
   where
+    peerMempool = MPC.toMempool v cid txcfg gaslimit env
+
     -- FIXME Potentially dangerous down-cast.
     syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 1000000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
-
-    errorHandler (e :: SomeException) = do
-        logg Warn ("mempool sync session failed: " <> sshow e)
-        throwM e
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

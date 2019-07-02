@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -18,10 +19,10 @@ import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State (gets, get)
+import Control.Monad.State (get, gets)
 
-import Data.Serialize hiding (get)
 import Data.List (intercalate)
+import Data.Serialize hiding (get)
 -- import qualified Data.Text as T
   -- import qualified Data.Text.IO as T
 
@@ -63,6 +64,8 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb = do
             (doRestore db cdb payloadDb)
             (doSave db)
             (doDiscard db)
+            (doGetLatest db)
+            (doWithAtomicRewind db)
       , _cpeLogger = loggr
       , _cpeGasEnv = gasEnv
       })
@@ -72,24 +75,25 @@ type Db = MVar (BlockEnv SQLiteEnv)
 
 dump :: BlockHandler SQLiteEnv ()
 dump = do
-  bstate <- get
-  log "INFO" $ "dumping bstate here:" <> show bstate
-  log "INFO" "dumping blockhistory here"
-  txts <- callDb "dumping" $ \db -> do
-      qry_ db "SELECT * FROM BlockHistory;" [RInt,RBlob,RInt] >>= mapM go
-  log "INFO" (intercalate ":" txts)
-    -- log "Info" "dumping versionhistory\n"
-    -- qry_ db "SELECT * FROM VersionHistory;" [RInt,RInt,RInt] >>= print
-
-go :: [SType] -> IO String
-go [SInt a, SBlob blob, SInt b] = do
-  let getshit = either error id
-  return $
-    "row= " <> show a <> " " <>
-    show ((getshit $ Data.Serialize.decode blob) :: BlockHash) <>
-    " " <>
-    show b
-go _ = error "whatever"
+    -- TODO: cleanup/remove dump code
+    bstate <- get
+    log "INFO" $ "dumping bstate here:" <> show bstate
+    log "INFO" "dumping blockhistory here"
+    txts <- callDb "dumping" $ \db -> do
+        qry_ db "SELECT * FROM BlockHistory;" [RInt,RBlob,RInt] >>= mapM go
+    log "INFO" (intercalate ":" txts)
+      -- log "Info" "dumping versionhistory\n"
+      -- qry_ db "SELECT * FROM VersionHistory;" [RInt,RInt,RInt] >>= print
+  where
+    go :: [SType] -> IO String
+    go [SInt a, SBlob blob, SInt b] = do
+        let getshit = either error id
+        return $
+            "row= " <> show a <> " " <>
+            show ((getshit $ Data.Serialize.decode blob) :: BlockHash) <>
+            " " <>
+            show b
+    go _ = error "whatever"
 
 doRestore :: Db -> BlockHeaderDb -> Maybe (PayloadDb cas) -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv _cdb _payloadDb (Just (bh, hash)) = do
@@ -135,3 +139,22 @@ doSave dbenv hash = runBlockEnv dbenv $ do
 
 doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
+
+doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
+doGetLatest dbenv =
+    runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
+        r <- qry db qtext [] [RInt, RBlob] >>= mapM go
+        case r of
+          [] -> return Nothing
+          (!o:_) -> return $! Just o
+  where
+    qtext = "SELECT blockheight, hash FROM BlockHistory \
+            \ ORDER BY blockheight DESC LIMIT 1"
+
+    go [SInt hgt, SBlob blob] =
+        let hash = either error id $ Data.Serialize.decode blob
+        in return $! (fromIntegral hgt, hash)
+    go _ = fail "impossible"
+
+doWithAtomicRewind :: Db -> IO a -> IO a
+doWithAtomicRewind db = runBlockEnv db . withSavepoint RewindSavepoint . liftIO

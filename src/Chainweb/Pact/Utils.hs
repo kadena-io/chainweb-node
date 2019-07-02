@@ -23,7 +23,7 @@ import Control.Concurrent.MVar
 
 import Pact.Interpreter as P
 
-import Chainweb.Pact.Types
+import Chainweb.Pact.Backend.Types
 
 
 toEnv' :: EnvPersist' -> IO Env'

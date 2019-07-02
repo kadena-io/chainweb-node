@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -18,18 +19,19 @@
 module Chainweb.Pact.Backend.Utils where
 
 import Control.Concurrent.MVar
-import Control.Exception hiding (try)
-import Control.Exception.Safe hiding (bracket)
+import Control.Exception (evaluate)
+import Control.Exception.Safe (tryAny)
 import Control.Lens
+import Control.Monad.Catch
 import Control.Monad.State.Strict
 
 import Control.Monad.Reader
 
 import Data.Bits
+import Data.ByteString hiding (pack)
 import Data.String
 import Data.String.Conv
-import Data.ByteString hiding (pack)
-import Data.Text (pack, Text)
+import Data.Text (Text, pack)
 import Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (log)
@@ -41,14 +43,15 @@ import System.IO.Extra
 
 import Pact.Types.Persistence
 import Pact.Types.SQLite
-import Pact.Types.Term(KeySetName(..), NamespaceName(..), ModuleName(..), PactId(..))
+import Pact.Types.Term
+    (KeySetName(..), ModuleName(..), NamespaceName(..), PactId(..))
 import Pact.Types.Util (AsString(..))
 
 -- chainweb
 
+import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Backend.SQLite.DirectV2
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
@@ -64,21 +67,22 @@ callDb callerName action = do
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
     Right r -> return r
 
-withSavepoint :: SavepointName -> BlockHandler SQLiteEnv a -> BlockHandler SQLiteEnv a
-withSavepoint name action = do
-  beginSavepoint name
-  result <- try action
-  case result of
-    Right r -> do
-      commitSavepoint name
-      liftIO $ evaluate r
-    Left (PactInternalError err) -> do
-      rollbackSavepoint name
-      internalError $
-        "withSavepoint (" <> asString name <> "): " <> (pack $ show err)
-    Left err -> do
-      rollbackSavepoint name
-      internalError $ "withSavepoint: The impossible happened: " <> (pack $ show err)
+withSavepoint
+    :: SavepointName
+    -> BlockHandler SQLiteEnv a
+    -> BlockHandler SQLiteEnv a
+withSavepoint name action = mask $ \resetMask -> do
+    resetMask $ beginSavepoint name
+    go resetMask `catches` handlers
+  where
+    go resetMask = do
+        r <- resetMask action `onException` rollbackSavepoint name
+        commitSavepoint name
+        liftIO $ evaluate r
+    throwErr s = internalError $ "withSavepoint (" <> asString name <> "): " <> pack s
+    handlers = [ Handler $ \(e :: PactException) -> throwErr (show e)
+               , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> show e)
+               ]
 
 -- for debugging
 withTrace :: Database -> (Utf8 -> IO ()) -> IO a -> IO a
@@ -100,14 +104,15 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
-data SavepointName = Block | DbTransaction |  PreBlock | PactDbTransaction
+data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock | PactDbTransaction
   deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
-  show (Block) = "block"
-  show (DbTransaction) = "db-transaction"
-  show (PreBlock) = "preblock"
-  show (PactDbTransaction) = "pact-transaction"
+  show RewindSavepoint = "rewind"
+  show Block = "block"
+  show DbTransaction = "db-transaction"
+  show PreBlock = "preblock"
+  show PactDbTransaction = "pact-transaction"
 
 instance AsString SavepointName where
   asString = Data.Text.pack . show

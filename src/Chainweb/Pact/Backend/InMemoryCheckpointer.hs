@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -19,8 +19,8 @@ import Data.Text (pack)
 
 
 import Pact.Interpreter
-import Pact.PersistPactDb
 import Pact.Persist.Pure
+import Pact.PersistPactDb
 import Pact.Types.Logger
 import Pact.Types.Runtime hiding (hash)
 
@@ -34,7 +34,7 @@ import Chainweb.Pact.Service.Types (internalError)
 
 data Store = Store
   { _theStore :: HashMap (BlockHeight, BlockHash) (DbEnv PureDb)
-  , _tempSaveHeight :: Maybe BlockHeight
+  , _lastBlock :: Maybe (BlockHeight, BlockHash)
   , _dbenv :: MVar (DbEnv PureDb)
   }
 
@@ -51,6 +51,8 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doRestore genesis inmem)
                     (doSave inmem)
                     (doDiscard inmem)
+                    (doGetLatest inmem)
+                    id  -- in-mem doesn't require tx rewind
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
@@ -58,28 +60,31 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
 doRestore :: DbEnv PureDb -> MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore _ lock (Just (height, hash)) =
     modifyMVarMasked lock $ \store -> do
-      case HMS.lookup (pred height, hash) (_theStore store) of
+      let bh = (pred height, hash)
+      case HMS.lookup bh (_theStore store) of
             Just dbenv -> do
               mdbenv <- newMVar dbenv
-              let store' = store { _tempSaveHeight = Just height, _dbenv = mdbenv }
-              return $ (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
+              let !store' = store { _lastBlock = Just bh, _dbenv = mdbenv }
+              return $! (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
             Nothing -> internalError $
               "InMemoryCheckpointer: Restore not found: height=" <> pack (show (pred height))
               <> ", hash=" <> pack (show hash)
               <> ", known=" <> pack (show (HMS.keys (_theStore store)))
 doRestore genesis lock Nothing =
-  modifyMVarMasked lock $ \_ -> do
-    gen <- newMVar genesis
-    return $! (Store mempty Nothing gen, PactDbEnv' $ PactDbEnv pactdb gen)
+    modifyMVarMasked lock $ \_ -> do
+      gen <- newMVar genesis
+      return $! (Store mempty Nothing gen, PactDbEnv' $ PactDbEnv pactdb gen)
 
 doSave :: MVar Store -> BlockHash -> IO ()
-doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv) -> case mheight of
-  Nothing -> do
+doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv) -> do
     env <- readMVar dbenv
-    return $ Store (HMS.insert (BlockHeight 0, hash) env store) mheight dbenv
-  Just height -> do
-    env <- readMVar dbenv
-    return $ Store (HMS.insert (height, hash) env store) mheight dbenv
+    let bh = case mheight of
+               Nothing -> (BlockHeight 0, hash)
+               Just (height, _) -> (succ height, hash)
+    return $ Store (HMS.insert bh env store) (Just bh) dbenv
+
+doGetLatest :: MVar Store -> IO (Maybe (BlockHeight, BlockHash))
+doGetLatest lock = withMVar lock $ \(Store _ m _) -> return m
 
 doDiscard :: MVar Store -> IO ()
 doDiscard _ = return ()

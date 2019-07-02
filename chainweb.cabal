@@ -42,12 +42,6 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
-flag tls13
-    description:
-        Enable TLSv1.3; depends on the master branch of the tls package.
-    default: False
-    manual: True
-
 flag ed25519
     description:
         Use ED25519 certificates; depends on the master branch of the tls
@@ -113,6 +107,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
+        , Chainweb.BlockHeaderDB.Types
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
@@ -129,6 +124,7 @@ library
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
+        , Chainweb.CutDB.Types
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -149,8 +145,9 @@ library
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
-        , Chainweb.Payload.PayloadStore.RocksDB
         , Chainweb.Payload.PayloadStore.InMemory
+        , Chainweb.Payload.PayloadStore.RocksDB
+        , Chainweb.Payload.PayloadStore.Types
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
@@ -170,6 +167,7 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
+        , Chainweb.Sync.WebBlockHeaderStore.Types
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -182,7 +180,9 @@ library
         , Chainweb.Utils.RequestLog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
+        , Chainweb.WebBlockHeaderDB.Types
         , Chainweb.WebPactExecutionService
+        , Chainweb.WebPactExecutionService.Types
 
         , Control.Concurrent.FixedThreadPool
 
@@ -223,6 +223,7 @@ library
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.BloomCache
+        , Chainweb.Pact.InternalTypes
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -268,6 +269,7 @@ library
         , digraph >= 0.1.0.2
         , direct-sqlite >= 2.3
         , directory >= 1.3
+        , dlist >= 0.8
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
@@ -278,7 +280,6 @@ library
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
-        , io-streams >= 1.5
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
@@ -321,7 +322,7 @@ library
         , text >= 1.2
         , thyme == 0.3.6.0
         , time >= 1.8
-        , tls >=1.4
+        , tls >=1.5
         , transformers >= 0.5
         , trifecta >= 2
         , unordered-containers >= 0.2
@@ -334,16 +335,13 @@ library
         , vector-algorithms >= 0.8
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
-        , warp-tls >= 3.2
+        , warp-tls >= 3.2.7
         , witherable >= 0.2
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
-
-    if flag(tls13)
-        cpp-options: -DWITH_TLS13=1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -454,7 +452,7 @@ test-suite chainweb-tests
         , vector >= 0.12
         , wai >= 3.2
         , warp >= 3.2
-        , warp-tls >= 3.2
+        , warp-tls >= 3.2.7
         , yaml >= 0.11
 
     if flag(ed25519)
@@ -568,7 +566,6 @@ executable cwtool
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
-        , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
@@ -608,13 +605,13 @@ executable cwtool
         , text >= 1.2
         , these >= 0.7
         , time >= 1.8
-        , tls >=1.4
+        , tls >=1.5
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
         , warp >= 3.2
-        , warp-tls >= 3.2
+        , warp-tls >= 3.2.7
         , xmlgen >= 0.6
         , yaml >= 0.8
         , yet-another-logger >= 0.3.1

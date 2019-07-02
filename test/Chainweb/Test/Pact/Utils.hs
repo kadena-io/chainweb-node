@@ -1,7 +1,7 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE GADTs #-}
 -- |
 -- Module: Chainweb.Test.PactInProcApi
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -70,23 +70,27 @@ import Pact.Types.Crypto
 import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.SPV (noSPVSupport)
-import Pact.Types.Util (toB16Text)
 import Pact.Types.SQLite hiding (fastNoJournalPragmas)
+import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer, initRelationalCheckpointer')
-import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.RelationalCheckpointer
+    (initRelationalCheckpointer, initRelationalCheckpointer')
 import Chainweb.Pact.Backend.SQLite.DirectV2
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.InternalTypes
+import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
-import Chainweb.Version (ChainwebVersion(..), someChainId, chainIds)
+import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as V
 import Chainweb.WebPactExecutionService
 
@@ -192,9 +196,9 @@ pactTestLogger showAll = initLoggers putStrLn f def
 -- -------------------------------------------------------------------------- --
 -- Test Pact Execution Context
 
-data TestPactCtx = TestPactCtx
+data TestPactCtx cas = TestPactCtx
     { _testPactCtxState :: !(MVar PactServiceState)
-    , _testPactCtxEnv :: !PactServiceEnv
+    , _testPactCtxEnv :: !(PactServiceEnv cas)
     }
 
 data PactTransaction = PactTransaction
@@ -203,24 +207,26 @@ data PactTransaction = PactTransaction
   } deriving (Eq, Show)
 
 
-evalPactServiceM :: TestPactCtx -> PactServiceM a -> IO a
+evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
 evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
     (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
     return (s',a)
 
-destroyTestPactCtx :: TestPactCtx -> IO ()
+destroyTestPactCtx :: TestPactCtx cas -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 testPactCtx
-    :: ChainwebVersion
+    :: PayloadCas cas
+    => ChainwebVersion
     -> V.ChainId
-    -> Maybe (MVar (CutDb cas))
-    -> IO TestPactCtx
-testPactCtx v cid cdbv = do
+    -> MVar (CutDb cas)
+    -> PayloadDb cas
+    -> IO (TestPactCtx cas)
+testPactCtx v cid cdbv pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb)
     evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where
@@ -231,16 +237,18 @@ testPactCtx v cid cdbv = do
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 testPactCtxSQLite
-  :: ChainwebVersion
+  :: PayloadCas cas
+  => ChainwebVersion
   -> V.ChainId
   -> Maybe (MVar (CutDb cas))
+  -> PayloadDb cas
   -> SQLiteEnv
-  -> IO TestPactCtx
-testPactCtxSQLite v cid cdbv sqlenv = do
+  -> IO (TestPactCtx cas)
+testPactCtxSQLite v cid cdbv pdb sqlenv = do
     cpe <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb)
     evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
     return ctx
   where
@@ -254,20 +262,23 @@ testPactCtxSQLite v cid cdbv sqlenv = do
 -- | A test PactExecutionService for a single chain
 --
 testPactExecutionService
-    :: ChainwebVersion
+    :: PayloadCas cas
+    => ChainwebVersion
     -> V.ChainId
     -> Maybe (MVar (CutDb cas))
+    -> IO (PayloadDb cas)
     -> MemPoolAccess
        -- ^ transaction generator
     -> SQLiteEnv
     -> IO PactExecutionService
-testPactExecutionService v cid cutDB mempoolAccess sqlenv = do
-    ctx <- testPactCtxSQLite v cid cutDB sqlenv
+testPactExecutionService v cid cutDB pdbIO mempoolAccess sqlenv = do
+    pdb <- pdbIO
+    ctx <- testPactCtxSQLite v cid cutDB pdb sqlenv
     return $ PactExecutionService
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock mempoolAccess False h d
+            evalPactServiceM ctx $ execValidateBlock mempoolAccess h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -275,17 +286,19 @@ testPactExecutionService v cid cutDB mempoolAccess sqlenv = do
 -- | A test PactExecutionService for a chainweb
 --
 testWebPactExecutionService
-    :: ChainwebVersion
+    :: PayloadCas cas
+    => ChainwebVersion
     -> Maybe (MVar (CutDb cas))
+    -> IO (PayloadDb cas)
     -> (V.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
-testWebPactExecutionService v cutDB mempoolAccess sqlenvs
+testWebPactExecutionService v cutDB pdbIO mempoolAccess sqlenvs
     = fmap mkWebPactExecutionService
     $ fmap HM.fromList
     $ traverse
-        (\(sqlenv, c) -> (c,) <$> testPactExecutionService v c cutDB (mempoolAccess c) sqlenv)
+        (\(sqlenv, c) -> (c,) <$> testPactExecutionService v c cutDB pdbIO (mempoolAccess c) sqlenv)
     $ zip sqlenvs
     $ toList
     $ chainIds v
@@ -294,16 +307,19 @@ testWebPactExecutionService v cutDB mempoolAccess sqlenvs
 -- It's up to the user to ensure that tests are scheduled in the right order.
 --
 withPactCtx
-    :: ChainwebVersion
+    :: PayloadCas cas
+    => ChainwebVersion
     -> Maybe (MVar (CutDb cas))
-    -> ((forall a . PactServiceM a -> IO a) -> TestTree)
+    -> IO (PayloadDb cas)
+    -> ((forall a . PactServiceM cas a -> IO a) -> TestTree)
     -> TestTree
-withPactCtx v cutDB f
-    = withResource (start cutDB) destroyTestPactCtx $ \ctxIO -> f $ \pact -> do
+withPactCtx v cutDB pdbIO f =
+    withResource start destroyTestPactCtx $
+    \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
         evalPactServiceM ctx pact
   where
-    start = testPactCtx v (someChainId v)
+    start = pdbIO >>= testPactCtx v (someChainId v) cutDB
 
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
@@ -320,11 +336,13 @@ freeSQLiteResource (del,sqlenv) = do
   del
 
 withPactCtxSQLite
-  :: ChainwebVersion
+  :: PayloadCas cas
+  => ChainwebVersion
   -> Maybe (MVar (CutDb cas))
-  -> ((forall a . (PactDbEnv' -> PactServiceM a) -> IO a) -> TestTree)
+  -> IO (PayloadDb cas)
+  -> ((forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
   -> TestTree
-withPactCtxSQLite v cutDB f =
+withPactCtxSQLite v cutDB pdbIO f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
@@ -341,10 +359,11 @@ withPactCtxSQLite v cutDB f =
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
           blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+      pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' blockstate s logger gasEnv
       ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb)
       evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
       return (ctx, dbSt)

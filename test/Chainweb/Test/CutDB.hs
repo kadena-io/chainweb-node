@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -100,7 +99,7 @@ withTestCutDb
         -- ^ the chainweb version
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
-    -> WebPactExecutionService
+    -> (PayloadDb RocksDbCas -> IO WebPactExecutionService)
         -- ^ a pact execution service.
         --
         -- When transaction don't matter you can use 'fakePact' from this module.
@@ -113,13 +112,14 @@ withTestCutDb
     -> (CutDb RocksDbCas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> IO a
-withTestCutDb rdb v n pact logfun f = do
+withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
+    pact <- pactIO payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
@@ -250,7 +250,7 @@ withTestCutDbWithoutPact
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (CutDb RocksDbCas -> IO a)
     -> IO a
-withTestCutDbWithoutPact rdb v n = withTestCutDb rdb v n fakePact
+withTestCutDbWithoutPact rdb v n = withTestCutDb rdb v n (const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --

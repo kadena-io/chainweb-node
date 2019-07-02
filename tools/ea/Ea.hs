@@ -51,6 +51,7 @@ import System.LogLevel (LogLevel(..))
 import Chainweb.Logger (genericLogger)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Version
 
@@ -107,7 +108,8 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) $
+    pdb <- newPayloadDb
+    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) pdb $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

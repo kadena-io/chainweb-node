@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -19,7 +20,7 @@ module Chainweb.Test.Pact.PactInProcApi
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
-import Control.Exception (Exception)
+import Control.Exception
 -- import Control.Monad.IO.Class
 
 import Data.Aeson (object, (.=))
@@ -41,16 +42,16 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
+import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
-
-import qualified Chainweb.Pact.PactService as PS
-import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
@@ -64,27 +65,17 @@ tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
         newBlockTest "empty-block-tests" reqQIO
     ]
 
-{-
-tests :: ScheduledTest
-tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
-    [ withPact testMemPoolAccess $ \reqQIO -> testGroup "pact tests"
-        $ schedule Sequential
-            [ localTest reqQIO
-            ]
-    , withPact testMemPoolAccess $ \reqQIO ->
-        newBlockTest "new-block-0" reqQIO
-    , withPact testEmptyMemPool $ \reqQIO ->
-        newBlockTest "empty-block-tests" reqQIO
-    ]
--}
-
-withPact :: MemPoolAccess -> (IO (TQueue RequestMsg) -> TestTree) -> TestTree
+withPact
+    :: MemPoolAccess
+    -> (IO (TQueue RequestMsg) -> TestTree)
+    -> TestTree
 withPact mempool f = withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
-        a <- async (PS.initPactService testVersion cid logger reqQ mempool mv)
+        pdb <- newPayloadDb
+        a <- async (PS.initPactService testVersion cid logger reqQ mempool mv pdb)
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

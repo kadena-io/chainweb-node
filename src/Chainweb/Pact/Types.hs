@@ -16,65 +16,44 @@
 module Chainweb.Pact.Types
   ( PactDbStatePersist(..)
   , Transactions(..)
-  , MemPoolAccess(..)
   , MinerInfo(..)
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
-  , PactServiceEnv(..)
-  , PactServiceState(..)
-    -- * types
-  , PactServiceM
     -- * optics
   , minerAccount
   , minerKeys
-  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
-  , psMempoolAccess
-  , psCheckpointEnv
-  , psSpvSupport
-  , psPublicData
-  , psStateValidated
     -- * defaults
   , defaultMiner
   , emptyPayload
   , noMiner
   , noCoinbase
   , HashCommandResult
-    -- * module exports
-  , module Chainweb.Pact.Backend.Types
   ) where
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
-import Control.Monad.Reader
-import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
 import Pact.Parse (ParsedDecimal)
-import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
-import Pact.Types.SPV
 import Pact.Types.Term (KeySet(..), Name(..))
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
-import Chainweb.Transaction
 import Chainweb.Utils
 
 type HashCommandResult = CommandResult H.Hash
@@ -144,33 +123,5 @@ data PactDbStatePersist = PactDbStatePersist
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
 
-data PactServiceEnv = PactServiceEnv
-  { _psMempoolAccess :: !(Maybe MemPoolAccess)
-  , _psCheckpointEnv :: !CheckpointEnv
-  , _psSpvSupport :: !SPVSupport
-  , _psPublicData :: !PublicData
-  }
-
-data PactServiceState = PactServiceState
-  {_psStateValidated :: Maybe BlockHeader
-  }
-
-type PactServiceM = ReaderT PactServiceEnv (StateT PactServiceState IO)
-
-data MemPoolAccess = MemPoolAccess
-  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
-  , mpaSetLastHeader :: BlockHeader -> IO ()
-  , mpaProcessFork :: BlockHeader -> IO ()
-  }
-
-noopMemPoolAccess :: MemPoolAccess
-noopMemPoolAccess = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> return V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
-
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
-makeLenses ''PactServiceEnv
-makeLenses ''PactServiceState

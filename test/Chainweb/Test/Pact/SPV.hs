@@ -1,14 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -28,7 +27,7 @@ module Chainweb.Test.Pact.SPV
 , doublespend
 ) where
 
-import Control.Concurrent.MVar (MVar, readMVar, newMVar)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException, finally, throwIO)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
@@ -64,9 +63,10 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Types
 import Chainweb.SPV.CreateProof
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
@@ -169,17 +169,22 @@ roundtrip sid0 tid0 burn create =
         withAll v $ \sqlenv2s -> do
 
           -- Pact service that is used to initialize the cut data base
-          pact0 <- testWebPactExecutionService v Nothing (return noopMemPoolAccess) sqlenv0s
+          let pactIO pdb = testWebPactExecutionService v Nothing (return pdb)
+                               (return noopMemPoolAccess) sqlenv0s
           withTempRocksDb "chainweb-spv-tests"  $ \rdb ->
-              withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
+              withTestCutDb rdb v 20 pactIO logg $ \cutDb -> do
                   cdb <- newMVar cutDb
 
                   sid <- mkChainId v sid0
                   tid <- mkChainId v tid0
 
+                  let pdb = _webBlockPayloadStoreCas $
+                            view cutDbPayloadStore cutDb
+
                   -- pact service, that is used to extend the cut data base
                   txGen1 <- burn sid tid
-                  pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1) sqlenv1s
+                  pact1 <- testWebPactExecutionService v (Just cdb)
+                               (return pdb) (chainToMPA txGen1) sqlenv1s
                   syncPact cutDb pact1
 
                   c0 <- _cut cutDb
@@ -215,7 +220,8 @@ roundtrip sid0 tid0 burn create =
                   -- execute '(coin.create-coin ...)' using the  correct chain id and block height
                   txGen2 <- create cdb sid tid (height sid c1)
 
-                  pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2) sqlenv2s
+                  pact2 <- testWebPactExecutionService v (Just cdb) (return pdb)
+                               (chainToMPA txGen2) sqlenv2s
                   syncPact cutDb pact2
 
                   -- consume the stream and mine second batch of transactions
