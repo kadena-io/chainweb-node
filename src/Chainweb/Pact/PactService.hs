@@ -53,7 +53,6 @@ import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -316,9 +315,6 @@ execNewBlock mpAccess parentHeader miner = do
            <> " (parent hash = " <> sshow pHash <> ")"
     liftIO $ mpaProcessFork mpAccess parentHeader
 
-    liftIO $ T.putStrLn $ "execNewBlock, about to get new block from mempool: "
-           <> " (parent height = " <> sshow pHeight <> ")"
-           <> " (parent hash = " <> sshow pHash <> ")"
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
 
     -- TODO: check that we're already at the right height + hash before calling
@@ -400,14 +396,11 @@ playOneBlock mpAccess currHeader plData pdbenv = do
                 execTransactions pBlock miner trans pdbenv
     finalizeCheckpointer (flip save bHash)   -- caller must restore again
     psStateValidated .= Just currHeader
-    liftIO $ T.putStrLn $ "playOneBlock, about to get call setLastHeader: "
-        <> " (height = " <> sshow bHeight <> ")"
-        <> " (hash = " <> sshow bHash <> ")"
     liftIO $ mpaSetLastHeader mpAccess currHeader
     return $! toPayloadWithOutputs miner results
 
   where
-    bHeight@(BlockHeight bh) = _blockHeight currHeader
+    (BlockHeight bh) = _blockHeight currHeader
     bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
@@ -424,11 +417,6 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock mpAccess currHeader plData = do
-    unless isGenesisBlock $ liftIO $ T.putStrLn $ "execValidateBlock: height=" <> sshow bHeight <>
-      ", parent=" <> sshow bParent <> ", hash=" <> sshow bHash <>
-      ", payloadHash=" <> sshow (_blockPayloadHash currHeader)
-    when isGenesisBlock $ liftIO $ T.putStrLn $ "execValidateBlock: genesis"
-
     cp <- (_cpeCheckpointer . _psCheckpointEnv) <$> ask
     withRewind cp $
         if isGenesisBlock
@@ -441,7 +429,6 @@ execValidateBlock mpAccess currHeader plData = do
                 playFork bhDb payloadDb lastHeader
   where
     bHeight = _blockHeight currHeader
-    bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
 
@@ -466,9 +453,13 @@ execValidateBlock mpAccess currHeader plData = do
             liftIO $ collectForkBlocks bhdb lastHeader currHeader
         -- newBlocks cannot be empty
         when (V.null newBlocks) $ fail "impossible: empty newBlocks"
-        V.foldM (fastForward payloadDb) undefined newBlocks
+        -- play fork blocks
+        V.mapM_ (fastForward payloadDb) $ V.init newBlocks
+        -- play new block
+        restoreCheckpointer (Just (bHeight, bParent))
+            >>= playOneBlock mpAccess currHeader plData
 
-    fastForward payloadDb _ block = do
+    fastForward payloadDb block = do
         let h = _blockHeight block
         let ph = _blockParent block
         pdbenv <- restoreCheckpointer (Just (h, ph))
@@ -476,6 +467,7 @@ execValidateBlock mpAccess currHeader plData = do
         payload <- liftIO (payloadWithOutputsToPayloadData <$>
                                 casLookupM payloadDb bpHash)
         playOneBlock mpAccess block payload pdbenv
+        -- double check output hash here?
 
 
 execTransactions
