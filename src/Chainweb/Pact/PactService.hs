@@ -283,7 +283,8 @@ restoreCheckpointer
 restoreCheckpointer maybeBB = do
   checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
   logInfo $ "restoring " <> sshow maybeBB
-  liftIO $ restore checkPointer maybeBB
+  env <- liftIO $ restore checkPointer maybeBB
+  return env
 
 discardCheckpointer :: PayloadCas cas => PactServiceM cas ()
 discardCheckpointer = finalizeCheckpointer $ \checkPointer -> discard checkPointer
@@ -426,6 +427,7 @@ execValidateBlock mpAccess currHeader plData = do
     unless isGenesisBlock $ liftIO $ T.putStrLn $ "execValidateBlock: height=" <> sshow bHeight <>
       ", parent=" <> sshow bParent <> ", hash=" <> sshow bHash <>
       ", payloadHash=" <> sshow (_blockPayloadHash currHeader)
+    when isGenesisBlock $ liftIO $ T.putStrLn $ "execValidateBlock: genesis"
 
     cp <- (_cpeCheckpointer . _psCheckpointEnv) <$> ask
     withRewind cp $

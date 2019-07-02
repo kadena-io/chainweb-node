@@ -16,6 +16,7 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
   ) where
 
 import Control.Concurrent.MVar
+import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -23,8 +24,6 @@ import Control.Monad.State (get, gets)
 
 import Data.List (intercalate)
 import Data.Serialize hiding (get)
--- import qualified Data.Text as T
-  -- import qualified Data.Text.IO as T
 
 import Prelude hiding (log)
 
@@ -126,6 +125,7 @@ doRestore dbenv Nothing = do
                _ -> internalError "Something went wrong when resetting tables."
         beginSavepoint Block
       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
+
   return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
@@ -155,4 +155,10 @@ doGetLatest dbenv =
     go _ = fail "impossible"
 
 doWithAtomicRewind :: Db -> IO a -> IO a
-doWithAtomicRewind db = runBlockEnv db . withSavepoint RewindSavepoint . liftIO
+doWithAtomicRewind db m = mask $ \r -> do
+    r (runBlockEnv db $ beginSavepoint RewindSavepoint)
+    a <- r m `onException` rollback
+    r (runBlockEnv db $ commitSavepoint RewindSavepoint)
+    return a
+  where
+    rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)

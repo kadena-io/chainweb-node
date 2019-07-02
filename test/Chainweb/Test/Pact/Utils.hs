@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -40,6 +41,7 @@ module Chainweb.Test.Pact.Utils
 
 import Control.Concurrent.MVar
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Reader
@@ -54,7 +56,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.Vector (Vector)
-
 
 import System.IO.Extra
 
@@ -381,8 +382,8 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' blockstate s logger gasEnv
-      ctx <- TestPactCtx
-        <$> newMVar (PactServiceState Nothing)
+      !ctx <- TestPactCtx
+        <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
       evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
       return (ctx, dbSt)

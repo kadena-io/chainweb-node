@@ -99,7 +99,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
-import Control.Monad.Catch (MonadThrow)
+import Control.Monad.Catch (MonadThrow, catch)
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Lazy as BL
@@ -207,6 +207,7 @@ withRocksResource m = withResource create destroy wrap
         closeRocksDb rocks
         destroyRocksDb dir
         removeDirectoryRecursive dir
+          `catch` \(_ :: SomeException) -> return ()
     wrap ioact = let io' = snd <$> ioact in m io'
 
 
