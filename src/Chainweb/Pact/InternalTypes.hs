@@ -27,13 +27,11 @@ module Chainweb.Pact.InternalTypes
   , psPublicData
   , psStateValidated
   , psPdb
-  , psChainId
-  , psCutDb
+  , psBlockHeaderDb
     -- * module exports
   , module Chainweb.Pact.Backend.Types
   ) where
 
-import Control.Concurrent.MVar (MVar)
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -50,20 +48,18 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
-import Chainweb.CutDB.Types (CutDb)
+import Chainweb.BlockHeaderDB.Types
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
 data PactServiceEnv cas = PactServiceEnv
-  { _psChainId :: ChainId
-  , _psMempoolAccess :: !(Maybe MemPoolAccess)
+  { _psMempoolAccess :: !(Maybe MemPoolAccess)
   , _psCheckpointEnv :: !CheckpointEnv
   , _psSpvSupport :: !SPVSupport
   , _psPublicData :: !PublicData
   , _psPdb :: PayloadDb cas
-  , _psCutDb :: (MVar (CutDb cas))
+  , _psBlockHeaderDb :: BlockHeaderDb
   }
 
 data PactServiceState = PactServiceState

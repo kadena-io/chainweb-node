@@ -444,6 +444,7 @@ test-suite chainweb-tests
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
+        , temporary >= 1.3
         , text >=1.2
         , time
         , these >= 0.7 && < 1
@@ -602,6 +603,7 @@ executable cwtool
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
+        , temporary >= 1.3
         , text >= 1.2
         , these >= 0.7
         , time >= 1.8

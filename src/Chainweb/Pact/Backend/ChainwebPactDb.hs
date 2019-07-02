@@ -60,11 +60,9 @@ import Pact.Types.Logger
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Payload.PayloadStore
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -342,8 +340,8 @@ createUserTable name b = do
                       \, UNIQUE(blockheight, rowkey, txid));"
   versionedTablesInsert name b
 
-handleVersion :: BlockHeight -> ParentHash -> BlockHeaderDb -> Maybe (PayloadDb cas) -> BlockHandler SQLiteEnv TxId
-handleVersion bRestore hsh _cdb _payloadDb = do
+handleVersion :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
+handleVersion bRestore hsh = do
   bCurrent <- do
     r <- callDb "handleVersion" $ \ db -> qry_ db "SELECT max(blockheight) AS current_block_height FROM BlockHistory;" [RInt]
     SInt bh <- liftIO $ expectSingleRowCol "handleVersion: (block):" r

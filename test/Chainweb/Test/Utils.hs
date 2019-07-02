@@ -65,6 +65,7 @@ module Chainweb.Test.Utils
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 , withPayloadServer
+, withRocksResource
 
 -- * QuickCheck Properties
 , prop_iso
@@ -98,7 +99,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (SomeException, bracket, handle)
 import Control.Lens (deep, filtered, toListOf)
-import Control.Monad.Catch (MonadThrow)
+import Control.Monad.Catch (MonadThrow, catch)
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Lazy as BL
@@ -125,6 +126,8 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
+import System.Directory
+import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
@@ -191,6 +194,22 @@ testRocksDb
 testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
+
+withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
+withRocksResource m = withResource create destroy wrap
+  where
+    create = do
+      sysdir <- getCanonicalTemporaryDirectory
+      dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
+      rocks <- openRocksDb dir
+      return (dir, rocks)
+    destroy (dir, rocks) = do
+        closeRocksDb rocks
+        destroyRocksDb dir
+        removeDirectoryRecursive dir
+          `catch` \(_ :: SomeException) -> return ()
+    wrap ioact = let io' = snd <$> ioact in m io'
+
 
 -- -------------------------------------------------------------------------- --
 -- Toy Values

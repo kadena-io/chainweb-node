@@ -16,15 +16,13 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
   ) where
 
 import Control.Concurrent.MVar
+import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State (get, gets)
+import Control.Monad.State (gets)
 
-import Data.List (intercalate)
 import Data.Serialize hiding (get)
--- import qualified Data.Text as T
-  -- import qualified Data.Text.IO as T
 
 import Prelude hiding (log)
 
@@ -32,27 +30,25 @@ import Prelude hiding (log)
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Gas (GasEnv(..))
-import Pact.Types.Logger (Logger(..), Logging(..))
+import Pact.Types.Logger (Logger(..))
 import Pact.Types.SQLite
 
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Payload.PayloadStore
 
 
-initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr gasEnv cdb payloadDb =
-  snd <$> initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb
+initRelationalCheckpointer :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO CheckpointEnv
+initRelationalCheckpointer bstate sqlenv loggr gasEnv =
+  snd <$> initRelationalCheckpointer' bstate sqlenv loggr gasEnv
 
 -- for testing
-initRelationalCheckpointer' :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> BlockHeaderDb -> Maybe (PayloadDb cas) -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb = do
+initRelationalCheckpointer' :: BlockState -> SQLiteEnv -> Logger -> GasEnv -> IO (PactDbEnv', CheckpointEnv)
+initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
   let dbenv = BlockDbEnv sqlenv loggr
   db <- newMVar (BlockEnv dbenv bstate)
   runBlockEnv db initSchema
@@ -61,7 +57,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb = do
      CheckpointEnv
       { _cpeCheckpointer =
           Checkpointer
-            (doRestore db cdb payloadDb)
+            (doRestore db)
             (doSave db)
             (doDiscard db)
             (doGetLatest db)
@@ -73,38 +69,14 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv cdb payloadDb = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 
-dump :: BlockHandler SQLiteEnv ()
-dump = do
-    -- TODO: cleanup/remove dump code
-    bstate <- get
-    log "INFO" $ "dumping bstate here:" <> show bstate
-    log "INFO" "dumping blockhistory here"
-    txts <- callDb "dumping" $ \db -> do
-        qry_ db "SELECT * FROM BlockHistory;" [RInt,RBlob,RInt] >>= mapM go
-    log "INFO" (intercalate ":" txts)
-      -- log "Info" "dumping versionhistory\n"
-      -- qry_ db "SELECT * FROM VersionHistory;" [RInt,RInt,RInt] >>= print
-  where
-    go :: [SType] -> IO String
-    go [SInt a, SBlob blob, SInt b] = do
-        let getshit = either error id
-        return $
-            "row= " <> show a <> " " <>
-            show ((getshit $ Data.Serialize.decode blob) :: BlockHash) <>
-            " " <>
-            show b
-    go _ = error "whatever"
-
-doRestore :: Db -> BlockHeaderDb -> Maybe (PayloadDb cas) -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv _cdb _payloadDb (Just (bh, hash)) = do
+doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore dbenv (Just (bh, hash)) = do
   runBlockEnv dbenv $ do
-    dump
-    txid <- withSavepoint PreBlock $ handleVersion bh hash _cdb _payloadDb
-    dump
+    txid <- withSavepoint PreBlock $ handleVersion bh hash
     assign bsTxId txid
     beginSavepoint Block
   return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
-doRestore dbenv _cdb _payloadDb Nothing = do
+doRestore dbenv Nothing = do
   runBlockEnv dbenv $ do
     r <- callDb "doRestoreInitial"
          $ \db -> qry db
@@ -128,6 +100,7 @@ doRestore dbenv _cdb _payloadDb Nothing = do
                _ -> internalError "Something went wrong when resetting tables."
         beginSavepoint Block
       _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
+
   return $ PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
@@ -157,4 +130,10 @@ doGetLatest dbenv =
     go _ = fail "impossible"
 
 doWithAtomicRewind :: Db -> IO a -> IO a
-doWithAtomicRewind db = runBlockEnv db . withSavepoint RewindSavepoint . liftIO
+doWithAtomicRewind db m = mask $ \r -> do
+    r (runBlockEnv db $ beginSavepoint RewindSavepoint)
+    a <- r m `onException` rollback
+    r (runBlockEnv db $ commitSavepoint RewindSavepoint)
+    return a
+  where
+    rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)

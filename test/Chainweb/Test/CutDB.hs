@@ -99,7 +99,7 @@ withTestCutDb
         -- ^ the chainweb version
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
-    -> (PayloadDb RocksDbCas -> IO WebPactExecutionService)
+    -> (WebBlockHeaderDb -> PayloadDb RocksDbCas -> IO WebPactExecutionService)
         -- ^ a pact execution service.
         --
         -- When transaction don't matter you can use 'fakePact' from this module.
@@ -119,7 +119,7 @@ withTestCutDb rdb v n pactIO logfun f = do
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    pact <- pactIO payloadDb
+    pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
@@ -250,7 +250,8 @@ withTestCutDbWithoutPact
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (CutDb RocksDbCas -> IO a)
     -> IO a
-withTestCutDbWithoutPact rdb v n = withTestCutDb rdb v n (const $ return fakePact)
+withTestCutDbWithoutPact rdb v n =
+    withTestCutDb rdb v n (const $ const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --

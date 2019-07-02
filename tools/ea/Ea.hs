@@ -35,6 +35,7 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
+import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -48,6 +49,7 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
+import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
@@ -97,27 +99,30 @@ moduleName = T.toTitle . chainwebVersionToText
 ---------------------
 
 genPayloadModule :: ChainwebVersion -> [FilePath] -> IO ()
-genPayloadModule v txFiles = do
-    rawTxs <- traverse mkTx txFiles
-    cwTxs <- forM rawTxs $ \(_, cmd) -> do
-        let cmdBS = fmap TE.encodeUtf8 cmd
-            procCmd = verifyCommand cmdBS
-        case procCmd of
-            f@ProcFail{} -> fail (show f)
-            ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
+genPayloadModule v txFiles =
+    withTempRocksDb "chainweb-ea" $ \rocks ->
+    withBlockHeaderDb rocks v cid $ \bhdb -> do
+        rawTxs <- traverse mkTx txFiles
+        cwTxs <- forM rawTxs $ \(_, cmd) -> do
+            let cmdBS = fmap TE.encodeUtf8 cmd
+                procCmd = verifyCommand cmdBS
+            case procCmd of
+                f@ProcFail{} -> fail (show f)
+                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
 
-    let logger = genericLogger Warn TIO.putStrLn
+        let logger = genericLogger Warn TIO.putStrLn
 
-    pdb <- newPayloadDb
-    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) pdb $
-        execNewGenesisBlock noMiner (V.fromList cwTxs)
+        pdb <- newPayloadDb
+        payloadWO <- initPactService' cid logger (const noSPVSupport) bhdb pdb $
+            execNewGenesisBlock noMiner (V.fromList cwTxs)
 
-    let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-        modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
-        fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
+        let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
+            modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
+            fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
 
-    TIO.writeFile (T.unpack fileName) modl
-
+        TIO.writeFile (T.unpack fileName) modl
+  where
+    cid = someChainId Testnet00
 
 startModule :: ChainwebVersion -> [Text]
 startModule v =
