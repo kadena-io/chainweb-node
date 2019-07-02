@@ -74,13 +74,16 @@ main :: IO ()
 main = do
     Env txs0 <- execParser opts
     for_ [Testnet00, Testnet01] $ \v -> do
-        let txs = bool txs0 [defCoinContract, defGrants] $ null txs0
+        let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v txs
     putStrLn "Done."
   where
     opts = info (pEnv <**> helper)
         (fullDesc <> header "ea - Generate Pact Payload modules")
+
+defCoinContractSig :: FilePath
+defCoinContractSig = "pact/coin-contract/load-coin-contract-sig.yaml"
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"

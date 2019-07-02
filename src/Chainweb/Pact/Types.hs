@@ -21,6 +21,7 @@ module Chainweb.Pact.Types
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
+  , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
     -- * types
@@ -28,7 +29,6 @@ module Chainweb.Pact.Types
     -- * optics
   , minerAccount
   , minerKeys
-  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
   , psMempoolAccess
@@ -56,7 +56,6 @@ import Data.Aeson
 import Data.Default (def)
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -67,7 +66,7 @@ import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
 import Pact.Types.SPV
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), PactId(..))
 
 -- internal chainweb modules
 
@@ -165,12 +164,13 @@ data MemPoolAccess = MemPoolAccess
   , mpaProcessFork :: BlockHeader -> IO ()
   }
 
-noopMemPoolAccess :: MemPoolAccess
-noopMemPoolAccess = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> return V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
+instance Semigroup MemPoolAccess where
+  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+
+instance Monoid MemPoolAccess where
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+
+newtype GasId = GasId PactId deriving (Eq, Show)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
