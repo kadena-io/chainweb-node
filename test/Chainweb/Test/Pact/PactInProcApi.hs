@@ -42,6 +42,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
+import Chainweb.Pact.InternalTypes
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
@@ -52,30 +53,39 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Data.CAS.RocksDB
 
 testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 
 tests :: ScheduledTest
-tests = testGroupSch "Chainweb.Test.Pact.PactInProcApi"
-    [ withPact testMemPoolAccess $ \reqQIO ->
+tests = ScheduledTest label $ withRocksResource $ \rocksIO ->
+        testGroup label
+    [ withPact rocksIO testMemPoolAccess $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
-    , withPact testEmptyMemPool $ \reqQIO ->
+    , withPact rocksIO testEmptyMemPool $ \reqQIO ->
         newBlockTest "empty-block-tests" reqQIO
     ]
+  where
+    label = "Chainweb.Test.Pact.PactInProcApi"
 
 withPact
-    :: MemPoolAccess
+    :: IO RocksDb
+    -> MemPoolAccess
     -> (IO (TQueue RequestMsg) -> TestTree)
     -> TestTree
-withPact mempool f = withResource startPact stopPact $ f . fmap snd
+withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
+        rdb <- rocksIO
+        let genesisHeader = genesisBlockHeader testVersion cid
+        bhdb <- testBlockHeaderDb rdb genesisHeader
         pdb <- newPayloadDb
-        a <- async (PS.initPactService testVersion cid logger reqQ mempool mv pdb)
+        a <- async (PS.initPactService testVersion cid logger reqQ mempool
+                        mv bhdb pdb)
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

@@ -32,12 +32,14 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader.Genesis
+import Chainweb.Pact.InternalTypes
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.Types.Command
 
@@ -45,20 +47,29 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = ScheduledTest label $ withResource newPayloadDb killPdb $ \pdb ->
+tests = ScheduledTest label $
+        withResource newPayloadDb killPdb $ \pdb ->
+        withRocksResource $ \rocksIO ->
         testGroup label
-    [ withPactCtxSQLite testVersion Nothing pdb $ \ctx -> testGroup "single transactions"
-        $ schedule Sequential
+    [ withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+        \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtxSQLite testVersion Nothing pdb $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+      \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
   where
+    bhdbIO rocksIO = do
+        rdb <- rocksIO
+        let genesisHeader = genesisBlockHeader testVersion cid
+        testBlockHeaderDb rdb genesisHeader
+
     label = "Simple pact execution tests"
     killPdb _ = return ()
+    cid = someChainId Testnet00
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes

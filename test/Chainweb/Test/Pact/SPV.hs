@@ -64,7 +64,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Types
+import Chainweb.Pact.InternalTypes
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
@@ -169,8 +169,9 @@ roundtrip sid0 tid0 burn create =
         withAll v $ \sqlenv2s -> do
 
           -- Pact service that is used to initialize the cut data base
-          let pactIO pdb = testWebPactExecutionService v Nothing (return pdb)
-                               (return noopMemPoolAccess) sqlenv0s
+          let pactIO bhdb pdb = testWebPactExecutionService v Nothing
+                                    (return bhdb) (return pdb)
+                                    (return noopMemPoolAccess) sqlenv0s
           withTempRocksDb "chainweb-spv-tests"  $ \rdb ->
               withTestCutDb rdb v 20 pactIO logg $ \cutDb -> do
                   cdb <- newMVar cutDb
@@ -181,10 +182,14 @@ roundtrip sid0 tid0 burn create =
                   let pdb = _webBlockPayloadStoreCas $
                             view cutDbPayloadStore cutDb
 
+                  let webStoreDb = view cutDbWebBlockHeaderStore cutDb
+                  let webHeaderDb = _webBlockHeaderStoreCas webStoreDb
+
                   -- pact service, that is used to extend the cut data base
                   txGen1 <- burn sid tid
                   pact1 <- testWebPactExecutionService v (Just cdb)
-                               (return pdb) (chainToMPA txGen1) sqlenv1s
+                               (return webHeaderDb) (return pdb)
+                               (chainToMPA txGen1) sqlenv1s
                   syncPact cutDb pact1
 
                   c0 <- _cut cutDb
@@ -220,7 +225,8 @@ roundtrip sid0 tid0 burn create =
                   -- execute '(coin.create-coin ...)' using the  correct chain id and block height
                   txGen2 <- create cdb sid tid (height sid c1)
 
-                  pact2 <- testWebPactExecutionService v (Just cdb) (return pdb)
+                  pact2 <- testWebPactExecutionService v (Just cdb)
+                               (return webHeaderDb) (return pdb)
                                (chainToMPA txGen2) sqlenv2s
                   syncPact cutDb pact2
 
