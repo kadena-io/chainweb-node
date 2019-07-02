@@ -226,9 +226,11 @@ limitCut
     -> IO Cut
 limitCut wdb h c
     | h >= _cutHeight c = return c
-    | otherwise = c & (cutHeaders . itraverse) fastRoute
+    | otherwise = do
+        c & (cutHeaders . itraverse) fastRoute1
   where
-    ch = h `div` int (order (_chainGraph wdb))
+    gorder = order $ _chainGraph wdb
+    ch = h `div` int gorder
 
     -- if there is only a single block at the requested block height, it must be
     -- a predecessor of any block of larger height. We first do an efficient
@@ -242,19 +244,42 @@ limitCut wdb h c
     -- requested height is recent we don't care because the overhead of the
     -- backward traversal is low.
     --
-    fastRoute cid x = do
+    fastRoute1 cid x = do
         !db <- give wdb $ getWebBlockHeaderDb cid
         let l = min (_blockHeight x) (int ch)
         !a <- S.toList_ & entries db Nothing (Just 2) (Just $ int l) (Just $ int l)
         case a of
             [r] -> return r
-            _ -> slowRoute db x
+            _ -> fastRoute2 db x
 
-    -- If it turns out that the fastRoute doesn't catch most of the cases we can
-    -- add another case here were we start traversal with all blocks thatt are
-    -- constant number (say 100) blocks above the target block. With high
-    -- probability the history will have narrowed to a single block once we
-    -- reach the target height.
+    -- If it turns out that the fastRoute doesn't return a result we start a
+    -- backward traversal with all blocks that are a constant number blocks above
+    -- the target block height. With high probability the history will have
+    -- narrowed to a single block once we reach the target height.
+    --
+    fastRoute2 db x = do
+        let l = int ch + gorder * 2
+
+        -- if l is much smaller than height of block in given cut, pick the
+        -- faster route
+        if l < int (_blockHeight x)
+          then do
+            -- get all blocks at height l
+            !as <- S.toList_ & entries db Nothing Nothing (Just $ int l) (Just $ int l)
+
+            -- traverse backward to find blocks at height ch
+            !bs <- S.toList_ & branchEntries db
+                Nothing (Just 2)
+                (Just $ int ch) (Just $ int ch)
+                mempty (HS.fromList $ UpperBound . _blockHash <$> as)
+
+            -- check that result is unique
+            case bs of
+                [r] -> return r
+                _ -> slowRoute db x
+
+        -- if l is close to height of block in given cut use slow route
+          else slowRoute db x
 
     -- We find the predecessor of requested height of the block in the given cut
     -- by traversing along the parent relation.
