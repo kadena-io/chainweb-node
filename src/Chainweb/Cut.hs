@@ -207,6 +207,16 @@ cutAdjs c cid = HM.intersection
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
 
+-- | Find a cut that is a predecessor of the given cut and has a block height
+-- that is smaller or equal the given height.
+--
+-- If the requested limit has larger or equal the current height the given cut
+-- is returned.
+--
+-- Otherwise, the requested height limit is divided by the number of chains
+-- (rounded down) and the result is used such that for each chain the
+-- predecessor of the given cut at the respective height is returned.
+--
 limitCut
     :: HasCallStack
     => WebBlockHeaderDb
@@ -220,6 +230,18 @@ limitCut wdb h c
   where
     ch = h `div` int (order (_chainGraph wdb))
 
+    -- if there is only a single block at the requested block height, it must be
+    -- a predecessor of any block of larger height. We first do an efficient
+    -- pointwise lookup and return the result if it is unique. Otherwise we fall
+    -- back to a traversing backward from the block in the given cut.
+    --
+    -- Since we prune databases on startup older parts of the history are
+    -- expected to be linear. Also, generally, there aren't many forks.
+    -- Therefore, we expect this fast code path to be successful in most cases
+    -- where the requested height is further down in the history. If the
+    -- requested height is recent we don't care because the overhead of the
+    -- backward traversal is low.
+    --
     fastRoute cid x = do
         !db <- give wdb $ getWebBlockHeaderDb cid
         let l = min (_blockHeight x) (int ch)
@@ -228,6 +250,15 @@ limitCut wdb h c
             [r] -> return r
             _ -> slowRoute db x
 
+    -- If it turns out that the fastRoute doesn't catch most of the cases we can
+    -- add another case here were we start traversal with all blocks thatt are
+    -- constant number (say 100) blocks above the target block. With high
+    -- probability the history will have narrowed to a single block once we
+    -- reach the target height.
+
+    -- We find the predecessor of requested height of the block in the given cut
+    -- by traversing along the parent relation.
+    --
     slowRoute db x = do
         !a <- S.head_ & branchEntries db
             Nothing (Just 1)
