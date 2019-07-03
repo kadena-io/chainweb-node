@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -72,13 +73,15 @@ import qualified Pact.Types.SPV as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
     (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -90,8 +93,6 @@ import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Data.CAS (casLookupM)
 
 ------------------------------------------------------------------------------
@@ -317,16 +318,14 @@ execNewBlock mpAccess parentHeader miner = do
 
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
 
-    -- TODO: check that we're already at the right height + hash before calling
-    -- restore
-    pdbenv <- restoreCheckpointer $ Just (bHeight, pHash)
+    rewindTo mpAccess (Just (bHeight, pHash)) $ \pdbenv -> do
+        -- locally run 'execTransactions' with updated blockheight data
+        results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
+          execTransactions (Just pHash) miner newTrans pdbenv
 
-    -- locally run 'execTransactions' with updated blockheight data
-    results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
-      execTransactions (Just pHash) miner newTrans pdbenv
+        discardCheckpointer
+        return $! toPayloadWithOutputs miner results
 
-    discardCheckpointer
-    return $! toPayloadWithOutputs miner results
 
 -- | only for use in generating genesis blocks in tools
 execNewGenesisBlock
@@ -406,6 +405,56 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     isGenesisBlock = isGenesisBlockHeader currHeader
     pBlock = if isGenesisBlock then Nothing else Just bParent
 
+rewindTo
+    :: forall a cas . PayloadCas cas
+    => MemPoolAccess
+    -> Maybe (BlockHeight, ParentHash)
+    -> (PactDbEnv' -> PactServiceM cas a)
+    -> PactServiceM cas a
+rewindTo mpAccess mb act = do
+    cp <- asks (_cpeCheckpointer . _psCheckpointEnv)
+    withRewind cp $ maybe rewindGenesis (doRewind cp) mb
+  where
+    rewindGenesis = restoreCheckpointer Nothing >>= act
+    doRewind cp (newH, parentHash) = do
+        payloadDb <- asks _psPdb
+        mbLastBlock <- liftIO $ getLatestBlock cp
+        lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
+        bhDb <- asks _psBlockHeaderDb
+        playFork bhDb payloadDb newH parentHash lastHeightAndHash
+
+    failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
+
+    withRewind :: forall z c . PayloadCas c
+               => Checkpointer -> PactServiceM c z -> PactServiceM c z
+    withRewind cp m = do
+        e <- ask
+        s <- get
+        (a, s') <- liftIO $ withAtomicRewind cp $ runStateT (runReaderT m e) s
+        put $! s'
+        return $! a
+
+    playFork bhdb payloadDb newH parentHash (_, lastHash) = do
+        parentHeader <- liftIO $ lookupM bhdb parentHash
+        lastHeader <- liftIO $ lookupM bhdb lastHash
+        (!_, _, newBlocks) <-
+            liftIO $ collectForkBlocks bhdb lastHeader parentHeader
+        -- play fork blocks
+        V.mapM_ (fastForward payloadDb) newBlocks
+        -- play new block
+        restoreCheckpointer (Just (newH, parentHash)) >>= act
+
+    fastForward :: forall c . PayloadCas c
+                => PayloadDb c -> BlockHeader -> PactServiceM c ()
+    fastForward payloadDb block = do
+        let h = _blockHeight block
+        let ph = _blockParent block
+        pdbenv <- restoreCheckpointer (Just (h, ph))
+        let bpHash = _blockPayloadHash block
+        payload <- liftIO (payloadWithOutputsToPayloadData <$>
+                                casLookupM payloadDb bpHash)
+        void $ playOneBlock mpAccess block payload pdbenv
+        -- double check output hash here?
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
@@ -416,58 +465,15 @@ execValidateBlock
     -> BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
-execValidateBlock mpAccess currHeader plData = do
-    cp <- (_cpeCheckpointer . _psCheckpointEnv) <$> ask
-    withRewind cp $
-        if isGenesisBlock
-            then playGenesisBlock
-            else do
-                payloadDb <- asks _psPdb
-                mbLastHeader <- liftIO $ getLatestBlock cp
-                lastHeader <- maybe failNonGenesisOnEmptyDb return mbLastHeader
-                bhDb <- asks _psBlockHeaderDb
-                playFork bhDb payloadDb lastHeader
+execValidateBlock mpAccess currHeader plData =
+    -- TODO: are we actually validating the output hash here?
+    rewindTo mpAccess mb $ playOneBlock mpAccess currHeader plData
+
   where
+    mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
-
-    withRewind cp m = do
-        e <- ask
-        s <- get
-        (a, s') <- liftIO $ withAtomicRewind cp $ runStateT (runReaderT m e) s
-        put $! s'
-        return $! a
-
-
-    failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
-    -- the only time that the DB would be empty is before we've played the
-    -- genesis block. So the only block we allow to be played in this
-    -- circumstance is the genesis block
-    playGenesisBlock = restoreCheckpointer Nothing >>=
-                       playOneBlock mpAccess currHeader plData
-
-    playFork bhdb payloadDb (_, lastHash) = do
-        lastHeader <- liftIO $ lookupM bhdb lastHash
-        (!_, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader currHeader
-        -- newBlocks cannot be empty
-        when (V.null newBlocks) $ fail "impossible: empty newBlocks"
-        -- play fork blocks
-        V.mapM_ (fastForward payloadDb) $ V.init newBlocks
-        -- play new block
-        restoreCheckpointer (Just (bHeight, bParent))
-            >>= playOneBlock mpAccess currHeader plData
-
-    fastForward payloadDb block = do
-        let h = _blockHeight block
-        let ph = _blockParent block
-        pdbenv <- restoreCheckpointer (Just (h, ph))
-        let bpHash = _blockPayloadHash block
-        payload <- liftIO (payloadWithOutputsToPayloadData <$>
-                                casLookupM payloadDb bpHash)
-        playOneBlock mpAccess block payload pdbenv
-        -- double check output hash here?
 
 
 execTransactions
