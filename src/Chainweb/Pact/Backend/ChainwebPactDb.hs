@@ -1,12 +1,12 @@
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module: Chainweb.Pact.ChainwebPactDb
+-- Module: Chainweb.Pact.Backend.ChainwebPactDb
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
@@ -24,18 +24,18 @@ module Chainweb.Pact.Backend.ChainwebPactDb
   ) where
 
 import Control.Exception hiding (try)
-import Control.Lens
 import Control.Exception.Safe hiding (bracket)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
-import Data.ByteString.Lazy (toStrict, fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import Data.Maybe
 import qualified Data.Map.Strict as M
+import Data.Maybe
 import Data.Serialize (encode)
 import Data.String
 import Data.String.Conv
@@ -43,18 +43,18 @@ import qualified Data.Text as T
 
 import Database.SQLite3.Direct as SQ3
 
-import Prelude hiding (log, concat)
+import Prelude hiding (concat, log)
 
 -- pact
 
 import Pact.Persist
 import Pact.PersistPactDb hiding (db)
+import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.SQLite
-import Pact.Types.Term(TableName(..), ModuleName(..), ObjectMap(..))
+import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
-import Pact.Types.Logger
 
 -- chainweb
 
