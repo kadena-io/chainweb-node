@@ -78,11 +78,11 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
-import Chainweb.Pact.InternalTypes
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore

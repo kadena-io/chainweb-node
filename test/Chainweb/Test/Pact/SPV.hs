@@ -63,8 +63,8 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.InternalTypes
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB

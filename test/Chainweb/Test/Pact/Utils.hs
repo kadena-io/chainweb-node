@@ -85,7 +85,6 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.InternalTypes
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV

@@ -42,7 +42,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
-import Chainweb.Pact.InternalTypes
+import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
