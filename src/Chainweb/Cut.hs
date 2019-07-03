@@ -106,6 +106,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
+import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB hiding (properties)
@@ -207,11 +208,11 @@ cutAdjs c cid = HM.intersection
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
 
--- | Find a cut that is a predecessor of the given cut and has a block height
--- that is smaller or equal the given height.
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is smaller or equal the given height.
 --
--- If the requested limit has larger or equal the current height the given cut
--- is returned.
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
 --
 -- Otherwise, the requested height limit is divided by the number of chains
 -- (rounded down) and the result is used such that for each chain the
@@ -229,21 +230,25 @@ limitCut wdb h c
     | otherwise = do
         c & (cutHeaders . itraverse) fastRoute1
   where
+    gorder :: Natural
     gorder = order $ _chainGraph wdb
+
+    ch :: BlockHeight
     ch = h `div` int gorder
 
-    -- if there is only a single block at the requested block height, it must be
+    -- If there is only a single block at the requested block height, it must be
     -- a predecessor of any block of larger height. We first do an efficient
     -- pointwise lookup and return the result if it is unique. Otherwise we fall
     -- back to a traversing backward from the block in the given cut.
     --
-    -- Since we prune databases on startup older parts of the history are
-    -- expected to be linear. Also, generally, there aren't many forks.
-    -- Therefore, we expect this fast code path to be successful in most cases
-    -- where the requested height is further down in the history. If the
-    -- requested height is recent we don't care because the overhead of the
-    -- backward traversal is low.
+    -- Since we prune databases on startup, older parts of the history are
+    -- expected to be linear. Also, generally, there aren't many forks past the
+    -- initial moments of the network. Therefore, we expect this fast code path
+    -- to be successful in most cases where the requested height is further down
+    -- in the history. If the requested height is recent, we don't care because
+    -- the overhead of the backward traversal is low.
     --
+    fastRoute1 :: ChainId -> BlockHeader -> IO BlockHeader
     fastRoute1 cid x = do
         !db <- give wdb $ getWebBlockHeaderDb cid
         let l = min (_blockHeight x) (int ch)
@@ -252,16 +257,17 @@ limitCut wdb h c
             [r] -> return r
             _ -> fastRoute2 db x
 
-    -- If it turns out that the fastRoute doesn't return a result we start a
-    -- backward traversal with all blocks that are a constant number blocks above
-    -- the target block height. With high probability the history will have
-    -- narrowed to a single block once we reach the target height.
+    -- If it turns out that the fastRoute doesn't return a result, we start a
+    -- backward traversal with all blocks that are a constant number blocks
+    -- above the target block height. With high probability the history will
+    -- have narrowed to a single block once we reach the target height.
     --
+    fastRoute2 :: BlockHeaderDb -> BlockHeader -> IO BlockHeader
     fastRoute2 db x = do
         let l = int ch + gorder * 2
 
-        -- if l is much smaller than height of block in given cut, pick the
-        -- faster route
+        -- If l is much smaller than the height of the block in the given cut,
+        -- pick the faster route.
         if l < int (_blockHeight x)
           then do
             -- get all blocks at height l
@@ -284,6 +290,7 @@ limitCut wdb h c
     -- We find the predecessor of requested height of the block in the given cut
     -- by traversing along the parent relation.
     --
+    slowRoute :: BlockHeaderDb -> BlockHeader -> IO BlockHeader
     slowRoute db x = do
         !a <- S.head_ & branchEntries db
             Nothing (Just 1)
