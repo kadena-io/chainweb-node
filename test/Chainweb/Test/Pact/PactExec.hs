@@ -33,7 +33,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader.Genesis
-import Chainweb.Pact.InternalTypes
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory

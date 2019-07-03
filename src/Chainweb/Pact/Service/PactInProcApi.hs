@@ -41,7 +41,7 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.InternalTypes
+import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types

@@ -5,8 +5,10 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -58,6 +60,24 @@ module Chainweb.Pact.Backend.Types
     , BlockDbEnv(..)
     , bdbenvDb
     , SQLiteFlag(..)
+
+      -- * mempool
+    , MemPoolAccess(..)
+
+      -- * pact service monad + types
+    , PactServiceEnv(..)
+    , PactServiceState(..)
+    , PactServiceM
+
+      -- * optics
+    , noopMemPoolAccess
+    , psMempoolAccess
+    , psCheckpointEnv
+    , psSpvSupport
+    , psPublicData
+    , psStateValidated
+    , psPdb
+    , psBlockHeaderDb
     ) where
 
 import Control.DeepSeq
@@ -71,6 +91,8 @@ import Data.Aeson
 import Data.Bits
 import Data.Int
 import Data.Map.Strict (Map)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word
 
 import Database.SQLite3.Direct as SQ3
@@ -80,14 +102,19 @@ import GHC.Generics
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
+import Pact.Types.ChainMeta (PublicData(..))
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
     (ExecutionMode(..), GasEnv(..), PactDb(..), TableName(..), TxId(..),
     TxLog(..))
+import Pact.Types.SPV
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.Types
+import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Transaction
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -216,3 +243,34 @@ makeLenses ''CheckpointEnv
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: Word32 }
   deriving (Eq, Ord, Bits, Num)
+
+data PactServiceEnv cas = PactServiceEnv
+  { _psMempoolAccess :: !(Maybe MemPoolAccess)
+  , _psCheckpointEnv :: !CheckpointEnv
+  , _psSpvSupport :: !SPVSupport
+  , _psPublicData :: !PublicData
+  , _psPdb :: PayloadDb cas
+  , _psBlockHeaderDb :: BlockHeaderDb
+  }
+
+data PactServiceState = PactServiceState
+  {_psStateValidated :: Maybe BlockHeader
+  }
+
+type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
+
+data MemPoolAccess = MemPoolAccess
+  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  , mpaSetLastHeader :: BlockHeader -> IO ()
+  , mpaProcessFork :: BlockHeader -> IO ()
+  }
+
+noopMemPoolAccess :: MemPoolAccess
+noopMemPoolAccess = MemPoolAccess
+    { mpaGetBlock = \_ _ _ -> return V.empty
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
+
+makeLenses ''PactServiceEnv
+makeLenses ''PactServiceState
