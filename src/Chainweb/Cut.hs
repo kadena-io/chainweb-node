@@ -247,7 +247,7 @@ limitCut wdb h c
     fastRoute1 cid x = do
         !db <- give wdb $ getWebBlockHeaderDb cid
         let l = min (_blockHeight x) (int ch)
-        !a <- S.toList_ & entries db Nothing (Just 2) (Just $ int l) (Just $ int l)
+        a <- S.toList_ & entries db Nothing (Just 2) (Just $ int l) (Just $ int l)
         case a of
             [r] -> return r
             _ -> fastRoute2 db x
