@@ -22,7 +22,6 @@ module Chainweb.Mempool.Consensus
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Either
@@ -37,8 +36,8 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import System.LogLevel
-----------------------------------------------------------------------------------------------------
 
+------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
@@ -51,11 +50,13 @@ import Chainweb.Utils
 import Data.CAS
 import Data.LogMessage (JsonLog(..), LogFunction)
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 data MempoolConsensus t = MempoolConsensus
     { mpcMempool :: !(MempoolBackend t)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
-    , mpcProcessFork :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction)
+    , mpcProcessFork :: LogFunction
+                     -> BlockHeader
+                     -> IO (Vector ChainwebTransaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -68,7 +69,8 @@ data ReintroducedTxsLog = ReintroducedTxsLog
 newtype MempoolException = MempoolConsensusException String
 
 instance Show MempoolException where
-    show (MempoolConsensusException s) = "Error with mempool's consensus processing: " ++ s
+    show (MempoolConsensusException s) =
+        "Error with mempool's consensus processing: " ++ s
 
 instance Exception MempoolException
 
@@ -88,6 +90,7 @@ mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
         , mpcLastNewBlockParent = lastParentRef
         , mpcProcessFork = processForkFunc blockHeaderDb payloadStore lastParentRef
         }
+
   where
     processForkFunc -- (type repeated to help avoid compiler confusion)
         :: PayloadCas cas
@@ -97,9 +100,7 @@ mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
         -> LogFunction
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
-    processForkFunc = if txReintroEnabled
-      then processFork
-      else skipProcessFork
+    processForkFunc = if txReintroEnabled then processFork else skipProcessFork
 
 ----------------------------------------------------------------------------------------------------
 skipProcessFork
@@ -135,35 +136,32 @@ processFork'
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (HashSet x))
     -> IO (V.Vector x)
-processFork' logFun db newHeader lastHeaderM plLookup = do
-    case lastHeaderM of
-        Nothing -> return V.empty
-        Just lastHeader -> do
-            (_, oldBlocks, newBlocks) <- collectForkBlocks db lastHeader newHeader
-            case V.length newBlocks - V.length oldBlocks of
-                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
-                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
-                           ++ "block is more than one greater than the previous new block request")
-                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
-                      oldTrans <- foldM f mempty oldBlocks
-                      newTrans <- foldM f mempty newBlocks
+processFork' logFun db newHeader lastHeaderM plLookup =
+    maybe (return V.empty) go lastHeaderM
+  where
+    go lastHeader = do
+        (_, oldBlocks, newBlocks) <- collectForkBlocks db lastHeader newHeader
+        oldTrans <- foldM toSet mempty oldBlocks
+        newTrans <- foldM toSet mempty newBlocks
 
-                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
-                      -- filterout any transactions that have been included in the
-                      -- winning fork (aka newBlocks):
-                      let !results = V.fromList $ HS.toList $ oldTrans `HS.difference` newTrans
+        -- before re-introducing the transactions from the losing fork (aka
+        -- oldBlocks), filter out any transactions that have been included in
+        -- the winning fork (aka newBlocks):
+        let !results = V.fromList $ HS.toList
+                                  $ oldTrans `HS.difference` newTrans
 
-                      unless (V.null results) $ do
-                          -- create data for the dashboard showing number or reintroduced transacitons:
-                          let !reIntro = ReintroducedTxsLog
-                                { oldForkHeader = ObjectEncoded lastHeader
-                                , newForkHeader = ObjectEncoded newHeader
-                                , numReintroduced = V.length results
-                                }
-                          logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
-                      return results
-          where
-            f !trans !header = HS.union trans <$!> plLookup header
+        unless (V.null results) $ do
+            -- create data for the dashboard showing number or reintroduced
+            -- transactions:
+            let !reIntro = ReintroducedTxsLog
+                               { oldForkHeader = ObjectEncoded lastHeader
+                               , newForkHeader = ObjectEncoded newHeader
+                               , numReintroduced = V.length results
+                               }
+            logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
+        return results
+      where
+        toSet !trans !header = HS.union trans <$!> plLookup header
 
 
 ----------------------------------------------------------------------------------------------------
