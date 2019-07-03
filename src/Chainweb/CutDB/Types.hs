@@ -14,8 +14,8 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.CutDB
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Module: Chainweb.CutDB.Types
+-- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental

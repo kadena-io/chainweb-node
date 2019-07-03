@@ -12,6 +12,10 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
+-- due to module import cycle-breaking with pact: pact wants a BlockHeaderDB,
+-- but the TreeDB instance wants to know about genesis blocks, which requires
+-- validation, which requires pact
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
