@@ -82,10 +82,11 @@ data Env = Env
     , results :: TVar ResultMap
     , cores :: Word16
     , version :: ChainwebVersion
+    , port :: Int
     }
 
 pEnv :: TMVar BlockHeader -> TVar ResultMap -> Parser Env
-pEnv tbh thm = Env tbh thm <$> pCores <*> pVersion
+pEnv tbh thm = Env tbh thm <$> pCores <*> pVersion <*> pPort
 
 pCores :: Parser Word16
 pCores = option auto
@@ -102,6 +103,11 @@ pVersion = option cver
     cver = eitherReader $ \s ->
         note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
 
+pPort :: Parser Int
+pPort = option auto
+    (long "port" <> metavar "PORT" <> value 8081
+     <> help "Port on which to run the miner (default: 8081)")
+
 --------------------------------------------------------------------------------
 -- Work
 
@@ -109,7 +115,7 @@ main :: IO ()
 main = do
     env <- (opts <$> newEmptyTMVarIO <*> newTVarIO mempty) >>= execParser
     miner <- async $ mining env
-    W.run 8081 $ app env
+    W.run (port env) $ app env
     wait miner
   where
     opts :: TMVar BlockHeader -> TVar ResultMap -> ParserInfo Env
