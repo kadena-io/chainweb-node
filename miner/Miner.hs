@@ -1,9 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
 -- |
@@ -19,8 +21,8 @@
 
 module Main ( main ) where
 
-import BasePrelude
-import Control.Concurrent.Async (race)
+import BasePrelude hiding (app)
+import Control.Concurrent.Async (async, race, wait)
 import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
@@ -33,39 +35,43 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict (T2(..))
 import Foreign.Marshal.Alloc (allocaBytes)
+import qualified Network.Wai.Handler.Warp as W
+import Servant.API
+import Servant.Server (Application, Server, serve)
+import Servant.Swagger (toSwagger)
+import Servant.Swagger.UI (SwaggerSchemaUI, swaggerSchemaUIServer)
 
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Difficulty (HashTarget, encodeHashTarget)
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Micros, Time, encodeTimeToWord64, getCurrentTimeIntegral)
 import Chainweb.Utils (int, runGet)
 import Chainweb.Version (ChainId, ChainwebVersion(..))
 
+import Miner.Types ()
+
 ---
 
-{- OPERATIONS
+--------------------------------------------------------------------------------
+-- Servant
 
-SUBMIT - Submit a hash to mine upon. Result is stored in a `TVar` (or queue?)
-when finished. If the miner is currently running when SUBMIT is called, its old
-job is cancelled.
+type MinerAPI = "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
+    :<|> "poll" :> Capture "chainid" ChainId
+                :> Capture "blockheight" BlockHeight
+                :> Get '[JSON] (Maybe BlockHeader)
 
-POLL - Fetch the mining result of some given job (keyed by hash). Errors (with
-Nothing?) if the given key has no stored result.
+type API = MinerAPI :<|> SwaggerSchemaUI "help" "swagger.json"
 
-HALT - stop active mining. No-op if already stopped.
+server :: Env -> Server API
+server e = (liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h))
+    :<|> swaggerSchemaUIServer (toSwagger (Proxy :: Proxy MinerAPI))
 
-There's probably something elegant I can do with STM to hook in the Submit/Halt
-logic. Just passing an `Async` around and killing it when new work comes in
-seems dirty. Would there also be memory issues if certain low-level things are
-freed correctly?
+app :: Env -> Application
+app = serve (Proxy :: Proxy API) . server
 
-If `mine` finishes before polling occurs, the mining thread should be closed anyway.
-
-Use `scheduler` to enable CPU-pinning and easy multicore mining? Recall
-`terminateWith` which allows us to cancel other running threads when we've found
-what we're looking for.
-
--}
+--------------------------------------------------------------------------------
+-- Work
 
 data Env = Env
     { cores :: Word16
@@ -75,7 +81,11 @@ data Env = Env
     }
 
 main :: IO ()
-main = pure ()
+main = do
+    env   <- Env 1 Testnet01 <$> newEmptyTMVarIO <*> newTVarIO mempty
+    miner <- async $ mining env
+    W.run 8081 $ app env
+    wait miner
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
@@ -85,8 +95,8 @@ submit (work -> w) bh = atomically $
 
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
-poll :: Env -> T2 ChainId BlockHeight -> IO (Maybe BlockHeader)
-poll (results -> tm) k = HM.lookup k <$> readTVarIO tm
+poll :: Env -> ChainId -> BlockHeight -> IO (Maybe BlockHeader)
+poll (results -> tm) cid h = HM.lookup (T2 cid h) <$> readTVarIO tm
 
 -- | Cease mining until another `submit` call is made.
 --
