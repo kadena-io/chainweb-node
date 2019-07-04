@@ -495,7 +495,7 @@ executable chainweb-miner
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -rtsopts
+        -with-rtsopts=-N
     hs-source-dirs: miner
     main-is: Miner.hs
     build-depends:
@@ -503,11 +503,17 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , async >= 2.2
         , base >= 4.11 && < 5
+        , base-prelude >= 1.3
         , bytestring >= 0.10
         , bytes >= 0.15
         , cryptonite >= 0.25
         , memory >= 0.14
+        , scheduler >= 1.3
+        , strict-tuple >= 0.1
+        , stm >= 2.4
+        , unordered-containers >= 0.2
 
 executable cwtool
     import: warning-flags, debugging-flags
