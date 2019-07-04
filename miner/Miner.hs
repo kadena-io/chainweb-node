@@ -21,10 +21,11 @@
 
 module Main ( main ) where
 
-import BasePrelude hiding (app)
+import BasePrelude hiding (app, option)
 import Control.Concurrent.Async (async, race, wait)
 import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar (modifyTVar')
+import Control.Error.Util (note)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Crypto.Hash.IO
@@ -33,9 +34,11 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Foreign.Marshal.Alloc (allocaBytes)
 import qualified Network.Wai.Handler.Warp as W
+import Options.Applicative
 import Servant.API
 import Servant.Server (Application, Server, serve)
 import Servant.Swagger (toSwagger)
@@ -47,8 +50,7 @@ import Chainweb.Difficulty (HashTarget, encodeHashTarget)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Micros, Time, encodeTimeToWord64, getCurrentTimeIntegral)
 import Chainweb.Utils (int, runGet)
-import Chainweb.Version (ChainId, ChainwebVersion(..))
-
+import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText)
 import Miner.Types ()
 
 ---
@@ -71,21 +73,48 @@ app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
 
 --------------------------------------------------------------------------------
--- Work
+-- CLI
+
+type ResultMap = HashMap (T2 ChainId BlockHeight) BlockHeader
 
 data Env = Env
-    { cores :: Word16
+    { work :: TMVar BlockHeader
+    , results :: TVar ResultMap
+    , cores :: Word16
     , version :: ChainwebVersion
-    , work :: TMVar BlockHeader
-    , results :: TVar (HashMap (T2 ChainId BlockHeight) BlockHeader)
     }
+
+pEnv :: TMVar BlockHeader -> TVar ResultMap -> Parser Env
+pEnv tbh thm = Env tbh thm <$> pCores <*> pVersion
+
+pCores :: Parser Word16
+pCores = option auto
+    (long "cores" <> metavar "COUNT" <> value 1
+     <> help "Number of CPU cores to use (default: 1)")
+
+pVersion :: Parser ChainwebVersion
+pVersion = option cver
+    (long "version" <> metavar "VERSION"
+     <> value Testnet01
+     <> help "Chainweb Network Version (default: testnet01)")
+  where
+    cver :: ReadM ChainwebVersion
+    cver = eitherReader $ \s ->
+        note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
+
+--------------------------------------------------------------------------------
+-- Work
 
 main :: IO ()
 main = do
-    env   <- Env 1 Testnet01 <$> newEmptyTMVarIO <*> newTVarIO mempty
+    env <- (opts <$> newEmptyTMVarIO <*> newTVarIO mempty) >>= execParser
     miner <- async $ mining env
     W.run 8081 $ app env
     wait miner
+  where
+    opts :: TMVar BlockHeader -> TVar ResultMap -> ParserInfo Env
+    opts tbh thm = info (pEnv tbh thm <**> helper)
+        (fullDesc <> progDesc "The Official Chainweb Mining Client")
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
