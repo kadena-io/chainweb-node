@@ -20,6 +20,7 @@ module Chainweb.Pact.Types
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
+  , GasId(..)
     -- * optics
   , minerAccount
   , minerKeys
@@ -48,7 +49,7 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), PactId(..))
 
 -- internal chainweb modules
 
@@ -122,6 +123,8 @@ data PactDbStatePersist = PactDbStatePersist
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
+
+newtype GasId = GasId PactId deriving (Eq, Show)
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

@@ -70,7 +70,6 @@ module Chainweb.Pact.Backend.Types
     , PactServiceM
 
       -- * optics
-    , noopMemPoolAccess
     , psMempoolAccess
     , psCheckpointEnv
     , psSpvSupport
@@ -92,7 +91,6 @@ import Data.Bits
 import Data.Int
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 import Data.Word
 
 import Database.SQLite3.Direct as SQ3
@@ -265,12 +263,11 @@ data MemPoolAccess = MemPoolAccess
   , mpaProcessFork :: BlockHeader -> IO ()
   }
 
-noopMemPoolAccess :: MemPoolAccess
-noopMemPoolAccess = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> return V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
+instance Semigroup MemPoolAccess where
+  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+
+instance Monoid MemPoolAccess where
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState

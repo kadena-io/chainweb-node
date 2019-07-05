@@ -1,5 +1,6 @@
 (begin-tx)
 
+(load "coin-sig.pact")
 (load "coin.pact")
 
 (commit-tx)
@@ -97,7 +98,31 @@
 (coinbase 'k3 (read-keyset 'k3) 1.0)
 (expect "coinbase should create accounts and credit them some amount" 2.0 (account-balance 'k3))
 
-; SPV tests - note: proof creation will not work as we have no spv support as our default spv
-; handler in the environment at this point.
-(expect "spv proof creation should succeed" "" (let ((p (delete-coin 'k1 0 'k2 (read-keyset 'k2) 1.0))) ""))
-(expect-failure "spv proof creation should fail for insufficient funds" (delete-coin 'k1 0 'k2 (read-keyset 'k2) 2.0))
+(pact-state true)
+(env-chain-data { "chain-id" : "0" })
+(env-hash (hash "burn-create"))
+
+(expect "burn side of cross-chain transfers succeed" "success" (let ((p (cross-chain-transfer 'k1 "1" 'k2 (read-keyset 'k2) 1.0))) "success"))
+
+; make sure chain-id is enforced in the yield
+(expect-failure "create side of cross-chain transfer fails yield on wrong chain"
+        (continue-pact 1 false (hash "burn-create")
+          { "create-chain-id": "1"
+          , "create-account": 'k2
+          , "create-account-guard": (read-keyset 'k2)
+          , "quantity": 1.0
+          }))
+
+; successful path
+(env-chain-data { "chain-id" : "1" })
+(expect "create side of cross-chain transfer succeeds" "Write succeeded"
+        (continue-pact 1 false (hash "burn-create")
+          { "create-chain-id": "1"
+          , "create-account": 'k2
+          , "create-account-guard": (read-keyset 'k2)
+          , "quantity": 1.0
+          }))
+
+; double spends are disallowed by construction
+(expect-failure "cross-chain transfer pact prevents double spends"
+                (continue-pact 1 false (hash "burn-create")))

@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -22,7 +23,8 @@ module Chainweb.Test.Pact.Utils
 , mergeObjects
 , formatB16PubKey
 , goldenTestTransactions
-, mkPactTestTransactions
+, mkTestExecTransactions
+, mkTestContTransaction
 , pactTestLogger
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
@@ -56,6 +58,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as Vector
 
 import System.IO.Extra
 
@@ -92,13 +95,15 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
-import qualified Chainweb.Version as V
+import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 
 import Pact.Gas
 import Pact.Types.Gas
-
+import Pact.Types.RPC
+import Pact.Types.Runtime (PactId)
+import Pact.Types.SPV
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -148,29 +153,29 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    mkPactTestTransactions "sender00" "0" ks "1" 100 0.0001 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 100 0.0001 txs
 
--- Make pact transactions specifying sender, chain id of the signer,
+-- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
 -- (with data) to execute.
 --
-mkPactTestTransactions
+mkTestExecTransactions
     :: Text
-    -- ^ sender
+      -- ^ sender
     -> ChainId
-    -- ^ chain id of execution
+      -- ^ chain id of execution
     -> [SomeKeyPair]
-    -- ^ signer keys
+      -- ^ signer keys
     -> Text
-    -- ^ nonce
+      -- ^ nonce
     -> GasLimit
-    -- ^ starting gas
+      -- ^ starting gas
     -> GasPrice
-    -- ^ gas rate
+      -- ^ gas rate
     -> Vector PactTransaction
-    -- ^ the pact transactions with data to run
+      -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkPactTestTransactions sender cid ks nonce gas gasrate txs =
+mkTestExecTransactions sender cid ks nonce gas gasrate txs =
     traverse go txs
   where
     go (PactTransaction c d) = do
@@ -185,6 +190,45 @@ mkPactTestTransactions sender cid ks nonce gas gasrate txs =
 
     k t bs = PayloadWithText bs (_cmdPayload t)
 
+-- | Make pact 'ContMsg' transactions, specifying sender, chain id of the signer,
+-- signer keys, nonce, gas rate, gas limit, cont step, pact id, rollback,
+-- proof etc.
+--
+mkTestContTransaction
+    :: Text
+      -- ^ sender
+    -> ChainId
+      -- ^ chain id of execution
+    -> [SomeKeyPair]
+      -- ^ signer keys
+    -> Text
+      -- ^ nonce
+    -> GasLimit
+      -- ^ starting gas
+    -> GasPrice
+      -- ^ gas rate
+    -> Int
+      -- ^ continuation step
+    -> PactId
+      -- ^ pact id
+    -> Bool
+      -- ^ rollback?
+    -> Maybe ContProof
+      -- ^ SPV proof
+    -> Value
+    -> IO (Vector ChainwebTransaction)
+mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof d = do
+    let pm = PublicMeta cid sender gas rate
+        msg :: PactRPC ContMsg =
+          Continuation (ContMsg pid step rollback d proof)
+
+    cmd <- mkCommand ks pm nonce msg
+    case verifyCommand cmd of
+      ProcSucc t -> return $ Vector.singleton $ fmap (k t) cmd
+      ProcFail e -> throwM $ userError e
+
+  where
+    k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
@@ -220,7 +264,7 @@ destroyTestPactCtx = void . takeMVar . _testPactCtxState
 testPactCtx
     :: PayloadCas cas
     => ChainwebVersion
-    -> V.ChainId
+    -> Version.ChainId
     -> Maybe (MVar (CutDb cas))
     -> BlockHeaderDb
     -> PayloadDb cas
@@ -230,7 +274,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
+    evalPactServiceM ctx (initialPayloadState v cid mempty)
     return ctx
   where
     loggers = pactTestLogger False
@@ -242,7 +286,7 @@ testPactCtx v cid cdbv bhdb pdb = do
 testPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
-  -> V.ChainId
+  -> Version.ChainId
   -> Maybe (MVar (CutDb cas))
   -> BlockHeaderDb
   -> PayloadDb cas
@@ -253,7 +297,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
+    evalPactServiceM ctx (initialPayloadState v cid mempty)
     return ctx
   where
     loggers = pactTestLogger False
@@ -268,7 +312,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
 testPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
-    -> V.ChainId
+    -> Version.ChainId
     -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
@@ -297,7 +341,7 @@ testWebPactExecutionService
     -> Maybe (MVar (CutDb cas))
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
-    -> (V.ChainId -> MemPoolAccess)
+    -> (Version.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
@@ -384,5 +428,5 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-      evalPactServiceM ctx (initialPayloadState v cid noopMemPoolAccess)
+      evalPactServiceM ctx (initialPayloadState v cid mempty)
       return (ctx, dbSt)
