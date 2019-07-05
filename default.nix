@@ -200,8 +200,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3";
-          sha256 = "188ywk13rwsw8w9ba9v90lbk8asffa7izxlw0zink3qh70x019pi";
+          rev = "a622a1e1097fa9bf1a966e0914e05c9ceffdb46a";
+          sha256 = "09wwlzmj4qfjclnmchbp1hzbnrck4fipp3x2x10h565n28am5icg";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -347,6 +347,7 @@ in
       stack = pkgs.stack;
       cabal-install = pkgs.haskellPackages.cabal-install;
       ghcid = pkgs.haskellPackages.ghcid;
+      z3 = pkgs.z3;
     };
     shells = {
       ghc = ["chainweb"];

@@ -3,7 +3,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE BangPatterns #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
 
@@ -14,12 +13,12 @@ import Control.Lens hiding ((.=))
 import Control.Monad (void)
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, (.=), toJSON)
+import Data.Aeson (Value(..), object, toJSON, (.=))
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Text (Text)
 import qualified Data.Map.Strict as M
+import Data.Text (Text)
 
 import NeatInterpolation (text)
 
@@ -28,15 +27,15 @@ import Pact.Interpreter (EvalResult(..), PactDbEnv(..))
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.Runtime
+import Pact.Types.Exp (Literal(..))
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
-import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.Runtime
 import Pact.Types.Server (CommandEnv(..))
+import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Type (PrimType(..), Type(..))
-import Pact.Types.Exp (Literal(..))
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -50,9 +49,9 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 
@@ -157,23 +156,23 @@ checkpointerTest name initdata =
           in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer") freeGasEnv) (const $ return ()) runTest
   where
     runTest :: IO CheckpointEnv -> TestTree
-    runTest c  = testCaseSteps name $ \next -> do
+    runTest c = testCaseSteps name $ \next -> do
           (CheckpointEnv {..}) <-    c
           let ksData :: Text -> Value
               ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def
+                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+                  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def
-                  applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
+                  applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------

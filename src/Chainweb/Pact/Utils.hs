@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.

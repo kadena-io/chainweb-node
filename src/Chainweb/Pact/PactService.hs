@@ -498,14 +498,15 @@ runCoinbase
     -> MinerInfo
     -> PactServiceM cas HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just _parentHash) dbEnv mi@MinerInfo{..} = do
+runCoinbase (Just parentHash) dbEnv mi@MinerInfo{..} = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
       pd = _psPublicData psEnv
       logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  toHashCommandResult <$!> liftIO (applyCoinbase logger dbEnv mi reward pd)
+  cr <- liftIO $! applyCoinbase logger dbEnv mi reward pd parentHash
+  return $! toHashCommandResult cr
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
