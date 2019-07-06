@@ -58,6 +58,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import System.LogLevel
+import System.Directory
 
 ------------------------------------------------------------------------------
 -- external pact modules
@@ -76,9 +77,10 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId (ChainId)
+import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -130,31 +132,48 @@ initPactService
     -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
+    -> Maybe FilePath
+    -> Maybe NodeId
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb =
-    initPactService' cid chainwebLogger (pactSPV cdbv) bhDb pdb $
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid =
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid  $
       initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
     => PayloadCas cas
-    => ChainId
+    => ChainwebVersion
+    -> ChainId
     -> logger
     -> (P.Logger -> P.SPVSupport)
     -> BlockHeaderDb
     -> PayloadDb cas
+    -> Maybe FilePath
+    -> Maybe NodeId
     -> PactServiceM cas a
     -> IO a
-initPactService' cid chainwebLogger spv bhDb pdb act = do
+initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
     let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+    let getsqliteDir = case dbDir of
+          Nothing -> getXdgDirectory XdgData
+            $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
+          Just d -> return d
 
-    -- withTempSQLiteConnection
+    sqlitedir <- getsqliteDir
 
-    -- TODO: The file and pragmas should come from a config file
-    withTempSQLiteConnection fastNoJournalPragmas $ \sqlenv -> do
+    createDirectoryIfMissing True sqlitedir
+
+    logFunctionText chainwebLogger Info $ "opened sqlitedb for " <> sshow cid <> " in directory " <> sshow sqlitedir
+
+    let sqlitefile = sqlitedir <> "/" <> "pactservice-sqlite-chain" <> T.unpack (chainIdToText  cid) <> ".sqlite"
+
+    logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
+
+    withSQLiteConnection sqlitefile fastNoJournalPragmas False $ \sqlenv -> do
+
       checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def

@@ -41,6 +41,7 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
+import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
@@ -63,10 +64,12 @@ withPactService
     -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
+    -> Maybe FilePath
+    -> Maybe NodeId
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv bhdb pdb action =
-    withPactService' ver cid logger mpa cdbv bhdb pdb action
+withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid action =
+    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -82,13 +85,15 @@ withPactService'
     -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
+    -> Maybe FilePath
+    -> Maybe NodeId
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb action =
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
         a <- async $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid
         link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 

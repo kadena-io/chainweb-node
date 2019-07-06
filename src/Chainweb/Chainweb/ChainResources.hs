@@ -62,6 +62,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
@@ -118,13 +119,16 @@ withChainResources
     -> PayloadDb cas
     -> Bool
         -- ^ whether to prune the chain database
+    -> Maybe FilePath
+        -- ^ database directory for checkpointer
+    -> Maybe NodeId
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
+withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb $
+        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid $
           \requestQ -> do
             -- prune block header db
             when prune $ do
