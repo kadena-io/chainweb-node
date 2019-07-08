@@ -207,7 +207,7 @@ withRocksResource m = withResource create destroy wrap
         closeRocksDb rocks
         destroyRocksDb dir
         removeDirectoryRecursive dir
-          `catch` \(_ :: SomeException) -> return ()
+          `catchAllSynchronous` (const $ return ())
     wrap ioact = let io' = snd <$> ioact in m io'
 
 

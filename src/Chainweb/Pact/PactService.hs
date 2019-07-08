@@ -57,8 +57,8 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import System.LogLevel
 import System.Directory
+import System.LogLevel
 
 ------------------------------------------------------------------------------
 -- external pact modules
