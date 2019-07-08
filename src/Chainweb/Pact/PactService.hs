@@ -431,7 +431,7 @@ rewindTo
     -> (PactDbEnv' -> PactServiceM cas a)
     -> PactServiceM cas a
 rewindTo mpAccess mb act = do
-    cp <- asks (_cpeCheckpointer . _psCheckpointEnv)
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
     withRewind cp $ maybe rewindGenesis (doRewind cp) mb
   where
     rewindGenesis = restoreCheckpointer Nothing >>= act
