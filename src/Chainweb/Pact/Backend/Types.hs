@@ -45,7 +45,8 @@ module Chainweb.Pact.Backend.Types
     , bvVersion
     , bvBlock
     , BlockState(..)
-    , bsBlockVersion
+    -- , bsBlockVersion
+    , bsBlockHeight
     , bsTxRecord
     , bsMode
     , bsTxId
@@ -173,7 +174,8 @@ makeLenses ''BlockVersion
 data BlockState = BlockState
   { _bsTxId :: !TxId
   , _bsMode :: !(Maybe ExecutionMode)
-  , _bsBlockVersion :: !BlockVersion
+  , _bsBlockHeight :: !BlockHeight
+  -- , _bsBlockVersion :: !BlockVersion
   , _bsTxRecord :: !(Map TableName [TxLog Value])
   }
   deriving Show

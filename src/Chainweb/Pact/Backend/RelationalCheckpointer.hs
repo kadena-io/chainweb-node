@@ -118,7 +118,8 @@ doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     commitSavepoint Block
     nextTxId <- gets _bsTxId
-    (BlockVersion height _) <- gets _bsBlockVersion
+    -- (BlockVersion height _) <- gets _bsBlockVersion
+    height <- gets _bsBlockHeight
     blockHistoryInsert height hash nextTxId
 
 doDiscard :: Db -> IO ()
