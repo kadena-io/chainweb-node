@@ -496,6 +496,7 @@ executable chainweb-miner
     ghc-options:
         -threaded
         -with-rtsopts=-N
+        -O2
     hs-source-dirs: miner
     main-is: Miner.hs
     build-depends:
