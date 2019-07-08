@@ -498,7 +498,6 @@ executable chainweb-miner
         -with-rtsopts=-N
     hs-source-dirs: miner
     main-is: Miner.hs
-    other-modules: Miner.Types
     build-depends:
         -- internal
           chainweb
@@ -510,7 +509,6 @@ executable chainweb-miner
         , bytestring >= 0.10
         , bytes >= 0.15
         , cryptonite >= 0.25
-        , data-dword >= 0.3
         , errors >= 2.3
         , memory >= 0.14
         , optparse-applicative >= 0.14
@@ -521,7 +519,6 @@ executable chainweb-miner
         , servant-swagger-ui >= 0.3
         , strict-tuple >= 0.1
         , stm >= 2.4
-        , swagger2 >= 2.3
         , text >= 1.2
         , unordered-containers >= 0.2
         , warp >= 3.2

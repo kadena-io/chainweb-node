@@ -51,7 +51,6 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Micros, Time, encodeTimeToWord64, getCurrentTimeIntegral)
 import Chainweb.Utils (int, runGet)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText)
-import Miner.Types ()
 
 ---
 
