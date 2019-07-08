@@ -515,8 +515,6 @@ executable chainweb-miner
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-server >= 0.14
-        , servant-swagger >= 1.1
-        , servant-swagger-ui >= 0.3
         , strict-tuple >= 0.1
         , stm >= 2.4
         , text >= 1.2

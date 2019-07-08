@@ -41,8 +41,6 @@ import qualified Network.Wai.Handler.Warp as W
 import Options.Applicative
 import Servant.API
 import Servant.Server (Application, Server, serve)
-import Servant.Swagger (toSwagger)
-import Servant.Swagger.UI (SwaggerSchemaUI, swaggerSchemaUIServer)
 
 -- internal modules
 import Chainweb.BlockHeader
@@ -57,16 +55,13 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText)
 --------------------------------------------------------------------------------
 -- Servant
 
-type MinerAPI = "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
+type API = "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
                 :> Get '[JSON] (Maybe BlockHeader)
 
-type API = MinerAPI :<|> SwaggerSchemaUI "help" "swagger.json"
-
 server :: Env -> Server API
-server e = (liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h))
-    :<|> swaggerSchemaUIServer (toSwagger (Proxy :: Proxy MinerAPI))
+server e = liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
