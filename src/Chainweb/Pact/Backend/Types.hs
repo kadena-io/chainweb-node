@@ -91,9 +91,10 @@ import Data.Bits
 import Data.Int
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
-import Data.Word
 
 import Database.SQLite3.Direct as SQ3
+
+import Foreign.C.Types (CInt(..))
 
 import GHC.Generics
 
@@ -239,7 +240,7 @@ data CheckpointEnv = CheckpointEnv
 
 makeLenses ''CheckpointEnv
 
-newtype SQLiteFlag = SQLiteFlag { getFlag :: Word32 }
+newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving (Eq, Ord, Bits, Num)
 
 data PactServiceEnv cas = PactServiceEnv
