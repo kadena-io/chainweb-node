@@ -108,9 +108,7 @@ import Chainweb.Difficulty (HashTarget, encodeHashTarget)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Micros, Time, encodeTimeToWord64, getCurrentTimeIntegral)
 import Chainweb.Utils (int, runGet)
-import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText)
-
----
+import Chainweb.Version
 
 --------------------------------------------------------------------------------
 -- Servant
@@ -202,16 +200,35 @@ mining e = do
   where
     -- | Wait for new work to come in from a `submit` call. `readTMVar` has the
     -- effect of "waiting patiently" and will not cook the CPU.
+    --
     newWork :: IO ()
     newWork = void . atomically . readTMVar $ work e
 
-    -- | If the `go` call won the `race`, this functions saves the result of
+    -- | If the `go` call won the `race`, this function saves the result of
     -- that successful mining. If `newWork` won the race instead, then the `go`
     -- call is automatically cancelled.
+    --
     miningSuccess :: BlockHeader -> IO ()
-    miningSuccess new = do
-        let key = T2 (_blockChainId new) (_blockHeight new)
-        atomically $ modifyTVar' (results e) (HM.insert key new)
+    miningSuccess new = atomically $ modifyTVar' (results e) f
+      where
+        key = T2 (_blockChainId new) (_blockHeight new)
+        f m = HM.insert key new . bool (prune m) m $ HM.size m < int cap
+
+    -- | Reduce the size of the result cache by half if we've crossed the "cap".
+    -- Clears old results out by `BlockCreationTime`.
+    --
+    prune :: ResultMap -> ResultMap
+    prune = HM.fromList
+        . snd
+        . splitAt (int cap)
+        . sortBy (compare `on` (_blockCreationTime . snd))
+        . HM.toList
+
+    -- | The maximum number of `BlockHeader`s to keep in the cache before
+    -- pruning.
+    --
+    cap :: Natural
+    cap = 256 * (order . _chainGraph $ version e)
 
     comp :: Comp
     comp = case cores e of
@@ -241,7 +258,7 @@ usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
 -- TODO: Check the chainweb version to make sure this function can handle the
 -- respective version.
 --
--- TODO: Remove the `Proxy`.
+-- TODO: Remove the `Proxy`?
 --
 mine :: forall a. HashAlgorithm a => Proxy a -> BlockHeader -> IO BlockHeader
 mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
