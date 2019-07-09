@@ -427,7 +427,7 @@ versionedTablesInsert (TableName name) (BlockVersion bh version) = do
 createBlockHistoryTable :: BlockHandler SQLiteEnv ()
 createBlockHistoryTable =
     callDb "createBlockHistoryTable" $ \db -> exec_ db
-        "CREATE TABLE BlockHistory \
+        "CREATE TABLE IF NOT EXISTS BlockHistory \
         \(blockheight UNSIGNED BIGINT NOT NULL,\
         \ hash BLOB NOT NULL,\
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
@@ -437,7 +437,7 @@ createVersionHistoryTable  :: BlockHandler SQLiteEnv ()
 createVersionHistoryTable =
     callDb "createVersionHistoryTable" $ \db ->
     exec_ db
-        "CREATE TABLE VersionHistory (version UNSIGNED BIGINT NOT NULL,\
+        "CREATE TABLE IF NOT EXISTS VersionHistory (version UNSIGNED BIGINT NOT NULL,\
         \ blockheight UNSIGNED BIGINT NOT NULL,\
         \ txid UNSIGNED BIGINT NOT NULL,\
         \ CONSTRAINT versionConstraint UNIQUE (version, blockheight));"
@@ -446,7 +446,7 @@ createUserTablesTable  :: BlockHandler SQLiteEnv ()
 createUserTablesTable =
     callDb "createUserTablesTable" $ \db ->
     exec_ db
-        "CREATE TABLE UserTables (tablename TEXT NOT NULL\
+        "CREATE TABLE IF NOT EXISTS UserTables (tablename TEXT NOT NULL\
         \ , createBlockHeight UNSIGNED BIGINT NOT NULL\
         \ , version UNSIGNED BIGINT NOT NULL\
         \ , CONSTRAINT versionTableConstraint UNIQUE\
@@ -456,7 +456,7 @@ createUserTable :: TableName -> BlockVersion -> BlockHandler SQLiteEnv ()
 createUserTable name b = do
     callDb "createUserTable" $ \db ->
         exec_ db $
-            "CREATE TABLE "
+            "CREATE TABLE IF NOT EXISTS "
             <> Utf8 (toS (flip T.snoc ']' $ T.cons '[' $ (asString name)))
             <> " (rowkey TEXT\
                \, blockheight UNSIGNED BIGINT\
@@ -614,7 +614,7 @@ initSchema = withSavepoint DbTransaction $ do
         log "DDL" $ "initSchema: "  ++ show name
         callDb "initSchema" $ \db ->
             exec_ db $
-            "CREATE TABLE "
+            "CREATE TABLE IF NOT EXISTS"
             <> Utf8 (toS (flip T.snoc ']' $ T.cons '[' $ asString name))
             <> " (rowkey TEXT\
                \, blockheight UNSIGNED BIGINT\

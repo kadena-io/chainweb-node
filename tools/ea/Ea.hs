@@ -116,7 +116,7 @@ genPayloadModule v txFiles =
         let logger = genericLogger Warn TIO.putStrLn
 
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport) bhdb pdb Nothing Nothing $
+        payloadWO <- initPactService' v cid logger (const noSPVSupport) bhdb pdb Nothing Nothing False $
             execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

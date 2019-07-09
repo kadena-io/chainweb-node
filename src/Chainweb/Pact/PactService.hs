@@ -134,9 +134,10 @@ initPactService
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid  $
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid resetDb $
       initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
@@ -150,9 +151,10 @@ initPactService'
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid act = do
+initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
@@ -160,9 +162,13 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid act = do
     let getsqliteDir = case dbDir of
           Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
-          Just d -> return d
+          Just d -> return (d <> "sqlite")
 
     sqlitedir <- getsqliteDir
+
+    when resetDb $ do
+      exist <- doesDirectoryExist sqlitedir
+      when exist $ removeDirectoryRecursive sqlitedir
 
     createDirectoryIfMissing True sqlitedir
 
