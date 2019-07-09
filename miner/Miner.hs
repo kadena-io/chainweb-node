@@ -88,8 +88,8 @@ import Crypto.Hash.IO
 import qualified Data.ByteArray as BA
 import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString as B
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 
@@ -127,7 +127,7 @@ app = serve (Proxy :: Proxy API) . server
 --------------------------------------------------------------------------------
 -- CLI
 
-type ResultMap = HashMap (T2 ChainId BlockHeight) BlockHeader
+type ResultMap = Map (T2 ChainId BlockHeight) BlockHeader
 
 data Env = Env
     { work :: TMVar BlockHeader
@@ -183,7 +183,7 @@ submit (work -> w) bh = atomically $
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
 poll :: Env -> ChainId -> BlockHeight -> IO (Maybe BlockHeader)
-poll (results -> tm) cid h = HM.lookup (T2 cid h) <$> readTVarIO tm
+poll (results -> tm) cid h = M.lookup (T2 cid h) <$> readTVarIO tm
 
 -- | Cease mining until another `submit` call is made.
 --
@@ -212,17 +212,17 @@ mining e = do
     miningSuccess new = atomically $ modifyTVar' (results e) f
       where
         key = T2 (_blockChainId new) (_blockHeight new)
-        f m = HM.insert key new . bool (prune m) m $ HM.size m < int cap
+        f m = M.insert key new . bool (prune m) m $ M.size m < int cap
 
     -- | Reduce the size of the result cache by half if we've crossed the "cap".
     -- Clears old results out by `BlockCreationTime`.
     --
     prune :: ResultMap -> ResultMap
-    prune = HM.fromList
+    prune = M.fromList
         . snd
         . splitAt (int cap `div` 2)
         . sortBy (compare `on` (_blockCreationTime . snd))
-        . HM.toList
+        . M.toList
 
     -- | The maximum number of `BlockHeader`s to keep in the cache before
     -- pruning.
