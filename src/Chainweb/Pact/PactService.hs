@@ -19,7 +19,8 @@ module Chainweb.Pact.PactService
     , execNewGenesisBlock
     , execTransactions
     , execValidateBlock
-    , initPactService, initPactService'
+    , initPactService
+    , initPactService'
     , serviceRequests
     , createCoinContract
     , initialPayloadState
@@ -136,9 +137,14 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid resetDb $
-      initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
+                nodeid resetDb =
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
+        nodeid resetDb go
+  where
+    go = do
+        initialPayloadState ver cid mempoolAccess
+        serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger

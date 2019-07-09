@@ -72,6 +72,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doDiscard db)
               (doGetLatest db)
               (doWithAtomicRewind db)
+              (doLookupBlock db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -82,36 +83,25 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = do
     runBlockEnv dbenv $ do
-        txid <- withSavepoint PreBlock $ handleVersion bh hash
-        assign bsTxId txid
+        void $ withSavepoint PreBlock $ handleVersion bh hash
         beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
-doRestore dbenv Nothing = do
-    runBlockEnv dbenv $ do
-        r <- callDb "doRestoreInitial"
-             $ \db -> qry db
-                      "SELECT COUNT(*) FROM BlockHistory \
-                      \ WHERE blockheight = ? AND hash = ?;"
-                  [SInt 0, SBlob (encode nullBlockHash)]
-                  [RInt]
-        liftIO (expectSingle "row" r) >>= \case
-            [SInt 0] -> do
-                withSavepoint DbTransaction $
-                  callDb "doRestoreInitial: resetting tables" $ \db -> do
-                    exec_ db "DELETE FROM BlockHistory;"
-                    exec_ db "DELETE FROM VersionHistory;"
-                    exec_ db "DELETE FROM [SYS:KeySets];"
-                    exec_ db "DELETE FROM [SYS:Modules];"
-                    exec_ db "DELETE FROM [SYS:Namespaces];"
-                    exec_ db "DELETE FROM [SYS:Pacts];"
-                    exec_ db "DELETE FROM UserTables;"
-                    tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
-                    forM_ tblNames $ \tbl -> case tbl of
-                        [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
-                        _ -> internalError "Something went wrong when resetting tables."
-                beginSavepoint Block
-            _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
-
+doRestore dbenv Nothing = runBlockEnv dbenv $ do
+    withSavepoint DbTransaction $
+      callDb "doRestoreInitial: resetting tables" $ \db -> do
+        exec_ db "DELETE FROM BlockHistory;"
+        exec_ db "DELETE FROM VersionHistory;"
+        exec_ db "DELETE FROM [SYS:KeySets];"
+        exec_ db "DELETE FROM [SYS:Modules];"
+        exec_ db "DELETE FROM [SYS:Namespaces];"
+        exec_ db "DELETE FROM [SYS:Pacts];"
+        tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
+        forM_ tblNames $ \tbl -> case tbl of
+            [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
+            _ -> internalError "Something went wrong when resetting tables."
+        exec_ db "DELETE FROM UserTables;"
+    beginSavepoint Block
+    assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
@@ -148,3 +138,15 @@ doWithAtomicRewind db m = mask $ \r -> do
     return a
   where
     rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)
+
+doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
+doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
+    r <- callDb "lookupBlock" $ \db ->
+         qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
+                      [RInt]
+    liftIO (expectSingle "row" r) >>= \case
+        [SInt n] -> return $! n /= 0
+        _ -> internalError "doLookupBlock: output mismatch"
+  where
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
+            \ AND hash = ?;"
