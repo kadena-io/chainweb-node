@@ -220,7 +220,7 @@ mining e = do
     prune :: ResultMap -> ResultMap
     prune = HM.fromList
         . snd
-        . splitAt (int cap)
+        . splitAt (int cap `div` 2)
         . sortBy (compare `on` (_blockCreationTime . snd))
         . HM.toList
 
