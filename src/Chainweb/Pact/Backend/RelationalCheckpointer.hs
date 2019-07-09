@@ -19,6 +19,7 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.Serialize hiding (get)
