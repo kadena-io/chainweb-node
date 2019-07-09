@@ -19,9 +19,9 @@ module Chainweb.Pact.PactService
     , execNewGenesisBlock
     , execTransactions
     , execValidateBlock
-    , initPactService, initPactService'
+    , initPactService
+    , initPactService'
     , serviceRequests
-    , createCoinContract
     , initialPayloadState
     , transactionsFromPayload
     , restoreCheckpointer
@@ -136,9 +136,14 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid resetDb $
-      initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
+                nodeid resetDb =
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
+        nodeid resetDb go
+  where
+    go = do
+        initialPayloadState ver cid mempoolAccess
+        serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -196,26 +201,34 @@ initialPayloadState
 initialPayloadState Test{} _ _ = pure ()
 initialPayloadState TimedConsensus{} _ _ = pure ()
 initialPayloadState PowConsensus{} _ _ = pure ()
-initialPayloadState v@TimedCPM{} cid mpa = createCoinContract v cid mpa
-initialPayloadState v@Testnet00 cid mpa = createCoinContract v cid mpa
-initialPayloadState v@Testnet01 cid mpa = createCoinContract v cid mpa
+initialPayloadState v@TimedCPM{} cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Testnet00 cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Testnet01 cid mpa = initializeCoinContract v cid mpa
 
-createCoinContract
+initializeCoinContract
     :: PayloadCas cas
     => ChainwebVersion
     -> ChainId
     -> MemPoolAccess
     -> PactServiceM cas ()
-createCoinContract v cid mpa = do
-    let PayloadWithOutputs{..} = payloadBlock
-        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
-                           _payloadWithOutputsMiner
-                           _payloadWithOutputsPayloadHash
-                           _payloadWithOutputsTransactionsHash
-                           _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader v cid
-    txs <- execValidateBlock mpa genesisHeader inputPayloadData
-    bitraverse_ throwM pure $ validateHashes txs genesisHeader
+initializeCoinContract v cid mpa = do
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    genesisExists <- liftIO $ lookupBlockInCheckpointer cp (0, ghash)
+    when (not genesisExists) createCoinContract
+
+  where
+    ghash = _blockHash genesisHeader
+    createCoinContract = do
+        txs <- execValidateBlock mpa genesisHeader inputPayloadData
+        bitraverse_ throwM pure $ validateHashes txs genesisHeader
+
+    PayloadWithOutputs{..} = payloadBlock
+    inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                       _payloadWithOutputsMiner
+                       _payloadWithOutputsPayloadHash
+                       _payloadWithOutputsTransactionsHash
+                       _payloadWithOutputsOutputsHash
+    genesisHeader = genesisBlockHeader v cid
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests

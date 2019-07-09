@@ -229,6 +229,8 @@ data Checkpointer = Checkpointer
       -- ^ in the event of rewind we may wish to play through many blocks. In
       -- the event of any of them failing, we should discard the whole
       -- transaction in total.
+    , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
+      -- ^ is the checkpointer aware of the given block?
     }
 
 data CheckpointEnv = CheckpointEnv
