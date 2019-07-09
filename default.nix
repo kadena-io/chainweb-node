@@ -3,7 +3,6 @@
 , system ? builtins.currentSystem
 , runTests ? true
 , runCoverage ? false
-, staticExe ? false
 }:
 
 let rp = builtins.fetchTarball {
@@ -44,7 +43,6 @@ in
                  url = "http://hackage.haskell.org/package/${pkgver}/${pkgver}.tar.gz";
                  inherit sha256;
                }) {};
-          setStatic = d: if staticExe then justStaticExecutables d else d;
       in {
         aeson = callHackageDirect {
           pkg = "aeson";
@@ -52,12 +50,18 @@ in
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
-        chainweb = setStatic (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
+        chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
           testTarget = "--test-option=--hide-successes";
-        })));
+
+          enableSharedExecutables = false;
+          enableLibraryProfiling = false;
+          isLibrary = false;
+          postFixup = "rm -rf $out/lib $out/nix-support";
+        }));
+
 
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
