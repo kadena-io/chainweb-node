@@ -44,6 +44,7 @@ in
                  url = "http://hackage.haskell.org/package/${pkgver}/${pkgver}.tar.gz";
                  inherit sha256;
                }) {};
+          setStatic = d: if staticExe then justStaticExecutables d else d;
       in {
         aeson = callHackageDirect {
           pkg = "aeson";
@@ -51,7 +52,6 @@ in
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
-        setStatic = if staticExe then justStaticExecutables else id;
         chainweb = setStatic (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
