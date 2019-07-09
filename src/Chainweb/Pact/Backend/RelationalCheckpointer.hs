@@ -19,7 +19,6 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.Serialize hiding (get)
@@ -88,30 +87,20 @@ doRestore dbenv (Just (bh, hash)) = do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
 doRestore dbenv Nothing = do
     runBlockEnv dbenv $ do
-        r <- callDb "doRestoreInitial"
-             $ \db -> qry db
-                      "SELECT COUNT(*) FROM BlockHistory \
-                      \ WHERE blockheight = ? AND hash = ?;"
-                  [SInt 0, SBlob (encode nullBlockHash)]
-                  [RInt]
-        liftIO (expectSingle "row" r) >>= \case
-            [SInt 0] -> do
-                withSavepoint DbTransaction $
-                  callDb "doRestoreInitial: resetting tables" $ \db -> do
-                    exec_ db "DELETE FROM BlockHistory;"
-                    exec_ db "DELETE FROM VersionHistory;"
-                    exec_ db "DELETE FROM [SYS:KeySets];"
-                    exec_ db "DELETE FROM [SYS:Modules];"
-                    exec_ db "DELETE FROM [SYS:Namespaces];"
-                    exec_ db "DELETE FROM [SYS:Pacts];"
-                    exec_ db "DELETE FROM UserTables;"
-                    tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
-                    forM_ tblNames $ \tbl -> case tbl of
-                        [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
-                        _ -> internalError "Something went wrong when resetting tables."
-                beginSavepoint Block
-            _ -> internalError "restoreInitial: The genesis state cannot be recovered!"
-
+      withSavepoint DbTransaction $ do
+       callDb "doRestoreInitial: resetting tables" $ \db -> do
+         exec_ db "DELETE FROM BlockHistory;"
+         exec_ db "DELETE FROM VersionHistory;"
+         exec_ db "DELETE FROM [SYS:KeySets];"
+         exec_ db "DELETE FROM [SYS:Modules];"
+         exec_ db "DELETE FROM [SYS:Namespaces];"
+         exec_ db "DELETE FROM [SYS:Pacts];"
+         tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
+         forM_ tblNames $ \tbl -> case tbl of
+             [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
+             _ -> internalError "Something went wrong when resetting tables."
+       assign bsTxId 0
+      beginSavepoint Block
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()

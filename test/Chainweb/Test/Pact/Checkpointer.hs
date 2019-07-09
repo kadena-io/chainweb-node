@@ -148,6 +148,13 @@ runSQLite runTest = runTest . make
           loggers = pactTestLogger False
       initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
+runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
+runTwice step action = do
+  liftIO $ step "Running the first time!"
+  action
+  liftIO $ step "Running the second time!"
+  action
+
 checkpointerTest :: String -> InitData -> TestTree
 checkpointerTest name initdata =
       case initdata of
@@ -177,26 +184,30 @@ checkpointerTest name initdata =
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------
 
-          next "Step 1 : new block workflow (restore -> discard), genesis"
 
           let hash00 = nullBlockHash
-          blockenvGenesis0 <- restore _cpeCheckpointer Nothing
 
-          void $ runExec blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
-          runExec blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-          discard _cpeCheckpointer
+          runTwice next $  do
 
-        -----------------------------------------------------------
-        -- s02 : validate block workflow (restore -> save), genesis
-        -----------------------------------------------------------
+            next "Step 1 : new block workflow (restore -> discard), genesis"
 
-          next "Step 2 : validate block workflow (restore -> save), genesis"
-          blockenvGenesis1 <- restore _cpeCheckpointer Nothing
-          void $ runExec blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
-          runExec blockenvGenesis1 Nothing "(m1.readTbl)"
-            >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+            blockenvGenesis0 <- restore _cpeCheckpointer Nothing
 
-          save _cpeCheckpointer hash00
+            void $ runExec blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
+            runExec blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+            discard _cpeCheckpointer
+
+          -----------------------------------------------------------
+          -- s02 : validate block workflow (restore -> save), genesis
+          -----------------------------------------------------------
+
+            next "Step 2 : validate block workflow (restore -> save), genesis"
+            blockenvGenesis1 <- restore _cpeCheckpointer Nothing
+            void $ runExec blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
+            runExec blockenvGenesis1 Nothing "(m1.readTbl)"
+              >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
+            save _cpeCheckpointer hash00
 
         ------------------------------------------------------------------
         -- s03 : new block 00
