@@ -15,7 +15,7 @@ category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
 tested-with:
-    GHC == 8.6.3
+    GHC == 8.6.5
     GHC == 8.4.4
 
 extra-source-files:
@@ -28,7 +28,6 @@ extra-source-files:
     pact/coin-contract/coin.pact
     pact/coin-contract/coin-sig.pact
     pact/coin-contract/load-coin-contract.yaml
-    pact/coin-contract/spv-sig.pact
     test/pact/*.pact
     test/golden/*.txt
 
