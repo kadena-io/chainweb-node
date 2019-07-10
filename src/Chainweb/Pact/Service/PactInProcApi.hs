@@ -66,10 +66,11 @@ withPactService
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid action =
-    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid action
+withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb action =
+    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -87,13 +88,14 @@ withPactService'
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid action =
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
         a <- async $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
         link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 

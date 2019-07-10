@@ -389,7 +389,7 @@ blockHistoryInsert bh hsh t = do
 createBlockHistoryTable :: BlockHandler SQLiteEnv ()
 createBlockHistoryTable =
     callDb "createBlockHistoryTable" $ \db -> exec_ db
-        "CREATE TABLE BlockHistory \
+        "CREATE TABLE IF NOT EXISTS BlockHistory \
         \(blockheight UNSIGNED BIGINT NOT NULL,\
         \ hash BLOB NOT NULL,\
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
@@ -547,7 +547,7 @@ initSchema = withSavepoint DbTransaction $ do
             let tablename = name
                 indexname = name <> "_bh"
             exec_ db $
-              "CREATE TABLE ["
+              "CREATE TABLE IF NOT EXISTS ["
               <> name
               <> "] (rowkey TEXT\
                  \, blockheight UNSIGNED BIGINT NOT NULL\

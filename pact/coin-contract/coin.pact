@@ -28,7 +28,7 @@
   ; Capabilities
 
   (defcap GOVERNANCE ()
-    "upgrade disabled"
+    "Enforce non-upgradeability except in the case of a hard fork"
     false)
 
   (defcap TRANSFER ()
@@ -47,9 +47,6 @@
     "Lookup and enforce guards associated with an account"
     (with-read coin-table account { "guard" := g }
       (enforce-guard g)))
-
-  (defcap GOVERNANCE ()
-    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
 
   ; --------------------------------------------------------------------------
   ; Coin Contract

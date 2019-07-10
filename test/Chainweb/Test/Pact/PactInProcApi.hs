@@ -86,7 +86,7 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
         pdb <- newPayloadDb
 
         a <- async (withTempDir $ \dir -> PS.initPactService testVersion cid logger reqQ mempool
-                        mv bhdb pdb (Just dir) Nothing)
+                        mv bhdb pdb (Just dir) Nothing False)
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

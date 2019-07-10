@@ -53,6 +53,7 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doDiscard inmem)
                     (doGetLatest inmem)
                     id  -- in-mem doesn't require tx rewind
+                    (doLookupBlock inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
@@ -88,3 +89,7 @@ doGetLatest lock = withMVar lock $ \(Store _ m _) -> return m
 
 doDiscard :: MVar Store -> IO ()
 doDiscard _ = return ()
+
+doLookupBlock :: MVar Store -> (BlockHeight, BlockHash) -> IO Bool
+doLookupBlock lock x = withMVar lock $ \(Store s _ _) ->
+                       return $! HMS.member x s

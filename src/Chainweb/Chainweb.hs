@@ -302,9 +302,10 @@ withChainweb
     -> logger
     -> RocksDb
     -> Maybe FilePath
+    -> Bool
     -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainweb c logger rocksDb dbDir inner =
+withChainweb c logger rocksDb dbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
         withChainwebInternal
             (set configP2p (_peerResConfig peer) conf)
@@ -313,6 +314,7 @@ withChainweb c logger rocksDb dbDir inner =
             rocksDb
             dbDir
             (Just (_configNodeId c))
+            resetDb
             inner
   where
     v = _chainwebVersion c
@@ -350,15 +352,16 @@ withChainwebInternal
     -> RocksDb
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainwebInternal conf logger peer rocksDb dbDir nodeid inner = do
+withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
     cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
         (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                 mempoolConf cdbv payloadDb prune dbDir nodeid)
+                 mempoolConf cdbv payloadDb prune dbDir nodeid resetDb)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)

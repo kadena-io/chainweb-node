@@ -19,9 +19,9 @@ module Chainweb.Pact.PactService
     , execNewGenesisBlock
     , execTransactions
     , execValidateBlock
-    , initPactService, initPactService'
+    , initPactService
+    , initPactService'
     , serviceRequests
-    , createCoinContract
     , initialPayloadState
     , transactionsFromPayload
     , restoreCheckpointer
@@ -57,8 +57,8 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import System.LogLevel
 import System.Directory
+import System.LogLevel
 
 ------------------------------------------------------------------------------
 -- external pact modules
@@ -134,10 +134,16 @@ initPactService
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir nodeid  $
-      initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
+                nodeid resetDb =
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
+        nodeid resetDb go
+  where
+    go = do
+        initialPayloadState ver cid mempoolAccess
+        serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -150,9 +156,10 @@ initPactService'
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
+    -> Bool
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid act = do
+initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
@@ -161,9 +168,13 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid act = do
     let getsqliteDir = case dbDir of
           Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
-          Just d -> return d
+          Just d -> return (d <> "sqlite")
 
     sqlitedir <- getsqliteDir
+
+    when resetDb $ do
+      exist <- doesDirectoryExist sqlitedir
+      when exist $ removeDirectoryRecursive sqlitedir
 
     createDirectoryIfMissing True sqlitedir
 
@@ -191,26 +202,34 @@ initialPayloadState
 initialPayloadState Test{} _ _ = pure ()
 initialPayloadState TimedConsensus{} _ _ = pure ()
 initialPayloadState PowConsensus{} _ _ = pure ()
-initialPayloadState v@TimedCPM{} cid mpa = createCoinContract v cid mpa
-initialPayloadState v@Testnet00 cid mpa = createCoinContract v cid mpa
-initialPayloadState v@Testnet01 cid mpa = createCoinContract v cid mpa
+initialPayloadState v@TimedCPM{} cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Testnet00 cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Testnet01 cid mpa = initializeCoinContract v cid mpa
 
-createCoinContract
+initializeCoinContract
     :: PayloadCas cas
     => ChainwebVersion
     -> ChainId
     -> MemPoolAccess
     -> PactServiceM cas ()
-createCoinContract v cid mpa = do
-    let PayloadWithOutputs{..} = payloadBlock
-        inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
-                           _payloadWithOutputsMiner
-                           _payloadWithOutputsPayloadHash
-                           _payloadWithOutputsTransactionsHash
-                           _payloadWithOutputsOutputsHash
-        genesisHeader = genesisBlockHeader v cid
-    txs <- execValidateBlock mpa genesisHeader inputPayloadData
-    bitraverse_ throwM pure $ validateHashes txs genesisHeader
+initializeCoinContract v cid mpa = do
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    genesisExists <- liftIO $ lookupBlockInCheckpointer cp (0, ghash)
+    when (not genesisExists) createCoinContract
+
+  where
+    ghash = _blockHash genesisHeader
+    createCoinContract = do
+        txs <- execValidateBlock mpa genesisHeader inputPayloadData
+        bitraverse_ throwM pure $ validateHashes txs genesisHeader
+
+    PayloadWithOutputs{..} = payloadBlock
+    inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
+                       _payloadWithOutputsMiner
+                       _payloadWithOutputsPayloadHash
+                       _payloadWithOutputsTransactionsHash
+                       _payloadWithOutputsOutputsHash
+    genesisHeader = genesisBlockHeader v cid
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
 serviceRequests
@@ -432,7 +451,7 @@ rewindTo
     -> (PactDbEnv' -> PactServiceM cas a)
     -> PactServiceM cas a
 rewindTo mpAccess mb act = do
-    cp <- asks (_cpeCheckpointer . _psCheckpointEnv)
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
     withRewind cp $ maybe rewindGenesis (doRewind cp) mb
   where
     rewindGenesis = restoreCheckpointer Nothing >>= act

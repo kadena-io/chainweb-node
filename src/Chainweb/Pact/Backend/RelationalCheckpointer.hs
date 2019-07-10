@@ -19,6 +19,7 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.Serialize hiding (get)
@@ -71,6 +72,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doDiscard db)
               (doGetLatest db)
               (doWithAtomicRewind db)
+              (doLookupBlock db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -81,28 +83,25 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = do
     runBlockEnv dbenv $ do
-        txid <- withSavepoint PreBlock $ handlePossibleRewind bh hash
-        -- we assign txid twice if handlePossibleRewind is successful,
-        -- bring this up with Greg.
-        assign bsTxId txid
+        void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
         beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
-doRestore dbenv Nothing = do
-    runBlockEnv dbenv $ do
-      withSavepoint DbTransaction $
-        callDb "doRestoreInitial: resetting tables" $ \db -> do
-          exec_ db "DELETE FROM BlockHistory;"
-          exec_ db "DELETE FROM [SYS:KeySets];"
-          exec_ db "DELETE FROM [SYS:Modules];"
-          exec_ db "DELETE FROM [SYS:Namespaces];"
-          exec_ db "DELETE FROM [SYS:Pacts];"
-          tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
-          forM_ tblNames $ \tbl -> case tbl of
-              [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
-              _ -> internalError "Something went wrong when resetting tables."
-          exec_ db "DELETE FROM VersionedTableCreation;"
-          exec_ db "DELETE FROM VersionedTableMutation;"
-      beginSavepoint Block
+doRestore dbenv Nothing = runBlockEnv dbenv $ do
+    withSavepoint DbTransaction $
+      callDb "doRestoreInitial: resetting tables" $ \db -> do
+        exec_ db "DELETE FROM BlockHistory;"
+        exec_ db "DELETE FROM [SYS:KeySets];"
+        exec_ db "DELETE FROM [SYS:Modules];"
+        exec_ db "DELETE FROM [SYS:Namespaces];"
+        exec_ db "DELETE FROM [SYS:Pacts];"
+        tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
+        forM_ tblNames $ \tbl -> case tbl of
+            [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
+            _ -> internalError "Something went wrong when resetting tables."
+        exec_ db "DELETE FROM VersionedTableCreation;"
+        exec_ db "DELETE FROM VersionedTableMutation;"
+    beginSavepoint Block
+    assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
@@ -139,3 +138,15 @@ doWithAtomicRewind db m = mask $ \r -> do
     return a
   where
     rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)
+
+doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
+doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
+    r <- callDb "lookupBlock" $ \db ->
+         qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
+                      [RInt]
+    liftIO (expectSingle "row" r) >>= \case
+        [SInt n] -> return $! n /= 0
+        _ -> internalError "doLookupBlock: output mismatch"
+  where
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
+            \ AND hash = ?;"
