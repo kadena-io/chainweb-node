@@ -100,7 +100,7 @@ doReadRow d k =
                        "SELECT rowdata \
                        \FROM [" <> domainTableName d <> "]\
                        \ WHERE rowkey = ?\
-                       \ ORDER BY blockheight DESC, version DESC\
+                       \ ORDER BY blockheight DESC, version, txid DESC\
                        \ LIMIT 1"
                  qry db stmt [SText kstr] [RBlob]
       case result of
@@ -161,7 +161,6 @@ backendWriteInsert key tn bh version txid v db =
                   \ VALUES (?,?,?,?,?);"
                 ]
 
-
 backendWriteUpdate
     :: ToJSON v
     => Utf8
@@ -173,18 +172,18 @@ backendWriteUpdate
     -> Database
     -> IO ()
 backendWriteUpdate key tn bh version txid v db =
-  exec' db q [ SBlob (toStrict (Data.Aeson.encode v))
-             , SText key
+  exec' db q [ SText key
              , SInt (fromIntegral bh)
              , SInt (fromIntegral version)
              , SInt (fromIntegral txid)
+             , SBlob (toStrict (Data.Aeson.encode v))
              ]
   where
-    q = mconcat [ "UPDATE ["
-                , tn
-                , "] SET rowdata = ? WHERE rowkey = ? AND blockheight = ? \
-                  \ AND version =  ? AND txid = ? ;"
-                ]
+    q = mconcat
+      ["INSERT OR REPLACE INTO ["
+      , tn
+      , "](rowkey,blockheight,version,txid,rowdata) "
+      , "VALUES(?,?,?,?,?)"]
 
 backendWriteWrite
     :: ToJSON v
@@ -269,12 +268,8 @@ doKeys
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
     let tn = domainTableName d
-    version <- gets (_bvVersion . _bsBlockVersion)
     ks <- callDb "doKeys" $ \db ->
-          qry db
-              ("SELECT rowkey FROM [" <> tn <> "] WHERE version = ?;")
-              [SInt (fromIntegral version)]
-              [RText]
+            qry_ db  ("SELECT DISTINCT rowkey FROM [" <> tn <> "];") [RText]
     forM ks $ \row -> do
         case row of
             [SText (Utf8 k)] -> return $ fromString $ toS k

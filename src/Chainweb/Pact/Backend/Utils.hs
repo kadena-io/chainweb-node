@@ -205,7 +205,9 @@ fastNoJournalPragmas = [
   "synchronous = NORMAL",
   "journal_mode = WAL",
   "locking_mode = EXCLUSIVE",
-  "temp_store = MEMORY"
+  "temp_store = MEMORY",
+  "auto_vacuum = FULL",
+  "page_size = 8192"
   ]
 
 
