@@ -16,7 +16,7 @@
     \handled by sending in a create command in the same tx."
 
     @model [ (property (> amount 0.0))
-             (property (not (= sender reciever)))
+             (property (not (= sender receiver)))
            ]
     )
 

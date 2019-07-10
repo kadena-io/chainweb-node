@@ -1,1 +1,1 @@
-{"status":"success","data":3}
+{"status":"failure","error":{"callStack":[],"type":"TxFailure","message":"debit amount must be positive","info":""}}

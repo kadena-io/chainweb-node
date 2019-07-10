@@ -48,6 +48,9 @@
     (with-read coin-table account { "guard" := g }
       (enforce-guard g)))
 
+  (defcap GOVERNANCE ()
+    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
+
   ; --------------------------------------------------------------------------
   ; Coin Contract
 
@@ -139,9 +142,7 @@
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
 
-    @model [ (property (> amount 0.0))
-             (property (not (= account "")))
-           ]
+    @model [ (property (> amount 0.0)) ]
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
