@@ -28,7 +28,7 @@
   ; Capabilities
 
   (defcap GOVERNANCE ()
-    "upgrade disabled"
+    "Enforce non-upgradeability except in the case of a hard fork"
     false)
 
   (defcap TRANSFER ()
