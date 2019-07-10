@@ -144,7 +144,7 @@ runSQLite runTest = runTest . make
     make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
-      let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+      let initBlockState = BlockState 0 Nothing 0 M.empty
           loggers = pactTestLogger False
       initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
@@ -320,16 +320,16 @@ toTerm' = toTerm
 testRegress :: Assertion
 testRegress =
   regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=
-  assertEquals "The final block state is" finalBlockState
+  assertEquals "The final block state is" finalBlockHeight
   where
-    finalBlockState = (2, BlockVersion 0 0, M.empty)
-    toTup (BlockState txid _ blockVersion txRecord) =
-      (txid, blockVersion, txRecord)
+    finalBlockHeight = (2, 0, M.empty)
+    toTup (BlockState txid _ blockHeight txRecord) =
+      (txid, blockHeight, txRecord)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do
  withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
-        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+        let initBlockState = BlockState 0 Nothing 0 M.empty
             loggers = pactTestLogger False
         runRegression chainwebPactDb
           (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
