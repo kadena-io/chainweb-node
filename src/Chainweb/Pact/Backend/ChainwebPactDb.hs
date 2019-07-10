@@ -472,26 +472,34 @@ handlePossibleRewind bRestore hsh = do
       assign bsBlockHeight bh
       tableMaintenanceRowsVersionedSystemTables
       callDb "rewindBlock" $ \db -> do
-          toDropTblNames <- qry db "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
-            [SInt (fromIntegral bh)]
-            [RText]
-          droppedtbls <- forM toDropTblNames $ \case
-            [SText tblname] -> do
-              exec_ db $ "DROP TABLE " <> tblname <> ";"
-              return tblname
-            _ -> internalError "rewindBlock: Couldn't resolve the name of the table to drop."
-          toVacuumTblNames <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
-            [SInt (fromIntegral bh)]
-            [RText]
-          forM_ toVacuumTblNames $ \case
-            [SText tblname] -> do
-              when (notElem tblname droppedtbls) $
-                exec' db ("DELETE FROM [" <> tblname <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
-            _ -> internalError "rewindBlock: Couldn't resolve the name of the table to vacuum."
-          exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
+          droppedtbls <- dropTablesAtRewind bh db
+          vacuumTablesAtRewind bh droppedtbls db
       t <- deleteHistory
       assign bsTxId t
       return $! t
+
+dropTablesAtRewind :: BlockHeight -> Database -> IO [Utf8]
+dropTablesAtRewind bh db = do
+  toDropTblNames <- qry db "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
+    [SInt (fromIntegral bh)]
+    [RText]
+  forM toDropTblNames $ \case
+    [SText tblname] -> do
+      exec_ db $ "DROP TABLE " <> tblname <> ";"
+      return tblname
+    _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+
+vacuumTablesAtRewind :: BlockHeight -> [Utf8] -> Database -> IO ()
+vacuumTablesAtRewind bh droppedtbls db = do
+  toVacuumTblNames <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
+    [SInt (fromIntegral bh)]
+    [RText]
+  forM_ toVacuumTblNames $ \case
+    [SText tblname] -> do
+      when (notElem tblname droppedtbls) $
+        exec' db ("DELETE FROM [" <> tblname <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
+    _ -> internalError "rewindBlock: Couldn't resolve the name of the table to vacuum."
+  exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
 
 tableMaintenanceRowsVersionedSystemTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedSystemTables = do
