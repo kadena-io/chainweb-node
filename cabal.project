@@ -23,3 +23,4 @@ constraints:
     , neat-interpolation <0.3.2.4
     , swagger2 < 2.4
     , these < 1
+    , base-unicode-symbols < 0.2.4
