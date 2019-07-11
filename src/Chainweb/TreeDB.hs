@@ -43,7 +43,6 @@ module Chainweb.TreeDB
 -- * Utils
 , root
 , toTree
-, descend
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
@@ -399,18 +398,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
 -- -------------------------------------------------------------------------- --
 -- Utils
-
-descend
-    :: TreeDb db
-    => db
-    -> MaxRank
-    -> DbEntry db
-    -> IO (DbEntry db)
-descend db (MaxRank (Max r)) = go
-  where
-    go e
-        | rank e > r = lookupParentM GenesisParentThrow db e >>= go
-        | otherwise = return e
 
 root :: TreeDb db => db -> IO (DbEntry db)
 root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
