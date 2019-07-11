@@ -50,12 +50,12 @@ in
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
-        chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
+        chainweb = justStaticExecutables (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
           testTarget = "--test-option=--hide-successes";
-        }));
+        })));
 
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
