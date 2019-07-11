@@ -24,25 +24,25 @@ stages:
 #     - ulimit -Hn
 #     - ulimit -Sn
 
-nix-macos:
-  stage: build
-  tags:
-    - macos
-  script:
-    - nix-build
-    - nix-shell --run "echo Done with shell test"
-    # - nix-build -A ghc.chainweb.doc
+# nix-macos:
+#   stage: build
+#   tags:
+#     - macos
+#   script:
+#     - nix-build
+#     - nix-shell --run "echo Done with shell test"
+#     # - nix-build -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
 #    chainweb-node binary will also be built with coverage turned on which is
 #    probably not what we want.
 
-    # - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-      - public/
-    expire_in: 1 week
+  #   # - scripts/collectArtifacts.sh
+  # artifacts:
+  #   paths:
+  #     - public/
+  #   expire_in: 1 week
 
 nix-linux:
   stage: build
@@ -62,10 +62,10 @@ nix-linux:
 #    probably not what we want.
 
     # - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+  # artifacts:
+  #   paths:
+  #   - public/
+  #   expire_in: 1 week
 
 # 2019 Feb 11 - This is bottlenecking CI quite severely.
 # stack:
