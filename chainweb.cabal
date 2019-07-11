@@ -206,6 +206,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.InMemoryCheckpointer
+        , Chainweb.Pact.Backend.RocksDbCheckpointer
         , Chainweb.Pact.Backend.MemoryDb
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.BloomCache

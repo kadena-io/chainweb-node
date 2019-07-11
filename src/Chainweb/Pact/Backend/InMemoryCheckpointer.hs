@@ -70,3 +70,4 @@ save' lock height hash p@PactDbState {..} = do
 
 discard' :: MVar Store -> PactDbState -> IO (Either String ())
 discard' _ _ = return (Right ())
+

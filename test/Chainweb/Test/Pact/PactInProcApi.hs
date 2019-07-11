@@ -75,7 +75,7 @@ withPact mempool f = withResource startPact stopPact $ f . fmap snd
     startPact = do
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
-        a <- async (PS.initPactService testVersion cid logger reqQ mempool mv)
+        a <- async (PS.initPactService Nothing testVersion cid logger reqQ mempool mv)
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

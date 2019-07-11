@@ -110,7 +110,7 @@ genPayloadModule v txFiles = do
 
     let logger = genericLogger Warn TIO.putStrLn
 
-    payloadWO <- initPactService' (someChainId Testnet00) logger (const noSPVSupport) $
+    payloadWO <- initPactService' Nothing (someChainId Testnet00) logger (const noSPVSupport) $
         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
     let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

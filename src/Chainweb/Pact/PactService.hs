@@ -74,6 +74,7 @@ import Chainweb.ChainId (ChainId)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
+import Chainweb.Pact.Backend.RocksDbCheckpointer (initRocksDbCheckpointEnv)
 import Chainweb.Pact.Backend.MemoryDb (mkPureState)
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
 import Chainweb.Pact.Service.Types
@@ -91,6 +92,7 @@ import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 
+import Data.CAS.RocksDB
 
 pactDbConfig :: ChainwebVersion -> PactDbConfig
 pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
@@ -115,33 +117,36 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", T.pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
-
 initPactService
     :: Logger logger
-    => ChainwebVersion
+    => Maybe RocksDb
+    -> ChainwebVersion
     -> ChainId
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv =
-    initPactService' cid chainwebLogger (pactSPV cdbv) $
+initPactService rocksDb ver cid chainwebLogger reqQ mempoolAccess cdbv =
+    initPactService' rocksDb cid chainwebLogger (pactSPV cdbv) $
       initialPayloadState ver cid mempoolAccess >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
-    => ChainId
+    => Maybe RocksDb
+    -> ChainId
     -> logger
     -> (P.Logger -> P.SPVSupport)
     -> PactServiceM a
     -> IO a
-initPactService' cid chainwebLogger spv act = do
+initPactService' rocksDb cid chainwebLogger spv act = do
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
 
-    checkpointEnv <- initInMemoryCheckpointEnv logger gasEnv
+    checkpointEnv <- case rocksDb of
+        Nothing -> initInMemoryCheckpointEnv logger gasEnv
+        Just db -> initRocksDbCheckpointEnv db logger gasEnv
 
     env <- P.mkPureEnv loggers
     theState <- mkPureState env
@@ -155,7 +160,6 @@ initPactService' cid chainwebLogger spv act = do
     let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd
 
     evalStateT (runReaderT act pse) (PactServiceState theState Nothing)
-
 
 initialPayloadState :: ChainwebVersion -> ChainId -> MemPoolAccess -> PactServiceM ()
 initialPayloadState Test{} _ _ = pure ()

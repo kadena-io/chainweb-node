@@ -47,35 +47,38 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 
+import Data.CAS.RocksDB
 import Data.LogMessage
 
 -- | Initialization for Pact (in process) Api
 withPactService
     :: Logger logger
-    => ChainwebVersion
+    => Maybe RocksDb
+    -> ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv action = do
-    withPactService' ver cid logger (pactMemPoolAccess mpc logger) cdbv action
+withPactService rocksDb ver cid logger mpc cdbv action = do
+    withPactService' rocksDb ver cid logger (pactMemPoolAccess mpc logger) cdbv action
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
 --   with test transactions
 withPactService'
     :: Logger logger
-    => ChainwebVersion
+    => Maybe RocksDb
+    -> ChainwebVersion
     -> ChainId
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv action = do
+withPactService' rocksDb ver cid logger memPoolAccess cdbv action = do
     reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-    a <- async (PS.initPactService ver cid logger reqQ memPoolAccess cdbv)
+    a <- async (PS.initPactService rocksDb ver cid logger reqQ memPoolAccess cdbv)
     link a
     r <- action reqQ
     closeQueue reqQ

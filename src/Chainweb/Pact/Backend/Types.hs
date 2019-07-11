@@ -39,6 +39,7 @@ module Chainweb.Pact.Backend.Types
 import Control.Lens
 
 import qualified Data.Aeson as A
+import Data.Typeable
 
 import GHC.Generics
 
@@ -54,7 +55,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 
 
-data Env' = forall a. Env' (P.PactDbEnv (P.DbEnv a))
+data Env' = forall a. Typeable a => Env' (P.PactDbEnv (P.DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
     { _pdepPactDb :: P.PactDb (P.DbEnv p)
@@ -64,7 +65,7 @@ data PactDbEnvPersist p = PactDbEnvPersist
 makeLenses ''PactDbEnvPersist
 
 
-data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
+data EnvPersist' = forall a. Typeable a => EnvPersist' (PactDbEnvPersist a)
 
 data PactDbState = PactDbState
     { _pdbsDbEnv :: EnvPersist' }

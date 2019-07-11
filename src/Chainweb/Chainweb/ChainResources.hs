@@ -29,6 +29,7 @@ module Chainweb.Chainweb.ChainResources
 
 -- * Mempool Sync
 , runMempoolSyncClient
+, replayPact
 ) where
 
 import Chainweb.Time
@@ -133,7 +134,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
+        withPactService (Just rdb) v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
 
             -- prune block header db
             when prune $ do
@@ -158,8 +159,9 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
 
             -- replay pact
             let pact = pes mempool requestQ
+
             -- payloadStore is only 'Nothing' in some unit tests not using this code
-            replayPact logger pact cdb $ fromJust payloadDb
+            --  replayPact logger pact cdb $ fromJust payloadDb
 
             -- run inner
             inner $ ChainResources
