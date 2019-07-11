@@ -7,7 +7,7 @@
   \or issue the '(use coin)' command in the body of a module declaration."
 
 
-  (use coin-sig)
+  (implements coin-sig)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -47,6 +47,9 @@
     "Lookup and enforce guards associated with an account"
     (with-read coin-table account { "guard" := g }
       (enforce-guard g)))
+
+  (defcap GOVERNANCE ()
+    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
 
   ; --------------------------------------------------------------------------
   ; Coin Contract
@@ -107,6 +110,10 @@
     )
 
   (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)
+
+    (enforce (not (= sender receiver))
+      "sender cannot be the receiver of a transfer")
+
     (with-capability (TRANSFER)
       (debit sender amount)
       (credit receiver receiver-guard amount))
@@ -135,7 +142,10 @@
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
 
-    @model [(property (> amount 0.0))]
+    @model [ (property (> amount 0.0)) ]
+
+    (enforce (> amount 0.0)
+      "debit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-capability (ACCOUNT_GUARD account)
@@ -152,7 +162,12 @@
   (defun credit:string (account:string guard:guard amount:decimal)
     @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
 
-    @model [(property (> amount 0.0))]
+    @model [ (property (> amount 0.0))
+             (property (not (= account "")))
+           ]
+
+    (enforce (> amount 0.0)
+      "debit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-default-read coin-table account
