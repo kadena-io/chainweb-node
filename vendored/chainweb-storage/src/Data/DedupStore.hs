@@ -236,13 +236,20 @@ dedupStore' store = go0
         l -> l
     {-# INLINE toChunks #-}
 
+    -- This is called as the dedup hashes are produced, in a bottom up way. We
+    -- could optimize for data base queries (at the cost of more memory
+    -- overhead) by first computing the keys, checking for keys top-down, and
+    -- inserting the data in a second pass only for those keys that aren't in
+    -- the database already.
+    --
     hashAndStore :: Word8 -> B.ByteString -> IO (Int, Int, DedupHash)
     hashAndStore tag c = do
         let h = DedupHash $ BA.convert $ C.hash @_ @DedupHashAlg (B.cons tag c)
         (hit, miss) <- casMember store h >>= \x -> if x
             then return (1, 0)
-            else return (0, 1)
-        casInsert store (Chunk tag h c)
+            else do
+                casInsert store (Chunk tag h c)
+                return (0, 1)
         return (hit, miss, h)
     {-# INLINE hashAndStore #-}
     {-# SCC hashAndStore #-}
