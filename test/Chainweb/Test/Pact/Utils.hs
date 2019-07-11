@@ -153,7 +153,7 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    mkTestExecTransactions "sender00" "0" ks "1" 100 0.0001 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 100 1.0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
