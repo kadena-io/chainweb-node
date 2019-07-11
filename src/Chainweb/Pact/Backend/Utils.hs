@@ -188,11 +188,13 @@ instance StringConv Utf8 String where
 
 fastNoJournalPragmas :: [Pragma]
 fastNoJournalPragmas = [
-    "synchronous = NORMAL",
-    "journal_mode = WAL",
-    "locking_mode = EXCLUSIVE",
-    "temp_store = MEMORY"
-    ]
+  "synchronous = NORMAL",
+  "journal_mode = WAL",
+  "locking_mode = EXCLUSIVE",
+  "temp_store = MEMORY",
+  "auto_vacuum = FULL",
+  "page_size = 8192"
+  ]
 
 
 open2 :: String -> IO (Either (Error, Utf8) Database)

@@ -76,6 +76,9 @@ defModule idx = [text| ;;
   (defun insertTbl (a i)
     (insert tbl a { 'col: i }))
 
+  (defun updateTbl (a i)
+    (update tbl a { 'col: i}))
+
   (defun readTbl ()
     (sort (map (at 'col)
       (select tbl (constantly true)))))
@@ -323,11 +326,39 @@ checkpointerTest name initdata =
 
           save _cpeCheckpointer hash02Fork
 
+          let updatemsgA = "step 9: test update row: new block 03"
+
+          next updatemsgA
+          blockenv23 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
+
+          -- updating key previously written at blockheight 1 (the "restore point")
+          void $ runExec blockenv23 Nothing "(m1.updateTbl 'b 3)"
+
+          runExec blockenv23 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
+
+          discard _cpeCheckpointer
+
+          let updatemsgB = "step 9: test update row: validate block 03"
+
+          next updatemsgB
+
+          hash13 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003b"
+
+          blockenv33 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
+
+          -- updating key previously written at blockheight 1 (the "restore point")
+          void $ runExec blockenv33 Nothing "(m1.updateTbl 'b 3)"
+
+          runExec blockenv33 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
+
+          save _cpeCheckpointer hash13
+
+
+
+
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
-{- You should probably think about the orphan, their name is
- ExecutionMode, that you are leaving behind. They deserve a home! -}
 testRegress :: Assertion
 testRegress =
   regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=

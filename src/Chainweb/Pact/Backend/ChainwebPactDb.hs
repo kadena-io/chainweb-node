@@ -170,19 +170,25 @@ backendWriteUpdate
     -> Database
     -> IO ()
 backendWriteUpdate key tn bh txid v db = do
-    exec' db q [ SBlob (toStrict (Data.Aeson.encode v))
-               , SText key
+    exec' db q [ SText key
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
+               , SBlob (toStrict (Data.Aeson.encode v))
                ]
     exec' db mutq [SText tn, SInt (fromIntegral bh)]
   where
     mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
-    q = mconcat [ "UPDATE ["
+    q = mconcat
+      ["INSERT OR REPLACE INTO ["
+      , tn
+      , "](rowkey,blockheight,txid,rowdata) "
+      , "VALUES(?,?,?,?)"]
+    {-q = mconcat [ "UPDATE ["
                 , tn
                 , "] SET rowdata = ? WHERE rowkey = ? AND blockheight = ? \
                   \ AND txid = ? ;"
                 ]
+    -}
 
 backendWriteWrite
     :: ToJSON v
@@ -264,13 +270,14 @@ doKeys
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
-    ks <- callDb "doKeys" $ \db -> qry_ db stmt [RText]
+    ks <- callDb "doKeys" $ \db ->
+            qry_ db  stmt [RText]
     forM ks $ \row -> do
         case row of
             [SText (Utf8 k)] -> return $ fromString $ toS k
             _ -> internalError "doKeys: The impossible happened."
   where
-    stmt = "SELECT rowkey FROM [" <> domainTableName d <> "];"
+    stmt = "SELECT DISTINCT rowkey FROM [" <> domainTableName d <> "];"
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
