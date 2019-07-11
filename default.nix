@@ -329,6 +329,13 @@ in
           sha256 = "1isa8p9dnahkljwj0kz10119dwiycf11jvzdc934lnjv1spxkc9k";
         });
 
+        chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "chainweb-storage";
+          rev = "4a345323cd50f1fd24ed9565c0deeea5cc376db6";
+          sha256 = "0alqvb3hx7bvhq1mcpq8m0l2jcwz4b4xdp1d20r2fflbraqrvmgs";
+        }) {});
+
         # Our own custom fork
         thyme = dontCheck (self.callCabal2nix "thyme" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
